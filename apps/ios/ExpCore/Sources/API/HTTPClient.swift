@@ -156,8 +156,12 @@ public final class HTTPClient: Sendable {
     }
 
     // Unauthenticated POST — used by AuthApi.signInWithPassword before
-    // the token is stored.
-    public func postUnauthenticated(_ url: URL, body: Data) async throws -> (Data, HTTPURLResponse) {
+    // the token is stored. `headers` exists for the one exchange that must
+    // carry a cookie by hand: the passkey verify replays the challenge cookie
+    // the options response set, which this session (cookies off) never keeps.
+    public func postUnauthenticated(
+        _ url: URL, body: Data, headers: [String: String] = [:]
+    ) async throws -> (Data, HTTPURLResponse) {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.httpBody = body
@@ -168,6 +172,9 @@ public final class HTTPClient: Sendable {
         if let scheme = url.scheme, let host = url.host {
             let origin = url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
             req.setValue(origin, forHTTPHeaderField: "Origin")
+        }
+        for (name, value) in headers {
+            req.setValue(value, forHTTPHeaderField: name)
         }
         let (data, response) = try await session.data(for: req)
         guard let httpResponse = response as? HTTPURLResponse else {

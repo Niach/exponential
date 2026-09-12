@@ -1,5 +1,8 @@
 package com.exponential.app.ui.auth
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +48,7 @@ import com.exponential.app.R
 import com.exponential.app.data.api.AuthWebUrls
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.icons.ExpIcons
 
 @Composable
 fun LoginScreen(
@@ -54,11 +59,23 @@ fun LoginScreen(
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     if (state.successEmail != null) {
         onLoggedIn()
+    }
+
+    // The passkey path's browser handoff (EXP-857): a one-shot URL the
+    // ViewModel raises when the on-device ceremony can't run. The Custom Tab
+    // ends on the same exponential://oauth-return deep link MainActivity
+    // already redeems.
+    LaunchedEffect(state.fallbackUrl) {
+        state.fallbackUrl?.let { url ->
+            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+            viewModel.consumeFallbackUrl()
+        }
     }
 
     Column(
@@ -70,7 +87,9 @@ fun LoginScreen(
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
-            "Sign in",
+            // EXP-857: the one login title on all four clients. This screen no
+            // longer says "Sign in" anywhere.
+            "Continue to Exponential",
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -109,9 +128,17 @@ fun LoginScreen(
                 val config = state.config!!
                 val hasOauth = config.oidcProviders.isNotEmpty() ||
                     config.googleLoginEnabled || config.appleLoginEnabled
+                // "Continue with email" covers both email paths: the one-time
+                // code when the instance can mail, the password form otherwise.
+                val emailAvailable = config.emailOtpEnabled || config.passwordEnabled
+                val codeFlow = config.emailOtpEnabled && !state.usePassword
+                val busyLabel = when (state.busy) {
+                    LoginBusy.SendingCode -> "Sending code…"
+                    else -> "Checking…"
+                }
 
-                // Provider buttons: the shared glass OAuth button with iOS
-                // LoginView's "Continue with …" wording (EXP-577).
+                // Provider buttons: the shared glass OAuth button with the
+                // "Continue with …" wording every client shares (EXP-577/857).
                 if (config.appleLoginEnabled) {
                     GlassOAuthButton(
                         label = "Continue with Apple",
@@ -169,82 +196,207 @@ fun LoginScreen(
                     Spacer(Modifier.height(8.dp))
                 }
 
-                if (hasOauth && config.passwordEnabled) {
+                if (emailAvailable && state.emailStep == LoginEmailStep.Hidden) {
+                    GlassOAuthButton(
+                        label = "Continue with email",
+                        onClick = { viewModel.continueWithEmail() },
+                        modifier = Modifier.testTag("login-continue-with-email"),
+                    ) {
+                        Icon(
+                            imageVector = ExpIcons.uiMail,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(16.dp))
                 }
 
-                if (config.passwordEnabled) {
-                    GlassTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        singleLine = true,
-                        placeholder = "Email",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("login-email-field"),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    GlassTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        singleLine = true,
-                        placeholder = "Password",
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("login-password-field"),
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = { viewModel.signIn(email = email, password = password) },
-                        enabled = !state.loading && email.isNotBlank() && password.isNotBlank(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("login-submit-button"),
-                    ) {
-                        Text(if (state.loading) "Signing in…" else "Sign in")
+                if (emailAvailable && state.emailStep != LoginEmailStep.Hidden) {
+                    if (hasOauth) {
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(16.dp))
                     }
 
-                    // Sign-up and password reset are web flows on every native
-                    // client (desktop parity) — hand off to a Custom Tab, and
-                    // only for what the server publishes as available.
-                    if (config.passwordResetEnabled || config.signupEnabled) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            if (config.passwordResetEnabled) {
+                    if (codeFlow) {
+                        if (state.emailStep == LoginEmailStep.CodeSent) {
+                            Text(
+                                "We sent a 6-digit code to ${state.codeEmail}.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            GlassTextField(
+                                value = code,
+                                onValueChange = { code = it },
+                                singleLine = true,
+                                placeholder = "Code",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login-code-field"),
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.verifyCode(code) },
+                                enabled = !state.loading && code.isNotBlank(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login-submit-button"),
+                            ) {
+                                Text(if (state.loading) busyLabel else "Continue")
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                TextButton(
+                                    onClick = { viewModel.resendCode() },
+                                    enabled = !state.loading,
+                                    modifier = Modifier.testTag("login-resend-code"),
+                                ) {
+                                    Text("Resend code")
+                                }
                                 TextButton(
                                     onClick = {
-                                        CustomTabsIntent.Builder().build().launchUrl(
-                                            context,
-                                            Uri.parse(AuthWebUrls.forgotPassword(instanceUrl)),
-                                        )
+                                        code = ""
+                                        viewModel.changeEmail()
                                     },
-                                    modifier = Modifier.testTag("login-forgot-password-link"),
+                                    enabled = !state.loading,
+                                    modifier = Modifier.testTag("login-change-email"),
                                 ) {
-                                    Text("Forgot password?")
+                                    Text("Use a different email")
                                 }
                             }
-                            if (config.signupEnabled) {
-                                TextButton(
-                                    onClick = {
-                                        CustomTabsIntent.Builder().build().launchUrl(
-                                            context,
-                                            Uri.parse(AuthWebUrls.register(instanceUrl)),
-                                        )
-                                    },
-                                    modifier = Modifier.testTag("login-create-account-link"),
+                        } else {
+                            GlassTextField(
+                                value = email,
+                                onValueChange = { email = it },
+                                singleLine = true,
+                                placeholder = "Email",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login-email-field"),
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.sendCode(email.trim()) },
+                                enabled = !state.loading && email.isNotBlank(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login-submit-button"),
+                            ) {
+                                Text(if (state.loading) busyLabel else "Send code")
+                            }
+                            // An instance with both paths on keeps the password
+                            // form one tap away; the code flow is primary.
+                            if (config.passwordEnabled) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
                                 ) {
-                                    Text("Create account")
+                                    TextButton(
+                                        onClick = { viewModel.usePasswordInstead() },
+                                        modifier = Modifier.testTag("login-use-password"),
+                                    ) {
+                                        Text("Use a password instead")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        GlassTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            singleLine = true,
+                            placeholder = "Email",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login-email-field"),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        GlassTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            singleLine = true,
+                            placeholder = "Password",
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login-password-field"),
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Button(
+                            onClick = { viewModel.signIn(email = email, password = password) },
+                            enabled = !state.loading && email.isNotBlank() && password.isNotBlank(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login-submit-button"),
+                        ) {
+                            Text(if (state.loading) busyLabel else "Continue")
+                        }
+
+                        // Sign-up and password reset are web flows on every native
+                        // client (desktop parity) — hand off to a Custom Tab, and
+                        // only for what the server publishes as available.
+                        if (config.passwordResetEnabled || config.signupEnabled) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                if (config.passwordResetEnabled) {
+                                    TextButton(
+                                        onClick = {
+                                            CustomTabsIntent.Builder().build().launchUrl(
+                                                context,
+                                                Uri.parse(AuthWebUrls.forgotPassword(instanceUrl)),
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("login-forgot-password-link"),
+                                    ) {
+                                        Text("Forgot password?")
+                                    }
+                                }
+                                if (config.signupEnabled) {
+                                    TextButton(
+                                        onClick = {
+                                            CustomTabsIntent.Builder().build().launchUrl(
+                                                context,
+                                                Uri.parse(AuthWebUrls.register(instanceUrl)),
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("login-create-account-link"),
+                                    ) {
+                                        Text("Create account")
+                                    }
                                 }
                             }
                         }
                     }
+
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                if (config.passkeyEnabled) {
+                    GlassOAuthButton(
+                        label = "Login with passkey",
+                        onClick = {
+                            context.findActivity()?.let { viewModel.startPasskeyLogin(it) }
+                        },
+                        modifier = Modifier.testTag("login-passkey-button"),
+                    ) {
+                        Icon(
+                            imageVector = ExpIcons.authPasskey,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
 
                 if (state.error != null) {
@@ -264,4 +416,15 @@ fun LoginScreen(
             Text("Connect to a different instance")
         }
     }
+}
+
+// CredentialManager needs the hosting Activity (it shows a system sheet), and
+// LocalContext hands back a wrapper inside a ComponentActivity.
+private fun Context.findActivity(): Activity? {
+    var ctx: Context = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

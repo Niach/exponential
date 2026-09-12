@@ -7,20 +7,29 @@
 //!
 //! - the **logo + "Exponential" wordmark** centered above the card
 //!   (web `AuthFormShell`: `ExponentialLogo size=32` + text-xl semibold),
-//! - a centered `Card`: title "Sign in" + description,
+//! - a centered `Card`: title "Continue to Exponential" + description,
 //! - the **native instance picker the web does not need** — the
 //! **Exponential Cloud choice comes FIRST** (the Linux login was
 //!   missing the leading cloud button), then Self-hosted with a base-URL
 //!   `Input`,
-//! - `OAuthProviderButtons`: Apple first (HIG prominence), then the
-//!   configured OIDC providers, then Google (web order), each `outline`
-//!   full-width, gated on `GET /api/auth-config` of the chosen instance; an
-//!   "or" divider when a password form follows,
-//! - the email/password form (labels + inputs — the password `Input` carries
-//!   the web `PasswordInput` show/hide **eye toggle** — + full-width submit)
-//!   and the web footer **"Don't have an account? Register"** link (opens
-//!   the instance's `/auth/register` in the browser), both shown only when
-//!   the instance has password auth enabled.
+//! - EXP-857: ONE list of `Continue with …` methods, in the contract's order
+//!   and with its byte-identical labels (shared by all four clients): Apple,
+//!   Google, each configured OIDC provider, "Continue with email", "Login
+//!   with passkey" — each `outline` full-width, gated on
+//!   `GET /api/auth-config` of the chosen instance. No button on this screen
+//!   says "Sign in" any more, and there is no "or" divider: the email step is
+//!   revealed IN PLACE by "Continue with email", never shown up front.
+//! - the revealed email step is either the one-time-code flow (email → "Send
+//!   code" → "We sent a 6-digit code to …" + code + "Continue", with "Resend
+//!   code" / "Use a different email") when the instance mails codes, or the
+//!   email/password form (the password `Input` keeps the web `PasswordInput`
+//!   show/hide **eye toggle**) with the web footer **"Don't have an account?
+//!   Register"** link (opens the instance's `/auth/register` in the browser).
+//!   With both enabled the code flow is primary and "Use a password instead"
+//!   switches over.
+//! - "Login with passkey" has no native ceremony on the desktop: it opens the
+//!   EXP-857 browser handoff (`provider=browser`), which ends on the very
+//!   same `exponential://oauth-return` deep link as the social providers.
 //!
 //! OAuth opens the system browser through the `api::opener` chain (§5.7 —
 //! never a raw `xdg-open`); when the ENTIRE chain fails the URL surfaces in
@@ -89,11 +98,61 @@ fn parse_dev_login(spec: &str) -> Option<InstanceChoice> {
     }
 }
 
+/// EXP-857 contract copy: the method-button labels, byte-identical on all
+/// four clients. No button on this screen may say "Sign in" any more (the
+/// lock test below).
+const LABEL_CONTINUE_APPLE: &str = "Continue with Apple";
+const LABEL_CONTINUE_GOOGLE: &str = "Continue with Google";
+const LABEL_CONTINUE_EMAIL: &str = "Continue with email";
+const LABEL_LOGIN_PASSKEY: &str = "Login with passkey";
+/// The browser handoff is running — the label every provider button shares
+/// while its attempt is open.
+const LABEL_WAITING_BROWSER: &str = "Waiting for your browser…";
+
+/// "Continue with <OIDC provider name>" (one button per configured provider).
+fn oidc_label(provider_name: &str) -> String {
+    format!("Continue with {provider_name}")
+}
+
+/// Which step "Continue with email" reveals: the one-time-code flow when the
+/// instance mails codes, else the classic password form.
+fn revealed_email_step(email_otp_enabled: bool) -> EmailStep {
+    if email_otp_enabled {
+        EmailStep::Address
+    } else {
+        EmailStep::Password
+    }
+}
+
+/// EXP-857: how far the email method has been revealed. The screen opens on
+/// [`EmailStep::Hidden`] (method buttons only) — "Continue with email" swaps
+/// that button for the step below, in place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum EmailStep {
+    /// Not revealed — the "Continue with email" button is showing.
+    Hidden,
+    /// One-time-code flow, step 1: the address + "Send code".
+    Address,
+    /// One-time-code flow, step 2: the 6-digit code for `sent_to`.
+    Code { sent_to: SharedString },
+    /// The classic email + password form (the only step on an instance
+    /// without mail, and reachable from [`EmailStep::Address`] when both
+    /// methods are on).
+    Password,
+}
+
 pub struct LoginView {
     choice: InstanceChoice,
     server: Entity<InputState>,
     email: Entity<InputState>,
     password: Entity<InputState>,
+    /// The mailed 6-digit one-time code (EXP-857).
+    code: Entity<InputState>,
+    /// Which part of the email method is on screen.
+    email_step: EmailStep,
+    /// `send_sign_in_code` in flight ("Sending code…"). Local, not a session
+    /// phase: mailing a code is not a sign-in attempt.
+    sending_code: bool,
     /// `GET /api/auth-config` of `config_for` (§5.7 step 1 — gates which
     /// methods render). `None` until the first fetch lands.
     auth_config: Option<api::AuthConfig>,
@@ -160,10 +219,12 @@ impl LoginView {
         });
         let password =
             cx.new(|cx| InputState::new(window, cx).placeholder("Password").masked(true));
+        let code = cx.new(|cx| InputState::new(window, cx).placeholder("123456"));
 
         let mut subscriptions = Vec::new();
-        // Enter in email/password submits (web form submit).
-        for input in [&email, &password] {
+        // Enter in email/password/code submits the step that is showing (web
+        // form submit).
+        for input in [&email, &password, &code] {
             subscriptions.push(cx.subscribe_in(
                 input,
                 window,
@@ -210,6 +271,9 @@ impl LoginView {
             server,
             email,
             password,
+            code,
+            email_step: EmailStep::Hidden,
+            sending_code: false,
             auth_config: None,
             config_for: None,
             config_pending: false,
@@ -263,6 +327,10 @@ impl LoginView {
         self.config_for = Some(instance.clone());
         self.auth_config = None;
         self.config_pending = true;
+        // A different instance offers different methods — never leave a
+        // revealed step (or a mailed code) from the previous one on screen.
+        self.email_step = EmailStep::Hidden;
+        self.sending_code = false;
 
         let auth = cx.global::<AuthContext>().clone();
         let pending = ConfigPendingGuard::new();
@@ -333,6 +401,23 @@ impl LoginView {
         self.launch_oauth(&provider_id, instance, url, pkce.verifier, cx);
     }
 
+    /// EXP-857 "Login with passkey". The desktop runs no native WebAuthn
+    /// ceremony: it opens the browser handoff (`provider=browser`), where the
+    /// user authenticates with their passkey (or anything else) and the web
+    /// page ends on the SAME `exponential://oauth-return` deep link every
+    /// social provider uses — so the existing PKCE + exchange path completes
+    /// the sign-in unchanged.
+    fn sign_in_with_passkey(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(instance) = self.effective_instance(cx) else {
+            self.error = Some("Enter your server URL first.".into());
+            cx.notify();
+            return;
+        };
+        let pkce = api::login::generate_pkce();
+        let url = api::login::browser_login_start_url(&instance, &pkce.challenge);
+        self.launch_oauth("passkey", instance, url, pkce.verifier, cx);
+    }
+
     fn launch_oauth(
         &mut self,
         provider: &str,
@@ -383,14 +468,128 @@ impl LoginView {
             .detach();
     }
 
-    // -- Password (§5.7 step 3) -------------------------------------------------
+    // -- Email step (EXP-857) / password (§5.7 step 3) --------------------------
 
-    fn submit(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let store = Store::global(cx).clone();
-        if store.session(cx) == SessionPhase::SigningIn {
+    /// "Continue with email": reveal the step in place — the one-time-code
+    /// flow when the instance mails codes, else the password form.
+    fn reveal_email(&mut self, cx: &mut gpui::Context<Self>) {
+        self.error = None;
+        self.copy_url = None;
+        self.email_step = revealed_email_step(self.email_otp_enabled());
+        cx.notify();
+    }
+
+    fn email_otp_enabled(&self) -> bool {
+        self.auth_config
+            .as_ref()
+            .is_some_and(|config| config.email_otp_enabled)
+    }
+
+    /// "Use a password instead" (both methods on) / "Use a different email"
+    /// (back to step 1 of the code flow).
+    fn set_email_step(&mut self, step: EmailStep, cx: &mut gpui::Context<Self>) {
+        self.error = None;
+        self.email_step = step;
+        cx.notify();
+    }
+
+    /// "Send code" / "Resend code": mail a 6-digit one-time code and move to
+    /// the code step. The server answers 200 even for an unknown address, so
+    /// success here never reveals whether the account exists.
+    fn send_code(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.sending_code {
+            return;
+        }
+        let Some(server) = self.effective_instance(cx) else {
+            self.error = Some("Enter your server URL first.".into());
+            cx.notify();
+            return;
+        };
+        let email = self.email.read(cx).value().trim().to_string();
+        if email.is_empty() {
+            self.error = Some("Enter your email address.".into());
+            cx.notify();
             return;
         }
 
+        self.error = None;
+        self.copy_url = None;
+        self.sending_code = true;
+        cx.notify();
+
+        let auth = cx.global::<AuthContext>().clone();
+        cx.spawn_in(window, async move |this, cx| {
+            // Blocking HTTP on a background thread (§3.5 — never on the
+            // foreground executor).
+            let client = auth.client.clone();
+            let (server_bg, email_bg) = (server.clone(), email.clone());
+            let result = cx
+                .background_executor()
+                .spawn(async move { client.send_sign_in_code(&server_bg, &email_bg) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.sending_code = false;
+                match result {
+                    Ok(()) => {
+                        // A fresh code invalidates whatever is in the field.
+                        this.code
+                            .update(cx, |state, cx| state.set_value("", window, cx));
+                        this.email_step = EmailStep::Code {
+                            sent_to: email.clone().into(),
+                        };
+                    }
+                    Err(err) => this.error = Some(err.user_message().into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Enter / the step's primary button: whichever submit the visible step
+    /// means.
+    fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match self.email_step.clone() {
+            EmailStep::Hidden => {}
+            EmailStep::Address => self.send_code(window, cx),
+            EmailStep::Code { sent_to } => self.submit_code(&sent_to, cx),
+            EmailStep::Password => self.submit_password(cx),
+        }
+    }
+
+    /// Redeem the mailed code (`POST /api/auth/sign-in/email-otp`).
+    fn submit_code(&mut self, sent_to: &str, cx: &mut gpui::Context<Self>) {
+        if Store::global(cx).session(cx) == SessionPhase::SigningIn {
+            return;
+        }
+        let Some(server) = self.effective_instance(cx) else {
+            self.error = Some("Enter your server URL first.".into());
+            cx.notify();
+            return;
+        };
+        let code = self.code.read(cx).value().trim().to_string();
+        if code.is_empty() {
+            self.error = Some("Enter the code from your email.".into());
+            cx.notify();
+            return;
+        }
+
+        let client = cx.global::<AuthContext>().client.clone();
+        let (request_server, email) = (server.clone(), sent_to.to_string());
+        self.run_sign_in(
+            server,
+            move || client.sign_in_with_email_code(&request_server, &email, &code),
+            // The OTP codes already carry the contract's copy (api's
+            // `otp_error_message`), so the server message wins here.
+            |err| err.user_message(),
+            cx,
+        );
+    }
+
+    fn submit_password(&mut self, cx: &mut gpui::Context<Self>) {
+        if Store::global(cx).session(cx) == SessionPhase::SigningIn {
+            return;
+        }
         let Some(server) = self.effective_instance(cx) else {
             self.error = Some("Enter your server URL first.".into());
             cx.notify();
@@ -404,9 +603,29 @@ impl LoginView {
             return;
         }
 
+        let client = cx.global::<AuthContext>().client.clone();
+        let request_server = server.clone();
+        self.run_sign_in(
+            server,
+            move || client.sign_in_with_password(&request_server, &email, &password),
+            sign_in_error_message,
+            cx,
+        );
+    }
+
+    /// The shared tail of every credential sign-in (password or one-time
+    /// code): run `request` on the background executor, then adopt the
+    /// session.
+    fn run_sign_in(
+        &mut self,
+        server: String,
+        request: impl FnOnce() -> Result<api::SignInSuccess, api::ApiError> + Send + 'static,
+        error_message: fn(&api::ApiError) -> String,
+        cx: &mut gpui::Context<Self>,
+    ) {
         self.error = None;
         self.copy_url = None;
-        store.begin_sign_in(cx);
+        Store::global(cx).clone().begin_sign_in(cx);
         cx.notify();
 
         let auth = cx.global::<AuthContext>().clone();
@@ -418,13 +637,9 @@ impl LoginView {
         cx.spawn(async move |this, cx| {
             // Blocking HTTP on a background thread (§3.5 — never on the
             // foreground executor).
-            let client = auth.client.clone();
-            let (server_bg, email_bg) = (server.clone(), email.clone());
             let result = cx
                 .background_executor()
-                .spawn(
-                    async move { client.sign_in_with_password(&server_bg, &email_bg, &password) },
-                )
+                .spawn(async move { request() })
                 .await;
 
             let error: Option<String> = cx.update(|cx| {
@@ -450,7 +665,7 @@ impl LoginView {
                     }
                     Err(err) => {
                         store.abort_sign_in(cx);
-                        Some(sign_in_error_message(&err))
+                        Some(error_message(&err))
                     }
                 }
             });
@@ -507,17 +722,25 @@ impl LoginView {
         )
     }
 
-    /// Web `OAuthProviderButtons`: Apple FIRST (the HIG wants it at least as
-    /// prominent as the other providers), then OIDC providers, then Google,
-    /// each outline full-width; "or" divider when the password form follows.
-    fn render_oauth_buttons(
+    /// EXP-857: the ONE method list, in the contract's order with its
+    /// byte-identical labels — Apple, Google, each OIDC provider, "Continue
+    /// with email", "Login with passkey" — each outline full-width. The email
+    /// button is REPLACED in place by the revealed email step, so the screen
+    /// never shows a form the user did not ask for (and there is no "or"
+    /// divider any more).
+    fn render_methods(
         &self,
         config: &api::AuthConfig,
+        signing_in: bool,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<impl IntoElement> {
+        let email_method = config.email_otp_enabled || config.password_enabled;
         if config.oidc_providers.is_empty()
             && !config.google_login_enabled
             && !config.apple_login_enabled
+            && !config.passkey_enabled
+            && !email_method
         {
             return None;
         }
@@ -533,29 +756,11 @@ impl LoginView {
                     // tinted-Icon pipeline is exactly right (EXP-9).
                     .icon(Icon::from(ExpIcon::Apple))
                     .label(if pending {
-                        "Waiting for your browser…"
+                        LABEL_WAITING_BROWSER
                     } else {
-                        "Sign in with Apple"
+                        LABEL_CONTINUE_APPLE
                     })
                     .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_apple(cx))),
-            );
-        }
-        for provider in &config.oidc_providers {
-            let pending = self.pending_provider.as_deref() == Some(provider.id.as_str());
-            let label = if pending {
-                "Waiting for your browser…".to_string()
-            } else {
-                format!("Sign in with {}", provider.name)
-            };
-            let provider_id = provider.id.clone();
-            section = section.child(
-                Button::new(SharedString::from(format!("login-oidc-{}", provider.id)))
-                    .outline().web_md()
-                    .w_full()
-                    .label(SharedString::from(label))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sign_in_with_oidc(provider_id.clone(), cx);
-                    })),
             );
         }
         if config.google_login_enabled {
@@ -575,32 +780,218 @@ impl LoginView {
                             .flex_none()
                             .line_height(gpui::relative(1.))
                             .child(if pending {
-                                "Waiting for your browser…"
+                                LABEL_WAITING_BROWSER
                             } else {
-                                "Sign in with Google"
+                                LABEL_CONTINUE_GOOGLE
                             }),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_google(cx))),
             );
         }
-
-        if config.password_enabled {
-            // The web "or" divider (auth-form-shell parity).
+        for provider in &config.oidc_providers {
+            let pending = self.pending_provider.as_deref() == Some(provider.id.as_str());
+            let label = if pending {
+                LABEL_WAITING_BROWSER.to_string()
+            } else {
+                oidc_label(&provider.name)
+            };
+            let provider_id = provider.id.clone();
             section = section.child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(div().flex_1().h_px().bg(cx.theme().border))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("OR"),
-                    )
-                    .child(div().flex_1().h_px().bg(cx.theme().border)),
+                Button::new(SharedString::from(format!("login-oidc-{}", provider.id)))
+                    .outline().web_md()
+                    .w_full()
+                    .label(SharedString::from(label))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.sign_in_with_oidc(provider_id.clone(), cx);
+                    })),
+            );
+        }
+        if email_method {
+            section = section.child(if self.email_step == EmailStep::Hidden {
+                div().child(
+                    Button::new("login-email")
+                        .outline().web_md()
+                        .w_full()
+                        .icon(Icon::from(registry::UI_MAIL))
+                        .label(LABEL_CONTINUE_EMAIL)
+                        .on_click(cx.listener(|this, _, _, cx| this.reveal_email(cx))),
+                )
+            } else {
+                div().child(self.render_email_step(config, signing_in, window, cx))
+            });
+        }
+        if config.passkey_enabled {
+            let pending = self.pending_provider.as_deref() == Some("passkey");
+            section = section.child(
+                Button::new("login-passkey")
+                    .outline().web_md()
+                    .w_full()
+                    .icon(Icon::from(registry::AUTH_PASSKEY))
+                    .label(if pending {
+                        LABEL_WAITING_BROWSER
+                    } else {
+                        LABEL_LOGIN_PASSKEY
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_passkey(cx))),
             );
         }
         Some(section)
+    }
+
+    /// The revealed email step (EXP-857): the one-time-code flow when the
+    /// instance mails codes, else the classic password form.
+    fn render_email_step(
+        &self,
+        config: &api::AuthConfig,
+        signing_in: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let mut step = v_flex().gap_3();
+        match &self.email_step {
+            // Never rendered (the button shows instead) — kept total.
+            EmailStep::Hidden => {}
+            EmailStep::Address => {
+                step = step
+                    .child(labeled(
+                        cx,
+                        "Email",
+                        glass_input(&self.email, window, cx).web_input(),
+                    ))
+                    .child(
+                        Button::new("login-send-code")
+                            .primary().web_md()
+                            .w_full()
+                            .label(if self.sending_code {
+                                "Sending code…"
+                            } else {
+                                "Send code"
+                            })
+                            .loading(self.sending_code)
+                            .disabled(self.sending_code)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.send_code(window, cx)
+                            })),
+                    );
+                if config.password_enabled {
+                    // Both methods on: the code flow is primary, the password
+                    // form one text link away.
+                    step = step.child(Self::text_link(
+                        "login-use-password",
+                        "Use a password instead",
+                        cx,
+                        |this, _window, cx| this.set_email_step(EmailStep::Password, cx),
+                    ));
+                }
+            }
+            EmailStep::Code { sent_to } => {
+                step = step
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("We sent a 6-digit code to {sent_to}.")),
+                    )
+                    .child(labeled(
+                        cx,
+                        "Code",
+                        glass_input(&self.code, window, cx).web_input(),
+                    ))
+                    .child(
+                        Button::new("login-verify-code")
+                            .primary().web_md()
+                            .w_full()
+                            .label(if signing_in { "Checking…" } else { "Continue" })
+                            .loading(signing_in)
+                            .disabled(signing_in || self.sending_code)
+                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_4()
+                            .justify_center()
+                            .child(Self::text_link(
+                                "login-resend-code",
+                                if self.sending_code {
+                                    "Sending code…"
+                                } else {
+                                    "Resend code"
+                                },
+                                cx,
+                                // The address is unchanged — only the mail
+                                // needs redoing.
+                                |this, window, cx| this.send_code(window, cx),
+                            ))
+                            .child(Self::text_link(
+                                "login-different-email",
+                                "Use a different email",
+                                cx,
+                                |this, _window, cx| this.set_email_step(EmailStep::Address, cx),
+                            )),
+                    );
+            }
+            EmailStep::Password => {
+                step = step
+                    .child(labeled(
+                        cx,
+                        "Email",
+                        glass_input(&self.email, window, cx).web_input(),
+                    ))
+                    .child(labeled(
+                        cx,
+                        "Password",
+                        // Web `PasswordInput`: show/hide eye toggle.
+                        glass_input(&self.password, window, cx).web_input().mask_toggle(),
+                    ))
+                    .child(
+                        Button::new("login-submit")
+                            .primary().web_md()
+                            .label(if signing_in { "Checking…" } else { "Continue" })
+                            .loading(signing_in)
+                            .disabled(signing_in)
+                            .w_full()
+                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                    )
+                    .child(
+                        // Web login footer: "Don't have an account? Register".
+                        h_flex()
+                            .gap_1()
+                            .justify_center()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Don't have an account?")
+                            .child(
+                                div()
+                                    .id("login-register")
+                                    .text_color(cx.theme().primary)
+                                    .cursor_pointer()
+                                    .hover(|style| style.text_decoration_1())
+                                    .child("Register")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_register(cx);
+                                    })),
+                            ),
+                    );
+            }
+        }
+        step
+    }
+
+    /// A small muted text link (the web footer/"switch method" affordances).
+    fn text_link(
+        id: &'static str,
+        label: impl Into<SharedString>,
+        cx: &mut gpui::Context<Self>,
+        handler: impl Fn(&mut Self, &mut Window, &mut gpui::Context<Self>) + 'static,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .cursor_pointer()
+            .hover(|style| style.text_decoration_1())
+            .child(label.into())
+            .on_click(cx.listener(move |this, _, window, cx| handler(this, window, cx)))
     }
 
     /// Opener-degradation row: the OAuth URL with a Copy button.
@@ -682,9 +1073,11 @@ impl Render for LoginView {
             .auth_config
             .clone()
             .unwrap_or_else(default_auth_config);
-        let password_enabled = !config_loading && config.password_enabled;
 
         // -- card header (web AuthFormShell: title + description) -----------
+        // EXP-857: the wording is shared by all four clients — the title never
+        // says "Sign in" again, and the one sentence below it covers both
+        // halves of the truth (an unknown address signs up).
         let mut form = v_flex()
             .w(gpui::px(360.))
             .gap_4()
@@ -695,17 +1088,13 @@ impl Render for LoginView {
                         div()
                             .text_xl()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Sign in"),
+                            .child("Continue to Exponential"),
                     )
                     .child(
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(if password_enabled {
-                                "Enter your email and password to continue"
-                            } else {
-                                "Sign in with your account"
-                            }),
+                            .child("Sign in or create your account"),
                     ),
             );
 
@@ -729,18 +1118,18 @@ impl Render for LoginView {
             form = form.child(server_input);
         }
 
-        // -- OAuth provider buttons (per auth-config) ------------------------
+        // -- the method list + the revealed email step (per auth-config) ----
         if config_loading {
-            // Roughly the OAuth-buttons footprint, so the card doesn't jump
-            // when the real method list swaps in (iOS `configLoading` parity).
+            // Roughly the method-list footprint, so the card doesn't jump
+            // when the real list swaps in (iOS `configLoading` parity).
             form = form.child(
                 h_flex()
                     .justify_center()
                     .py_6()
                     .child(Spinner::new().icon(registry::UI_LOADING)),
             );
-        } else if let Some(oauth) = self.render_oauth_buttons(&config, cx) {
-            form = form.child(oauth);
+        } else if let Some(methods) = self.render_methods(&config, signing_in, window, cx) {
+            form = form.child(methods);
         }
 
         // -- copyable-URL degradation --------------------------------
@@ -754,47 +1143,6 @@ impl Render for LoginView {
         }
         if let Some(url) = self.copy_url.clone() {
             form = form.child(self.render_copy_url(&url, cx));
-        }
-
-        // -- password form ----------------------------------------------------
-        if password_enabled {
-            form = form
-                .child(labeled(cx, "Email", glass_input(&self.email, window, cx).web_input()))
-                .child(labeled(
-                    cx,
-                    "Password",
-                    // Web `PasswordInput`: show/hide eye toggle.
-                    glass_input(&self.password, window, cx).web_input().mask_toggle(),
-                ))
-                .child(
-                    Button::new("login-submit")
-                        .primary().web_md()
-                        .label(if signing_in { "Signing in…" } else { "Sign in" })
-                        .loading(signing_in)
-                        .disabled(signing_in)
-                        .w_full()
-                        .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
-                )
-                .child(
-                    // Web login footer: "Don't have an account? Register".
-                    h_flex()
-                        .gap_1()
-                        .justify_center()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Don't have an account?")
-                        .child(
-                            div()
-                                .id("login-register")
-                                .text_color(cx.theme().primary)
-                                .cursor_pointer()
-                                .hover(|style| style.text_decoration_1())
-                                .child("Register")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.open_register(cx);
-                                })),
-                        ),
-                );
         }
 
         // -- instance toggle (self-host demoted to a small link) -----
@@ -883,4 +1231,36 @@ impl Drop for ConfigPendingGuard {
 /// [`crate::dev_ready`].
 pub(crate) fn login_config_settled() -> bool {
     CONFIG_PENDING.load(Ordering::SeqCst) == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_method_button_says_sign_in() {
+        // EXP-857: the screen's buttons are "Continue with …" (plus the one
+        // passkey label) on every client — a drifting label here breaks the
+        // byte-identical wording contract.
+        let labels = [
+            LABEL_CONTINUE_APPLE.to_string(),
+            LABEL_CONTINUE_GOOGLE.to_string(),
+            oidc_label("Authentik"),
+            LABEL_CONTINUE_EMAIL.to_string(),
+            LABEL_LOGIN_PASSKEY.to_string(),
+        ];
+        for label in &labels {
+            assert!(!label.contains("Sign in"), "{label}");
+            assert!(!label.contains("sign in"), "{label}");
+        }
+        assert_eq!(oidc_label("Authentik"), "Continue with Authentik");
+    }
+
+    #[test]
+    fn continue_with_email_reveals_codes_before_passwords() {
+        // Codes are the primary email method wherever the instance mails
+        // them; the password form is the fallback (and the switch target).
+        assert_eq!(revealed_email_step(true), EmailStep::Address);
+        assert_eq!(revealed_email_step(false), EmailStep::Password);
+    }
 }

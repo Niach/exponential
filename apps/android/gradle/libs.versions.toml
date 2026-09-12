@@ -28,6 +28,10 @@ room = "2.7.1"
 datastore = "1.1.1"
 security-crypto = "1.1.0-alpha06"
 browser = "1.8.0"
+# EXP-857 passkey login: CredentialManager runs the WebAuthn assertion against
+# the platform authenticator. The -play-services-auth artifact is the provider
+# that serves it below API 34, which minSdk 26 needs.
+credentials = "1.5.0"
 commonmark = "0.24.0"
 coil = "3.5.0"
 # EXP-824 inline video/audio: ExoPlayer + PlayerView for playback, Transformer
@@ -86,6 +90,8 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 commonmark-core = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
 commonmark-ext-strikethrough = { group = "org.commonmark", name = "commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
 commonmark-ext-tables = { group = "org.commonmark", name = "commonmark-ext-gfm-tables", version.ref = "commonmark" }

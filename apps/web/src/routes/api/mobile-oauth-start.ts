@@ -26,6 +26,13 @@ async function handle({ request }: { request: Request }) {
   if (!providerId && !social) {
     return new Response(`Missing providerId or provider`, { status: 400 })
   }
+  // EXP-857: `provider=browser` is the generic handoff — no IdP hop, the
+  // web login page itself is the destination (passkeys and one-time codes
+  // for the desktop app, and the mobile fallback when the on-device
+  // ceremony is unavailable). The page ends on /api/mobile-oauth-return
+  // via its `redirect`, which is where the state cookie set below is
+  // checked, so the completion is exactly the OAuth one.
+  const browserHandoff = social === `browser`
 
   // PKCE (REV-13, required since EXP-543): the client presents an S256
   // code_challenge here and the return page mints a one-time code instead of
@@ -49,7 +56,12 @@ async function handle({ request }: { request: Request }) {
   // `exponential://oauth-return?error=…` handoff.
   const errorCallbackURL = callbackURL
 
-  const response = social
+  const response = browserHandoff
+    ? Response.json({
+        url: `/auth/login?redirect=${encodeURIComponent(`/api/mobile-oauth-return`)}`,
+        redirect: true,
+      })
+    : social
     ? await auth.api.signInSocial({
         body: { provider: social as never, callbackURL, errorCallbackURL },
         headers: request.headers,

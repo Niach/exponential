@@ -41,6 +41,25 @@ class AuthConfigDecodingTest {
         assertEquals("authentik", config.oidcProviders.single().id)
     }
 
+    /** EXP-857: the code + passkey flags gate their two buttons. */
+    @Test
+    fun decodesEmailOtpAndPasskeyFlags() {
+        val payload = """
+            {
+              "passwordEnabled": false,
+              "signupEnabled": true,
+              "oidcProviders": [],
+              "emailOtpEnabled": true,
+              "passkeyEnabled": true
+            }
+        """.trimIndent()
+
+        val config = json.decodeFromString<AuthConfig>(payload)
+        assertFalse(config.passwordEnabled)
+        assertTrue(config.emailOtpEnabled)
+        assertTrue(config.passkeyEnabled)
+    }
+
     @Test
     fun missingFlagsDefaultToFalse() {
         val payload = """
@@ -56,6 +75,10 @@ class AuthConfigDecodingTest {
         assertFalse(config.signupEnabled)
         assertFalse(config.passwordResetEnabled)
         assertFalse(config.appleLoginEnabled)
+        // A pre-EXP-857 server publishes neither flag — both must read as off
+        // rather than offering a login path the instance can't serve.
+        assertFalse(config.emailOtpEnabled)
+        assertFalse(config.passkeyEnabled)
     }
 
     @Test

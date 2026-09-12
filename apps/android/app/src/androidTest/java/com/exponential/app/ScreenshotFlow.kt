@@ -217,15 +217,26 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
     }
 
     /**
-     * Waits for the login screen to finish resolving /api/auth-config — the
-     * email field only exists once it has.
+     * Waits for the login screen to finish resolving /api/auth-config, then
+     * opens the email step. EXP-857 hides the email form behind "Continue with
+     * email", so that button is what proves the config resolved; the field only
+     * exists after the tap.
      */
     fun awaitLoginScreen() {
+        waitFor(hasTestTag("login-continue-with-email"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("login-continue-with-email")).performClick()
         waitFor(hasTestTag("login-email-field"), NAV_TIMEOUT)
     }
 
     /** Fills in the demo credentials and submits. */
     fun submitLogin(email: String = DEMO_EMAIL, password: String = DEMO_PASSWORD) {
+        // An instance that can mail leads with the one-time code form
+        // (EXP-857); the screenshot run has no inbox, so take the password
+        // branch whenever it is offered.
+        if (exists(hasTestTag("login-use-password"))) {
+            composeRule.onNode(hasTestTag("login-use-password")).performClick()
+            waitFor(hasTestTag("login-password-field"), NAV_TIMEOUT)
+        }
         composeRule.onNode(hasTestTag("login-email-field")).performTextInput(email)
         composeRule.onNode(hasTestTag("login-password-field")).performTextInput(password)
         Espresso.closeSoftKeyboard()

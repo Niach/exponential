@@ -1,9 +1,11 @@
 import { createAuthClient } from "better-auth/react"
 import {
   deviceAuthorizationClient,
+  emailOTPClient,
   genericOAuthClient,
   inferAdditionalFields,
 } from "better-auth/client/plugins"
+import { passkeyClient } from "@better-auth/passkey/client"
 import { creemClient } from "@creem_io/better-auth/client"
 import type { auth } from "@/lib/auth"
 
@@ -18,6 +20,10 @@ export const authClient = createAuthClient({
     creemClient(),
     // /auth/device verification page (EXP-403 CLI device-code login).
     deviceAuthorizationClient(),
+    // EXP-857: one-time-code login + passkeys (sign-in, and the Account
+    // page's add/list/delete).
+    emailOTPClient(),
+    passkeyClient(),
   ],
 })
 

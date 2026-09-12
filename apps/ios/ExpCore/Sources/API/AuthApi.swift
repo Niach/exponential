@@ -12,6 +12,10 @@ public struct AuthConfig: Codable, Sendable {
     public let oidcProviders: [OidcProvider]
     public let googleLoginEnabled: Bool
     public let appleLoginEnabled: Bool
+    // One-time code login is offered (the instance can send mail) — EXP-857.
+    public let emailOtpEnabled: Bool
+    // Passkey login is offered.
+    public let passkeyEnabled: Bool
 
     public init(
         passwordEnabled: Bool = true,
@@ -19,7 +23,9 @@ public struct AuthConfig: Codable, Sendable {
         passwordResetEnabled: Bool = false,
         oidcProviders: [OidcProvider] = [],
         googleLoginEnabled: Bool = false,
-        appleLoginEnabled: Bool = false
+        appleLoginEnabled: Bool = false,
+        emailOtpEnabled: Bool = false,
+        passkeyEnabled: Bool = false
     ) {
         self.passwordEnabled = passwordEnabled
         self.signupEnabled = signupEnabled
@@ -27,6 +33,8 @@ public struct AuthConfig: Codable, Sendable {
         self.oidcProviders = oidcProviders
         self.googleLoginEnabled = googleLoginEnabled
         self.appleLoginEnabled = appleLoginEnabled
+        self.emailOtpEnabled = emailOtpEnabled
+        self.passkeyEnabled = passkeyEnabled
     }
 
     // The login screen is the FIRST thing to touch an arbitrary instance URL,
@@ -41,6 +49,8 @@ public struct AuthConfig: Codable, Sendable {
         oidcProviders = try c.decode([OidcProvider].self, forKey: .oidcProviders)
         googleLoginEnabled = try c.decode(Bool.self, forKey: .googleLoginEnabled)
         appleLoginEnabled = try c.decodeIfPresent(Bool.self, forKey: .appleLoginEnabled) ?? false
+        emailOtpEnabled = try c.decodeIfPresent(Bool.self, forKey: .emailOtpEnabled) ?? false
+        passkeyEnabled = try c.decodeIfPresent(Bool.self, forKey: .passkeyEnabled) ?? false
     }
 }
 
@@ -74,6 +84,13 @@ public struct AuthUser: Codable, Sendable {
 
 public enum SignInResult: Sendable {
     case success(token: String, user: AuthUser)
+    case failure(message: String)
+}
+
+/// The served WebAuthn assertion options, or why there are none. A failure is
+/// never fatal on the login screen: it falls back to the browser handoff.
+public enum PasskeyOptionsResult: Sendable {
+    case success(PasskeyAuthenticationOptions)
     case failure(message: String)
 }
 
@@ -123,13 +140,66 @@ public final class AuthApi: Sendable {
 
             // Fallback: extract session token from Set-Cookie header
             if let user = parsed.user,
-               let cookies = response.value(forHTTPHeaderField: "Set-Cookie"),
-               let range = cookies.range(of: #"session_token=([^;]+)"#, options: .regularExpression),
-               let tokenRange = cookies[range].range(of: "=") {
-                let token = String(cookies[tokenRange.upperBound...].prefix(while: { $0 != ";" }))
+               let token = Self.sessionTokenFromCookies(response) {
                 return .success(token: token, user: user)
             }
 
+            return .failure(message: "Sign-in succeeded but no session token returned")
+        } catch {
+            return .failure(message: error.userFacingMessage)
+        }
+    }
+
+    /// Ask the instance to mail a 6-digit sign-in code (EXP-857). The server
+    /// answers 200 whether or not the address is known — never surface an
+    /// existence hint here.
+    public func sendSignInCode(instanceUrl: String, email: String) async -> SendCodeResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/email-otp/send-verification-otp") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        do {
+            let body = try JSONEncoder().encode(["email": email, "type": "sign-in"])
+            let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
+            guard (200...299).contains(response.statusCode) else {
+                if let message = Self.authErrorMessage(from: data) {
+                    return .failure(message: message)
+                }
+                if response.statusCode == 429 {
+                    return .failure(message: "Too many requests. Wait a minute and try again.")
+                }
+                return .failure(message: "Couldn't send the code (HTTP \(response.statusCode))")
+            }
+            return .success
+        } catch {
+            return .failure(message: error.userFacingMessage)
+        }
+    }
+
+    /// Redeem a mailed one-time code for a session. Same `{token, user}` body
+    /// (and Set-Cookie fallback) as the password sign-in.
+    public func signInWithEmailCode(instanceUrl: String, email: String, code: String) async -> SignInResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/sign-in/email-otp") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        do {
+            let body = try JSONEncoder().encode(["email": email, "otp": code])
+            let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
+
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(message: EmailCodeCopy.message(
+                    code: Self.authErrorCode(from: data),
+                    serverMessage: Self.authErrorMessage(from: data)
+                ))
+            }
+
+            let parsed = try JSONDecoder().decode(SignInResponseBody.self, from: data)
+            if let token = parsed.token, let user = parsed.user {
+                return .success(token: token, user: user)
+            }
+            if let user = parsed.user,
+               let token = Self.authTokenHeader(response) ?? Self.sessionTokenFromCookies(response) {
+                return .success(token: token, user: user)
+            }
             return .failure(message: "Sign-in succeeded but no session token returned")
         } catch {
             return .failure(message: error.userFacingMessage)
@@ -168,13 +238,69 @@ public final class AuthApi: Sendable {
 
             // Fallback: extract session token from Set-Cookie header
             if let user = parsed.user,
-               let cookies = response.value(forHTTPHeaderField: "Set-Cookie"),
-               let range = cookies.range(of: #"session_token=([^;]+)"#, options: .regularExpression),
-               let tokenRange = cookies[range].range(of: "=") {
-                let token = String(cookies[tokenRange.upperBound...].prefix(while: { $0 != ";" }))
+               let token = Self.sessionTokenFromCookies(response) {
                 return .success(token: token, user: user)
             }
 
+            return .failure(message: "Sign-in succeeded but no session token returned")
+        } catch {
+            return .failure(message: error.userFacingMessage)
+        }
+    }
+
+    // MARK: - Passkey (EXP-857)
+
+    /// Start a WebAuthn assertion: the served options PLUS every Set-Cookie
+    /// pair of that response. One of those cookies is the signed challenge —
+    /// this client runs without a cookie jar on purpose, so the verify call
+    /// below replays them by hand or the server has nothing to compare against.
+    public func passkeyAuthenticationOptions(instanceUrl: String) async -> PasskeyOptionsResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/passkey/generate-authenticate-options") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        do {
+            let (data, response) = try await httpClient.getUnauthenticated(url)
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(message: Self.authErrorMessage(from: data)
+                    ?? "Passkey sign-in is unavailable (HTTP \(response.statusCode))")
+            }
+            let cookieHeader = PasskeyWire.cookieHeaderValue(
+                fromSetCookieHeader: response.value(forHTTPHeaderField: "Set-Cookie")
+            )
+            guard let options = PasskeyWire.parseAuthenticationOptions(data, cookieHeader: cookieHeader) else {
+                return .failure(message: "The server sent no usable passkey challenge")
+            }
+            return .success(options)
+        } catch {
+            return .failure(message: error.userFacingMessage)
+        }
+    }
+
+    /// Hand the platform authenticator's assertion to the server and take the
+    /// session it answers with.
+    public func verifyPasskeyAuthentication(
+        instanceUrl: String, cookieHeader: String, assertion: PasskeyAssertion
+    ) async -> SignInResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/passkey/verify-authentication") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        do {
+            let body = try PasskeyWire.verifyRequestBody(assertion)
+            let headers = cookieHeader.isEmpty ? [:] : ["Cookie": cookieHeader]
+            let (data, response) = try await httpClient.postUnauthenticated(url, body: body, headers: headers)
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(message: Self.authErrorMessage(from: data)
+                    ?? "Passkey sign-in failed (HTTP \(response.statusCode))")
+            }
+            let parsed = try JSONDecoder().decode(PasskeyVerifyResponseBody.self, from: data)
+            guard let user = parsed.user else {
+                return .failure(message: "Sign-in succeeded but no account was returned")
+            }
+            if let token = parsed.session?.token
+                ?? Self.authTokenHeader(response)
+                ?? Self.sessionTokenFromCookies(response) {
+                return .success(token: token, user: user)
+            }
             return .failure(message: "Sign-in succeeded but no session token returned")
         } catch {
             return .failure(message: error.userFacingMessage)
@@ -223,6 +349,33 @@ public final class AuthApi: Sendable {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let message = root["message"] as? String, !message.isEmpty else { return nil }
         return message
+    }
+
+    /// The machine-readable half of the same body (`code`), which decides the
+    /// one-time-code copy.
+    private static func authErrorCode(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = root["code"] as? String, !code.isEmpty else { return nil }
+        return code
+    }
+
+    /// Better Auth's bearer plugin also mirrors the freshly minted session
+    /// token into a response header.
+    private static func authTokenHeader(_ response: HTTPURLResponse) -> String? {
+        guard let token = response.value(forHTTPHeaderField: "set-auth-token"), !token.isEmpty else {
+            return nil
+        }
+        return token
+    }
+
+    /// Last resort: the session token out of the Set-Cookie header (this client
+    /// keeps no cookie jar, so nothing else would pick it up).
+    private static func sessionTokenFromCookies(_ response: HTTPURLResponse) -> String? {
+        guard let cookies = response.value(forHTTPHeaderField: "Set-Cookie"),
+              let range = cookies.range(of: #"session_token=([^;]+)"#, options: .regularExpression),
+              let tokenRange = cookies[range].range(of: "=") else { return nil }
+        let token = String(cookies[tokenRange.upperBound...].prefix(while: { $0 != ";" }))
+        return token.isEmpty ? nil : token
     }
 
     public func fetchAuthConfig(instanceUrl: String) async throws -> AuthConfig {
@@ -365,6 +518,14 @@ public final class AuthApi: Sendable {
         URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=apple&code_challenge=\(codeChallenge)")
     }
 
+    /// The browser handoff (EXP-857): the web login page completes with ANY
+    /// method and returns through the same PKCE deep link as the OAuth hops.
+    /// It is the automatic fallback whenever the on-device passkey ceremony
+    /// cannot run (a self-hosted instance the app has no association with).
+    public func browserLoginStartUrl(instanceUrl: String, codeChallenge: String) -> URL? {
+        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=browser&code_challenge=\(codeChallenge)")
+    }
+
     /// Redeem an oauth-return PKCE code for the session token (REV-13):
     /// POST /api/mobile-oauth-exchange with the code from the callback URL and
     /// the in-memory verifier the attempt started with. Nil on any failure
@@ -407,6 +568,16 @@ private struct SignInResponseBody: Codable {
 }
 
 private struct SessionResponse: Codable {
+    let user: AuthUser?
+}
+
+// verify-authentication answers with the whole session object, not the flat
+// `{token, user}` the sign-in endpoints use.
+private struct PasskeyVerifyResponseBody: Codable {
+    struct Session: Codable {
+        let token: String?
+    }
+    let session: Session?
     let user: AuthUser?
 }
 

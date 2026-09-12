@@ -10,8 +10,25 @@ private let logger = Logger(subsystem: "at.exponential", category: "LoginViewMod
 @MainActor @Observable
 final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProviding,
     ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    /// Where the "Continue with email" branch stands (EXP-857). Hidden until
+    /// the user picks it; the code step only exists once a code was actually
+    /// sent, so "Resend" and "Use a different email" always have an address.
+    enum EmailStep: Equatable {
+        case hidden
+        case entry
+        case code
+    }
+
     var email = ""
     var password = ""
+    var code = ""
+    var emailStep: EmailStep = .hidden
+    /// The user opted out of the code flow on an instance that offers both.
+    var usePasswordInstead = false
+    /// The address the last code went to — what the confirmation line names.
+    var codeSentTo: String?
+    var sendingCode = false
+    var verifyingCode = false
     var loading = false
     var error: String?
     var configLoading = true
@@ -29,6 +46,13 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     // itself for the duration of the sheet). In-memory only.
     private var appleNonce: String?
     private var appleAuthController: ASAuthorizationController?
+    // Passkey login (EXP-857): the challenge cookies to replay on verify, a
+    // strong ref to the in-flight controller, and which ceremony the shared
+    // ASAuthorizationController delegate is currently serving — a failure
+    // falls back to the browser handoff rather than the Apple OAuth hop.
+    private var passkeyCookieHeader = ""
+    private var passkeyAuthController: ASAuthorizationController?
+    private var passkeyInFlight = false
 
     init(authApi: AuthApi, auth: AuthRepository) {
         self.authApi = authApi
@@ -90,6 +114,161 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         case let .failure(message):
             error = message
             loading = false
+        }
+    }
+
+    // MARK: - Email step (EXP-857)
+
+    /// Whether the code flow is what "Continue with email" opens. An instance
+    /// with both offers the code first; the password form is one link away.
+    var usesCodeFlow: Bool {
+        (config?.emailOtpEnabled ?? false) && !usePasswordInstead
+    }
+
+    func showEmailStep() {
+        error = nil
+        emailStep = .entry
+    }
+
+    /// Mail a fresh code and move to the code field. The server answers 200 for
+    /// unknown addresses too, so a success here proves nothing about the
+    /// account — by design.
+    func sendCode() async {
+        guard !sendingCode, let instanceUrl = auth.instanceUrl else { return }
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty else { return }
+        sendingCode = true
+        error = nil
+        let result = await authApi.sendSignInCode(instanceUrl: instanceUrl, email: address)
+        sendingCode = false
+        switch result {
+        case .success:
+            code = ""
+            codeSentTo = address
+            emailStep = .code
+        case let .failure(message):
+            error = message
+        }
+    }
+
+    func resendCode() async {
+        code = ""
+        await sendCode()
+    }
+
+    func verifyCode() async {
+        guard !verifyingCode, let instanceUrl = auth.instanceUrl else { return }
+        let address = codeSentTo ?? email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entered = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !entered.isEmpty else { return }
+        verifyingCode = true
+        error = nil
+        let result = await authApi.signInWithEmailCode(
+            instanceUrl: instanceUrl, email: address, code: entered
+        )
+        switch result {
+        case let .success(token, user):
+            await applyLogin(token: token, user: user)
+            verifyingCode = false
+        case let .failure(message):
+            error = message
+            verifyingCode = false
+        }
+    }
+
+    /// Back to the address field, keeping whatever was typed there.
+    func changeEmail() {
+        code = ""
+        codeSentTo = nil
+        error = nil
+        emailStep = .entry
+    }
+
+    /// The one-way escape to the password form on an instance that has both.
+    func usePassword() {
+        code = ""
+        codeSentTo = nil
+        error = nil
+        usePasswordInstead = true
+        emailStep = .entry
+    }
+
+    // MARK: - Passkey (EXP-857)
+
+    /// Run the on-device WebAuthn assertion against the instance's own relying
+    /// party id. Cancel is silent; anything else (no associated domain on a
+    /// self-hosted instance, no credential, a rejected assertion) falls back to
+    /// the browser handoff, where the user can finish with any method.
+    func startPasskeyLogin() {
+        guard !loading, !passkeyInFlight else { return }
+        loading = true
+        error = nil
+        passkeyInFlight = true
+        Task { @MainActor in
+            guard let instanceUrl = self.auth.instanceUrl else {
+                self.passkeyInFlight = false
+                self.startBrowserLoginFlow()
+                return
+            }
+            let result = await self.authApi.passkeyAuthenticationOptions(instanceUrl: instanceUrl)
+            guard case let .success(options) = result else {
+                logger.info("No passkey options, falling back to the browser handoff")
+                self.passkeyInFlight = false
+                self.startBrowserLoginFlow()
+                return
+            }
+            self.passkeyCookieHeader = options.cookieHeader
+            let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
+                relyingPartyIdentifier: options.rpId
+            )
+            let request = provider.createCredentialAssertionRequest(challenge: options.challenge)
+            if !options.allowedCredentialIds.isEmpty {
+                request.allowedCredentials = options.allowedCredentialIds.map {
+                    ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: $0)
+                }
+            }
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            self.passkeyAuthController = controller
+            controller.performRequests()
+        }
+    }
+
+    /// The browser handoff (contract §4): the web login page finishes with ANY
+    /// method and returns through the existing PKCE deep link.
+    func startBrowserLoginFlow() {
+        loading = false
+        let pkce = Pkce.generate()
+        guard let instanceUrl = auth.instanceUrl,
+              let url = authApi.browserLoginStartUrl(instanceUrl: instanceUrl, codeChallenge: pkce.challenge) else {
+            error = "Could not build the sign-in URL"
+            return
+        }
+        pendingPkce = pkce
+        launchWebAuth(url: url)
+    }
+
+    private func completePasskeySignIn(assertion: PasskeyAssertion) async {
+        passkeyAuthController = nil
+        passkeyInFlight = false
+        let cookieHeader = passkeyCookieHeader
+        passkeyCookieHeader = ""
+        guard let instanceUrl = auth.instanceUrl else {
+            startBrowserLoginFlow()
+            return
+        }
+        let result = await authApi.verifyPasskeyAuthentication(
+            instanceUrl: instanceUrl, cookieHeader: cookieHeader, assertion: assertion
+        )
+        switch result {
+        case let .success(token, user):
+            error = nil
+            await applyLogin(token: token, user: user)
+            loading = false
+        case let .failure(message):
+            logger.info("Passkey verification failed, falling back to the browser: \(message)")
+            startBrowserLoginFlow()
         }
     }
 
@@ -190,6 +369,25 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         controller: ASAuthorizationController,
         didCompleteWithAuthorization authorization: ASAuthorization
     ) {
+        // One delegate serves two ceremonies (SIWA and passkey) — the
+        // credential type says which one came back.
+        if let assertion = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion {
+            // Reduce the non-Sendable credential to raw bytes before the hop.
+            let userHandle = assertion.userID
+            let passkey = PasskeyAssertion(
+                credentialId: assertion.credentialID,
+                clientDataJSON: assertion.rawClientDataJSON,
+                authenticatorData: assertion.rawAuthenticatorData,
+                signature: assertion.signature,
+                userHandle: (userHandle?.isEmpty ?? true) ? nil : userHandle,
+                attachment: "platform"
+            )
+            Task { @MainActor in
+                await self.completePasskeySignIn(assertion: passkey)
+            }
+            return
+        }
+
         // identityToken is Data? holding the raw JWT bytes — decode as UTF-8.
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
               let tokenData = credential.identityToken,
@@ -222,10 +420,22 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         let description = error.localizedDescription
         Task { @MainActor in
             self.appleAuthController = nil
+            self.passkeyAuthController = nil
+            let wasPasskey = self.passkeyInFlight
+            self.passkeyInFlight = false
+            self.passkeyCookieHeader = ""
             if cancelled {
                 // User cancelled the sheet — stay silent, no fallback.
                 self.error = nil
                 self.loading = false
+                return
+            }
+            if wasPasskey {
+                // No credential on this device, no associated domain on a
+                // self-hosted instance, a rejected assertion: let the browser
+                // finish the login with whatever method the user has.
+                logger.info("Passkey ceremony failed, falling back to the browser: \(description)")
+                self.startBrowserLoginFlow()
                 return
             }
             // Any other authorization failure → fall back to the web OAuth hop.

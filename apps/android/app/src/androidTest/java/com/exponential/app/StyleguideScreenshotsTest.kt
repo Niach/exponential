@@ -607,7 +607,9 @@ class StyleguideScreenshotsTest {
         // all, and the demo user's app when the router fell back to them —
         // the servers list then adds one the same way as above.
         when {
-            flow.waitForOptional(hasTestTag("login-email-field"), NAV_TIMEOUT) -> Unit
+            // EXP-857: the resolved login screen leads with "Continue with
+            // email"; awaitLoginScreen below opens the form behind it.
+            flow.waitForOptional(hasTestTag("login-continue-with-email"), NAV_TIMEOUT) -> Unit
             flow.waitForOptional(hasText(ScreenshotFlow.SELF_HOST_LINK), NAV_TIMEOUT) ->
                 flow.chooseInstance(instanceUrl)
             else -> {

@@ -206,9 +206,13 @@ extension XCTestCase {
         XCTAssertTrue(continueButton.waitForExistence(timeout: 10))
         continueButton.tap()
 
-        // LoginView appears once /api/auth-config resolves.
+        // LoginView appears once /api/auth-config resolves. EXP-857: the email
+        // step is revealed by a button now, so the form is one tap away.
+        let revealEmail = app.buttons["login-continue-with-email-button"]
+        XCTAssertTrue(revealEmail.waitForExistence(timeout: 30), "Login screen never appeared — is the backend running at \(instanceUrl)?")
+        revealEmail.tap()
         let emailField = app.textFields["login-email-field"]
-        XCTAssertTrue(emailField.waitForExistence(timeout: 30), "Login email field never appeared — is the backend running at \(instanceUrl)?")
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Login email field never appeared")
         return .loginReady
     }
 
@@ -221,6 +225,17 @@ extension XCTestCase {
         email: String = ScreenshotSeed.demoEmail,
         password: String = ScreenshotSeed.demoPassword
     ) {
+        // EXP-857: reveal the email step if the screen is still on its buttons,
+        // and take the password branch when the instance also offers codes.
+        let revealEmail = app.buttons["login-continue-with-email-button"]
+        if revealEmail.exists {
+            revealEmail.tap()
+        }
+        let usePassword = app.buttons["login-use-password-link"]
+        if usePassword.waitForExistence(timeout: 3) {
+            usePassword.tap()
+        }
+
         let emailField = app.textFields["login-email-field"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 30), "Login email field never appeared")
         focus(emailField)

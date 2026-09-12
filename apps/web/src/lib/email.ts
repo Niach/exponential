@@ -317,6 +317,41 @@ function actionEmailHtml(args: {
 </html>`
 }
 
+// EXP-857 passwordless login: the 6-digit one-time code the email-otp plugin
+// minted. No link on purpose (the code is typed where the login started, on
+// any client), and the code is a short-lived credential — never log it.
+function codeEmailHtml(args: { heading: string; body: string; code: string }): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
+      <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(args.heading)}</h1>
+      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">${escapeHtml(args.body)}</p>
+      <p style="margin:0 0 24px;font-size:32px;font-weight:700;letter-spacing:0.3em;font-variant-numeric:tabular-nums;">${escapeHtml(args.code)}</p>
+      <p style="margin:0;font-size:12px;line-height:1.6;color:#a1a1aa;">
+        If you didn't request this code, you can ignore this email. Nobody can sign in without it.
+      </p>
+    </div>
+  </body>
+</html>`
+}
+
+export async function sendSignInCodeEmail(args: {
+  to: string
+  code: string
+}): Promise<EmailSendResult> {
+  return await sendEmail({
+    to: args.to,
+    subject: `${args.code} is your Exponential code`,
+    html: codeEmailHtml({
+      heading: `Your Exponential code`,
+      body: `Enter this code to continue. It expires in 10 minutes and works once.`,
+      code: args.code,
+    }),
+    text: `Your Exponential code is ${args.code}\n\nEnter it to continue. It expires in 10 minutes and works once. If you didn't request it, ignore this email.`,
+  })
+}
+
 export async function sendPasswordResetEmail(args: {
   to: string
   url: string
