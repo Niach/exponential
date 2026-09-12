@@ -1099,6 +1099,13 @@ export interface DeviceAgentAccount {
   email?: string
   plan?: string
   checkedAt?: string
+  /** EXP-849: how USABLE the login is, as the device's usage probe saw it
+   * (`auth status` is identity only, never health) — a probe that came back
+   * Unauthorized is `needs_relogin`, a successful one `ok`, a profile that is
+   * not signed in `signed_out`, and one signed in but never probed
+   * `unknown`. Absent on pre-EXP-849 devices: derive it from `signedIn`
+   * (true → `ok`, false → `signed_out`). */
+  health?: DeviceAgentHealth
   /** EXP-792 (EXP-747 B5): every profile on the device, ≤5; absent on
    * pre-profile clients. The top-level fields stay the ACTIVE profile. */
   profiles?: DeviceAgentProfileEntry[]
@@ -1111,8 +1118,23 @@ export interface DeviceAgentProfileEntry {
   plan?: string
   active?: boolean
   checkedAt?: string
+  /** EXP-849: this profile's own health, same vocabulary + same fallback as
+   * the account's. */
+  health?: DeviceAgentHealth
   usage?: DeviceAgentUsage
 }
+
+/** EXP-849: the four health values, byte-identical with the desktop's
+ * `coding::agent_accounts::AgentHealth` wire strings. The server clamp keeps
+ * ONLY these (an unknown value is dropped, never a 400 — a newer device must
+ * lose a field, not its whole heartbeat). */
+export const deviceAgentHealthValues = [
+  `ok`,
+  `needs_relogin`,
+  `signed_out`,
+  `unknown`,
+] as const
+export type DeviceAgentHealth = (typeof deviceAgentHealthValues)[number]
 export type DeviceAgentAccounts = Record<string, DeviceAgentAccount>
 
 export interface DeviceUsageWindow {
@@ -1147,6 +1169,10 @@ export const deviceAgentProfileSchema = z.object({
   plan: z.string().max(64).nullish(),
   active: z.boolean().nullish(),
   checkedAt: z.string().max(64).nullish(),
+  // EXP-849: a STRING, not a z.enum — a device reporting a health value this
+  // build has no name for must lose the field in the clamp, not 400 the
+  // whole register (`clampAgentAccounts` owns the vocabulary).
+  health: z.string().max(32).nullish(),
   usage: z
     .object({
       fetchedAt: z.string().max(64).nullish(),
@@ -1176,6 +1202,8 @@ export const deviceAgentAccountsSchema = z.record(
       email: z.string().max(320).nullish(),
       plan: z.string().max(64).nullish(),
       checkedAt: z.string().max(64).nullish(),
+      // EXP-849: see `deviceAgentProfileSchema.health`.
+      health: z.string().max(32).nullish(),
       profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
     })
     .nullish()

@@ -279,8 +279,17 @@ struct AgentOptionsSheet: View {
                         options: [""] + profiles.map(\.id),
                         label: { id in
                             guard !id.isEmpty else { return "Active login" }
-                            let profile = profiles.first { $0.id == id }
-                            return profile?.email ?? id
+                            guard let profile = profiles.first(where: { $0.id == id }) else {
+                                return id
+                            }
+                            let name = profile.email ?? profile.label ?? id
+                            // EXP-849: a login the agent REFUSED is still a
+                            // login the machine holds, so it stays on offer —
+                            // but it has to say so, or the run starts and dies
+                            // on an expired credential.
+                            let health = AgentAccountHealth.of(profile)
+                            guard let badge = health.badgeLabel else { return name }
+                            return "\(name) · \(badge.lowercased())"
                         }
                     )
                     .padding(.horizontal, 12)

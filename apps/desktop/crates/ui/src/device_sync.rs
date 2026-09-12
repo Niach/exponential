@@ -962,6 +962,33 @@ fn run_device_command(
                 }
             }
         }
+        // EXP-849 — "use this account here": make `profileId` this machine's
+        // ACTIVE login for `agent`. Non-destructive by construction — it only
+        // moves a device-local pointer; no credential is read, written,
+        // copied or revoked, and `agent_login` stays the sign-in command.
+        //
+        // It answers by re-reporting: a forced collect re-probes the agent and
+        // the beat ships the new `active` flag, so every client's check moves
+        // without waiting for the next cadence.
+        "agent_profile_use" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(agent) => match use_agent_profile(snapshot, agent, profile) {
+                    Ok(payload) => {
+                        complete(
+                            snapshot,
+                            &command.id,
+                            true,
+                            &format!("{} now runs as this account here.", agent.id()),
+                        );
+                        return CommandDisposition::Refreshed(payload);
+                    }
+                    Err(error) => (false, error),
+                },
+            }
+        }
         other => {
             log::info!("[device-sync] command {other:?} unsupported — reported back");
             (
@@ -972,6 +999,65 @@ fn run_device_command(
     };
     complete(snapshot, &command.id, ok, &message);
     CommandDisposition::Completed
+}
+
+/// EXP-849 — the `agent_profile_use` body, shared with the LOCAL "use this
+/// account here" control ([`crate::device_settings`]): point the device's
+/// default login for `agent` at `profile`, then re-read that login's numbers
+/// so the heartbeat ships the moved `active` flag right away.
+///
+/// Refuses a profile that is not SIGNED IN: making a signed-out login the
+/// default would silently break every later start on this machine, and the
+/// fix ("sign in there") is a different command.
+pub(crate) fn use_agent_profile(
+    snapshot: &BeatSnapshot,
+    agent: coding::CodingAgent,
+    profile: &str,
+) -> Result<coding::agent_usage::AgentStatusPayload, String> {
+    let profile = profile.trim();
+    if coding::agent_profiles::get(&snapshot.data_dir, agent, profile).is_none() {
+        return Err(format!("No such {} account on this machine.", agent.id()));
+    }
+    let report = match &snapshot.doctor {
+        Some(report) => report.clone(),
+        None => coding::run_doctor(&snapshot.settings),
+    };
+    // Identity as this machine sees it right now — the profile's own `auth
+    // status`, not a synced row that may be minutes old.
+    let stamp = coding::agent_accounts::now_iso();
+    let accounts = report.agent_accounts_with_profiles(&snapshot.settings, &snapshot.data_dir, &stamp);
+    let signed_in = accounts
+        .get(agent.id())
+        .map(|account| match account.profiles.iter().find(|row| row.id == profile) {
+            Some(row) => row.signed_in,
+            // A single-login machine has no profile rows: the ambient login IS
+            // the account row.
+            None => coding::agent_profiles::is_system(Some(profile)) && account.signed_in,
+        })
+        .unwrap_or(false);
+    if !signed_in {
+        return Err(format!(
+            "That {} account is not signed in on this machine — sign in there first.",
+            agent.id()
+        ));
+    }
+    coding::agent_profiles::set_active_profile(&snapshot.data_dir, agent, profile)
+        .map_err(|err| format!("Could not switch the {} account here: {err}", agent.id()))?;
+    // Past the shared TTL on purpose: the numbers the clients show for this
+    // machine are the ACTIVE login's, and it just changed.
+    Ok(coding::force_collect(
+        &snapshot.data_dir,
+        &snapshot.settings,
+        &report,
+        agent,
+        profile,
+        now_unix_secs(),
+    )
+    .unwrap_or_else(|_| {
+        // Rate-limited: the pointer moved all the same, so report what the
+        // cache holds rather than failing a switch that already happened.
+        coding::collect_if_due(&snapshot.data_dir, &snapshot.settings, &report, now_unix_secs())
+    }))
 }
 
 /// EXP-792: the MCP command bodies' view of this beat.
@@ -1114,7 +1200,7 @@ mod tests {
                 email: Some("dev@acme.test".to_string()),
                 plan: Some("max".to_string()),
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
-                profiles: Vec::new(),
+                ..coding::agent_accounts::AgentAccount::default()
             },
         );
         status.usage.insert(

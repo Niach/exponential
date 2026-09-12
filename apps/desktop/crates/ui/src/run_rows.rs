@@ -46,9 +46,10 @@ pub(crate) enum RunRowLead {
 
 /// The ⋯ menu's single destructive item — "end this run".
 pub(crate) struct RunRowKill {
-    /// "Stop session" (a run this process hosts) / "Kill session" (a run on
-    /// another machine): the two ends read differently, so the caller names
-    /// the item.
+    /// "Stop session" — EXP-849 unified the verb: a run this process hosts and
+    /// a run on another machine end the same way, and "kill" named the
+    /// mechanism rather than the act. The caller still supplies it, because the
+    /// terminal dock closes other things with the same control.
     pub(crate) label: SharedString,
     pub(crate) on_kill: RunRowAction,
 }

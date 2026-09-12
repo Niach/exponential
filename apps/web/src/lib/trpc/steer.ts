@@ -50,6 +50,7 @@ import {
   type StartPromptLookups,
 } from "@/lib/start-prompt"
 import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
+import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
@@ -383,6 +384,9 @@ export const steerRouter = router({
           // which resolves ids against every team it can see).
           mcpServerIds: z.array(z.string().uuid()).max(16).optional(),
           // EXP-792 (EXP-747 B7): the agent account profile to launch on.
+          // EXP-849: also rides a `resumeSessionId` start — naming a
+          // DIFFERENT profile there is the account switch (claude only; the
+          // device refuses what it cannot move a transcript into).
           account: z.string().min(1).max(64).optional(),
           // EXP-637: relaunch an ENDED run in its own worktree, continuing
           // the agent's transcript where it stopped. A subject of its own —
@@ -416,6 +420,10 @@ export const steerRouter = router({
           // everything the run registry pinned at first launch. Accepting a
           // contradicting option here would silently lose either the option
           // or the resume.
+          // EXP-849: `account` is the ONE exception — a remote "switch
+          // account" IS a resume naming another profile (the desktop moves
+          // the transcript into it, the credential never moves), so it rides
+          // a resume on purpose.
           if (value.resumeSessionId) {
             const conflicting = (
               [
@@ -428,7 +436,6 @@ export const steerRouter = router({
                 `ultracode`,
                 `planMode`,
                 `mcpServerIds`,
-                `account`,
                 `prompt`,
               ] as const
             ).filter((key) => value[key] !== undefined)
@@ -778,7 +785,14 @@ export const steerRouter = router({
             message: `Only the session owner can resume it`,
           })
         }
-        if (session.status !== `ended`) {
+        // EXP-849: a resume naming ANOTHER account is the mid-session account
+        // SWITCH, and the whole point is switching a run that is still alive
+        // (between turns): the device ends the live run, moves the agent's
+        // transcript into the target profile's config dir — never the
+        // credential — and relaunches there as a continuation. A plain resume
+        // still requires an ended run; only the switch may ride a live one.
+        const switching = Boolean(input.account)
+        if (session.status !== `ended` && !switching) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That run is still live`,
@@ -825,12 +839,34 @@ export const steerRouter = router({
             )
             .orderBy(desc(codingSessions.updatedAt))
             .limit(1)
-          if (live) {
+          // EXP-849: the run being SWITCHED is itself that live session — it
+          // is the one the device is about to end and continue, so it can
+          // never be its own blocker. Another live run on the issue still is.
+          if (live && live.id !== session.id) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
               message: live.deviceLabel
                 ? `That issue already has a live session on ${live.deviceLabel}`
                 : `That issue already has a live session`,
+            })
+          }
+        }
+        // EXP-849: the account switch. The run's recorded account is the
+        // default (the device reads its own registry); naming one here moves
+        // the resumed run onto that profile — refused early when the machine
+        // reported profiles for the run's agent and none of them is it, so a
+        // typo cannot turn a switch into a silent same-account resume.
+        if (input.account && input.account !== SYSTEM_PROFILE_ID) {
+          const profiles = session.agent
+            ? (device.agentAccounts?.[session.agent]?.profiles ?? [])
+            : []
+          if (
+            profiles.length > 0 &&
+            !profiles.some((profile) => profile?.id === input.account)
+          ) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `That machine reported no ${session.agent ?? `agent`} account called ${input.account}`,
             })
           }
         }
@@ -845,6 +881,7 @@ export const steerRouter = router({
           ...(session.actionId ? { actionId: session.actionId } : {}),
           ...(session.actionName ? { actionName: session.actionName } : {}),
           ...(session.branch ? { branch: session.branch } : {}),
+          ...(input.account ? { account: input.account } : {}),
         })
         if (!result.ok) {
           if (result.status === 404) {

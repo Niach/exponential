@@ -278,6 +278,8 @@ impl MachinesSection {
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
                 is_default: owned && row.is_default.unwrap_or(false),
                 owner,
+                // EXP-849: the row's own accounts map, for the health badge.
+                agent_accounts: row.agent_accounts.clone(),
             };
             if owned {
                 mine.push(entry);
@@ -632,6 +634,30 @@ impl MachinesSection {
                                 )
                             })
                             .child(SharedString::from(status_line(device)))
+                            // EXP-849: a revoked login is louder than anything
+                            // else on this line — the machine looks fine and
+                            // every run on it would fail at the first request.
+                            .when(
+                                device_health(device)
+                                    == coding::agent_accounts::Health::NeedsRelogin,
+                                |this| {
+                                    this.child(
+                                        gpui_component::h_flex()
+                                            .flex_shrink_0()
+                                            .items_center()
+                                            .gap_1()
+                                            .text_color(theme::tokens::RED.to_hsla())
+                                            .child(
+                                                Icon::new(registry::UI_WARNING)
+                                                    .with_size(px(12.)),
+                                            )
+                                            .child(SharedString::from(
+                                                coding::agent_accounts::Health::NeedsRelogin
+                                                    .label(),
+                                            )),
+                                    )
+                                },
+                            )
                             .when(updating, |this| {
                                 this.child(div().child(if queued {
                                     "Update queued"
@@ -765,6 +791,20 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
 /// out, so the row reads amber with the sign-in reason instead of "Online".
 fn sign_in_needed(device: &api::devices::DeviceEntry) -> bool {
     device.online && device.agents.is_empty() && !device.unauthed_agents.is_empty()
+}
+
+/// EXP-849 (interface A) — the WORST health among this machine's agent
+/// accounts, the Devices row's badge.
+///
+/// It is a DIFFERENT question from [`sign_in_needed`]: a login the provider
+/// revoked still reports `signedIn: true`, so the machine keeps advertising
+/// the agent as runnable and every run on it fails at the first request. That
+/// is the state this surfaces, and it is why `needs_relogin` is badged apart
+/// from `signed_out`.
+fn device_health(device: &api::devices::DeviceEntry) -> coding::agent_accounts::Health {
+    coding::agent_accounts::worst_health(&crate::device_settings::parse_agent_map::<
+        coding::AgentAccount,
+    >(device.agent_accounts.as_ref()))
 }
 
 /// EXP-696: why ANOTHER machine's ▶ is dead. A start is a `steer.startSession`

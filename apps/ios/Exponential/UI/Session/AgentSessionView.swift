@@ -105,6 +105,10 @@ struct AgentSessionView: View {
     /// pushes the resumed run's own screen.
     @State private var showResumeConfirm = false
     @State private var resuming = false
+    /// EXP-849: a "switch account" is on the wire. It IS a resume naming
+    /// another login, so it rides the same watcher and pushes the run it
+    /// produces — the continuation of this one.
+    @State private var switchingAccount = false
     /// EXP-696: whether THIS screen ever saw the run live — the auto-back on
     /// the ended edge only fires after that, so a finished run's feed opened
     /// from a list stays browsable.
@@ -152,7 +156,10 @@ struct AgentSessionView: View {
     /// (EXP-484) or this run's own context/spend off the relay. A fresh run on
     /// a machine that reported nothing used to have no usage affordance at all.
     private var hasUsage: Bool {
+        // EXP-849: the readout is also the ACCOUNT surface, so a run whose
+        // machine reported logins but no numbers still opens it.
         model?.agentUsage != nil || model?.sessionUsage != nil
+            || model?.accountOptions.isEmpty == false
     }
 
     @ViewBuilder
@@ -196,6 +203,9 @@ struct AgentSessionView: View {
 
             VStack(spacing: 0) {
                 if let model {
+                    // EXP-849: a resumed/switched run says it is a
+                    // continuation, above everything else on the screen.
+                    continuationNote(model)
                     // EXP-773: an ended run's close-out and its Resume sit
                     // ABOVE its transcript, where the list rows used to hide
                     // them behind a chevron.
@@ -481,11 +491,22 @@ struct AgentSessionView: View {
             // EXP-688: usage lives in its own sheet now — every window the machine
             // reported, grouped, instead of one pinned hairline.
             .sheet(isPresented: $showUsageSheet) {
-                if hasUsage {
+                if hasUsage, let model {
                     AgentUsageSheet(
-                        usage: model?.agentUsage?.usage,
-                        account: model?.agentAccount,
-                        sessionUsage: model?.sessionUsage
+                        usage: model.agentUsage?.usage,
+                        account: model.agentAccount,
+                        sessionUsage: model.sessionUsage,
+                        // EXP-849: the run's accounts, and the switch — a
+                        // resume under another login, claude only, between
+                        // turns, on the run's own machine.
+                        accounts: model.accountOptions,
+                        supportsSwitch: model.supportsAccountSwitch,
+                        switchRefusal: { model.accountSwitchRefusal($0) },
+                        switching: switchingAccount,
+                        onSwitch: { option in
+                            showUsageSheet = false
+                            switchAccount(model, option)
+                        }
                     )
                 }
             }
@@ -520,6 +541,12 @@ struct AgentSessionView: View {
             sawLiveSession = true
             return
         }
+        // EXP-849: a "switch account" ENDS this run on purpose — the device
+        // relaunches it as a continuation. Dismissing on that edge would tear
+        // down the watcher waiting for the new row (`onDisappear` stops it),
+        // so the screen holds while a start of ours is in flight or pending:
+        // it pushes the continuation instead, exactly like a Resume.
+        guard startWatcher.sentCaption == nil, !switchingAccount, !resuming else { return }
         guard sawLiveSession, fixSessionTarget == nil else { return }
         dismiss()
     }
@@ -740,6 +767,81 @@ struct AgentSessionView: View {
                 startWatcher.failed(error.userFacingMessage)
             }
             resuming = false
+        }
+    }
+
+    /// EXP-849: change the account this run uses — a RESUME on the same
+    /// machine naming another login profile
+    /// (`steer.startSession({ resumeSessionId, deviceId, account })`). The
+    /// device relaunches the run under that profile's config dir and the agent
+    /// re-reads this run's transcript there, once, on the account moved to
+    /// (`SessionAccountSwitch.costNote`).
+    ///
+    /// Exactly the Resume path from here on: a start is a COMMAND, so the
+    /// shared watcher waits for the row the desktop inserts (linked by
+    /// `resumed_from_id`) and pushes that session, which presents itself as
+    /// this run's continuation. The wall notice that prompted the switch goes
+    /// with it.
+    private func switchAccount(_ model: AgentSessionModel, _ option: SessionAccountOption) {
+        guard model.accountSwitchRefusal(option) == nil, !switchingAccount, !resuming else {
+            return
+        }
+        guard let device = model.switchDevice else { return }
+        switchingAccount = true
+        startWatcher.sending()
+        model.clearRateLimit()
+        Task {
+            do {
+                try await deps.steerApi.resumeSession(
+                    accountId: accountId,
+                    sessionId: session.id,
+                    deviceId: device.deviceId,
+                    // The ambient login is never named on the wire (`system` is
+                    // the absence of an account) — the ×4 `wireAccount` rule.
+                    account: SessionAccountSwitch.wireAccount(option)
+                )
+                startWatcher.begin(
+                    key: .resumed(fromId: session.id),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.userFacingMessage)
+            }
+            switchingAccount = false
+        }
+    }
+
+    /// EXP-849: this run IS the continuation of an earlier one (a Resume, or a
+    /// switch to another account) — say so once, with the transcript's one-time
+    /// cost, so a second context-window charge on a new account is never a
+    /// surprise. The ×4 sentence; the run it continues is reachable from the
+    /// lists, which nest the chain.
+    @ViewBuilder
+    private func continuationNote(_ model: AgentSessionModel) -> some View {
+        if let resumedFrom = (model.session ?? session).resumedFromId, !resumedFrom.isEmpty {
+            HStack(alignment: .top, spacing: 6) {
+                AppIcon(AppIcons.runResume, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(SessionAccountSwitch.continuationNote)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    // The one-time transcript re-read, said ONCE on the run it
+                    // cost — a second context charge on a new account must
+                    // never be a surprise.
+                    Text(SessionAccountSwitch.continuationCostNote)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .accessibilityIdentifier("run-continuation")
         }
     }
 
@@ -1444,6 +1546,22 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
+                // EXP-849: the wall's PRIMARY answer — the other account. It
+                // opens the readout's account rows (bars and health included),
+                // where the switch itself is confirmed per account; a run whose
+                // machine reports one login has nothing to offer and keeps the
+                // bare notice.
+                // Absent unless a switch is actually possible, so the wall
+                // never offers a dead end.
+                if model.canSwitchAnyAccount {
+                    GlassPill(
+                        SessionAccountSwitch.wallSwitchLabel,
+                        icon: AppIcons.uiSwap,
+                        mode: .action { showUsageSheet = true },
+                        primary: true
+                    )
+                    .accessibilityIdentifier("rate-limit-switch-account")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)

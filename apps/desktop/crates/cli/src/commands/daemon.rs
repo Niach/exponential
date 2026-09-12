@@ -1276,7 +1276,11 @@ fn handle_remote_start(
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-    );
+        // EXP-849: the composer's account pick; EXP-792's server picks rode the
+        // frame unread until now.
+        start.account.as_deref(),
+    )
+    .with_mcp_servers(start.mcp_server_ids.clone());
     let origin = coding::LaunchOrigin::Relay {
         device_id: device_id.to_string(),
         claimant: ctx.account.id.clone(),
@@ -1307,9 +1311,12 @@ fn handle_remote_start(
         ),
         // EXP-637: the run registry holds everything else (agent, workspace,
         // branch, options), so the frame's launch options are ignored by
-        // contract — a resumed run keeps what it recorded.
+        // contract — a resumed run keeps what it recorded. EXP-849: all but
+        // ONE — the ACCOUNT, which is how a remote "switch account" reaches
+        // this machine (a resume naming a different login).
         RemoteStartSubject::Resume { session_id } => remote_resume_start(
             ctx, runtime, sessions, personal_key, origin, session_id,
+            start.account.clone(),
         ),
     };
     if let Err(err) = outcome {
@@ -1386,6 +1393,10 @@ fn remote_issue_start(
             model: None,
             effort: None,
             prompt,
+            // EXP-849: a remote "switch account" IS a resume naming one. The
+            // frame's pick, already normalized (`system`/blank → the ambient
+            // login) by [`LaunchOptions::remote`].
+            account: options.account.clone(),
         }),
         None => PrepareRequest::Issue(launch::issue_launch_request(
             &issue,
@@ -1580,6 +1591,7 @@ fn remote_resume_start(
     personal_key: Option<String>,
     origin: coding::LaunchOrigin,
     session_id: String,
+    account: Option<String>,
 ) -> anyhow::Result<()> {
     let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
         anyhow::bail!(
@@ -1627,6 +1639,8 @@ repo-less run, which is purged when it ends"
         effort: None,
         // The server never sends a prompt on a resume frame (EXP-825).
         prompt: None,
+        // EXP-849: the frame's account pick — absent keeps the recorded login.
+        account,
     };
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::ResumeRun(request);
@@ -2089,6 +2103,76 @@ fn run_device_command(
                                     .unwrap_or_else(|| until.to_string())
                             ),
                         ),
+                    }
+                }
+            }
+        }
+        // EXP-849 — "use this account here": point this machine's default
+        // login for `agent` at `profileId`. Non-destructive (a device-local
+        // pointer; no credential is read, written or revoked) and NOT a
+        // sign-in — `agent_login` stays that command. The switch answers by
+        // re-reporting, so every client's check moves on this beat.
+        "agent_profile_use" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system").trim();
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(agent) => {
+                    if coding::agent_profiles::get(&ctx.data_dir, agent, profile).is_none() {
+                        (false, format!("No such {} account on this machine.", agent.id()))
+                    } else {
+                        let report = coding::run_doctor(&settings);
+                        let stamp = coding::agent_accounts::now_iso();
+                        let accounts = report.agent_accounts_with_profiles(
+                            &settings,
+                            &ctx.data_dir,
+                            &stamp,
+                        );
+                        // A signed-OUT default would break every later start
+                        // here; the fix is a sign-in, which is another command.
+                        let signed_in = accounts
+                            .get(agent.id())
+                            .map(|account| {
+                                match account.profiles.iter().find(|row| row.id == profile) {
+                                    Some(row) => row.signed_in,
+                                    None => {
+                                        coding::agent_profiles::is_system(Some(profile))
+                                            && account.signed_in
+                                    }
+                                }
+                            })
+                            .unwrap_or(false);
+                        if !signed_in {
+                            (
+                                false,
+                                format!(
+                                    "That {} account is not signed in on this machine — sign in there first.",
+                                    agent.id()
+                                ),
+                            )
+                        } else if let Err(err) = coding::agent_profiles::set_active_profile(
+                            &ctx.data_dir,
+                            agent,
+                            profile,
+                        ) {
+                            (false, format!("Could not switch the {} account here: {err}", agent.id()))
+                        } else {
+                            let now = coding::run_registry::now_secs();
+                            // The reported numbers are the ACTIVE login's, and
+                            // it just changed — re-read past the shared TTL, and
+                            // fall back to the cache if the floor refuses (the
+                            // pointer moved either way).
+                            let payload = coding::force_collect(
+                                &ctx.data_dir, &settings, &report, agent, profile, now,
+                            )
+                            .unwrap_or_else(|_| {
+                                coding::collect_if_due(&ctx.data_dir, &settings, &report, now)
+                            });
+                            if let Ok(mut slot) = slots.agent_status.lock() {
+                                *slot = Some(payload);
+                            }
+                            (true, format!("{} now runs as this account here.", agent.id()))
+                        }
                     }
                 }
             }

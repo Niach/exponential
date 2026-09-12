@@ -58,6 +58,16 @@ pub const RESET_MARGIN_SECS: u64 = 60;
 /// headless daemon) stops the asking for an hour.
 pub const CREDENTIAL_DENIED_BACKOFF_SECS: u64 = 3600;
 
+/// EXP-849 — how often ONE codex login's keep-alive runs (`account/read`
+/// with `refreshToken: true`).
+///
+/// Deliberately far above every poll floor: the keep-alive is a flag on a
+/// request the poll already makes, so the cadence costs nothing but it does
+/// spend a token ROTATION, and rotating on every poll would churn the
+/// credential store several times an hour for no gain. Six hours is well
+/// inside any refresh-token lifetime while staying ~1/40th of the poll rate.
+pub const CODEX_REFRESH_INTERVAL_SECS: u64 = 6 * 3600;
+
 /// EXP-792 (EXP-747 B3): entries are keyed `agent:profileId` — one poll
 /// policy per LOGIN, so a 429 on one profile never backs off its siblings.
 /// A pre-profile file's bare `agent` key is the ambient login's
@@ -106,6 +116,22 @@ pub struct AgentCacheEntry {
     /// (`agent_usage_refresh`) must still honor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limited_until_secs: Option<u64>,
+    /// EXP-849 — this login's HEALTH, as the
+    /// [`crate::agent_accounts::Health`] wire token, derived from the PROBE:
+    /// a 401/403 is `needs_relogin`, an answer is `ok`. `None` = never
+    /// probed, which the wire reports as `unknown`.
+    ///
+    /// Deliberately NOT touched by a transport failure: an offline laptop's
+    /// login is not broken, and a dimmed bar already says the numbers are
+    /// old. Only the two outcomes that are the credential's own answer move
+    /// it, so the badge never flickers on a flaky network.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<String>,
+    /// EXP-849 — when this login's codex keep-alive last ran
+    /// (`account/read` with `refreshToken: true`). Unix seconds; `None` =
+    /// never. Claude has no keep-alive here (deferred to EXP-852).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refreshed_at_secs: Option<u64>,
     /// Fields a newer build wrote that this one does not know — carried
     /// verbatim through every rewrite (the [`crate::run_registry`] promise).
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -248,6 +274,15 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
         && now.saturating_sub(entry.fetched_at_secs) >= SHARED_TTL_SECS
 }
 
+/// EXP-849 — is this login's codex keep-alive due? (Never a reason to poll on
+/// its own: it only ever rides a probe the poll policy already decided to
+/// make.)
+pub fn refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
+    entry
+        .refreshed_at_secs
+        .is_none_or(|at| now.saturating_sub(at) >= CODEX_REFRESH_INTERVAL_SECS)
+}
+
 /// When this agent may be polled again, given what the last attempt did.
 /// Every window sitting at 100 % pins the answer to just past the earliest
 /// reset — the numbers physically cannot move before then. One maxed window
@@ -298,6 +333,9 @@ pub fn apply_outcome(
             // A successful read proves the credential store answers again.
             entry.credential_denied_until_secs = None;
             entry.rate_limited_until_secs = None;
+            // EXP-849: …and proves the credential itself still works, which
+            // is exactly what `health: ok` claims.
+            entry.health = Some(crate::agent_accounts::Health::Ok.as_str().to_string());
             if unchanged {
                 PollOutcome::Unchanged
             } else {
@@ -311,6 +349,15 @@ pub fn apply_outcome(
             }
             if outcome == PollOutcome::RateLimited {
                 entry.rate_limited_until_secs = Some(now + RATE_LIMITED_FLOOR_SECS);
+            }
+            // EXP-849: a 401/403 is the provider saying this credential is no
+            // longer good for anything — the one failure whose fix is a
+            // login. Every other failure (transport, an unparseable body, a
+            // 429, a refused keychain) leaves the badge where it was: those
+            // are this machine's problems, not the account's.
+            if outcome == PollOutcome::Unauthorized {
+                entry.health =
+                    Some(crate::agent_accounts::Health::NeedsRelogin.as_str().to_string());
             }
             outcome
         }
@@ -546,6 +593,59 @@ mod tests {
         };
         assert!(!poll_due(&denied, now));
         assert!(poll_due(&denied, now + 10));
+    }
+
+    /// EXP-849 — health tracks the CREDENTIAL's own answer and nothing else:
+    /// a read proves it works, a 401 proves it does not, and a flaky network
+    /// (or a 429, or a refused keychain) leaves the badge where it was.
+    #[test]
+    fn health_follows_the_probe_and_the_keep_alive_has_its_own_cadence() {
+        use crate::agent_accounts::Health;
+        let now = 1_000_000;
+        let mut entry = AgentCacheEntry::default();
+        assert_eq!(entry.health, None, "never probed");
+
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window("session", 10, None)]),
+            now,
+            "T0",
+        );
+        assert_eq!(entry.health.as_deref(), Some(Health::Ok.as_str()));
+
+        // Transport failures say nothing about the account.
+        for outcome in [
+            PollOutcome::Failed,
+            PollOutcome::RateLimited,
+            PollOutcome::Unchanged,
+        ] {
+            apply_outcome(&mut entry, outcome, None, now + 1, "T1");
+            assert_eq!(
+                entry.health.as_deref(),
+                Some(Health::Ok.as_str()),
+                "{outcome:?} must not flip the badge"
+            );
+        }
+
+        // A 401 does — and a later good read clears it again.
+        apply_outcome(&mut entry, PollOutcome::Unauthorized, None, now + 2, "T2");
+        assert_eq!(entry.health.as_deref(), Some(Health::NeedsRelogin.as_str()));
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window("session", 20, None)]),
+            now + 3,
+            "T3",
+        );
+        assert_eq!(entry.health.as_deref(), Some(Health::Ok.as_str()));
+
+        // The keep-alive's cadence is its own — never probed is due, and one
+        // run parks it for six hours.
+        assert!(refresh_due(&entry, now));
+        entry.refreshed_at_secs = Some(now);
+        assert!(!refresh_due(&entry, now + CODEX_REFRESH_INTERVAL_SECS - 1));
+        assert!(refresh_due(&entry, now + CODEX_REFRESH_INTERVAL_SECS));
     }
 
     #[test]

@@ -127,6 +127,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AgentUsagePresentation
@@ -155,6 +156,8 @@ import com.exponential.app.domain.steerMessageSegments
 import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.SessionAccountOption
+import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.TranscriptGap
@@ -241,6 +244,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassGroup
+import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -360,6 +364,9 @@ fun AgentSessionScreen(
     // EXP-688: who that machine is signed in as for this agent — the Usage
     // sheet's caption. Null whenever the machine never reported an account.
     val agentAccount by viewModel.agentAccount.collectAsStateWithLifecycle()
+    // EXP-849 phase 3: the logins this run could continue under, and everything
+    // the switch gates on but the turn slot (which is right here in `activity`).
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     // The run's OWN issue (EXP-688) — the header names what is being worked
     // on, exactly like the Agents list row does.
     val issue by viewModel.issue.collectAsStateWithLifecycle()
@@ -648,7 +655,11 @@ fun AgentSessionScreen(
                     // EXP-746: the sheet is reachable on this run's OWN
                     // context numbers too, not only on the machine's
                     // rate-limit windows.
-                    val hasUsage = usage != null || sessionUsage != null
+                    // EXP-849: the sheet is the account surface too — a run
+                    // whose machine reports logins can open it even before any
+                    // numbers have arrived.
+                    val hasUsage = usage != null || sessionUsage != null ||
+                        accountSwitch.options.isNotEmpty()
                     if (canKill) {
                         TopBarActionButton(
                             ExpIcons.codingStop,
@@ -716,6 +727,44 @@ fun AgentSessionScreen(
             // EXP-773: an ended run's close-out and its Resume sit ABOVE its
             // transcript, where the list rows used to hide them behind a
             // chevron.
+            // EXP-849 phase 3: this run CONTINUES another one (an account
+            // switch, or a plain Resume) — the chain is the synced
+            // `resumed_from_id`, so say so once at the top instead of letting a
+            // transcript that starts mid-conversation look like a lost run. The
+            // cost of that pick-up is named here and nowhere else.
+            if (session?.resumedFromId != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .testTag("session-continuation-note"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        ExpIcons.runResume,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            SessionAccountSwitch.CONTINUATION_NOTE,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            SessionAccountSwitch.CONTINUATION_COST_NOTE,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             EndedRunHeader(
                 session = session,
                 hostLabel = hostDevice.displayLabel,
@@ -1168,6 +1217,31 @@ fun AgentSessionScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
+                    // EXP-849: the PRIMARY move on a usage wall is another
+                    // account, not waiting for the reset — the button opens the
+                    // account rows (with their own numbers) and the switch
+                    // clears this notice by continuing the run over there.
+                    // Absent unless a switch is actually possible, so the wall
+                    // never offers a dead end.
+                    val switchable = accountSwitch.options.any { option ->
+                        SessionAccountSwitch.refusal(
+                            option = option,
+                            agent = accountSwitch.agent,
+                            mine = accountSwitch.mine,
+                            sessionEnded = accountSwitch.sessionEnded,
+                            deviceOnline = accountSwitch.deviceOnline,
+                            canResume = accountSwitch.canResume,
+                            turnState = activity.turnState,
+                        ) == null
+                    }
+                    if (switchable) {
+                        GlassPill(
+                            SessionAccountSwitch.WALL_SWITCH_LABEL,
+                            onClick = { usageSheetOpen = true },
+                            icon = ExpIcons.uiSwap,
+                            primary = true,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -1382,10 +1456,13 @@ fun AgentSessionScreen(
     // EXP-746: this run's own context/spend meter — a second, independent
     // source, so the sheet stays reachable while EITHER has something.
     val contextUsage = sessionUsage
-    LaunchedEffect(sheetUsage, contextUsage) {
-        if (sheetUsage == null && contextUsage == null) usageSheetOpen = false
+    val switchOptions = accountSwitch.options
+    LaunchedEffect(sheetUsage, contextUsage, switchOptions) {
+        if (sheetUsage == null && contextUsage == null && switchOptions.isEmpty()) {
+            usageSheetOpen = false
+        }
     }
-    if (usageSheetOpen && (sheetUsage != null || contextUsage != null)) {
+    if (usageSheetOpen && (sheetUsage != null || contextUsage != null || switchOptions.isNotEmpty())) {
         GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
             Column(
                 modifier = Modifier
@@ -1435,6 +1512,45 @@ fun AgentSessionScreen(
                     Spacer(Modifier.height(12.dp))
                 }
                 if (sheetUsage != null) AgentUsageCards(usage = sheetUsage)
+                // EXP-849 phase 3: the machine's logins for this agent, each
+                // with its own numbers — the readout IS the switch control now.
+                // Claude only, idle only, owner only; a refused row keeps the
+                // button and says why rather than hiding it mid-run.
+                if (switchOptions.isNotEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        SessionAccountSwitch.SECTION_TITLE,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    switchOptions.forEach { option ->
+                        SessionAccountRow(
+                            option = option,
+                            refusal = SessionAccountSwitch.refusal(
+                                option = option,
+                                agent = accountSwitch.agent,
+                                mine = accountSwitch.mine,
+                                sessionEnded = accountSwitch.sessionEnded,
+                                deviceOnline = accountSwitch.deviceOnline,
+                                canResume = accountSwitch.canResume,
+                                turnState = activity.turnState,
+                            ),
+                            switching = launchRunState is ActionRunState.Sending ||
+                                launchRunState is ActionRunState.Sent,
+                            onSwitch = {
+                                usageSheetOpen = false
+                                viewModel.switchAccount(option)
+                            },
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Text(
+                        SessionAccountSwitch.COST_NOTE,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -4125,6 +4241,86 @@ private fun ExpandedSteerComposer(
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
         )
+    }
+}
+
+/**
+ * EXP-849 phase 3: ONE login of this run's agent on its machine — the identity
+ * line, its health, its own rate-limit windows, and the switch. A refused
+ * switch keeps the button and says why underneath: the reason is nearly always
+ * something the person can change (wait for the turn, sign in on the machine),
+ * and a control that vanishes mid-run reads as a bug.
+ */
+@Composable
+private fun SessionAccountRow(
+    option: SessionAccountOption,
+    refusal: String?,
+    switching: Boolean,
+    onSwitch: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .flatRow()
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+            .testTag("session-account-row"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        option.caption,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    AgentHealthRules.badgeLabel(option.health)?.let { badge ->
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeedsInputAmber,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                val subtitle = buildList {
+                    option.plan?.takeIf { it != option.caption }?.let(::add)
+                    // The machine's CURRENT login — not a claim about which
+                    // account THIS run is on (that stays server-side).
+                    if (option.active) add("Active login")
+                }.joinToString(" · ")
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            GlassPill(
+                SessionAccountSwitch.SWITCH_LABEL,
+                onClick = onSwitch,
+                icon = ExpIcons.uiSwap,
+                enabled = refusal == null && !switching,
+                loading = switching,
+            )
+        }
+        option.usage?.let { usage ->
+            AgentUsageCards(usage = usage, compact = true)
+        }
+        if (refusal != null) {
+            Text(
+                refusal,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
     }
 }
 

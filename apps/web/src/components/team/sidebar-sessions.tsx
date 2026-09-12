@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react"
 import { useParams } from "@tanstack/react-router"
-import type { CodingSession } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
-import { nestSessions, type SessionTreeRow } from "@/lib/session-tree"
+import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
 import {
   sessionDisplayState,
@@ -35,24 +34,6 @@ import {
 const ActionChatIcon = conceptIcon(`action-chat`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-
-/** EXP-818: the rows a COLLAPSED set leaves visible — a row whose parent (or
- * any ancestor) is collapsed is skipped. Keyed on the flattened depths, so it
- * needs nothing but `nestSessions`' output. */
-function visibleTreeRows(
-  rows: readonly SessionTreeRow<CodingSession>[],
-  collapsed: ReadonlySet<string>
-): SessionTreeRow<CodingSession>[] {
-  const out: SessionTreeRow<CodingSession>[] = []
-  let hideBelow: number | null = null
-  for (const row of rows) {
-    if (hideBelow !== null && row.depth > hideBelow) continue
-    hideBelow = null
-    out.push(row)
-    if (row.hasChildren && collapsed.has(row.session.id)) hideBelow = row.depth
-  }
-  return out
-}
 
 export function SidebarSessions({
   teamId,

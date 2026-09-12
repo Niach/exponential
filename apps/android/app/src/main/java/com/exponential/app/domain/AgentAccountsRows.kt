@@ -41,6 +41,11 @@ data class AgentProfileUsageRow(
     /** The account is the machine's ACTIVE login (the ambient login always is). */
     val active: Boolean,
     val signedIn: Boolean,
+    /**
+     * EXP-849: the device's verdict on the credential (`AgentHealthRules.of`,
+     * derived from [signedIn] on a pre-EXP-849 machine).
+     */
+    val health: AgentHealth,
     val email: String?,
     val plan: String?,
     val usage: AgentUsage?,
@@ -58,6 +63,12 @@ data class AgentAccountUsageGroup(
     val key: String,
     val agent: String,
     val signedIn: Boolean,
+    /**
+     * EXP-849: the WORST health among the machines holding this account — the
+     * badge the account row carries (one machine's expired credential is a
+     * re-login, even if another machine's copy still works).
+     */
+    val health: AgentHealth,
     val email: String?,
     val plan: String?,
     /**
@@ -162,6 +173,7 @@ object AgentAccountsRows {
                         profileLabel = SYSTEM_PROFILE_LABEL,
                         active = true,
                         signedIn = account?.signedIn == true,
+                        health = AgentHealthRules.of(account),
                         email = nonEmpty(account?.email),
                         plan = nonEmpty(account?.plan),
                         usage = usageMap[agent],
@@ -189,6 +201,7 @@ object AgentAccountsRows {
                             ?: if (profile.id == SYSTEM_PROFILE_ID) SYSTEM_PROFILE_LABEL else profile.id,
                         active = profile.active,
                         signedIn = profile.signedIn,
+                        health = AgentHealthRules.of(profile),
                         email = nonEmpty(profile.email),
                         plan = nonEmpty(profile.plan),
                         usage = usage,
@@ -207,9 +220,17 @@ object AgentAccountsRows {
     /**
      * Attention-first bucket: signed-out rows lead (there is something to
      * do), then rows at or over the danger threshold, then everything else.
+     *
+     * EXP-849: an EXPIRED credential is the same kind of "do something" as a
+     * missing one — it leads too, even though the CLI still reports signed in.
      */
-    fun attentionRank(signedIn: Boolean, usage: AgentUsage?): Int = when {
+    fun attentionRank(
+        signedIn: Boolean,
+        usage: AgentUsage?,
+        health: AgentHealth = AgentHealth.Unknown,
+    ): Int = when {
         !signedIn -> 0
+        health == AgentHealth.NeedsRelogin -> 0
         AgentUsagePresentation.severity(peakPercent(usage).toDouble()) == AgentUsageSeverity.Danger -> 1
         else -> 2
     }
@@ -257,6 +278,7 @@ object AgentAccountsRows {
                 key = key,
                 agent = row.agent,
                 signedIn = row.signedIn,
+                health = row.health,
                 email = row.email,
                 plan = row.plan,
                 rows = emptyList(),
@@ -266,6 +288,13 @@ object AgentAccountsRows {
             )
             byKey[key] = group.copy(
                 rows = group.rows + row,
+                // The worst health across the machines — one dead copy of the
+                // credential is a re-login even if another machine's still works.
+                health = if (AgentHealthRules.rank(row.health) < AgentHealthRules.rank(group.health)) {
+                    row.health
+                } else {
+                    group.health
+                },
                 plan = group.plan ?: row.plan,
                 usage = if (fresherUsage(row.usage, group.usage)) row.usage else group.usage,
                 checkedAt = if (stampMs(row.checkedAt) > stampMs(group.checkedAt)) row.checkedAt else group.checkedAt,
@@ -296,7 +325,7 @@ object AgentAccountsRows {
      */
     fun sortAccountGroupsAttentionFirst(groups: List<AgentAccountUsageGroup>): List<AgentAccountUsageGroup> =
         groups.sortedWith(
-            compareBy<AgentAccountUsageGroup> { attentionRank(it.signedIn, it.usage) }
+            compareBy<AgentAccountUsageGroup> { attentionRank(it.signedIn, it.usage, it.health) }
                 .thenByDescending { peakPercent(it.usage) }
                 .thenBy { it.agent }
                 .thenBy { it.key },
@@ -334,6 +363,15 @@ object AgentAccountsRows {
         !group.signedIn -> "Not signed in"
         else -> group.email ?: group.plan ?: "signed in"
     }
+
+    /**
+     * EXP-849: the account row's health badge, or null when there is nothing
+     * to say. A signed-OUT row already says so in its [caption], so the badge
+     * there would only repeat it — the one badge an account row wears is the
+     * expired credential the caption cannot express.
+     */
+    fun healthBadge(group: AgentAccountUsageGroup): String? =
+        if (!group.signedIn) null else AgentHealthRules.badgeLabel(group.health)
 
     private fun nonEmpty(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
 

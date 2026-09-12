@@ -102,10 +102,10 @@ pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
     device_caps, parse_claude_version, parse_codex_version, run_doctor,
     AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorReport, Tool,
-    ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
-    MIN_CODEX_ACP_VERSION,
+    ToolCheck, ACTION_CAPS, AGENT_PROFILE_USE_CAP, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION,
+    MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
-pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry};
+pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
 pub use agent_profiles::{AgentProfile, SYSTEM_PROFILE};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{

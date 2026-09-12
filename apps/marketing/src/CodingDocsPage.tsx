@@ -419,8 +419,8 @@ export function CodingDocsPage() {
               A run you started makes no report. When the agent finishes its
               turn it waits for your next reply, in the desktop app and on a
               daemon alike, with no idle timeout. End it yourself with{` `}
-              <strong>Kill session</strong> — the stop glyph in the session
-              header on the desktop, the <strong>…</strong> menu on web and
+              <strong>Stop session</strong> — the stop pill in the session
+              header on the desktop and on web, the <strong>…</strong> menu on
               mobile — or, once a run has ended, relaunch it with{` `}
               <strong>Resume</strong> in that same header.
             </p>

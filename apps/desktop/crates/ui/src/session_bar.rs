@@ -1116,9 +1116,11 @@ pub(crate) fn prompt_kill_session(
             )
         }
         None => AlertSpec::new(
-            "Kill this coding session?",
+            // EXP-849 fix-up: "Stop" here too — a run on another machine ends
+            // the same way, and the copy already says what it does.
+            "Stop this coding session?",
             crate::steer_viewer::kill_description(device_label.as_deref()),
-            "Kill session",
+            "Stop session",
         )
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {

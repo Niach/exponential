@@ -95,6 +95,34 @@ final class SteerStartInputEncodingTests: XCTestCase {
         XCTAssertNil((object["inputs"] as? [String: String])?["prompt"])
     }
 
+    // MARK: - Resume (EXP-637, EXP-849)
+
+    // A plain Resume names nothing but the run and its machine: the recorded
+    // agent and options are the device's to re-apply, and the server REFUSES
+    // any of them here.
+    func testResumeOmitsTheAccountWhenUnset() throws {
+        let object = try json(ResumeSessionInput(
+            resumeSessionId: "sess-1", deviceId: "d-1", account: nil
+        ))
+        XCTAssertEqual(object["resumeSessionId"] as? String, "sess-1")
+        XCTAssertEqual(object["deviceId"] as? String, "d-1")
+        XCTAssertNil(object.index(forKey: "account"))
+        // Still the one subject, with no launch options smuggled alongside.
+        XCTAssertNil(object.index(forKey: "agent"))
+        XCTAssertNil(object.index(forKey: "prompt"))
+        XCTAssertNil(object.index(forKey: "resume"))
+    }
+
+    // EXP-849: a "switch account" IS a resume naming another login profile —
+    // the ONE option a resume may carry.
+    func testResumeCarriesTheAccountProfile() throws {
+        let object = try json(ResumeSessionInput(
+            resumeSessionId: "sess-1", deviceId: "d-1", account: "profile-2"
+        ))
+        XCTAssertEqual(object["account"] as? String, "profile-2")
+        XCTAssertEqual(object.count, 3)
+    }
+
     // MARK: - Options → wire
 
     func testSteerStartOptionsCarryTheAccountProfile() {

@@ -1735,6 +1735,86 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
+
+  // EXP-849: the mid-session account switch IS a resume naming another
+  // profile — the ONE option a resume accepts (every other one contradicts
+  // the run's registry).
+  it(`forwards an account on a resume`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null, agent: `claude` })
+    queueOwnDevice({
+      caps: [`resume-run`],
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `system`, signedIn: true, active: true },
+            { id: `work`, signedIn: true },
+          ],
+        },
+      },
+    })
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `work`,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: RESUME,
+      account: `work`,
+    })
+  })
+
+  // EXP-849: the mid-session switch rides a LIVE run (between turns) — the
+  // device ends it and continues on the other account. A plain resume of a
+  // live run is still refused.
+  it(`accepts a switch on a live run and refuses a plain resume of one`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    queueOwnDevice({ caps: [`resume-run`] })
+    // The live-session probe finds THIS run — never its own blocker.
+    h.dbQueue.push([{ id: RESUME, deviceLabel: `studio` }])
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `work`,
+    })
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+
+    h.relayPostStart.mockClear()
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).message).toBe(`That run is still live`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses an account the machine never reported for the run's agent`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null, agent: `claude` })
+    queueOwnDevice({
+      caps: [`resume-run`],
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [{ id: `system`, signedIn: true, active: true }],
+        },
+      },
+    })
+
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        account: `ghost`,
+      })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`no claude account`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
 })
 
 // EXP-792: team MCP servers + the agent account profile ride the start.
@@ -1830,9 +1910,11 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
+  // EXP-849: `account` is the exception — it rides a resume (the account
+  // switch). Every other launch option still contradicts the run's registry.
   it(`are forbidden beside resumeSessionId — a resumed run keeps its recorded options`, async () => {
     const RESUME = `77777777-7777-4777-8777-777777777777`
-    for (const extra of [{ mcpServerIds: [MCP_A] }, { account: `work` }]) {
+    for (const extra of [{ mcpServerIds: [MCP_A] }]) {
       const error = await rejectionOf(
         caller.startSession({
           resumeSessionId: RESUME,

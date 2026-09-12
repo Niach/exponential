@@ -1647,6 +1647,47 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
+  // EXP-849: "Use this account here" — the non-destructive active-profile
+  // switch. Same payload as a refresh, gated on `agent-login` (a build that
+  // cannot drive logins cannot switch between them either).
+  it(`queues agent_profile_use with the agent and the profile id`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-9` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_profile_use`,
+      agent: `claude`,
+      profileId: `work`,
+    })
+    expect(result).toEqual({ id: `cmd-9` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_profile_use`,
+      payload: { agent: `claude`, profileId: `work` },
+    })
+  })
+
+  it(`refuses agent_profile_use without an agent, a profile or the cap`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_use`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.selectQueue = [[{ id: `row-1`, caps: [] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_use`,
+        agent: `claude`,
+        profileId: `work`,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
   it(`never accepts the internal mcp_oauth_* kinds`, async () => {
     for (const kind of [`mcp_oauth_start`, `mcp_oauth_code`]) {
       h.state.selectQueue = capableProbe()
@@ -1843,5 +1884,35 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     expect(clampAgentAccounts({ codex: { signedIn: true, profiles: [] } })).toEqual(
       { codex: { signedIn: true } }
     )
+  })
+
+  // EXP-849: `health` is the device's probe verdict. The clamp keeps the four
+  // contract values on the account AND on every profile, and DROPS anything
+  // else — a machine reporting a health word this build has no name for keeps
+  // its heartbeat (the clients then derive health from `signedIn`).
+  it(`keeps the four health values and drops any other`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        health: `needs_relogin`,
+        profiles: [
+          { id: `system`, signedIn: true, health: `ok`, active: true },
+          { id: `work`, signedIn: true, health: `needs_relogin` },
+          { id: `old`, signedIn: false, health: `signed_out` },
+          { id: `probe`, signedIn: true, health: `unknown` },
+          { id: `future`, signedIn: true, health: `revoked_upstream` },
+        ],
+      },
+      codex: { signedIn: true, health: null },
+    })
+    expect(out.claude!.health).toBe(`needs_relogin`)
+    expect(out.claude!.profiles!.map((p) => p.health)).toEqual([
+      `ok`,
+      `needs_relogin`,
+      `signed_out`,
+      `unknown`,
+      undefined,
+    ])
+    expect(out.codex).toEqual({ signedIn: true })
   })
 })

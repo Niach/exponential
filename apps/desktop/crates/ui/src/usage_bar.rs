@@ -692,6 +692,14 @@ pub(crate) struct AgentProfileUsageRow {
     pub usage: Option<AgentUsage>,
     /// The "as of …" fallback when the usage is stale or absent.
     pub checked_at: Option<String>,
+    /// EXP-849: the login's HEALTH as the machine derived it from its usage
+    /// probe — `needs_relogin` is the one state `signed_in` cannot express (a
+    /// CLI still naming an account the provider has revoked). A device that
+    /// sent no `health` falls back to `Health::from_signed_in`.
+    pub health: coding::agent_accounts::Health,
+    /// EXP-849: the machine holds more logins of this agent than it collects
+    /// usage for, and this is one of the extras — identity only, no numbers.
+    pub unmonitored: bool,
 }
 
 /// `Some(trimmed)` for a non-blank string — the wire uses "absent" and "empty
@@ -760,6 +768,8 @@ pub(crate) fn agent_profile_usage_rows(
                 plan: None,
                 usage: None,
                 checked_at: None,
+                health: coding::agent_accounts::Health::Unknown,
+                unmonitored: false,
             };
             let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
             if profiles.is_empty() {
@@ -773,6 +783,9 @@ pub(crate) fn agent_profile_usage_rows(
                     checked_at: account
                         .and_then(|account| non_empty(Some(&account.checked_at)))
                         .or_else(|| non_empty(device.agent_usage_at.as_deref())),
+                    health: account
+                        .map(|account| account.health())
+                        .unwrap_or(coding::agent_accounts::Health::Unknown),
                     ..base(SYSTEM_PROFILE_ID)
                 });
                 continue;
@@ -803,6 +816,8 @@ pub(crate) fn agent_profile_usage_rows(
                     usage,
                     checked_at: non_empty(Some(&profile.checked_at))
                         .or_else(|| account.and_then(|a| non_empty(Some(&a.checked_at)))),
+                    health: profile.health(),
+                    unmonitored: profile.unmonitored,
                     ..base(&profile.id)
                 });
             }
@@ -894,6 +909,9 @@ pub(crate) struct AgentAccountUsageGroup {
     pub signed_in: bool,
     pub email: Option<String>,
     pub plan: Option<String>,
+    /// EXP-849: the WORST health among the members — one machine reporting a
+    /// revoked credential is the account's problem, not that machine's.
+    pub health: coding::agent_accounts::Health,
     /// The machines (× profile) holding this account: online first, then by
     /// label, then profile — a heartbeat cannot reshuffle the chips.
     pub rows: Vec<AgentProfileUsageRow>,
@@ -965,6 +983,7 @@ pub(crate) fn account_usage_groups(
                     signed_in: row.signed_in,
                     email: row.email.clone(),
                     plan: row.plan.clone(),
+                    health: row.health,
                     rows: Vec::new(),
                     usage: None,
                     checked_at: None,
@@ -977,6 +996,10 @@ pub(crate) fn account_usage_groups(
         if group.plan.is_none() && row.plan.is_some() {
             group.plan = row.plan.clone();
         }
+        // EXP-849: worst-wins. One machine answering 401 for this login is the
+        // ACCOUNT's problem — every other machine is about to hit the same
+        // wall — so it must not be averaged away by a healthier sibling.
+        group.health = group.health.worse(row.health);
         if fresher_usage(row.usage.as_ref(), group.usage.as_ref()) {
             group.usage = row.usage.clone();
         }
@@ -1531,6 +1554,8 @@ mod tests {
                     windows: vec![window("weekly", "Week", percent, None)],
                 }),
                 checked_at: None,
+                health: coding::agent_accounts::Health::from_signed_in(signed_in),
+                unmonitored: false,
             }
         };
         let rows = sort_attention_first(vec![
@@ -1623,6 +1648,8 @@ mod tests {
             plan: None,
             usage: None,
             checked_at: None,
+            health: coding::agent_accounts::Health::Ok,
+            unmonitored: false,
         }
     }
 

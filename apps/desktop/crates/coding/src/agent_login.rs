@@ -84,12 +84,38 @@ pub fn login_plan(settings: &Settings, agent: CodingAgent, remote: bool) -> Logi
 /// What to warn about before switching accounts. Codex's logout REVOKES the
 /// session server-side (every other machine signed in with it loses access),
 /// so that one confirms; claude's is local.
+///
+/// EXP-849 (interface E): the warning is the *consent* half. The structural
+/// half is [`switch_logout_blocker`] — a codex switch may only ever sign out
+/// a PROFILE, never the ambient login, so that a switch on this machine can
+/// never revoke the login every other machine shares.
 pub fn warn_on_switch(agent: CodingAgent) -> Option<&'static str> {
     match agent {
         CodingAgent::Codex => Some(
             "Signing out of Codex revokes this session with OpenAI — other machines using it will need to sign in again.",
         ),
         CodingAgent::Claude => None,
+    }
+}
+
+/// EXP-849 (interface E) — may a SWITCH sign `profile_id` out first?
+///
+/// `codex logout` revokes the session with OpenAI SERVER-SIDE: run against the
+/// ambient login it signs every machine sharing that login out, which is never
+/// what "use the other account here" meant. So a codex switch targets the
+/// PROFILE's own `CODEX_HOME` — `Some(message)` names the refusal for the
+/// ambient target, and the caller must log in WITHOUT a prior logout (codex
+/// keeps one credential per config dir, so a fresh profile dir needs no
+/// sign-out at all).
+///
+/// Claude's logout is local to its config dir, so nothing is blocked.
+pub fn switch_logout_blocker(agent: CodingAgent, profile_id: &str) -> Option<String> {
+    match agent {
+        CodingAgent::Codex if agent_profiles::is_system(Some(profile_id)) => Some(
+            "Switching the Codex account here would revoke the shared sign-in. Add an account profile and sign in there instead."
+                .to_string(),
+        ),
+        _ => None,
     }
 }
 
@@ -498,6 +524,12 @@ mod tests {
     fn only_codex_warns_before_a_switch() {
         assert!(warn_on_switch(CodingAgent::Codex).is_some());
         assert_eq!(warn_on_switch(CodingAgent::Claude), None);
+        // EXP-849 (interface E): a codex switch may only ever sign a PROFILE
+        // out — `codex logout` on the ambient login revokes it server-side.
+        assert!(switch_logout_blocker(CodingAgent::Codex, SYSTEM_PROFILE).is_some());
+        assert!(switch_logout_blocker(CodingAgent::Codex, "").is_some());
+        assert_eq!(switch_logout_blocker(CodingAgent::Codex, "0badf00d"), None);
+        assert_eq!(switch_logout_blocker(CodingAgent::Claude, SYSTEM_PROFILE), None);
     }
 
 

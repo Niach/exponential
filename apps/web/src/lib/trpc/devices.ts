@@ -35,6 +35,7 @@ import {
 import {
   automations,
   deviceAgentAccountsSchema,
+  deviceAgentHealthValues,
   deviceAgentUsageSchema,
   deviceCommands,
   deviceLaunchDefaultsSchema,
@@ -45,6 +46,7 @@ import {
   users,
   type DeviceAgentAccount,
   type DeviceAgentAccounts,
+  type DeviceAgentHealth,
   type DeviceAgentLaunchDefaults,
   type DeviceAgentProfileEntry,
   type DeviceAgentUsage,
@@ -179,6 +181,8 @@ export function clampAgentAccounts(
     }
     const checkedAt = isoStampOrNull(account.checkedAt)
     if (checkedAt) entry.checkedAt = checkedAt
+    const health = clampAgentHealth(account.health)
+    if (health) entry.health = health
     // EXP-792 (EXP-747 B5): the device's profiles for this agent, ≤5. A
     // profile without an id is dropped (nothing could address it); the
     // top-level fields above stay the ACTIVE profile for older clients.
@@ -202,6 +206,8 @@ export function clampAgentAccounts(
       if (profile.active === true) item.active = true
       const profileCheckedAt = isoStampOrNull(profile.checkedAt)
       if (profileCheckedAt) item.checkedAt = profileCheckedAt
+      const profileHealth = clampAgentHealth(profile.health)
+      if (profileHealth) item.health = profileHealth
       if (profile.usage) {
         item.usage = clampUsageEntry(profile.usage, new Date())
       }
@@ -211,6 +217,17 @@ export function clampAgentAccounts(
     out[agent] = entry
   }
   return out
+}
+
+// EXP-849: the account/profile health vocabulary — one of the four values or
+// nothing at all. A value this build has no name for is DROPPED (the clients
+// then fall back to deriving health from `signedIn`), never a rejection: the
+// whole point of the clamp is that a newer device keeps its heartbeat.
+function clampAgentHealth(value: unknown): DeviceAgentHealth | null {
+  return typeof value === `string` &&
+    (deviceAgentHealthValues as readonly string[]).includes(value)
+    ? (value as DeviceAgentHealth)
+    : null
 }
 
 // EXP-484: as above for the usage windows. `percent` rounds and clamps to
@@ -892,6 +909,12 @@ export const devicesRouter = router({
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
+          // EXP-849: make an already-signed-in profile the agent's ACTIVE
+          // login on that machine. NON-DESTRUCTIVE: no logout, no login, no
+          // credential is touched — the machine just points the agent at that
+          // profile and re-heartbeats `agent_accounts`. (Never `codex
+          // logout`: that revokes the account server-wide.)
+          `agent_profile_use`,
           `update_now`,
         ]),
         repoFullName: z.string().min(1).max(255).optional(),
@@ -1009,6 +1032,26 @@ export const devicesRouter = router({
           })
         }
         payload = { agent: input.agent, code: input.code }
+      }
+
+      // EXP-849: "Use this account here" — same payload shape as
+      // `agent_usage_refresh` (agent + profile), gated on the same cap as a
+      // remote sign-in: a build that cannot drive agent logins cannot switch
+      // between them either, and the command would sit pending forever.
+      if (input.kind === `agent_profile_use`) {
+        if (!input.agent || !input.profileId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_profile_use needs an agent and a profileId`,
+          })
+        }
+        if (!(row.caps ?? []).includes(`agent-login`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That device does not declare the agent-login capability`,
+          })
+        }
+        payload = { agent: input.agent, profileId: input.profileId }
       }
 
       if (input.kind === `agent_usage_refresh`) {

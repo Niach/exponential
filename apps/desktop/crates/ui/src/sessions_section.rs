@@ -240,11 +240,8 @@ impl Render for RunningSessionsSection {
                 let local = row.local.clone();
                 let device_label = row.device_label.clone();
                 RunRowKill {
-                    label: SharedString::from(if row.local.is_some() {
-                        "Stop session"
-                    } else {
-                        "Kill session"
-                    }),
+                    // EXP-849 fix-up: one verb, wherever the run is hosted.
+                    label: SharedString::from("Stop session"),
                     on_kill: Box::new(move |_, window, cx| {
                         Self::prompt_kill(
                             local.clone(),

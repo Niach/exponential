@@ -168,6 +168,12 @@ pub struct StartSessionInput {
     /// byte-identical to the locked fixtures above.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// EXP-849: the agent ACCOUNT PROFILE on the target device to run on (a
+    /// device-local profile id, 1-64 chars; absent/`system` = its ambient
+    /// login). It rides a `resume_session_id` start too — that is how a
+    /// remote "switch account" is expressed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -323,6 +329,50 @@ mod tests {
         assert!(request.ends_with(
             r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","resume":true,"prompt":"Mind the retry path."}"#
         ));
+    }
+
+    /// EXP-849: the account pick rides LAST (after `prompt`), so every start
+    /// that names no account keeps the byte-identical wire above — and a
+    /// remote "switch account" is a `resumeSessionId` start carrying one.
+    #[test]
+    fn start_session_carries_the_account_last_and_on_a_resume() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                account: Some("0a1b2c3d".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","account":"0a1b2c3d"}"#
+            ),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                resume_session_id: Some("33333333-3333-4333-8333-333333333333".to_string()),
+                device_id: "dev-2".to_string(),
+                account: Some("0a1b2c3d".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"deviceId":"dev-2","resumeSessionId":"33333333-3333-4333-8333-333333333333","account":"0a1b2c3d"}"#
+            ),
+            "{request}"
+        );
     }
 
     #[test]

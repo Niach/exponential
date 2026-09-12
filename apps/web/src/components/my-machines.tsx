@@ -8,10 +8,12 @@
 // Teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
 import { LoaderCircle } from "lucide-react"
+import { toast } from "sonner"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   describeUpdateBlockers,
   deviceCanAgentLogin,
@@ -36,6 +38,13 @@ import { useNow } from "@/hooks/use-now"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
+import {
+  deviceAccountChips,
+  deviceWorstHealth,
+  healthBadgeLabel,
+  type DeviceAccountChip,
+} from "@/lib/agent-usage"
+import { agentLabel } from "@/components/agent-usage-bar"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
@@ -83,6 +92,8 @@ const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
 // EXP-792 (EXP-747): the cross-device usage page + the remote sign-in.
 const SignInIcon = conceptIcon(`ui-sign-in`)
+// EXP-849: the repair surface's account chips.
+const SwapIcon = conceptIcon(`ui-swap`)
 
 /** FEED-36: the tooltip on a queued Update button — the daemon's own rules
  * for getting there (every session ends, or one sits idle for 2 hours). */
@@ -173,6 +184,179 @@ export function CopyIconButton({ text }: { text: string }) {
         <CopyIcon className="size-3.5" />
       )}
     </Button>
+  )
+}
+
+// EXP-849: the Devices surface is the SETUP/REPAIR surface — one row per
+// machine with its agents, worktrees and the accounts it holds. Accounts
+// (the page's other section) decides WHICH login to run on; everything that
+// touches a machine's credentials happens here: the worst health bubbles to
+// the row's title, and every account it holds is a chip whose menu signs in,
+// re-logins, or makes that login the one this machine uses.
+//
+// Nothing here ever copies a credential: a chip action queues either the
+// machine's OWN `agent_login` (`AgentLoginDialog`, the agent CLI's login in
+// that profile's config dir) or `agent_profile_use`, which only points the
+// agent at a profile the machine already holds.
+function MachineAccountChips({
+  device,
+  online,
+}: {
+  device: SteerDevice
+  online: boolean
+}) {
+  const chips = deviceAccountChips({ agentAccounts: device.agentAccounts })
+  if (chips.length === 0) return null
+  // A repair is only offered on the caller's OWN machine, online, with the
+  // `agent_login` cap — the same rule the sign-in pill uses.
+  const canLogin =
+    deviceIsMine(device) && online && deviceCanAgentLogin(device)
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {chips.map((chip) => (
+        <MachineAccountChip
+          key={chip.key}
+          device={device}
+          chip={chip}
+          canLogin={canLogin}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** `claude · dennis@…` with the active check and the health badge. */
+function machineChipLabel(chip: DeviceAccountChip): string {
+  const who =
+    chip.email ??
+    (chip.signedIn ? (chip.plan ?? `signed in`) : chip.profileLabel)
+  return `${agentLabel(chip.agent)} · ${who}`
+}
+
+function MachineAccountChip({
+  device,
+  chip,
+  canLogin,
+}: {
+  device: SteerDevice
+  chip: DeviceAccountChip
+  canLogin: boolean
+}) {
+  const [busy, setBusy] = useState(false)
+  const health = healthBadgeLabel(chip.health)
+  const body = (
+    <>
+      <span className="min-w-0 truncate">{machineChipLabel(chip)}</span>
+      {chip.signedIn && chip.active && (
+        <CheckIcon
+          className="size-3 text-emerald-400"
+          aria-label="The account this machine uses"
+        />
+      )}
+      {health && (
+        <span className="shrink-0 text-[10px] font-medium text-amber-500">
+          {health}
+        </span>
+      )}
+    </>
+  )
+  if (!canLogin) {
+    return (
+      <Pill size="sm" className="max-w-full" title={machineChipLabel(chip)}>
+        {body}
+      </Pill>
+    )
+  }
+  // The ONE action per state: a broken or missing login is signed in again,
+  // a healthy one that is not the machine's active login simply BECOMES it.
+  // EXP-849: that second case is `agent_profile_use` — the machine points the
+  // agent at a profile it already holds and re-heartbeats. Never a logout:
+  // signing codex out would revoke the account server-wide, and never a
+  // credential copy either (the files stay where the CLI wrote them).
+  const switchesTo = chip.signedIn && !chip.active && chip.health !== `needs_relogin`
+  const action = !chip.signedIn
+    ? `Sign in`
+    : chip.health === `needs_relogin`
+      ? `Re-login`
+      : chip.active
+        ? `Sign in again`
+        : `Use this account here`
+  const useHere = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await trpc.devices.createCommand.mutate({
+        deviceId: device.deviceId,
+        kind: `agent_profile_use`,
+        agent: chip.agent as never,
+        profileId: chip.profileId,
+      })
+      toast.success(
+        `${device.deviceLabel || device.deviceId} will use this ${agentLabel(chip.agent)} account`
+      )
+    } catch (error) {
+      toast.error(`Couldn't switch the account on that machine`, {
+        description: trpcErrorMessage(
+          error,
+          `The command could not be queued on the machine.`
+        ),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Pill
+          size="sm"
+          mode="action"
+          className="max-w-full"
+          title={`${machineChipLabel(chip)} — ${action} on ${device.deviceLabel || device.deviceId}`}
+        >
+          {body}
+        </Pill>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem
+          disabled={busy}
+          // The login dialog is hosted elsewhere in the tree — hand off a
+          // tick after the menu closes (the Accounts section's rule).
+          onSelect={() => {
+            if (switchesTo) {
+              void useHere()
+              return
+            }
+            const target = {
+              device,
+              agent: chip.agent,
+              profileId: chip.profileId,
+            }
+            setTimeout(() => requestAgentLogin(target), 0)
+          }}
+        >
+          {switchesTo ? <SwapIcon /> : <SignInIcon />}
+          {action}
+        </DropdownMenuItem>
+        {/* A switch is the cheap repair; the sign-in stays available under it
+            for a login that turns out to be dead after all. */}
+        {switchesTo && (
+          <DropdownMenuItem
+            onSelect={() => {
+              const target = {
+                device,
+                agent: chip.agent,
+                profileId: chip.profileId,
+              }
+              setTimeout(() => requestAgentLogin(target), 0)
+            }}
+          >
+            <SignInIcon />
+            Sign in again
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -412,6 +596,26 @@ export function MyMachines({
                         Shared
                       </span>
                     )}
+                    {/* EXP-849: the worst health of the accounts this machine
+                        holds, bubbled to the row — "needs re-login" is a
+                        DIFFERENT problem from "signed out" and the chips
+                        below say which account it is. */}
+                    {healthBadgeLabel(
+                      deviceWorstHealth({
+                        agentAccounts: device.agentAccounts,
+                      }) ?? `ok`
+                    ) && (
+                      <span
+                        className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500"
+                        title={`Sign in again from the account chip below.`}
+                      >
+                        {healthBadgeLabel(
+                          deviceWorstHealth({
+                            agentAccounts: device.agentAccounts,
+                          }) ?? `ok`
+                        )}
+                      </span>
+                    )}
                   </div>
                   <DeviceStatusLine
                     online={online}
@@ -427,6 +631,9 @@ export function MyMachines({
                       {blockerLine}
                     </div>
                   )}
+                  {/* EXP-849: the accounts this machine holds — the repair
+                      controls live on these chips. */}
+                  <MachineAccountChips device={device} online={online} />
                 </div>
                 {/* EXP-698: the fixed trailing column — a play slot and a ⋯
                     slot, so the controls line up down the list. A row without

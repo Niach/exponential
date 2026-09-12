@@ -16,8 +16,14 @@
 //! ← {"id":3,"result":{"rateLimits":{…}}}
 //! ```
 //!
-//! `refreshToken: false` is load-bearing: this probe must never cause a
-//! token refresh. The whole exchange runs under ONE deadline, and the child
+//! `refreshToken` decides whether this probe also KEEPS the login alive.
+//! `false` is the default and the only value the doctor ever sends: a
+//! presence check must not spend a refresh. EXP-849 sends `true` on a slow
+//! cadence ([`crate::usage_cache::CODEX_REFRESH_INTERVAL_SECS`]) for the
+//! logins this machine actually runs, so an account that is only ever read
+//! from here does not quietly expire — codex performs the refresh itself,
+//! inside its own credential store; nothing here reads, copies or writes a
+//! credential. The whole exchange runs under ONE deadline, and the child
 //! is killed and reaped by a Drop guard on every path — a wedged app-server
 //! must not outlive the probe (the daemon runs this on a cadence).
 
@@ -109,16 +115,22 @@ impl Drop for ChildGuard {
 /// installed, an older build without `app-server`, or a wedged process
 /// killed at the deadline).
 pub fn probe(program: &str, path_env: &str, timeout: Duration) -> std::io::Result<CodexProbe> {
-    probe_in(program, path_env, &[], timeout)
+    probe_in(program, path_env, &[], timeout, false)
 }
 
 /// [`probe`] with extra spawn env — EXP-792: a profile's `CODEX_HOME`, so
 /// the app-server answers for THAT login's account and windows.
+///
+/// EXP-849: `refresh_token` is the keep-alive. `true` asks codex to refresh
+/// the login's own token while it answers (the CLI owns the credential and
+/// the rotation; this only says "while you are here, stay signed in"). Every
+/// presence-shaped caller passes `false`.
 pub fn probe_in(
     program: &str,
     path_env: &str,
     env: &[(String, String)],
     timeout: Duration,
+    refresh_token: bool,
 ) -> std::io::Result<CodexProbe> {
     let mut cmd = background_command(program);
     cmd.env("PATH", path_env)
@@ -169,7 +181,7 @@ pub fn probe_in(
     writeln!(
         stdin,
         "{}",
-        rpc_request(2, "account/read", json!({"refreshToken": false}))
+        rpc_request(2, "account/read", json!({"refreshToken": refresh_token}))
     )?;
     stdin.flush()?;
     let account = await_answer(&receiver, 2, deadline).ok().flatten();
@@ -247,6 +259,17 @@ mod tests {
         // LINE-delimited, so a request is exactly one line.
         assert!(!rendered.contains('\n'), "a request must render on one line");
         assert!(!rpc_notification("initialized", json!({})).contains("\"id\""));
+        // EXP-849: the keep-alive is the SAME request with the flag flipped —
+        // there is no second method, and no credential on either side of it.
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&rpc_request(
+                2,
+                "account/read",
+                json!({"refreshToken": true})
+            ))
+            .unwrap()["params"]["refreshToken"],
+            json!(true)
+        );
     }
 
     #[test]

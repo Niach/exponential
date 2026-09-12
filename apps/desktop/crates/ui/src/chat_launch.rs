@@ -136,6 +136,10 @@ pub(crate) enum RemoteSubject<'a> {
 /// as `prompt` (LAST on the wire). Blank model/effort are the "CLI default"
 /// sentinel and are omitted; the server's per-agent vocabulary has no empty
 /// member.
+///
+/// EXP-849: the account pick rides too. It names a profile on the TARGET
+/// machine (the picker only ever offers that device's own logins), so the
+/// ambient login — `None` here — is the only safe default.
 pub(crate) fn remote_start_input(
     device_id: &str,
     options: &LaunchOptions,
@@ -150,6 +154,7 @@ pub(crate) fn remote_start_input(
         ultracode: Some(options.ultracode),
         plan_mode: Some(options.plan_mode),
         prompt,
+        account: options.account.clone(),
         ..Default::default()
     };
     match subject {
@@ -387,6 +392,21 @@ mod tests {
         assert_eq!(chat.model.as_deref(), Some("opus"));
         assert_eq!(chat.plan_mode, Some(true));
         assert!(chat.issue_id.is_none() && chat.issue_ids.is_none());
+        // EXP-849: no account picked = the target's ambient login.
+        assert_eq!(chat.account, None);
+        let picked = remote_start_input(
+            "dev-1",
+            &LaunchOptions {
+                account: Some("0a1b2c3d".into()),
+                ..options()
+            },
+            RemoteSubject::Issue {
+                issue_id: "i-1",
+                resume: false,
+            },
+            None,
+        );
+        assert_eq!(picked.account.as_deref(), Some("0a1b2c3d"));
 
         let repo_less = remote_start_input(
             "dev-1",

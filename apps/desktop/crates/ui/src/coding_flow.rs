@@ -370,6 +370,14 @@ impl LocalSessions {
         self.by_issue.get(issue_id)
     }
 
+    /// EXP-849: the live local session with this `coding_sessions` row id,
+    /// whatever it is keyed under — the one lookup that starts from a SESSION
+    /// rather than from its subject (an account switch knows the row it is
+    /// continuing, not whether it was keyed by issue, batch or action).
+    pub fn session_for_id(&self, session_id: &str) -> Option<&LocalCodingSession> {
+        self.all().find(|session| session.session_id == session_id)
+    }
+
     /// EVERY live local session (issue, batch, or action) whose worktree is
     /// on `branch`. Trunk/scratch action runs carry an empty branch and never
     /// match. The fix-conflicts launch uses this to END the stale sessions
@@ -1316,6 +1324,22 @@ pub fn resume_subject(record: &RunRecord, new_session_id: String) -> SessionSubj
 /// rows (any other device), for the issue itself or every member of a batch.
 /// Action and chat records own their own branch and are never blocked.
 pub fn resume_blocker(record: &RunRecord, cx: &mut App) -> Option<String> {
+    resume_blocker_for(record, false, cx)
+}
+
+/// [`resume_blocker`], told whether this resume is a CONTINUATION of the
+/// record's own live run (EXP-849: an account switch).
+///
+/// A continuation exempts the record's own session and everything already
+/// chained off it (`queries::resume_chain`) from the cross-device probe: the
+/// live row it is about to replace is the same piece of work, so counting it
+/// would make a switch impossible while the run it switches is still live.
+/// Another machine's session on the issue still refuses.
+pub fn resume_blocker_for(
+    record: &RunRecord,
+    continuation: bool,
+    cx: &mut App,
+) -> Option<String> {
     let subjects: Vec<(&str, &str)> = match record.kind {
         RunKind::Issue => {
             let issue_id = record.issue_id.as_deref()?;
@@ -1347,7 +1371,10 @@ pub fn resume_blocker(record: &RunRecord, cx: &mut App) -> Option<String> {
                 "Already coding {identifier}. Stop that session first."
             ));
         }
-        if let Some(device) = queries::live_session_device_for_issue(cx, issue_id, now) {
+        let except = continuation.then_some(record.session_id.as_str());
+        if let Some(device) =
+            queries::live_session_device_for_issue_except(cx, issue_id, now, except)
+        {
             return Some(format!(
                 "{identifier} already has a live session on {device} (only one session per issue)."
             ));

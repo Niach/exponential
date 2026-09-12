@@ -882,6 +882,34 @@ fn resume_remote(
     window: &mut Window,
     cx: &mut App,
 ) {
+    resume_remote_inner(session_id, device_id, device_label, None, window, cx)
+}
+
+/// EXP-849 — the same relay resume, naming an ACCOUNT on the target machine:
+/// a remote "switch account" is a resume with an account, which is exactly
+/// what the frame already carries. The machine applies the same rules a local
+/// switch does (claude only, the profile must exist there) and refuses with
+/// its own message.
+pub(crate) fn resume_remote_on_account(
+    session_id: String,
+    device_id: String,
+    account: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let label = crate::queries::device_label_for_id(cx, &device_id)
+        .unwrap_or_else(|| "that machine".to_string());
+    resume_remote_inner(session_id, device_id, label, account, window, cx)
+}
+
+fn resume_remote_inner(
+    session_id: String,
+    device_id: String,
+    device_label: String,
+    account: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         window.push_notification(
             Notification::error("Sign in and wait for sync before resuming."),
@@ -892,6 +920,7 @@ fn resume_remote(
     let input = api::steer::StartSessionInput {
         resume_session_id: Some(session_id),
         device_id: device_id.clone(),
+        account,
         ..Default::default()
     };
     let subject = crate::coding_flow::RemoteRunSubject::of(&input);

@@ -92,3 +92,25 @@ export function descendantIds<T extends TreeSession>(
   }
   return out
 }
+
+/** EXP-818: the rows a COLLAPSED set leaves visible — a row whose parent (or
+ * any ancestor) is collapsed is skipped. Keyed on the flattened depths, so it
+ * needs nothing but `nestSessions`' output.
+ *
+ * A WEB presentation helper, not part of the ×4 nesting rule above: the two
+ * session lists that fold (the sidebar group and the Agent page's list) share
+ * it so their twisties behave identically. */
+export function visibleTreeRows<T extends TreeSession>(
+  rows: readonly SessionTreeRow<T>[],
+  collapsed: ReadonlySet<string>
+): SessionTreeRow<T>[] {
+  const out: SessionTreeRow<T>[] = []
+  let hideBelow: number | null = null
+  for (const row of rows) {
+    if (hideBelow !== null && row.depth > hideBelow) continue
+    hideBelow = null
+    out.push(row)
+    if (row.hasChildren && collapsed.has(row.session.id)) hideBelow = row.depth
+  }
+  return out
+}

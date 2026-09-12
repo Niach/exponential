@@ -268,6 +268,14 @@ pub struct DeviceEntry {
     /// EXP-432: set only on teammates' shared rows — the device owner.
     #[serde(default)]
     pub owner: Option<DeviceOwner>,
+    /// EXP-849: the machine's `agentAccounts` map, verbatim — the Devices row
+    /// badges the WORST health in it (`coding::agent_accounts::worst_health`),
+    /// which is the one thing `agents`/`unauthed_agents` cannot express: a CLI
+    /// that still names an account the provider has revoked is in neither
+    /// list. Absent from `devices.list` (which never sent it); the desktop
+    /// fills it from the SYNCED row it builds these entries from.
+    #[serde(default)]
+    pub agent_accounts: Option<serde_json::Value>,
 }
 
 /// The owning user of a teammate's shared row (EXP-432).
@@ -624,6 +632,40 @@ pub fn create_agent_usage_refresh_command(
         &Input {
             device_id,
             kind: "agent_usage_refresh",
+            agent,
+            profile_id,
+        },
+    )
+}
+
+/// `devices.createCommand` for an `agent_profile_use` (EXP-849) — ask one of
+/// the CALLER's own machines to make `profile_id` its DEFAULT login for
+/// `agent` ("use this account here").
+///
+/// Deliberately NOT `agent_login`: it signs nobody in and touches no
+/// credential, it only moves a device-local pointer, so it is offered (and
+/// gated, on the `agent-profile-use` cap) on its own. The device refuses a
+/// profile that is not signed in there, and answers by re-reporting its
+/// accounts so every client's ACTIVE check moves on that beat.
+pub fn create_agent_profile_use_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    profile_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        profile_id: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_profile_use",
             agent,
             profile_id,
         },

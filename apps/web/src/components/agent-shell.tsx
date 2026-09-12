@@ -1,8 +1,8 @@
-import { type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useParams } from "@tanstack/react-router"
 import type { CodingSession } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
-import { nestSessions } from "@/lib/session-tree"
+import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
 import { cn } from "@/lib/utils"
 import { relativeTime } from "@/components/comment-rows/format"
@@ -29,6 +29,10 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 // (`lib/session-tree.ts`, the ×4 rule), indented.
 
 const ActionChatIcon = conceptIcon(`action-chat`)
+// EXP-849: the same fold twisty the sidebar's Sessions group carries — the two
+// lists render the same tree, so they fold the same way.
+const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 
 export function AgentShell({
   teamId,
@@ -72,7 +76,36 @@ export function SessionsList({
   const { past } = usePastRuns(teamId, currentUserId)
   const openSession = useOpenSession()
   const runningById = new Map(running.map((row) => [row.session.id, row]))
-  const tree = nestSessions(running.map((row) => row.session))
+  // EXP-849: a parent run's subtree folds away here too — an orchestrator with
+  // six children used to push Past off the list. Expanded by default, per
+  // parent, for as long as the list is mounted (the sidebar's rule).
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set<string>()
+  )
+  const nested = useMemo(
+    () => nestSessions(running.map((row) => row.session)),
+    [running]
+  )
+  const tree = useMemo(
+    () => visibleTreeRows(nested, collapsed),
+    [nested, collapsed]
+  )
+  // EXP-849: the continuation chain (`resumed_from_id`) — a run that was
+  // switched onto another account or resumed says so, and the run it came out
+  // of is marked as continued instead of looking like a second dead run.
+  const continuedIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const row of [...running, ...past]) {
+      if (row.session.resumedFromId) ids.add(row.session.resumedFromId)
+    }
+    return ids
+  }, [running, past])
+  const toggle = (sessionId: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current)
+      if (!next.delete(sessionId)) next.add(sessionId)
+      return next
+    })
   return (
     <div className={cn(`flex-1 overflow-y-auto p-2`, TAB_BAR_CLEARANCE, className)}>
       <GlassSectionHeader label="Running" />
@@ -84,7 +117,7 @@ export function SessionsList({
         </div>
       ) : (
         <div className="flex flex-col">
-          {tree.map(({ session, depth }) => {
+          {tree.map(({ session, depth, hasChildren }) => {
             const row = runningById.get(session.id)!
             return (
               <RunningRow
@@ -92,6 +125,10 @@ export function SessionsList({
                 row={row}
                 depth={depth}
                 active={session.id === activeSessionId}
+                expandable={hasChildren}
+                expanded={!collapsed.has(session.id)}
+                onToggle={() => toggle(session.id)}
+                continuation={Boolean(session.resumedFromId)}
                 onOpen={() => openSession(session)}
               />
             )
@@ -109,6 +146,7 @@ export function SessionsList({
                 title={row.title}
                 identifier={row.identifier}
                 byline={pastRunRowByline(row)}
+                continued={continuedIds.has(row.session.id)}
                 active={row.session.id === activeSessionId}
                 onOpen={() => openSession(row.session)}
               />
@@ -126,11 +164,22 @@ function RunningRow({
   row,
   depth,
   active,
+  expandable,
+  expanded,
+  onToggle,
+  continuation,
   onOpen,
 }: {
   row: AgentSessionRow
   depth: number
   active: boolean
+  /** EXP-849: this run started others — the row carries the fold twisty. */
+  expandable: boolean
+  expanded: boolean
+  onToggle: () => void
+  /** EXP-849: this run took over from an earlier one (an account switch or a
+   *  resume) — the byline says so. */
+  continuation: boolean
   onOpen: () => void
 }) {
   const { session, issue, device, paused } = row
@@ -148,6 +197,28 @@ function RunningRow({
       style={{ paddingLeft: `${12 + depth * 14}px` }}
       data-testid={`agent-list-session-${issue?.identifier ?? session.id}`}
     >
+      {expandable ? (
+        /* The twisty is its own target inside the row — a click folds the
+           subtree instead of opening the run (the sidebar's rule). */
+        <span
+          role="button"
+          tabIndex={-1}
+          aria-label={expanded ? `Collapse child runs` : `Expand child runs`}
+          className="flex w-3 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle()
+          }}
+        >
+          {expanded ? (
+            <ChevronDownIcon className="size-3" />
+          ) : (
+            <ChevronRightIcon className="size-3" />
+          )}
+        </span>
+      ) : (
+        <span aria-hidden className="w-3 shrink-0" />
+      )}
       <span className="flex w-3 shrink-0 items-center justify-center">
         {isChat ? (
           <ActionChatIcon className="size-3.5 text-muted-foreground" />
@@ -168,6 +239,7 @@ function RunningRow({
           {paused ? `Paused · ` : ``}
           {device.label || session.deviceLabel || `Desktop`}
           {` · started ${relativeTime(session.startedAt)}`}
+          {continuation ? ` · continued` : ``}
         </div>
       </div>
     </ListRow>
@@ -179,6 +251,7 @@ function PastRow({
   title,
   identifier,
   byline,
+  continued,
   active,
   onOpen,
 }: {
@@ -186,6 +259,8 @@ function PastRow({
   title: string
   identifier: string | null
   byline: string
+  /** EXP-849: another run took over from this one — it ended ON PURPOSE. */
+  continued: boolean
   active: boolean
   onOpen: () => void
 }) {
@@ -211,6 +286,7 @@ function PastRow({
         </div>
         <div className="truncate text-xs text-muted-foreground">
           {byline || (session.agent ? agentLabel(session.agent) : ``)}
+          {continued ? ` · continued in a newer run` : ``}
         </div>
       </div>
     </ListRow>

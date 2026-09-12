@@ -155,9 +155,13 @@ pub fn run(
             // EXP-827: the profile this login lands on, created here when
             // the payload asked for a new one. A refused target (unknown
             // id) is the completion; nothing is spawned.
+            // The login this run landed on, for the cache drop below (a
+            // refused target never reached one).
+            let mut login_profile: Option<String> = None;
             let outcome = match agent_login::resolve_login_profile(&data_dir, agent, &target) {
                 Err(message) => Some((false, message)),
                 Ok(profile_id) => {
+                    login_profile = Some(profile_id.clone());
                     let env = agent_login::login_env(&data_dir, agent, &profile_id);
                     // EXP-765: the slot the requester's code lands in while
                     // this login runs. Keyed by agent — one login per agent
@@ -195,9 +199,16 @@ pub fn run(
             }
             // A switch leaves the OLD account cached (email, plan, numbers)
             // behind its poll backoff — up to 10 minutes of naming the
-            // person who just signed out. Drop this agent's entry so the
-            // next collect asks afresh.
-            coding::usage_cache::forget(&data_dir, agent.id());
+            // person who just signed out. Drop the LOGIN's entry so the next
+            // collect asks afresh. EXP-849: the login's, not the agent's —
+            // dropping every profile would blank its siblings' health and
+            // numbers for a sign-in that never touched them.
+            match &login_profile {
+                Some(profile) => {
+                    coding::usage_cache::forget_profile(&data_dir, agent.id(), profile)
+                }
+                None => coding::usage_cache::forget(&data_dir, agent.id()),
+            }
             // Whatever happened, what the machine's agents look like just
             // changed (or was meant to) — re-probe on the next tick.
             doctor_soon.store(true, Ordering::SeqCst);
@@ -231,7 +242,15 @@ fn drive(
 ) -> Option<(bool, String)> {
     // A switch signs OUT first — otherwise every agent CLI here would just
     // report the account already signed in and exit.
+    //
+    // EXP-849 (interface E): except when signing out would revoke a login
+    // this machine only SHARES — `codex logout` on the ambient login kills it
+    // with OpenAI for every machine using it. That switch is refused here
+    // rather than performed; the fix is a profile.
     if switch {
+        if let Some(message) = agent_login::switch_logout_blocker(agent, profile_id) {
+            return Some((false, message));
+        }
         if let Err(err) = agent_login::logout_in(settings, agent, env) {
             // Not fatal: the login below may still prompt.
             log::info!("agent_login: sign-out before the switch failed: {err}");

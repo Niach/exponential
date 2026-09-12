@@ -2616,7 +2616,10 @@ impl SteerSessionView {
         } else {
             kill_description(label.as_deref())
         };
-        let spec = AlertSpec::new("Kill this coding session?", description, "Kill session")
+        // EXP-849 fix-up: ONE verb for ending a run — "Stop", the same word
+        // Android and iOS already use. "Kill" described the mechanism, not
+        // what the person is doing.
+        let spec = AlertSpec::new("Stop this coding session?", description, "Stop session")
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             if let Some(view) = view.upgrade() {
@@ -4985,13 +4988,15 @@ impl SteerSessionView {
                             div()
                                 .flex_shrink_0()
                                 .text_2xs()
-                                // The STRIP keeps the count: its summary is
-                                // the projected tab row, not the feed items a
-                                // `toolGroupSummary` is derived from.
                                 .child(SharedString::from(subagent_caption(
                                     summary.done,
                                     summary.tool_count,
-                                    None,
+                                    // EXP-849: the projection carries the
+                                    // `toolGroupSummary` now, so the strip says
+                                    // what the subagent DID instead of how many
+                                    // calls it made — the same caption its
+                                    // inline group row wears.
+                                    summary.tool_summary.as_deref(),
                                 ))),
                         )
                         .when_some(summary.detail.clone(), |this, detail| {

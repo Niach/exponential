@@ -376,6 +376,18 @@ pub struct ResumeRunRequest {
     /// prompt at all). The server never sends one on a relay resume; a local
     /// caller may.
     pub prompt: Option<String>,
+    /// EXP-849 — SWITCH the account this run continues on (claude only).
+    /// `None` keeps `record.account()`, which is what every ordinary resume
+    /// wants: the same config dir holds the credentials, the trust flags and
+    /// the transcript.
+    ///
+    /// A mid-session switch IS a resume with this set: the transcript JSONL is
+    /// copied into the target profile's `projects` tree so `--resume` finds it
+    /// (never the credential — see [`copy_claude_transcript`]), and the new
+    /// `coding_sessions` row chains back through `resumedFromId`. Codex is
+    /// refused: its conversation lives in the profile's own rollout store and
+    /// its login is one per session.
+    pub account: Option<String>,
 }
 
 /// The four launch shapes ONE [`prepare`] serves.
@@ -591,6 +603,11 @@ pub enum DisabledReason {
     /// user asked for, so it does not start. The message names the server
     /// and what is missing ([`crate::mcp_servers::McpBlocker`]'s Display).
     McpBlocked(McpBlocker),
+    /// EXP-849: this resume asked to continue on a DIFFERENT account and the
+    /// run cannot be handed over — codex (one login per session, its
+    /// conversation lives in the login's own rollout store), a missing target
+    /// profile, or a switch asked for while the agent is mid-turn.
+    AccountSwitchRefused { message: String },
 }
 
 impl DisabledReason {
@@ -608,6 +625,7 @@ impl DisabledReason {
                 .unwrap_or_else(|| format!("{} is not available", check.tool)),
             DisabledReason::SessionLimit { message } => message.clone(),
             DisabledReason::TokenDenied { message } => message.clone(),
+            DisabledReason::AccountSwitchRefused { message } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -2445,11 +2463,72 @@ fn prepare_action(
 /// `pub` because the ACP engine replays a claude transcript from the same
 /// tree (Past → Replay) and must resolve it exactly as the resume probe does.
 pub fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
+    claude_projects_root_in(deps, None)
+}
+
+/// [`claude_projects_root`] for ONE account profile (EXP-849): a profile run
+/// carries `CLAUDE_CONFIG_DIR=<profile dir>`, so its transcripts live under
+/// `<profile dir>/projects`, not under `~/.claude`. `None` = the ambient
+/// login, whose tree an injected fixture root stands in for.
+pub fn claude_projects_root_in(deps: &CodingDeps, profile_dir: Option<&Path>) -> Option<PathBuf> {
+    // A profile's tree is DETERMINED by its config dir — nothing stands in for
+    // it, not even an injected fixture (which is the AMBIENT login's tree).
+    if let Some(dir) = profile_dir {
+        return Some(dir.join("projects"));
+    }
     if let Some(root) = &deps.claude_projects_root {
         return Some(root.clone());
     }
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     Some(PathBuf::from(home).join(".claude").join("projects"))
+}
+
+/// EXP-849 — hand a claude transcript to ANOTHER account profile, so a resume
+/// on that profile's `CLAUDE_CONFIG_DIR` can `--resume` into the conversation
+/// the run had. Answers whether the target tree now holds it.
+///
+/// This copies a TRANSCRIPT and nothing else. A credential file is never
+/// copied, snapshotted or restored — two CLIs sharing one credential store is
+/// fine, two stores holding the same credential is a revoked login — and the
+/// target profile's own `.credentials.json` is never touched.
+///
+/// Idempotent: a transcript already in the target tree (a switch back and
+/// forth) is left exactly as it is, so the NEWER file always wins.
+fn copy_claude_transcript(
+    deps: &CodingDeps,
+    from: Option<&Path>,
+    to: Option<&Path>,
+    session_id: &str,
+) -> bool {
+    let Some(target_root) = claude_projects_root_in(deps, to) else {
+        return false;
+    };
+    if locate_claude_transcript(&target_root, session_id).is_some() {
+        return true;
+    }
+    let Some(source) = claude_projects_root_in(deps, from)
+        .and_then(|root| locate_claude_transcript(&root, session_id))
+    else {
+        return false;
+    };
+    // Keep claude's own per-cwd directory name: it munges the cwd (and
+    // hash-suffixes long ones), and a name we invented would not be the one
+    // the CLI looks under for THIS cwd.
+    let Some(project) = source.parent().and_then(|dir| dir.file_name()) else {
+        return false;
+    };
+    let dir = target_root.join(project);
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        log::warn!("coding: could not prepare {} for a resume: {err}", dir.display());
+        return false;
+    }
+    match std::fs::copy(&source, dir.join(format!("{session_id}.jsonl"))) {
+        Ok(_) => true,
+        Err(err) => {
+            log::warn!("coding: could not hand transcript {session_id} to the target account: {err}");
+            false
+        }
+    }
 }
 
 /// EXP-761: the ONE way to find a claude transcript — `<root>/*/<session
@@ -2477,7 +2556,16 @@ pub fn locate_claude_transcript(root: &Path, session_id: &str) -> Option<PathBuf
 /// [`locate_claude_transcript`].) EXP-746: `pub` for the engine's replay,
 /// like [`claude_projects_root`] above.
 pub fn claude_transcript_exists(deps: &CodingDeps, _cwd: &Path, session_id: &str) -> bool {
-    claude_projects_root(deps)
+    claude_transcript_exists_in(deps, None, session_id)
+}
+
+/// [`claude_transcript_exists`] against ONE account profile's tree (EXP-849).
+pub fn claude_transcript_exists_in(
+    deps: &CodingDeps,
+    profile_dir: Option<&Path>,
+    session_id: &str,
+) -> bool {
+    claude_projects_root_in(deps, profile_dir)
         .is_some_and(|root| locate_claude_transcript(&root, session_id).is_some())
 }
 
@@ -2501,6 +2589,22 @@ fn prepare_resume_run(
 ) -> Result<Prepared, CodingError> {
     let record = &req.record;
     let agent = record.agent;
+    // EXP-849: what account this resume runs on. `Some(None)` is an explicit
+    // ask for the AMBIENT login (switching back), which is why this is a
+    // nested option and not a plain `Option<String>`: the ambient login is a
+    // legal switch TARGET, not the absence of one.
+    let requested_account: Option<Option<String>> = req.account.as_deref().map(|id| {
+        (!crate::agent_profiles::is_system(Some(id))).then(|| id.trim().to_string())
+    });
+    let recorded_account = record.account();
+    let resume_account = match &requested_account {
+        Some(wanted) => wanted.clone(),
+        None => recorded_account.clone(),
+    };
+    // A switch is a request that names a DIFFERENT login than the run used;
+    // "resume on the account it already ran on" is an ordinary resume,
+    // however the caller spelled it.
+    let switching = requested_account.is_some() && resume_account != recorded_account;
     let options = LaunchOptions {
         agent,
         model: req.model.clone().unwrap_or_else(|| record.model.clone()),
@@ -2521,7 +2625,9 @@ fn prepare_resume_run(
         mcp_server_ids: record.mcp_server_ids(),
         // EXP-792: the recorded account profile — the resume must read the
         // SAME config dir (credentials, trust, codex rollouts) the run did.
-        account: record.account(),
+        // EXP-849: unless the caller asked to SWITCH accounts, which is what a
+        // mid-session account change is (the gate is below).
+        account: resume_account.clone(),
         external: record.resolved_external_agent(&deps.settings.external_agents),
     };
     let agent_kind = agent_kind(&options);
@@ -2530,6 +2636,25 @@ fn prepare_resume_run(
         agent_kind.builtin(),
         options.account.as_deref(),
     );
+    // EXP-849 — refuse a switch the machine cannot honor, BEFORE anything is
+    // started: a named target that does not exist here, and codex, whose
+    // conversation lives inside the login's own rollout store (and whose
+    // login is one per session by contract — interface E).
+    if switching {
+        if agent_kind.builtin() != Some(CodingAgent::Claude) {
+            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
+                message: format!(
+                    "{} cannot continue a run on another account — start a new run on it instead.",
+                    agent_kind.label()
+                ),
+            }));
+        }
+        if let (Some(target), None) = (&resume_account, &profile_dir) {
+            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
+                message: format!("That account ({target}) is not set up on this machine."),
+            }));
+        }
+    }
     // The builtin CLI this resume runs, if any. Everything keyed on the
     // closed [`CodingAgent`] vocabulary — the doctor gate, the trust
     // seeders, the three native resume handles, the argv identities — has
@@ -2665,6 +2790,16 @@ fn prepare_resume_run(
     // Each agent's handles are tried in order (the recorded pin first, the
     // native id second) and the FIRST one that still names a live
     // conversation wins — a stale pin must not mask a good fallback.
+    // EXP-849: the transcript is looked for in the tree the resume will RUN
+    // against — the TARGET profile's, which on a switch is not the one that
+    // holds it yet. So hand it over first (transcript only, never a
+    // credential): a switch whose copy fails simply degrades to a fresh
+    // session with the resume prompt, exactly like a pruned transcript.
+    let source_profile_dir = crate::agent_profiles::account_dir(
+        &deps.data_dir,
+        builtin,
+        recorded_account.as_deref(),
+    );
     let claude_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Claude))
         .then(|| {
             record
@@ -2672,7 +2807,17 @@ fn prepare_resume_run(
                 .clone()
                 .into_iter()
                 .chain(acp_native.clone())
-                .find(|id| claude_transcript_exists(deps, &cwd, id))
+                .find(|id| {
+                    if switching {
+                        copy_claude_transcript(
+                            deps,
+                            source_profile_dir.as_deref(),
+                            profile_dir.as_deref(),
+                            id,
+                        );
+                    }
+                    claude_transcript_exists_in(deps, profile_dir.as_deref(), id)
+                })
         })
         .flatten();
     let codex_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Codex))
@@ -2924,28 +3069,30 @@ fn prepare_resume_run(
     };
 
     // The resumed run gets its OWN record — a resume of a resume chains.
-    crate::run_registry::record(
-        &deps.data_dir,
-        RunRecord {
-            session_id: session.id.clone(),
-            claude_session_id: claude_resume_id.clone(),
-            codex_originator: codex_originator.clone(),
-            model: options.model.clone(),
-            effort: options.effort.clone(),
-            started_reason: run_reason.map(str::to_string),
-            resumed_from_id: Some(record.session_id.clone()),
-            // EXP-773: the ACP ids are the ENGINE's to upsert once
-            // `session/load` (or `session/new`) answers — the recorded ones
-            // belong to the run being continued, not to this one.
-            transport: Some(ACP_TRANSPORT.to_string()),
-            acp_session_id: None,
-            agent_native_session_id: None,
-            acp_child_pid: None,
-            host_pid: None,
-            recorded_at: crate::run_registry::now_secs(),
-            ..record.clone()
-        },
-    );
+    let mut resumed_record = RunRecord {
+        session_id: session.id.clone(),
+        claude_session_id: claude_resume_id.clone(),
+        codex_originator: codex_originator.clone(),
+        model: options.model.clone(),
+        effort: options.effort.clone(),
+        started_reason: run_reason.map(str::to_string),
+        resumed_from_id: Some(record.session_id.clone()),
+        // EXP-773: the ACP ids are the ENGINE's to upsert once
+        // `session/load` (or `session/new`) answers — the recorded ones
+        // belong to the run being continued, not to this one.
+        transport: Some(ACP_TRANSPORT.to_string()),
+        acp_session_id: None,
+        agent_native_session_id: None,
+        acp_child_pid: None,
+        host_pid: None,
+        recorded_at: crate::run_registry::now_secs(),
+        ..record.clone()
+    };
+    // EXP-849: the ACCOUNT this run actually landed on, which on a switch is
+    // not the recorded one — a resume of the resumed run must re-enter the
+    // login that now holds the transcript, not the one it came from.
+    resumed_record.set_account(options.account.as_deref());
+    crate::run_registry::record(&deps.data_dir, resumed_record);
 
     // The re-created row's start scope, in the recorded subject's shape —
     // an issue scope refuses a branch server-side, and a batch one carries
@@ -5183,6 +5330,7 @@ mod tests {
             model: None,
             effort: None,
             prompt: None,
+            account: None,
         }
     }
 
@@ -5239,6 +5387,133 @@ mod tests {
         assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
         assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
         assert_eq!(fresh.started_reason, None);
+    }
+
+    /// EXP-849 — a mid-session account SWITCH (claude only): the resume runs
+    /// on the target profile, the transcript is HANDED OVER into that
+    /// profile's own `projects` tree so `--resume` still finds the
+    /// conversation, and the new row chains back through `resumedFromId` like
+    /// any other resume. No credential is read, copied or written.
+    #[test]
+    fn prepare_resume_run_hands_the_transcript_to_the_target_account() {
+        let dir = temp_dir("resume-switch");
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        // The run happened on the AMBIENT login, whose tree the fixture root
+        // stands in for.
+        let projects = dir.0.join("claude-projects");
+        let project_dir = projects.join("-Users-u-worktree--71h4ur");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(project_dir.join("claude-1.jsonl"), "{\"turn\":1}\n").unwrap();
+        deps.claude_projects_root = Some(projects);
+        let target =
+            crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        // A credential in the SOURCE tree must stay exactly where it is.
+        let credential = dir.0.join("claude-projects").join("..").join("creds.json");
+        fs::write(&credential, "secret").unwrap();
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some(target.id.clone());
+        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // The conversation survived the handover …
+        assert_eq!(
+            prepared.acp.resume,
+            Some(ResumeSeed::Native("claude-1".to_string()))
+        );
+        // … because the file is now in the TARGET profile's tree, under
+        // claude's own project directory name.
+        let handed = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id)
+            .unwrap()
+            .join("projects")
+            .join("-Users-u-worktree--71h4ur")
+            .join("claude-1.jsonl");
+        assert!(handed.is_file(), "{}", handed.display());
+        assert_eq!(fs::read_to_string(&handed).unwrap(), "{\"turn\":1}\n");
+        // Nothing credential-shaped travelled with it.
+        let target_dir =
+            crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id).unwrap();
+        assert!(!target_dir.join("creds.json").exists());
+        assert!(!target_dir.join(".credentials.json").exists());
+        assert_eq!(fs::read_to_string(&credential).unwrap(), "secret");
+        // The run now reads the TARGET profile's config dir …
+        assert!(prepared
+            .spawn
+            .env
+            .iter()
+            .any(|(key, value)| key == "CLAUDE_CONFIG_DIR"
+                && value == &target_dir.to_string_lossy().to_string()));
+        // … and is a continuation, not a new run.
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
+            "{requests:?}"
+        );
+        drop(requests);
+        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
+        assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
+        assert_eq!(fresh.account().as_deref(), Some(target.id.as_str()));
+    }
+
+    /// EXP-849 — the two switches the launcher refuses outright, before it
+    /// starts anything: codex (one login per session — its conversation lives
+    /// in the login's own rollout store), and an account this machine does
+    /// not have.
+    #[test]
+    fn prepare_resume_run_refuses_a_switch_it_cannot_honor() {
+        let dir = temp_dir("resume-switch-refused");
+        let (base, _captured) = canned_server_recording(vec![]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some("deadbeef".to_string());
+        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
+                assert!(message.contains("deadbeef"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        let target =
+            crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.agent = CodingAgent::Codex;
+        let mut req = resume_request(record);
+        req.account = Some(target.id);
+        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
+                assert!(message.to_lowercase().contains("codex"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        // Naming the account the run ALREADY used is not a switch: `system`
+        // against an ambient-login record resumes as it always did.
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some("system".to_string());
+        assert!(
+            !matches!(
+                prepare(&PrepareRequest::ResumeRun(req), &deps),
+                Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused { .. }))
+            ),
+            "same-account resume must not be refused"
+        );
     }
 
     /// EXP-679: a resume ANOTHER coding session asked for is unattended —

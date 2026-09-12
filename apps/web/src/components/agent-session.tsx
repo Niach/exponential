@@ -31,6 +31,10 @@ import { useKillSession } from "@/hooks/use-kill-session"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
+  SessionAccountRows,
+  useSessionAccountSwitch,
+} from "@/components/session-account-switch"
+import {
   accountCaption,
   blockedBadgeLabel,
   contextPercent,
@@ -182,6 +186,7 @@ const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
+const UiSwapIcon = conceptIcon(`ui-swap`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
@@ -600,6 +605,12 @@ export function AgentSessionView({
   /** EXP-484: the host machine's fresh rate-limit report for THIS run's
    *  agent, or null (finished run, other agent, stale or absent numbers). */
   const agentUsage = useSessionAgentUsage(session)
+  /** EXP-849 (phase 3): the accounts this run's machine holds, and the
+   *  between-turns switch onto one of them (claude only, own machine, idle).
+   *  The Usage sheet and the rate-limit notice both open these rows. */
+  const accountSwitch = useSessionAccountSwitch(session, currentUserId, {
+    turnEnded: turnState === `ended`,
+  })
   const usageNow = useNow(30_000)
   const isMobile = useIsMobile()
   /** EXP-550: no live stream AND the host machine is offline (lid closed,
@@ -646,6 +657,11 @@ export function AgentSessionView({
   const canKill = live && ownsLiveRow
   /** EXP-724: "Compact context" in the mobile "…" menu — a live, connected
    *  session whose agent has the command and is not already folding. */
+  /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
+   *  (with their bars) and switches between them — so it exists whenever the
+   *  machine reported an account for this run, not only when numbers are
+   *  fresh. */
+  const hasAccountRows = accountSwitch.options.length > 0
   const canCompact =
     live &&
     connected &&
@@ -852,10 +868,10 @@ export function AgentSessionView({
         {/* A finished run with no fresh numbers has nothing to offer, so the
             trigger goes away rather than opening an empty menu (its width
             stays, so the title does not jump). */}
-        {!agentUsage && !sessionUsage && !canCompact && (
+        {!agentUsage && !sessionUsage && !hasAccountRows && !canCompact && (
           <span className="size-8 shrink-0" />
         )}
-        {(agentUsage || sessionUsage || canCompact) && (
+        {(agentUsage || sessionUsage || hasAccountRows || canCompact) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -867,7 +883,7 @@ export function AgentSessionView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {(agentUsage || sessionUsage) && (
+              {(agentUsage || sessionUsage || hasAccountRows) && (
                 <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
                   <UiUsageIcon className="size-4" />
                   Usage
@@ -1175,7 +1191,19 @@ export function AgentSessionView({
           )}
           {/* EXP-784: the agent's rate-limit window, while it reports one —
               the slot clears on an empty/`ok` status and the banner goes. */}
-          {rateLimit && <RateLimitBanner state={rateLimit} />}
+          {rateLimit && (
+            <RateLimitBanner
+              state={rateLimit}
+              // EXP-849: a spent window is a WALL, and the one thing that
+              // clears it right now is another account — so that is the
+              // notice's PRIMARY button (it opens the account rows; the
+              // continuation's own slot is empty, so the notice goes with the
+              // old run). Hidden only when this run could never switch.
+              onSwitchAccount={
+                hasAccountRows ? () => setUsageOpen(true) : undefined
+              }
+            />
+          )}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3 animate-spin" />
@@ -1220,7 +1248,7 @@ export function AgentSessionView({
       {/* EXP-688: usage is a SHEET on mobile, not a hairline under the header
           — every window the machine reports, grouped the way the agent's own
           app groups them. */}
-      {(agentUsage || sessionUsage) && (
+      {(agentUsage || sessionUsage || hasAccountRows) && (
         <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
           <DialogContent
             className="sm:max-w-sm"
@@ -1262,6 +1290,13 @@ export function AgentSessionView({
               )}
               {agentUsage && (
                 <AgentUsageCards usage={agentUsage.usage} now={usageNow} />
+              )}
+              {/* EXP-849: the accounts on this run's machine — their own bars
+                  and "Switch to this account" (claude, own machine, between
+                  turns; disabled with the reason otherwise). A switch opens
+                  the continuation run's page by itself. */}
+              {hasAccountRows && (
+                <SessionAccountRows state={accountSwitch} now={usageNow} />
               )}
             </div>
           </DialogContent>
@@ -2093,7 +2128,15 @@ function InlineAnswerField({
  *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`).
  *  EXP-831: ticks so the countdown moves and the banner drops itself once
  *  the reset is behind us, without waiting on a slot update. */
-function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
+function RateLimitBanner({
+  state,
+  onSwitchAccount,
+}: {
+  state: SessionRateLimitState
+  /** EXP-849: open the account rows — the PRIMARY way out of a wall. Absent
+   *  when this run has no other account to move to. */
+  onSwitchAccount?: () => void
+}) {
   const now = useNow(30_000)
   const banner = rateLimitBanner(state, now)
   if (!banner) return null
@@ -2103,7 +2146,18 @@ function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
       <UiUsageIcon className="size-3 shrink-0" />
       <span className="min-w-0 truncate">{text}</span>
       {resets && (
-        <span className="ml-auto shrink-0 text-muted-foreground">{resets}</span>
+        <span className="shrink-0 text-muted-foreground">{resets}</span>
+      )}
+      {onSwitchAccount && (
+        <Pill
+          size="sm"
+          mode="action"
+          className="ml-auto shrink-0"
+          onClick={onSwitchAccount}
+        >
+          <UiSwapIcon className="size-3" />
+          Switch account
+        </Pill>
       )}
     </div>
   )

@@ -20,7 +20,10 @@ import {
   codingSessionCollection,
   deviceCollection,
 } from "@/lib/collections"
+import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { parseOrigin } from "@/lib/detail-origin"
+import { emptyFilters } from "@/lib/filters"
+import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import {
   findStartedRun,
@@ -93,6 +96,18 @@ function SessionPage() {
   // Sessions rows navigate from anywhere), the destination is just no longer
   // hard-coded. The browser's own back is untouched.
   const origin = useMemo(() => parseOrigin(from), [from])
+  // EXP-818 (finished in EXP-849): a run opened from a BOARD — or from an
+  // issue on one — keeps that board's list beside it, the same master-detail
+  // the issue page has. The hook is UNCONDITIONAL (hooks cannot be skipped on
+  // a render): with no board origin it runs against an empty slug, whose
+  // queries disable themselves and return nothing.
+  const originBoardSlug =
+    origin?.kind === `board` || origin?.kind === `issue` ? origin.boardSlug : ``
+  const boardView = useBoardViewData({
+    filters: emptyFilters,
+    boardSlug: originBoardSlug,
+    teamSlug,
+  })
   const goBack = useCallback(() => {
     if (origin?.kind === `inbox`) {
       void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug }, search: {} })
@@ -144,7 +159,30 @@ function SessionPage() {
   // gets the Agent shell's sessions list. Below md the session is the whole
   // screen either way.
   const shell = (content: React.ReactNode) =>
-    origin?.kind === `inbox` ? (
+    originBoardSlug ? (
+      <div className="flex h-full min-h-0">
+        <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
+          {boardView.board ? (
+            <BoardIssueListPane
+              groups={boardView.visibleGroups}
+              teamSlug={teamSlug}
+              boardSlug={originBoardSlug}
+              // The run's own issue is the highlighted row when it has one; a
+              // batch or action run simply highlights nothing.
+              activeIssueId={row?.issue?.id ?? ``}
+              filterSearch={{}}
+            />
+          ) : (
+            <div className="flex-1 overflow-y-auto p-2">
+              <div className="px-3 py-2 text-xs text-muted-foreground">
+                {boardView.boardReady ? `Board not found.` : `Loading…`}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
+      </div>
+    ) : origin?.kind === `inbox` ? (
       <div className="flex h-full min-h-0">
         <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
           <InboxView
@@ -236,9 +274,13 @@ function SessionPage() {
         identity={identity}
         mergeTarget={row.mergeTarget}
         banner={
-          session.status === `ended` ? (
-            <EndedRunHeader session={session} />
-          ) : undefined
+          <>
+            {/* EXP-849: a run that was CONTINUED (an account switch, a
+                resume) names the run before and after it, so the chain reads
+                as one conversation instead of three orphans. */}
+            <SessionContinuationBand session={session} />
+            {session.status === `ended` && <EndedRunHeader session={session} />}
+          </>
         }
         issue={row.issue ?? null}
         onOpenIssue={row.issue ? openIssue : undefined}
@@ -272,6 +314,44 @@ function SessionStubHeader({
       </span>
       {/* Balances the back button so the title stays optically centred. */}
       <span className="size-9 shrink-0" />
+    </div>
+  )
+}
+
+/** EXP-849: the continuation chain — `resumed_from_id` links the run a
+ * switch or resume came out of to the one that took over. One quiet line with
+ * both ends, each opening that run. Absent when this run is neither. */
+function SessionContinuationBand({ session }: { session: CodingSession }) {
+  const openSession = useOpenSession()
+  const { data: sessionRows } = useLiveQuery((query) =>
+    query.from({ s: codingSessionCollection })
+  )
+  const rows = (sessionRows ?? []) as CodingSession[]
+  const from = session.resumedFromId
+    ? (rows.find((row) => row.id === session.resumedFromId) ?? null)
+    : null
+  const next = rows.find((row) => row.resumedFromId === session.id) ?? null
+  if (!from && !next) return null
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+      {from && (
+        <button
+          type="button"
+          className="underline-offset-2 hover:underline"
+          onClick={() => openSession(from)}
+        >
+          {`Continued from an earlier run · started ${relativeTime(from.startedAt)}`}
+        </button>
+      )}
+      {next && (
+        <button
+          type="button"
+          className="underline-offset-2 hover:underline"
+          onClick={() => openSession(next)}
+        >
+          {`Continues in a newer run · started ${relativeTime(next.startedAt)}`}
+        </button>
+      )}
     </div>
   )
 }

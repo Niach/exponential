@@ -15,10 +15,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-// EXP-688: killing a live run is offered from two places now — the mobile
+// EXP-688: ending a live run is offered from two places now — the mobile
 // session view's "…" menu and the dock tab's X — so the confirmation dialog
 // and the mutation live here instead of inside the session view. The caller
 // renders `dialog` wherever it likes; the copy is identical either way.
+//
+// EXP-849: the VERB is Stop, everywhere and on every client (the pill, this
+// dialog, the natives' menus). "Kill" survives only where it names the wire
+// (`steer.killSession`, `relayPostKill`) — a human never reads those.
 //
 // EXP-312: live implies ownership (the ticket mint refuses everyone else), so
 // `canKill` is simply "the synced row is still going AND it is mine".
@@ -55,8 +59,8 @@ export function useKillSession(
       // read-only until the user leaves it; the relay `bye` tears the socket
       // down.
     } catch (error) {
-      toast.error(`Couldn't kill the session`, {
-        description: trpcErrorMessage(error, `The kill could not be delivered`),
+      toast.error(`Couldn't stop the session`, {
+        description: trpcErrorMessage(error, `The stop could not be delivered`),
       })
     } finally {
       setKilling(false)
@@ -70,7 +74,7 @@ export function useKillSession(
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Kill this coding session?</DialogTitle>
+            <DialogTitle>Stop this coding session?</DialogTitle>
             <DialogDescription>
               This stops the agent
               {deviceLabel ? ` on ${deviceLabel}` : ``} and ends the session.
@@ -89,7 +93,7 @@ export function useKillSession(
               disabled={killing}
             >
               {killing && <LoadingIcon className="animate-spin" />}
-              Kill session
+              Stop session
             </Button>
           </DialogFooter>
         </DialogContent>

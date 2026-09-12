@@ -213,7 +213,7 @@ export function AppsDocsPage() {
               on the desktop. The session&apos;s{` `}
               <strong>…</strong> menu holds <strong>Usage</strong> (how much
               of the agent&apos;s limits this run and this week have spent)
-              and <strong>Kill session</strong>, and an open PR the run
+              and <strong>Stop session</strong>, and an open PR the run
               opened, on an issue or from an action or chat, puts a{` `}
               <strong>Merge</strong> pill next to{` `}
               <strong>Latest changes</strong> — replaced by{` `}

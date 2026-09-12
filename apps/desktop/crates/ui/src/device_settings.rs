@@ -348,7 +348,7 @@ fn dev_agent_status() -> Option<(
                 email: account_email,
                 plan: Some(plan.to_string()),
                 checked_at: stamp.clone(),
-                profiles: Vec::new(),
+                ..AgentAccount::default()
             },
         );
         usage.insert(
@@ -2264,7 +2264,7 @@ mod tests {
                 email: email.map(str::to_string),
                 plan: plan.map(str::to_string),
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
-                profiles: Vec::new(),
+                ..coding::agent_accounts::AgentAccount::default()
             }
         };
         // The plan is dropped even when the machine reported one.

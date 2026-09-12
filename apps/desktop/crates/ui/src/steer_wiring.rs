@@ -583,7 +583,11 @@ fn remote_action_start(
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-    );
+        // EXP-849: the composer's account pick. EXP-792's `mcpServerIds` rode
+        // the frame unread until now — both land here, one normalizer each.
+        start.account.as_deref(),
+    )
+    .with_mcp_servers(start.mcp_server_ids.clone());
     let repo_group = repo.map(|repo| RepoGroup {
         repository_id: repo.repository_id,
         full_name: repo.full_name,
@@ -710,7 +714,11 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-    );
+        // EXP-849: the composer's account pick. EXP-792's `mcpServerIds` rode
+        // the frame unread until now — both land here, one normalizer each.
+        start.account.as_deref(),
+    )
+    .with_mcp_servers(start.mcp_server_ids.clone());
     // EXP-481/EXP-662: honor the remote resume flag against the RUN REGISTRY
     // — the newest resumable record for this issue on this account relaunches
     // that exact transcript; with no record the flag degrades to a fresh
@@ -736,6 +744,10 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
                     model: None,
                     effort: None,
                     prompt: start.prompt.clone(),
+                    // EXP-849: …except the ACCOUNT. A remote "switch account"
+                    // is a resume naming a different login (already
+                    // normalized by `LaunchOptions::remote`).
+                    account: options.account.clone(),
                 }),
                 deps,
             )
@@ -879,7 +891,11 @@ fn remote_batch_start(
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-    );
+        // EXP-849: the composer's account pick. EXP-792's `mcpServerIds` rode
+        // the frame unread until now — both land here, one normalizer each.
+        start.account.as_deref(),
+    )
+    .with_mcp_servers(start.mcp_server_ids.clone());
 
     // Same field construction the dialog's `batch_request` uses (device_label
     // from `coding::default_device_label()`, a fresh `coding::new_batch_id()`).

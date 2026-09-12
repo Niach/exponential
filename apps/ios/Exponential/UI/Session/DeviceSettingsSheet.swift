@@ -46,6 +46,11 @@ struct DeviceSettingsSheet: View {
     /// itself first; a host with nowhere to send the caller passes nothing and
     /// the button simply does not render.
     var onOpenUsage: (() -> Void)? = nil
+    /// EXP-849: the agent tab to open on — a machine chip's "Sign in again"
+    /// names the agent whose login is broken, and this sheet owns the sign-in
+    /// link round-trip. Nil (the row menu's Edit) opens on the machine's
+    /// default agent, as before.
+    var initialAgent: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -213,6 +218,11 @@ struct DeviceSettingsSheet: View {
         seeded = true
         name = device.deviceLabel
         applyDefaults(device, keepTab: false)
+        // EXP-849: a caller that named an agent wins over the machine's
+        // default — but only while the machine still reports that agent.
+        if let initialAgent, tabAgents(device).contains(initialAgent) {
+            selectedAgent = initialAgent
+        }
     }
 
     /// (Re)build the defaults drafts from the row. Callers own the guards —
@@ -656,7 +666,12 @@ struct DeviceSettingsSheet: View {
     private func accountCaption(_ account: AgentAccount?) -> String {
         guard let account else { return "Sign-in status unknown" }
         guard account.signedIn == true else { return "Not signed in" }
-        return AgentUsagePresentation.accountCaption(account)
+        let caption = AgentUsagePresentation.accountCaption(account)
+        // EXP-849: the CLI's `auth status` is identity only — a credential the
+        // agent refused still prints its email, so the health the machine's own
+        // probe found has to ride beside it or the row reads healthy.
+        guard AgentAccountHealth.of(account) == .needsRelogin else { return caption }
+        return "\(caption) · needs re-login"
     }
 
     /// Whether this machine reported any usage windows for the agent — what the
@@ -696,9 +711,12 @@ struct DeviceSettingsSheet: View {
 
     private func loginButton(agent: String, account: AgentAccount?) -> some View {
         let signedIn = account?.signedIn == true
+        // EXP-849: a refused credential is not an account SWITCH — it is the
+        // same account, signed in again.
+        let broken = AgentAccountHealth.of(account) == .needsRelogin
         return GlassPill(
-            signedIn ? "Switch account" : "Login",
-            icon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn,
+            broken ? "Sign in again" : (signedIn ? "Switch account" : "Login"),
+            icon: signedIn && !broken ? AppIcons.uiSwap : AppIcons.uiSignIn,
             mode: .action {
                 if signedIn, agent == "codex" {
                     switchConfirmAgent = agent
@@ -843,8 +861,22 @@ struct DeviceSettingsSheet: View {
             targetKey: "login:\(agent)",
             kind: "agent_login",
             agent: agent,
-            switchAccount: switchAccount
+            switchAccount: switchAccount,
+            // EXP-849: name the machine's ACTIVE profile for the agent, so the
+            // sign-out half of a switch runs inside THAT login's config dir.
+            // Codex's logout revokes the token with OpenAI, so an unscoped one
+            // would take down the ambient login every other profile shares.
+            // `system` (or an absent id) IS the ambient login — the device
+            // parses both the same way.
+            profileId: activeProfileId(agent: agent)
         )
+    }
+
+    /// EXP-849: the profile the machine reports as its CURRENT login for the
+    /// agent, or nil when it reports none (a pre-profile build: the ambient
+    /// login is all there is).
+    private func activeProfileId(agent: String) -> String? {
+        liveDevice?.agentAccounts?[agent]?.profiles?.first { $0.active == true }?.id
     }
 
     // MARK: - Worktrees
@@ -990,7 +1022,8 @@ struct DeviceSettingsSheet: View {
         branch: String? = nil,
         agent: String? = nil,
         switchAccount: Bool? = nil,
-        code: String? = nil
+        code: String? = nil,
+        profileId: String? = nil
     ) {
         commandErrors[targetKey] = nil
         // A re-queued LOGIN supersedes whatever link the last one published,
@@ -1013,7 +1046,8 @@ struct DeviceSettingsSheet: View {
                     branch: branch,
                     agent: agent,
                     switchAccount: switchAccount,
-                    code: code
+                    code: code,
+                    profileId: profileId
                 )
                 pendingCommands[targetKey] = created.id
                 // ~2 minutes of 2s polls; a queued-behind-offline command

@@ -1781,6 +1781,15 @@ pub struct SubagentSummary {
     /// shows it and keeps [`Self::agent_type`] as a secondary caption; `None`
     /// for a publisher that named only a type.
     pub title: Option<String>,
+    /// EXP-849 — what the subagent DID, as the contract `toolGroupSummary`
+    /// over its OWN tool rows ("read 3 files · 1 failed").
+    ///
+    /// It rides the PROJECTION so the focused-subagent strip says the same
+    /// thing the inline group row does: the strip used to caption the bare
+    /// count ("done · 14 tool calls") because it had no access to the rows.
+    /// `None` when this feed holds no tool row for the subagent (an evicted
+    /// replay, EXP-748) — the caption falls back to the publisher's count.
+    pub tool_summary: Option<String>,
 }
 
 /// Every subagent seen in the feed, in first-appearance order, each summarized
@@ -1810,9 +1819,33 @@ pub fn collect_subagents(items: &[FeedItem]) -> Vec<SubagentSummary> {
                 detail: summary.detail,
                 tool_count: summary.tool_count,
                 title: summary.title,
+                tool_summary: subagent_tool_summary(rows),
             }
         })
         .collect()
+}
+
+/// EXP-849 — the contract `toolGroupSummary` over ONE subagent's tool rows,
+/// `None` when it has none. The ONE derivation behind both the inline group
+/// row's caption and the focused-subagent strip's.
+pub fn subagent_tool_summary(items: &[&FeedItem]) -> Option<String> {
+    let calls: Vec<crate::ToolCallSummary<'_>> = items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            FeedKind::Tool {
+                detail,
+                tool_kind,
+                failed,
+                ..
+            } => Some(crate::ToolCallSummary {
+                kind: tool_kind.map_or("other", crate::ToolKind::as_str),
+                detail: detail.as_deref(),
+                failed: *failed,
+            }),
+            _ => None,
+        })
+        .collect();
+    (!calls.is_empty()).then(|| crate::tool_group_summary(&calls))
 }
 
 /// EXP-789 — the tabs the subagent strip actually shows (web
@@ -3267,6 +3300,10 @@ mod tests {
         // …and the TYPE survives beside it, for the secondary caption.
         assert_eq!(agents[0].agent_type, "explore");
         assert!(agents[0].done);
+        // EXP-849: the projection carries what the subagent DID, so the strip
+        // captions the same thing the inline group row does. No tool rows in
+        // this fixture, so there is nothing to summarize.
+        assert_eq!(agents[0].tool_summary, None);
     }
 
     // ── EXP-789: the subagent strip (web `visibleSubagentTabs`) ────────────
@@ -3279,6 +3316,7 @@ mod tests {
             detail: None,
             tool_count: 0,
             title: None,
+            tool_summary: None,
         }
     }
 

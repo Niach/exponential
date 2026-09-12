@@ -198,6 +198,17 @@ final class AgentSessionModel {
     /// for the Usage sheet's caption. Read-only visibility off the same synced
     /// row — nothing here holds or forwards a credential.
     private(set) var agentAccount: AgentAccount?
+    /// EXP-849: the logins the HOST machine reports for THIS run's agent — the
+    /// rows the usage/context readout opens into, each with its own usage bars,
+    /// one of them switchable to (`SessionAccountSwitch.options`, the ×4 rule).
+    /// Empty when the machine said nothing about the agent: there is then
+    /// nothing to switch between. Derived off the same synced `devices` rows as
+    /// `agentUsage`, so it repaints on every heartbeat.
+    private(set) var accountOptions: [SessionAccountOption] = []
+    /// EXP-849: the machine a switch (a resume naming another login) would go
+    /// to — the run's OWN machine as the devices shape presents it, live runs
+    /// included (`resumeDevice` is the ENDED-run affordance and stays that).
+    private(set) var switchDevice: SteerDevice?
     /// EXP-678: the issue whose PR the Merge pill merges — this session's own
     /// issue, or, for an issueless + actionless batch run in review, the
     /// representative issue of the batch PR its branch names (EXP-535). Nil
@@ -343,6 +354,50 @@ final class AgentSessionModel {
         guard !sessionEnded else { return false }
         guard let currentUserId else { return false }
         return session?.userId == currentUserId
+    }
+
+    // MARK: - Account switch (EXP-849)
+
+    /// Why switching this run onto `option` would be refused right now, or nil
+    /// when it would go through. The ×4 `SessionAccountSwitch.refusal` rule:
+    /// claude, the owner, a live run, its own online `resume-run` machine, not
+    /// mid-turn (EXP-848's turn slot), and a login that actually works.
+    ///
+    /// Display gating only — the server and the machine re-check all of it.
+    func accountSwitchRefusal(_ option: SessionAccountOption) -> String? {
+        guard let session else { return SessionAccountSwitch.reasonEnded }
+        return SessionAccountSwitch.refusal(
+            option: option,
+            agent: session.agent,
+            mine: CodingSessionOwnership.isOwn(session, userId: currentUserId),
+            sessionEnded: sessionEnded,
+            deviceOnline: switchDevice?.isOnline == true,
+            canResume: switchDevice?.canResumeRun == true,
+            turnState: turnState
+        )
+    }
+
+    /// EXP-849: whether the run's agent can switch login at all — what decides
+    /// if the readout offers the control in the first place (a codex run gets
+    /// the account rows read-only).
+    var supportsAccountSwitch: Bool {
+        SessionAccountSwitch.supports(agent: session?.agent)
+    }
+
+    /// EXP-849: is there an account this run could move to RIGHT NOW? What the
+    /// rate-limit wall's primary button gates on — a notice offering a switch
+    /// that every row refuses would only mislead.
+    var canSwitchAnyAccount: Bool {
+        supportsAccountSwitch
+            && accountOptions.contains { !$0.active && accountSwitchRefusal($0) == nil }
+    }
+
+    /// EXP-849: a switch was just sent, so the wall notice that prompted it has
+    /// nothing left to say on THIS screen — the run continues as a new row, on
+    /// its own screen. The next `rate_limit` frame (there will be none for an
+    /// ended run) would set it again.
+    func clearRateLimit() {
+        sessionRateLimit = nil
     }
 
     /// EXP-678: whether the Merge pill shows — merging always ends the run too
@@ -1308,12 +1363,27 @@ final class AgentSessionModel {
         // so the machine a Resume would go to is resolved here — the same ×4
         // rule the lists used (own ended run, its own machine, online and
         // `resume-run`-capable), re-decided on every heartbeat.
+        let presented = deviceRows.map {
+            SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
+        }
         resumeDevice = RunResume.target(
             for: session,
-            devices: deviceRows.map {
-                SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
-            },
+            devices: presented,
             currentUserId: currentUserId
+        )
+        // EXP-849: the host machine and the logins it reports for this run's
+        // agent — the switch surface. The devices-row match is the one
+        // `sessionUsage` makes (the stamped id, preferring the owner's own row),
+        // and the rows come off the same ×4 derivation the Accounts page uses,
+        // so a login reads identically on both surfaces.
+        let hostRows = deviceRows.filter { $0.deviceId == session.deviceId }
+        let hostRow = hostRows.first { $0.userId == session.userId } ?? hostRows.first
+        switchDevice = hostRow.map {
+            SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
+        }
+        accountOptions = SessionAccountSwitch.options(
+            accounts: AgentUsagePresentation.parseAccounts(hostRow?.agentAccounts),
+            agent: session.agent
         )
     }
 

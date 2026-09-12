@@ -971,16 +971,84 @@ pub(crate) fn live_session_device_for_issue(
     issue_id: &str,
     now_epoch: i64,
 ) -> Option<String> {
+    live_session_device_for_issue_except(cx, issue_id, now_epoch, None)
+}
+
+/// [`live_session_device_for_issue`] with the CONTINUATION of one run exempt
+/// (EXP-849).
+///
+/// A run being resumed onto another account is the same piece of work, not a
+/// second session on the issue: its own live row (and any row already chained
+/// off it) must not block it, or a switch could never start while the thing it
+/// continues is still on screen. Every OTHER machine's live row still does.
+pub(crate) fn live_session_device_for_issue_except(
+    cx: &App,
+    issue_id: &str,
+    now_epoch: i64,
+    except: Option<&str>,
+) -> Option<String> {
     let collections = Store::global(cx).collections();
     let sessions = collections.coding_sessions.read(cx);
     let devices = collections.devices.read(cx);
+    let chain = match except {
+        Some(session_id) => resume_chain(sessions.iter(), session_id),
+        None => std::collections::HashSet::new(),
+    };
     live_session_device(
-        sessions.iter(),
+        sessions.iter().filter(|session| !chain.contains(&session.id)),
         devices.iter(),
         issue_id,
         now_epoch,
         now_epoch * 1_000,
     )
+}
+
+/// EXP-849 — one machine's CURRENT name off the synced `devices` rows, for a
+/// message about it ("Studio will run claude as this account"). `None` when
+/// this client holds no row for the id.
+pub(crate) fn device_label_for_id(cx: &App, device_id: &str) -> Option<String> {
+    Store::global(cx)
+        .collections()
+        .devices
+        .read(cx)
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id))
+        .and_then(|row| row.label.clone())
+        .filter(|label| !label.trim().is_empty())
+}
+
+/// EXP-849 — `session_id` plus every row that CONTINUES it, transitively
+/// (`resumed_from_id`). The resume chain is one run's history, so a guard that
+/// asks "is something else already working on this?" has to treat the whole
+/// chain as the asker.
+///
+/// Bounded: a `resumed_from_id` cycle (which no writer can produce, but a
+/// hand-edited row could) terminates instead of spinning.
+pub(crate) fn resume_chain<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    session_id: &str,
+) -> std::collections::HashSet<String> {
+    let links: Vec<(&str, Option<&str>)> = sessions
+        .map(|session| (session.id.as_str(), session.resumed_from_id.as_deref()))
+        .collect();
+    let mut chain = std::collections::HashSet::new();
+    chain.insert(session_id.to_string());
+    // Each pass adds the rows whose parent is already in the chain; at most
+    // one row joins per pass, so the row count bounds the passes.
+    for _ in 0..links.len() {
+        let mut grew = false;
+        for (id, parent) in &links {
+            if let Some(parent) = parent {
+                if chain.contains(*parent) && chain.insert((*id).to_string()) {
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    chain
 }
 
 /// Pure core of [`live_session_device_for_issue`]. A live row with no

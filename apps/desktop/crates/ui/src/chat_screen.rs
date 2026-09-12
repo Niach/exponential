@@ -1378,6 +1378,10 @@ impl ChatScreenView {
                             model: same_agent.then(|| options.model.clone()),
                             effort: same_agent.then(|| options.effort.clone()),
                             prompt,
+                            // EXP-849: the composer's account pick reaches a
+                            // resume too — picking another account on a
+                            // resumable issue continues it there.
+                            account: same_agent.then(|| options.account.clone()).flatten(),
                         };
                         return self.run_prepare(
                             PrepareRequest::ResumeRun(request),

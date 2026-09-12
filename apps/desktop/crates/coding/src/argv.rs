@@ -562,6 +562,9 @@ impl LaunchOptions {
     ///   sending `plan_mode: true` opted in knowingly.
     /// - Capabilities mask everything: a non-claude agent can never carry
     ///   ultracode, codex never carries plan.
+    /// - EXP-849: `account` is the composer's account pick (a device-local
+    ///   profile id), normalized by [`Self::with_account`]. Absent/`system` =
+    ///   the ambient login, which is every pre-EXP-849 sender.
     pub fn remote(
         settings: &Settings,
         agent: Option<&str>,
@@ -569,6 +572,7 @@ impl LaunchOptions {
         effort: Option<&str>,
         ultracode: Option<bool>,
         plan_mode: Option<bool>,
+        account: Option<&str>,
     ) -> Self {
         use crate::settings::normalize_choice;
         let agent = agent
@@ -610,6 +614,7 @@ impl LaunchOptions {
             mcp_server_ids: Vec::new(),
             account: None,
         }
+        .with_account(account)
     }
 
     /// EXP-792: the remote frame's MCP server picks. Deduplicated, blanks
@@ -1049,12 +1054,14 @@ mod tests {
         settings.claude_effort = "high".to_string();
         settings.claude_ultracode = true;
         settings.claude_plan_mode = true; // must NOT leak into a remote start
-        let opts = LaunchOptions::remote(&settings, None, None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "opus");
         assert_eq!(opts.effort, "high");
         assert!(opts.ultracode);
         assert!(!opts.plan_mode);
+        assert_eq!(opts.account, None);
+        assert!(opts.mcp_server_ids.is_empty());
     }
 
     #[test]
@@ -1069,23 +1076,26 @@ mod tests {
             Some("max"),
             Some(false),
             Some(true),
+            Some(" 0a1b2c3d "),
         );
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "sonnet", "case-normalized");
         assert_eq!(opts.effort, "max");
         assert!(!opts.ultracode);
         assert!(opts.plan_mode, "explicit remote opt-in");
+        // EXP-849: the frame's account pick rides through, trimmed.
+        assert_eq!(opts.account.as_deref(), Some("0a1b2c3d"));
 
         // Bogus model falls back to the settings model, never to a crash or
         // a raw pass-through to the CLI argv.
-        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None, None);
         assert_eq!(opts.model, "fable");
 
         // Explicit blank effort = "CLI default" and beats the settings value.
-        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None, None);
         assert_eq!(opts.effort, "");
         // Bogus effort also degrades to blank (omit --effort).
-        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None, None);
         assert_eq!(opts.effort, "");
     }
 
@@ -1104,12 +1114,15 @@ mod tests {
             Some("minimal"),
             Some(true), // ultracode — claude-only, must mask
             Some(true), // plan — claude-only, must mask on codex
+            Some("system"),
         );
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-luna");
         assert_eq!(opts.effort, "minimal");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
+        // `system` and blank are both the ambient login, never a literal id.
+        assert_eq!(opts.account, None);
 
         // A claude model on a codex start is bogus → blank (codex default).
         let opts = LaunchOptions::remote(
@@ -1119,12 +1132,13 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert_eq!(opts.model, "");
 
         // F7: an option-less claude start must never park an unattended
         // desktop at the plan gate.
-        let opts = LaunchOptions::remote(&settings, Some("claude"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("claude"), None, None, None, None, None);
         assert!(!opts.plan_mode, "absent plan defaults OFF");
 
         // Unknown agent string → claude with claude normalization.
@@ -1132,6 +1146,7 @@ mod tests {
             &settings,
             Some("cursor"),
             Some("sonnet"),
+            None,
             None,
             None,
             None,
@@ -1147,7 +1162,7 @@ mod tests {
         let mut settings = Settings::default();
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
-        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "", "claude's opus must not leak onto codex");
         assert_eq!(opts.effort, "");
@@ -1156,7 +1171,7 @@ mod tests {
         settings.default_agent = CodingAgent::Codex;
         settings.codex_model = "gpt-5.6-sol".to_string();
         settings.codex_effort = "high".to_string();
-        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.model, "gpt-5.6-sol");
         assert_eq!(opts.effort, "high");
     }

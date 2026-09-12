@@ -124,6 +124,13 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
     public let plan: String?
     /// When the device last probed the agent.
     public let checkedAt: String?
+    /// EXP-849: how the machine's last probe went — the raw wire value
+    /// (`ok` / `needs_relogin` / `signed_out` / `unknown`, server-clamped to
+    /// exactly those four). Read it through
+    /// `AgentAccountHealth.resolve(_:signedIn:)`, never directly: an absent
+    /// field DERIVES from `signedIn` and an unknown string degrades to
+    /// `unknown` rather than rendering a raw token.
+    public let health: String?
     /// EXP-825: the agent's login PROFILES on the machine (web
     /// `agentAccounts[agent].profiles`) — the Account picker offers them
     /// when there are two or more. Decoded LENIENTLY: a profile entry of a
@@ -136,17 +143,19 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         email: String? = nil,
         plan: String? = nil,
         checkedAt: String? = nil,
-        profiles: [AgentAccountProfile]? = nil
+        profiles: [AgentAccountProfile]? = nil,
+        health: String? = nil
     ) {
         self.signedIn = signedIn
         self.email = email
         self.plan = plan
         self.checkedAt = checkedAt
         self.profiles = profiles
+        self.health = health
     }
 
     private enum CodingKeys: String, CodingKey {
-        case signedIn, email, plan, checkedAt, profiles
+        case signedIn, email, plan, checkedAt, profiles, health
     }
 
     public init(from decoder: Decoder) throws {
@@ -156,6 +165,7 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         plan = try c.decodeIfPresent(String.self, forKey: .plan)
         checkedAt = try c.decodeIfPresent(String.self, forKey: .checkedAt)
         profiles = (try? c.decodeIfPresent([AgentAccountProfile].self, forKey: .profiles)) ?? nil
+        health = try? c.decodeIfPresent(String.self, forKey: .health)
     }
 }
 
@@ -176,6 +186,10 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
     public let plan: String?
     public let checkedAt: String?
     public let usage: AgentUsage?
+    /// EXP-849: this profile's own probe outcome — same four wire values as
+    /// `AgentAccount.health`, read through
+    /// `AgentAccountHealth.resolve(_:signedIn:)`.
+    public let health: String?
 
     public init(
         id: String,
@@ -185,7 +199,8 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         email: String? = nil,
         plan: String? = nil,
         checkedAt: String? = nil,
-        usage: AgentUsage? = nil
+        usage: AgentUsage? = nil,
+        health: String? = nil
     ) {
         self.id = id
         self.label = label
@@ -195,10 +210,11 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         self.plan = plan
         self.checkedAt = checkedAt
         self.usage = usage
+        self.health = health
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, label, active, signedIn, email, plan, checkedAt, usage
+        case id, label, active, signedIn, email, plan, checkedAt, usage, health
     }
 
     /// Only the id is load-bearing; every other field degrades on its own so
@@ -213,6 +229,7 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         plan = try? c.decodeIfPresent(String.self, forKey: .plan)
         checkedAt = try? c.decodeIfPresent(String.self, forKey: .checkedAt)
         usage = try? c.decodeIfPresent(AgentUsage.self, forKey: .usage)
+        health = try? c.decodeIfPresent(String.self, forKey: .health)
     }
 }
 
@@ -723,10 +740,15 @@ struct StartActionSessionInput: Encodable {
 /// Resume remote-start (EXP-637): the fourth `steer.startSession` subject —
 /// exactly one of issueId/issueIds/actionId/resumeSessionId is present. A
 /// resumed run keeps the ENDED row's recorded agent and options, so no launch
-/// option may ride along (the server rejects them).
-private struct ResumeSessionInput: Encodable {
+/// option may ride along (the server rejects them) — with ONE exception since
+/// EXP-849: `account`, the login profile the relaunch runs under. A remote
+/// "switch account" IS a resume naming a different profile, so the field has
+/// to ride here; absent (the plain Resume) keeps the recorded one.
+/// Internal (not private) so `SteerStartInputEncodingTests` can pin the wire.
+struct ResumeSessionInput: Encodable {
     let resumeSessionId: String
     let deviceId: String
+    let account: String?
 }
 
 private struct StartSessionResult: Decodable {
@@ -887,10 +909,17 @@ public final class SteerApi: Sendable {
     /// PRECONDITION_FAILED → `SteerStartError.rejected` mapping as the other
     /// forms, so the refusal reason ("That run lives on another machine") shows
     /// verbatim.
+    ///
+    /// EXP-849: `account` is the ONE option a resume may carry — the login
+    /// profile to relaunch under (one of the host machine's
+    /// `agentAccounts[agent].profiles` ids). That is how a "switch account"
+    /// works from a phone: resume the run on the same machine under another
+    /// login, and follow the new row. Nil = keep the recorded login.
     public func resumeSession(
         accountId: String,
         sessionId: String,
-        deviceId: String
+        deviceId: String,
+        account: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -898,7 +927,8 @@ public final class SteerApi: Sendable {
                 path: "steer.startSession",
                 input: ResumeSessionInput(
                     resumeSessionId: sessionId,
-                    deviceId: deviceId
+                    deviceId: deviceId,
+                    account: account
                 )
             )
         } catch let TrpcError.httpError(status, body) {

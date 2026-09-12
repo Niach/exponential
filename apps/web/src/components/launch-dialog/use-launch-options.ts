@@ -21,7 +21,8 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pane"
-import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { agentHealth, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import type { DeviceAgentHealth } from "@/db/schema"
 
 // EXP-615: the launch-options cluster every start-coding surface shares —
 // device settle, the EXP-437 device-seeded agent/model/effort/toggle state,
@@ -74,7 +75,14 @@ export interface LaunchOptions {
   /** EXP-825: the agent account profiles the settled device reports for the
    * picked agent (id + label), the machine's ACTIVE one first. Empty on a
    * pre-profile build. A picker renders only with two or more. */
-  accountProfiles: { id: string; label: string; active: boolean }[]
+  accountProfiles: {
+    id: string
+    label: string
+    active: boolean
+    /** EXP-849: the device's verdict on that login — a run started on a dead
+     *  credential dies on its first call, so the picker says so. */
+    health: DeviceAgentHealth
+  }[]
   /** The picked profile id — the active one by default, re-seeded on every
    * device or agent change; `undefined` while the device reports none. */
   account: string | undefined
@@ -260,6 +268,7 @@ export function useLaunchOptions({
           profile.label ||
           (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
         active: profile.active === true,
+        health: agentHealth(profile),
       }))
       .sort((left, right) => Number(right.active) - Number(left.active))
   }, [device, agent])

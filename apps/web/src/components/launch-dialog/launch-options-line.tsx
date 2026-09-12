@@ -33,6 +33,7 @@ import {
   agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
+import { healthBadgeLabel } from "@/lib/agent-usage"
 import { NO_REPO } from "@/lib/chat-repo"
 import { conceptIcon } from "@/lib/icons.generated"
 
@@ -210,9 +211,14 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                     placeholder="Active profile"
                     options={launch.accountProfiles.map((profile) => ({
                       value: profile.id,
-                      label: profile.active
-                        ? `${profile.label} (active)`
-                        : profile.label,
+                      // EXP-849: health beats "active" in the label — an
+                      // expired credential is the one thing worth knowing
+                      // BEFORE the run starts on it.
+                      label: healthBadgeLabel(profile.health)
+                        ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
+                        : profile.active
+                          ? `${profile.label} (active)`
+                          : profile.label,
                     }))}
                   />
                 )}

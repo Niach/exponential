@@ -32,8 +32,9 @@ use std::collections::HashMap;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, App, AppContext as _, ClickEvent, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window,
 };
 use gpui_component::{
     h_flex, menu::DropdownMenu as _, menu::PopupMenuItem, notification::Notification, v_flex,
@@ -350,11 +351,22 @@ impl AccountsSection {
     /// What hovering a chip says: this machine's OWN report age and state,
     /// and (EXP-818) whether the account is the ACTIVE login there.
     fn chip_tooltip(row: &AgentProfileUsageRow, now_epoch: i64) -> String {
+        use coding::agent_accounts::Health;
         let mut parts = vec![if row.online { "online" } else { "offline" }.to_string()];
         if !row.signed_in {
             parts.push("not signed in".to_string());
-        } else if row.active {
-            parts.push("active here".to_string());
+        } else {
+            // EXP-849: a revoked credential is the loudest thing a chip can
+            // say — it looks signed in everywhere else.
+            if row.health == Health::NeedsRelogin {
+                parts.push("needs re-login".to_string());
+            }
+            if row.active {
+                parts.push("active here".to_string());
+            }
+        }
+        if row.unmonitored {
+            parts.push("usage not tracked here".to_string());
         }
         let stamp = row
             .usage
@@ -408,25 +420,51 @@ impl AccountsSection {
                 muted.opacity(0.4)
             });
         let label = SharedString::from(Self::chip_label(row));
-        let check = (row.signed_in && row.active).then(|| {
-            Icon::new(registry::UI_CHECK)
-                .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                .text_color(theme::tokens::GREEN.to_hsla())
-        });
+        // EXP-849: the broken-credential marker WINS over the active check — a
+        // machine whose login was refused is not usefully "the active one".
+        let check = if row.signed_in
+            && row.health == coding::agent_accounts::Health::NeedsRelogin
+        {
+            Some(
+                Icon::new(registry::UI_WARNING)
+                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                    .text_color(theme::tokens::RED.to_hsla()),
+            )
+        } else {
+            (row.signed_in && row.active).then(|| {
+                Icon::new(registry::UI_CHECK)
+                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                    .text_color(theme::tokens::GREEN.to_hsla())
+            })
+        };
         let agent = CodingAgent::parse(&row.agent);
         let own = row.device_id == own_device_id;
         let affordance = (agent.is_some() && row.mine)
             .then(|| crate::device_settings::login_affordance(own, row.online, caps, row.signed_in))
             .flatten();
-        match (agent, affordance) {
-            (Some(agent), Some(affordance)) => {
+        // EXP-849: "use this account here" is its own, NON-destructive action —
+        // it moves the machine's default login, signs nobody out, and is
+        // therefore offered on a chip that is already signed in but not active.
+        let can_use = agent.is_some()
+            && row.mine
+            && row.signed_in
+            && !row.active
+            && (own
+                || (row.online && caps.iter().any(|cap| cap == coding::AGENT_PROFILE_USE_CAP)));
+        match (agent, affordance.is_some() || can_use) {
+            (Some(agent), true) => {
                 let device_id = row.device_id.clone();
                 let device_label = Self::chip_label(row);
-                let switch = affordance.switch;
-                let item_label = SharedString::from(format!(
-                    "{} on {device_label}",
-                    affordance.label
-                ));
+                let machine_label = if row.device_label.trim().is_empty() {
+                    row.device_id.clone()
+                } else {
+                    row.device_label.clone()
+                };
+                let profile_id = row.profile_id.clone();
+                let switch = affordance.is_some_and(|affordance| affordance.switch);
+                let login_label = affordance.map(|affordance| {
+                    SharedString::from(format!("{} on {device_label}", affordance.label))
+                });
                 crate::surface::glass_pill_button(
                     ("accounts-chip", index * 64 + chip),
                     crate::surface::PillSize::Sm,
@@ -440,25 +478,54 @@ impl AccountsSection {
                 .dropdown_menu(move |menu, _window, _cx| {
                     let device_id = device_id.clone();
                     let device_label = device_label.clone();
-                    menu.item(
-                        PopupMenuItem::new(item_label.clone())
-                            .icon(Icon::new(if switch {
-                                registry::UI_SWAP
-                            } else {
-                                registry::UI_SIGN_IN
-                            }))
+                    let use_device_id = device_id.clone();
+                    let use_machine = machine_label.clone();
+                    let use_profile = profile_id.clone();
+                    menu.when_some(login_label.clone(), move |menu, item_label| {
+                        let device_id = device_id.clone();
+                        let device_label = device_label.clone();
+                        menu.item(
+                            PopupMenuItem::new(item_label)
+                                .icon(Icon::new(if switch {
+                                    registry::UI_SWAP
+                                } else {
+                                    registry::UI_SIGN_IN
+                                }))
+                                .on_click(move |_, window, cx| {
+                                    start_login(
+                                        device_id.clone(),
+                                        device_label.clone(),
+                                        own,
+                                        agent,
+                                        switch,
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                        )
+                    })
+                    .when(can_use, move |menu| {
+                        let device_id = use_device_id.clone();
+                        let machine = use_machine.clone();
+                        let profile_id = use_profile.clone();
+                        menu.item(
+                            PopupMenuItem::new(SharedString::from(format!(
+                                "Use this account on {machine}"
+                            )))
+                            .icon(Icon::new(registry::UI_CHECK))
                             .on_click(move |_, window, cx| {
-                                start_login(
+                                use_account_here(
                                     device_id.clone(),
-                                    device_label.clone(),
+                                    machine.clone(),
                                     own,
                                     agent,
-                                    switch,
+                                    profile_id.clone(),
                                     window,
                                     cx,
                                 );
                             }),
-                    )
+                        )
+                    })
                 })
                 .into_any_element()
             }
@@ -533,6 +600,31 @@ impl AccountsSection {
                 _ => None,
             })
             .flatten();
+        // EXP-849 (interface A): HEALTH, the one thing the identity line cannot
+        // say. Only the state the caption does not already cover is badged —
+        // "Not signed in" is the caption, and `unknown` is a machine that has
+        // simply not probed yet, which is noise on a page about numbers.
+        let health_badge = (group.health == coding::agent_accounts::Health::NeedsRelogin)
+            .then(|| {
+                h_flex()
+                    .id(SharedString::from(format!("accounts-health-{index}")))
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .font_weight(gpui::FontWeight::NORMAL)
+                    .text_color(theme::tokens::RED.to_hsla())
+                    .child(Icon::new(registry::UI_WARNING).with_size(px(12.)))
+                    .child(SharedString::from(
+                        coding::agent_accounts::Health::NeedsRelogin.label(),
+                    ))
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new(
+                            "This login was refused the last time a machine used it. Sign in again on one of the machines below.",
+                        )
+                        .build(window, cx)
+                    })
+            });
 
         let refresh_button = group.refresh_target.as_ref().map(|target| {
             let machine = if target.device_label.trim().is_empty() {
@@ -611,6 +703,7 @@ impl AccountsSection {
                                     .child(tail)
                             })),
                     )
+                    .children(health_badge)
                     .children(refresh_button),
             )
             .child(chips)
@@ -705,6 +798,111 @@ fn start_login(
     }
 }
 
+/// EXP-849 — "+ Add account": name the account, then sign in to a FRESH
+/// profile on THIS machine.
+///
+/// This machine only, by construction: a profile is a directory plus a login,
+/// and both happen where the CLI runs. Another machine's accounts are added
+/// from that machine (its chips' "Sign in on X" repairs the ones it has).
+fn open_add_account(agent: CodingAgent, window: &mut Window, cx: &mut App) {
+    let input = cx.new(|cx| {
+        gpui_component::input::InputState::new(window, cx).placeholder("Work, Client, …")
+    });
+    let field = input.clone();
+    let value = input.clone();
+    let spec = crate::native_dialog::AlertSpec::new(
+        format!("Add a {} account", agent.label()),
+        "A name for this login on this machine. The agent's own sign-in opens next;          the accounts already here are not signed out.",
+        "Sign in",
+    )
+    .height(px(280.))
+    .content(move |window, cx| {
+        crate::controls::glass_input(&field, window, cx)
+            .into_any_element()
+    })
+    .on_ok(move |_, cx| {
+        let label = value.read(cx).value().trim().to_string();
+        if label.is_empty() {
+            // Keep the dialog open: an unnamed profile is indistinguishable
+            // from every other one in a picker.
+            return false;
+        }
+        crate::agent_login::open_add_account_tab(agent, label, cx);
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
+/// EXP-849 — "use this account here": make this login the machine's DEFAULT
+/// for its agent. Non-destructive — it moves a device-local pointer and signs
+/// nobody out, which is why it is offered beside (never instead of) the
+/// sign-in.
+///
+/// This machine writes the pointer directly; another of mine gets the
+/// `agent_profile_use` command on its heartbeat and answers by re-reporting,
+/// so the CHECK moves on the next beat either way.
+fn use_account_here(
+    device_id: String,
+    device_label: String,
+    own: bool,
+    agent: CodingAgent,
+    profile_id: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if own {
+        let data_dir = crate::coding_flow::coding_data_dir(cx);
+        match coding::agent_profiles::set_active_profile(&data_dir, agent, &profile_id) {
+            Ok(()) => window.push_notification(
+                Notification::success(SharedString::from(format!(
+                    "{} now runs as this account here.",
+                    agent.label()
+                ))),
+                cx,
+            ),
+            Err(err) => window.push_notification(
+                Notification::error(SharedString::from(format!(
+                    "Could not switch the {} account here: {err}",
+                    agent.label()
+                ))),
+                cx,
+            ),
+        }
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                api::devices::create_agent_profile_use_command(
+                    &trpc,
+                    &device_id,
+                    agent.id(),
+                    &profile_id,
+                )
+            })
+            .await;
+        let _ = handle.update(cx, |_, window, cx| match result {
+            Ok(_) => window.push_notification(
+                Notification::success(SharedString::from(format!(
+                    "{device_label} will run {} as this account.",
+                    agent.label()
+                ))),
+                cx,
+            ),
+            Err(err) => window.push_notification(
+                Notification::error(SharedString::from(err.user_message())),
+                cx,
+            ),
+        });
+    })
+    .detach();
+}
+
 impl Render for AccountsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let now_epoch = chrono::Utc::now().timestamp();
@@ -726,13 +924,38 @@ impl Render for AccountsSection {
             .map(|row| (row.device_id.clone().unwrap_or_default(), row.cap_ids()))
             .collect();
 
-        let note = auto_refreshes.then(|| {
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("Refreshes every 5 minutes")
-                .into_any_element()
-        });
+        // EXP-849: "+ Add account" — a SECOND login of an agent on THIS
+        // machine (a profile plus its own sign-in). One entry per agent, since
+        // a profile belongs to exactly one CLI.
+        let add_account = crate::controls::glass_icon_button(
+            "accounts-add",
+            Icon::new(registry::UI_ADD),
+            cx,
+        )
+        .tooltip("Add another agent account on this machine")
+        .dropdown_menu(|menu, _window, _cx| {
+            let mut menu = menu;
+            for agent in CodingAgent::ALL {
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(format!("Add {} account…", agent.label())))
+                        .on_click(move |_, window, cx| open_add_account(agent, window, cx)),
+                );
+            }
+            menu
+        })
+        .into_any_element();
+        let note = h_flex()
+            .items_center()
+            .gap_1p5()
+            .children(auto_refreshes.then(|| {
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("Refreshes every 5 minutes")
+            }))
+            .child(add_account)
+            .into_any_element();
+        let note = Some(note);
         // The section carries its OWN top spacing (the page column has no
         // `gap`), like the run sections it sits where.
         let mut column = v_flex()
@@ -827,6 +1050,8 @@ mod tests {
             plan: None,
             usage: None,
             checked_at: None,
+            health: coding::agent_accounts::Health::Ok,
+            unmonitored: false,
         }
     }
 
@@ -837,6 +1062,7 @@ mod tests {
             signed_in: true,
             email: None,
             plan: None,
+            health: coding::agent_accounts::Health::Ok,
             rows: vec![row(agent)],
             usage: None,
             checked_at: None,

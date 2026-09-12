@@ -10,6 +10,9 @@ import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.agentLoginCodeCommand
+import com.exponential.app.data.api.agentLoginCommand
+import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -25,6 +28,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.AgentAccountSection
 import com.exponential.app.domain.AgentAccountUsageGroup
 import com.exponential.app.domain.AgentAccountsRows
+import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
@@ -243,6 +247,82 @@ class AgentsViewModel @Inject constructor(
             if (nowMs - last < AUTO_REFRESH_RETRY_MS) continue
             autoAttempts[group.key] = nowMs
             refreshAccount(group, silent = true)
+        }
+    }
+
+    // ── EXP-849: the Accounts section's own repair commands ─────────────────
+    // A chip is not just a link to the device sheet any more: the remote
+    // sign-in (`agent_login`, with the profile it lands on), the code hand-back
+    // (`agent_login_code`) and the non-destructive active-login pick
+    // (`agent_profile_use`) are issued from the section and captioned under the
+    // account row that triggered them. Keyed by the profile ROW
+    // (`AgentProfileUsageRow.key`), so two machines holding the same account
+    // caption independently.
+    private val _accountCommandStates = MutableStateFlow<Map<String, DeviceCommandUiState>>(emptyMap())
+    val accountCommandStates: StateFlow<Map<String, DeviceCommandUiState>> = _accountCommandStates
+
+    /**
+     * Ask [row]'s machine to run the agent's OWN sign-in flow for that login —
+     * the machine publishes the URL (and codex's device code) back as the
+     * command result. [switchAccount] signs the current account out first, so
+     * it is offered only on the machine's ACTIVE login.
+     */
+    fun accountLogin(row: AgentProfileUsageRow, switchAccount: Boolean) {
+        issueAccountCommand(
+            key = row.key,
+            row = row,
+            command = agentLoginCommand(
+                row.deviceId,
+                row.agent,
+                switchAccount,
+                profileId = row.profileId,
+            ),
+        )
+    }
+
+    /**
+     * EXP-765: hand the authorization code the browser showed back to the
+     * sign-in still waiting on [row]'s machine. A Done here retires the login
+     * link — the sign-in it belonged to is over.
+     */
+    fun accountLoginCode(row: AgentProfileUsageRow, code: String) {
+        val trimmed = code.trim()
+        if (trimmed.isEmpty()) return
+        issueAccountCommand(
+            key = accountLoginCodeKey(row),
+            row = row,
+            command = agentLoginCodeCommand(row.deviceId, row.agent, trimmed),
+            onDone = { _accountCommandStates.value = _accountCommandStates.value - row.key },
+        )
+    }
+
+    /**
+     * EXP-849: "Use this account here" — make this already-signed-in login the
+     * machine's ACTIVE one (`agent_profile_use`). No credential is touched and
+     * nothing is signed out; the machine re-reports `agent_accounts` on its
+     * next heartbeat, which is what moves the chip's check.
+     */
+    fun useAccountHere(row: AgentProfileUsageRow) {
+        issueAccountCommand(
+            key = row.key,
+            row = row,
+            command = agentProfileUseCommand(row.deviceId, row.agent, row.profileId),
+        )
+    }
+
+    private fun issueAccountCommand(
+        key: String,
+        row: AgentProfileUsageRow,
+        command: kotlinx.serialization.json.JsonObject,
+        onDone: () -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _accountsError.value = null
+            runDeviceCommand(devicesApi, accountId, command, row.online) { state ->
+                _accountCommandStates.value = _accountCommandStates.value + (key to state)
+                if (state is DeviceCommandUiState.Done) onDone()
+            }
         }
     }
 
@@ -544,6 +624,13 @@ fun accountSections(
     }
     return AgentAccountsRows.sections(AgentAccountsRows.sortAccountGroupsAttentionFirst(groups))
 }
+
+/**
+ * EXP-849: one profile row's `agent_login_code` key in
+ * [AgentsViewModel.accountCommandStates] — its own namespace, so a code
+ * command's plain-text result is never parsed as a login publication.
+ */
+internal fun accountLoginCodeKey(row: AgentProfileUsageRow): String = "code:${row.key}"
 
 /** How many finished rows the DAO pulls before the pure filter narrows them. */
 const val PAST_RUN_QUERY_LIMIT = 50

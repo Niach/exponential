@@ -38,6 +38,8 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.SessionAccountOption
+import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionUsageState
@@ -71,6 +73,22 @@ import kotlinx.coroutines.launch
 // EXP-554: the steer composer's own PendingSteerImage became the shared
 // `PendingAttachment` (domain/PendingAttachment.kt), which the comment
 // composers use too — same upload-on-send, uploadedId-stamped semantics.
+
+/**
+ * EXP-849 phase 3: the account-switch context of ONE live run — everything the
+ * gate needs except the turn slot, which the screen already holds. Empty
+ * options = the machine reported no login for the run's agent, so there is
+ * nothing to switch between and the rows do not render.
+ */
+data class SessionAccountSwitchState(
+    val options: List<SessionAccountOption> = emptyList(),
+    val agent: String? = null,
+    val mine: Boolean = false,
+    val sessionEnded: Boolean = false,
+    val deviceOnline: Boolean = false,
+    val canResume: Boolean = false,
+    val deviceLabel: String = "",
+)
 
 /**
  * The steer screen's ViewModel — a façade over the app-held SteerConnection
@@ -231,6 +249,46 @@ class AgentSessionViewModel @Inject constructor(
             ?: return@combine null
         AgentUsagePresentation.parseAccounts(device.agentAccounts)?.get(agent)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-849 phase 3: everything the mid-session account switch gates on,
+     * EXCEPT the turn slot (the screen already holds the activity state and
+     * passes it into [SessionAccountSwitch.refusal]): the logins the host
+     * machine reports for this run's agent, plus whether the run is mine, over,
+     * and on a machine that can take the switch.
+     *
+     * The machine's numbers ride the options, so the rows render their usage
+     * bars without a second source.
+     */
+    val accountSwitch: StateFlow<SessionAccountSwitchState> = combine(
+        session,
+        deviceRows,
+        DeviceLiveness.ticker(),
+        // `auth.userId` rather than [currentUserId]: the same flow, declared
+        // below this one.
+        auth.userId,
+    ) { row, devices, now, userId ->
+        if (row == null) return@combine SessionAccountSwitchState()
+        val deviceId = row.deviceId
+        val matches = devices.filter { it.deviceId == deviceId }
+        val device = matches.firstOrNull { it.userId == row.userId } ?: matches.firstOrNull()
+        val steerDevice = device?.toSteerDevice(now, userId)
+        SessionAccountSwitchState(
+            options = SessionAccountSwitch.options(
+                device?.let { AgentUsagePresentation.parseAccounts(it.agentAccounts) },
+                row.agent,
+            ),
+            agent = row.agent,
+            // A teammate's run is never steerable (EXP-312) and its account is
+            // not this user's to change; the machine must be one we may drive.
+            mine = userId != null && row.userId == userId,
+            sessionEnded = row.status == DomainContract.codingSessionStatusEnded,
+            deviceOnline = steerDevice?.online == true,
+            canResume = steerDevice?.canResumeRun == true,
+            deviceLabel = steerDevice?.deviceLabel?.takeIf { it.isNotBlank() }
+                ?: deviceId.orEmpty(),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
 
     /**
      * EXP-760 — the run's team issues, newest-first: what resolves the
@@ -595,6 +653,27 @@ class AgentSessionViewModel @Inject constructor(
      *  same rails a remote start does — the desktop's new row lands in
      *  [startedSessionId] and the screen opens it. */
     fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
+
+    /**
+     * EXP-849 phase 3: continue THIS run under another login — a resume that
+     * names an account. The machine re-enters the recorded run in the same
+     * worktree and inserts the continuation row (`resumed_from_id`), which
+     * arrives in [startedSessionId] like any remote start's, so the screen
+     * follows it. Display-gated by [SessionAccountSwitch.refusal]; the server
+     * and the machine re-check.
+     */
+    fun switchAccount(option: SessionAccountOption) {
+        val row = session.value ?: return
+        val deviceId = row.deviceId ?: return
+        steerLaunch.resumeRun(
+            RunResumeTarget(
+                sessionId = codingSessionId,
+                deviceId = deviceId,
+                deviceLabel = accountSwitch.value.deviceLabel,
+            ),
+            account = SessionAccountSwitch.wireAccount(option),
+        )
+    }
 
     init {
         steerLaunch.attach(viewModelScope)

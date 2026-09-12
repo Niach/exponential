@@ -20,6 +20,7 @@
 //! login whenever the session is not `Synced`). The Phase-2 [`debug_board`]
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
+mod account_switch;
 mod action_editor_dialog;
 mod action_inputs;
 mod agent_login;

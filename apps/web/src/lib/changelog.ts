@@ -25,6 +25,24 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-turn-signal-accounts-and-switching`,
+    date: `2026-09-12`,
+    title: `Working… that clears, accounts that tell the truth, and switching mid-run`,
+    summary: `The Working indicator follows the agent's real turn, Exponential tool calls render as cards, account health comes from a live probe, a Claude run can switch accounts when it hits a limit, and the UI wave lands on all four clients.`,
+    body: `- **Working… ends when the agent does**: the session footer, the Stop button and every session list now follow a real end-of-turn signal from the engine instead of the connection state, on web, desktop, iOS and Android. A rate-limited or compacting run no longer says Working, and a replayed transcript starts idle.
+- **Exponential tool cards**: when the agent calls Exponential, the transcript shows the Exponential mark with a plain caption (Creating issue, Opened pull request) and, once done, a preview of the result: the issue pill, the PR link or a result count.
+- **Subagents by name**: subagent chips carry the task the agent gave them, their rows summarize the tools they used, and a read-only Plan chip shows while the run is still in plan mode.
+- **Sentences no longer split**: a subagent's tool call no longer cuts the main narration mid-word.
+- **Accounts you can trust**: an account's health comes from a real usage probe, so a dead login reads Needs re-login instead of Signed in. Accounts is the decision page (per-agent tabs, live usage, health); Devices is where you sign in, re-login or pick which signed-in account a machine uses. Codex accounts stay signed in on their own, and switching a codex account never signs it out elsewhere.
+- **Switch account mid-run**: a Claude run that hits its limit can continue on another account from the usage sheet or the rate-limit notice. It carries on as a new run linked to the old one; the first message after a switch is a little slower.
+- **The machine you clicked**: a machine's play button opens the composer with that machine selected, and the composer says why when a machine cannot take the run.
+- **Sessions that remember where you came from**: Back from a session returns to the issue, board or inbox it was opened from, resume and remote start jump straight into the run, sub-sessions nest under their parent, and an issue band inside the session opens the issue.
+- **Mobile parity**: Stop in the session header, a Watch pill instead of the Coding now card, suggestion chips on a new chat, pin buttons on iOS, pin on Android action rows, a Pinned section on the phone web sidebar, and flat rows under filled group headers on every list.
+- **Desktop polish**: an icon-only send button, a device settings dialog that fits, Usage as a round button next to Switch account, action icons in the automation picker, and dragging the window no longer selects text in a session.
+- **Leaner agent context**: issue lists returned to agents default to open work with short descriptions, and batch runs are told to share exploration instead of repeating it.
+- **pi retired**: the pi agent is gone; any ACP binary still runs through the external agent option.`,
+  },
+  {
     id: `2026-09-pins-shared-machines-and-video`,
     date: `2026-09-11`,
     title: `Pins, machines shared with several teams, and video that plays inline`,

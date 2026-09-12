@@ -253,13 +253,22 @@ class SteerLaunchDelegate @Inject constructor(
      * desktop relaunches the pinned agent in the run's own worktree and
      * inserts a NEW session row, which this then hands to the host screen.
      */
-    fun resumeRun(target: RunResumeTarget) {
+    fun resumeRun(target: RunResumeTarget) = resumeRun(target, account = null)
+
+    /**
+     * EXP-849 phase 3: the same rails with an ACCOUNT named — the mid-session
+     * switch. The machine re-enters the recorded run under [account] (claude
+     * only) and inserts the continuation row, which lands in
+     * [startedSessionId] exactly like a resume's does, so the screen follows
+     * the new run. Null [account] is the plain Resume.
+     */
+    fun resumeRun(target: RunResumeTarget, account: String?) {
         val scope = scope ?: return
         scope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _runState.value = ActionRunState.Sending
             try {
-                steerApi.resumeSession(accountId, target.sessionId, target.deviceId)
+                steerApi.resumeSession(accountId, target.sessionId, target.deviceId, account)
                 awaitStartedRun(
                     StartedRunKey.Resumed(target.sessionId),
                     target.deviceLabel,
@@ -267,7 +276,14 @@ class SteerLaunchDelegate @Inject constructor(
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
-                    trpcErrorMessage(t, "The run could not be resumed"),
+                    trpcErrorMessage(
+                        t,
+                        if (account == null) {
+                            "The run could not be resumed"
+                        } else {
+                            "The account could not be switched"
+                        },
+                    ),
                 )
             }
         }
