@@ -4,9 +4,11 @@
 - Podagenti s imenom: oznaka podagenta nosi zadatak koji je dobio, njegovi redci sažimaju upotrijebljene alate, a oznaka Plan samo za čitanje stoji dok izvođenje još planira
 - Kartica workflowa: izvođenje s više agenata prikazuje se kao jedna kartica s fazama i agentima ispod, a redak sesije dobiva drugi redak s onim na čemu se upravo radi
 - Računi koji govore istinu: stanje agentskog računa dolazi iz stvarnog mjerenja potrošnje, pa mrtva prijava piše „Needs re-login“ umjesto „Signed in“
-- Devices je stranica za popravke: ondje se ponovno prijavljuješ u agentski račun ili biraš koji prijavljeni račun stroj koristi
+- Devices je stranica za popravke: svaki stroj popisuje agentske prijave koje drži, a oznaka nudi pravi popravak, ponovnu prijavu za isteklu ili upotrebu tog računa ovdje za onaj koji stroj ne koristi
 - Promjena računa usred izvođenja: Claude izvođenje koje udari u ograničenje može nastaviti na drugom računu iz prikaza potrošnje ili iz poruke o ograničenju, kao novo izvođenje povezano sa starim
 - Stroj koji si dodirnuo: gumb za pokretanje uz stroj otvara polje s upravo tim strojem odabranim, a polje kaže zašto stroj ne može preuzeti izvođenje
 - Natrag odakle si došao: izlazak iz sesije vraća te na issue, board ili pristiglu poštu odakle si je otvorio, a izvođenje koje je pokrenulo drugo izvođenje stoji ugniježđeno ispod njega
 - Watch umjesto Coding now: tvoje vlastito izvođenje uživo na issueu je oznaka Watch među svojstvima issuea, a ne zasebna kartica
-- Razgovori i pribadanje: novi razgovor nudi prijedloge za početak, a issue, sesiju ili action možeš pribosti s njihova vlastitog zaslona
+- Prijedlozi za razgovor: novi razgovor nudi oznake s prijedlozima za početak
+- Na telefonu nema gumba za pribadanje: nema bočne trake na koju bi se pribadalo, pa je Pin nestao s issuea, sesija i actiona; pribadanja napravljena na računalu i dalje se vide u izborniku boardova
+- Povučeni agenti ostaju povučeni: stroj na starijoj verziji koji još javlja uklonjenog agenta nikada ne stvara redak, karticu ni stavku u izborniku

@@ -211,8 +211,9 @@ export function BoardSwitcherSheet({
 
 /** EXP-818: the sheet's Pinned section — the sidebar group's rows, resolved by
  * the same hook (`usePinnedEntries`), as sheet rows. Hidden when nothing is
- * pinned (or nothing resolves), exactly like the sidebar group. Unpinning
- * stays on the detail surfaces; this is a jump list. */
+ * pinned (or nothing resolves), exactly like the sidebar group. This is a
+ * jump list: EXP-858 dropped the phone's pin toggles, so rows land here from
+ * a desktop-width surface and are unpinned there. */
 function PinnedSheetSection({
   teamId,
   teamSlug,

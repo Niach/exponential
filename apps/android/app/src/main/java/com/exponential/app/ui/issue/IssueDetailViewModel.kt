@@ -11,7 +11,6 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.CreateRelationInput
 import com.exponential.app.data.api.NotificationsApi
-import com.exponential.app.data.api.PinsApi
 import com.exponential.app.data.api.RelationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -24,7 +23,6 @@ import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
-import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.LabelEntity
@@ -35,7 +33,6 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.CodingSessionLiveness
-import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusResolver
@@ -127,7 +124,6 @@ class IssueDetailViewModel @Inject constructor(
     private val issueImagesApi: IssueImagesApi,
     private val attachmentsApi: AttachmentsApi,
     private val notificationsApi: NotificationsApi,
-    private val pinsApi: PinsApi,
     private val steerApi: SteerApi,
     private val widgetsApi: WidgetsApi,
     private val stats: SyncStats,
@@ -145,22 +141,9 @@ class IssueDetailViewModel @Inject constructor(
 
     private val issueFlow = dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(issueId) }
 
-    // EXP-778: whether this issue sits in the caller's "Pinned" section — read
-    // off the synced pins table, so the toggle reflects the server's answer
-    // once the shape lands and never a guessed local flip.
-    val pinned: StateFlow<Boolean> = dbFlow
-        .scopedQuery<PinEntity?>(null) { it.pinDao().observeByIssue(issueId) }
-        .map { it != null }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    /** Pin / unpin this issue (`pins.toggle`, EXP-778). */
-    fun togglePin() {
-        val teamId = _board.value?.teamId ?: return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { pinsApi.toggle(accountId, teamId, DomainContract.pinKindIssue, issueId) }
-        }
-    }
+    // EXP-858: no pin state here — the phone has no sidebar to pin into, so
+    // the toggle (and its `pins.toggle` call) is gone. The synced `pins` rows
+    // still feed the board switcher's Pinned list.
     private val _board = MutableStateFlow<BoardEntity?>(null)
     private val teamLabelsFlow = combine(dbFlow, _board) { db, board -> db to board }
         .flatMapLatest { (db, board) ->

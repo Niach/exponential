@@ -14,6 +14,7 @@
 // agent's own app groups them (`usageGroups`). There is no pinned window and
 // no "the fullest one" heuristic any more — a reading habit nobody had.
 
+import { contract } from "@exp/domain-contract"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
   CodingSession,
@@ -42,6 +43,15 @@ export const DANGER_PERCENT = 95
 export const MAX_USAGE_WINDOWS = 10
 
 export type UsageSeverity = `normal` | `warning` | `danger`
+
+/** EXP-849: belt-and-braces against a RETIRED agent id (`pi`) still sitting
+ * in a synced row. The server clamps every write (lib/trpc/devices.ts), but
+ * rows written before that clamp — or served by a self-hosted instance on an
+ * older image — must still never produce a usage row, an account chip or a
+ * health verdict for an agent this build has no name, icon or launcher for. */
+export function isContractAgent(agent: string): boolean {
+  return (contract.codingAgent.values as readonly string[]).includes(agent)
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === `object` && value !== null && !Array.isArray(value)
@@ -447,7 +457,7 @@ export function deviceAccountChips(
 ): DeviceAccountChip[] {
   const out: DeviceAccountChip[] = []
   for (const [agent, account] of Object.entries(device.agentAccounts ?? {})) {
-    if (!account) continue
+    if (!account || !isContractAgent(agent)) continue
     const profiles = (account.profiles ?? []).filter(
       (profile): profile is NonNullable<typeof profile> => Boolean(profile?.id)
     )
@@ -497,8 +507,8 @@ export function deviceWorstHealth(
   device: HealthDeviceRow
 ): DeviceAgentHealth | null {
   const healths: DeviceAgentHealth[] = []
-  for (const account of Object.values(device.agentAccounts ?? {})) {
-    if (!account) continue
+  for (const [agent, account] of Object.entries(device.agentAccounts ?? {})) {
+    if (!account || !isContractAgent(agent)) continue
     const profiles = (account.profiles ?? []).filter(Boolean)
     if (profiles.length === 0) {
       healths.push(agentHealth(account))
@@ -668,10 +678,11 @@ export function agentProfileUsageRows(
   for (const device of devices) {
     const accounts = device.agentAccounts ?? {}
     const usageMap = parseAgentUsageMap(device.agentUsage ?? {})
-    const agents = new Set<string>([
-      ...Object.keys(accounts),
-      ...Object.keys(usageMap),
-    ])
+    const agents = new Set<string>(
+      [...Object.keys(accounts), ...Object.keys(usageMap)].filter(
+        isContractAgent
+      )
+    )
     for (const agent of agents) {
       const account = accounts[agent] ?? null
       const base = {

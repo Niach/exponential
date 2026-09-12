@@ -449,4 +449,117 @@ class AgentAccountsRowsTest {
         assertEquals(AgentHealth.Ok, rows.first { it.profileId == "system" }.health)
         assertEquals(AgentHealth.NeedsRelogin, rows.first { it.profileId == "work" }.health)
     }
+    // ── EXP-849: the machine row's chips (the SETUP/REPAIR surface) ──────────
+
+    @Test
+    fun `device account chips list every login the machine holds, active first`() {
+        val accounts = """{"codex":{"signedIn":true,"email":"c@acme.test","plan":"plus"},""" +
+            """"claude":{"signedIn":true,"email":"a@acme.test","health":"ok","profiles":[""" +
+            """{"id":"work","signedIn":true,"email":"b@acme.test","label":"Work","health":"needs_relogin"},""" +
+            """{"id":"system","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"}]}}"""
+        val chips = AgentAccountsRows.deviceAccountChips(
+            parseAgentAccounts(accounts),
+        )
+        // Contract agent order (claude before codex), the ACTIVE login of each
+        // agent first, and a profile-less agent yields its ambient account.
+        assertEquals(
+            listOf("claude:system", "claude:work", "codex:system"),
+            chips.map { it.key },
+        )
+        val ambient = chips[0]
+        assertTrue(ambient.active)
+        assertEquals("Default", ambient.profileLabel)
+        assertEquals("a@acme.test", ambient.email)
+        assertEquals(AgentHealth.Ok, ambient.health)
+        val work = chips[1]
+        assertFalse(work.active)
+        assertEquals("Work", work.profileLabel)
+        assertEquals(AgentHealth.NeedsRelogin, work.health)
+        // The pre-profile machine's single ambient account is always "active".
+        assertTrue(chips[2].active)
+        assertEquals("Default", chips[2].profileLabel)
+    }
+
+    @Test
+    fun `a machine chip names the agent and the login`() {
+        val chips = AgentAccountsRows.deviceAccountChips(
+            parseAgentAccounts("""{"claude":{"signedIn":true,"email":"a@acme.test"}}"""),
+        )
+        assertEquals(
+            "Claude · a@acme.test",
+            AgentAccountsRows.machineChipLabel(chips[0]) { it.replaceFirstChar(Char::uppercase) },
+        )
+        // No email: the plan an agent reports instead of an address.
+        val plan = AgentAccountsRows.deviceAccountChips(
+            parseAgentAccounts("""{"claude":{"signedIn":true,"plan":"max"}}"""),
+        )
+        assertEquals("claude · max", AgentAccountsRows.machineChipLabel(plan[0]) { it })
+        // Signed out: the profile's own label, never "signed in".
+        val out = AgentAccountsRows.deviceAccountChips(
+            parseAgentAccounts("""{"claude":{"signedIn":false}}"""),
+        )
+        assertEquals("claude · Default", AgentAccountsRows.machineChipLabel(out[0]) { it })
+    }
+
+    @Test
+    fun `the chip menu offers ONE repair per state`() {
+        fun chip(signedIn: Boolean, active: Boolean, health: AgentHealth) = DeviceAccountChip(
+            key = "claude:system",
+            agent = "claude",
+            profileId = "system",
+            profileLabel = "Default",
+            signedIn = signedIn,
+            active = active,
+            email = null,
+            plan = null,
+            health = health,
+        )
+        val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
+        assertEquals("Sign in", AgentAccountsRows.chipAction(signedOut))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(signedOut))
+
+        val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
+        assertEquals("Re-login", AgentAccountsRows.chipAction(expired))
+        // An expired credential is never "switched to" — it would not work.
+        assertFalse(AgentAccountsRows.chipSwitchesTo(expired))
+
+        val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
+        assertEquals("Sign in again", AgentAccountsRows.chipAction(current))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(current))
+
+        val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
+        assertEquals("Use this account here", AgentAccountsRows.chipAction(other))
+        assertTrue(AgentAccountsRows.chipSwitchesTo(other))
+    }
+
+    // ── EXP-849: a retired agent id never renders ────────────────────────────
+
+    @Test
+    fun `an agent outside the contract is never a row, a chip or a section`() {
+        // A desktop below the version floor keeps heart-beating `pi` in every
+        // one of these columns; nothing this build draws may name it.
+        val stale = device(
+            deviceId = "old-box",
+            agentAccounts = """{"pi":{"signedIn":true,"email":"pi@acme.test"},"claude":{"signedIn":true,"email":"a@acme.test"}}""",
+            agentUsage = """{"pi":${usageJson("2026-08-28T11:55:00.000Z", "weekly", 99)}}""",
+        )
+        val rows = AgentAccountsRows.agentProfileUsageRows(listOf(stale), "me") { true }
+        assertEquals(listOf("old-box:claude:system"), rows.map { it.key })
+        assertEquals(
+            listOf("claude"),
+            AgentAccountsRows.sections(
+                AgentAccountsRows.accountUsageGroups(rows) { false },
+            ).map { it.agent },
+        )
+        assertEquals(
+            listOf("claude:system"),
+            AgentAccountsRows.deviceAccountChips(parseAgentAccounts(stale.agentAccounts)).map { it.key },
+        )
+        // …and the machine's badge is its CLAUDE health, never pi's.
+        assertNull(
+            AgentHealthRules.badgeLabel(
+                AgentHealthRules.deviceWorst(parseAgentAccounts(stale.agentAccounts))!!,
+            ),
+        )
+    }
 }

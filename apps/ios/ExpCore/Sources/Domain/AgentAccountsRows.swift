@@ -181,7 +181,15 @@ public enum AgentAccountsRows {
         for device in devices {
             let accounts = AgentUsagePresentation.parseAccounts(device.agentAccounts) ?? [:]
             let usageMap = AgentUsagePresentation.parseMap(device.agentUsage) ?? [:]
-            let agents = orderedAgents(Set(accounts.keys).union(usageMap.keys))
+            // EXP-849: an agent this build has no name for (a retired `pi`
+            // still beating off an old daemon) is not a row, not a tab and
+            // not a chip. The row mapping already drops it; the set is
+            // filtered here too, so a caller that parsed the jsonb itself
+            // cannot smuggle one in.
+            let agents = orderedAgents(
+                Set(accounts.keys).union(usageMap.keys)
+                    .filter(AgentUsagePresentation.isContractAgent)
+            )
             let mine = currentUserId != nil && device.userId == currentUserId
             let online = isOnline(device.lastSeenAt)
             for agent in agents {
@@ -432,6 +440,24 @@ public enum AgentAccountsRows {
     public static func groupCaption(_ group: AgentAccountUsageGroup) -> String {
         guard group.signedIn else { return "Not signed in" }
         return group.email ?? group.plan ?? "signed in"
+    }
+
+    /// EXP-849: the ONE repair a MACHINE owes a login, as its chip menu's lead
+    /// entry — a healthy login the machine is not using simply BECOMES its
+    /// login (`agent_profile_use`: no login flow, no logout, no credential
+    /// touched), everything else is a sign-in. Byte-identical with web
+    /// `MachineAccountChip` and Android `chipAction`.
+    public static func chipAction(_ row: AgentProfileUsageRow) -> String {
+        if !row.signedIn { return "Sign in" }
+        if row.health == .needsRelogin { return "Re-login" }
+        return row.active ? "Sign in again" : "Use this account here"
+    }
+
+    /// Whether `chipAction` is the non-destructive active-login pick rather
+    /// than a sign-in. An EXPIRED credential is never switched to: it would
+    /// not work — it gets re-signed-in instead.
+    public static func chipSwitchesTo(_ row: AgentProfileUsageRow) -> Bool {
+        row.signedIn && !row.active && row.health != .needsRelogin
     }
 
     /// EXP-849: the account row's health badge, or nil when there is nothing to

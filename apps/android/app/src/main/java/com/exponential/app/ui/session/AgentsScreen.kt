@@ -53,6 +53,7 @@ import com.exponential.app.domain.AgentHealth
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.domain.DeviceAccountChip
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
@@ -86,10 +87,19 @@ import kotlinx.coroutines.delay
  * desktop `accounts_section.rs`) — one row per agent account the machines
  * report, its machines as chips (a check where the account is the ACTIVE
  * login there), the freshest machine's usage windows, refreshed by itself
- * while the page is open. EXP-849: a chip of one of the caller's own machines
- * carries the ONE repair that machine owes the login — make it the machine's
- * active one (`agent_profile_use`) or sign it in — plus the way into the
- * machine's own settings sheet.
+ * while the page is open.
+ *
+ * EXP-849 splits the two surfaces deliberately, and they are NOT mirror
+ * images:
+ *   - **Accounts** is the DECISION surface — one row per account (who it is,
+ *     what it may spend, how healthy it is). The machine chips there are QUIET
+ *     presence indicators, never a control cluster.
+ *   - **My machines** is the SETUP/REPAIR surface — one row per machine, with
+ *     an ACCOUNT CHIP per login it holds: the health badge bubbles to the row,
+ *     and the chip's menu makes another login this machine's active one
+ *     (`agent_profile_use`) or opens its settings sheet on that agent, where
+ *     the sign-in link and its code field live. Signing in happens ON a
+ *     machine, so it lives here.
  */
 @Composable
 fun AgentsScreen(
@@ -104,9 +114,11 @@ fun AgentsScreen(
     val accountSections by viewModel.accountSections.collectAsStateWithLifecycle()
     val refreshingAccounts by viewModel.refreshingAccounts.collectAsStateWithLifecycle()
     val accountsError by viewModel.accountsError.collectAsStateWithLifecycle()
-    // EXP-849: the remote sign-ins the Accounts section itself issued, keyed by
-    // account row — the published login link and its code field caption inline,
-    // instead of sending the user off to the device sheet.
+    // EXP-849: the account commands the MACHINE rows issued (`agent_profile_use`
+    // — "use this account here"), keyed by machine × login: the chip spins
+    // while one is in flight and the row captions a refusal. Sign-ins are not
+    // here: they round-trip a link and a code, which is the device-settings
+    // sheet's job.
     val accountCommandStates by viewModel.accountCommandStates.collectAsStateWithLifecycle()
 
     // EXP-817: the section's own refresh round — on every change of the rows
@@ -121,6 +133,9 @@ fun AgentsScreen(
 
     // The machine row whose settings sheet (EXP-481) / Remove dialog is open.
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
+    // EXP-849: which agent tab that sheet opens on — a machine chip's "Sign in"
+    // routes into the sheet, and it must land on the login that is broken.
+    var settingsAgent by remember { mutableStateOf<String?>(null) }
     var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
     // EXP-849: the Accounts section's agent TAB (claude | codex) — one agent's
     // rows at a time, so the second agent's accounts never crowd the first's
@@ -178,10 +193,23 @@ fun AgentsScreen(
                                 device = device,
                                 latestVersions = latestVersions,
                                 busy = device.deviceId in deviceBusy,
+                                commandStates = accountCommandStates,
                                 onStart = { onOpenAgent(AgentComposerSeed(deviceId = device.deviceId)) },
-                                onEdit = { settingsTargetId = device.deviceId },
+                                onEdit = {
+                                    settingsAgent = null
+                                    settingsTargetId = device.deviceId
+                                },
                                 onRemove = { removeTarget = device },
                                 onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
+                                onUseAccountHere = { chip -> viewModel.useAccountHere(device, chip) },
+                                // The sign-in link, its code field and the
+                                // waiting state live in the machine's settings
+                                // sheet — one implementation, opened on the
+                                // agent whose login needs the repair.
+                                onSignInAccount = { chip ->
+                                    settingsAgent = chip.agent
+                                    settingsTargetId = device.deviceId
+                                },
                             )
                         }
                     }
@@ -195,10 +223,17 @@ fun AgentsScreen(
                                 device = device,
                                 latestVersions = latestVersions,
                                 busy = false,
+                                commandStates = accountCommandStates,
                                 onStart = { onOpenAgent(AgentComposerSeed(deviceId = device.deviceId)) },
                                 onEdit = {},
                                 onRemove = {},
                                 onUpdate = {},
+                                // A teammate's machine renders its logins
+                                // READ-ONLY: seeing that a shared server's
+                                // codex login expired explains a refused
+                                // start, but only its owner can fix it.
+                                onUseAccountHere = {},
+                                onSignInAccount = {},
                             )
                         }
                     }
@@ -285,19 +320,8 @@ fun AgentsScreen(
                             items(section.groups, key = { "acct_${it.key}" }) { group ->
                                 AccountRow(
                                     group = group,
-                                    devicesById = devices.orEmpty().associateBy { it.deviceId },
                                     refreshing = group.key in refreshingAccounts,
-                                    commandStates = accountCommandStates,
                                     onRefresh = { viewModel.refreshAccount(group) },
-                                    onLogin = viewModel::accountLogin,
-                                    onUseHere = viewModel::useAccountHere,
-                                    onEnterCode = { row, code ->
-                                        viewModel.accountLoginCode(row, code)
-                                    },
-                                    // Machine setup still lives in the
-                                    // device-settings sheet — the chip just
-                                    // isn't limited to opening it any more.
-                                    onOpenDevice = { settingsTargetId = it },
                                 )
                             }
                         }
@@ -317,10 +341,14 @@ fun AgentsScreen(
         devices?.firstOrNull { it.deviceId == targetId && it.isMine }?.let { target ->
             DeviceSettingsSheet(
                 device = target,
-                onDismiss = { settingsTargetId = null },
+                onDismiss = {
+                    settingsTargetId = null
+                    settingsAgent = null
+                },
                 // EXP-827: the sheet dismisses itself, then this page scrolls
                 // to Accounts.
                 onOpenUsage = { usageRequest += 1 },
+                initialAgent = settingsAgent,
             )
         }
     }
@@ -399,10 +427,16 @@ private fun MachineRow(
     device: SteerDevice,
     latestVersions: DeviceLatestVersions,
     busy: Boolean,
+    /** EXP-849: this machine's account commands in flight, keyed by chip. */
+    commandStates: Map<String, DeviceCommandUiState>,
     onStart: () -> Unit,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
     onUpdate: () -> Unit,
+    /** EXP-849: make this login the machine's ACTIVE one (`agent_profile_use`). */
+    onUseAccountHere: (DeviceAccountChip) -> Unit,
+    /** EXP-849: run the agent's own sign-in here — the device sheet owns the flow. */
+    onSignInAccount: (DeviceAccountChip) -> Unit,
 ) {
     val online = device.online
     // Installed-but-signed-out agents (EXP-409): they block a start outright
@@ -422,217 +456,391 @@ private fun MachineRow(
         device.version,
         if (device.isServer) latestVersions.cli else latestVersions.desktop,
     )
-    Row(
+    // EXP-849: the row is a COLUMN now — its machine line, then the account
+    // chips (the repair surface). The whole block keeps the one tap target.
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .flatRow()
             .clickable(enabled = startable, onClick = onStart)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(
-            if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (startable) TextEmphasis.Secondary else TextEmphasis.Tertiary,
-            ),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    device.displayLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    // An unstartable machine greys out: it looks present but
-                    // can take nothing, so it must not read as fully available.
-                    color = if (blockedCaption != null) {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                val owner = device.owner
-                if (owner != null) {
-                    Spacer(Modifier.width(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (startable) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+                ),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "shared by ${owner.name}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        device.displayLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        // An unstartable machine greys out: it looks present but
+                        // can take nothing, so it must not read as fully available.
+                        color = if (blockedCaption != null) {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                } else if (device.version != null) {
-                    Spacer(Modifier.width(6.dp))
+                    val owner = device.owner
+                    if (owner != null) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "shared by ${owner.name}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else if (device.version != null) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "v${device.version}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (outdated) {
+                                NeedsInputAmber
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                            },
+                            maxLines = 1,
+                        )
+                    }
+                    // EXP-622: the machine every device picker prefills.
+                    if (device.isDefault) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            ExpIcons.uiDeviceDefault,
+                            contentDescription = "Default machine",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                    if (device.isMine && device.sharedTeamIds.isNotEmpty()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Shared",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                    }
+                    // EXP-849: the machine's WORST account health. "Needs
+                    // re-login" (a credential that expired under the user — the
+                    // CLI still claims it is signed in) is deliberately distinct
+                    // from "Signed out" (a login nobody ever made); the
+                    // signed-out half is suppressed when the status line below
+                    // already names the signed-out agents, so the row says it
+                    // once.
+                    val worstHealth = AgentHealthRules.deviceWorst(device.agentAccounts)
+                    val healthBadge = worstHealth
+                        ?.let(AgentHealthRules::badgeLabel)
+                        ?.takeIf { worstHealth == AgentHealth.NeedsRelogin || unauthed.isEmpty() }
+                    if (healthBadge != null) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            healthBadge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeedsInputAmber,
+                            maxLines = 1,
+                            modifier = Modifier.testTag("device-health-badge"),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    // A pending update outranks the presence caption: the daemon is
+                    // about to restart, so "Online" would only read as a lie. But a
+                    // request parked behind live sessions (EXP-411) reads "Update
+                    // queued" without a spinner — it applies once they close.
+                    if (device.updateRequested && !device.updateBlocked) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(10.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                    } else if (online && !device.updateQueued) {
+                        StaticDot(if (blockedCaption != null) NeedsInputAmber else ReviewGreen, size = 6.dp)
+                    }
+                    val signedOutCaption = "${unauthed.joinToString(", ")} not signed in"
                     Text(
-                        "v${device.version}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (outdated) {
+                        when {
+                            device.updateQueued -> "Update queued"
+                            device.updateRequested -> "Updating…"
+                            blockedCaption != null -> blockedCaption
+                            online -> "Online"
+                            device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
+                            else -> "Offline"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (blockedCaption != null && !device.updateRequested) {
                             NeedsInputAmber
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
                         },
-                        maxLines = 1,
-                    )
-                }
-                // EXP-622: the machine every device picker prefills.
-                if (device.isDefault) {
-                    Spacer(Modifier.width(6.dp))
-                    Icon(
-                        ExpIcons.uiDeviceDefault,
-                        contentDescription = "Default machine",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.size(13.dp),
-                    )
-                }
-                if (device.isMine && device.sharedTeamIds.isNotEmpty()) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "Shared",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                }
-                // EXP-849: the machine's WORST account health. "Needs
-                // re-login" (a credential that expired under the user — the
-                // CLI still claims it is signed in) is deliberately distinct
-                // from "Signed out" (a login nobody ever made); the
-                // signed-out half is suppressed when the status line below
-                // already names the signed-out agents, so the row says it
-                // once.
-                val worstHealth = AgentHealthRules.deviceWorst(device.agentAccounts)
-                val healthBadge = worstHealth
-                    ?.let(AgentHealthRules::badgeLabel)
-                    ?.takeIf { worstHealth == AgentHealth.NeedsRelogin || unauthed.isEmpty() }
-                if (healthBadge != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        healthBadge,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeedsInputAmber,
-                        maxLines = 1,
-                        modifier = Modifier.testTag("device-health-badge"),
-                    )
-                }
-            }
-            Spacer(Modifier.height(2.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                // A pending update outranks the presence caption: the daemon is
-                // about to restart, so "Online" would only read as a lie. But a
-                // request parked behind live sessions (EXP-411) reads "Update
-                // queued" without a spinner — it applies once they close.
-                if (device.updateRequested && !device.updateBlocked) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(10.dp),
-                        strokeWidth = 1.5.dp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                } else if (online && !device.updateQueued) {
-                    StaticDot(if (blockedCaption != null) NeedsInputAmber else ReviewGreen, size = 6.dp)
-                }
-                val signedOutCaption = "${unauthed.joinToString(", ")} not signed in"
-                Text(
-                    when {
-                        device.updateQueued -> "Update queued"
-                        device.updateRequested -> "Updating…"
-                        blockedCaption != null -> blockedCaption
-                        online -> "Online"
-                        device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
-                        else -> "Offline"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (blockedCaption != null && !device.updateRequested) {
-                        NeedsInputAmber
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                // Runnable, but something installed is signed out: a footnote
-                // next to Online, never the headline.
-                if (online && blockedCaption == null && !device.updateRequested && unauthed.isNotEmpty()) {
-                    Text(
-                        "· $signedOutCaption",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    // Runnable, but something installed is signed out: a footnote
+                    // next to Online, never the headline.
+                    if (online && blockedCaption == null && !device.updateRequested && unauthed.isNotEmpty()) {
+                        Text(
+                            "· $signedOutCaption",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
-        }
-        // EXP-615: an icon-only play button (one Run/Start affordance across
-        // the clients). Offline machines can't take a start (the relay refuses
-        // it), nor can ones with no runnable agent (EXP-409/EXP-836), so the
-        // affordance is simply absent — the status line above says why.
-        // EXP-694: on the shared glass circle (iOS `CircleIconButton` parity),
-        // not a bare primary-tinted glyph in an M3 touch box.
-        if (startable) {
-            CircleIconButton(
-                ExpIcons.actionRun,
-                contentDescription = "Start coding",
-                onClick = onStart,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-        // Rename / Update / Remove all mutate the OWNER's registry row, so a
-        // teammate's shared machine carries no menu at all (EXP-432).
-        if (device.registered && device.isMine) {
-            var rowMenu by remember { mutableStateOf(false) }
-            Box {
+            // EXP-615: an icon-only play button (one Run/Start affordance across
+            // the clients). Offline machines can't take a start (the relay refuses
+            // it), nor can ones with no runnable agent (EXP-409/EXP-836), so the
+            // affordance is simply absent — the status line above says why.
+            // EXP-694: on the shared glass circle (iOS `CircleIconButton` parity),
+            // not a bare primary-tinted glyph in an M3 touch box.
+            if (startable) {
                 CircleIconButton(
-                    ExpIcons.uiMore,
-                    contentDescription = "Machine actions",
-                    onClick = { rowMenu = true },
+                    ExpIcons.actionRun,
+                    contentDescription = "Start coding",
+                    onClick = onStart,
                     modifier = Modifier.padding(start = 8.dp),
                 )
-                GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
-                    // EXP-481: Rename and the share toggle moved INTO the
-                    // device-settings sheet — the menu carries one Edit entry.
-                    GlassMenuItem(
-                        text = { Text("Edit") },
-                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                        enabled = !busy,
-                        onClick = {
-                            rowMenu = false
-                            onEdit()
-                        },
+            }
+            // Rename / Update / Remove all mutate the OWNER's registry row, so a
+            // teammate's shared machine carries no menu at all (EXP-432).
+            if (device.registered && device.isMine) {
+                var rowMenu by remember { mutableStateOf(false) }
+                Box {
+                    CircleIconButton(
+                        ExpIcons.uiMore,
+                        contentDescription = "Machine actions",
+                        onClick = { rowMenu = true },
+                        modifier = Modifier.padding(start = 8.dp),
                     )
-                    // Self-update is a server-daemon capability: the desktop
-                    // app updates itself through its own channel, and an
-                    // offline machine has nothing listening for the request.
-                    // EXP-420: offered only when a newer version really exists.
-                    if (device.isServer && online && outdated && !device.updateRequested) {
+                    GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                        // EXP-481: Rename and the share toggle moved INTO the
+                        // device-settings sheet — the menu carries one Edit entry.
                         GlassMenuItem(
-                            text = { Text("Update") },
-                            leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
+                            text = { Text("Edit") },
+                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
                             enabled = !busy,
                             onClick = {
                                 rowMenu = false
-                                onUpdate()
+                                onEdit()
+                            },
+                        )
+                        // Self-update is a server-daemon capability: the desktop
+                        // app updates itself through its own channel, and an
+                        // offline machine has nothing listening for the request.
+                        // EXP-420: offered only when a newer version really exists.
+                        if (device.isServer && online && outdated && !device.updateRequested) {
+                            GlassMenuItem(
+                                text = { Text("Update") },
+                                leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
+                                enabled = !busy,
+                                onClick = {
+                                    rowMenu = false
+                                    onUpdate()
+                                },
+                            )
+                        }
+                        GlassMenuItem(
+                            text = { Text("Remove") },
+                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                            enabled = !busy,
+                            destructive = true,
+                            onClick = {
+                                rowMenu = false
+                                onRemove()
                             },
                         )
                     }
-                    GlassMenuItem(
-                        text = { Text("Remove") },
-                        leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                        enabled = !busy,
-                        destructive = true,
-                        onClick = {
-                            rowMenu = false
-                            onRemove()
-                        },
-                    )
                 }
+            }
+        }
+        MachineAccountChips(
+            deviceId = device.deviceId,
+            chips = AgentAccountsRows.deviceAccountChips(device.agentAccounts),
+            // A repair only runs on one of MY machines that is listening and
+            // new enough to advertise the cap — the server refuses the
+            // commands without it, and an offline machine would hold them
+            // until it wakes, which reads as a dead tap.
+            actionable = device.isMine && online && device.canAgentLogin,
+            commandStates = commandStates,
+            onUseHere = onUseAccountHere,
+            onSignIn = onSignInAccount,
+        )
+    }
+}
+
+/**
+ * EXP-849: the logins ONE machine holds, as the chips on its row — the
+ * setup/repair half of the accounts split (web `MachineAccountChips`, iOS
+ * `DeviceAccountChips`).
+ *
+ * The Accounts section below decides WHICH account to run on; a machine row is
+ * where a broken or missing login gets fixed. So each chip names the agent and
+ * the login, badges THIS machine's health for it, and carries the ONE repair
+ * that machine owes it: a healthy login it is not using simply BECOMES its
+ * login (`agent_profile_use` — no login flow, no logout, no credential
+ * touched), anything else is a sign-in, which opens the machine's settings
+ * sheet on that agent (the sheet owns the link, the code field and the waiting
+ * state — one implementation, not one per surface).
+ */
+@Composable
+private fun MachineAccountChips(
+    deviceId: String,
+    chips: List<DeviceAccountChip>,
+    actionable: Boolean,
+    commandStates: Map<String, DeviceCommandUiState>,
+    onUseHere: (DeviceAccountChip) -> Unit,
+    onSignIn: (DeviceAccountChip) -> Unit,
+) {
+    if (chips.isEmpty()) return
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        chips.forEach { chip ->
+            key(chip.key) {
+                MachineAccountChip(
+                    chip = chip,
+                    actionable = actionable,
+                    state = commandStates[deviceAccountCommandKey(deviceId, chip)],
+                    onUseHere = { onUseHere(chip) },
+                    onSignIn = { onSignIn(chip) },
+                )
+            }
+        }
+    }
+    // The material outcome of "use this account here" arrives by SYNC (the
+    // machine re-reports its accounts, which moves the check), but a refusal
+    // would otherwise be silent — including the honest one a machine too old
+    // to know the command answers with.
+    chips.forEach { chip ->
+        val failure = commandStates[deviceAccountCommandKey(deviceId, chip)]
+            as? DeviceCommandUiState.Failed ?: return@forEach
+        Text(
+            failure.message,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+/** One login of one machine: the agent, the login, its state, its repair. */
+@Composable
+private fun MachineAccountChip(
+    chip: DeviceAccountChip,
+    actionable: Boolean,
+    state: DeviceCommandUiState?,
+    onUseHere: () -> Unit,
+    onSignIn: () -> Unit,
+) {
+    val label = AgentAccountsRows.machineChipLabel(chip, ::agentLabel)
+    val badge = AgentHealthRules.badgeLabel(chip.health)
+    val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
+    var menuOpen by remember { mutableStateOf(false) }
+    val description = buildString {
+        append(label)
+        if (chip.active) append(", the account this machine uses")
+        badge?.let { append(", ${it.lowercase()}") }
+    }
+    val pill: @Composable () -> Unit = {
+        GlassPill(
+            label,
+            size = PillSize.Sm,
+            onClick = if (actionable) {
+                { menuOpen = true }
+            } else {
+                null
+            },
+            trailing = when {
+                busy -> null
+                badge != null -> {
+                    {
+                        Icon(
+                            ExpIcons.uiWarning,
+                            contentDescription = badge,
+                            tint = NeedsInputAmber,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+                chip.signedIn && chip.active -> {
+                    {
+                        Icon(
+                            ExpIcons.uiCheck,
+                            contentDescription = "The account this machine uses",
+                            tint = ReviewGreen,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+                else -> null
+            },
+            loading = busy,
+            contentDescription = description,
+            modifier = Modifier.testTag("device-account-chip"),
+        )
+    }
+    if (!actionable) {
+        pill()
+        return
+    }
+    Box {
+        pill()
+        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            // ONE action per state (web `MachineAccountChip`, byte-identical
+            // strings): a healthy login this machine is not using BECOMES its
+            // login, everything else signs in. Never a logout — signing codex
+            // out would revoke the account server-wide — and never a
+            // credential copy: the files stay where the CLI wrote them.
+            val switchesTo = AgentAccountsRows.chipSwitchesTo(chip)
+            GlassMenuItem(
+                text = { Text(AgentAccountsRows.chipAction(chip)) },
+                leadingIcon = {
+                    Icon(
+                        if (switchesTo) ExpIcons.uiSwap else ExpIcons.uiSignIn,
+                        contentDescription = null,
+                    )
+                },
+                enabled = !busy,
+                onClick = {
+                    menuOpen = false
+                    if (switchesTo) onUseHere() else onSignIn()
+                },
+            )
+            // A switch is the cheap repair; the sign-in stays available under
+            // it for a login that turns out to be dead after all.
+            if (switchesTo) {
+                GlassMenuItem(
+                    text = { Text("Sign in again") },
+                    leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
+                    enabled = !busy,
+                    onClick = {
+                        menuOpen = false
+                        onSignIn()
+                    },
+                )
             }
         }
     }
@@ -650,14 +858,8 @@ private fun MachineRow(
 @Composable
 private fun AccountRow(
     group: AgentAccountUsageGroup,
-    devicesById: Map<String, SteerDevice>,
     refreshing: Boolean,
-    commandStates: Map<String, DeviceCommandUiState>,
     onRefresh: () -> Unit,
-    onLogin: (AgentProfileUsageRow) -> Unit,
-    onUseHere: (AgentProfileUsageRow) -> Unit,
-    onEnterCode: (AgentProfileUsageRow, String) -> Unit,
-    onOpenDevice: (String) -> Unit,
 ) {
     val nowMs = rememberUsageClock()
     val usage = group.usage
@@ -733,71 +935,8 @@ private fun AccountRow(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             group.rows.forEach { row ->
-                // Keyed: the rows re-sort as health and usage move, and a chip's
-                // open menu must not carry over to whoever takes its slot.
-                key(row.key) {
-                    DeviceChip(
-                        row = row,
-                        device = devicesById[row.deviceId],
-                        busy = listOf(
-                            commandStates[row.key],
-                            commandStates[accountProfileUseKey(row)],
-                        ).any {
-                            it is DeviceCommandUiState.Sending ||
-                                it is DeviceCommandUiState.Running
-                        },
-                        onLogin = { onLogin(row) },
-                        onUseHere = { onUseHere(row) },
-                        onOpenDevice = { onOpenDevice(row.deviceId) },
-                    )
-                }
-            }
-        }
-        // EXP-849: whatever sign-in this row started, captioned HERE — the link
-        // the machine published, its code field, the refusal. The chips are the
-        // trigger, so the answer belongs beside them.
-        group.rows.forEach { row ->
-            val state = commandStates[row.key]
-            val codeState = commandStates[accountLoginCodeKey(row)]
-            // "Use this account here" keeps its own slot: its result is plain
-            // text, never a login publication, so it captions as a command.
-            val useHereState = commandStates[accountProfileUseKey(row)]
-            if (state == null && codeState == null && useHereState == null) return@forEach
-            // Keyed like the chips: a half-typed login code belongs to the row
-            // it was typed under, whatever the sort does next.
-            key(row.key) {
-                Column {
-                    Text(
-                        AgentAccountsRows.chipLabel(row),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Tertiary,
-                        ),
-                    )
-                    LoginResultCaption(
-                        agent = row.agent,
-                        state = state,
-                        codeState = codeState,
-                        // The code goes back to the machine that is waiting for
-                        // it; only our OWN machines take one.
-                        canEnterCode = row.mine && row.online,
-                        onEnterCode = { code -> onEnterCode(row, code) },
-                    )
-                    if (codeState != null) CommandCaption(codeState)
-                    if (useHereState is DeviceCommandUiState.Sending ||
-                        useHereState is DeviceCommandUiState.Running
-                    ) {
-                        Text(
-                            "Pointing the machine at this account…",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Secondary,
-                            ),
-                        )
-                    } else {
-                        CommandCaption(useHereState)
-                    }
-                }
+                // Keyed: the rows re-sort as health and usage move.
+                key(row.key) { DeviceChip(row = row) }
             }
         }
         if (usage != null && usage.windows.isNotEmpty()) {
@@ -827,131 +966,58 @@ private fun AccountRow(
 }
 
 /**
- * EXP-829/EXP-849: one machine chip — the online dot, the machine (· profile),
- * and a CHECK when the account is the ACTIVE login on that machine. A chip of
- * one of the caller's own machines opens a MENU, not just the device sheet
- * (web `MachineAccountChip`): the ONE repair that machine needs (Use this
- * account here / Sign in / Re-login / Sign in again), plus Device settings. A
- * teammate's machine is read-only.
+ * EXP-829/EXP-849: one machine chip on an ACCOUNT row — a QUIET presence
+ * indicator: the online dot, the machine (· profile), a CHECK when the account
+ * is that machine's ACTIVE login, and an amber warning glyph when THAT
+ * machine's copy of the login is broken.
+ *
+ * Not a control. Accounts is the DECISION surface (which login to run on);
+ * every repair — sign in, re-login, "use this account here", the login code —
+ * lives on the machine's own row up in "My machines", which is the surface
+ * that can actually fix one (web `DeviceChip`, iOS `AgentAccountDeviceChip`).
  */
 @Composable
-private fun DeviceChip(
-    row: AgentProfileUsageRow,
-    device: SteerDevice?,
-    busy: Boolean,
-    onLogin: () -> Unit,
-    onUseHere: () -> Unit,
-    onOpenDevice: () -> Unit,
-) {
+private fun DeviceChip(row: AgentProfileUsageRow) {
     val description = buildString {
         append(AgentAccountsRows.chipLabel(row))
         append(if (row.online) ", online" else ", offline")
         if (!row.signedIn) append(", not signed in") else if (row.active) append(", active here")
         AgentHealthRules.badgeLabel(row.health)?.let { append(", ${it.lowercase()}") }
     }
-    // The machine runs the sign-in itself (`agent_login`), so the entry only
-    // exists for a machine that is ours, online and new enough to advertise
-    // the cap — the same gate the device sheet applies.
-    val canLogin = row.mine && row.online && device?.canAgentLogin == true
-    var menuOpen by remember { mutableStateOf(false) }
-    val chip: @Composable () -> Unit = {
-        GlassPill(
-            AgentAccountsRows.chipLabel(row),
-            size = PillSize.Sm,
-            onClick = if (row.mine) {
-                { menuOpen = true }
-            } else {
-                null
-            },
-            dot = if (row.online) {
-                ReviewGreen
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-            },
-            trailing = when {
-                busy -> null
-                row.signedIn && row.active -> {
-                    {
-                        Icon(
-                            ExpIcons.uiCheck,
-                            contentDescription = "Active on this machine",
-                            tint = ReviewGreen,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-                AgentHealthRules.badgeLabel(row.health) != null -> {
-                    {
-                        Icon(
-                            ExpIcons.uiWarning,
-                            contentDescription = AgentHealthRules.badgeLabel(row.health),
-                            tint = NeedsInputAmber,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-                else -> null
-            },
-            loading = busy,
-            contentDescription = description,
-            modifier = Modifier.testTag("agent-account-chip"),
-        )
-    }
-    if (!row.mine) {
-        chip()
-        return
-    }
-    Box {
-        chip()
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            if (canLogin) {
-                // ONE action per state, web `MachineAccountChip` parity: a
-                // healthy login this machine is not using simply BECOMES its
-                // login (`agent_profile_use` — no credential touched, nothing
-                // signed out), with the sign-in under it for a login that
-                // turns out to be dead after all. Everything else is a
-                // profile-scoped `agent_login`, which lands in that profile's
-                // own config dir and so never signs the current one out (the
-                // destructive logout form stays on the device sheet's ambient
-                // button, where a codex token revoke is confirmed).
-                val usesHere = row.signedIn && !row.active &&
-                    row.health != AgentHealth.NeedsRelogin
-                if (usesHere) {
-                    GlassMenuItem(
-                        text = { Text("Use this account here") },
-                        leadingIcon = { Icon(ExpIcons.uiSwap, contentDescription = null) },
-                        enabled = !busy,
-                        onClick = {
-                            menuOpen = false
-                            onUseHere()
-                        },
+    GlassPill(
+        AgentAccountsRows.chipLabel(row),
+        size = PillSize.Sm,
+        dot = if (row.online) {
+            ReviewGreen
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+        },
+        trailing = when {
+            AgentHealthRules.badgeLabel(row.health) != null -> {
+                {
+                    Icon(
+                        ExpIcons.uiWarning,
+                        contentDescription = AgentHealthRules.badgeLabel(row.health),
+                        tint = NeedsInputAmber,
+                        modifier = Modifier.size(12.dp),
                     )
                 }
-                val signInLabel = when {
-                    !row.signedIn -> "Sign in"
-                    row.health == AgentHealth.NeedsRelogin -> "Re-login"
-                    else -> "Sign in again"
-                }
-                GlassMenuItem(
-                    text = { Text(signInLabel) },
-                    leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
-                    enabled = !busy,
-                    onClick = {
-                        menuOpen = false
-                        onLogin()
-                    },
-                )
             }
-            GlassMenuItem(
-                text = { Text("Device settings") },
-                leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    onOpenDevice()
-                },
-            )
-        }
-    }
+            row.signedIn && row.active -> {
+                {
+                    Icon(
+                        ExpIcons.uiCheck,
+                        contentDescription = "Active on this machine",
+                        tint = ReviewGreen,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            }
+            else -> null
+        },
+        contentDescription = description,
+        modifier = Modifier.testTag("agent-account-chip"),
+    )
 }
 
 @Composable

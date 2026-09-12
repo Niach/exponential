@@ -4,9 +4,11 @@
 - Underagenter med namn: en underagents bricka bär uppgiften den fick, dess rader sammanfattar verktygen den använde, och en Plan-bricka utan knappar visas så länge körningen fortfarande planerar
 - Workflow-kort: en körning med flera agenter visas som ett enda kort med sina faser och agenterna under, och en sessionsrad får en andra rad med det körningen arbetar med just nu
 - Konton som säger sanningen: ett agentkontos hälsa kommer från en riktig förbrukningsmätning, så en död inloggning visar ”Needs re-login” i stället för ”Signed in”
-- Devices är reparationssidan: där loggar du in ett agentkonto igen eller väljer vilket inloggat konto en maskin använder
+- Devices är reparationssidan: varje maskin listar de agentinloggningar den har, och en bricka erbjuder rätt reparation, ny inloggning för en utgången eller använd det här kontot för en som maskinen inte använder
 - Byt konto mitt i en körning: en Claude-körning som slår i sin gräns kan fortsätta på ett annat konto från förbrukningsvyn eller gränsmeddelandet, som en ny körning kopplad till den gamla
 - Maskinen du tryckte på: en maskins spelknapp öppnar fältet med just den maskinen vald, och fältet säger varför när en maskin inte kan ta körningen
 - Tillbaka dit du kom ifrån: när du lämnar en session hamnar du åter på det issue, det board eller den inkorg du öppnade den från, och en körning som en annan körning startat ligger indragen under den
 - Watch i stället för Coding now: din egen pågående körning på ett issue är en Watch-knapp bland issuets egenskaper, inte ett eget kort
-- Chattar och nålar: en ny chatt föreslår något att börja med, och ett issue, en session eller en action kan nålas fast från sin egen skärm
+- Chattförslag: en ny chatt erbjuder förslagsbrickor att börja från
+- Inga fästknappar på telefonen: det finns ingen sidopanel att fästa i, så Pin är borta från issues, sessioner och actions; fästen du gjort på datorn syns fortfarande i board-växlaren
+- Pensionerade agenter förblir borta: en maskin på en äldre version som fortfarande rapporterar en borttagen agent ger aldrig en rad, en flik eller ett val i väljaren

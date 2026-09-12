@@ -9,14 +9,12 @@ import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.PinsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
-import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
@@ -132,7 +130,6 @@ class AgentSessionViewModel @Inject constructor(
     private val steerApi: SteerApi,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
-    private val pinsApi: PinsApi,
     private val store: SteerConnectionStore,
     private val steerLaunch: SteerLaunchDelegate,
     stats: SyncStats,
@@ -149,22 +146,6 @@ class AgentSessionViewModel @Inject constructor(
     /** The synced coding_sessions row — flips to ended via Electric. Shared
      *  from the connection, which needs it eagerly for its redial loop. */
     val session: StateFlow<CodingSessionEntity?> = connection.session
-
-    // EXP-778: whether this run sits in the caller's "Pinned" section — read
-    // off the synced pins table (the toggle flips when the shape lands).
-    val pinned: StateFlow<Boolean> = dbFlow
-        .scopedQuery<PinEntity?>(null) { it.pinDao().observeBySession(codingSessionId) }
-        .map { it != null }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    /** Pin / unpin this session (`pins.toggle`, EXP-778). */
-    fun togglePin() {
-        val teamId = session.value?.teamId ?: return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { pinsApi.toggle(accountId, teamId, DomainContract.pinKindSession, codingSessionId) }
-        }
-    }
 
     /** EXP-656: when our own `devices` shape last completed a poll — presence
      *  derived from an unrefreshed cursor is unknown, never offline. */

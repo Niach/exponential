@@ -4,9 +4,11 @@
 - Underagenter med navn: en underagents chip bærer den opgave, den fik, dens linjer opsummerer de værktøjer, den brugte, og en Plan-chip uden knapper vises, så længe kørslen stadig planlægger
 - Workflow-kort: en kørsel med flere agenter vises som ét kort med sine faser og agenterne nedenunder, og en sessionsrække får en anden linje med det, kørslen arbejder på lige nu
 - Konti, der siger sandheden: en agentkontos tilstand kommer fra en rigtig forbrugsmåling, så et dødt login viser „Needs re-login“ i stedet for „Signed in“
-- Devices er reparationssiden: der logger du ind på en agentkonto igen eller vælger, hvilken tilsluttet konto en maskine bruger
+- Devices er reparationssiden: hver maskine viser de agent-logins, den har, og en chip tilbyder den rigtige reparation, nyt login til et udløbet eller brug denne konto her til et, maskinen ikke bruger
 - Skift konto midt i en kørsel: en Claude-kørsel, der rammer sin grænse, kan fortsætte på en anden konto fra forbrugsarket eller grænsebeskeden, som en ny kørsel knyttet til den gamle
 - Den maskine, du trykkede på: en maskines afspilningsknap åbner feltet med netop den maskine valgt, og feltet siger hvorfor, når en maskine ikke kan tage kørslen
 - Tilbage hvor du kom fra: forlader du en session, lander du igen på det issue, board eller den indbakke, du åbnede den fra, og en kørsel startet af en anden kørsel ligger indrykket under den
 - Watch i stedet for Coding now: din egen kørsel på et issue er en Watch-knap i issuets egenskaber og ikke længere et kort for sig
-- Chats og pins: en ny chat foreslår noget at starte med, og et issue, en session eller en action kan sættes fast fra sin egen skærm
+- Forslag i chatten: en ny chat tilbyder forslags-chips at starte fra
+- Ingen pin-knapper på telefonen: der er ingen sidebjælke at sætte fast i, så Pin er væk fra issues, sessioner og actions; pins lavet på computeren vises stadig i board-vælgeren
+- Pensionerede agenter bliver væk: en maskine på en ældre version, der stadig melder en fjernet agent, giver aldrig en række, et faneblad eller et punkt i vælgeren

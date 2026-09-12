@@ -58,9 +58,6 @@ struct AgentSessionView: View {
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
-    /// EXP-778: the caller's session pins in this run's team — the `…`
-    /// menu's Pin/Unpin row.
-    @State private var pinStore: PinStore?
     @State private var showDiffSheet = false
     @State private var showKillConfirm = false
     /// EXP-688: the `…` menu's Usage sheet — the per-window cards that used to
@@ -148,8 +145,9 @@ struct AgentSessionView: View {
     /// out of here onto the header's own Stop pill (owner-only, like everything
     /// about a live session — EXP-312).
     private var hasToolbarMenu: Bool {
-        // EXP-778: Pin is always there, so the menu always is.
-        true
+        // EXP-858: the Pin row is gone, so the menu is only worth a button
+        // when one of its remaining rows would render.
+        headerIssue != nil || hasUsage
     }
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -164,10 +162,6 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private var toolbarMenuItems: some View {
-        // EXP-778: pin this run into the sidebar.
-        if let pinStore {
-            PinMenuItem(store: pinStore, targetId: session.id)
-        }
         // EXP-698: the run's issue is reachable from the run. The Agents list
         // dropped its duplicate identifier pill (the title prints it), so this
         // menu — and the list row's long press — are the two ways there.
@@ -307,16 +301,11 @@ struct AgentSessionView: View {
                         }
                     }
                 }
-                // EXP-818 ×4: pin · Stop · `…`, in that order — the web
-                // header's own trailing row (`agent-session.tsx`). Back is the
-                // system chevron to their left.
+                // EXP-818 ×4: Stop · `…`, in that order — the web header's
+                // own trailing row (`agent-session.tsx`). Back is the system
+                // chevron to their left. EXP-858 dropped the pin: the phone
+                // has no sidebar for it to land in.
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    // EXP-778/845: the pin sits BESIDE the `…` (the issue
-                    // detail's pattern); session LIST rows carry no pin
-                    // control at all.
-                    if let pinStore {
-                        PinToolbarButton(store: pinStore, targetId: session.id)
-                    }
                     stopPill
                     if hasToolbarMenu {
                         GlassMenuBarButton(
@@ -443,22 +432,12 @@ struct AgentSessionView: View {
                         db: deps.db
                     )
                 }
-                if pinStore == nil {
-                    let store = PinStore(
-                        accountId: accountId, teamId: session.teamId,
-                        kind: DomainContract.pinKindSession, db: deps.db, api: deps.pinsApi
-                    )
-                    store.start()
-                    pinStore = store
-                }
             }
             .onDisappear {
                 // NOT a teardown: the store keeps the socket up while the session
                 // runs and retires it once it is over (or falls off the cap).
                 deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
                 startWatcher.stop()
-                pinStore?.stop()
-                pinStore = nil
                 // EXP-802: the DRAFT outlives this screen, its focus must not —
                 // the editor model would otherwise hand first responder straight
                 // back on return and pop the keyboard over a screen nobody typed

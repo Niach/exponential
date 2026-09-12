@@ -4,9 +4,11 @@
 - Des sous-agents nommés : la puce d'un sous-agent porte la tâche qu'on lui a confiée, ses lignes résument les outils utilisés, et une puce Plan en lecture seule s'affiche tant que le run planifie encore
 - Carte de workflow : un run à plusieurs agents s'affiche comme une seule carte avec ses phases et ses agents en dessous, et une ligne de session gagne une deuxième ligne indiquant ce sur quoi le run travaille
 - Des comptes qui disent la vérité : l'état d'un compte d'agent vient d'une vraie mesure d'usage, donc une connexion morte affiche « Needs re-login » au lieu de « Signed in »
-- Devices est la page de réparation : c'est là que vous reconnectez un compte d'agent ou que vous choisissez quel compte connecté une machine utilise
+- Devices est la page de réparation : chaque machine liste les comptes d'agent qu'elle détient, et une puce propose la bonne réparation, se reconnecter pour un compte expiré ou utiliser ce compte ici pour un compte que la machine n'utilise pas
 - Changer de compte en cours de run : un run Claude qui atteint sa limite peut continuer sur un autre compte depuis la feuille d'usage ou l'avis de limite, sous forme d'un nouveau run lié à l'ancien
 - La machine que vous avez touchée : le bouton lecture d'une machine ouvre le composeur avec cette machine déjà choisie, et le composeur explique pourquoi une machine ne peut pas prendre le run
 - Retour d'où vous veniez : quitter une session vous ramène à l'issue, au board ou à la boîte de réception d'où vous l'aviez ouverte, et un run lancé par un autre run apparaît imbriqué sous lui
 - Watch au lieu de Coding now : votre propre run en cours sur une issue est une pastille Watch dans les propriétés de l'issue plutôt qu'une carte à part
-- Chats et épingles : un nouveau chat propose des suggestions pour démarrer, et une issue, une session ou une action s'épingle depuis son propre écran
+- Suggestions de chat : un nouveau chat propose des puces de suggestions pour démarrer
+- Plus de bouton d'épinglage sur le téléphone : il n'y a pas de barre latérale où épingler, donc Pin disparaît des issues, des sessions et des actions ; les épingles posées sur le bureau restent visibles dans le sélecteur de boards
+- Les agents retirés le restent : une machine sur une version plus ancienne qui annonce encore un agent supprimé ne produit jamais de ligne, d'onglet ni d'entrée dans le sélecteur

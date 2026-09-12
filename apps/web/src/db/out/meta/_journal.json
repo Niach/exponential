@@ -834,6 +834,13 @@
       "when": 1789216340415,
       "tag": "0118_drop_device_shared_team_id",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1789224924273,
+      "tag": "0119_purge_retired_agent_pi",
+      "breakpoints": true
     }
   ]
 }

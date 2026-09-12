@@ -4,9 +4,11 @@
 - Alügynökök névvel: az alügynök címkéje a kapott feladatot viseli, sorai összefoglalják a használt eszközöket, és egy csak olvasható Plan címke látszik, amíg a futás még tervez
 - Workflow-kártya: a több ügynökös futás egyetlen kártyaként jelenik meg a szakaszaival és alattuk az ügynökökkel, a munkamenet sora pedig második sort kap arról, min dolgozik éppen
 - Fiókok, amelyek igazat mondanak: az ügynökfiók állapota valódi használatmérésből jön, így egy halott bejelentkezés „Needs re-login” feliratot mutat a „Signed in” helyett
-- A Devices a javítás oldala: ott jelentkezel be újra egy ügynökfiókba, vagy választod ki, melyik bejelentkezett fiókot használja egy gép
+- A Devices a javítás oldala: minden gép felsorolja a nála lévő ügynökfiókokat, és egy címke a megfelelő javítást kínálja, újbóli bejelentkezést a lejárthoz, vagy ennek a fióknak a használatát itt ahhoz, amelyiket a gép nem használja
 - Fiókváltás futás közben: a korlátjába ütköző Claude-futás másik fiókkal folytatható a használati lapról vagy a korlátüzenetből, új futásként, amely a régihez kapcsolódik
 - Az a gép, amelyre koppintottál: a gép lejátszás gombja úgy nyitja meg a mezőt, hogy pont az a gép van kiválasztva, és a mező megmondja, ha egy gép nem tudja elvállalni a futást
 - Vissza oda, ahonnan jöttél: a munkamenetből kilépve visszakerülsz arra az issue-ra, boardra vagy postaládába, ahonnan megnyitottad, és a másik futás által indított futás alatta beágyazva jelenik meg
 - Watch a Coding now helyett: a saját élő futásod egy issue-n Watch gomb az issue tulajdonságai között, nem külön kártya
-- Csevegések és kitűzés: az új csevegés javaslatokat kínál a kezdéshez, és egy issue, egy munkamenet vagy egy action a saját képernyőjéről tűzhető ki
+- Csevegési javaslatok: az új csevegés javaslatcímkéket kínál a kezdéshez
+- Nincs kitűzés gomb a telefonon: nincs oldalsáv, ahová kitűzhetnél, így a Pin eltűnt az issue-król, a munkamenetekről és az actionökről; az asztali gépen kitűzöttek továbbra is látszanak a boardváltóban
+- A kivezetett ügynökök kint maradnak: a régebbi kiadást futtató gép, amely még jelent egy eltávolított ügynököt, soha nem hoz létre sort, fület vagy választólista-bejegyzést

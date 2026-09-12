@@ -116,6 +116,14 @@ fun DeviceSettingsSheet(
      * the button does not render.
      */
     onOpenUsage: (() -> Unit)? = null,
+    /**
+     * EXP-849: the agent tab to open on — a machine row's account chip routes
+     * its sign-in HERE (the link, the code field and the waiting state live in
+     * this sheet, and are not re-implemented per surface), so the sheet must
+     * open on the agent whose login is broken. Null = the machine's default
+     * agent, the old behaviour.
+     */
+    initialAgent: String? = null,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
 ) {
 
@@ -136,7 +144,9 @@ fun DeviceSettingsSheet(
     var nameFocused by remember { mutableStateOf(false) }
     var editableAgents by remember { mutableStateOf(editableAgents(device)) }
     var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
-    var agentTab by remember { mutableStateOf(defaultAgent) }
+    var agentTab by remember {
+        mutableStateOf(initialAgent?.takeIf { it in editableAgents } ?: defaultAgent)
+    }
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }

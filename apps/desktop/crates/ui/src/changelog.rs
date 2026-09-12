@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-email-signup-and-mobile-tidy",
+    date: "2026-09-12",
+    title: "Sign up with your email, and the mobile apps drop what they cannot use",
+    summary: "Continue with email now creates your account on Exponential Cloud, pin buttons are gone from iOS, Android and the phone-width web app, Android's Accounts and Devices pages match the other clients, and a retired agent never shows up again.",
+    body: r#"- **Sign up with email**: on Exponential Cloud, Continue with email creates an account for a new address the moment you enter the code. Until today a new address silently got no mail, because only Google and Apple could create accounts.
+- **No pin buttons where there is no sidebar**: iOS, Android and the phone-width web app no longer offer Pin on issues, sessions and actions. Pins made on the desktop or the wide web app still show in the board switcher's Pinned group.
+- **Accounts and Devices on Android**: the Accounts page keeps only quiet machine chips (an online dot, a check on the active login). Signing in, re-login and "use this account here" moved to the machine row under Devices, as on web, desktop and iOS. On iOS a machine chip now offers the right repair: re-login for an expired login, use this account here for one the machine is not using.
+- **Retired agents stay gone**: a machine still on an older build that reports the removed pi agent no longer produces a row, a tab or a picker entry anywhere. The server strips it from every heartbeat and the stored device data was cleaned up."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-passwordless-login-and-passkeys",
     date: "2026-09-12",
     title: "Continue with email, or with a passkey",
@@ -54,26 +67,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **A code instead of a password**: Continue with email mails a 6-digit code that works once and expires after ten minutes. Type it where you started, on any client. Instances without a mail transport keep the password form behind the same button.
 - **Passkeys**: add one under Settings, Account, Passkeys, then sign in with Face ID, Touch ID, Windows Hello or a security key. iOS and Android run the ceremony on the device; the desktop app hands off to your browser and returns on its own.
 - **Self-hosted**: codes need SMTP or SES; passkeys need an https instance address. Both can be switched off with AUTH_EMAIL_OTP_ENABLED and AUTH_PASSKEY_ENABLED."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-pins-shared-machines-and-video",
-    date: "2026-09-11",
-    title: "Pins, machines shared with several teams, and video that plays inline",
-    summary: "Pin issues, sessions and actions to the sidebar, share a build server with every team that needs it, watch a clip right inside a description or comment, and connect a second GitHub organisation.",
-    body: r#"- **Pinned**: pin an issue, a session or an action from its menu and it sits in a Pinned group at the top of the sidebar on web, desktop, iOS and Android. Pins are yours alone and follow you across devices.
-- **A machine shared with several teams**: a build server's device settings now show one switch per team instead of a single picker, so one runner can serve every team you belong to. Withdrawing a share still ends that team's runs on it and pauses its automations.
-- **Video and audio inline**: drop a clip into a description or a comment and it plays in place, with a poster, a duration chip and a lightbox, on every client. Uploads are normalised on your device (H.264 MP4, 720p on mobile); older apps show the same clip as a plain link.
-- **Connect another GitHub account**: team settings list every connected GitHub account with a Configure link and offer Connect another account separately from Refresh access, so a second organisation can be installed even when you already control one. An organisation waiting on the App's approval is named on the claim page with an approve link.
-- **Accounts on mobile**: the iOS and Android Devices pages carry the Accounts section (one row per agent account, machines as chips, a check on the active login) that web and desktop got last release.
-- **Live-session dot on Agent**: the green or amber running-session dot moved from Devices to the Agent entry on every client; on the phone it rides the chat launcher, which is now reachable from every tab. The mobile composer always names the machine it will start on.
-- **A quieter session list**: past runs read "<machine> · <time>" instead of repeating the agent and the ending reason, and ended runs no longer take a rail row.
-- **Composer polish**: an icon-only submit, subject chips with their own close button, tables in the chat feed that scroll sideways without stealing the wheel, dark-scheme time pickers, and boards on mobile merge chat and new issue into one capsule. Remote agent login now targets a specific account profile, and you can add a machine to an account from the web.
-- **Rate-limit wall that expires**: a run that keeps working after its reset time no longer wears a stale "Rate limited" banner; the wall clears on the next allowed call or once the reset passes.
-- **Faster Actions and Automations in the IDE**: hovering those rows no longer re-derives every session on each frame; the Automations render went from 744 µs to 180 µs on a large team.
-- **Resume after a merge**: resuming a chat run whose worktree was reclaimed after its PR landed re-creates the worktree from the recorded branch instead of refusing."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

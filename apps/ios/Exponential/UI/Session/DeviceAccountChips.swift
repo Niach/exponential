@@ -73,17 +73,27 @@ struct DeviceAccountChips: View {
 
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
-        // A login the machine already runs is nothing to switch to.
-        if row.signedIn, !row.active {
-            GlassMenuItem("Use this account here", icon: AppIcons.uiSwap) {
+        // ONE action per state, byte-identical with web `MachineAccountChip`
+        // and Android: a healthy login this machine is not using BECOMES its
+        // login, an expired one is re-signed-in (switching to a dead
+        // credential would only fail later), everything else signs in.
+        let switchesTo = AgentAccountsRows.chipSwitchesTo(row)
+        GlassMenuItem(
+            AgentAccountsRows.chipAction(row),
+            icon: switchesTo ? AppIcons.uiSwap : AppIcons.uiSignIn
+        ) {
+            if switchesTo {
                 viewModel.useAccountHere(row)
+            } else {
+                onSignIn(row.agent)
             }
         }
-        GlassMenuItem(
-            row.signedIn ? "Sign in again" : "Sign in",
-            icon: AppIcons.uiSignIn
-        ) {
-            onSignIn(row.agent)
+        // A switch is the cheap repair; the sign-in stays available under it
+        // for a login that turns out to be dead after all.
+        if switchesTo {
+            GlassMenuItem("Sign in again", icon: AppIcons.uiSignIn) {
+                onSignIn(row.agent)
+            }
         }
     }
 

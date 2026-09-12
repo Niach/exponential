@@ -4,9 +4,11 @@
 - Aliagentit nimellä: aliagentin merkki kertoo sille annetun tehtävän, sen rivit tiivistävät käytetyt työkalut, ja pelkkä Plan-merkki näkyy niin kauan kuin ajo vielä suunnittelee
 - Workflow-kortti: monen agentin ajo näkyy yhtenä korttina, jossa ovat sen vaiheet ja agentit allekkain, ja istuntorivi saa toisen rivin siitä, mitä ajo juuri nyt tekee
 - Tilit, jotka kertovat totuuden: agenttitilin kunto tulee todellisesta käyttömittauksesta, joten kuollut kirjautuminen näyttää tekstin ”Needs re-login” eikä ”Signed in”
-- Devices on korjaussivu: siellä kirjaudut agenttitilille uudelleen tai valitset, mitä kirjautunutta tiliä kone käyttää
+- Devices on korjaussivu: jokainen kone listaa hallussaan olevat agenttikirjautumiset, ja merkki tarjoaa oikean korjauksen, uuden kirjautumisen vanhentuneeseen tai tämän tilin käyttöönoton siihen, jota kone ei käytä
 - Tilin vaihto kesken ajon: rajaansa törmännyt Claude-ajo voi jatkaa toisella tilillä käyttönäkymästä tai rajailmoituksesta, uutena ajona joka on kytketty edelliseen
 - Kone, jota napautit: koneen toistopainike avaa kentän niin, että juuri se kone on valittuna, ja kenttä kertoo, miksi kone ei voi ottaa ajoa
 - Takaisin sinne mistä tulit: istunnosta poistuminen vie takaisin siihen issueen, boardiin tai saapuneisiin, josta sen avasit, ja toisen ajon käynnistämä ajo näkyy sen alla
 - Watch eikä Coding now: oma käynnissä oleva ajosi issuella on Watch-painike issuen tiedoissa eikä enää oma korttinsa
-- Keskustelut ja kiinnitykset: uusi keskustelu tarjoaa ehdotuksia aloittamiseen, ja issuen, istunnon tai actionin voi kiinnittää sen omalta näytöltä
+- Keskusteluehdotukset: uusi keskustelu tarjoaa ehdotusmerkkejä aloittamiseen
+- Puhelimessa ei ole kiinnityspainikkeita: sivupalkkia, johon kiinnittää, ei ole, joten Pin on poissa issueista, istunnoista ja actioneista; työpöydällä tehdyt kiinnitykset näkyvät yhä boardin vaihtajassa
+- Poistetut agentit pysyvät poissa: vanhempaa versiota ajava kone, joka yhä ilmoittaa poistetun agentin, ei koskaan tuota riviä, välilehteä eikä valintaa valitsimeen

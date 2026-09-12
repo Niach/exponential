@@ -5,6 +5,7 @@ import {
   agentHealth,
   agentProfileUsageRows,
   attentionRank,
+  deviceAccountChips,
   deviceWorstHealth,
   healthBadgeLabel,
   worstHealth,
@@ -832,5 +833,75 @@ describe(`account health (EXP-849)`, () => {
       attentionRank({ signedIn: true, usage: null, health: `needs_relogin` })
     ).toBe(0)
     expect(attentionRank({ signedIn: false, usage: null })).toBe(0)
+  })
+})
+
+// EXP-849 retired `pi` from contract `codingAgent`. The server clamps what a
+// machine may write (lib/trpc/devices.ts), but a row written before that
+// clamp — or one served by a self-hosted instance on an older image — must
+// still never surface: no usage row, no account chip, no health verdict for
+// an agent this build has no name, icon or launcher for.
+describe(`retired agent ids (EXP-849)`, () => {
+  const piDevice = {
+    deviceId: `unraid`,
+    label: `unraid`,
+    userId: `me`,
+    agentAccounts: {
+      claude: { signedIn: true, email: `dev@acme.test` },
+      pi: {
+        signedIn: true,
+        email: `dev@acme.test`,
+        health: `needs_relogin` as const,
+        profiles: [{ id: `system`, signedIn: true, active: true }],
+      },
+    },
+    agentUsage: {
+      claude: {
+        fetchedAt: `2026-08-28T11:55:00.000Z`,
+        stale: false,
+        windows: [{ key: `session`, label: `5h`, percent: 20, resetsAt: null }],
+      },
+      pi: {
+        fetchedAt: `2026-08-28T11:55:00.000Z`,
+        stale: false,
+        windows: [{ key: `session`, label: `5h`, percent: 99, resetsAt: null }],
+      },
+    },
+    agentUsageAt: null,
+    lastSeenAt: new Date(`2026-08-28T11:59:00.000Z`),
+  }
+
+  it(`yields no usage row for a retired agent`, () => {
+    const rows = agentProfileUsageRows([piDevice], `me`, () => true)
+    expect(rows.map((row) => row.agent)).toEqual([`claude`])
+  })
+
+  it(`yields no account chip for a retired agent`, () => {
+    expect(
+      deviceAccountChips({ agentAccounts: piDevice.agentAccounts }).map(
+        (chip) => chip.agent
+      )
+    ).toEqual([`claude`])
+  })
+
+  it(`never badges a device off a retired agent's health`, () => {
+    // Without the filter the retired `pi` login would drag the whole machine
+    // to "Needs re-login" with no row to act on.
+    expect(deviceWorstHealth({ agentAccounts: piDevice.agentAccounts })).toBe(
+      `ok`
+    )
+  })
+
+  it(`reports nothing at all for a machine that ONLY knows the retired agent`, () => {
+    const onlyPi = {
+      ...piDevice,
+      agentAccounts: { pi: { signedIn: true } },
+      agentUsage: { pi: piDevice.agentUsage.pi },
+    }
+    expect(agentProfileUsageRows([onlyPi], `me`, () => true)).toEqual([])
+    expect(deviceAccountChips({ agentAccounts: onlyPi.agentAccounts })).toEqual(
+      []
+    )
+    expect(deviceWorstHealth({ agentAccounts: onlyPi.agentAccounts })).toBeNull()
   })
 })

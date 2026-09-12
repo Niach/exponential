@@ -4,9 +4,11 @@
 - Podagenti s menom: štítok podagenta nesie úlohu, ktorú dostal, jeho riadky zhrnú použité nástroje a štítok Plan len na čítanie svieti, kým beh ešte plánuje
 - Karta workflow: beh s viacerými agentmi sa zobrazí ako jedna karta s fázami a agentmi pod nimi a riadok relácie dostane druhý riadok s tým, na čom sa práve pracuje
 - Účty, ktoré hovoria pravdu: stav účtu agenta pochádza zo skutočného merania spotreby, takže mŕtve prihlásenie hlási „Needs re-login“ namiesto „Signed in“
-- Devices je stránka opráv: tam sa do účtu agenta prihlásiš znova alebo vyberieš, ktorý prihlásený účet stroj používa
+- Devices je stránka opráv: každý stroj vypisuje prihlásenia agentov, ktoré drží, a štítok ponúkne tú správnu opravu, nové prihlásenie pri vypršanom alebo použitie účtu práve tu pri tom, ktorý stroj nepoužíva
 - Zmena účtu uprostred behu: beh Claude, ktorý narazí na limit, môže pokračovať pod iným účtom z prehľadu spotreby alebo z hlásenia o limite, ako nový beh naviazaný na ten pôvodný
 - Stroj, na ktorý si klikol: tlačidlo prehrania pri stroji otvorí pole s týmto strojom už vybraným a pole povie, prečo stroj beh prevziať nemôže
 - Späť tam, odkiaľ si prišiel: odchod z relácie ťa vráti na issue, board alebo do doručenej pošty, odkiaľ si ju otvoril, a beh spustený iným behom je vnorený pod ním
 - Watch namiesto Coding now: tvoj vlastný živý beh na issue je štítok Watch medzi vlastnosťami issue, nie samostatná karta
-- Chaty a pripínanie: nový chat ponúkne návrhy, čím začať, a issue, reláciu alebo action možno pripnúť z jej vlastnej obrazovky
+- Návrhy do chatu: nový chat ponúkne štítky s návrhmi, čím začať
+- Na telefóne žiadne tlačidlá pripnutia: nie je tu bočný panel, kam pripínať, takže Pin zmizol z issues, relácií aj actions; pripnutia urobené na počítači sa naďalej ukazujú v prepínači boardov
+- Vyradení agenti zostanú preč: stroj na staršom zostavení, ktorý stále hlási odobraného agenta, nikdy nevytvorí riadok, kartu ani položku vo výbere

@@ -1,13 +1,19 @@
 import type { PinKind } from "@exp/db-schema/domain"
 import { conceptIcon } from "@/lib/icons.generated"
 import { usePinToggle } from "@/hooks/use-pins"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { IconTooltip } from "@/components/icon-tooltip"
 import { Button } from "@/components/ui/button"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 
 // EXP-778: the small pin toggle beside a title — issue detail, the session
-// header, the action editor. Pinned rows land in the sidebar's Pinned group
-// on every client; the glyph is the shared `ui-pin` / `ui-unpin` concept.
+// header, the action editor. Pinned rows land in the sidebar's Pinned group;
+// the glyph is the shared `ui-pin` / `ui-unpin` concept.
+// EXP-858: a pin only means something where a sidebar exists, so these
+// controls render at `md` and up only — the phone layout (and the natives,
+// which dropped their toggles entirely) has no Pinned group to land in. The
+// synced rows still show up in the mobile board switcher's pinned section.
 const UiPinIcon = conceptIcon(`ui-pin`)
 const UiUnpinIcon = conceptIcon(`ui-unpin`)
 
@@ -44,7 +50,7 @@ export function PinToggleButton({
         aria-pressed={pinned}
         disabled={busy || !teamId || !targetId}
         onClick={toggle}
-        className={className}
+        className={cn(`hidden md:inline-flex`, className)}
       >
         {pinned ? <UiUnpinIcon /> : <UiPinIcon />}
       </Button>
@@ -52,8 +58,8 @@ export function PinToggleButton({
   )
 }
 
-/** The same toggle as a row of an overflow menu (the phone headers fold
- *  every action into one `…`, EXP-687). */
+/** The same toggle as a row of an overflow menu. EXP-858: dropped on a phone
+ *  viewport, where there is no sidebar to pin into. */
 export function PinToggleMenuItem({
   teamId,
   kind,
@@ -64,6 +70,8 @@ export function PinToggleMenuItem({
   targetId: string | undefined
 }) {
   const { pinned, toggle } = usePinToggle(teamId, kind, targetId)
+  const isMobile = useIsMobile()
+  if (isMobile) return null
   return (
     <DropdownMenuItem onSelect={toggle}>
       {pinned ? (

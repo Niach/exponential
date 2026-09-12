@@ -76,7 +76,8 @@ export type ActionsPanelTab = `actions` | `automations` | `suggestions`
 
 // The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
-// pin is personal); Edit and Delete stay owner-only, like the IDE's row menu.
+// pin is personal), on a sidebar-width viewport only (EXP-858); Edit and
+// Delete stay owner-only, like the IDE's row menu.
 function ActionMenu({
   action,
   isOwner,

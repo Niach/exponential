@@ -4,9 +4,11 @@
 - Podagenci z nazwą: żeton podagenta niesie zadanie, które dostał, jego wiersze streszczają użyte narzędzia, a żeton Plan tylko do odczytu widnieje, dopóki przebieg wciąż planuje
 - Karta workflow: przebieg z wieloma agentami wygląda jak jedna karta z fazami i agentami pod spodem, a wiersz sesji dostaje drugą linijkę z tym, nad czym właśnie trwa praca
 - Konta, które mówią prawdę: stan konta agenta pochodzi z prawdziwego pomiaru zużycia, więc martwe logowanie pokazuje „Needs re-login” zamiast „Signed in”
-- Devices to strona napraw: tam logujesz konto agenta na nowo albo wybierasz, którego zalogowanego konta używa maszyna
+- Devices to strona napraw: każda maszyna wypisuje konta agentów, które trzyma, a znacznik proponuje właściwą naprawę, ponowne logowanie do wygasłego albo użycie tego konta tutaj przy takim, którego maszyna nie używa
 - Zmiana konta w trakcie przebiegu: przebieg Claude, który trafi na limit, może iść dalej na innym koncie z arkusza zużycia albo z komunikatu o limicie, jako nowy przebieg powiązany z poprzednim
 - Maszyna, którą dotknąłeś: przycisk odtwarzania przy maszynie otwiera pole z tą właśnie maszyną wybraną, a pole mówi, dlaczego maszyna nie może przyjąć przebiegu
 - Powrót tam, skąd przyszedłeś: wyjście z sesji odsyła cię z powrotem do issue, boardu albo skrzynki, z której ją otworzyłeś, a przebieg uruchomiony przez inny przebieg jest zagnieżdżony pod nim
 - Watch zamiast Coding now: twój własny trwający przebieg na issue to pastylka Watch we właściwościach issue, a nie osobna karta
-- Czaty i przypinanie: nowy czat proponuje, od czego zacząć, a issue, sesję albo action można przypiąć z jej własnego ekranu
+- Podpowiedzi w czacie: nowy czat proponuje żetony z pomysłami na start
+- Na telefonie nie ma przycisków przypinania: nie ma paska bocznego, do którego można by przypiąć, więc Pin zniknął z issues, sesji i actions; przypięcia zrobione na komputerze wciąż widać w przełączniku boardów
+- Wycofani agenci zostają wycofani: maszyna na starszej wersji, która wciąż zgłasza usuniętego agenta, nigdy nie tworzy wiersza, zakładki ani pozycji na liście wyboru

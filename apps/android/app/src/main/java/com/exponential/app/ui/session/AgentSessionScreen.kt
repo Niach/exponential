@@ -634,8 +634,6 @@ fun AgentSessionScreen(
         commitComposerToken(composerField.withEmoji(record, trailingSpace = false))
         composerEmojiPrefs.pushRecent(record.unicode)
     }
-    // EXP-778: the pin toggle beside the top bar's "…".
-    val pinned by viewModel.pinned.collectAsStateWithLifecycle()
     // EXP-688: the top bar's "…" menu, and the Usage sheet it opens.
     var overflowOpen by remember { mutableStateOf(false) }
     var usageSheetOpen by remember { mutableStateOf(false) }
@@ -706,21 +704,8 @@ fun AgentSessionScreen(
                     // numbers have arrived.
                     val hasUsage = usage != null || sessionUsage != null ||
                         accountSwitch.options.isNotEmpty()
-                    // EXP-850 (S10): the trailing order is Pin, Stop, "…" —
-                    // the quiet personal marker first, then the one control
-                    // that changes the run, then the menu. EXP-778: pin state
-                    // comes off the synced pins table; it is a GHOST glyph
-                    // (no circle, no fill), the same variant as the issue
-                    // header's and the action sheet's.
-                    if (row != null) {
-                        TopBarActionButton(
-                            if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
-                            if (pinned) "Unpin" else "Pin",
-                            onClick = viewModel::togglePin,
-                            active = pinned,
-                            borderless = true,
-                        )
-                    }
+                    // EXP-858: no pin toggle — the phone has no sidebar for a
+                    // pin to land in; the trailing order is Stop then "…".
                     if (canKill) {
                         TopBarActionButton(
                             ExpIcons.codingStop,

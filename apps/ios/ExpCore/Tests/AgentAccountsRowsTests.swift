@@ -412,4 +412,99 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
         XCTAssertEqual(AgentAccountsRows.groupCaption(provider), "anthropic (oauth)")
     }
+    // MARK: - EXP-849: a retired agent id never renders
+
+    // A desktop below the version floor keeps heart-beating `pi` in every one
+    // of these columns; nothing this build draws may name an agent it has no
+    // label, glyph or launcher for — not a row, not a tab, not a chip.
+    func testAnAgentOutsideTheContractIsNeverARowOrASection() throws {
+        let stale = DeviceEntity(
+            id: "row-9",
+            userId: "me",
+            deviceId: "old-box",
+            label: "Old box",
+            agentAccounts: #"{"pi":{"signedIn":true,"email":"pi@acme.test"},"claude":{"signedIn":true,"email":"a@acme.test"}}"#,
+            agentUsage: "{\"pi\":\(usageJson("2026-08-28T11:55:00.000Z", "weekly", 99))}",
+            lastSeenAt: "2026-08-28T11:59:00.000Z"
+        )
+        let rows = AgentAccountsRows.profileRows(
+            devices: [stale], currentUserId: "me", isOnline: { _ in true }
+        )
+        XCTAssertEqual(rows.map(\.key), ["old-box:claude:system"])
+        let sections = AgentAccountsRows.sections(
+            AgentAccountsRows.accountGroups(rows, canRefresh: { _ in false })
+        )
+        XCTAssertEqual(sections.map(\.agent), ["claude"])
+        // The machine row draws the same filtered set of chips.
+        XCTAssertEqual(
+            AgentAccountsRows.deviceRows(rows, deviceId: "old-box").map(\.agent), ["claude"]
+        )
+    }
+
+    // The same drop, one layer down: the synced row → SteerDevice mapping every
+    // picker and machine row reads. NULL `agents` still means "an older sender
+    // that runs claude"; only KNOWN ids survive the filter.
+    func testRetiredAgentIdsDropOutOfTheDeviceMapping() throws {
+        let stale = DeviceEntity(
+            id: "row-9",
+            userId: "me",
+            deviceId: "old-box",
+            label: "Old box",
+            agents: #"["claude","pi"]"#,
+            unauthedAgents: #"["pi"]"#,
+            acpAgents: #"["claude","pi"]"#,
+            launchDefaults: #"{"defaultAgent":"pi","agents":{"pi":{"model":"pi-1"},"claude":{"model":"opus"}}}"#,
+            agentAccounts: #"{"pi":{"signedIn":true},"claude":{"signedIn":true}}"#,
+            agentUsage: #"{"pi":{"fetchedAt":"2026-08-28T11:00:00Z","windows":[]}}"#,
+            lastSeenAt: "2026-08-28T11:59:00.000Z"
+        )
+        let device = SteerDevice(entity: stale, currentUserId: "me")
+        XCTAssertEqual(device.agents, ["claude"])
+        XCTAssertEqual(device.unauthedAgentIds, [])
+        XCTAssertEqual(device.acpAgentIds, ["claude"])
+        XCTAssertNil(device.launchDefaults?.defaultAgent)
+        XCTAssertEqual(device.launchDefaults?.agents?.keys.sorted(), ["claude"])
+        XCTAssertEqual(device.agentAccounts?.keys.sorted(), ["claude"])
+        XCTAssertEqual(device.agentUsage?.keys.sorted(), [])
+    }
+    // MARK: - EXP-849: the machine chip's ONE repair
+
+    // Same four states, same strings as web `MachineAccountChip` and Android
+    // `chipAction` — the Devices surface is where a login gets fixed.
+    func testTheChipMenuOffersOneRepairPerState() throws {
+        func chip(_ signedIn: Bool, _ active: Bool, _ health: AgentAccountHealth) -> AgentProfileUsageRow {
+            AgentProfileUsageRow(
+                key: "dev:claude:system",
+                deviceId: "dev",
+                deviceLabel: "dev",
+                mine: true,
+                online: true,
+                agent: "claude",
+                profileId: "system",
+                profileLabel: "Default",
+                active: active,
+                signedIn: signedIn,
+                email: nil,
+                plan: nil,
+                usage: nil,
+                checkedAt: nil,
+                health: health
+            )
+        }
+        let signedOut = chip(false, true, .signedOut)
+        XCTAssertEqual(AgentAccountsRows.chipAction(signedOut), "Sign in")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(signedOut))
+
+        let expired = chip(true, false, .needsRelogin)
+        XCTAssertEqual(AgentAccountsRows.chipAction(expired), "Re-login")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(expired))
+
+        let current = chip(true, true, .ok)
+        XCTAssertEqual(AgentAccountsRows.chipAction(current), "Sign in again")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(current))
+
+        let other = chip(true, false, .ok)
+        XCTAssertEqual(AgentAccountsRows.chipAction(other), "Use this account here")
+        XCTAssertTrue(AgentAccountsRows.chipSwitchesTo(other))
+    }
 }

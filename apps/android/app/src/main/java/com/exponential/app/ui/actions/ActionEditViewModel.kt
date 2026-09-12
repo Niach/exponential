@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionsApi
-import com.exponential.app.data.api.PinsApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -21,7 +20,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -48,7 +46,6 @@ class ActionEditViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val actionsApi: ActionsApi,
-    private val pinsApi: PinsApi,
     private val selection: TeamSelection,
 ) : ViewModel() {
 
@@ -84,32 +81,7 @@ class ActionEditViewModel @Inject constructor(
      * that only exists while the sheet is up — iOS EditActionSheet's
      * per-presentation `.task { await load() }`), so there is no fetch loop.
      */
-    // EXP-778: the action the sheet is showing, for the pin probe below; set
-    // by [load], cleared by [reset] (one presentation = one action).
-    private val shownActionId = MutableStateFlow<String?>(null)
-
-    /** Whether the shown action sits in the caller's "Pinned" section — read
-     *  off the synced pins table (the toggle flips when the shape lands). */
-    val pinned: StateFlow<Boolean> = combine(dbFlow, shownActionId) { db, actionId -> db to actionId }
-        .flatMapLatest { (db, actionId) ->
-            if (db == null || actionId == null) flowOf(false)
-            else db.pinDao().observeByAction(actionId).map { it != null }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    /** Pin / unpin the shown action (`pins.toggle`, EXP-778). Builtins have
-     *  no team row and are never offered the control. */
-    fun togglePin() {
-        val actionId = shownActionId.value ?: return
-        val teamId = selection.selectedId.value ?: return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { pinsApi.toggle(accountId, teamId, DomainContract.pinKindAction, actionId) }
-        }
-    }
-
     fun load(actionId: String) {
-        shownActionId.value = actionId
         _state.value = ActionEditState(loading = true)
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
@@ -135,7 +107,6 @@ class ActionEditViewModel @Inject constructor(
      * seeding its form from it) before [load]'s answer lands.
      */
     fun reset() {
-        shownActionId.value = null
         _state.value = ActionEditState()
     }
 
