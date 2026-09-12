@@ -107,6 +107,14 @@
       "reason": "Cloud-only (CLOUD_INSTANCE=true). Unreachable on the local instance the capturers drive, and the nav item is hidden there."
     },
     {
+      "route": "/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier/session",
+      "reason": "EXP-851: an issue's own coding run on the issue's URL (the board's list nav stays, Back returns to the issue). Same AgentSessionView composition as steering, which photographs the seeded showcase run on /sessions/$sessionId; a second recipe would need that run re-seeded issue-first."
+    },
+    {
+      "route": "/t/$teamSlug/support/$threadId",
+      "reason": "EXP-851: one helpdesk conversation on its own route. Captured by support-thread, whose openFirstThread recipe navigates here from /support; the id is whatever the seed minted, so the route is not addressable by the catalog."
+    },
+    {
       "route": "/t/$teamSlug/sessions/$sessionId/issue",
       "reason": "EXP-827: a run's linked issue opened inside the Agent shell from the session's issue band. Same IssueDetailView composition as issue-detail beside the steering sessions list; a recipe would need a seeded issue-linked live run, which steering already covers."
     },

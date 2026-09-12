@@ -1,20 +1,12 @@
-- Videozapisi i zvuk u opisima i komentarima: priloži isječak i reproducira se odmah tu, s naslovnom slikom i trajanjem; ono što prenosiš prvo se pretvara u 720p
-- GitHub računi: postavke tima navode svaki povezani račun s poveznicom „Configure“, a „Connect another account“ otvara GitHubov vlastiti odabir računa, pa se može instalirati i druga organizacija
-- Dodavanje repozitorija: odabir kaže zašto repozitorij nedostaje, povezuje GitHub postavke svakog računa i prima repozitorij po imenu
-- Kraći popis prošlih izvođenja: završeno izvođenje pokazuje uređaj i vrijeme, bez imena agenta i razloga završetka
-- Točka tekuće sesije preselila se na gumb Chat u donjoj traci, koji je sada na svakoj kartici; u Devices ostaje samo upozorenje o prijavi
-- Polje uvijek imenuje uređaj na kojem izvođenje kreće i otvara izbornik samo kad ih ima više od jednog
-- Natpis o ograničenju nestaje sam čim prođe vrijeme ponovnog postavljanja, a puko upozorenje o potrošnji nikad se ne prikazuje kao ograničenje
-- Podijeli uređaj s više timova: list uređaja ima jedan prekidač po timu umjesto jednog odabira
-- Detalji polja: „Plan“ je prekidač, odabrani zadatak ili akcija miču se vlastitim gumbom za zatvaranje, a donja traka boarda spaja chat i novi zadatak u jednu kapsulu
-- Pribadače: prikvači zadatak, sesiju ili akciju iz njezina izbornika i stoji u odjeljku „Pinned“ na vrhu odabira boardova
-- Računi na stranici „Devices“: jedan redak po računu agenta s njegovim trakama potrošnje i čipom po uređaju, isti odjeljak kakav imaju web i desktop
-- Jedno polje za sve: polje na stranici „Agent“ pokreće sve, sa zadacima ili akcijom odabranima na vrhu i uređajem, agentom, modelom i plan načinom ispod; list „Start coding“ je nestao
-- Svaki gumb za pokretanje vodi ovamo: „Start coding“ na zadatku, traka višestrukog odabira, „Run“ na akciji i „Fix merge conflicts“ otvaraju polje s već odabranim pravim stvarima
-- Upute uz pokretanje: ono što napišeš pored odabranih zadataka ili akcije stiže u izvođenje kao dodatne upute; u chatu je to sam prompt
-- Slike uz pokretanje: priloži polju do četiri slike i uređaj ih ima prije prvog poteza
-- Akcije zadržavaju samo odabire: akcija traži repozitorij, board, pull request ili ikonu; slobodan tekst dolazi iz polja, a natuknica akcije je njegov rezervirani tekst
-- Sesije uz polje: stranica „Agent“ uz prompt navodi tvoja tekuća i prošla izvođenja, a izvođenje koje je pokrenulo drugo izvođenje ugniježđeno je ispod njega
-- Odgovor u samoj kartici: na plan ili pitanje odgovaraš u njegovoj kartici, s poljem unutra kad radije pišeš nego biraš; polje za upravljanje se dotad povlači
-- Poruke agenata: agent može tvojem timu poslati obavijest preko MCP-a; stiže kao push i kao vlastiti redak u Inboxu
-- Ograničenja koja se slažu: upozorenje o potrošnji više ne označava izvođenje ograničenim, a kod pravog ograničenja prozor i vrijeme ponovnog postavljanja opisuju isto
+- Nastavi e-poštom ili pristupnim ključem: prijavi se šesteroznamenkastim kodom koji stigne e-poštom ili putem Face ID-a odnosno Touch ID-a; sve mogućnosti stoje u jednom popisu, a nepoznata adresa jednostavno postaje novi račun
+- Oznaka rada prestaje kad prestane agent: sada prati stvarni potez agenta umjesto veze, pokazuje što radi zajedno s vremenom i tokenima, a Stop je u zaglavlju sesije
+- Kartice Exponentialovih alata: kad agent pozove Exponential, povijest prikazuje jednostavan opis poput „Creating issue“ ili „Opened pull request“, a nakon dovršetka i pretpregled rezultata
+- Podagenti s imenom: oznaka podagenta nosi zadatak koji je dobio, njegovi redci sažimaju upotrijebljene alate, a oznaka Plan samo za čitanje stoji dok izvođenje još planira
+- Kartica workflowa: izvođenje s više agenata prikazuje se kao jedna kartica s fazama i agentima ispod, a redak sesije dobiva drugi redak s onim na čemu se upravo radi
+- Računi koji govore istinu: stanje agentskog računa dolazi iz stvarnog mjerenja potrošnje, pa mrtva prijava piše „Needs re-login“ umjesto „Signed in“
+- Devices je stranica za popravke: ondje se ponovno prijavljuješ u agentski račun ili biraš koji prijavljeni račun stroj koristi
+- Promjena računa usred izvođenja: Claude izvođenje koje udari u ograničenje može nastaviti na drugom računu iz prikaza potrošnje ili iz poruke o ograničenju, kao novo izvođenje povezano sa starim
+- Stroj koji si dodirnuo: gumb za pokretanje uz stroj otvara polje s upravo tim strojem odabranim, a polje kaže zašto stroj ne može preuzeti izvođenje
+- Natrag odakle si došao: izlazak iz sesije vraća te na issue, board ili pristiglu poštu odakle si je otvorio, a izvođenje koje je pokrenulo drugo izvođenje stoji ugniježđeno ispod njega
+- Watch umjesto Coding now: tvoje vlastito izvođenje uživo na issueu je oznaka Watch među svojstvima issuea, a ne zasebna kartica
+- Razgovori i pribadanje: novi razgovor nudi prijedloge za početak, a issue, sesiju ili action možeš pribosti s njihova vlastitog zaslona

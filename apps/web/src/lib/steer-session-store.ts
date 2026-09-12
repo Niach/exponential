@@ -324,8 +324,8 @@ export type ActivityEvent =
 
 type ServerFrame =
   // EXP-783: `seq` is the publisher's own monotonic index, echoed by the
-  // relay; absent from a publisher older than EXP-783.
-  | { t: `activity`; event: ActivityEvent; seq?: number }
+  // relay. Every publisher numbers its frames, so every row is addressable.
+  | { t: `activity`; event: ActivityEvent; seq: number }
   // Protocol v2: "clear your feed now" — sent before every join replay and
   // whenever the desktop re-publishes its full history.
   | { t: `activity_reset` }
@@ -337,17 +337,18 @@ type ServerFrame =
   // be asked for from the device (`history_page`).
   | {
       t: `activity_synced`
-      firstSeq?: number
-      lastSeq?: number
+      firstSeq: number
+      lastSeq: number
       truncated?: boolean
     }
   // EXP-783: one page of OLDER transcript, answering this viewer's
-  // `history_page`. PREPENDED, never appended.
+  // `history_page`. PREPENDED, never appended. `seqs` runs parallel to
+  // `events`: the page is trimmed against what is already on screen by it.
   | {
       t: `history_chunk`
       requestId: string
       events: ActivityEvent[]
-      seqs?: number[]
+      seqs: number[]
       done: boolean
     }
   // EXP-773: no live room, but the session's device is online — the relay
@@ -396,12 +397,14 @@ export type ViewerPhase =
   // button still tries.
   | { kind: `closed`; detail?: string; terminal?: boolean }
 
-/** EXP-783: the publisher's monotonic index for the event behind a row, when
- *  it sent one. The only monotonic anchor on the wire — it is what lets a join
- *  replay be spliced onto a transcript prefix already on screen, and what an
- *  older-page request is addressed relative to. */
+/** EXP-783: the publisher's monotonic index for the event behind a row. The
+ *  only monotonic anchor on the wire — it is what lets a join replay be
+ *  spliced onto a transcript prefix already on screen, and what an older-page
+ *  request is addressed relative to. A row this client made up (the echo of a
+ *  message it just sent) inherits the newest sequence it has seen, so the feed
+ *  stays monotonic. */
 interface FeedSeq {
-  seq?: number
+  seq: number
 }
 
 export type FeedItem = FeedSeq &
@@ -491,10 +494,11 @@ export type QuestionItem = Extract<FeedItem, { kind: `question` }>
 export type ToolItem = Extract<FeedItem, { kind: `tool` }>
 
 /** `Omit` that distributes over the FeedItem union (plain `Omit` collapses a
- *  union to its common keys, losing the per-kind fields). */
+ *  union to its common keys, losing the per-kind fields). `id` and `seq` are
+ *  both stamped by `append`, so a caller never carries them. */
 type NewFeedItem = FeedItem extends infer T
   ? T extends FeedItem
-    ? Omit<T, `id`>
+    ? Omit<T, `id` | `seq`>
     : never
   : never
 
@@ -681,8 +685,10 @@ export function createSteerSessionStore(
    *  compare per append rather than a walk. */
   let feedBytes = 0
   /** EXP-783: the wire sequence of the event being folded in right now, so
-   *  `append` can stamp it without threading it through every case. */
-  let currentSeq: number | undefined
+   *  `append` can stamp it without threading it through every case. It stays
+   *  on the last one seen between folds: a row this client appends itself (the
+   *  echo of a message it just sent) belongs directly after it. */
+  let currentSeq = 0
   let latestDiff: string | null = null
   let compacting: CompactionState | null = null
   let config: SessionConfigState | null = null
@@ -710,7 +716,7 @@ export function createSteerSessionStore(
   /** EXP-751: the replay being staged, or null when nothing is staging. Holds
    *  every `activity` event since the last `activity_reset`, in arrival
    *  order; the visible feed is folded from them in one go at commit. */
-  let staged: { event: ActivityEvent; seq?: number }[] | null = null
+  let staged: { event: ActivityEvent; seq: number }[] | null = null
   /** Messages this client sent WHILE staging: the replay predates them, so
    *  the commit re-appends whatever it did not carry back. */
   let stagedEchoes: string[] = []
@@ -1010,7 +1016,7 @@ export function createSteerSessionStore(
       }
       case `question`: {
         if (!event.text.trim() || !event.options?.length) return
-        const item: Omit<QuestionItem, `id`> = {
+        const item: Omit<QuestionItem, `id` | `seq`> = {
           kind: `question`,
           text: event.text,
           options: event.options,
@@ -1023,8 +1029,14 @@ export function createSteerSessionStore(
           header: event.header,
         }
         // A re-emission of a known id replaces the card in place (the
-        // desktop augments options as it learns them).
-        const replaced = upsertQuestion(feed, event.id, item)
+        // desktop augments options as it learns them). The patch carries no
+        // `seq`, so the card KEEPS the one it was first published under — it
+        // did not move in the transcript.
+        const replaced = upsertQuestion(
+          feed,
+          event.id,
+          item as Omit<QuestionItem, `id`>
+        )
         if (replaced) {
           // A card replaced IN PLACE: its options grew, so re-derive rather
           // than accumulate.
@@ -1251,7 +1263,7 @@ export function createSteerSessionStore(
   }
 
   /** Buffer one replayed event and push the quiet deadline out. */
-  const stageEvent = (event: ActivityEvent, seq?: number) => {
+  const stageEvent = (event: ActivityEvent, seq: number) => {
     if (staged === null) return
     staged.push({ event, seq })
     if (stageQuietTimer) clearTimeout(stageQuietTimer)
@@ -1303,20 +1315,14 @@ export function createSteerSessionStore(
     const anchorId = feed[0]?.id
     // EXP-783: everything this client holds BELOW the replay's oldest
     // sequence is a prefix the replay does not restate — pages a reader
-    // scrolled back to load, which the full swap used to throw away. Kept
-    // only when the WHOLE prefix is numbered: an unnumbered row cannot be
-    // proved older than the replay, so one of them makes this the full swap
-    // it has always been.
+    // scrolled back to load, which the full swap used to throw away. A commit
+    // with no span at all (a publisher-driven republish, which carries no
+    // `activity_synced`) still swaps the whole feed: there is nothing to
+    // measure the prefix against.
     let retained: FeedItem[] = []
     if (firstSeq !== undefined) {
       let split = 0
-      while (
-        split < feed.length &&
-        feed[split].seq !== undefined &&
-        (feed[split].seq as number) < firstSeq
-      ) {
-        split++
-      }
+      while (split < feed.length && feed[split].seq < firstSeq) split++
       retained = feed.slice(0, split)
     }
     const retainedNextId =
@@ -1354,9 +1360,10 @@ export function createSteerSessionStore(
         handleActivity(event)
       }
     } finally {
-      currentSeq = undefined
       foldingReplay = false
     }
+    // `currentSeq` stays on the replay's last event: the echoes below are this
+    // client's own rows and belong right after it.
     for (const text of echoes) {
       if (!tailCarriesEcho(text, echoes.length + 1)) {
         append({ kind: `user_message`, text })
@@ -1376,13 +1383,9 @@ export function createSteerSessionStore(
   }
 
   /** EXP-783 — the oldest wire sequence on screen: what the next older-page
-   *  request is asked relative to. `undefined` when nothing is numbered
-   *  (every publisher older than EXP-783), which is also the signal that
-   *  paging is unavailable for this run. */
-  const oldestSeq = (): number | undefined => {
-    for (const item of feed) if (item.seq !== undefined) return item.seq
-    return undefined
-  }
+   *  request is asked relative to. `undefined` only on an empty feed, which is
+   *  also the signal that there is nothing to page back from. */
+  const oldestSeq = (): number | undefined => feed[0]?.seq
 
   /** EXP-783 — PREPEND one older page, oldest first.
    *
@@ -1402,6 +1405,9 @@ export function createSteerSessionStore(
     const savedBytes = feedBytes
     const savedNextId = nextId
     const savedFolding = foldingReplay
+    // The page is OLDER than everything on screen, so its sequences must not
+    // become the anchor a later local row inherits.
+    const savedSeq = currentSeq
     // EXP-848: the latest-wins slots belong to the NEWEST frames — an older
     // page folding its own `turn`/`config_state`/`usage`/`rate_limit` through
     // the reducer would repaint them with history (a stale `turn started` made
@@ -1422,13 +1428,15 @@ export function createSteerSessionStore(
     foldingReplay = true
     try {
       events.forEach((event, ix) => {
+        // `seqs` runs parallel to `events` (the relay forwards the pair the
+        // device unzipped), so a page row is always numbered.
         const seq = seqs[ix]
-        if (oldest !== undefined && seq !== undefined && seq >= oldest) return
+        if (oldest !== undefined && seq >= oldest) return
         currentSeq = seq
         handleActivity(event)
       })
     } finally {
-      currentSeq = undefined
+      currentSeq = savedSeq
       foldingReplay = savedFolding
     }
     const page = feed
@@ -1500,8 +1508,8 @@ export function createSteerSessionStore(
   // them) and only dispose cancels it.
   const activityQueue = createActivityCoalescer<
     | { t: `reset` }
-    | { t: `event`; event: ActivityEvent; seq?: number }
-    | { t: `synced`; firstSeq?: number }
+    | { t: `event`; event: ActivityEvent; seq: number }
+    | { t: `synced`; firstSeq: number }
     | { t: `page`; events: ActivityEvent[]; seqs: number[] }
     | { t: `keepalive` }
   >((batch) => {
@@ -1517,7 +1525,6 @@ export function createSteerSessionStore(
           else {
             currentSeq = op.seq
             handleActivity(op.event)
-            currentSeq = undefined
           }
           break
         case `synced`:
@@ -1715,11 +1722,7 @@ export function createSteerSessionStore(
             const f = frame as Extract<ServerFrame, { t: `history_chunk` }>
             if (f.requestId !== historyRequest) return
             if (f.done) historyRequest = null
-            activityQueue.enqueue({
-              t: `page`,
-              events: f.events,
-              seqs: f.seqs ?? [],
-            })
+            activityQueue.enqueue({ t: `page`, events: f.events, seqs: f.seqs })
             return
           }
           case `history_pending`: {
@@ -2066,7 +2069,14 @@ export function createSteerSessionStore(
       // Sent mid-replay: the staged history predates it, so the commit has
       // to put it back (unless the replay turns out to carry it).
       if (staged !== null) stagedEchoes.push(text)
-      const row = { id: nextId++, kind: `user_message` as const, text }
+      // The echo is this client's own row: it sits directly after the newest
+      // event it has seen, so the feed's sequences stay monotonic.
+      const row = {
+        id: nextId++,
+        kind: `user_message` as const,
+        text,
+        seq: currentSeq,
+      }
       setFeed([...feed, row], [row])
       commit()
       return true

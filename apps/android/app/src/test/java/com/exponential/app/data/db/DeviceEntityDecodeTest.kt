@@ -160,7 +160,8 @@ class DeviceEntityDecodeTest {
     }
 
     // EXP-749: the ACP-agent advertisement rides as raw JSON text like agents
-    // and caps, and NULL (an older server) means "unknown", not "none".
+    // and caps. The column is nullable, so a row whose machine never reported
+    // one still decodes — the consumer reads that as "none".
     @Test
     fun `acp_agents decodes as text and defaults absent`() {
         val entity = json.decodeFromString(

@@ -73,7 +73,7 @@ interface ActivityEntry {
   /** EXP-783: the publisher's own monotonic index, echoed verbatim inside
    *  `framed`. Kept here too so `activity_synced` can name the span the log
    *  covers without re-parsing it. */
-  seq?: number
+  seq: number
 }
 
 interface Room {
@@ -190,9 +190,11 @@ const LATEST_WINS_KINDS = new Set([
   `background_tasks`,
   `workflow`,
 ])
-// Replay order for the latest-wins slots — the keyed `workflow` cards sit
-// between `turn` and `background_tasks` (EXP-850 §3), and `diff` stays LAST,
-// exactly where it replayed before this became a map.
+// Replay order for the latest-wins slots — CANONICAL, not a leftover: this is
+// the order every join replay hands the slots to a client. The keyed
+// `workflow` cards sit between `turn` and `background_tasks` (EXP-850 §3) and
+// `diff` lands LAST, so the changes bar repaints after the cards it belongs
+// beside.
 const LATEST_REPLAY_ORDER = [
   `config_state`,
   `usage`,
@@ -281,15 +283,17 @@ const INPUT_CHUNK_CHARS = 4096
  *  room-dependent — it names the span the replay covered — so it is built per
  *  room by `Hub.activitySyncedFrame` rather than serialized once. */
 function activitySyncedFrame(room: Room): string {
-  const first = room.activityLog[0]?.seq
-  const last = room.activityLog[room.activityLog.length - 1]?.seq
+  // A room whose log is empty (nothing but latest-wins slots so far) names the
+  // empty span at 0: the client keeps nothing below it, which is the full swap
+  // an empty replay wants anyway.
+  const first = room.activityLog[0]?.seq ?? 0
+  const last = room.activityLog[room.activityLog.length - 1]?.seq ?? 0
   // The log is a tail when this room evicted — and (EXP-795) when the
   // publisher's own replay started above zero: its in-memory journal is a
   // bounded tail of the file it wrote, and a resumed run inherits its
   // predecessor's lines. Either way the pages below `firstSeq` exist on the
   // device, and a client gated on this flag alone could never ask for them.
-  const truncated =
-    room.activityTruncated || (first !== undefined && first > 0)
+  const truncated = room.activityTruncated || first > 0
   return frame({
     t: `activity_synced`,
     firstSeq: first,
@@ -1124,7 +1128,7 @@ export class Hub {
     return room
   }
 
-  private entryFor(event: ActivityEvent, seq?: number): ActivityEntry {
+  private entryFor(event: ActivityEvent, seq: number): ActivityEntry {
     const framed = frame({ t: `activity`, event, seq })
     const entry: ActivityEntry = {
       framed,

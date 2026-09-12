@@ -342,6 +342,10 @@ class SteerConnectionTest {
     private fun narration(text: String) =
         """{"t":"activity","event":{"kind":"narration","text":"$text"}}"""
 
+    /** The same frame with its wire sequence (EXP-783). */
+    private fun numbered(text: String, seq: Long) =
+        """{"t":"activity","seq":$seq,"event":{"kind":"narration","text":"$text"}}"""
+
     /** A live connection with an established feed — the state a reader parked
      *  mid-plan is in when the relay decides to replay at them. */
     private suspend fun liveWithFeed(
@@ -392,7 +396,8 @@ class SteerConnectionTest {
         val connection = connection(transport, stagingTimings)
         try {
             val socket = liveWithFeed(transport, connection)
-            // An old relay: reset + replay, no activity_synced.
+            // A publisher-driven republish: reset + replay, no
+            // activity_synced (the relay marks only a JOIN replay).
             socket.emit("""{"t":"activity_reset"}""")
             socket.emit(narration("replayed one"))
             // The old feed holds until the burst goes quiet.
@@ -402,6 +407,39 @@ class SteerConnectionTest {
                     it is com.exponential.app.domain.AgentFeedItem.Narration &&
                         it.text == "replayed one"
                 } == true
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    /**
+     * EXP-783: a marker-less commit reads the replay's span off the BURST —
+     * every activity frame is numbered — so a republish that restates only the
+     * tail keeps the pages the reader had already scrolled back to load,
+     * exactly like a marked join replay does.
+     */
+    @Test
+    fun aMarkerlessRepublishKeepsThePagesBelowIt() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(numbered("page row", 10))
+            socket.emit(numbered("tail row", 11))
+            socket.emit("""{"t":"activity_synced","firstSeq":10}""")
+            waitUntil("the joined feed") { connection.activity.value.feed.size == 2 }
+
+            // The publisher republished from 11 down: 10 is below the burst
+            // and must survive the swap.
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(numbered("tail row", 11))
+            waitUntil("the quiet commit") {
+                connection.activity.value.feed.map {
+                    (it as com.exponential.app.domain.AgentFeedItem.Narration).text
+                } == listOf("page row", "tail row")
             }
         } finally {
             connection.close()

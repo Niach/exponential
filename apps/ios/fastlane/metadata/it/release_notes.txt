@@ -1,20 +1,12 @@
-- Video e audio nelle descrizioni e nei commenti: allega una clip e viene riprodotta sul posto, con immagine di copertina e durata; quello che carichi viene prima convertito a 720p
-- Account GitHub: le impostazioni del team elencano ogni account collegato con un link «Configure», e «Connect another account» apre il selettore di account di GitHub, così si può installare una seconda organizzazione
-- Aggiungi repository: il selettore dice perché manca un repository, rimanda alle impostazioni GitHub di ogni account e accetta un repository per nome
-- Elenco delle esecuzioni passate più corto: un'esecuzione conclusa mostra la macchina e l'ora, senza il nome dell'agente e il motivo della fine
-- Il puntino di una sessione in corso è passato al pulsante Chat della barra in basso, ora presente su ogni scheda; in Devices resta solo l'avviso di accesso
-- Il campo nomina sempre la macchina su cui partirà un'esecuzione e apre un menu solo quando ce n'è più di una
-- Il banner del limite sparisce da solo quando l'orario di reset è passato, e un semplice avviso di consumo non compare mai come limite
-- Condividi una macchina con più team: il foglio del dispositivo ha un interruttore per team invece di una scelta sola
-- Dettagli del campo: «Plan» è un interruttore, una issue o un'azione scelte si tolgono con il loro pulsante di chiusura, e la barra in basso di un board unisce chat e nuova issue in un'unica capsula
-- Segnalibri: fissa una issue, una sessione o un'azione dal suo menu e resta nella sezione «Pinned» in cima al selettore dei board
-- Account nella pagina «Devices»: una riga per account agente con le sue barre di consumo e un chip per macchina, la stessa sezione che hanno web e desktop
-- Un solo campo per tutto: il campo della pagina «Agent» avvia tutto, con le issue o un'azione scelte in alto e macchina, agente, modello e modalità piano sotto; il foglio «Start coding» non c'è più
-- Ogni pulsante di avvio porta lì: «Start coding» su una issue, la barra di selezione multipla, «Run» di un'azione e «Fix merge conflicts» aprono il campo con la scelta giusta già fatta
-- Istruzioni all'avvio: quello che scrivi accanto alle issue o all'azione scelte arriva all'esecuzione come istruzioni aggiuntive; in una chat è il prompt
-- Immagini all'avvio: allega fino a quattro immagini al campo e la macchina le ha prima del primo turno
-- Le azioni conservano solo scelte: un'azione chiede repository, board, pull request o icona; il testo libero arriva dal campo, con il suggerimento dell'azione come segnaposto
-- Sessioni accanto al campo: la pagina «Agent» elenca le esecuzioni in corso e passate accanto al prompt, e un'esecuzione avviata da un'altra compare annidata sotto
-- Rispondere dentro la scheda: a un piano o a una domanda si risponde nella sua scheda, con un campo integrato quando vuoi scrivere invece di scegliere; il campo di pilotaggio si fa da parte
-- Messaggi degli agenti: un agente può inviare una notifica al team via MCP; arriva come push e come riga a sé nella Inbox
-- Limiti coerenti: un avviso di consumo non segna più un'esecuzione come limitata, e in un limite vero la finestra e l'orario di reset descrivono la stessa cosa
+- Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un unico elenco, e un'email sconosciuta diventa semplicemente un nuovo account
+- L'indicatore di lavoro finisce quando finisce l'agente: ora segue il turno reale dell'agente invece della connessione, mostra cosa sta facendo con durata e token, e Stop sta nell'intestazione della sessione
+- Schede degli strumenti Exponential: quando l'agente chiama Exponential, la cronologia mostra una didascalia semplice come «Creating issue» o «Opened pull request», e poi un'anteprima del risultato
+- Sottoagenti con un nome: il chip di un sottoagente porta il compito che ha ricevuto, le sue righe riassumono gli strumenti usati, e un chip Plan di sola lettura appare finché l'esecuzione sta ancora pianificando
+- Scheda workflow: un'esecuzione con più agenti appare come un'unica scheda con le sue fasi e gli agenti sotto, e una riga di sessione guadagna una seconda riga con ciò a cui sta lavorando
+- Account che dicono la verità: lo stato di un account agente arriva da una misura d'uso reale, quindi un accesso morto legge «Needs re-login» invece di «Signed in»
+- Devices è la pagina delle riparazioni: lì rientri in un account agente o scegli quale account collegato usa una macchina
+- Cambio account a metà esecuzione: un'esecuzione Claude che raggiunge il limite può proseguire con un altro account dal foglio dei consumi o dall'avviso di limite, come nuova esecuzione collegata alla precedente
+- La macchina che hai toccato: il pulsante play di una macchina apre il compositore con quella macchina già scelta, e il compositore spiega perché una macchina non può prendere l'esecuzione
+- Torna da dove sei arrivato: uscire da una sessione ti riporta all'issue, alla board o alla inbox da cui l'avevi aperta, e un'esecuzione avviata da un'altra compare annidata sotto
+- Watch al posto di Coding now: la tua esecuzione dal vivo su un'issue è una pillola Watch nelle proprietà dell'issue, non una scheda a parte
+- Chat e pin: una nuova chat propone suggerimenti da cui partire, e un'issue, una sessione o un'action si possono appuntare dalla loro schermata

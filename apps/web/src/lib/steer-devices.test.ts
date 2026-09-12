@@ -8,6 +8,7 @@ import {
   deviceAcpAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
+  deviceCanSwitchAccount,
   deviceCanUpdateNow,
   deviceDefaultAgent,
   deviceIsMine,
@@ -310,24 +311,18 @@ describe(`steerDeviceFromRow`, () => {
     expect(mapped.owner).toEqual({ id: `them`, name: `Tessa` })
   })
 
-  // FEED-33 compat (removable at ios >= 0.14.30 / android >= 0.14.32 /
-  // desktop+cli >= 0.14.37): the single-team alias rides beside the set so
-  // a pre-FEED-33 client keeps its "Shared" badge.
-  it(`emits the legacy sharedTeamId alias beside sharedTeamIds`, () => {
+  // FEED-33: the share is the SET, and only the set — a null column reads as
+  // private rather than throwing on the pickers' array reads.
+  it(`always emits sharedTeamIds as an array`, () => {
     const opts = { now: NOW, currentUserId: `me` }
     expect(
       steerDeviceFromRow(deviceRow({ sharedTeamIds: [`team-1`, `team-2`] }), opts)
-    ).toMatchObject({
-      sharedTeamIds: [`team-1`, `team-2`],
-      sharedTeamId: `team-1`,
-    })
-    expect(steerDeviceFromRow(deviceRow({ sharedTeamIds: [] }), opts)).toMatchObject({
-      sharedTeamIds: [],
-      sharedTeamId: null,
-    })
+        .sharedTeamIds
+    ).toEqual([`team-1`, `team-2`])
     expect(
       steerDeviceFromRow(deviceRow({ sharedTeamIds: null as never }), opts)
-    ).toMatchObject({ sharedTeamIds: [], sharedTeamId: null })
+        .sharedTeamIds
+    ).toEqual([])
   })
 
   // EXP-622: the flag is the ROW OWNER's preference. Reading a teammate's
@@ -509,6 +504,20 @@ describe(`resumeWorktree`, () => {
   it(`never matches identifier-less rows (batch/foreign branches)`, () => {
     const rows = [worktree({ issueIdentifier: null })]
     expect(resumeWorktree(rows, `row-1`, `EXP-42`, `claude`)).toBeNull()
+  })
+})
+
+// EXP-849: the mid-run account switch is its own capability — an older build
+// resumes on the RECORDED account and drops the field, so requesters must be
+// able to tell the two apart before offering the switch.
+describe(`deviceCanSwitchAccount`, () => {
+  it(`is true only when the machine advertises account-switch`, () => {
+    expect(deviceCanSwitchAccount({ caps: [`account-switch`] })).toBe(true)
+    expect(
+      deviceCanSwitchAccount({ caps: [`resume-run`, `agent-login`] })
+    ).toBe(false)
+    expect(deviceCanSwitchAccount({ caps: [] })).toBe(false)
+    expect(deviceCanSwitchAccount({ caps: undefined as never })).toBe(false)
   })
 })
 

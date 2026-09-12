@@ -3,19 +3,13 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, ne } from "drizzle-orm"
 import {
   actionIconSchema,
+  actionInputsSchema,
   actionPromptPlaceholderSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { actions, automations, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
-// EXP-825 compat: the write boundary still accepts the retired `text` /
-// `textarea` input kinds and drops them (lib/action-inputs.ts owns the rule
-// and the removal trigger).
-import {
-  compatActionInputsSchema,
-  retireLegacyActionInputs,
-} from "@/lib/action-inputs"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CHAT_ID,
@@ -241,7 +235,7 @@ export const actionsRouter = router({
         icon: actionIconSchema.nullable().optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema,
-        inputs: compatActionInputsSchema.optional(),
+        inputs: actionInputsSchema.optional(),
         promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
       })
     )
@@ -251,12 +245,6 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, input.teamId)
       }
-      // EXP-825 compat: retired text defs dropped, the hint seeded from the
-      // first one when the caller sent none.
-      const retired = retireLegacyActionInputs(
-        input.inputs,
-        input.promptPlaceholder
-      )
 
       // EXP-707: actions are Electric-synced, so every write returns a txId
       // sync barrier like the other synced-table routers.
@@ -281,9 +269,8 @@ export const actionsRouter = router({
             description: input.description ?? null,
             icon: input.icon ?? null,
             body: input.body,
-            inputs: retired.inputs ?? [],
-            promptPlaceholder:
-              input.promptPlaceholder || retired.promptPlaceholder || null,
+            inputs: input.inputs ?? [],
+            promptPlaceholder: input.promptPlaceholder || null,
             sortOrder: nextSortOrder,
           })
           .onConflictDoNothing({
@@ -305,7 +292,7 @@ export const actionsRouter = router({
         icon: actionIconSchema.nullable().optional(),
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema.optional(),
-        inputs: compatActionInputsSchema.optional(),
+        inputs: actionInputsSchema.optional(),
         promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
         sortOrder: z.number().finite().optional(),
       })
@@ -318,15 +305,9 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
-      // EXP-825 compat: retired text defs dropped; the hint is seeded from
-      // the first one only when neither the call nor the row carries one.
-      const retired = retireLegacyActionInputs(
-        input.inputs,
-        input.promptPlaceholder ?? existing.promptPlaceholder
-      )
       // Adding a required input to an already-automated action is refused,
       // mirroring the automations router's guard on create/enable.
-      if (retired.inputs !== undefined && hasRequiredInput(retired.inputs)) {
+      if (input.inputs !== undefined && hasRequiredInput(input.inputs)) {
         await assertNoEnabledAutomation(input.id)
       }
 
@@ -358,12 +339,9 @@ export const actionsRouter = router({
       }
       if (input.body !== undefined) updates.body = input.body
       // Whole-array replace — inputs are small and orderful, no patching.
-      if (retired.inputs !== undefined) updates.inputs = retired.inputs
+      if (input.inputs !== undefined) updates.inputs = input.inputs
       if (input.promptPlaceholder !== undefined) {
         updates.promptPlaceholder = input.promptPlaceholder || null
-      }
-      if (retired.promptPlaceholder !== undefined) {
-        updates.promptPlaceholder = retired.promptPlaceholder
       }
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 

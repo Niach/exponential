@@ -66,7 +66,7 @@ const switchable = {
   mine: true,
   sessionEnded: false,
   deviceOnline: true,
-  canResume: true,
+  canSwitch: true,
   turnEnded: true,
   option: { profileId: `work`, signedIn: true, health: `ok` },
 } as const
@@ -114,11 +114,11 @@ describe(`switchBlockedReason (EXP-849)`, () => {
       switchBlockedReason({
         ...switchable,
         deviceOnline: false,
-        canResume: false,
+        canSwitch: false,
       })
     ).toBe(REASON_OFFLINE)
     expect(
-      switchBlockedReason({ ...switchable, canResume: false, turnEnded: false })
+      switchBlockedReason({ ...switchable, canSwitch: false, turnEnded: false })
     ).toBe(REASON_NO_CAP)
     expect(
       switchBlockedReason({

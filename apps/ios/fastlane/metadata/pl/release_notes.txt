@@ -1,20 +1,12 @@
-- Wideo i dźwięk w opisach i komentarzach: dołącz klip, a odtworzy się na miejscu, z obrazem podglądu i długością; to, co wysyłasz, jest najpierw przekształcane do 720p
-- Konta GitHub: ustawienia zespołu wypisują każde podłączone konto z odnośnikiem „Configure”, a „Connect another account” otwiera wybór konta po stronie GitHuba, więc da się zainstalować drugą organizację
-- Dodawanie repozytorium: wybór mówi, dlaczego repozytorium go nie ma, linkuje ustawienia GitHuba każdego konta i przyjmuje repozytorium po nazwie
-- Krótsza lista minionych uruchomień: zakończone uruchomienie pokazuje maszynę i czas, bez nazwy agenta i powodu zakończenia
-- Kropka trwającej sesji przeniosła się na przycisk Chat w dolnym pasku, który jest teraz na każdej karcie; w Devices zostaje tylko ostrzeżenie o logowaniu
-- Pole zawsze nazywa maszynę, na której ruszy uruchomienie, i otwiera menu tylko wtedy, gdy jest ich więcej niż jedna
-- Baner o limicie znika sam, gdy minie czas resetu, a samo ostrzeżenie o zużyciu nigdy nie jest pokazywane jako limit
-- Udostępnianie maszyny wielu zespołom: panel urządzenia ma jeden przełącznik na zespół zamiast jednego wyboru
-- Szczegóły pola: „Plan” jest przełącznikiem, wybrane zadanie lub akcję usuwa jej własny krzyżyk, a dolny pasek boardu łączy czat i nowe zadanie w jedną kapsułę
-- Przypięcia: przypnij zadanie, sesję lub akcję z jej menu, a stanie w sekcji „Pinned” na górze przełącznika boardów
-- Konta na stronie „Devices”: jeden wiersz na konto agenta z jego paskami zużycia i chipem na każdą maszynę, ta sama sekcja, którą mają web i desktop
-- Jedno pole do wszystkiego: pole na stronie „Agent” uruchamia wszystko, z zadaniami lub akcją wybranymi u góry i maszyną, agentem, modelem oraz trybem planu pod spodem; panel „Start coding” zniknął
-- Każdy przycisk odtwarzania prowadzi tutaj: „Start coding” na zadaniu, pasek zaznaczenia, „Run” przy akcji i „Fix merge conflicts” otwierają pole z już wybranymi właściwymi rzeczami
-- Instrukcje przy starcie: to, co wpiszesz obok wybranych zadań lub akcji, trafia do uruchomienia jako dodatkowe instrukcje; w czacie jest to prompt
-- Obrazy przy starcie: dołącz do pola nawet cztery obrazy, a maszyna ma je przed pierwszą turą
-- Akcje zachowują tylko wybory: akcja prosi o repozytorium, board, pull request albo ikonę; wolny tekst pochodzi z pola, a podpowiedź akcji jest jego tekstem zastępczym
-- Sesje obok pola: strona „Agent” pokazuje twoje trwające i minione uruchomienia obok promptu, a uruchomienie rozpoczęte przez inne jest zagnieżdżone pod nim
-- Odpowiedź w samej karcie: na plan lub pytanie odpowiadasz w jego karcie, z polem w środku, gdy wolisz napisać niż wybrać; pole sterowania na ten czas ustępuje
-- Wiadomości od agentów: agent może wysłać twojemu zespołowi powiadomienie przez MCP; przychodzi jako push i jako własny wiersz w Inboksie
-- Limity, które się zgadzają: ostrzeżenie o zużyciu nie oznacza już uruchomienia jako ograniczonego, a przy prawdziwym limicie okno i czas resetu opisują to samo
+- Kontynuuj e-mailem albo kluczem dostępu: zaloguj się sześciocyfrowym kodem wysłanym na pocztę albo przez Face ID czy Touch ID; wszystkie opcje są na jednej liście, a nieznany adres po prostu staje się nowym kontem
+- Wskaźnik pracy kończy się razem z agentem: śledzi teraz prawdziwą turę agenta zamiast połączenia, pokazuje, co robi, wraz z czasem i tokenami, a Stop jest w nagłówku sesji
+- Karty narzędzi Exponential: gdy agent wywoła Exponential, historia pokazuje prosty podpis w rodzaju „Creating issue” albo „Opened pull request”, a po zakończeniu podgląd wyniku
+- Podagenci z nazwą: żeton podagenta niesie zadanie, które dostał, jego wiersze streszczają użyte narzędzia, a żeton Plan tylko do odczytu widnieje, dopóki przebieg wciąż planuje
+- Karta workflow: przebieg z wieloma agentami wygląda jak jedna karta z fazami i agentami pod spodem, a wiersz sesji dostaje drugą linijkę z tym, nad czym właśnie trwa praca
+- Konta, które mówią prawdę: stan konta agenta pochodzi z prawdziwego pomiaru zużycia, więc martwe logowanie pokazuje „Needs re-login” zamiast „Signed in”
+- Devices to strona napraw: tam logujesz konto agenta na nowo albo wybierasz, którego zalogowanego konta używa maszyna
+- Zmiana konta w trakcie przebiegu: przebieg Claude, który trafi na limit, może iść dalej na innym koncie z arkusza zużycia albo z komunikatu o limicie, jako nowy przebieg powiązany z poprzednim
+- Maszyna, którą dotknąłeś: przycisk odtwarzania przy maszynie otwiera pole z tą właśnie maszyną wybraną, a pole mówi, dlaczego maszyna nie może przyjąć przebiegu
+- Powrót tam, skąd przyszedłeś: wyjście z sesji odsyła cię z powrotem do issue, boardu albo skrzynki, z której ją otworzyłeś, a przebieg uruchomiony przez inny przebieg jest zagnieżdżony pod nim
+- Watch zamiast Coding now: twój własny trwający przebieg na issue to pastylka Watch we właściwościach issue, a nie osobna karta
+- Czaty i przypinanie: nowy czat proponuje, od czego zacząć, a issue, sesję albo action można przypiąć z jej własnego ekranu

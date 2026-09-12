@@ -37,7 +37,11 @@ import {
   healthBadgeLabel,
   type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
-import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
+import {
+  deviceCanResumeRun,
+  deviceCanSwitchAccount,
+  deviceRowIsOnline,
+} from "@/lib/steer-devices"
 import {
   findStartedRun,
   STARTED_RUN_DEADLINE_MS,
@@ -118,7 +122,9 @@ export function switchBlockedReason(input: {
   mine: boolean
   sessionEnded: boolean
   deviceOnline: boolean
-  canResume: boolean
+  /** The machine advertises BOTH halves of the switch: `resume-run` (the
+   *  rail it rides) and `account-switch` (the profile machinery). */
+  canSwitch: boolean
   /** EXP-848's turn slot: `ended` is the default, so a viewer that has not
    *  seen a `turn` event yet reads as idle. */
   turnEnded: boolean
@@ -133,7 +139,7 @@ export function switchBlockedReason(input: {
   if (!input.mine) return REASON_NOT_MINE
   if (input.sessionEnded) return REASON_ENDED
   if (!input.deviceOnline) return REASON_OFFLINE
-  if (!input.canResume) return REASON_NO_CAP
+  if (!input.canSwitch) return REASON_NO_CAP
   if (!input.turnEnded) return REASON_BUSY
   if (input.option.health === `needs_relogin`) return REASON_NEEDS_RELOGIN
   if (!input.option.signedIn || input.option.health === `signed_out`) {
@@ -197,8 +203,13 @@ export function useSessionAccountSwitch(
 
   const mine = session.userId === currentUserId
   const online = deviceRow ? deviceRowIsOnline(deviceRow.lastSeenAt, now) : false
-  const canResume = deviceRow
-    ? deviceCanResumeRun({ caps: deviceRow.caps ?? [] })
+  // EXP-849: the live switch rides the resume rail AND needs the profile
+  // machinery — a machine below the `account-switch` build would resume on
+  // the RECORDED account and silently drop the field, so the readout says
+  // "update it" instead of offering a switch that does nothing.
+  const canSwitch = deviceRow
+    ? deviceCanResumeRun({ caps: deviceRow.caps ?? [] }) &&
+      deviceCanSwitchAccount({ caps: deviceRow.caps ?? [] })
     : false
   // Server-only column: normally absent on a synced row, so "which account is
   // this run on" stays UNKNOWN rather than being guessed as the ambient one.
@@ -221,7 +232,7 @@ export function useSessionAccountSwitch(
         mine,
         sessionEnded: session.status === `ended`,
         deviceOnline: online,
-        canResume,
+        canSwitch,
         turnEnded,
         option: {
           profileId: row.profileId,
@@ -240,7 +251,7 @@ export function useSessionAccountSwitch(
     currentAccount,
     mine,
     turnEnded,
-    canResume,
+    canSwitch,
   ])
 
   // The continuation's own row: watched only while a switch is in flight.

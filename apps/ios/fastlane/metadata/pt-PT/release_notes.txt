@@ -1,20 +1,12 @@
-- Vídeo e áudio nas descrições e nos comentários: anexe um clipe e ele é reproduzido ali mesmo, com imagem de capa e a sua duração; o que envia é antes convertido para 720p
-- Contas GitHub: as definições da equipa listam cada conta ligada com uma ligação «Configure», e «Connect another account» abre o seletor de contas do próprio GitHub, para que se possa instalar uma segunda organização
-- Adicionar repositório: o seletor diz porque falta um repositório, liga às definições GitHub de cada conta e aceita um repositório pelo nome
-- Lista de execuções passadas mais curta: uma execução terminada mostra a máquina e a hora, sem o nome do agente e o motivo do fim
-- O ponto de uma sessão em curso passou para o botão Chat na barra inferior, que agora aparece em todos os separadores; em Devices fica só o aviso de início de sessão
-- O campo nomeia sempre a máquina onde uma execução vai arrancar e só abre um menu quando há mais do que uma
-- O aviso de limite desaparece sozinho assim que passa a hora de reposição, e um simples aviso de consumo nunca é mostrado como limite
-- Partilhar uma máquina com várias equipas: a folha do dispositivo tem um interruptor por equipa em vez de uma escolha única
-- Detalhes do campo: «Plan» é um interruptor, uma issue ou ação escolhida sai pelo seu próprio botão de fecho, e a barra inferior de um board junta o chat e a nova issue numa só cápsula
-- Fixados: fixe uma issue, uma sessão ou uma ação a partir do seu menu e fica na secção «Pinned» no topo do seletor de boards
-- Contas na página «Devices»: uma linha por conta de agente com as suas barras de consumo e um chip por máquina, a mesma secção que a web e o ambiente de trabalho já têm
-- Um único campo para tudo: o campo da página «Agent» inicia tudo, com as issues ou uma ação escolhidas em cima e a máquina, o agente, o modelo e o modo plano por baixo; a folha «Start coding» desapareceu
-- Cada botão de arranque leva ali: «Start coding» numa issue, a barra de seleção múltipla, o «Run» de uma ação e o «Fix merge conflicts» abrem o campo com o que é preciso já escolhido
-- Instruções no arranque: o que escrever ao lado das issues ou da ação escolhidas chega à execução como instruções adicionais; num chat é o próprio prompt
-- Imagens no arranque: anexe até quatro imagens ao campo e a máquina tem-nas antes do primeiro turno
-- As ações só guardam escolhas: uma ação pede um repositório, um board, um pull request ou um ícone; o texto livre vem do campo, com a dica da ação como texto de exemplo
-- Sessões ao lado do campo: a página «Agent» lista as suas execuções em curso e passadas ao lado do prompt, e uma execução iniciada por outra aparece aninhada por baixo
-- Responder dentro do cartão: um plano ou uma pergunta responde-se no próprio cartão, com um campo lá dentro quando prefere escrever em vez de escolher; o campo de pilotagem sai da frente entretanto
-- Mensagens de agentes: um agente pode enviar uma notificação à sua equipa por MCP; chega como push e como linha própria na Inbox
-- Limites que batem certo: um aviso de consumo já não marca uma execução como limitada e, num limite real, a janela e a hora de reposição descrevem a mesma coisa
+- Continuar com o email, ou com uma chave de acesso: entre com um código de 6 dígitos enviado por email, ou com Face ID ou Touch ID; todas as opções estão numa só lista, e um email desconhecido passa simplesmente a ser uma conta nova
+- O indicador de trabalho acaba quando o agente acaba: segue agora o turno real do agente em vez da ligação, mostra o que está a fazer com a duração e os tokens, e o Stop está no cabeçalho da sessão
+- Cartões de ferramentas Exponential: quando o agente chama o Exponential, o histórico mostra uma legenda simples como «Creating issue» ou «Opened pull request», e depois uma pré-visualização do resultado
+- Subagentes com nome: o chip de um subagente traz a tarefa que recebeu, as suas linhas resumem as ferramentas que usou, e um chip Plan só de leitura aparece enquanto a execução ainda planeia
+- Cartão de workflow: uma execução com vários agentes aparece como um só cartão com as suas fases e os agentes por baixo, e uma linha de sessão ganha uma segunda linha com aquilo em que está a trabalhar
+- Contas que dizem a verdade: o estado de uma conta de agente vem de uma medição de uso real, por isso um início de sessão morto indica «Needs re-login» em vez de «Signed in»
+- Devices é a página de reparação: é aí que volta a entrar numa conta de agente ou escolhe que conta ligada uma máquina usa
+- Trocar de conta a meio da execução: uma execução Claude que chega ao limite pode continuar noutra conta a partir da folha de uso ou do aviso de limite, como uma execução nova ligada à anterior
+- A máquina que tocou: o botão de reprodução de uma máquina abre o compositor com essa máquina já escolhida, e o compositor diz porque é que uma máquina não pode aceitar a execução
+- De volta ao sítio de onde veio: sair de uma sessão leva-o de volta ao issue, ao quadro ou à caixa de entrada de onde a abriu, e uma execução iniciada por outra aparece aninhada por baixo
+- Watch em vez de Coding now: a sua própria execução ao vivo num issue é uma etiqueta Watch nas propriedades do issue e já não um cartão à parte
+- Conversas e fixações: uma nova conversa oferece sugestões para começar, e um issue, uma sessão ou uma action podem ser fixados a partir do seu próprio ecrã

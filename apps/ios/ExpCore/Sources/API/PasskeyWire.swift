@@ -147,6 +147,36 @@ public enum PasskeyWire {
         )
     }
 
+    /// EXP-857 (security): whether a served `rpId` may be used as the relying
+    /// party of a ceremony against `instanceUrl`.
+    ///
+    /// The options are attacker-controlled the moment the user types a hostile
+    /// instance address, and iOS scopes a passkey by rpId ALONE. An instance
+    /// answering `rpId: "app.exponential.at"` would otherwise get the platform
+    /// authenticator to sign ITS challenge with the user's cloud credential and
+    /// could relay that assertion to the real server. So the rpId must be the
+    /// instance's own host, exactly: case-insensitive, trailing dot ignored, no
+    /// registrable-suffix widening (a parent domain would let one tenant claim
+    /// another's credentials), no port or path smuggled in.
+    public static func relyingPartyMatchesInstance(
+        rpId: String, instanceUrl: String
+    ) -> Bool {
+        guard let expected = canonicalHost(URLComponents(string: instanceUrl)?.host),
+              let candidate = canonicalHost(rpId) else { return false }
+        return expected == candidate
+    }
+
+    /// A bare hostname, lowercased and without its root dot; nil for anything
+    /// that is not one (empty, a port, a path, whitespace).
+    private static func canonicalHost(_ value: String?) -> String? {
+        guard var host = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !host.isEmpty else { return nil }
+        if host.hasSuffix(".") { host.removeLast() }
+        guard !host.isEmpty,
+              !host.contains(":"), !host.contains("/"), !host.contains(" ") else { return nil }
+        return host
+    }
+
     /// Every `name=value` pair of a Set-Cookie response header.
     ///
     /// Foundation merges repeated Set-Cookie headers into ONE comma-joined

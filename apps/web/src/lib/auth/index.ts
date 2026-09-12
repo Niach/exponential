@@ -431,6 +431,9 @@ export const auth = betterAuth({
             otpLength: 6,
             expiresIn: 60 * 10,
             allowedAttempts: 5,
+            // Stored hashed: a live sign-in code in `verifications.value` is
+            // a 10-minute session for anyone with a database read.
+            storeOTP: `hashed`,
             disableSignUp: isPasswordSignupDisabled(),
             sendVerificationOTP: async ({ email, otp, type }) => {
               // Only the sign-in code is offered anywhere in the product;

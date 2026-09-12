@@ -817,97 +817,60 @@ describe(`exponential_notifications_list`, () => {
 // composer hint. update forwards to actions.update, which drops against the
 // row (the hint seeds only when the row has none).
 
-describe(`exponential_actions_create/update — EXP-825 compat`, () => {
+describe(`exponential_actions_create/update — input kinds`, () => {
   beforeEach(() => {
     caller.actions.create.mockReset()
     caller.actions.update.mockReset()
   })
 
-  it(`create accepts a text def, drops it and seeds promptPlaceholder from it`, async () => {
+  it(`forwards a pick schema untouched`, async () => {
     caller.actions.create.mockResolvedValue({
-      action: { id: UUID, name: `Release`, inputs: [], promptPlaceholder: `Which platforms` },
+      action: { id: UUID, name: `Release`, inputs: [] },
     })
     const result = await tool(`exponential_actions_create`)({
       teamId: WS,
       name: `Release`,
       body: `# Do the release`,
-      inputs: [
-        { key: `scope`, label: `Scope`, type: `text`, required: true, placeholder: `Which platforms` },
-        { key: `repo`, label: `Repository`, type: `repo` },
-      ],
+      inputs: [{ key: `repo`, label: `Repository`, type: `repo` }],
+      promptPlaceholder: `Which platforms`,
     })
     expect(parseOk(result)).toMatchObject({ id: UUID, inputs: [] })
     expect(caller.actions.create).toHaveBeenCalledWith({
       teamId: WS,
       name: `Release`,
       body: `# Do the release`,
-      // The harness calls the handler directly (no zod parse), so
-      // `required` keeps whatever the call carried.
       inputs: [{ key: `repo`, label: `Repository`, type: `repo` }],
       promptPlaceholder: `Which platforms`,
     })
   })
 
-  it(`create keeps a hint the agent sent and seeds from the label otherwise`, async () => {
-    caller.actions.create.mockResolvedValue({ action: { id: UUID } })
-    await tool(`exponential_actions_create`)({
-      teamId: WS,
-      name: `A`,
-      body: `x`,
-      inputs: [{ key: `what`, label: `What to do`, type: `textarea` }],
-      promptPlaceholder: `Agent hint`,
-    })
-    expect(caller.actions.create).toHaveBeenLastCalledWith(
-      expect.objectContaining({ inputs: [], promptPlaceholder: `Agent hint` })
-    )
-    await tool(`exponential_actions_create`)({
-      teamId: WS,
-      name: `B`,
-      body: `x`,
-      inputs: [{ key: `what`, label: `What to do`, type: `textarea` }],
-    })
-    expect(caller.actions.create).toHaveBeenLastCalledWith(
-      expect.objectContaining({ inputs: [], promptPlaceholder: `What to do` })
-    )
-  })
-
-  it(`update accepts a text def and forwards it for the row-aware drop`, async () => {
+  it(`update forwards its input array as sent`, async () => {
     caller.actions.update.mockResolvedValue({ action: { id: UUID, inputs: [] } })
     const result = await tool(`exponential_actions_update`)({
       id: UUID,
-      inputs: [
-        { key: `scope`, label: `Scope`, type: `text` },
-        { key: `board`, label: `Board`, type: `board` },
-      ],
+      inputs: [{ key: `board`, label: `Board`, type: `board` }],
     })
     expect(parseOk(result)).toMatchObject({ id: UUID })
     expect(caller.actions.update).toHaveBeenCalledWith({
       id: UUID,
-      inputs: [
-        { key: `scope`, label: `Scope`, type: `text` },
-        { key: `board`, label: `Board`, type: `board` },
-      ],
+      inputs: [{ key: `board`, label: `Board`, type: `board` }],
     })
   })
 
-  it(`still rejects an unknown input kind at the schema`, () => {
+  // EXP-825: free text reaches a run through the start's `prompt`, so the
+  // retired `text`/`textarea` kinds are as unknown as any other bogus one.
+  it(`rejects unknown and retired input kinds at the schema`, () => {
     const schema = collectToolDefs().get(`exponential_actions_create`)!.inputSchema!
-    expect(
-      schema.safeParse({
-        teamId: WS,
-        name: `A`,
-        body: `x`,
-        inputs: [{ key: `n`, label: `N`, type: `number` }],
-      }).success
-    ).toBe(false)
-    expect(
-      schema.safeParse({
-        teamId: WS,
-        name: `A`,
-        body: `x`,
-        inputs: [{ key: `n`, label: `N`, type: `text` }],
-      }).success
-    ).toBe(true)
+    for (const type of [`number`, `text`, `textarea`]) {
+      expect(
+        schema.safeParse({
+          teamId: WS,
+          name: `A`,
+          body: `x`,
+          inputs: [{ key: `n`, label: `N`, type }],
+        }).success
+      ).toBe(false)
+    }
   })
 })
 
@@ -3224,8 +3187,6 @@ describe(`exponential_devices_list`, () => {
         caps: [`actions`, `resume-run`],
         version: `1.2.3`,
         sharedTeamIds: [],
-        // FEED-33 compat: the single-team alias, null when private.
-        sharedTeamId: null,
         isDefault: true,
         // EXP-484: null until the machine's collector reports.
         agentAccounts: null,

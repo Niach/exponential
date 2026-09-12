@@ -85,7 +85,8 @@ pub(crate) enum SwitchBlocker {
     Agent,
     /// The host machine is not reporting.
     Offline,
-    /// The host runs a build that cannot take a resume.
+    /// The host runs a build that does not honour `account` on a resume
+    /// (EXP-849's `account-switch` cap).
     NoCap,
     /// A turn is in flight.
     Working,
@@ -137,7 +138,7 @@ pub(crate) fn switch_targets(
     device_id: &str,
     agent: CodingAgent,
     current_account: Option<&str>,
-    can_resume: bool,
+    can_switch: bool,
     working: bool,
 ) -> (Vec<SwitchTarget>, Option<SwitchBlocker>) {
     let current_account = current_account
@@ -163,7 +164,7 @@ pub(crate) fn switch_targets(
             let blocked = (agent != CodingAgent::Claude)
                 .then_some(REASON_AGENT)
                 .or_else(|| (!row.online).then_some(REASON_OFFLINE))
-                .or_else(|| (!can_resume).then_some(REASON_NO_CAP))
+                .or_else(|| (!can_switch).then_some(REASON_NO_CAP))
                 .or_else(|| working.then_some(REASON_BUSY))
                 .or_else(|| (row.health == Health::NeedsRelogin).then_some(REASON_NEEDS_RELOGIN))
                 .or_else(|| {
@@ -207,7 +208,7 @@ pub(crate) fn switch_targets(
         None
     } else if others && !host_online {
         Some(SwitchBlocker::Offline)
-    } else if others && !can_resume {
+    } else if others && !can_switch {
         Some(SwitchBlocker::NoCap)
     } else if others && working {
         Some(SwitchBlocker::Working)
@@ -243,9 +244,9 @@ pub(crate) struct SwitchContext {
 impl SwitchContext {
     /// Whether the HOST could take the switch at all: this machine always can
     /// (the launcher runs right here), another of mine only on a build that
-    /// takes a resume (EXP-637's `resume-run`, the same cap the Resume button
-    /// gates on) — the server refuses the start otherwise.
-    fn can_resume(&self, cx: &App) -> bool {
+    /// honours `account` on a live-run resume (EXP-849's `account-switch`) —
+    /// the server refuses the start otherwise.
+    fn can_switch(&self, cx: &App) -> bool {
         if self.local {
             return true;
         }
@@ -254,7 +255,7 @@ impl SwitchContext {
         };
         crate::queries::device_caps(cx, device_id)
             .iter()
-            .any(|cap| cap == coding::doctor::RESUME_RUN_CAP)
+            .any(|cap| cap == coding::doctor::ACCOUNT_SWITCH_CAP)
     }
 }
 
@@ -285,7 +286,7 @@ impl SwitchContext {
             &device_id,
             self.agent,
             self.current_account(cx).as_deref(),
-            self.can_resume(cx),
+            self.can_switch(cx),
             self.working,
         );
         if targets.is_empty() {
@@ -617,7 +618,7 @@ mod tests {
             .filter(|target| !target.current)
             .all(|target| target.blocked.is_some()));
 
-        // An offline host, and a host whose build cannot take a resume: the
+        // An offline host, and a host whose build cannot take the switch: the
         // run's own facts outrank the accounts' (the ×4 order).
         let offline: Vec<AgentProfileUsageRow> = rows
             .iter()

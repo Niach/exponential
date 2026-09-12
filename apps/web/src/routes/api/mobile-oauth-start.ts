@@ -108,7 +108,7 @@ async function handle({ request }: { request: Request }) {
     const secure = stateCookieSecureAttribute(request)
     headers.append(
       `Set-Cookie`,
-      `${STATE_COOKIE_NAME}=${cookieValue}; Path=/; Max-Age=600; HttpOnly${secure}; SameSite=Lax`
+      `${STATE_COOKIE_NAME}=${cookieValue}; Path=/; Max-Age=1800; HttpOnly${secure}; SameSite=Lax`
     )
     headers.set(`Location`, data.url)
     headers.delete(`Content-Type`)

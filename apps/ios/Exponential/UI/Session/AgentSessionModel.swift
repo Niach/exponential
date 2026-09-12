@@ -377,8 +377,9 @@ final class AgentSessionModel {
 
     /// Why switching this run onto `option` would be refused right now, or nil
     /// when it would go through. The ×4 `SessionAccountSwitch.refusal` rule:
-    /// claude, the owner, a live run, its own online `resume-run` machine, not
-    /// mid-turn (EXP-848's turn slot), and a login that actually works.
+    /// claude, the owner, a live run, its own online machine advertising both
+    /// `resume-run` and `account-switch`, not mid-turn (EXP-848's turn slot),
+    /// and a login that actually works.
     ///
     /// Display gating only — the server and the machine re-check all of it.
     func accountSwitchRefusal(_ option: SessionAccountOption) -> String? {
@@ -390,6 +391,7 @@ final class AgentSessionModel {
             sessionEnded: sessionEnded,
             deviceOnline: switchDevice?.isOnline == true,
             canResume: switchDevice?.canResumeRun == true,
+            canSwitchAccount: switchDevice?.canSwitchAccount == true,
             turnState: turnState
         )
     }

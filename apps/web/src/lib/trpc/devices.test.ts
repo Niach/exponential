@@ -171,8 +171,7 @@ const caller = devicesRouter.createCaller({
 } as never)
 
 // What setShared's ownership probe selects (id, kind, shared_team_ids).
-// FEED-33: the share is a SET — the legacy single-team tests below pass one
-// team (or none) and the toggle-form tests pass several.
+// FEED-33: the share is a SET, so the probe seeds any number of teams.
 const sharedProbe = (...sharedTeamIds: string[]) => [
   [{ id: `row-1`, kind: `server`, sharedTeamIds }],
 ]
@@ -479,6 +478,7 @@ describe(`devices.setShared`, () => {
     const result = await caller.setShared({
       deviceId: `dev-1`,
       teamId: `11111111-1111-4111-8111-111111111111`,
+      shared: true,
     })
     expect(result).toMatchObject({ ok: true })
     expect(h.assertTeamMember).toHaveBeenCalledWith(
@@ -492,7 +492,11 @@ describe(`devices.setShared`, () => {
 
   it(`clears the share with teamId: null without a membership check`, async () => {
     h.state.selectQueue = sharedProbe()
-    const result = await caller.setShared({ deviceId: `dev-1`, teamId: null })
+    const result = await caller.setShared({
+      deviceId: `dev-1`,
+      teamId: null,
+      shared: false,
+    })
     expect(result).toMatchObject({ ok: true })
     expect(h.assertTeamMember).not.toHaveBeenCalled()
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
@@ -506,6 +510,7 @@ describe(`devices.setShared`, () => {
       caller.setShared({
         deviceId: `dev-1`,
         teamId: `11111111-1111-4111-8111-111111111111`,
+        shared: true,
       })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
     expect(h.state.updates).toHaveLength(0)
@@ -517,6 +522,7 @@ describe(`devices.setShared`, () => {
       caller.setShared({
         deviceId: `foreign-dev`,
         teamId: `11111111-1111-4111-8111-111111111111`,
+        shared: true,
       })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
@@ -586,36 +592,9 @@ describe(`devices.setShared — toggle form`, () => {
     expect(h.state.updates).toHaveLength(0)
   })
 
-  // FEED-33 compat (removable at ios >= 0.14.30 / android >= 0.14.32 /
-  // desktop+cli >= 0.14.37): a pre-FEED-33 client sees only `sharedTeamId`
-  // (one team), so its single-team picker must never revoke the shares it
-  // cannot render. The legacy form ADDS; only `null` clears.
-  it(`legacy form ADDS the team and keeps the shares an old client cannot see`, async () => {
-    h.state.selectQueue = sharedProbe(TEAM_C, TEAM_A)
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
-    expect(h.assertTeamMember).toHaveBeenCalledTimes(1)
-    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_B)
-    expect(h.state.updates).toHaveLength(1)
-    expect(h.state.updates[0]?.set).toMatchObject({
-      sharedTeamIds: [TEAM_A, TEAM_B, TEAM_C],
-    })
-    // Nothing was revoked, so no teammate's hosted run dies.
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
-  })
-
-  it(`legacy form is a no-op for an already-shared team`, async () => {
+  it(`clears the whole set and ends every dropped team's runs`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
-    expect(h.assertTeamMember).not.toHaveBeenCalled()
-    expect(h.state.updates[0]?.set).toMatchObject({
-      sharedTeamIds: [TEAM_A, TEAM_B],
-    })
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
-  })
-
-  it(`legacy null clears the whole set and ends every dropped team's runs`, async () => {
-    h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
-    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+    await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
     expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(2)
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A, `dev-1`)
@@ -624,13 +603,11 @@ describe(`devices.setShared — toggle form`, () => {
 })
 
 describe(`nextSharedTeamIds`, () => {
-  it(`sorts and dedupes every form`, () => {
+  it(`sorts and dedupes both directions`, () => {
     expect(nextSharedTeamIds([`b`, `a`], { teamId: `c`, shared: true })).toEqual([`a`, `b`, `c`])
+    expect(nextSharedTeamIds([`b`, `a`, `a`], { teamId: `a`, shared: true })).toEqual([`a`, `b`])
     expect(nextSharedTeamIds([`b`, `a`, `a`], { teamId: `a`, shared: false })).toEqual([`b`])
-    // FEED-33 compat: the legacy form adds, never replaces.
-    expect(nextSharedTeamIds([`b`, `a`], { teamId: `c` })).toEqual([`a`, `b`, `c`])
-    expect(nextSharedTeamIds([`b`, `a`, `a`], { teamId: `a` })).toEqual([`a`, `b`])
-    expect(nextSharedTeamIds([`b`, `a`], { teamId: null })).toEqual([])
+    expect(nextSharedTeamIds([`b`, `a`], { teamId: null, shared: false })).toEqual([])
   })
 })
 
@@ -675,7 +652,7 @@ describe(`devices.setShared — kill fan-out`, () => {
 
   it(`ends the old team's hosted sessions when the share is cleared`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
-    // The column write must land FIRST — once shared_team_id has moved, no
+    // The column write must land FIRST — once shared_team_ids has moved, no
     // new foreign attribution can slip in behind the fan-out. Two updates by
     // then: the share column plus the automation disarm that rides the same
     // transaction.
@@ -685,7 +662,7 @@ describe(`devices.setShared — kill fan-out`, () => {
       return []
     })
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+    await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
       `actor`,
@@ -709,12 +686,11 @@ describe(`devices.setShared — kill fan-out`, () => {
     )
   })
 
-  // FEED-33 compat: the legacy single-team form never moves a device between
-  // teams any more — it adds, so the old team's runs live on.
-  it(`legacy form adding another team ends nothing`, async () => {
+  // Adding a team never revokes one, so the other teams' runs live on.
+  it(`adding another team ends nothing`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B, shared: true })
 
     expect(h.state.updates[0]?.set).toMatchObject({
       sharedTeamIds: [TEAM_A, TEAM_B],
@@ -722,10 +698,10 @@ describe(`devices.setShared — kill fan-out`, () => {
     expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
   })
 
-  it(`ends nothing on a first share (null → team)`, async () => {
+  it(`ends nothing on a first share (private → team)`, async () => {
     h.state.selectQueue = sharedProbe()
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
 
     expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
   })
@@ -733,7 +709,7 @@ describe(`devices.setShared — kill fan-out`, () => {
   it(`ends nothing on a same-team re-share`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
 
     expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
   })
@@ -752,7 +728,7 @@ describe(`devices.setShared — automation disarm`, () => {
   it(`disables the old team's triggers when the share is cleared`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+    await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
     expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
     expect(h.state.updates).toHaveLength(2)
@@ -768,12 +744,11 @@ describe(`devices.setShared — automation disarm`, () => {
     expect(h.state.updates).toHaveLength(2)
   })
 
-  // FEED-33 compat: the legacy form adds, so no team is revoked and no
-  // trigger is disarmed.
-  it(`leaves triggers alone when the legacy form adds another team`, async () => {
+  // Adding a team revokes none, so no trigger is disarmed.
+  it(`leaves triggers alone when another team is added`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B, shared: true })
 
     expect(h.getTeamMember).not.toHaveBeenCalled()
     expect(h.state.updates).toHaveLength(1)
@@ -786,20 +761,20 @@ describe(`devices.setShared — automation disarm`, () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
     h.getTeamMember.mockResolvedValue({ role: `owner` })
 
-    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+    await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
     expect(h.state.updates).toHaveLength(1)
   })
 
   it(`touches nothing on a first share or a same-team re-share`, async () => {
     h.state.selectQueue = sharedProbe()
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
     expect(h.state.updates).toHaveLength(1)
 
     h.state.updates = []
     h.state.updateReturning = [[{ id: `row-1` }]]
     h.state.selectQueue = sharedProbe(TEAM_A)
-    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
     expect(h.state.updates).toHaveLength(1)
     expect(h.getTeamMember).not.toHaveBeenCalled()
   })
@@ -1615,7 +1590,12 @@ describe(`devices.register — EXP-792 caps`, () => {
 
 describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   const capableProbe = () => [
-    [{ id: `row-1`, caps: [`agent-login`, `agent-usage-refresh`] }],
+    [
+      {
+        id: `row-1`,
+        caps: [`agent-login`, `agent-usage-refresh`, `account-switch`],
+      },
+    ],
   ]
 
   it(`queues the agent and the profile id`, async () => {
@@ -1669,8 +1649,9 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   })
 
   // EXP-849: "Use this account here" — the non-destructive active-profile
-  // switch. Same payload as a refresh, gated on `agent-login` (a build that
-  // cannot drive logins cannot switch between them either).
+  // switch. Same payload as a refresh, gated on BOTH `agent-login` (a build
+  // that cannot drive logins cannot switch between them) and
+  // `account-switch` (the profile machinery itself).
   it(`queues agent_profile_use with the agent and the profile id`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-9` }]]
@@ -1697,15 +1678,19 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
         agent: `claude`,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    h.state.selectQueue = [[{ id: `row-1`, caps: [] }]]
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_profile_use`,
-        agent: `claude`,
-        profileId: `work`,
-      })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    // Either cap missing is a refusal: a pre-EXP-849 build advertises
+    // `agent-login` alone and would leave the row pending forever.
+    for (const caps of [[], [`agent-login`], [`account-switch`]]) {
+      h.state.selectQueue = [[{ id: `row-1`, caps }]]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_use`,
+          agent: `claude`,
+          profileId: `work`,
+        })
+      ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    }
     expect(h.state.inserted).toHaveLength(0)
   })
 

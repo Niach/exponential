@@ -827,6 +827,13 @@
       "when": 1789213088061,
       "tag": "0117_passkeys",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1789216340415,
+      "tag": "0118_drop_device_shared_team_id",
+      "breakpoints": true
     }
   ]
 }

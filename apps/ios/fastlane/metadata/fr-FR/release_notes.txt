@@ -1,20 +1,12 @@
-- Vidéo et audio dans les descriptions et les commentaires : joignez un clip et il se lit sur place, avec une image d'aperçu et sa durée ; ce que vous envoyez est d'abord converti en 720p
-- Comptes GitHub : les réglages de l'équipe listent chaque compte connecté avec un lien « Configure », et « Connect another account » ouvre le sélecteur de compte de GitHub, ce qui permet d'installer une deuxième organisation
-- Ajouter un dépôt : le sélecteur explique pourquoi un dépôt manque, renvoie vers les réglages GitHub de chaque compte et accepte un dépôt par son nom
-- Liste des exécutions passées plus courte : une exécution terminée affiche la machine et l'heure, sans le nom de l'agent ni la raison de la fin
-- Le point d'une session en cours est passé sur le bouton Chat de la barre du bas, présent désormais sur chaque onglet ; Devices ne garde que l'alerte de connexion
-- Le champ nomme toujours la machine sur laquelle une exécution démarrera, et n'ouvre un menu que s'il y en a plusieurs
-- La bannière de limite disparaît d'elle-même une fois l'heure de réinitialisation passée, et un simple avertissement de quota ne s'affiche jamais comme une limite
-- Partagez une machine avec plusieurs équipes : la feuille de l'appareil a un interrupteur par équipe au lieu d'un choix unique
-- Détails du champ : « Plan » est un interrupteur, une issue ou une action choisie se retire avec son propre bouton de fermeture, et la barre du bas d'un board réunit chat et nouvelle issue en une seule capsule
-- Épingles : épinglez une issue, une session ou une action depuis son menu, elle apparaît dans la section « Pinned » en haut du sélecteur de boards
-- Comptes sur la page « Devices » : une ligne par compte d'agent avec ses barres de quota et une puce par machine, la même section que sur le web et le bureau
-- Un seul champ pour tout : le champ de la page « Agent » lance tout, avec les issues ou une action choisies en haut et l'appareil, l'agent, le modèle et le mode plan en dessous ; la feuille « Start coding » disparaît
-- Chaque bouton de lecture y mène : « Start coding » sur une issue, la barre de sélection multiple, « Run » d'une action et « Fix merge conflicts » ouvrent le champ avec la bonne sélection déjà faite
-- Des instructions au démarrage : ce que vous tapez à côté des issues ou de l'action choisies arrive à l'exécution comme instructions supplémentaires ; pour un chat, c'est le prompt
-- Des images au démarrage : joignez jusqu'à quatre images au champ, la machine les a avant le premier tour
-- Les actions ne gardent que des choix : une action demande un dépôt, un board, une pull request ou une icône ; le texte libre vient du champ, avec l'indication de l'action comme texte d'aide
-- Les sessions à côté du champ : la page « Agent » liste vos exécutions en cours et passées à côté du prompt, et une exécution lancée par une autre s'affiche imbriquée dessous
-- Répondre dans la carte : un plan ou une question se répond dans sa propre carte, avec un champ intégré quand vous préférez écrire plutôt que choisir ; le champ de pilotage s'efface le temps de la carte
-- Messages d'agent : un agent peut envoyer une notification à votre équipe via MCP ; elle arrive en notification push et comme sa propre ligne dans l'Inbox
-- Des limites cohérentes : un avertissement de quota ne marque plus une exécution comme limitée, et pour une vraie limite, la fenêtre et l'heure de réinitialisation décrivent la même chose
+- Continuer avec l'e-mail, ou avec une clé d'accès : connectez-vous avec un code à 6 chiffres envoyé par e-mail, ou avec Face ID ou Touch ID ; toutes les options tiennent dans une seule liste, et une adresse inconnue devient simplement un nouveau compte
+- L'indicateur de travail s'arrête quand l'agent s'arrête : il suit le vrai tour de l'agent au lieu de la connexion, affiche ce qu'il fait avec la durée et les tokens, et Stop se trouve dans l'en-tête de la session
+- Cartes d'outils Exponential : quand l'agent appelle Exponential, l'historique montre une légende simple comme « Creating issue » ou « Opened pull request », puis un aperçu du résultat
+- Des sous-agents nommés : la puce d'un sous-agent porte la tâche qu'on lui a confiée, ses lignes résument les outils utilisés, et une puce Plan en lecture seule s'affiche tant que le run planifie encore
+- Carte de workflow : un run à plusieurs agents s'affiche comme une seule carte avec ses phases et ses agents en dessous, et une ligne de session gagne une deuxième ligne indiquant ce sur quoi le run travaille
+- Des comptes qui disent la vérité : l'état d'un compte d'agent vient d'une vraie mesure d'usage, donc une connexion morte affiche « Needs re-login » au lieu de « Signed in »
+- Devices est la page de réparation : c'est là que vous reconnectez un compte d'agent ou que vous choisissez quel compte connecté une machine utilise
+- Changer de compte en cours de run : un run Claude qui atteint sa limite peut continuer sur un autre compte depuis la feuille d'usage ou l'avis de limite, sous forme d'un nouveau run lié à l'ancien
+- La machine que vous avez touchée : le bouton lecture d'une machine ouvre le composeur avec cette machine déjà choisie, et le composeur explique pourquoi une machine ne peut pas prendre le run
+- Retour d'où vous veniez : quitter une session vous ramène à l'issue, au board ou à la boîte de réception d'où vous l'aviez ouverte, et un run lancé par un autre run apparaît imbriqué sous lui
+- Watch au lieu de Coding now : votre propre run en cours sur une issue est une pastille Watch dans les propriétés de l'issue plutôt qu'une carte à part
+- Chats et épingles : un nouveau chat propose des suggestions pour démarrer, et une issue, une session ou une action s'épingle depuis son propre écran

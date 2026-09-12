@@ -1209,12 +1209,13 @@ export const deviceAgentProfileSchema = z.object({
     })
     .nullish(),
 })
-/** EXP-849: how many profiles per agent one device may report. At least the
- * desktop's usage-probe cap (`coding::agent_usage::MAX_USAGE_PROFILES` = 12),
- * because a machine reports every login it holds — the ones past that cap ride
- * along `unmonitored`, and silently dropping them here would hide logins the
- * account pickers are supposed to offer. */
-export const MAX_AGENT_PROFILES = 12
+/** EXP-849: how many profiles per agent one device may report. A machine
+ * reports EVERY login it holds, not just the ones it probes (the ones past
+ * the desktop's usage-probe cap `coding::agent_usage::MAX_USAGE_PROFILES`
+ * ride along flagged `unmonitored`), so this ceiling has to sit well above
+ * that cap — silently dropping profiles here would hide logins the account
+ * pickers are supposed to offer. */
+export const MAX_AGENT_PROFILES = 24
 
 export const deviceAgentAccountsSchema = z.record(
   z.string(),
@@ -1305,17 +1306,6 @@ export const devices = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
-    // FEED-33 compat mirror: `shared_team_ids[1]` (the array is sorted, so
-    // deterministic; NULL when empty), maintained by trigger #17
-    // (mirror_device_shared_team_id) — server-written only, NO foreign key,
-    // never touched by a router or the register/heartbeat path. Exists so
-    // the pre-FEED-33 clients still reading `shared_team_id` off the devices
-    // shape (iOS 0.14.28/0.14.29, Android 0.14.31, desktop/CLI 0.14.36)
-    // keep seeing teammates' shared servers. Removable (column + trigger +
-    // shape allowlist entry) when CLIENT_MIN_VERSION_IOS >= 0.14.30 AND
-    // CLIENT_MIN_VERSION_ANDROID >= 0.14.32 AND CLIENT_MIN_VERSION_DESKTOP
-    // (which also floors the CLI) >= 0.14.37.
-    sharedTeamId: uuid(`shared_team_id`),
     // EXP-622: the OWNER's default machine — the one every device picker
     // prefills when several are candidates. At most one true row per user
     // (`devices.setDefault` clears the others in the same transaction).

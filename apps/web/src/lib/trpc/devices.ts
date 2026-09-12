@@ -75,10 +75,11 @@ import {
 // relay is a dumb pipe and the same strings land here via `register`. Caps
 // are free strings the executor names (coding doctor.rs DEVICE_CAPS +
 // ACTION_CAPS); the ones this router gates on: `agent-login`,
-// `agent-login-code`, `mcp` (EXP-792: runs `mcp_oauth_*` and reports
-// readiness), `agent-usage-refresh` (EXP-747 C4) and `update-now`
-// (FEED-36: runs `update_now`). The daemon advertises 16 today (10 build +
-// 6 action caps), so the ceiling sits at 24 with headroom, not AT the count.
+// `account-switch` (EXP-849: honours `account` on a live-run resume), `mcp`
+// (EXP-792: runs `mcp_oauth_*` and reports readiness), `agent-usage-refresh`
+// (EXP-747 C4) and `update-now` (FEED-36: runs `update_now`). The daemon
+// advertises 17 today (10 build + 7 action caps), so the ceiling sits at 24
+// with headroom, not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
 
@@ -369,7 +370,7 @@ function stampOf(value: Date | null): string | null {
 // EXP-639: the ONE "which device rows may this user see" read — their own
 // registrations (any kind), plus the SERVER devices teammates shared with
 // `teamId` (EXP-432). The team_members join drops ghost shares whose owner has
-// since left the team: `shared_team_id` survives membership changes, but an
+// since left the team: `shared_team_ids` survives membership changes, but an
 // ex-member's box must neither list nor run. Owner names ride along for the
 // shared rows only — own rows never render one.
 export async function visibleDeviceRows(
@@ -413,30 +414,19 @@ export async function visibleDeviceRows(
 
 /** FEED-33: the share set after a `devices.setShared` call — sorted + deduped
  * (the array is shape data, so a stable order keeps a no-op write a no-op).
- * Toggle form (`shared` present): one team in or out. Legacy form (no
- * `shared`): `teamId` ADDS that team to the set, `null` clears it.
- *
- * FEED-33 compat: the legacy form used to REPLACE the set with `[teamId]`.
- * A pre-FEED-33 client (desktop/CLI <= 0.14.36, iOS <= 0.14.29, Android
- * <= 0.14.31) reads only the single `sharedTeamId` alias, so it renders a
- * box shared with A and C as unshared; its "share with B" then silently
- * revoked A and C, and the revoke fan-out below ended their teammates' live
- * runs on that machine. Additive keeps every existing share; the explicit
- * `null` stays the one way to clear. Restore the replace (or drop the
- * legacy form) once CLIENT_MIN_VERSION_IOS >= 0.14.30 AND
- * CLIENT_MIN_VERSION_ANDROID >= 0.14.32 AND CLIENT_MIN_VERSION_DESKTOP
- * (CLI) >= 0.14.37; registered in lib/api-conventions.ts. */
+ * `shared` moves ONE team in or out of the set; `teamId: null` with
+ * `shared: false` clears it. */
 export function nextSharedTeamIds(
   current: readonly string[],
-  input: { teamId: string | null; shared?: boolean }
+  input: { teamId: string | null; shared: boolean }
 ): string[] {
   let next: string[]
-  if (input.shared === undefined) {
-    next = input.teamId ? [...current, input.teamId] : []
-  } else if (input.shared) {
+  if (input.shared) {
     next = input.teamId ? [...current, input.teamId] : [...current]
   } else {
-    next = current.filter((teamId) => teamId !== input.teamId)
+    next = input.teamId
+      ? current.filter((teamId) => teamId !== input.teamId)
+      : []
   }
   return [...new Set(next)].sort()
 }
@@ -840,7 +830,7 @@ export const devicesRouter = router({
             .insert(deviceWorktrees)
             .values({
               deviceRowId: row.id,
-              // user_id/shared_team_id are trigger-populated; the schema
+              // user_id/shared_team_ids are trigger-populated; the schema
               // marks user_id NOT NULL so satisfy the type with the caller
               // (the BEFORE INSERT trigger overwrites from the devices row).
               userId: ctx.session.user.id,
@@ -1042,9 +1032,10 @@ export const devicesRouter = router({
       }
 
       // EXP-849: "Use this account here" — same payload shape as
-      // `agent_usage_refresh` (agent + profile), gated on the same cap as a
-      // remote sign-in: a build that cannot drive agent logins cannot switch
-      // between them either, and the command would sit pending forever.
+      // `agent_usage_refresh` (agent + profile). Two caps, because the
+      // command needs both halves: `agent-login` to drive the agent's own
+      // login state at all, and `account-switch` for the profile machinery
+      // itself. A build missing either would leave the row pending forever.
       if (input.kind === `agent_profile_use`) {
         if (!input.agent || !input.profileId) {
           throw new TRPCError({
@@ -1052,10 +1043,11 @@ export const devicesRouter = router({
             message: `agent_profile_use needs an agent and a profileId`,
           })
         }
-        if (!(row.caps ?? []).includes(`agent-login`)) {
+        const caps = row.caps ?? []
+        if (!caps.includes(`agent-login`) || !caps.includes(`account-switch`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That device does not declare the agent-login capability`,
+            message: `That machine runs an older Exponential app that cannot switch agent accounts. Update it first.`,
           })
         }
         payload = { agent: input.agent, profileId: input.profileId }
@@ -1224,22 +1216,19 @@ export const devicesRouter = router({
   // they belong to. Sharing is the consent that lets teammates remote-start
   // on the box — the resulting sessions run under the owner's daemon but
   // belong to the requesting teammate (coding-sessions
-  // `resolveStartAttribution`). FEED-33: the share is a SET of teams. The
-  // toggle form (`shared` present) moves ONE team in or out of it — what
-  // every client's per-team switch sends; the legacy form (no `shared`)
-  // ADDS `teamId` to the set or clears it (`null`), so a pre-FEED-33
-  // single-team picker never revokes shares it cannot see (FEED-33 compat
-  // in `nextSharedTeamIds`, floor named there).
+  // `resolveStartAttribution`). FEED-33: the share is a SET of teams and
+  // `shared` moves ONE team in or out of it — what every client's per-team
+  // switch sends. `{teamId: null, shared: false}` clears the whole set.
   setShared: authedProcedure
     .input(
       z
         .object({
           deviceId: deviceIdInput,
           teamId: z.string().uuid().nullable(),
-          shared: z.boolean().optional(),
+          shared: z.boolean(),
         })
-        .refine((v) => v.shared === undefined || v.teamId !== null, {
-          message: `teamId is required to toggle a share`,
+        .refine((v) => v.shared === false || v.teamId !== null, {
+          message: `teamId is required to add a share`,
         })
     )
     .mutation(async ({ ctx, input }) => {

@@ -1693,8 +1693,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     public let caps: String?
     public let unauthedAgents: String?
     /// EXP-749: jsonb string[] — the subset of `agents` the machine's ACP
-    /// engine can drive. NULL = the build never reported it (pre-EXP-749), so
-    /// every runnable agent is assumed ACP-ready.
+    /// engine can drive. Still NULLABLE server-side (a row last written by a
+    /// pre-EXP-749 build), and NULL now maps to EMPTY: that machine starts
+    /// nothing (`SteerDevice.acpAgents` in DeviceRows.swift).
     public let acpAgents: String?
     /// jsonb object (defaultAgent + per-agent model/effort/toggles), stored as
     /// stringified JSON. Inner keys are camelCase verbatim on the wire.
@@ -1813,8 +1814,8 @@ extension DeviceEntity: Codable {
         agents = c.decodeWireJsonString(forKey: .agents)
         caps = c.decodeWireJsonString(forKey: .caps)
         unauthedAgents = c.decodeWireJsonString(forKey: .unauthedAgents)
-        // EXP-749: jsonb like agents/caps, and ABSENT on a pre-EXP-749 device
-        // row — nil must stay nil, it means "assume every runnable agent".
+        // EXP-749: jsonb like agents/caps. NULL on a row last written by a
+        // pre-EXP-749 build; the SteerDevice mapping reads that as EMPTY.
         acpAgents = c.decodeWireJsonString(forKey: .acpAgents)
         launchDefaults = c.decodeWireJsonString(forKey: .launchDefaults)
         launchDefaultsUpdatedAt = try c.decodeIfPresent(String.self, forKey: .launchDefaultsUpdatedAt)

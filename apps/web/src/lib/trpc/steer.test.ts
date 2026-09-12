@@ -795,49 +795,24 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
     expect((error as TRPCError).message).toContain(`prompt is required`)
   })
 
-  // EXP-825 compat: a device without the start-prompt cap (desktop/CLI ≤
-  // 0.14.35) reads the request from the legacy `description` INPUT its
-  // launcher was built for, so a text-only prompt is downgraded onto it and
-  // the frame carries no top-level `prompt`.
-  it(`downgrades a text-only prompt onto the legacy description input for a cap-less device`, async () => {
-    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
-    await caller.startSession({
-      actionId: BUILTIN_ID,
-      teamId: `55555555-5555-4555-8555-555555555555`,
-      deviceId: `dev-1`,
-      prompt: `Review PRs weekly`,
-      inputs: { icon: `rocket` },
-    })
-    expect(lastStartBody().inputs).toEqual([
-      {
-        key: `description`,
-        label: `Description`,
-        type: `text`,
-        value: `Review PRs weekly`,
-        display: `Review PRs weekly`,
-      },
-      { key: `icon`, label: `Icon`, type: `icon`, value: `rocket`, display: `rocket` },
-    ])
-    expect(`prompt` in lastStartBody()).toBe(false)
-  })
-
-  it(`still refuses a cap-less device when the prompt carries image embeds`, async () => {
-    const IMG = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`
-    // The attachment select, then the device resolve.
-    h.dbQueue.push([
-      { id: IMG, teamId: `55555555-5555-4555-8555-555555555555`, uploaderId: `actor`, sessionUserId: null },
-    ])
+  // EXP-825: the builtins carry their request in the frame's `prompt`, so a
+  // device that ignores it would run them with nothing at all — the same
+  // refusal every other prompt-carrying start gets.
+  it(`refuses a cap-less device outright`, async () => {
     queueOwnDevice({ caps: [`actions`, `action-inputs`] })
     const error = await rejectionOf(
       caller.startSession({
         actionId: BUILTIN_ID,
         teamId: `55555555-5555-4555-8555-555555555555`,
         deviceId: `dev-1`,
-        prompt: `like this\n\n![image](/api/attachments/${IMG})`,
+        prompt: `Review PRs weekly`,
+        inputs: { icon: `rocket` },
       })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`Update the Exponential app`)
+    expect((error as TRPCError).message).toContain(
+      `older Exponential app that ignores start instructions`
+    )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
@@ -1771,7 +1746,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
   // live run is still refused.
   it(`accepts a switch on a live run and refuses a plain resume of one`, async () => {
     queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
-    queueOwnDevice({ caps: [`resume-run`] })
+    queueOwnDevice({ caps: [`resume-run`, `account-switch`] })
     // The live-session probe finds THIS run — never its own blocker.
     h.dbQueue.push([{ id: RESUME, deviceLabel: `studio` }])
 
@@ -1800,7 +1775,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
   it(`accepts a switch onto the system profile on a live run`, async () => {
     queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
     queueOwnDevice({
-      caps: [`resume-run`],
+      caps: [`resume-run`, `account-switch`],
       // Only a NAMED profile is reported — `system` is never in the list.
       agentAccounts: {
         claude: { signedIn: true, profiles: [{ id: `work`, signedIn: true }] },
@@ -1839,6 +1814,28 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(
       `Only claude runs can change account while live — stop this codex run and start a new one on the other account`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // EXP-849: the LIVE switch is a device capability of its own — an older
+  // build resumes on the recorded account and drops the field, so the run
+  // would silently stay where it was. An ENDED run needs no cap.
+  it(`refuses a live switch on a device without the account-switch cap`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    queueOwnDevice({ caps: [`resume-run`] })
+
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        account: `work`,
+      })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(
+      `cannot switch account mid-run`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2178,103 +2175,43 @@ describe(`steer.startSession — prompt (EXP-825)`, () => {
   })
 })
 
-// ── EXP-825 compat: legacy builtin text inputs ───────────────────────────────
-// Clients below the EXP-825 floor start the two text builtins with their
-// text as INPUTS: iOS 0.14.24 (App Store) / 0.14.28 (in review), Android
-// 0.14.30 (Play production) and desktop/CLI 0.14.31..0.14.35 all send Chat as
-// `inputs: {prompt, repo?}` and Create action as `inputs: {description,
-// name?, repo?, icon?}` (ActionsApi.swift / ActionsApi.kt /
-// api::actions at those tags). The server folds the text into `prompt`
-// before the required-prompt refine and strips the keys so the pick
-// resolution only sees repo/icon. Remove with the fold (ios min >= 0.14.29,
-// android min >= 0.14.31, desktop/cli min >= 0.14.36).
+// ── EXP-825: the builtins' text is the start's `prompt` ──────────────────────
+// The retired input keys (Chat `prompt`, Create action `description`/`name`)
+// are ordinary unknown inputs now — the compat fold that lifted them into
+// `prompt` retired with the 0.14.30/0.14.32/0.14.37 floors.
 
-describe(`steer.startSession — EXP-825 compat: legacy builtin text inputs`, () => {
-  it(`folds the iOS 0.14.24 / Android 0.14.30 chat payload into prompt (repo-less)`, async () => {
-    queueOwnDevice({ caps: [`start-prompt`] })
-    await caller.startSession({
-      actionId: CHAT_ID,
-      teamId: BUILTIN_TEAM_ID,
-      deviceId: `dev-1`,
-      inputs: { prompt: `What is on my plate?` },
-    })
-    expect(lastStartBody()).toMatchObject({
-      actionId: CHAT_ID,
-      actionName: `Chat`,
-      prompt: `What is on my plate?`,
-    })
-    expect(lastStartBody().inputs).toBeUndefined()
-    expect(lastStartBody().repo).toBeUndefined()
+describe(`steer.startSession — retired builtin text inputs`, () => {
+  it(`rejects the legacy chat payload as an unknown input`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: CHAT_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        prompt: `What is on my plate?`,
+        inputs: { prompt: `What is on my plate?` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`Unknown input "prompt"`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`folds the desktop 0.14.35 chat payload with a repo, keeping the repo pick`, async () => {
-    // resolveActionInputs' repo resolver, the chat repo-group lookup, then
-    // the device resolve.
-    h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, fullName: `acme/api` }])
-    h.dbQueue.push([
-      {
-        id: REPO_INPUT_ID,
-        fullName: `acme/api`,
-        defaultBranch: `main`,
-        defaultBranchOverride: null,
-      },
-    ])
-    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
-    await caller.startSession({
-      actionId: CHAT_ID,
-      teamId: BUILTIN_TEAM_ID,
-      deviceId: `dev-1`,
-      inputs: { prompt: `Fix the flaky retry test`, repo: REPO_INPUT_ID },
-    })
-    expect(lastStartBody().prompt).toBe(`Fix the flaky retry test`)
-    expect(lastStartBody().inputs).toEqual([
-      {
-        key: `repo`,
-        label: `Repository`,
-        type: `repo`,
-        value: REPO_INPUT_ID,
-        display: `acme/api`,
-      },
-    ])
-    expect(lastStartBody().repo).toMatchObject({ repositoryId: REPO_INPUT_ID })
+  it(`rejects the legacy create-action payload as an unknown input`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: BUILTIN_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        prompt: `Review open PRs every Monday`,
+        inputs: { description: `Review open PRs every Monday` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`Unknown input "description"`)
   })
 
-  it(`folds the legacy create-action payload: description + Name line, picks kept`, async () => {
-    queueOwnDevice({ caps: [`start-prompt`] })
-    await caller.startSession({
-      actionId: BUILTIN_ID,
-      teamId: BUILTIN_TEAM_ID,
-      deviceId: `dev-1`,
-      inputs: {
-        description: `Review open PRs every Monday`,
-        name: `Weekly review`,
-        icon: `rocket`,
-      },
-    })
-    expect(lastStartBody()).toMatchObject({
-      actionId: BUILTIN_ID,
-      actionName: `Create action`,
-      prompt: `Review open PRs every Monday\n\nName: Weekly review`,
-    })
-    expect(lastStartBody().inputs).toEqual([
-      { key: `icon`, label: `Icon`, type: `icon`, value: `rocket`, display: `rocket` },
-    ])
-  })
-
-  it(`folds a description alone (blank name = no Name line)`, async () => {
-    queueOwnDevice({ caps: [`start-prompt`] })
-    await caller.startSession({
-      actionId: BUILTIN_ID,
-      teamId: BUILTIN_TEAM_ID,
-      deviceId: `dev-1`,
-      inputs: { description: `Triage the inbox`, name: `  ` },
-    })
-    expect(lastStartBody().prompt).toBe(`Triage the inbox`)
-    expect(lastStartBody().inputs).toBeUndefined()
-  })
-
-  it(`a blank legacy text still fails the required-prompt refine`, async () => {
-    let error = await rejectionOf(
+  it(`a text builtin with no prompt at all still fails the refine`, async () => {
+    const error = await rejectionOf(
       caller.startSession({
         actionId: CHAT_ID,
         teamId: BUILTIN_TEAM_ID,
@@ -2284,35 +2221,9 @@ describe(`steer.startSession — EXP-825 compat: legacy builtin text inputs`, ()
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(`prompt is required`)
-
-    error = await rejectionOf(
-      caller.startSession({
-        actionId: BUILTIN_ID,
-        teamId: BUILTIN_TEAM_ID,
-        deviceId: `dev-1`,
-        inputs: { description: ``, name: `Only a name` },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`prompt is required`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`leaves a start that already carries a prompt alone (a retired key stays unknown)`, async () => {
-    const error = await rejectionOf(
-      caller.startSession({
-        actionId: BUILTIN_ID,
-        teamId: BUILTIN_TEAM_ID,
-        deviceId: `dev-1`,
-        prompt: `new-client text`,
-        inputs: { description: `old-client text` },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`Unknown input`)
-  })
-
-  it(`never folds the legacy keys on a non-text builtin or a team action`, async () => {
+  it(`never accepts the legacy keys on a team action either`, async () => {
     queueAction()
     const error = await rejectionOf(
       caller.startSession({
@@ -2323,28 +2234,5 @@ describe(`steer.startSession — EXP-825 compat: legacy builtin text inputs`, ()
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(`Unknown input "prompt"`)
-  })
-
-  // Old client → old device: the fold lifts the text, the downgrade puts it
-  // back on the legacy key the old launcher reads — the frame the pair
-  // always exchanged.
-  it(`old client to a cap-less device: folded then downgraded onto the legacy key`, async () => {
-    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
-    await caller.startSession({
-      actionId: CHAT_ID,
-      teamId: BUILTIN_TEAM_ID,
-      deviceId: `dev-1`,
-      inputs: { prompt: `Summarize my week` },
-    })
-    expect(lastStartBody().inputs).toEqual([
-      {
-        key: `prompt`,
-        label: `Prompt`,
-        type: `textarea`,
-        value: `Summarize my week`,
-        display: `Summarize my week`,
-      },
-    ])
-    expect(`prompt` in lastStartBody()).toBe(false)
   })
 })

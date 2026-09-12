@@ -40,11 +40,7 @@ import {
   relayPostStart,
   type SteerStartRepo,
 } from "@/lib/steer"
-import {
-  resolveActionInputs,
-  type SteerStartInput,
-} from "@/lib/action-inputs"
-import { parseSteerMessage } from "@/lib/steer-image-message"
+import { resolveActionInputs } from "@/lib/action-inputs"
 import {
   resolveStartPrompt,
   type StartPromptLookups,
@@ -170,58 +166,6 @@ async function resolveStartPromptOrThrow(
     throw new TRPCError({ code: result.code, message: result.message })
   }
   return result.prompt
-}
-
-// EXP-825 compat: clients below the EXP-825 floor start the two text
-// builtins with their text as INPUTS — Chat as
-// `{actionId:'builtin:chat', inputs:{prompt, repo?}}` (iOS ≤ 0.14.28
-// `ActionsApi.builtinChatAction`, Android ≤ 0.14.30, desktop/CLI ≤ 0.14.35
-// `api::actions::builtin_chat_action`), Create action as
-// `{actionId:'builtin:create-action', inputs:{description, name?, repo?,
-// icon?}}`. Those keys are gone from the builtins' schemas, so before the
-// required-`prompt` refine runs the text is LIFTED into `prompt` (the name
-// as a trailing `Name: <name>` line, the binding rule the old desktop creator
-// prompt applied) and the legacy keys leave `inputs`, leaving the picks for
-// `resolveActionInputs` (which rejects unknown keys). A start that already
-// carries a non-blank `prompt` is left alone — a new client sending a
-// retired key stays a strict "Unknown input" error. Remove when ios min >=
-// 0.14.29, android min >= 0.14.31, desktop/cli min >= 0.14.36.
-const LEGACY_BUILTIN_TEXT_KEYS: Record<string, readonly string[]> = {
-  [BUILTIN_CHAT_ID]: [`prompt`],
-  [BUILTIN_CREATE_ACTION_ID]: [`description`, `name`],
-}
-
-function foldLegacyBuiltinInputs<
-  T extends {
-    actionId?: string
-    inputs?: Record<string, string>
-    prompt?: string
-  },
->(value: T): T {
-  const keys = value.actionId ? LEGACY_BUILTIN_TEXT_KEYS[value.actionId] : undefined
-  if (!keys || !value.inputs) return value
-  if (keys.every((key) => value.inputs![key] === undefined)) return value
-  if ((value.prompt ?? ``).trim().length > 0) return value
-  const inputs = { ...value.inputs }
-  const lifted = keys.map((key) => {
-    const text = (inputs[key] ?? ``).trim()
-    delete inputs[key]
-    return text
-  })
-  // Create action: the description IS the request — a name without one is
-  // nothing to run, so it never becomes a prompt on its own.
-  const [text, name] = lifted
-  const prompt =
-    value.actionId === BUILTIN_CHAT_ID || !text
-      ? text!
-      : name
-        ? `${text}\n\nName: ${name}`
-        : text
-  return {
-    ...value,
-    inputs: Object.keys(inputs).length > 0 ? inputs : undefined,
-    prompt: prompt.length > 0 ? prompt : undefined,
-  }
 }
 
 export const steerRouter = router({
@@ -400,9 +344,6 @@ export const steerRouter = router({
           // linkage itself is stamped server-side by the MCP tool.
           parentSessionId: z.string().uuid().optional(),
         })
-        // EXP-825 compat: the legacy builtin text inputs fold into `prompt`
-        // BEFORE the required-prompt refine below sees the value.
-        .transform(foldLegacyBuiltinInputs)
         .refine(
           (value) =>
             [
@@ -655,10 +596,9 @@ export const steerRouter = router({
       }
 
       // EXP-825: a device below the `start-prompt` build ignores the frame's
-      // `prompt` — an issue, batch or action start carrying instructions
-      // would run WITHOUT them, silently. Refuse and say so; the caller can
-      // update the machine or start without the text. (The two text
-      // builtins take the compat downgrade in the action branch instead.)
+      // `prompt` — an issue, batch, action or text-builtin start carrying
+      // instructions would run WITHOUT them, silently. Refuse and say so;
+      // the caller can update the machine or start without the text.
       const requireStartPromptCap = (
         device: TargetDevice,
         prompt: string | undefined
@@ -796,6 +736,7 @@ export const steerRouter = router({
         // refusals name the way forward, because the caller is often an agent
         // reading the message.
         const switching = Boolean(input.account)
+        const liveSwitch = switching && session.status !== `ended`
         if (session.status !== `ended`) {
           if (!switching) {
             throw new TRPCError({
@@ -823,6 +764,18 @@ export const steerRouter = router({
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `No agent is signed in on that machine — sign in on the device first`,
+          })
+        }
+        // EXP-849: only a build that advertises `account-switch` ends the
+        // live run, moves the transcript and relaunches on the named
+        // profile. An older one resumes on the RECORDED account and drops
+        // the field, so the caller would see a "switch" that quietly kept
+        // the exhausted login. An ENDED run needs no cap: naming an account
+        // there is just the launch-time choice every build honours.
+        if (liveSwitch && !device.caps.includes(`account-switch`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine runs an older Exponential app that cannot switch account mid-run. Update it, or stop the run and resume it on the other account.`,
           })
         }
         // EXP-662: an issue run resumes into the issue's ONE session slot
@@ -1151,44 +1104,7 @@ export const steerRouter = router({
           })
         }
         requireUsageHeadroom(device, actionAgent, input.account)
-        // EXP-825: the Chat / Create-action builtins read their text from
-        // the frame's `prompt`; a device below that build (desktop/CLI ≤
-        // 0.14.35) would run them with nothing at all.
-        // EXP-825 compat: such a device still reads the text from the
-        // legacy INPUT its launcher was built for (`prompt` for chat,
-        // `description` for create-action — `launcher.rs` at
-        // desktop-v0.14.35), so a text-only prompt is DOWNGRADED onto that
-        // key and the frame carries no top-level `prompt`. Only a prompt
-        // with image embeds is refused: an old launcher cannot localize
-        // them. Remove when desktop/cli min >= 0.14.36 (then refuse
-        // outright again — or drop the branch, every device has the cap).
-        let frameInputs: SteerStartInput[] = resolved.inputs
-        let framePrompt = prompt
-        const textBuiltin =
-          input.actionId === BUILTIN_CHAT_ID ||
-          input.actionId === BUILTIN_CREATE_ACTION_ID
-        if (textBuiltin && !device.caps.includes(`start-prompt`)) {
-          if (
-            !prompt ||
-            parseSteerMessage(prompt).attachmentIds.length > 0
-          ) {
-            throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message: `Update the Exponential app on that device to start a chat with images from here`,
-            })
-          }
-          const legacy =
-            input.actionId === BUILTIN_CHAT_ID
-              ? { key: `prompt`, label: `Prompt`, type: `textarea` }
-              : { key: `description`, label: `Description`, type: `text` }
-          frameInputs = [
-            { ...legacy, value: prompt, display: prompt },
-            ...resolved.inputs,
-          ]
-          framePrompt = undefined
-        } else {
-          requireStartPromptCap(device, prompt)
-        }
+        requireStartPromptCap(device, prompt)
 
         const result = await relayPostStart(config, {
           userId: ownerId,
@@ -1199,8 +1115,8 @@ export const steerRouter = router({
           actionName: action.name,
           teamId: action.teamId,
           ...(repo ? { repo } : {}),
-          ...(frameInputs.length > 0 ? { inputs: frameInputs } : {}),
-          ...(framePrompt ? { prompt: framePrompt } : {}),
+          ...(resolved.inputs.length > 0 ? { inputs: resolved.inputs } : {}),
+          ...(prompt ? { prompt } : {}),
           agent: input.agent,
           model: input.model,
           effort: input.effort,

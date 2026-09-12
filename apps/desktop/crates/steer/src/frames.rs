@@ -152,10 +152,10 @@ pub enum ClientFrame<'a> {
         /// count so a resumed run keeps counting. The relay echoes it
         /// untouched; it is the ONLY monotonic anchor on the wire, and it is
         /// what lets a viewer splice a join replay onto a transcript prefix it
-        /// already holds. `None` on a replayed journal line older than
-        /// EXP-783.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        seq: Option<u64>,
+        /// already holds. Always sent: a replayed journal line is numbered by
+        /// its position in the file, so even a pre-EXP-783 transcript
+        /// republishes with sequences.
+        seq: u64,
     },
     /// EXP-783 (viewer role): ask for the page of transcript BELOW `before_seq`.
     /// The relay routes it to the room's LIVE publisher — or, in a history
@@ -248,8 +248,11 @@ pub enum ActivityEvent {
     /// EXP-785: `id` is the ACP tool-call id (the key a later
     /// [`ActivityEvent::ToolUpdate`] folds into this row by) and `tool_kind`
     /// is ACP's kind bucket, so a client can tell an edit from a command
-    /// without parsing the name. Both absent from pre-EXP-785 publishers. The
-    /// wire key is `toolKind`, never `kind`: `kind` is this enum's tag.
+    /// without parsing the name. Both stay OPTIONAL past the client floor:
+    /// this event is what the on-device journal holds (60 days of it), so a
+    /// line written before EXP-785 has to keep parsing when the transcript is
+    /// replayed. Every live publisher sends both. The wire key is `toolKind`,
+    /// never `kind`: `kind` is this enum's tag.
     #[serde(rename_all = "camelCase")]
     Tool {
         name: String,
@@ -1451,12 +1454,12 @@ impl ServerFrame {
 pub enum ViewerFrame {
     /// One already-scrubbed activity event, fanned out from the publisher.
     /// EXP-783: `seq` is the publisher's own monotonic index, echoed by the
-    /// relay; absent from a publisher older than EXP-783.
+    /// relay. Required on the wire — every publisher numbers its stream and
+    /// the relay's zod refuses a frame without it.
     #[serde(rename_all = "camelCase")]
     Activity {
         event: ActivityEvent,
-        #[serde(default)]
-        seq: Option<u64>,
+        seq: u64,
     },
     /// "Drop everything rendered so far" — sent immediately BEFORE the join
     /// replay and before any publisher-driven full re-publish. EXP-656: a
@@ -1468,17 +1471,17 @@ pub enum ViewerFrame {
     /// end-of-republish signal), which is why clients also keep a quiet-timer
     /// fallback.
     ///
-    /// EXP-783: it now names the SPAN the replay covered. A client that
-    /// already holds this run's transcript keeps everything BELOW `first_seq`
-    /// and splices the replay on top; `truncated` says the relay's log is a
-    /// TAIL, so the pages below it must be asked for from the device
-    /// ([`ClientFrame::HistoryPage`]) rather than assumed gone.
+    /// EXP-783: it names the SPAN the replay covered. A client that already
+    /// holds this run's transcript keeps everything BELOW `first_seq` and
+    /// splices the replay on top; `truncated` says the relay's log is a TAIL,
+    /// so the pages below it must be asked for from the device
+    /// ([`ClientFrame::HistoryPage`]) rather than assumed gone. The span is
+    /// always named (the relay emits it on every synced frame); `truncated`
+    /// stays optional — absent means "not truncated".
     #[serde(rename_all = "camelCase")]
     ActivitySynced {
-        #[serde(default)]
-        first_seq: Option<u64>,
-        #[serde(default)]
-        last_seq: Option<u64>,
+        first_seq: u64,
+        last_seq: u64,
         #[serde(default)]
         truncated: Option<bool>,
     },
@@ -1625,35 +1628,35 @@ mod tests {
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::narration("Reading the file"),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"}}"#
+            r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::tool("Edit", Some("src/main.rs".into())),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"tool","name":"Edit","detail":"src/main.rs"}}"#
+            r#"{"t":"activity","event":{"kind":"tool","name":"Edit","detail":"src/main.rs"},"seq":0}"#
         );
         // detail is omitted when absent.
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::tool("TodoWrite", None),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"tool","name":"TodoWrite"}}"#
+            r#"{"t":"activity","event":{"kind":"tool","name":"TodoWrite"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::diff("--- a\n+++ b\n"),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"diff","diff":"--- a\n+++ b\n"}}"#
+            r#"{"t":"activity","event":{"kind":"diff","diff":"--- a\n+++ b\n"},"seq":0}"#
         );
     }
 
@@ -1663,10 +1666,10 @@ mod tests {
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::user_message("fix the login bug"),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"user_message","text":"fix the login bug"}}"#
+            r#"{"t":"activity","event":{"kind":"user_message","text":"fix the login bug"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1685,10 +1688,10 @@ mod tests {
                     header: None,
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true,"id":"toolu_01#0"}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true,"id":"toolu_01#0"},"seq":0}"#
         );
         // multiSelect and planMode are omitted when absent.
         assert_eq!(
@@ -1705,10 +1708,10 @@ mod tests {
                     header: None,
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}],"id":"toolu_02"}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}],"id":"toolu_02"},"seq":0}"#
         );
         // A plan-approval question carries the planMode marker (EXP-97).
         assert_eq!(
@@ -1725,10 +1728,10 @@ mod tests {
                     header: None,
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true,"id":"toolu_03"}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true,"id":"toolu_03"},"seq":0}"#
         );
     }
 
@@ -1760,10 +1763,10 @@ mod tests {
                     header: Some("Color".into()),
                     at: Some(1_751_500_000_000),
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1","description":"warm"},{"label":"Blue","key":"2"}],"multiSelect":false,"id":"toolu_01#1","askId":"toolu_01","index":2,"total":3,"header":"Color","at":1751500000000}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1","description":"warm"},{"label":"Blue","key":"2"}],"multiSelect":false,"id":"toolu_01#1","askId":"toolu_01","index":2,"total":3,"header":"Color","at":1751500000000},"seq":0}"#
         );
         // The final review/submit step: askId, no index/total.
         assert_eq!(
@@ -1780,10 +1783,10 @@ mod tests {
                     header: None,
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question","text":"Submit answers?","options":[{"label":"Submit","key":"\r"}],"id":"toolu_01#submit","askId":"toolu_01"}}"#
+            r#"{"t":"activity","event":{"kind":"question","text":"Submit answers?","options":[{"label":"Submit","key":"\r"}],"id":"toolu_01#submit","askId":"toolu_01"},"seq":0}"#
         );
     }
 
@@ -1798,10 +1801,10 @@ mod tests {
                     dismissed: None,
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question_resolved","id":"toolu_01#0","askId":"toolu_01","answers":["Red"]}}"#
+            r#"{"t":"activity","event":{"kind":"question_resolved","id":"toolu_01#0","askId":"toolu_01","answers":["Red"]},"seq":0}"#
         );
         // Dismissing retires EVERY card of the ask (id absent).
         assert_eq!(
@@ -1813,10 +1816,10 @@ mod tests {
                     dismissed: Some(true),
                     at: Some(1_751_500_000_000),
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"question_resolved","askId":"toolu_01","dismissed":true,"at":1751500000000}}"#
+            r#"{"t":"activity","event":{"kind":"question_resolved","askId":"toolu_01","dismissed":true,"at":1751500000000},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1825,10 +1828,10 @@ mod tests {
                     ask_id: Some("toolu_01".into()),
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"answer_ack","id":"toolu_01#0","askId":"toolu_01"}}"#
+            r#"{"t":"activity","event":{"kind":"answer_ack","id":"toolu_01#0","askId":"toolu_01"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1837,10 +1840,10 @@ mod tests {
                     ask_id: None,
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"answer_ack","id":"plan-1"}}"#
+            r#"{"t":"activity","event":{"kind":"answer_ack","id":"plan-1"},"seq":0}"#
         );
     }
 
@@ -1859,10 +1862,10 @@ mod tests {
                     title: Some("Audit the shape proxies".into()),
                     workflow_id: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"started","detail":"Map the steer crate","title":"Audit the shape proxies"}}"#
+            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"started","detail":"Map the steer crate","title":"Audit the shape proxies"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1876,10 +1879,10 @@ mod tests {
                     title: None,
                     workflow_id: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"completed"}}"#
+            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"completed"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1891,10 +1894,10 @@ mod tests {
                     subagent_id: Some("agent_01".into()),
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"tool","name":"Grep","detail":"fn main","subagentId":"agent_01"}}"#
+            r#"{"t":"activity","event":{"kind":"tool","name":"Grep","detail":"fn main","subagentId":"agent_01"},"seq":0}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1903,10 +1906,10 @@ mod tests {
                     detail: Some("needs your permission".into()),
                     at: None,
                 },
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"permission","tool":"Bash","detail":"needs your permission"}}"#
+            r#"{"t":"activity","event":{"kind":"permission","tool":"Bash","detail":"needs your permission"},"seq":0}"#
         );
     }
 
@@ -1916,13 +1919,13 @@ mod tests {
         // unknown (codex), present verbatim when claude reports it.
         let started = ActivityEvent::compaction(CompactionPhase::Started, Some("manual"));
         assert_eq!(
-            ClientFrame::Activity { event: started.clone(), seq: None }.to_json(),
-            r#"{"t":"activity","event":{"kind":"compaction","phase":"started","trigger":"manual"}}"#
+            ClientFrame::Activity { event: started.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"compaction","phase":"started","trigger":"manual"},"seq":0}"#
         );
         let ended = ActivityEvent::compaction(CompactionPhase::Ended, None);
         assert_eq!(
-            ClientFrame::Activity { event: ended.clone(), seq: None }.to_json(),
-            r#"{"t":"activity","event":{"kind":"compaction","phase":"ended"}}"#
+            ClientFrame::Activity { event: ended.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"compaction","phase":"ended"},"seq":0}"#
         );
         // The viewer role reads them back (EXP-696) — a future trigger value
         // parses, an unknown phase does not.
@@ -1964,8 +1967,8 @@ mod tests {
             }),
         };
         assert_eq!(
-            ClientFrame::Activity { event: event.clone(), seq: None }.to_json(),
-            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"id":"c0ffee","identifier":"EXP-42","title":"Fix the flicker","url":"https://github.com/a/b/pull/7","count":3,"status":"in_progress"}}}"#
+            ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"id":"c0ffee","identifier":"EXP-42","title":"Fix the flicker","url":"https://github.com/a/b/pull/7","count":3,"status":"in_progress"}},"seq":0}"#
         );
         assert_eq!(
             serde_json::from_str::<ActivityEvent>(
@@ -1988,10 +1991,10 @@ mod tests {
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"failed"}}"#
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"failed"},"seq":0}"#
         );
         assert!(ToolPreview::default().is_empty());
         assert!(!ToolPreview { count: Some(0), ..ToolPreview::default() }.is_empty());
@@ -2014,16 +2017,16 @@ mod tests {
         assert_eq!(
             ClientFrame::Activity {
                 event: ActivityEvent::turn(TurnState::Started),
-                seq: None,
+                seq: 0,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"turn","state":"started"}}"#
+            r#"{"t":"activity","event":{"kind":"turn","state":"started"},"seq":0}"#
         );
         let mut ended = ActivityEvent::turn(TurnState::Ended);
         *ended.at_mut() = Some(7);
         assert_eq!(
-            ClientFrame::Activity { event: ended, seq: None }.to_json(),
-            r#"{"t":"activity","event":{"kind":"turn","state":"ended","at":7}}"#
+            ClientFrame::Activity { event: ended, seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"turn","state":"ended","at":7},"seq":0}"#
         );
         // The viewer role reads them back (EXP-696); an unknown state does not
         // parse.
@@ -2086,12 +2089,12 @@ mod tests {
             at: Some(9),
         };
         assert_eq!(
-            ClientFrame::Activity { event: event.clone(), seq: None }.to_json(),
-            r#"{"t":"activity","event":{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}],"currentMode":"plan","modes":[{"id":"plan","label":"Plan","description":"Read-only until approved"},{"id":"default","label":"Default"}],"commands":[{"name":"compact","description":"Compact the context","hint":"instructions"},{"name":"new","description":"Start a fresh context"}],"at":9}}"#
+            ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}],"currentMode":"plan","modes":[{"id":"plan","label":"Plan","description":"Read-only until approved"},{"id":"default","label":"Default"}],"commands":[{"name":"compact","description":"Compact the context","hint":"instructions"},{"name":"new","description":"Start a fresh context"}],"at":9},"seq":0}"#
         );
         assert_eq!(
-            ViewerFrame::parse(&ClientFrame::Activity { event: event.clone(), seq: None }.to_json()).unwrap(),
-            ViewerFrame::Activity { event, seq: None }
+            ViewerFrame::parse(&ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json()).unwrap(),
+            ViewerFrame::Activity { event, seq: 0 }
         );
     }
 
@@ -2167,8 +2170,8 @@ mod tests {
             at: Some(5),
         };
         assert_eq!(
-            ClientFrame::Activity { event: metered.clone(), seq: None }.to_json(),
-            r#"{"t":"activity","event":{"kind":"usage","contextUsed":124000,"contextSize":200000,"costUsd":1.25,"at":5}}"#
+            ClientFrame::Activity { event: metered.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"usage","contextUsed":124000,"contextSize":200000,"costUsd":1.25,"at":5},"seq":0}"#
         );
         // A plan run reports no spend: the key is absent, never `null`.
         assert_eq!(
@@ -2176,8 +2179,8 @@ mod tests {
             r#"{"kind":"usage","contextUsed":0,"contextSize":200000}"#
         );
         assert_eq!(
-            ViewerFrame::parse(&ClientFrame::Activity { event: metered.clone(), seq: None }.to_json()).unwrap(),
-            ViewerFrame::Activity { event: metered, seq: None }
+            ViewerFrame::parse(&ClientFrame::Activity { event: metered.clone(), seq: 0 }.to_json()).unwrap(),
+            ViewerFrame::Activity { event: metered, seq: 0 }
         );
     }
 
@@ -3127,37 +3130,40 @@ mod tests {
         // exactly these objects to the activity audience).
         assert_eq!(
             ViewerFrame::parse(
-                r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"}}"#
+                r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"},"seq":0}"#
             )
             .unwrap(),
             ViewerFrame::Activity {
                 event: ActivityEvent::narration("Reading the file"),
-                seq: None,
+                seq: 0,
             }
         );
         assert_eq!(
             ViewerFrame::parse(r#"{"t":"activity_reset"}"#).unwrap(),
             ViewerFrame::ActivityReset
         );
-        // EXP-656 / EXP-648: the two bare markers.
-        assert_eq!(
-            ViewerFrame::parse(r#"{"t":"activity_synced"}"#).unwrap(),
-            ViewerFrame::ActivitySynced {
-                first_seq: None,
-                last_seq: None,
-                truncated: None,
-            }
-        );
-        // EXP-783: the span-carrying form.
+        // EXP-783: the marker NAMES its span — the relay emits `firstSeq`
+        // and `lastSeq` on every one, so a spanless marker is not a frame
+        // this build knows (it is ignored, and the quiet timer commits).
+        assert_eq!(ViewerFrame::parse(r#"{"t":"activity_synced"}"#), None);
         assert_eq!(
             ViewerFrame::parse(
                 r#"{"t":"activity_synced","firstSeq":12,"lastSeq":40,"truncated":true}"#
             )
             .unwrap(),
             ViewerFrame::ActivitySynced {
-                first_seq: Some(12),
-                last_seq: Some(40),
+                first_seq: 12,
+                last_seq: 40,
                 truncated: Some(true),
+            }
+        );
+        // EXP-648: `truncated` stays optional — absent means "not truncated".
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity_synced","firstSeq":0,"lastSeq":4}"#).unwrap(),
+            ViewerFrame::ActivitySynced {
+                first_seq: 0,
+                last_seq: 4,
+                truncated: None,
             }
         );
         assert_eq!(
@@ -3195,7 +3201,7 @@ mod tests {
         assert_eq!(ViewerFrame::parse("not json"), None);
         // An event kind from a newer desktop: dropped, socket untouched.
         assert_eq!(
-            ViewerFrame::parse(r#"{"t":"activity","event":{"kind":"hologram"}}"#),
+            ViewerFrame::parse(r#"{"t":"activity","event":{"kind":"hologram"},"seq":0}"#),
             None
         );
     }
@@ -3303,12 +3309,12 @@ mod tests {
         for event in events {
             let frame = ClientFrame::Activity {
                 event: event.clone(),
-                seq: None,
+                seq: 0,
             }
             .to_json();
             assert_eq!(
                 ViewerFrame::parse(&frame).unwrap(),
-                ViewerFrame::Activity { event: event.clone(), seq: None },
+                ViewerFrame::Activity { event: event.clone(), seq: 0 },
                 "round trip {event:?}"
             );
         }

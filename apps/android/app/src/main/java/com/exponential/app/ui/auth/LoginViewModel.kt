@@ -15,11 +15,44 @@ import com.exponential.app.data.api.SignInResult
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.net.URI
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+/**
+ * EXP-857 security: whether the passkey assertion options served by
+ * [instanceUrl] are for THAT instance and may be signed on this device.
+ *
+ * The options are whatever the configured instance answers with, and the
+ * ceremony runs against the `rpId` INSIDE them: Android checks that id against
+ * this app's asset links, never against the server that sent it. A hostile
+ * instance URL could otherwise serve a challenge it relayed from
+ * app.exponential.at, have the user's real passkey sign it, and replay the
+ * assertion there. So the id must equal the host of the instance we asked
+ * (case-insensitively, trailing root dot ignored) — Better Auth derives its
+ * rpID from the instance's own base URL, so a legitimate answer always
+ * matches. Absent, blank, non-string or unparseable is a mismatch, and so is
+ * a registrable-suffix rpId (`exponential.at` for `app.exponential.at`):
+ * WebAuthn would allow it, our server never sends one.
+ */
+internal fun passkeyRpIdMatchesInstance(instanceUrl: String, requestJson: String): Boolean {
+    val host = runCatching { URI(instanceUrl).host }.getOrNull().normalizedHost()
+        ?: return false
+    val rpId = runCatching {
+        Json.parseToJsonElement(requestJson).jsonObject["rpId"]?.jsonPrimitive?.contentOrNull
+    }.getOrNull().normalizedHost() ?: return false
+    return rpId == host
+}
+
+private fun String?.normalizedHost(): String? =
+    this?.trim()?.trimEnd('.')?.lowercase()?.takeIf { it.isNotEmpty() }
 
 /**
  * Where the "Continue with email" step stands (EXP-857).
@@ -216,6 +249,13 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             val options = api.passkeyAuthenticationOptions(instanceUrl).getOrNull()
                 ?: return@launch fallBackToBrowser()
+            // EXP-857 security: never sign someone else's relying party (see
+            // [passkeyRpIdMatchesInstance]). Handled like any other ceremony
+            // we cannot run — the browser handoff, which enforces the origin
+            // itself.
+            if (!passkeyRpIdMatchesInstance(instanceUrl, options.requestJson)) {
+                return@launch fallBackToBrowser()
+            }
             val responseJson = try {
                 val credential = CredentialManager.create(activity).getCredential(
                     activity,

@@ -246,6 +246,10 @@ final class SteerDeviceDecodingTests: XCTestCase {
         """)
         let acp = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(acp.supportsAcp)
+        XCTAssertTrue(acp.canResumeRun)
+        // EXP-849: honouring `account` on a LIVE run is its own cap — a
+        // machine that only resumes must not be offered a mid-run switch.
+        XCTAssertFalse(acp.canSwitchAccount)
         XCTAssertEqual(acp.launchDefaults?.defaultAgent, "claude")
 
         let old = try XCTUnwrap(result.devices.last)
@@ -254,10 +258,10 @@ final class SteerDeviceDecodingTests: XCTestCase {
     }
 
     /// EXP-749: `acpAgents` names which runnable agents the machine's ACP
-    /// engine can drive. ABSENT is UNKNOWN — every agent is assumed ACP-ready,
-    /// exactly the pre-EXP-749 behaviour — so `agentNotReady` may only be true
-    /// when the machine actually reported. EXP-773 removed the PTY fallback,
-    /// so a reported miss is unstartable rather than a terminal run.
+    /// engine can drive. Every build above the desktop floor reports it, so an
+    /// ABSENT set is a stale row and reads as EMPTY: nothing starts there.
+    /// EXP-773 removed the PTY fallback, so a miss is unstartable rather than
+    /// a terminal run.
     func testAgentNotReadyOnlyWhenAcpAgentsAreKnown() throws {
         let result = try decode("""
         {"devices":[
@@ -274,10 +278,11 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertFalse(reported.agentNotReady("claude"))
         XCTAssertTrue(reported.agentNotReady("zed"))
 
-        let unknown = result.devices[1]
-        XCTAssertNil(unknown.acpAgentIds)
-        XCTAssertFalse(unknown.agentNotReady("claude"))
-        XCTAssertFalse(unknown.agentNotReady("codex"))
+        // A row that never reported reads as EMPTY, like a reported empty one.
+        let unreported = result.devices[1]
+        XCTAssertEqual(unreported.acpAgentIds, [])
+        XCTAssertTrue(unreported.agentNotReady("claude"))
+        XCTAssertTrue(unreported.agentNotReady("codex"))
 
         // Reported EMPTY is knowledge, not ignorance: nothing runs over ACP
         // there, so no agent can start.

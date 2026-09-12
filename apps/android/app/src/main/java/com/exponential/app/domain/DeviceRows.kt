@@ -144,8 +144,10 @@ fun DeviceEntity.toSteerDevice(
     agents = parseStringList(agents),
     unauthedAgents = parseStringList(unauthedAgents).orEmpty(),
     caps = parseStringList(caps),
-    // EXP-749: null stays null — "the machine never said", not "none".
-    acpAgents = parseStringList(acpAgents),
+    // EXP-749: a NULL (or unparseable) column is "none" — every machine above
+    // the version floor reports the set, so nothing is assumed for one that
+    // did not.
+    acpAgents = parseStringList(acpAgents).orEmpty(),
     launchDefaults = parseLaunchDefaults(launchDefaults),
     kind = kind,
     platform = platform,

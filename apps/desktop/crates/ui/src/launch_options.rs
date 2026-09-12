@@ -287,10 +287,10 @@ pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) ->
 pub(crate) const NO_SESSION_NOTE: &str = "can't run a session";
 
 /// EXP-749: can `agent` NOT run a session on a machine advertising
-/// `acp_agents`? `None` = the machine never said (an older build, or a
-/// doctor that has not landed) — assume it can and stay quiet.
-pub(crate) fn cannot_run_session(acp_agents: Option<&[CodingAgent]>, agent: CodingAgent) -> bool {
-    acp_agents.is_some_and(|ready| !ready.contains(&agent))
+/// `acp_agents`? Every machine says which of its agents speak ACP, so an
+/// agent missing from the list cannot start a run there.
+pub(crate) fn cannot_run_session(acp_agents: &[CodingAgent], agent: CodingAgent) -> bool {
+    !acp_agents.contains(&agent)
 }
 
 /// The LAUNCH strip's pills for `agents` (the doctor's pickable list).
@@ -998,10 +998,9 @@ pub(crate) fn settled_agent(
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RemoteDefaults {
     pub(crate) agents: Vec<CodingAgent>,
-    /// EXP-749: which of those can run a SESSION there. `None` = it never
-    /// said, so nothing is claimed; the rest of `agents` carries the
-    /// "can't run a session" note. Never a filter.
-    pub(crate) acp_agents: Option<Vec<CodingAgent>>,
+    /// EXP-749: which of those can run a SESSION there; the rest of `agents`
+    /// carries the "can't run a session" note. Never a filter.
+    pub(crate) acp_agents: Vec<CodingAgent>,
     pub(crate) settings: coding::Settings,
     /// EXP-484/747 B7: the machine's `agent_accounts` payload — WHICH login
     /// each agent CLI runs as there, and its account PROFILES. Empty for a
@@ -1565,7 +1564,7 @@ impl LaunchOptionsSection {
             Some(remote) => pickable
                 .iter()
                 .copied()
-                .filter(|agent| cannot_run_session(remote.acp_agents.as_deref(), *agent))
+                .filter(|agent| cannot_run_session(&remote.acp_agents, *agent))
                 .collect(),
             None => Vec::new(),
         };
@@ -1879,11 +1878,10 @@ mod tests {
         let pills = launch_pills(&all, &[], &[CodingAgent::Claude]);
         assert!(!pills[0].dimmed);
 
-        // The unknown/ready cases the notes derive from.
-        assert!(!cannot_run_session(None, CodingAgent::Codex));
-        assert!(cannot_run_session(Some(&[]), CodingAgent::Codex));
+        // The ready/not-ready cases the notes derive from.
+        assert!(cannot_run_session(&[], CodingAgent::Codex));
         assert!(!cannot_run_session(
-            Some(&[CodingAgent::Claude, CodingAgent::Codex]),
+            &[CodingAgent::Claude, CodingAgent::Codex],
             CodingAgent::Codex
         ));
     }

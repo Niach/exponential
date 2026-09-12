@@ -1053,7 +1053,7 @@ impl ChatScreenView {
     fn no_session_note(&self) -> Option<SharedString> {
         let device = self.remote_device()?;
         let agent = self.launch_ref().agent;
-        launch_options::cannot_run_session(device.acp_agents.as_deref(), agent).then(|| {
+        launch_options::cannot_run_session(&device.acp_agents, agent).then(|| {
             format!("{} can't run {} sessions.", device.label, agent.label()).into()
         })
     }

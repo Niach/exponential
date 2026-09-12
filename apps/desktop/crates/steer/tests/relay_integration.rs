@@ -309,6 +309,20 @@ fn wait_for(what: &str, predicate: impl Fn() -> bool) {
     }
 }
 
+/// A `tool` event shaped exactly like the ACP mapper's (EXP-785: the relay's
+/// zod requires the call `id` and its `toolKind`, and the mapper is the one
+/// thing in the fleet that publishes tool rows).
+fn edit_tool_call() -> ActivityEvent {
+    ActivityEvent::Tool {
+        name: "Edit".to_string(),
+        detail: Some("src/main.rs".to_string()),
+        id: Some("tc-1".to_string()),
+        tool_kind: Some(steer::ToolKind::Edit),
+        subagent_id: None,
+        at: None,
+    }
+}
+
 /// The issue id of a single-issue [`steer::RemoteStart`], `None` for a batch.
 fn issue_of(start: &steer::RemoteStart) -> Option<&str> {
     match &start.subject {
@@ -740,7 +754,7 @@ fn full_protocol_flow_against_the_real_relay() {
     );
 
     // ── Live tail: a fresh activity event reaches the joined viewer ───────
-    activity.send(ActivityEvent::tool("Edit", Some("src/main.rs".to_string())));
+    activity.send(edit_tool_call());
     wait_for("live tail at the viewer", || viewer.saw_activity("src/main.rs"));
 
     // ── Kill from the phone: publisher tears down, room closes (§8.4) ─────
@@ -925,7 +939,7 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
             let mut feed = feed_task.lock().unwrap();
             match event {
                 ViewerEvent::Phase(next) => *phase_task.lock().unwrap() = next,
-                ViewerEvent::Activity(seq, activity) => feed.apply_seq(seq, activity),
+                ViewerEvent::Activity(seq, activity) => feed.apply_seq(Some(seq), activity),
                 ViewerEvent::Reset => feed.apply_reset(),
                 ViewerEvent::Synced { first_seq, .. } => feed.apply_synced_from(first_seq),
                 ViewerEvent::LocalMessage(text) => {
@@ -951,7 +965,7 @@ fn the_production_viewer_watches_and_steers_a_real_room() {
     });
 
     // ── The live tail ─────────────────────────────────────────────────────
-    activity.send(ActivityEvent::tool("Edit", Some("src/main.rs".to_string())));
+    activity.send(edit_tool_call());
     wait_for("live tail in the feed", || {
         feed_carries(&feed.lock().unwrap(), "Edit")
     });

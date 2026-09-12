@@ -205,3 +205,51 @@ final class AuthConfigDecodeTests: XCTestCase {
         XCTAssertFalse(config.passwordEnabled)
     }
 }
+
+// EXP-857 (security): the assertion's relying party comes from whatever server
+// the instance field points at, and iOS scopes a passkey by rpId alone. A
+// hostile instance must not be able to name someone else's host and relay the
+// signed challenge.
+final class PasskeyRelyingPartyGuardTests: XCTestCase {
+    func testAcceptsTheInstancesOwnHost() {
+        XCTAssertTrue(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "app.exponential.at", instanceUrl: "https://app.exponential.at"
+        ))
+        // Case and the root dot are noise; a port on the instance URL is not
+        // part of the rpId at all (a dev instance on :3000 still matches).
+        XCTAssertTrue(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "APP.Exponential.AT.", instanceUrl: "https://app.exponential.at"
+        ))
+        XCTAssertTrue(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "localhost", instanceUrl: "https://localhost:3000"
+        ))
+    }
+
+    func testRejectsAnotherHostsRelyingParty() {
+        // The whole attack: a self-hosted instance claiming the cloud's rpId.
+        XCTAssertFalse(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "app.exponential.at", instanceUrl: "https://evil.example.com"
+        ))
+        // A registrable parent is still someone else's namespace.
+        XCTAssertFalse(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "exponential.at", instanceUrl: "https://app.exponential.at"
+        ))
+        XCTAssertFalse(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "evil.app.exponential.at", instanceUrl: "https://app.exponential.at"
+        ))
+    }
+
+    func testRejectsMalformedInput() {
+        for rpId in ["", " ", "app.exponential.at:443", "app.exponential.at/x", "https://app.exponential.at"] {
+            XCTAssertFalse(
+                PasskeyWire.relyingPartyMatchesInstance(
+                    rpId: rpId, instanceUrl: "https://app.exponential.at"
+                ),
+                "accepted \(rpId)"
+            )
+        }
+        XCTAssertFalse(PasskeyWire.relyingPartyMatchesInstance(
+            rpId: "app.exponential.at", instanceUrl: "not a url"
+        ))
+    }
+}

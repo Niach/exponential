@@ -225,10 +225,11 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     detail: z.string().max(1024).optional(),
     // EXP-785: the ACP tool-call id — the key a later `tool_update` folds
     // into this row by — and ACP's kind bucket (the contract's `toolKind`).
-    // Both absent from pre-EXP-785 publishers. The key is `toolKind`, never
-    // `kind`: `kind` is this union's discriminator.
-    id: z.string().max(128).optional(),
-    toolKind: z.enum(TOOL_KINDS).optional(),
+    // Both REQUIRED: every publisher in the fleet emits them, so a tool row
+    // always settles. The key is `toolKind`, never `kind`: `kind` is this
+    // union's discriminator.
+    id: z.string().min(1).max(128),
+    toolKind: z.enum(TOOL_KINDS),
     // Set when the call came from a subagent's transcript (EXP-249) — clients
     // nest it under the matching `subagent` card.
     subagentId: z.string().max(128).optional(),
@@ -524,12 +525,12 @@ export type ActivityEvent = z.infer<typeof activityEventSchema>
 // resumed run keeps counting) and ECHOED by the relay untouched. It is the
 // only monotonic anchor on the wire, and it is what lets a client splice a
 // join replay onto a transcript prefix it already holds instead of throwing
-// everything away. Optional: a device older than EXP-783 sends none, and the
-// clients fall back to their full-swap commit.
+// everything away. REQUIRED: every publisher numbers its frames, so every
+// row a client holds is addressable.
 export const activityFrame = z.object({
   t: z.literal(`activity`),
   event: activityEventSchema,
-  seq: z.number().int().min(0).optional(),
+  seq: z.number().int().min(0),
 })
 
 // EXP-783, viewer → relay: "send me the page of this run's transcript BELOW
@@ -563,7 +564,9 @@ export const historyChunkFrame = z.object({
   sessionId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(64),
   events: z.array(activityEventSchema).max(HISTORY_PAGE_MAX),
-  seqs: z.array(z.number().int().min(0)).max(HISTORY_PAGE_MAX).optional(),
+  // One sequence per event, same order: the page is addressed by `seq`, so a
+  // client can trim it against what it already holds.
+  seqs: z.array(z.number().int().min(0)).max(HISTORY_PAGE_MAX),
   done: z.boolean(),
 })
 
@@ -734,7 +737,7 @@ export type ServerFrame =
       t: `history_chunk`
       requestId: string
       events: ActivityEvent[]
-      seqs?: number[]
+      seqs: number[]
       done: boolean
     }
   // EXP-773: relay → the JOINING viewer, in place of `activity_synced`, when
@@ -753,7 +756,7 @@ export type ServerFrame =
   | { t: `error`; code: string; message?: string }
   // relay → activity audience (authenticated members only). EXP-783: `seq` is
   // the publisher's own index, echoed unchanged.
-  | { t: `activity`; event: ActivityEvent; seq?: number }
+  | { t: `activity`; event: ActivityEvent; seq: number }
   | { t: `activity_reset` } // relay → activity audience: drop everything rendered so far
   // EXP-648: relay → activity audience every VIEWER_KEEPALIVE_INTERVAL_MS so
   // a viewer can tell a quiet socket from a dead one (an agent parked on a
@@ -774,13 +777,13 @@ export type ServerFrame =
   // this run's transcript keeps everything BELOW `firstSeq` and splices the
   // replay on top instead of losing pages it had scrolled back to load;
   // `truncated` says the room evicted older events, so those pages have to
-  // come from the device (`history_page`) rather than from here. All three
-  // are optional — a relay or publisher without EXP-783 sends none and the
-  // clients fall back to today's full swap.
+  // come from the device (`history_page`) rather than from here. The span is
+  // always named (a room with nothing to replay names the empty span at 0);
+  // only `truncated` is optional, and only because it is a flag.
   | {
       t: `activity_synced`
-      firstSeq?: number
-      lastSeq?: number
+      firstSeq: number
+      lastSeq: number
       truncated?: boolean
     }
 

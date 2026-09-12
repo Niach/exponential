@@ -1047,9 +1047,9 @@ impl SteerSessionView {
     ///
     /// A viewer that joined a long-running session holds only the relay's
     /// replay TAIL (`truncated` on `activity_synced` is how it knows), and the
-    /// pages below it exist only in the device's journal. A run whose feed
-    /// carries no wire sequences at all is a publisher older than EXP-783 and
-    /// cannot be paged.
+    /// pages below it exist only in the device's journal. A feed holding only
+    /// LOCAL rows (echoes, synthetic cards) carries no wire sequence to ask
+    /// relative to, and cannot be paged.
     fn request_older_page(&mut self) {
         if !self.can_load_earlier() {
             return;
@@ -1432,7 +1432,7 @@ impl SteerSessionView {
                 // EXP-856: the duplicate toast rides the EVENT, not the feed
                 // — one per agent id, before the row it becomes.
                 self.note_duplicate_agent(&activity, cx);
-                self.feed.apply_seq(seq, activity);
+                self.feed.apply_seq(Some(seq), activity);
                 self.sync_changes(cx);
                 if self.feed.is_staging() {
                     self.arm_staging_swap(cx);

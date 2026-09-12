@@ -1376,10 +1376,9 @@ pub(crate) struct LaunchDevice {
     pub(crate) agents: Vec<coding::CodingAgent>,
     /// EXP-749: the subset of [`Self::agents`] that runs on the SESSION
     /// SCREEN there; EXP-773 left no fallback, so the rest cannot start a
-    /// run there at all. `None` = the machine never said (an older build's
-    /// row, or a doctor that has not landed yet) — assume every agent, and
-    /// say nothing.
-    pub(crate) acp_agents: Option<Vec<coding::CodingAgent>>,
+    /// run there at all. Every machine advertises it on register and on
+    /// every heartbeat.
+    pub(crate) acp_agents: Vec<coding::CodingAgent>,
     /// Its published launch defaults, clamped onto a default `Settings`
     /// (the same clamp `device_settings::baseline_for` runs for remote rows).
     pub(crate) defaults: coding::Settings,
@@ -1462,14 +1461,13 @@ pub(crate) fn remote_launch_devices<'a>(
             if agents.is_empty() {
                 return None;
             }
-            // EXP-749: NULL = unknown = assume all (never a filter: the
-            // picker offers the agent either way and names the transport).
-            let acp_agents = row.acp_agent_ids().map(|ready| {
-                coding::CodingAgent::ALL
-                    .into_iter()
-                    .filter(|agent| ready.iter().any(|id| id == agent.id()))
-                    .collect::<Vec<_>>()
-            });
+            // EXP-749: never a filter — the picker offers the agent either
+            // way and names the transport.
+            let ready = row.acp_agent_ids();
+            let acp_agents: Vec<coding::CodingAgent> = coding::CodingAgent::ALL
+                .into_iter()
+                .filter(|agent| ready.iter().any(|id| id == agent.id()))
+                .collect();
             let owned = row.user_id.as_deref() == Some(me_user_id);
             let owner = (!owned)
                 .then(|| row.user_id.as_deref().and_then(owner_name))
@@ -1626,21 +1624,23 @@ pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
         .map(|report| report.installed_agents())
         .unwrap_or_default();
     // EXP-749: the same subset this machine advertises to `devices.register`.
-    let mut own_acp_agents = report.as_ref().map(|report| {
-        report
-            .installed_agents()
-            .into_iter()
-            .filter(|agent| report.check_for(*agent).acp == Some(true))
-            .collect::<Vec<_>>()
-    });
+    let mut own_acp_agents: Vec<coding::CodingAgent> = report
+        .as_ref()
+        .map(|report| {
+            report
+                .installed_agents()
+                .into_iter()
+                .filter(|agent| report.check_for(*agent).acp == Some(true))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     if agents.is_empty() {
         // The doctor has not landed (or nothing is signed in) — the LOCAL
         // gate is `launch_blocker`'s per-agent doctor check, which names the
-        // real reason; the picker must not hide this machine meanwhile.
+        // real reason; the picker must not hide this machine meanwhile, and
+        // must not caption an unprobed agent as unable to run either.
         agents = coding::CodingAgent::ALL.to_vec();
-        // Nothing runnable means nothing was probed either — unknown, not
-        // "none of them".
-        own_acp_agents = None;
+        own_acp_agents = coding::CodingAgent::ALL.to_vec();
     }
     let remote_enabled = remote_start_enabled(cx);
     let Some(store) = Store::try_global(cx) else {
@@ -2555,26 +2555,23 @@ mod tests {
     }
 
     /// EXP-749: a machine's ACP-ready subset rides the synced row into the
-    /// candidate. A NULL column (an older build's row) means UNKNOWN, never
-    /// "none" — and either way the agent stays offerable: the picker labels
-    /// the transport, it never filters the strip.
+    /// candidate. A NULL column reads as none — and either way the agent
+    /// stays offerable: the picker labels the transport, it never filters the
+    /// strip.
     #[test]
-    fn remote_launch_devices_carry_acp_agents_and_null_means_unknown() {
+    fn remote_launch_devices_carry_acp_agents_and_null_means_none() {
         let mut ready = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude", "codex"], -30);
         ready.acp_agents = Some(json!(["claude"]));
         let mut none_ready = launch_device_row("r-2", "dev-2", "Beta", "me", &["claude"], -30);
         none_ready.acp_agents = Some(json!([]));
-        // No column at all: an older build registered this row.
-        let unknown = launch_device_row("r-3", "dev-3", "Gamma", "me", &["claude"], -30);
-        let rows = vec![ready, none_ready, unknown];
+        // No column at all: nothing there is claimed to speak ACP.
+        let silent = launch_device_row("r-3", "dev-3", "Gamma", "me", &["claude"], -30);
+        let rows = vec![ready, none_ready, silent];
         let owner = |_: &str| None;
         let devices = remote_launch_devices(rows.iter(), NOW_MS, "me", "dev-own", &owner);
 
         assert_eq!(devices[0].device_id, "dev-1");
-        assert_eq!(
-            devices[0].acp_agents,
-            Some(vec![coding::CodingAgent::Claude])
-        );
+        assert_eq!(devices[0].acp_agents, vec![coding::CodingAgent::Claude]);
         // Never a filter: codex is still offered, the pill just says it
         // cannot run a session there.
         assert_eq!(
@@ -2583,11 +2580,11 @@ mod tests {
         );
         // An EMPTY list is a real answer.
         assert_eq!(devices[1].device_id, "dev-2");
-        assert_eq!(devices[1].acp_agents, Some(Vec::new()));
+        assert!(devices[1].acp_agents.is_empty());
         assert_eq!(devices[1].agents, vec![coding::CodingAgent::Claude]);
-        // NULL = unknown = assume every runnable agent.
+        // A NULL column is the same answer, never "assume everything".
         assert_eq!(devices[2].device_id, "dev-3");
-        assert_eq!(devices[2].acp_agents, None);
+        assert!(devices[2].acp_agents.is_empty());
     }
 
     #[test]
@@ -2672,7 +2669,7 @@ mod tests {
             row_id: format!("row-{device_id}"),
             label: device_id.to_string(),
             agents: vec![coding::CodingAgent::Claude],
-            acp_agents: None,
+            acp_agents: vec![coding::CodingAgent::Claude],
             defaults: coding::Settings::default(),
             is_own,
             is_default,

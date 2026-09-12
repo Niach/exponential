@@ -1,20 +1,12 @@
-- Video ja ääni kuvauksissa ja kommenteissa: liitä klippi, niin se toistuu suoraan tekstissä, kansikuvan ja keston kanssa; lataamasi tiedosto muunnetaan ensin 720p:hen
-- GitHub-tilit: tiimin asetukset listaavat jokaisen liitetyn tilin "Configure"-linkin kanssa, ja "Connect another account" avaa GitHubin oman tilivalinnan, joten toinenkin organisaatio voidaan asentaa
-- Lisää repositorio: valitsin kertoo, miksi repositorio puuttuu, linkittää kunkin tilin GitHub-asetukset ja ottaa repositorion nimellä
-- Lyhyempi lista menneistä ajoista: päättynyt ajo näyttää koneen ja ajan, ilman agentin nimeä ja päättymisen syytä
-- Käynnissä olevan session piste siirtyi alapalkin Chat-painikkeeseen, joka näkyy nyt joka välilehdellä; Devices-sivulle jää vain kirjautumisvaroitus
-- Kenttä nimeää aina koneen, jolla ajo käynnistyy, ja avaa valikon vain kun vaihtoehtoja on useampi
-- Rajan banneri katoaa itsestään, kun nollautumisaika on mennyt, eikä pelkkä käyttövaroitus näy koskaan rajana
-- Jaa kone usealle tiimille: laitteen paneelissa on yksi kytkin tiimiä kohden yhden valinnan sijaan
-- Kentän yksityiskohdat: "Plan" on kytkin, valittu issue tai toiminto poistetaan sen omalla sulkupainikkeella, ja boardin alapalkki yhdistää chatin ja uuden issuen yhdeksi kapseliksi
-- Kiinnitykset: kiinnitä issue, sessio tai toiminto sen valikosta, niin se on "Pinned"-osiossa boardin valitsimen ylälaidassa
-- Tilit Devices-sivulla: yksi rivi agenttitiliä kohden käyttöpalkkeineen ja chip jokaista konetta kohden, sama osio joka webissä ja työpöydällä jo on
-- Yksi kenttä kaikkeen: "Agent"-sivun kenttä käynnistää kaiken, issuet tai toiminto valittuna ylhäällä ja kone, agentti, malli ja plan-tila alla; "Start coding" -paneeli on poistunut
-- Jokainen toistopainike vie sinne: issuen "Start coding", monivalintapalkki, toiminnon "Run" ja "Fix merge conflicts" avaavat kentän oikeat asiat valmiiksi valittuina
-- Ohjeet käynnistyksen mukana: mitä kirjoitat valittujen issueiden tai toiminnon viereen, päätyy ajoon lisäohjeina; chatissa se on kehote
-- Kuvat käynnistyksen mukana: liitä kenttään enintään neljä kuvaa, niin kone saa ne ennen ensimmäistä vuoroa
-- Toiminnoissa vain valintoja: toiminto kysyy repositoriota, boardia, pull requestia tai kuvaketta; vapaa teksti tulee kentästä, ja toiminnon oma vihje on sen ohjeteksti
-- Sessiot kentän vierellä: "Agent"-sivu listaa käynnissä olevat ja menneet ajot kehotteen viereen, ja toisen ajon käynnistämä ajo näkyy sen alla sisennettynä
-- Vastaus kortin sisällä: suunnitelmaan tai kysymykseen vastataan sen omassa kortissa, ja kortissa on kenttä, kun haluat kirjoittaa valitsemisen sijaan; ohjauskenttä väistyy siksi aikaa
-- Agenttien viestit: agentti voi lähettää tiimillesi ilmoituksen MCP:n kautta; se tulee push-ilmoituksena ja omana rivinään Inboxiin
-- Rajat, jotka täsmäävät: käyttövaroitus ei enää merkitse ajoa rajoitetuksi, ja oikeassa rajassa ikkuna ja nollautumisaika kuvaavat samaa
+- Jatka sähköpostilla tai avainkoodilla: kirjaudu sisään sähköpostiin lähetetyllä 6-numeroisella koodilla tai Face ID:llä tai Touch ID:llä; kaikki vaihtoehdot ovat yhdessä listassa, ja tuntemattomasta osoitteesta syntyy yksinkertaisesti uusi tili
+- Työskentelyn merkki loppuu, kun agentti lopettaa: se seuraa nyt agentin todellista vuoroa yhteyden sijaan, näyttää mitä se tekee kestoineen ja tokeneineen, ja Stop on istunnon otsikkorivillä
+- Exponentialin työkalukortit: kun agentti kutsuu Exponentialia, historiassa näkyy selkeä teksti kuten ”Creating issue” tai ”Opened pull request” ja sen jälkeen esikatselu tuloksesta
+- Aliagentit nimellä: aliagentin merkki kertoo sille annetun tehtävän, sen rivit tiivistävät käytetyt työkalut, ja pelkkä Plan-merkki näkyy niin kauan kuin ajo vielä suunnittelee
+- Workflow-kortti: monen agentin ajo näkyy yhtenä korttina, jossa ovat sen vaiheet ja agentit allekkain, ja istuntorivi saa toisen rivin siitä, mitä ajo juuri nyt tekee
+- Tilit, jotka kertovat totuuden: agenttitilin kunto tulee todellisesta käyttömittauksesta, joten kuollut kirjautuminen näyttää tekstin ”Needs re-login” eikä ”Signed in”
+- Devices on korjaussivu: siellä kirjaudut agenttitilille uudelleen tai valitset, mitä kirjautunutta tiliä kone käyttää
+- Tilin vaihto kesken ajon: rajaansa törmännyt Claude-ajo voi jatkaa toisella tilillä käyttönäkymästä tai rajailmoituksesta, uutena ajona joka on kytketty edelliseen
+- Kone, jota napautit: koneen toistopainike avaa kentän niin, että juuri se kone on valittuna, ja kenttä kertoo, miksi kone ei voi ottaa ajoa
+- Takaisin sinne mistä tulit: istunnosta poistuminen vie takaisin siihen issueen, boardiin tai saapuneisiin, josta sen avasit, ja toisen ajon käynnistämä ajo näkyy sen alla
+- Watch eikä Coding now: oma käynnissä oleva ajosi issuella on Watch-painike issuen tiedoissa eikä enää oma korttinsa
+- Keskustelut ja kiinnitykset: uusi keskustelu tarjoaa ehdotuksia aloittamiseen, ja issuen, istunnon tai actionin voi kiinnittää sen omalta näytöltä
