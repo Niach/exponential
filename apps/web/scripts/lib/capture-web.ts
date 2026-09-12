@@ -71,9 +71,13 @@ export async function login(
   landing: string = `**/t/**`
 ): Promise<void> {
   await page.goto(`${baseUrl}/auth/login`)
+  // EXP-857: the page opens on the Continue list; the password form sits
+  // behind "Continue with email" (the capture stack has no mail transport, so
+  // that button reveals the password form rather than the code field).
+  await page.getByRole(`button`, { name: `Continue with email` }).click()
   await page.fill(`#email`, credentials?.email ?? DEMO_EMAIL)
   await page.fill(`#password`, credentials?.password ?? DEMO_PASSWORD)
-  await page.getByRole(`button`, { name: `Sign in`, exact: true }).click()
+  await page.getByRole(`button`, { name: `Continue`, exact: true }).click()
   await page.waitForURL(landing, { timeout: 30_000 })
 }
 

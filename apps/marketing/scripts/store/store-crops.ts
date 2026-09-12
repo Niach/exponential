@@ -71,7 +71,7 @@ export const HAND_RECTS: Record<string, Rect> = {
   // right under it — the picker alone is a ~12:1 sliver.
   "start-coding:ios-phone": { x: 0.0315, y: 0.578, w: 0.937, h: 0.177 },
   "start-coding:android-phone": { x: 0.0289, y: 0.5165, w: 0.942, h: 0.156 },
-  "start-coding:ios-tablet": { x: 0.228, y: 0.606, w: 0.543, h: 0.133 },
+  "start-coding:ios-tablet": { x: 0.007, y: 0.06, w: 0.986, h: 0.16 },
 
   // The agent's unanswered question card with its two numbered options.
   // The tablet rect also takes the prose question that sets it up.

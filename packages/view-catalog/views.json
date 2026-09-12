@@ -164,12 +164,12 @@
       "id": "sign-in",
       "group": "auth",
       "title": "Sign in",
-      "blurb": "The one pre-team surface every client shares: the OIDC buttons the instance advertises above the email/password form.",
+      "blurb": "The one pre-team surface every client shares: one Continue list with the OIDC providers the instance advertises, email and passkey.",
       "order": 1,
       "web": {
         "route": "/auth/login",
         "anchor": {
-          "text": "Sign in with Google",
+          "text": "Continue with Google",
           "timeoutMs": 20000
         },
         "settleMs": 600
