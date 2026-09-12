@@ -199,16 +199,19 @@ struct DevicePick {
     /// `is_own` flag: this machine takes the LOCAL launch paths, anything
     /// else goes out as one `steer.startSession`.
     device_id: Option<String>,
-    /// Whether the pick is one the USER made (the row, or a seed's ▶) rather
-    /// than a settle's fallback. An explicit pick is STICKY.
-    explicit: bool,
-    /// Whether the pick currently resolves to a candidate. `false` = its
-    /// machine dropped out: the launch is blocked instead of re-pointing.
+    /// EXP-836: the machine a ▶ REQUESTED (`?device=`, `ChatSeed.device_id`).
+    /// It outranks everything the moment it is a candidate — and keeps
+    /// outranking the already-settled default until then. One-shot: a person's
+    /// pick drops it, and it is never persisted as a default.
+    requested: Option<String>,
+    /// The machine the PERSON picked in the Device pin. STICKY: it survives its
+    /// machine dropping out of the candidate list.
+    picked: Option<String>,
+    /// Whether the settled pick currently resolves to a candidate. `false` =
+    /// its machine dropped out: the launch is blocked instead of re-pointing.
     resolved: bool,
     /// The pick's last known label — the blocker names an offline machine.
     label: Option<String>,
-    /// A seed's preselect, adopted by the next settle.
-    pending_preselect: Option<String>,
     /// The candidate list the picker last settled against.
     devices: Vec<queries::LaunchDevice>,
 }
@@ -489,7 +492,10 @@ impl ChatScreenView {
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
         if let Some(device_id) = seed.device_id {
-            self.device.pending_preselect = Some(device_id);
+            // EXP-836: a REQUEST, not a settle input — this screen is
+            // long-lived, so the default machine has already settled by now and
+            // the request has to outrank it.
+            self.device.requested = Some(device_id);
             self.settle_device(window, cx);
         }
         if let Some(text) = seed.text {
@@ -919,15 +925,10 @@ impl ChatScreenView {
         } else {
             Vec::new()
         };
-        let preselect = self.device.pending_preselect.take();
-        if preselect.is_some() {
-            self.device.explicit = true;
-        }
         let next = queries::settled_device(
             &self.device.devices,
-            self.device.device_id.as_deref(),
-            self.device.explicit,
-            preselect.as_deref(),
+            self.device.requested.as_deref(),
+            self.device.picked.as_deref(),
         );
         let label = next.as_deref().and_then(|id| {
             self.device
@@ -949,10 +950,11 @@ impl ChatScreenView {
         }
     }
 
-    /// Explicit pick from the Device pin.
+    /// The PERSON's pick from the Device pin. It drops any pending ▶ request
+    /// (EXP-836: a request is one-shot and never fights a human choice).
     fn set_device(&mut self, device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.device.explicit = true;
-        self.device.pending_preselect = None;
+        self.device.picked = Some(device_id.clone());
+        self.device.requested = None;
         if self.device.device_id.as_deref() == Some(device_id.as_str()) && self.device.resolved {
             return;
         }
@@ -995,6 +997,23 @@ impl ChatScreenView {
         // A reseed off a machine's defaults must not re-enter plan mode
         // for a chat (EXP-772).
         launch.reseed_plan_for_subject(has_subject, cx);
+    }
+
+    /// EXP-836: why the machine a ▶ REQUESTED cannot take this run, for the
+    /// options line — the run goes to the fallback machine, so saying which and
+    /// why beats silently starting somewhere else
+    /// ([`queries::requested_device_note`], web `deviceRequestNote`).
+    fn device_request_note(&self, cx: &App) -> Option<SharedString> {
+        let collections = Store::try_global(cx)?.collections().clone();
+        let rows = collections.devices.read(cx);
+        queries::requested_device_note(
+            &self.device.devices,
+            self.device.requested.as_deref(),
+            rows.iter(),
+            navigation::shapes_ready(cx),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .map(SharedString::from)
     }
 
     /// EXP-696: the sticky pick whose machine has left the candidate list.
@@ -2097,6 +2116,7 @@ impl Render for ChatScreenView {
 
         let blocker = self.launch_blocker(cx);
         let no_session_note = self.no_session_note();
+        let request_note = self.device_request_note(cx);
         // EXP-827: ICON-ONLY — the ONE round send of `composer::glass_composer`
         // (the steer composer's button, same ring, same 32px hit box). The
         // label the web `submitLabel` mirrors is the TOOLTIP now: the composer
@@ -2161,6 +2181,11 @@ impl Render for ChatScreenView {
         let mut notes = v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs();
         if let Some(notice) = &self.notice {
             notes = notes.child(div().text_color(muted).child(notice.clone()));
+        }
+        // EXP-836: the ▶ named a machine this run cannot go to. It is a WARNING,
+        // not a blocker — the fallback machine takes the run (web parity).
+        if let Some(note) = request_note {
+            notes = notes.child(div().text_color(cx.theme().warning).child(note));
         }
         if let Some(reason) = blocker.filter(|_| !self.launching && !self.sending) {
             // EXP-849: a blocked launch whose fix is a LOGIN offers the login.

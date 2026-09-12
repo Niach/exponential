@@ -65,6 +65,7 @@ import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
 import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -124,6 +125,8 @@ fun AgentScreen(
     val candidateDevices by viewModel.candidateDevices.collectAsStateWithLifecycle()
     val onlineDevices by viewModel.onlineDevices.collectAsStateWithLifecycle()
     val device by viewModel.device.collectAsStateWithLifecycle()
+    // EXP-836: what a play button's machine request could not be honoured as.
+    val deviceRequestNote by viewModel.deviceRequestNote.collectAsStateWithLifecycle()
     val launch by viewModel.launch.collectAsStateWithLifecycle()
     val subject by viewModel.subject.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -511,6 +514,20 @@ fun AgentScreen(
                     }
                     item(key = "__captions__") {
                         Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+                            // EXP-836: the machine a play button named is not
+                            // the one this run would go to — say which and why
+                            // (web `deviceRequestNote`, same sentences) instead
+                            // of silently running on the default machine. It
+                            // sits ABOVE the blocker: the request is about the
+                            // options line right above it.
+                            deviceRequestNote?.let { note ->
+                                Text(
+                                    note,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeedsInputAmber,
+                                    modifier = Modifier.testTag("launch-device-request-note"),
+                                )
+                            }
                             when {
                                 blocker != null -> Text(
                                     blocker,

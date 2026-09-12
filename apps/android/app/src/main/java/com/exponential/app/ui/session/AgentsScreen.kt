@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -27,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,6 +53,7 @@ import com.exponential.app.domain.AgentHealth
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -125,6 +128,22 @@ fun AgentsScreen(
     var accountAgentTab by rememberSaveable { mutableStateOf<String?>(null) }
 
     val steerOn = state.steerEnabled == true
+    // EXP-827: the device sheet's round Usage button lands on the Accounts
+    // section — the ONE surface the usage bars live on (iOS scrolls to the same
+    // anchor, web hashes to `#accounts`). The sheet closes itself, then the
+    // counter below moves this list.
+    val listState = rememberLazyListState()
+    var usageRequest by remember { mutableIntStateOf(0) }
+    // EXP-432: the team-scoped list appends teammates' shared servers — they
+    // belong under their own header, never in the caller's "My machines" count.
+    // Hoisted out of the LazyColumn: the Accounts scroll target is counted off
+    // exactly these two groups.
+    val ownDevices = devices?.filter { it.isMine }
+    val teamDevices = devices?.filterNot { it.isMine }.orEmpty()
+    val accountsIndex = accountsHeaderIndex(ownDevices?.size, teamDevices.size)
+    LaunchedEffect(usageRequest) {
+        if (usageRequest > 0) listState.animateScrollToItem(accountsIndex)
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -139,16 +158,12 @@ fun AgentsScreen(
                 AgentsEmptyState()
             } else if (steerOn) {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize().testTag("devices-list"),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     item(key = "__machines_header__") { SectionHeader("My machines") }
-                    // EXP-432: the team-scoped list appends teammates' shared
-                    // servers — they belong under their own header, never in
-                    // the caller's "My machines" count.
-                    val ownDevices = devices?.filter { it.isMine }
-                    val teamDevices = devices?.filterNot { it.isMine }.orEmpty()
                     when {
                         // null = still loading; render nothing under the header.
                         ownDevices == null -> Unit
@@ -303,6 +318,9 @@ fun AgentsScreen(
             DeviceSettingsSheet(
                 device = target,
                 onDismiss = { settingsTargetId = null },
+                // EXP-827: the sheet dismisses itself, then this page scrolls
+                // to Accounts.
+                onOpenUsage = { usageRequest += 1 },
             )
         }
     }
@@ -334,6 +352,25 @@ fun AgentsScreen(
     }
 }
 
+/**
+ * EXP-827: which LazyColumn index the "Accounts" header sits at, counted off
+ * the two machine groups above it — the device sheet's Usage button scrolls
+ * here. [ownCount] null = the machines are still loading (no rows under the
+ * header yet), 0 = the one hint row.
+ *
+ * It mirrors the list built above it; moving an item there means moving this.
+ */
+internal fun accountsHeaderIndex(ownCount: Int?, teamCount: Int): Int {
+    var index = 1 // "My machines"
+    index += when {
+        ownCount == null -> 0
+        ownCount == 0 -> 1 // the "No machines yet" hint row
+        else -> ownCount
+    }
+    if (teamCount > 0) index += 1 + teamCount // "Team machines" + its rows
+    return index + 1 // the spacer above the header
+}
+
 /** Never render a bare blank row: a label-less machine falls back to its id. */
 private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { deviceId }
 
@@ -345,10 +382,11 @@ private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { devic
  * row that predates the registry (`registered == false`, live off relay
  * presence) has nothing to rename or remove, so it carries no menu.
  *
- * EXP-409: an online machine whose every installed agent is signed out can
- * take no start, so it reads like an offline row (dimmed glyph, no pill) with
- * an amber "<agents> not signed in" status instead of "Online"; a machine that
- * CAN run something but has signed-out agents left over just gets a quiet note.
+ * EXP-409/EXP-836: an online machine with NO runnable agent can take no start,
+ * so it reads like an offline row (dimmed glyph, no pill) with an amber reason
+ * in place of "Online" — the signed-out agents when it named any, else
+ * [LaunchDeviceRules.NO_RUNNABLE_AGENT]; a machine that CAN run something but
+ * has signed-out agents left over just gets a quiet note.
  *
  * EXP-432: a TEAMMATE's shared server (`owner != null`) renders read-only —
  * "shared by <owner>" in place of the version chip and no row menu at all,
@@ -370,8 +408,14 @@ private fun MachineRow(
     // Installed-but-signed-out agents (EXP-409): they block a start outright
     // when nothing else is runnable, and are worth a note when something is.
     val unauthed = device.unauthedAgentIds
-    val signInNeeded = online && !device.hasRunnableAgent && unauthed.isNotEmpty()
-    val startable = online && !signInNeeded
+    // EXP-836: a start needs an online machine WITH a runnable agent. Gating on
+    // the signed-out case alone let a machine that reported no agents at all
+    // keep its play button, and the composer then dropped the pre-picked
+    // machine for the default one without a word.
+    val startable = LaunchDeviceRules.startable(device)
+    // Online but unstartable for either reason: the row dims and its caption
+    // carries the reason in place of "Online".
+    val blockedCaption = LaunchDeviceRules.blockedCaption(device)
     // A server runs the CLI, a desktop the IDE — each compares against its own
     // channel's advertised latest.
     val outdated = deviceUpdateAvailable(
@@ -400,9 +444,9 @@ private fun MachineRow(
                 Text(
                     device.displayLabel,
                     style = MaterialTheme.typography.bodyMedium,
-                    // A signed-out machine greys out: it looks present but can
-                    // take nothing, so it must not read as fully available.
-                    color = if (signInNeeded) {
+                    // An unstartable machine greys out: it looks present but
+                    // can take nothing, so it must not read as fully available.
+                    color = if (blockedCaption != null) {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
                     } else {
                         MaterialTheme.colorScheme.onSurface
@@ -491,20 +535,20 @@ private fun MachineRow(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     )
                 } else if (online && !device.updateQueued) {
-                    StaticDot(if (signInNeeded) NeedsInputAmber else ReviewGreen, size = 6.dp)
+                    StaticDot(if (blockedCaption != null) NeedsInputAmber else ReviewGreen, size = 6.dp)
                 }
                 val signedOutCaption = "${unauthed.joinToString(", ")} not signed in"
                 Text(
                     when {
                         device.updateQueued -> "Update queued"
                         device.updateRequested -> "Updating…"
-                        signInNeeded -> signedOutCaption
+                        blockedCaption != null -> blockedCaption
                         online -> "Online"
                         device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
                         else -> "Offline"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (signInNeeded && !device.updateRequested) {
+                    color = if (blockedCaption != null && !device.updateRequested) {
                         NeedsInputAmber
                     } else {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -515,7 +559,7 @@ private fun MachineRow(
                 )
                 // Runnable, but something installed is signed out: a footnote
                 // next to Online, never the headline.
-                if (online && !signInNeeded && !device.updateRequested && unauthed.isNotEmpty()) {
+                if (online && blockedCaption == null && !device.updateRequested && unauthed.isNotEmpty()) {
                     Text(
                         "· $signedOutCaption",
                         style = MaterialTheme.typography.bodySmall,
@@ -528,8 +572,8 @@ private fun MachineRow(
         }
         // EXP-615: an icon-only play button (one Run/Start affordance across
         // the clients). Offline machines can't take a start (the relay refuses
-        // it), nor can ones with every agent signed out (EXP-409), so the
-        // affordance is simply absent.
+        // it), nor can ones with no runnable agent (EXP-409/EXP-836), so the
+        // affordance is simply absent — the status line above says why.
         // EXP-694: on the shared glass circle (iOS `CircleIconButton` parity),
         // not a bare primary-tinted glyph in an M3 touch box.
         if (startable) {

@@ -1256,17 +1256,25 @@ public enum AgentFeed {
         return text
     }
 
-    /// EXP-772: fold a narration event into the row above it when both came
-    /// out of the SAME assistant message.
+    /// EXP-772: fold a narration event into the row it continues when both
+    /// came out of the SAME assistant message.
     ///
     /// The engine's coalescer flushes one message in several `narration`
     /// events, which used to draw one bubble per flush and shred a paragraph
     /// into a column of fragments. Every event now carries the ACP `messageId`
-    /// of its message, so a flush whose message is the one directly above
-    /// APPENDS to that row (raw concatenation — the flushes are chunks of one
-    /// string, not sentences). Anything in between (a tool call, a question,
-    /// another subagent's prose) ends the run: the message really did resume
-    /// after something happened, and that is worth its own bubble.
+    /// of its message, so a flush APPENDS to the most recent row of its own
+    /// lane when that row is the same message (raw concatenation — the flushes
+    /// are chunks of one string, not sentences). Anything else in that LANE
+    /// (a tool call, a question, a human turn, another message's prose) ends
+    /// the run: the message really did resume after something happened, and
+    /// that is worth its own bubble.
+    ///
+    /// EXP-846: the look-back is lane-scoped, not tail-only. A subagent's
+    /// rows (its edges, its tool calls and their updates) interleave into the
+    /// flat feed between two fragments of ONE main-lane message, and a
+    /// tail-only check shredded that paragraph in exactly the common case —
+    /// so rows of a DIFFERENT lane (`subagentKey`, nil = the main lane) are
+    /// looked past, symmetrically for both directions.
     ///
     /// nil = nothing to merge into, and the caller appends a fresh row.
     /// Mirrored ×4 (web `agent-feed.ts`, Android `AgentFeed.kt`, desktop
@@ -1275,14 +1283,28 @@ public enum AgentFeed {
         _ feed: [AgentFeedItem], text: String, messageId: String?, subagentId: String?
     ) -> [AgentFeedItem]? {
         guard let messageId, !messageId.isEmpty else { return nil }
-        guard case let .narration(id, existing, previousMessage, previousSubagent) = feed.last,
-              previousMessage == messageId, previousSubagent == subagentId
-        else { return nil }
-        var out = feed
-        out[out.count - 1] = .narration(
-            id: id, text: existing + text, messageId: messageId, subagentId: subagentId
-        )
-        return out
+        var index = feed.count - 1
+        while index >= 0 {
+            let item = feed[index]
+            if case let .narration(id, existing, previousMessage, previousSubagent) = item,
+               previousSubagent == subagentId {
+                // The lane's latest prose: the same message grows, another one
+                // opens a new bubble.
+                guard previousMessage == messageId else { return nil }
+                var out = feed
+                out[index] = .narration(
+                    id: id, text: existing + text, messageId: messageId, subagentId: subagentId
+                )
+                return out
+            }
+            // Another lane's row is invisible to this one — look past it.
+            guard item.subagentKey == subagentId else {
+                index -= 1
+                continue
+            }
+            return nil
+        }
+        return nil
     }
 
     /// Ids of the question items still answerable: every card the desktop has

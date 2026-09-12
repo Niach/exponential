@@ -822,9 +822,11 @@ export const devicesRouter = router({
       }
 
       // Dedupe by (repo, branch) then sort — deterministic upsert/lock order.
+      // The key separator is a NUL, written as an ESCAPE: a literal control
+      // byte in the source makes the whole file binary to grep/diff.
       const byKey = new Map<string, (typeof input.worktrees)[number]>()
       for (const wt of input.worktrees) {
-        byKey.set(`${wt.repoFullName} ${wt.branch}`, wt)
+        byKey.set(`${wt.repoFullName}\u0000${wt.branch}`, wt)
       }
       const reported = [...byKey.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

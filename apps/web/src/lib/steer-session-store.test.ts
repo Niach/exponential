@@ -314,6 +314,45 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
+  // EXP-846: the look-back. A subagent spawned inside one assistant message
+  // interleaves ITS rows between that message's flushes — the wire shape is
+  // fragment, subagent tool call, its update, fragment. The bubble is one row.
+  it(`merges narration fragments across a subagent's rows`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `narration`, text: `Reading`, messageId: `m1` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool`, name: `Grep`, id: `call-1`, subagentId: `sub-1` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool_update`, id: `call-1`, status: `completed` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `narration`, text: ` the code.`, messageId: `m1` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect(feed).toHaveLength(2)
+    expect(feed[0]).toMatchObject({
+      kind: `narration`,
+      text: `Reading the code.`,
+      messageId: `m1`,
+    })
+    expect(feed[1]).toMatchObject({
+      kind: `tool`,
+      name: `Grep`,
+      subagentId: `sub-1`,
+      settled: true,
+    })
+    store.dispose()
+  })
+
   // EXP-773: an ended run's transcript lives on the DEVICE. The relay parks
   // the viewer, asks the machine to republish its journal, and the feed
   // stays visible after the `bye`.

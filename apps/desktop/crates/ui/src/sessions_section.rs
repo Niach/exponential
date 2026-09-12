@@ -50,9 +50,6 @@ struct RunningRow {
     /// ([`domain::session_tree::nest_sessions`]) — a run a run started.
     depth: usize,
     has_children: bool,
-    /// The run this one was started BY, when that run is in this list too —
-    /// a child of a COLLAPSED parent is not drawn.
-    parent_id: Option<String>,
     identifier: Option<SharedString>,
     title: SharedString,
     caption: Option<SharedString>,
@@ -158,12 +155,6 @@ impl RunningSessionsSection {
                 let depth = tree_row.depth;
                 let has_children = tree_row.has_children;
                 let session = tree_row.session;
-                // `parent_session_id` only nests when the parent is in THIS
-                // list (`nest_sessions`' rule) — a depth of 0 is a root
-                // whatever the column says.
-                let parent_id = (depth > 0)
-                    .then(|| session.parent_session_id.clone())
-                    .flatten();
                 let issue = session
                     .issue_id
                     .as_deref()
@@ -183,7 +174,6 @@ impl RunningSessionsSection {
                     session_id: session.id.clone(),
                     depth,
                     has_children,
-                    parent_id,
                     identifier: issue.map(|issue| SharedString::from(issue.identifier.clone())),
                     title: session_title(session, issue),
                     caption: Some(SharedString::from(running_caption(

@@ -253,6 +253,7 @@ import {
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import type { McpUser } from "@/lib/mcp/server"
+import { contract } from "@exp/domain-contract"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -3550,5 +3551,37 @@ describe(`exponential_helpdesk_* gating`, () => {
     )!({ threadId: THREAD })
     expect(result.isError).toBe(true)
     expect(caller.helpdesk.getThread).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-846: the drift gate between the REGISTERED tool surface and the
+// contract's display rows. A feed row captions an Exponential tool call from
+// `expToolDisplay` (`lib/agent-feed.ts` + the three native mirrors), so a tool
+// the contract does not know renders as its RAW wire name
+// (`mcp__exponential__exponential_whatever`) on all four clients at once.
+// Equality BOTH ways: a new tool has to land in the contract, and a row whose
+// tool was renamed or retired has to go with it.
+describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
+  it(`matches the registered exponential_* tools name for name`, () => {
+    const prefix = contract.expToolDisplay.prefix
+    // The WIDEST surface: every gate open plus the cloud-only
+    // `exponential_report_bug` — a row the contract must describe too, since
+    // cloud agents call it.
+    vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+    const names = (() => {
+      try {
+        return [...collectToolDefs().keys()]
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })()
+    // Every tool this server registers is `exponential_*` — the prefix IS the
+    // match rule the clients apply, so a bare name could never be captioned.
+    expect(names.filter((name) => !name.startsWith(prefix))).toEqual([])
+    const registered = names.map((name) => name.slice(prefix.length)).sort()
+    const described = contract.expToolDisplay.tools
+      .map((row) => row.name)
+      .sort()
+    expect(registered).toEqual(described)
   })
 })

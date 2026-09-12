@@ -61,6 +61,9 @@ final class AgentComposerModel {
     /// A `pr` seed waiting for the pull-request pool (EXP-323): normalised
     /// by MEMBERSHIP when the options exist, never stomping a manual pick.
     private var pendingPrIssueId: String?
+    /// EXP-836: the machine a ▶ seed REQUESTED — a one-shot preference that
+    /// outranks the default machine while it is a candidate, explains itself
+    /// when it is not (`deviceRequestNote`) and is retired by a human pick.
     private var preferredDeviceId: String?
     /// Whether the user has acted on this composer (picked, typed, attached,
     /// sent): the page rebuilds a PRISTINE composer with its original seed
@@ -370,6 +373,10 @@ final class AgentComposerModel {
         let switched = id != launch.lastSeededDeviceId
         touched = true
         deviceId = id
+        // EXP-836: a human pick retires the seed's REQUEST (web's two slots:
+        // `setDeviceId` clears `requestedDeviceId`) — a one-shot preference
+        // never reasserts itself over a choice, and its note goes with it.
+        preferredDeviceId = nil
         // The newly selected desktop may not run the chosen agent; a
         // DIFFERENT machine brings its own coding defaults (EXP-437).
         launch.clampAgent(to: device)
@@ -407,6 +414,21 @@ final class AgentComposerModel {
             return "\(signedOut) not signed in on your machines. Sign in on the machine first."
         }
         return "No desktop online. Open the Exponential desktop app to start a run."
+    }
+
+    /// EXP-836: why the machine a ▶ seed NAMED is not the one this run would
+    /// land on — it went offline, every agent there is signed out, or it left
+    /// the registry. Byte-matching web's `deviceRequestNote`; nil once the
+    /// request settled (or there never was one), and nil while the devices
+    /// shape is still hydrating, because a machine that has not arrived yet is
+    /// not a missing one (the request keeps outranking the default until it
+    /// does).
+    var deviceRequestNote: String? {
+        LaunchDeviceRequest.note(
+            requested: preferredDeviceId,
+            resolved: device?.deviceId,
+            devices: sessions.devices
+        )
     }
 
     /// The agents installed-but-signed-out across the caller's ONLINE

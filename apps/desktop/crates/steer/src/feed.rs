@@ -1278,14 +1278,24 @@ impl SteerFeed {
     }
 }
 
-/// EXP-772 — append a narration fragment onto the feed's LAST row when both
-/// carry the same `message_id`: the ACP coalescer flushes one assistant
-/// message in several events, and a row per flush shredded a paragraph into
-/// bubbles. `true` = the fragment was merged and must not be pushed.
+/// EXP-772 — append a narration fragment onto the newest row of its OWN lane
+/// when both carry the same `message_id`: the ACP coalescer flushes one
+/// assistant message in several events, and a row per flush shredded a
+/// paragraph into bubbles. `true` = the fragment was merged and must not be
+/// pushed.
 ///
-/// Nothing merges without an id, across a row that is not narration, or across
-/// a scope change (a fragment stamped with a subagent id is a different
-/// bubble). Web `mergeNarrationFragment`, mirrored ×4.
+/// EXP-846 — the merge LOOKS BACK past every row that belongs to a different
+/// LANE (a row whose subagent scope differs from the fragment's): a subagent's
+/// edges, its tool rows and the `tool_update`s patching them flush between two
+/// fragments of one main-lane message all the time, and a merge that only
+/// looked at the row immediately behind broke on them — the message arrived as
+/// two bubbles. Latest-wins state (`config_state`, `usage`, `rate_limit`, the
+/// compaction strip) is no row at all, so it never sat in the way either.
+///
+/// The first row in the fragment's own lane still decides: a MAIN-lane tool
+/// row, a user message or a question behind a main-lane fragment breaks the
+/// merge, exactly as before. Nothing merges without an id. Web
+/// `mergeNarrationFragment`, mirrored ×4.
 fn merge_narration_fragment(
     items: &mut [FeedItem],
     message_id: Option<&str>,
@@ -1295,22 +1305,27 @@ fn merge_narration_fragment(
     let Some(message_id) = message_id.filter(|id| !id.is_empty()) else {
         return false;
     };
-    let Some(last) = items.last_mut() else {
-        return false;
-    };
-    let FeedKind::Narration {
-        text,
-        message_id: last_id,
-        subagent_id: last_subagent,
-    } = &mut last.kind
-    else {
-        return false;
-    };
-    if last_id.as_deref() != Some(message_id) || last_subagent.as_deref() != subagent_id {
-        return false;
+    for item in items.iter_mut().rev() {
+        // Another lane's row — invisible to this merge (it renders inside that
+        // subagent's card, never between these two fragments).
+        if item.subagent_id() != subagent_id {
+            continue;
+        }
+        let FeedKind::Narration {
+            text,
+            message_id: last_id,
+            ..
+        } = &mut item.kind
+        else {
+            return false;
+        };
+        if last_id.as_deref() != Some(message_id) {
+            return false;
+        }
+        text.push_str(fragment);
+        return true;
     }
-    text.push_str(fragment);
-    true
+    false
 }
 
 fn non_blank(value: Option<String>) -> Option<String> {
@@ -3590,6 +3605,69 @@ mod tests {
         slotted.apply(ActivityEvent::turn(crate::frames::TurnState::Started));
         slotted.apply(fragment("ing the follow-up issue.", Some("msg_5"), None));
         assert_eq!(texts(&slotted), vec!["Now filing the follow-up issue."]);
+    }
+
+    /// EXP-846 (residual) — a SUBAGENT's rows between two fragments of one
+    /// main-lane message are not rows of that message's lane, so the merge
+    /// looks back past them. The real shape off a journal: the agent starts a
+    /// sentence, a subagent it spawned flushes a tool call and that call's
+    /// `tool_update` lands, then the idle flush delivers the rest of the
+    /// sentence — ONE paragraph, not two bubbles around a nested card.
+    #[test]
+    fn a_subagents_rows_do_not_break_a_main_lane_fragment_merge() {
+        let mut feed = SteerFeed::new();
+        feed.apply(fragment("Opening the ", Some("msg_7"), None));
+        feed.apply(ActivityEvent::Tool {
+            name: "Grep".into(),
+            detail: None,
+            id: Some("tc-sub".into()),
+            tool_kind: None,
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        });
+        feed.apply(ActivityEvent::tool_update(
+            "tc-sub",
+            Some(crate::frames::ToolUpdateStatus::Completed),
+            None,
+        ));
+        feed.apply(fragment("pull request now.", Some("msg_7"), None));
+        assert_eq!(
+            texts(&feed),
+            vec!["Opening the pull request now.", "Grep"],
+            "the fragment merged into its own lane's row; the subagent's call keeps its place"
+        );
+        assert_eq!(feed.len(), 2);
+
+        // A subagent EDGE in between is just as invisible.
+        let mut edged = SteerFeed::new();
+        edged.apply(fragment("Spawning a ", Some("msg_8"), None));
+        edged.apply(ActivityEvent::Subagent {
+            id: "toolu_task".into(),
+            agent_type: "explorer".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            tool_calls: None,
+            at: None,
+            title: None,
+        });
+        edged.apply(fragment("helper.", Some("msg_8"), None));
+        assert_eq!(texts(&edged), vec!["Spawning a helper.", "toolu_task"]);
+
+        // A MAIN-lane row still breaks it — the look-back changes which rows
+        // are in the way, never the rule.
+        let mut broken = SteerFeed::new();
+        broken.apply(fragment("Reading ", Some("msg_7"), None));
+        broken.apply(ActivityEvent::tool("Read", None));
+        broken.apply(fragment("the file.", Some("msg_7"), None));
+        assert_eq!(texts(&broken), vec!["Reading ", "Read", "the file."]);
+
+        // And a subagent's own fragments merge across MAIN-lane rows the same
+        // way — the lanes are independent.
+        let mut nested = SteerFeed::new();
+        nested.apply(fragment("looking ", Some("msg_9"), Some("toolu_task")));
+        nested.apply(ActivityEvent::narration("main line"));
+        nested.apply(fragment("around.", Some("msg_9"), Some("toolu_task")));
+        assert_eq!(texts(&nested), vec!["looking around.", "main line"]);
     }
 
     /// EXP-773: prose and user turns the mapper stamped with a subagent id

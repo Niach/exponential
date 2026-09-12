@@ -833,6 +833,10 @@ impl Render for Shell {
                                         .child(self.render_update_required(cx)),
                                 ),
                         )
+                        // EXP-837: the disarm belongs to THIS root too — the
+                        // update-required surface is a window a reader can
+                        // select text in and drag by its decoration.
+                        .child(crate::text_selection_guard::selection_guard())
                         .children(sheet_layer)
                         .children(dialog_layer)
                         .children(notification_layer),

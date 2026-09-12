@@ -909,6 +909,17 @@ fn collect_inner(
                     .get_or_insert_with(|| logins_used_on_this_machine(data_dir));
                 used.contains(&cache_id)
             });
+        // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
+        // keep the two processes from spending two requests, but a
+        // `refreshToken: true` read also ROTATES the credential — the IDE and
+        // the daemon both refreshing one profile would rotate it twice, the
+        // loser writing a token the winner already replaced. The claim is held
+        // across the spawn below and released when this iteration ends; a
+        // process that cannot take it probes WITHOUT the keep-alive.
+        let refresh_claim = keep_alive
+            .then(|| usage_cache::claim_refresh(data_dir, &id, &target.profile, now))
+            .flatten();
+        let keep_alive = keep_alive && refresh_claim.is_some();
         // EXP-754: a live session on this machine has already been told the
         // numbers. Reading them spawns nothing, sends nothing and contends
         // with no sibling process, so this runs BEFORE (and instead of) the
@@ -997,6 +1008,9 @@ fn collect_inner(
             }
             None => {}
         }
+        // Every probe this login could make is behind us: release the
+        // keep-alive claim now rather than at the end of the iteration.
+        drop(refresh_claim);
         // A pass that did not probe — nothing due, the live numbers answered,
         // or this login's stagger slot has not come round — keeps the
         // identity the last probe named: it still enriches what the doctor's

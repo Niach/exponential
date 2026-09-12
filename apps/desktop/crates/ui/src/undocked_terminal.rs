@@ -195,6 +195,9 @@ impl Render for UndockedTerminalWindow {
                 .text_color(cx.theme().foreground)
                 .track_focus(&self.focus_handle)
                 .child(body)
+                // EXP-837: the text-selection disarm, as in every other window
+                // root (a window MOVE eats the mouse-up that ends a drag).
+                .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
                 .children(notification_layer),

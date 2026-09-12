@@ -1435,6 +1435,11 @@ export const deviceWorktrees = pgTable(
 // code} — the callback-relayed authorization code the device exchanges) |
 // `agent_usage_refresh` (EXP-747 C4, payload {agent, profileId} — force a
 // usage collection past the shared TTL, never past the rate-limit floor) |
+// `agent_profile_use` (EXP-849, payload {agent, profileId} — make an
+// already-signed-in profile the agent's ACTIVE login on that machine:
+// NON-DESTRUCTIVE, no logout, no login, no credential touched, the device
+// just re-heartbeats `agent_accounts`; gated on the `agent-login` cap like a
+// remote sign-in) |
 // `update_now` (FEED-36, payload {} — end every live session on the machine
 // and restart on the queued self-update; cap-gated on `update-now`).
 export const deviceCommands = pgTable(

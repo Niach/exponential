@@ -1102,6 +1102,67 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertNil(AgentFeed.mergeNarration(first, text: "x", messageId: "m1", subagentId: "s1"))
     }
 
+    /// EXP-846: the look-back is LANE-scoped, not tail-only. The real shape
+    /// off the wire while a subagent works: main-lane prose, the subagent's
+    /// spawn edge, its tool call, that call's `tool_update` (which PATCHES the
+    /// row in place — `settled`/`preview` — rather than appending one), then
+    /// the rest of the SAME main-lane message. One bubble, not two.
+    func testNarrationLooksBackPastAnotherLanesRows() {
+        // The subagent's call as its `tool_update` left it.
+        let updatedCall = AgentFeedItem.tool(
+            id: 3, name: "Read", detail: "src/a.ts", subagentId: "s1",
+            callId: "call-1", toolKind: "read", settled: true
+        )
+        let feed: [AgentFeedItem] = [
+            .narration(id: 1, text: "A", messageId: "m1"),
+            .subagent(id: 2, subagentId: "s1", agentType: "explore", status: .started, detail: nil),
+            updatedCall,
+        ]
+        let merged = AgentFeed.mergeNarration(feed, text: "B", messageId: "m1", subagentId: nil)
+        XCTAssertEqual(merged?.count, 3)
+        XCTAssertEqual(merged?.first, .narration(id: 1, text: "AB", messageId: "m1"))
+        // The rows in between keep their place, their ids and their patches.
+        XCTAssertEqual(merged?[1], feed[1])
+        XCTAssertEqual(merged?[2], updatedCall)
+
+        // Symmetrically, a subagent's own message reaches past the MAIN lane's
+        // interleaved rows (its lane is the one that must be quiet).
+        let inSubagent: [AgentFeedItem] = [
+            .narration(id: 1, text: "A", messageId: "m9", subagentId: "s1"),
+            tool(2),
+            .narration(id: 3, text: "Main prose.", messageId: "m1"),
+        ]
+        let inLane = AgentFeed.mergeNarration(
+            inSubagent, text: "B", messageId: "m9", subagentId: "s1"
+        )
+        XCTAssertEqual(inLane?.count, 3)
+        XCTAssertEqual(
+            inLane?[0],
+            AgentFeedItem.narration(id: 1, text: "AB", messageId: "m9", subagentId: "s1")
+        )
+
+        // A row in the fragment's OWN lane still ends the run, however far
+        // back the matching message is: a main-lane tool call…
+        XCTAssertNil(AgentFeed.mergeNarration(
+            [feed[0], feed[1], updatedCall, tool(4)],
+            text: "B", messageId: "m1", subagentId: nil
+        ))
+        // …a human turn…
+        XCTAssertNil(AgentFeed.mergeNarration(
+            [feed[0], .userMessage(id: 4, text: "stop")],
+            text: "B", messageId: "m1", subagentId: nil
+        ))
+        // …a question…
+        XCTAssertNil(AgentFeed.mergeNarration(
+            [feed[0], .question(question(4))], text: "B", messageId: "m1", subagentId: nil
+        ))
+        // …and the lane's own prose from a DIFFERENT message.
+        XCTAssertNil(AgentFeed.mergeNarration(
+            [feed[0], .narration(id: 4, text: "Other.", messageId: "m2")],
+            text: "B", messageId: "m1", subagentId: nil
+        ))
+    }
+
     /// EXP-773: a subagent's prose and the turns addressed to it leave the
     /// main feed and render inside that subagent's run, in publish order.
     func testSubagentProseAndTurnsGroupUnderTheirRun() {

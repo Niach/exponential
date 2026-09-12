@@ -1421,6 +1421,26 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
+  // EXP-849: the per-profile "Sign in again" a Devices account chip issues —
+  // the SWITCH flag (sign the ambient account out first) and the profile ride
+  // the same row, so the device re-logs into THAT profile rather than the
+  // machine's active one.
+  it(`carries profileId together with the switch flag`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-2` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: true,
+      profileId: `p-work`,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      kind: `agent_login`,
+      payload: { agent: `claude`, switch: `true`, profileId: `p-work` },
+    })
+  })
+
   it(`carries newProfileLabel to create a profile first`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-1` }]]

@@ -68,6 +68,16 @@ class SteerLaunchDelegate @Inject constructor(
     val devices: StateFlow<List<SteerDevice>?>
         get() = _devices ?: noDevices
 
+    private var _registry: StateFlow<List<SteerDevice>?>? = null
+    /**
+     * EXP-836: the WHOLE registry behind [devices] — offline rows included, so
+     * a launcher can say why the machine a play button named is not the one its
+     * run would go to ("offline" reads differently from "gone"). null until the
+     * devices shape's first snapshot, like [devices].
+     */
+    val registry: StateFlow<List<SteerDevice>?>
+        get() = _registry ?: noDevices
+
     private val _runState = MutableStateFlow<ActionRunState>(ActionRunState.Idle)
     val runState: StateFlow<ActionRunState> = _runState
 
@@ -135,11 +145,12 @@ class SteerLaunchDelegate @Inject constructor(
         // The team-scoped registry (EXP-432) narrowed to what can take a start
         // right now — off the synced shape since EXP-485, so a team switch
         // re-scopes it without a round trip.
-        _devices = combine(
-            steerDeviceFlow(dbFlow, teamIdFlow, auth.userId),
-            _enabled,
-        ) { devices, enabled -> onlineStartTargets(devices, enabled) }
+        val registryFlow = steerDeviceFlow(dbFlow, teamIdFlow, auth.userId)
             .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+        _registry = registryFlow
+        _devices = combine(registryFlow, _enabled) { devices, enabled ->
+            onlineStartTargets(devices, enabled)
+        }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 
         // Steer availability, resolved once per account: it is env-derived and
         // static per INSTANCE, so re-running it would blank `enabled` and

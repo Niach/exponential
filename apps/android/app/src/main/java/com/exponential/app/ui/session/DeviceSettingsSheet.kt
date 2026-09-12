@@ -108,6 +108,14 @@ private const val MAX_DEVICE_LABEL = 255
 fun DeviceSettingsSheet(
     device: SteerDevice,
     onDismiss: () -> Unit,
+    /**
+     * EXP-827: where the round Usage button goes — the Devices page's Accounts
+     * section (iOS `onOpenUsage`, web `device-settings-dialog.tsx` `openUsage`).
+     * The numbers live on ONE surface; this sheet dismisses itself first. A host
+     * with nowhere to send the caller (the onboarding wizard) passes nothing and
+     * the button does not render.
+     */
+    onOpenUsage: (() -> Unit)? = null,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
 ) {
 
@@ -337,6 +345,12 @@ fun DeviceSettingsSheet(
                 accountSlot = {
                     AgentAccountBlock(
                         agent = agentTab,
+                        onOpenUsage = onOpenUsage?.let {
+                            {
+                                onDismiss()
+                                it()
+                            }
+                        },
                         account = device.agentAccounts?.get(agentTab),
                         usage = device.agentUsage?.get(agentTab),
                         usageAt = device.agentUsageAt,
@@ -600,6 +614,8 @@ private fun WorktreeRow(
 @Composable
 private fun AgentAccountBlock(
     agent: String,
+    /** EXP-827: opens Devices → Accounts; null = this host has no such page. */
+    onOpenUsage: (() -> Unit)?,
     account: AgentAccount?,
     usage: AgentUsage?,
     usageAt: String?,
@@ -617,13 +633,10 @@ private fun AgentAccountBlock(
     useHereState: DeviceCommandUiState?,
 ) {
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
-    // Freshness is decided once, on the shared clock: numbers older than the
-    // window are simply not shown (fail closed).
-    val fresh = usage?.takeIf {
-        AgentUsagePresentation.isFresh(it.fetchedAt, System.currentTimeMillis())
-    }
-    // EXP-827: the agent's numbers live behind the round Usage button now.
-    var usageSheetOpen by remember { mutableStateOf(false) }
+    // EXP-827: whether this machine reported any windows at all for the agent —
+    // what makes the Usage button worth offering (iOS `hasUsage`). Freshness is
+    // the Accounts section's call, not this sheet's: the button navigates.
+    val hasUsage = usage?.windows?.isNotEmpty() == true
     Column(modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -654,15 +667,17 @@ private fun AgentAccountBlock(
                 )
             }
             // EXP-827: the numbers are not this sheet's job any more — a round
-            // Usage button opens them, the way every other usage surface is
-            // reached (the session header's "…" → Usage). Stacked usage cards
-            // inside a settings sheet buried the controls under them.
-            if (fresh != null) {
+            // Usage button lands on the ONE surface that owns them (Devices →
+            // Accounts, EXP-829). A second copy of the bars in here was the same
+            // numbers twice, and a stale set beside a live machine read as
+            // current.
+            if (onOpenUsage != null && (account != null || hasUsage)) {
                 Spacer(Modifier.width(8.dp))
                 CircleIconButton(
                     ExpIcons.uiUsage,
                     contentDescription = "Usage",
-                    onClick = { usageSheetOpen = true },
+                    onClick = onOpenUsage,
+                    modifier = Modifier.testTag("device-usage-button"),
                 )
             }
             when {
@@ -749,16 +764,6 @@ private fun AgentAccountBlock(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-            }
-        }
-    }
-    // EXP-827: the agent's own numbers, in the sheet the rest of the app opens
-    // them in (the session header's Usage), named by the agent they belong to.
-    if (usageSheetOpen && fresh != null) {
-        GlassSheet(title = "${agentLabel(agent)} usage", onDismiss = { usageSheetOpen = false }) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                AgentUsageCards(usage = fresh)
-                Spacer(Modifier.height(8.dp))
             }
         }
     }

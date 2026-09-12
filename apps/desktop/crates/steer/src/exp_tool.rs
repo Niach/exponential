@@ -10,7 +10,8 @@
 //! is the lookup over those parallel arrays — the ONE place any client asks
 //! "is this one of ours, and what does it say?".
 //!
-//! Mirrored ×4 (web `lib/exp-tool-display.ts`, iOS `ExpToolDisplay.swift`,
+//! Mirrored ×4 (web `lib/agent-feed.ts` `expToolDisplay`/`expToolCaption`,
+//! iOS `ExpToolDisplay.swift`,
 //! Android `ExpToolDisplay.kt`); the tables themselves are generated from
 //! `packages/domain-contract/contract.json`, so nothing here is hand-written
 //! copy.

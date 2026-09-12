@@ -52,6 +52,21 @@ const AGENT_ICONS: Record<
   codex: CodexIcon,
 }
 
+// EXP-849: the brand marks are hand-drawn, one per shipped agent, so an id
+// from outside that set — a retired one (the historical `pi`), a future agent,
+// an external ACP binary — has none. It gets the NEUTRAL agent concept (the
+// Lucide bot) rather than an empty tab or, worse, claude's mark: the same
+// fallback glyph the other three clients draw.
+const AgentFallbackIcon = conceptIcon(`settings-agents`)
+
+/** The glyph for an agent id — its brand mark, or the neutral agent concept
+ *  for an id this build does not ship a mark for. */
+export function agentMarkIcon(
+  agent: string
+): React.ComponentType<{ className?: string }> {
+  return AGENT_ICONS[agent] ?? AgentFallbackIcon
+}
+
 const ResumeBranchIcon = conceptIcon(`ui-branch`)
 
 // Radix Select forbids an empty-string item value; the blank "CLI default"
@@ -182,10 +197,10 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       {availableAgents.length > 1 && (
         <GlassTabsRow value={agent} onValueChange={onAgentChange}>
           {availableAgents.map((value) => {
-            const AgentIcon = AGENT_ICONS[value]
+            const AgentIcon = agentMarkIcon(value)
             return (
               <TabsTrigger key={value} value={value}>
-                {AgentIcon && <AgentIcon className="size-3.5" />}
+                <AgentIcon className="size-3.5" />
                 {AGENT_LABELS[value] ?? value}
               </TabsTrigger>
             )

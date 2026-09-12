@@ -244,6 +244,16 @@ struct AgentPageView: View {
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
+            // EXP-836: a play button named a machine this composer cannot
+            // start on — say which and why (web parity), instead of quietly
+            // running on the default one. Independent of `blocker`: the run
+            // CAN go, just not where it was asked to.
+            if let requestNote = composer.deviceRequestNote {
+                Text(requestNote)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .accessibilityIdentifier("launch-device-request-note")
+            }
             if let sentCaption = composer.startWatcher.sentCaption {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small).tint(.white)

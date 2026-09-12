@@ -612,6 +612,10 @@ impl Render for UndockedScreenWindow {
                                 .child(div().flex_1().min_h_0().child(self.content.clone())),
                         ),
                 )
+                // EXP-837: the text-selection disarm — every window that
+                // hosts the `TextSelection` layer needs it (a window MOVE eats
+                // the mouse-up that would have ended a selection drag).
+                .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
                 .children(notification_layer),

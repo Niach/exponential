@@ -15,7 +15,9 @@
 //!
 //! The fix is a HOST guard rather than a patched layer (the pin rule: desktop
 //! features fit the public gpui/gpui-component API — see `docs`/CLAUDE.md, no
-//! fork): mount [`selection_guard`] once per window and
+//! fork): mount [`selection_guard`] once per window — EVERY window, since every
+//! one of them hosts the layer (`shell`, the two undocked windows,
+//! `native_dialog`; gated structurally, see the tests) — and
 //!
 //! * every mouse MOVE with no primary button down ([`disarms_selection_drag`])
 //!   ends the drag through the public `TextSelection::end` — in the CAPTURE
@@ -39,8 +41,14 @@ pub(crate) fn disarms_selection_drag(pressed_button: Option<MouseButton>) -> boo
 }
 
 /// The guard element. Zero-sized and absolutely positioned — it paints nothing
-/// and only installs the window handlers. Mount it once per window (the
-/// `Shell`), beside the other root layers.
+/// and only installs the window handlers.
+///
+/// Mount it once per WINDOW ROOT, beside the other root layers: the `Shell`
+/// (both of its roots — the app and the update-required surface), the two
+/// undocked windows and the native dialogs all host the `TextSelection` layer,
+/// and a drag armed in any of them outlives a window move the same way. The
+/// rule is gated structurally by
+/// `tests::every_window_root_mounts_the_selection_guard`.
 pub(crate) fn selection_guard() -> impl IntoElement {
     canvas(
         |_, _, _| (),
@@ -68,6 +76,53 @@ pub(crate) fn selection_guard() -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-837 — the STRUCTURAL rule, so a new window cannot forget the guard:
+    /// a window root composes the `Root` overlay layers
+    /// (`Root::render_dialog_layer`), and every one of those roots hosts the
+    /// `TextSelection` layer the guard disarms. So each render that mounts the
+    /// layers must mount [`selection_guard`] too — once per root, which is why
+    /// this counts call sites per file rather than merely looking for one
+    /// (`shell.rs` has two roots: the app and the update-required surface).
+    ///
+    /// A grep over the crate's own sources is the cheapest honest check there
+    /// is: the alternative (a helper every root must call) cannot be enforced
+    /// either, since a root that forgets the helper compiles just as happily.
+    #[test]
+    fn every_window_root_mounts_the_selection_guard() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut checked = 0;
+        let mut stack = vec![src];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("the crate's own sources are readable") {
+                let path = entry.expect("a readable dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("a readable source file");
+                let roots = text.matches("Root::render_dialog_layer(").count();
+                if roots == 0 {
+                    continue;
+                }
+                let guards = text.matches("text_selection_guard::selection_guard()").count();
+                let name = path.file_name().unwrap().to_string_lossy().to_string();
+                assert!(
+                    guards >= roots,
+                    "{name} composes {roots} window root(s) but mounts {guards} \
+                     selection guard(s) — every window hosting the TextSelection \
+                     layer needs `text_selection_guard::selection_guard()` (EXP-837)"
+                );
+                checked += 1;
+            }
+        }
+        // The scan itself must not silently find nothing (a renamed helper, a
+        // moved file): shell, the two undocked windows and native dialogs.
+        assert!(checked >= 4, "expected every window-root file to be scanned, saw {checked}");
+    }
 
     /// The whole rule: only a held PRIMARY button keeps a drag armed. A move
     /// with no button (the window-move release we never saw), or with some

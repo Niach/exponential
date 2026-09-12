@@ -551,16 +551,24 @@ fun spliceBeforeQuestion(
 }
 
 /**
- * EXP-772: fold a narration chunk into the row above it when both came out of
- * the SAME assistant message.
+ * EXP-772: fold a narration chunk into the newest row of its own lane when both
+ * came out of the SAME assistant message.
  *
  * The engine's coalescer flushes one message in several `narration` events,
  * which used to draw one bubble per flush and shred a paragraph into a column
  * of fragments. Every event now carries the ACP [messageId] of its message, so
- * a flush whose message is the one directly above APPENDS to that row (raw
+ * a flush whose message is the newest one in its lane APPENDS to that row (raw
  * concatenation — the flushes are chunks of one string, not sentences).
- * Anything in between (a tool call, a question, another scope's prose) ends
- * the run: the message really did resume after something happened.
+ * Anything of its OWN lane in between (a tool call, a human turn, a question)
+ * ends the run: the message really did resume after something happened.
+ *
+ * EXP-846: the look-back skips OTHER lanes. A subagent's edges and its
+ * scoped tool rows/updates interleave into the flat feed between two fragments
+ * of one main-lane message, and they render inside that subagent's group, not
+ * between the fragments — so matching only the row immediately behind shredded
+ * every message a subagent ran underneath into fragments. [subagentId] null is
+ * the main lane; the rule is symmetric (a subagent's own fragments merge across
+ * main-lane rows, which sit outside its group too).
  *
  * Null = nothing to merge into, and the caller appends a fresh row.
  * Mirrored x4 (web `agent-feed.ts`, iOS `AgentFeed.mergeNarration`, desktop
@@ -573,12 +581,25 @@ fun mergeNarration(
     subagentId: String?,
 ): List<AgentFeedItem>? {
     if (messageId.isNullOrBlank()) return null
-    val last = feed.lastOrNull() as? AgentFeedItem.Narration ?: return null
-    if (last.messageId != messageId || last.subagentId != subagentId) return null
-    return feed.toMutableList().apply {
-        this[lastIndex] = last.copy(text = last.text + text)
+    for (index in feed.indices.reversed()) {
+        val row = feed[index]
+        // A row of another lane is not between these fragments as far as the
+        // reader is concerned — step over it and keep looking back.
+        if (row.feedLane() != subagentId) continue
+        val narration = row as? AgentFeedItem.Narration ?: return null
+        if (narration.messageId != messageId) return null
+        return feed.toMutableList().apply {
+            this[index] = narration.copy(text = narration.text + text)
+        }
     }
+    return null
 }
+
+/** Which lane a row renders in: a subagent's group, or the main feed (null).
+ *  Unlike [subagentKey] this counts the subagent's own lifecycle edges, which
+ *  ARE its group's header and footer. */
+private fun AgentFeedItem.feedLane(): String? =
+    if (this is AgentFeedItem.Subagent) subagentId else subagentKey()
 
 /** Fold a `question_resolved` event into the feed (EXP-249): retire the card
  *  named by [id], else every card of [askId] — whose [answers] map onto the
@@ -832,7 +853,7 @@ fun groupFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> 
     var i = 0
     while (i < feed.size) {
         val item = feed[i]
-        val subagentId = if (item is AgentFeedItem.Subagent) item.subagentId else item.subagentKey()
+        val subagentId = item.feedLane()
         when {
             subagentId != null -> {
                 if (emittedSubagents.add(subagentId)) {

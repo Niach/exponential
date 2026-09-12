@@ -640,11 +640,22 @@ export function isSubagentScoped(item: {
   )
 }
 
-/** EXP-772: append a narration fragment onto the feed's LAST row when both
- *  carry the same `messageId` — the ACP coalescer flushes one assistant
- *  message in several events, and a row per flush shredded a paragraph into
- *  bubbles. Returns the new feed, or `null` when there is nothing to merge
- *  into (a different message, a row in between, no id at all). */
+/** EXP-772: append a narration fragment onto the narration row that carries
+ *  the same `messageId` — the ACP coalescer flushes one assistant message in
+ *  several events, and a row per flush shredded a paragraph into bubbles.
+ *  Returns the new feed, or `null` when there is nothing to merge into (a
+ *  different message, a row in between, no id at all).
+ *
+ *  EXP-846 makes the search a LOOK-BACK rather than a peek at the last row:
+ *  the target is the most recent narration in the fragment's OWN lane
+ *  (`subagentId`, `undefined` = the main lane), and rows of ANOTHER lane —
+ *  a subagent's edges, its tool rows — never break it, because a subagent
+ *  running inside the main agent's message interleaves its rows into one
+ *  paragraph's flushes. (Latest-wins state — config/usage/rate limits, the
+ *  diff bar, the compaction strip — is no feed row at all, so it cannot
+ *  break a merge either.) A row in the fragment's own lane still does: a
+ *  tool call, a user turn or a question means the bubble is finished.
+ *  Mirrored ×4 (desktop `merge_narration_fragment`, ExpCore, Android). */
 export function mergeNarrationFragment<
   T extends { kind: string; messageId?: string; text?: string; subagentId?: string },
 >(
@@ -653,15 +664,26 @@ export function mergeNarrationFragment<
 ): T[] | null {
   const id = fragment.messageId
   if (id === undefined || id === ``) return null
-  const last = feed[feed.length - 1]
-  if (!last || last.kind !== `narration`) return null
-  if (last.messageId !== id) return null
-  // A fragment that landed in a different scope is a different bubble.
-  if (last.subagentId !== fragment.subagentId) return null
-  return [
-    ...feed.slice(0, -1),
-    { ...last, text: `${last.text ?? ``}${fragment.text}` },
-  ]
+  const lane = fragment.subagentId ?? null
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const row = feed[i]
+    const rowLane = subagentIdOf(row)
+    // A row of another lane (a sibling subagent's, or the main feed under a
+    // subagent's fragment): skipped, the look-back continues behind it. The
+    // lanes are independent — a subagent's rows render inside its own card,
+    // so nothing of another lane ever sits "between" two fragments. ×4.
+    if (rowLane !== lane) continue
+    // The fragment's own lane: this row either IS the bubble to extend, or
+    // it closed it.
+    if (row.kind !== `narration`) return null
+    if (row.messageId !== id) return null
+    return [
+      ...feed.slice(0, i),
+      { ...row, text: `${row.text ?? ``}${fragment.text}` },
+      ...feed.slice(i + 1),
+    ]
+  }
+  return null
 }
 
 /** Group the flat feed into render rows — a pure projection: the feed (and

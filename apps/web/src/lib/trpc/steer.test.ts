@@ -1793,6 +1793,35 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
+  // EXP-849: PRESENCE of an account is the whole gate — `system` (the ambient
+  // login) names a profile like any other, so switching a live run BACK onto
+  // it is the same accepted move. Nothing validates it against the reported
+  // profiles either: the ambient login always exists on the machine.
+  it(`accepts a switch onto the system profile on a live run`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    queueOwnDevice({
+      caps: [`resume-run`],
+      // Only a NAMED profile is reported — `system` is never in the list.
+      agentAccounts: {
+        claude: { signedIn: true, profiles: [{ id: `work`, signedIn: true }] },
+      },
+    })
+    // The live-session probe finds the run being switched — its own row can
+    // never block its continuation.
+    h.dbQueue.push([{ id: RESUME, deviceLabel: `studio` }])
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `system`,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: RESUME,
+      account: `system`,
+    })
+  })
+
   // EXP-849 §E: codex keeps ONE login per session — its conversation lives
   // inside that login's own store, so there is no transcript to move into
   // another one. The switch is claude-only, refused with the way forward.

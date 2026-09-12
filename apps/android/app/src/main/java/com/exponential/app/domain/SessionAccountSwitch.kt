@@ -166,9 +166,10 @@ object SessionAccountSwitch {
      * account there), but a switch may not: the server reads the PRESENCE of
      * `account` as "this resume is a switch" and is the only thing that lets a
      * resume ride a LIVE run, so an omitted field would be refused with "That
-     * run is still live". `system` is accepted there explicitly and skips the
-     * profile-membership check (web `session-account-switch.tsx` sends the
-     * profile id verbatim too).
+     * run is still live — stop it first, or name an account to continue it on".
+     * `system` is accepted there explicitly and skips the profile-membership
+     * check (web `session-account-switch.tsx` sends the profile id verbatim
+     * too).
      */
     fun wireAccount(option: SessionAccountOption): String = option.profileId
 }

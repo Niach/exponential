@@ -1266,6 +1266,83 @@ describe(`narration fragments`, () => {
       })
     ).toBeNull()
   })
+
+  // EXP-846: the LOOK-BACK. A subagent spawned inside one assistant message
+  // pushes its own rows between that message's flushes — the real shape is
+  // fragment A, the subagent's tool call, its update, fragment B. Those rows
+  // belong to ANOTHER lane, so the second fragment still lands in the first
+  // bubble instead of opening a second one.
+  it(`merges across a different subagent's rows`, () => {
+    const feed = [
+      row({ id: 1, messageId: `m1`, text: `A` }),
+      // The subagent's tool row — and its `tool_update`, which the store
+      // folds INTO that row rather than appending one.
+      { id: 2, kind: `tool`, name: `Grep`, subagentId: `sub-1`, settled: true },
+      { id: 3, kind: `subagent`, subagentId: `sub-1`, status: `completed` },
+    ]
+    expect(
+      mergeNarrationFragment(feed, { messageId: `m1`, text: `B` })
+    ).toEqual([
+      { id: 1, kind: `narration`, text: `AB`, messageId: `m1` },
+      feed[1],
+      feed[2],
+    ])
+  })
+
+  // What the look-back does NOT loosen: a row in the fragment's OWN lane
+  // still closes the bubble, so the merge is skipping scopes, not rows.
+  it(`still breaks on a row in the fragment's own lane`, () => {
+    const subFeed = [
+      row({ id: 1, messageId: `m1`, subagentId: `sub-1` }),
+      { id: 2, kind: `tool`, name: `Read`, subagentId: `sub-1` },
+    ]
+    expect(
+      mergeNarrationFragment(subFeed, {
+        messageId: `m1`,
+        text: `x`,
+        subagentId: `sub-1`,
+      })
+    ).toBeNull()
+    // A main-lane tool call, a user turn or a question finishes a main bubble
+    // exactly as before the look-back.
+    for (const between of [
+      { id: 2, kind: `tool`, name: `Bash` },
+      { id: 2, kind: `user_message`, text: `stop` },
+      { id: 2, kind: `question`, text: `which?` },
+    ]) {
+      expect(
+        mergeNarrationFragment([row({ id: 1, messageId: `m1` }), between], {
+          messageId: `m1`,
+          text: `x`,
+        })
+      ).toBeNull()
+    }
+  })
+
+  // A subagent's fragments merge into the subagent's OWN bubble across the
+  // rows of a sibling subagent.
+  it(`merges a subagent's fragments across a sibling's rows`, () => {
+    const feed = [
+      row({ id: 1, messageId: `m1`, text: `A`, subagentId: `sub-1` }),
+      { id: 2, kind: `tool`, name: `Grep`, subagentId: `sub-2` },
+    ]
+    expect(
+      mergeNarrationFragment(feed, {
+        messageId: `m1`,
+        text: `B`,
+        subagentId: `sub-1`,
+      })
+    ).toEqual([
+      {
+        id: 1,
+        kind: `narration`,
+        text: `AB`,
+        messageId: `m1`,
+        subagentId: `sub-1`,
+      },
+      feed[1],
+    ])
+  })
 })
 
 // EXP-787: the gap ladder — the space ABOVE a row, chosen from the row before

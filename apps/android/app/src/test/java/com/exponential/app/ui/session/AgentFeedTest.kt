@@ -1255,6 +1255,59 @@ class AgentFeedTest {
         assertEquals(2, scoped.feed.size)
     }
 
+    /**
+     * EXP-846: the look-back merge. A subagent's rows (its edge, its scoped tool
+     * calls and their updates) interleave into the flat feed between two
+     * fragments of ONE main-lane message — but they render inside that
+     * subagent's group, not between the fragments, so the merge steps over them
+     * and the message stays one bubble. Only a MAIN-lane row in between really
+     * ended the message.
+     */
+    @Test
+    fun `narration merges back across a subagent's interleaved rows`() {
+        val state = ActivityFeedState()
+            .applying(narration("A", messageId = "m1"))
+            .applying(subagentStartedEvent("s1"))
+            .applying(
+                event(
+                    """{"kind":"tool","name":"Read","detail":"src/a.ts","id":"tc-1","subagentId":"s1"}""",
+                ),
+            )
+            .applying(event("""{"kind":"tool_update","id":"tc-1","status":"completed"}"""))
+            .applying(narration("B", messageId = "m1"))
+        // ONE narration row, grown — and the merge consumed no feed id (three
+        // rows: the prose, the subagent edge, its tool call).
+        val prose = state.feed.filterIsInstance<AgentFeedItem.Narration>()
+        assertEquals(1, prose.size)
+        assertEquals("AB", prose.single().text)
+        assertEquals(3, state.feed.size)
+        assertEquals(3L, state.nextEventId)
+
+        // A MAIN-lane row in between still ends the run: that message really
+        // did resume after something the reader saw happen.
+        val broken = ActivityFeedState()
+            .applying(narration("A", messageId = "m1"))
+            .applying(subagentStartedEvent("s1"))
+            .applying(toolEvent("Read", subagentId = "s1"))
+            .applying(toolEvent("Edit"))
+            .applying(narration("B", messageId = "m1"))
+        assertEquals(
+            listOf("A", "B"),
+            broken.feed.filterIsInstance<AgentFeedItem.Narration>().map { it.text },
+        )
+
+        // Symmetric: a SUBAGENT's own fragments merge across the main-lane rows
+        // that sit between them, since those are outside its group too.
+        val scoped = ActivityFeedState()
+            .applying(narration("sub A", messageId = "m2", subagentId = "s1"))
+            .applying(toolEvent("Edit"))
+            .applying(narration(" sub B", messageId = "m2", subagentId = "s1"))
+        assertEquals(
+            listOf("sub A sub B"),
+            scoped.feed.filterIsInstance<AgentFeedItem.Narration>().map { it.text },
+        )
+    }
+
     /** EXP-773: a subagent's prose and the turns addressed to it leave the
      *  main feed and render inside that subagent's run, in publish order. */
     @Test
