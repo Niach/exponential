@@ -554,11 +554,23 @@ impl SteerFeed {
     ///
     /// Ignored while a replay is staging: the replay is authoritative and is
     /// about to decide what the prefix even is.
+    ///
+    /// EXP-846/848 — the LATEST-WINS SLOTS (`config_state`, `usage`,
+    /// `rate_limit`, `turn`, the in-flight compaction) belong to the NEWEST
+    /// frames, and a page is the oldest transcript there is. The scratch feed
+    /// below is what guards them: the page's own slot events land in ITS slots
+    /// and only its `items` are ever taken, so history can never repaint the
+    /// header's mode chip, the usage meter or the working spinner (a stale
+    /// `turn started` folded into the live feed made a finished run pulse).
+    /// Web `steer-session-store.ts` `prependPage` saves and restores the same
+    /// set; here the scratch makes the same guarantee structurally, and
+    /// `an_older_page_never_touches_the_latest_wins_slots` locks it.
     pub fn prepend_page(&mut self, page: Vec<(Option<u64>, ActivityEvent)>) -> usize {
         if self.staged.is_some() || page.is_empty() {
             return 0;
         }
         let oldest = self.items.iter().find_map(|item| item.seq);
+        // The fold target: a FRESH feed, never `self` (see above).
         let mut scratch = SteerFeed::new();
         for (seq, event) in page {
             if oldest.is_some_and(|oldest| seq.is_some_and(|seq| seq >= oldest)) {
@@ -2095,6 +2107,72 @@ mod tests {
             feed.prepend_page(vec![(Some(0), ActivityEvent::narration("nope"))]),
             0
         );
+    }
+
+    /// EXP-846/848: an older page carries its own `config_state`, `usage`,
+    /// `rate_limit`, `turn` and compaction edges — history, all of it. Folding
+    /// it must leave the LIVE latest-wins slots exactly as the newest frames
+    /// set them (the scratch feed in `prepend_page` is that guard), while its
+    /// ROWS still land in front.
+    #[test]
+    fn an_older_page_never_touches_the_latest_wins_slots() {
+        use crate::frames::{CompactionPhase, ConfigMode, TurnState};
+
+        let mut feed = SteerFeed::new();
+        // The live tail: a settled run, configured in build mode, metered.
+        feed.apply_seq(
+            Some(10),
+            ActivityEvent::ConfigState {
+                options: Vec::new(),
+                current_mode: Some("bypassPermissions".to_string()),
+                modes: Some(vec![
+                    ConfigMode::new("plan", "Plan"),
+                    ConfigMode::new("bypassPermissions", "Build"),
+                ]),
+                commands: None,
+                at: None,
+            },
+        );
+        feed.apply_seq(Some(11), ActivityEvent::usage(1_000, 200_000, Some(0.5)));
+        feed.apply_seq(Some(12), ActivityEvent::turn(TurnState::Ended));
+        feed.apply_seq(Some(13), ActivityEvent::narration("the newest line"));
+
+        let page: Vec<(Option<u64>, ActivityEvent)> = vec![
+            (
+                Some(1),
+                ActivityEvent::ConfigState {
+                    options: Vec::new(),
+                    current_mode: Some("plan".to_string()),
+                    modes: Some(vec![ConfigMode::new("plan", "Plan")]),
+                    commands: None,
+                    at: None,
+                },
+            ),
+            (Some(2), ActivityEvent::usage(180_000, 200_000, Some(9.0))),
+            (Some(3), ActivityEvent::turn(TurnState::Started)),
+            (
+                Some(4),
+                ActivityEvent::rate_limit("rejected", Some(1), Some("walled".to_string())),
+            ),
+            (Some(5), ActivityEvent::compaction(CompactionPhase::Started, None)),
+            (Some(6), ActivityEvent::narration("an old line")),
+        ];
+        assert!(feed.prepend_page(page) > 0);
+
+        // The rows arrived…
+        assert_eq!(texts(&feed), vec!["an old line", "the newest line"]);
+        // …and NOT one slot moved.
+        assert_eq!(
+            feed.config().and_then(|config| config.current_mode.clone()),
+            Some("bypassPermissions".to_string())
+        );
+        assert_eq!(
+            feed.usage().map(|usage| usage.context_used),
+            Some(1_000)
+        );
+        assert_eq!(feed.turn_state(), TurnState::Ended);
+        assert!(feed.rate_limit().is_none(), "history cannot wall a live run");
+        assert!(feed.compacting().is_none(), "history cannot start a compaction");
     }
 
     #[test]

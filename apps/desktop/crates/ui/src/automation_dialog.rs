@@ -23,7 +23,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
 use crate::automation_editor::{AutomationEditorState, AUTOMATION_REQUIRED_INPUTS_HINT};
@@ -254,16 +254,22 @@ impl AutomationDialogView {
     fn render_action_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let actions = self.automatable_actions(cx);
         let foreground = cx.theme().foreground;
-        let label: SharedString = match &self.action_id {
-            Some(action_id) => actions
-                .iter()
-                .find(|action| &action.id == action_id)
-                .map(|action| SharedString::from(action.name.clone()))
-                // The bound action carries a required input now, or hasn't
-                // synced — keep the binding visible instead of blanking it.
-                .unwrap_or_else(|| "Action".into()),
-            None => "Select action…".into(),
+        let bound = self
+            .action_id
+            .as_deref()
+            .and_then(|action_id| actions.iter().find(|action| action.id == action_id));
+        let label: SharedString = match (&self.action_id, bound) {
+            (Some(_), Some(action)) => SharedString::from(action.name.clone()),
+            // The bound action carries a required input now, or hasn't
+            // synced — keep the binding visible instead of blanking it.
+            (Some(_), None) => "Action".into(),
+            (None, _) => "Select action…".into(),
         };
+        // EXP-827: the action's own curated glyph, beside its name in the
+        // trigger AND on every menu row (web `automation-dialog.tsx`: the
+        // picker's options carry `getActionIcon`). An action is recognised by
+        // its icon in every other list; the one place it is BOUND showed none.
+        let picked_icon = bound.map(|action| crate::icons::action_icon(action.icon.as_deref()));
         if actions.is_empty() && self.action_id.is_none() {
             return crate::surface::glass_row_shell().child(
                 v_flex()
@@ -289,6 +295,9 @@ impl AutomationDialogView {
             .py_0()
             .text_color(foreground.opacity(0.7))
             .dropdown_caret(true)
+            .when_some(picked_icon, |this, icon| {
+                this.child(icon.xsmall().text_color(foreground.opacity(0.7)))
+            })
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long action name wraps onto a second line.
             .child(crate::surface::picker_value_label(label))
@@ -299,6 +308,7 @@ impl AutomationDialogView {
                     let checked = picked.as_deref() == Some(action_id.as_str());
                     menu = menu.item(
                         PopupMenuItem::new(SharedString::from(action.name.clone()))
+                            .icon(crate::icons::action_icon(action.icon.as_deref()))
                             .checked(checked)
                             .on_click(move |_, _, cx| {
                                 if let Some(view) = view.upgrade() {

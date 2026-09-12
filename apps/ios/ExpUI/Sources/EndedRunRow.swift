@@ -9,6 +9,10 @@ import SwiftUI
 /// state · byline and a tap opens that session — live or finished, the same
 /// gesture, the same destination. The same rule holds on web, desktop and
 /// Android.
+///
+/// EXP-818: it wears the FLAT list row (`.flatRow()`) — both its lists sit
+/// under a `GlassSectionBand` now, and a bordered card inside a table was the
+/// one row that still read as a card.
 public struct EndedRunRow: View {
     private let title: String
     private let identifier: String?
@@ -42,7 +46,7 @@ public struct EndedRunRow: View {
         .accessibilityIdentifier("ended-run-row")
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     private var header: some View {

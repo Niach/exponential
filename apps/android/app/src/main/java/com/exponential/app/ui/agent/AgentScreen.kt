@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -48,6 +50,7 @@ import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.MergeTarget
@@ -55,6 +58,8 @@ import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.actions.ActionEditSheet
 import com.exponential.app.ui.actions.ActionsViewModel
 import com.exponential.app.ui.actions.AutomationFormSheet
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
@@ -271,6 +276,9 @@ fun AgentScreen(
     // splices against this very value.
     var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
     var composerArmed by remember { mutableStateOf(false) }
+    // EXP-820: ONE draw per mount (web `useState(() => pickChatSuggestions())`)
+    // — chips that reshuffled on every recomposition would be unreadable.
+    val suggestions = remember { ChatSuggestions.pick() }
     LaunchedEffect(draft) {
         if (composerField.text != draft) {
             val start = composerField.selection.start.coerceIn(0, draft.length)
@@ -393,6 +401,31 @@ fun AgentScreen(
                     }
                 }
                 true -> {
+                    // EXP-820: a few suggestion chips over an EMPTY new chat —
+                    // drawn once per mount from the pool shared ×4, and gone the
+                    // moment there is a subject or a word typed, where they
+                    // would only be in the way. Tapping one puts it in the field
+                    // and, for a `#` suggestion, leaves the caret behind the
+                    // `#` so the issue picker opens at once.
+                    if (subject == null && draft.isEmpty()) {
+                        item(key = "__suggestions__") {
+                            ChatSuggestionChips(
+                                suggestions = suggestions,
+                                onPick = { suggestion ->
+                                    val caret = ChatSuggestions.caretOffset(suggestion)
+                                    composerField = TextFieldValue(
+                                        suggestion,
+                                        TextRange(caret),
+                                    )
+                                    viewModel.setDraft(suggestion)
+                                    // A `#` suggestion is exactly the case the
+                                    // armed latch exists for: this IS a text
+                                    // change, so the menu may open.
+                                    composerArmed = suggestion.contains('#')
+                                },
+                            )
+                        }
+                    }
                     item(key = "__composer__") {
                         AgentComposer(
                             value = composerField,
@@ -620,5 +653,32 @@ fun AgentScreen(
                 TextButton(onClick = { mergeConfirmRow = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/**
+ * EXP-820: the suggestion chips over an empty new chat. A wrapping row of
+ * ordinary action pills — the chip IS the prompt, so nothing truncates it: a
+ * long suggestion wraps onto the next line rather than becoming "Do a code
+ * review of the op…".
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> Unit) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp)
+            .testTag("chat-suggestions"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        suggestions.forEach { suggestion ->
+            GlassPill(
+                suggestion,
+                size = PillSize.Sm,
+                onClick = { onPick(suggestion) },
+            )
+        }
     }
 }

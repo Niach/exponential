@@ -54,7 +54,7 @@ import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 
 /**
  * EXP-825: the caller's OWN coding sessions — Running (live rows, EXP-312:
@@ -89,7 +89,7 @@ internal fun LazyListScope.agentSessionsList(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassRow()
+                    .flatRow()
                     .padding(horizontal = 12.dp, vertical = 12.dp),
             )
         }
@@ -238,7 +238,7 @@ private fun AgentSessionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("agent-session-row")
-                .glassRow()
+                .flatRow()
                 .clickable(onClick = onClick)
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,

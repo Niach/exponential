@@ -35,9 +35,10 @@ pub(crate) enum RunRowLead {
     Automation,
     /// The run's agent CLI (Past rows — the agent is the thing you scan for).
     /// `None` for a run with no agent on the row: an EXP-746 external agent
-    /// (the server's vocabulary is closed, so it records none) or a row from
-    /// before the column existed. It leads with the neutral session glyph
-    /// rather than picking a brand at random.
+    /// (the server's vocabulary is closed, so it records none), a RETIRED id
+    /// (`pi`, EXP-849) or a row from before the column existed. It leads with
+    /// the generic AGENT concept (`settings-agents`, the Lucide bot — the same
+    /// fallback on all four clients) rather than picking a brand at random.
     Agent(Option<coding::CodingAgent>),
     /// A live status dot in the display's tone (Running rows).
     Live(Hsla),
@@ -52,6 +53,14 @@ pub(crate) struct RunRowKill {
     pub(crate) on_kill: RunRowAction,
 }
 
+/// EXP-827: the fold control a row with NESTED sub-sessions carries — the
+/// rail's chevron, on a card ([`domain::session_tree::nest_sessions`] decides
+/// who has children; the list owns the collapsed set).
+pub(crate) struct RunRowFold {
+    pub(crate) collapsed: bool,
+    pub(crate) on_toggle: RunRowAction,
+}
+
 pub(crate) struct RunRowSpec {
     /// Element-id namespace for the row's stateful children. The Devices
     /// screen renders two run lists in one scroll, and ids collide within a
@@ -59,6 +68,12 @@ pub(crate) struct RunRowSpec {
     pub(crate) id_prefix: &'static str,
     pub(crate) index: usize,
     pub(crate) lead: RunRowLead,
+    /// EXP-827: nesting depth (0 = a root run). A sub-session started through
+    /// `exponential_sessions_start` is indented under its parent, exactly as
+    /// the rail's Sessions rows nest it.
+    pub(crate) depth: usize,
+    /// `Some` when this row HAS children — the chevron that folds them away.
+    pub(crate) fold: Option<RunRowFold>,
     /// The issue identifier, rendered muted ahead of the title. `None` for a
     /// run with no issue (an action run, a batch, an automation).
     pub(crate) identifier: Option<SharedString>,
@@ -80,6 +95,8 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         id_prefix,
         index,
         lead,
+        depth,
+        fold,
         identifier,
         title,
         caption,
@@ -94,6 +111,29 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .min_w_0()
         .items_center()
         .gap_2()
+        // EXP-827: a parent run's fold chevron, ahead of the lead — the rail's
+        // recipe (`sidebar::rail_row_lead`), which likewise gives a childless
+        // row no placeholder.
+        .children(fold.map(|RunRowFold { collapsed, on_toggle }| {
+            div()
+                .id((SharedString::from(format!("{id_prefix}-fold")), index))
+                .flex_shrink_0()
+                .cursor_pointer()
+                .child(
+                    Icon::from(if collapsed {
+                        registry::UI_CHEVRON_RIGHT
+                    } else {
+                        registry::UI_CHEVRON_DOWN
+                    })
+                    .xsmall()
+                    .text_color(muted),
+                )
+                .on_click(move |event, window, cx| {
+                    // The card itself opens the run — folding must not.
+                    cx.stop_propagation();
+                    on_toggle(event, window, cx);
+                })
+        }))
         .child(match lead {
             RunRowLead::Automation => Icon::from(registry::ACTION_AUTOMATION)
                 .xsmall()
@@ -101,7 +141,7 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
                 .into_any_element(),
             RunRowLead::Agent(agent) => Icon::from(match agent {
                 Some(agent) => agent_icon(agent),
-                None => registry::SESSION_SHELL,
+                None => registry::SETTINGS_AGENTS,
             })
             .xsmall()
             .text_color(muted)
@@ -179,6 +219,8 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .gap_2()
         .px_3()
         .py_2p5()
+        // One indent step per nesting level (the rail's `14px` per level).
+        .pl(gpui::px(12. + 14. * depth as f32))
         .when_some(on_open, |this, on_open| {
             this.cursor_pointer()
                 .on_click(move |event, window, cx| on_open(event, window, cx))
@@ -324,6 +366,8 @@ mod tests {
             id_prefix: "run",
             index: 0,
             lead: RunRowLead::Automation,
+            depth: 0,
+            fold: None,
             identifier: None,
             title: parts.title.clone(),
             caption: Some(parts.caption.clone()),

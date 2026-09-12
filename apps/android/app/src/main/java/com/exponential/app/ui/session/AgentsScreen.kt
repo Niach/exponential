@@ -62,7 +62,7 @@ import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 import kotlinx.coroutines.delay
 
 /**
@@ -349,7 +349,7 @@ private fun MachineRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .glassRow()
+            .flatRow()
             .clickable(enabled = startable, onClick = onStart)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
@@ -569,7 +569,7 @@ private fun AccountRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassRow()
+            .flatRow()
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
             .testTag("agent-account-row"),
         verticalArrangement = Arrangement.spacedBy(6.dp),

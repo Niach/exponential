@@ -9,8 +9,10 @@ import SwiftUI
 /// `codingAgent` and nothing else. An id from outside that set — a historical
 /// row whose agent the contract dropped, a future agent, an external ACP
 /// binary — interpolated into an asset name resolves to NOTHING and renders a
-/// silent blank pill. Those fall back to the neutral coding-assistant concept
-/// glyph, so a row always shows something.
+/// silent blank pill. Those fall back to the neutral `settings-agents` concept
+/// glyph (the Lucide bot), so a row always shows something — the SAME fallback
+/// glyph on all four clients (EXP-849: web/Android/desktop draw the identical
+/// concept for a retired id like the historical `pi`).
 ///
 /// Adding an agent to the contract means adding its `agent-<id>.imageset`
 /// beside `agent-claude` / `agent-codex`; until that lands it draws the
@@ -22,7 +24,7 @@ enum AgentBrandMark {
         }
         // A registry glyph ships as a TEMPLATE imageset: the tint comes from
         // the caller's foreground style, exactly as `AppIcon` renders it.
-        guard let asset = AppIcons.assetName(AppIcons.codingAssistant) else { return nil }
+        guard let asset = AppIcons.assetName(AppIcons.settingsAgents) else { return nil }
         return Image(asset).renderingMode(.template)
     }
 }

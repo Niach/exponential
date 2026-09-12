@@ -14,9 +14,9 @@ import UIKit
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
 /// - strip: the pending images (the steer composer's tiles + markers);
 /// - tools: `#` opens the issue picker, ▶ the action picker, the image glyph
-///   the photo picker; the submit is a LABELLED primary pill whose title
-///   follows the subject ("Start chat" / "Start coding" / "Start batch · N" /
-///   "Run action").
+///   the photo picker; the submit is the round send GLYPH (EXP-827: icon-only
+///   on every client), whose contract title ("Start chat" / "Start coding" /
+///   "Start batch · N" / "Run action") is its accessibility name.
 struct AgentComposerCard: View {
     let model: AgentComposerModel
     /// Where the composer routes a tapped `#EXP-1` chip.
@@ -102,13 +102,18 @@ struct AgentComposerCard: View {
                 Task { await ingestPhotos(newItems) }
             }
         } submit: {
-            GlassPill(
-                model.submitTitle,
-                size: .md,
-                mode: .action { model.submit() },
-                primary: true,
+            // EXP-827: the round send GLYPH, icon-only ×4 — the subject chips
+            // already say what a send starts, and the contract's per-subject
+            // label (`Start coding` / `Start batch · 3` / `Run action`) stays
+            // the button's NAME for VoiceOver. Same
+            // `GlassComposerSubmitButton` the comment and steer composers wear.
+            GlassComposerSubmitButton(
+                AppIcons.uiSubmit,
+                accessibilityLabel: model.submitTitle,
                 enabled: model.canSubmit
-            )
+            ) {
+                model.submit()
+            }
             .accessibilityIdentifier("agent-composer-submit")
         }
         .accessibilityElement(children: .contain)

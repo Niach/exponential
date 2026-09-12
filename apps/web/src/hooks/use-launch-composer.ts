@@ -162,6 +162,10 @@ export interface LaunchComposerModel {
   launch: LaunchOptions
   /** Online machines with a runnable agent. */
   candidateDevices: SteerDevice[]
+  /** EXP-836: why the machine a play button named is NOT the selected one —
+   * it is offline, has no agent signed in, or is gone from the registry.
+   * Null when the request settled (or there was none). */
+  deviceRequestNote: string | null
   mcpServers: McpServerList | null
   mcpNow: Date
 
@@ -204,9 +208,6 @@ export function useLaunchComposer({
   // a manual re-pick (including clearing to "None") from being re-seeded when
   // the Electric actions rows update.
   const seededRepoActionId = useRef<string | null>(null)
-  // A seeded device that is not a candidate YET (the devices shape has not
-  // hydrated on a fresh page load) — applied the moment it appears.
-  const pendingDeviceRef = useRef<string | null>(null)
   const imagesRef = useRef(images)
   imagesRef.current = images
 
@@ -355,6 +356,25 @@ export function useLaunchComposer({
     mcpServers: mcp.servers,
   })
   const { device, agent } = launch
+  // EXP-836: a play button can name a machine the composer cannot start on
+  // (offline by now, every agent signed out there). Say which and why instead
+  // of silently running on the default one.
+  const deviceRequestNote = useMemo(() => {
+    const requested = launch.unavailableRequestId
+    if (!requested) return null
+    // Still syncing: a machine that has not arrived yet is not a missing one
+    // (and the request keeps outranking the default until it does).
+    if (remote.devices === null) return null
+    const row = remote.devices.find(
+      (candidate) => candidate.deviceId === requested
+    )
+    if (!row) return `That machine is no longer in your registry.`
+    const label = row.deviceLabel || row.deviceId
+    if (!deviceIsOnline(row)) return `${label} is offline.`
+    if (!deviceHasRunnableAgent(row))
+      return `No agent is signed in on ${label}.`
+    return null
+  }, [launch.unavailableRequestId, remote.devices])
   const hadSubjectRef = useRef(hasSubject)
   useEffect(() => {
     if (hadSubjectRef.current === hasSubject) return
@@ -366,17 +386,6 @@ export function useLaunchComposer({
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasSubject])
-
-  // A seeded device applies once it is a candidate (see `pendingDeviceRef`).
-  useEffect(() => {
-    const pending = pendingDeviceRef.current
-    if (!pending) return
-    if (candidateDevices.some((candidate) => candidate.deviceId === pending)) {
-      pendingDeviceRef.current = null
-      launch.setDeviceId(pending)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateDevices])
 
   // ── Seed ──────────────────────────────────────────────────────────────────
 
@@ -396,15 +405,10 @@ export function useLaunchComposer({
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
       setSeedPrIssueId(undefined)
     }
-    if (seed.deviceId) {
-      if (
-        candidateDevices.some((candidate) => candidate.deviceId === seed.deviceId)
-      ) {
-        launch.setDeviceId(seed.deviceId)
-      } else {
-        pendingDeviceRef.current = seed.deviceId
-      }
-    }
+    // EXP-836: an explicit machine is a REQUEST — it outranks the default
+    // machine whether or not the devices shape has hydrated yet, and it is
+    // not persisted (only the select's own change sticks, as a pick).
+    if (seed.deviceId) launch.requestDevice(seed.deviceId)
     // The text lands only in an EMPTY draft — a seed never stomps typing.
     if (seed.text) {
       const seeded = seed.text
@@ -667,6 +671,7 @@ export function useLaunchComposer({
     resumeActive,
     launch,
     candidateDevices,
+    deviceRequestNote,
     mcpServers: mcp.servers,
     mcpNow,
     submitLabel: submitLabelFor(subject),

@@ -496,6 +496,24 @@ fun modeChip(config: SessionConfigState?): ModeChip? {
     )
 }
 
+/**
+ * EXP-847: the session header's plan badge — the label of the mode the agent
+ * is in right now, and ONLY while that is plan mode (`Plan` on every agent
+ * that advertises one). Null otherwise, so an approved `ExitPlanMode` visibly
+ * CLEARS the badge on the next `config_state` instead of leaving the run
+ * looking like it is still planning.
+ *
+ * It is a READ-ONLY badge and nothing more (EXP-790: plan/model/effort are
+ * launch-time, `config_state.options` is always empty) — which is what
+ * [modeChip] is for here: the chip derivation stays the ONE place the current
+ * mode's label is resolved, byte-identical ×4, and the header just renders its
+ * `valueLabel`.
+ */
+fun planModeBadge(config: SessionConfigState?): String? {
+    if (config?.currentMode != PLAN_MODE_ID) return null
+    return modeChip(config)?.valueLabel?.takeIf { it.isNotBlank() }
+}
+
 /** Append a question card, or REPLACE the card carrying the same wire id in
  *  place (EXP-249) — a re-emission augments an ask (options the desktop
  *  discovers later) and must never stack a second card. The local feed id and

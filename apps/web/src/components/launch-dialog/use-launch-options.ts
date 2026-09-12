@@ -12,8 +12,8 @@ import {
   preselectMcpServerIds,
   type McpServerRow,
 } from "@/lib/mcp-servers"
+import { resolveLaunchDeviceId } from "@/lib/launch-device"
 import {
-  defaultDeviceId,
   deviceAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
@@ -35,7 +35,19 @@ export interface LaunchOptions {
   /** The settled device (undefined while the candidate list is empty). */
   device: SteerDevice | undefined
   deviceId: string | null
+  /** The PERSON picking a machine in the select — it drops any pending
+   * `requestDevice` (EXP-836: an explicit request is one-shot and never
+   * fights a human choice). */
   setDeviceId: (deviceId: string) => void
+  /** EXP-836: pre-pick a machine a play button named (`?device=`). It wins
+   * over the default machine, and keeps winning until that machine shows up
+   * in the candidate list — a devices shape that hydrates after the seed can
+   * no longer settle on the default instead. Never persisted. */
+  requestDevice: (deviceId: string) => void
+  /** The requested machine while it is NOT among the candidates (it is
+   * offline, has no runnable agent, or has not synced yet) — the caller
+   * explains the mismatch. Null once it settles or a person picks. */
+  unavailableRequestId: string | null
   /** Agents the settled device advertised (EXP-201). */
   availableAgents: string[]
   agent: string
@@ -101,7 +113,15 @@ export function useLaunchOptions({
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   const [planMode, setPlanMode] = useState(false)
-  const [deviceId, setDeviceId] = useState<string | null>(null)
+  // EXP-836: two slots, not one — the explicit REQUEST and the person's PICK.
+  // `resolveLaunchDeviceId` derives the selection from them on every render,
+  // so no effect can settle the request away (it used to: the settle effect
+  // ran before the seed was consumed, fell back to the default machine and
+  // the default then looked like the user's choice).
+  const [requestedDeviceId, setRequestedDeviceId] = useState<string | null>(
+    initialDeviceId ?? null
+  )
+  const [pickedDeviceId, setPickedDeviceId] = useState<string | null>(null)
   const [mcpServerIds, setMcpServerIdsState] = useState<string[]>([])
   // EXP-825: the profile pick is keyed to (device, agent) — a switch of
   // either re-seeds it to that pair's active profile (below).
@@ -120,7 +140,8 @@ export function useLaunchOptions({
   // (EXP-437; its latch is reset here so a reopen reseeds).
   useEffect(() => {
     if (!open) return
-    setDeviceId(initialDeviceId ?? null)
+    setRequestedDeviceId(initialDeviceId ?? null)
+    setPickedDeviceId(null)
     seededDeviceRef.current = null
     mcpSeededRef.current = false
     setMcpServerIdsState([])
@@ -133,25 +154,23 @@ export function useLaunchOptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Settle the device on open + whenever the candidate list changes (tab
-  // switch, action selection, a desktop connecting mid-dialog); a still-valid
-  // current choice is kept, else the caller's default machine (EXP-622), else
-  // the first candidate.
-  const fallbackDeviceId =
-    defaultDeviceId(devices) ?? devices[0]?.deviceId ?? null
-  useEffect(() => {
-    if (!open) return
-    setDeviceId((current) =>
-      current && devices.some((d) => d.deviceId === current)
-        ? current
-        : fallbackDeviceId
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, devices])
-
-  const device =
-    devices.find((candidate) => candidate.deviceId === deviceId) ??
-    devices.find((candidate) => candidate.deviceId === fallbackDeviceId)
+  // The selection, derived: request → pick → default machine (EXP-622) →
+  // first candidate. A choice that drops out of the list (the machine went
+  // offline) falls back by itself, and one that comes BACK is re-selected —
+  // exactly what the old settle effect did, minus the ordering hazard.
+  const deviceId = resolveLaunchDeviceId(devices, {
+    requested: requestedDeviceId,
+    picked: pickedDeviceId,
+  })
+  const device = devices.find((candidate) => candidate.deviceId === deviceId)
+  const setDeviceId = (next: string) => {
+    setPickedDeviceId(next)
+    setRequestedDeviceId(null)
+  }
+  const unavailableRequestId =
+    requestedDeviceId && requestedDeviceId !== deviceId
+      ? requestedDeviceId
+      : null
 
   // Switching the agent tab re-seeds model/effort/toggles to the SELECTED
   // DEVICE's defaults for that agent (EXP-437; static when it advertises
@@ -289,6 +308,8 @@ export function useLaunchOptions({
     device,
     deviceId,
     setDeviceId,
+    requestDevice: setRequestedDeviceId,
+    unavailableRequestId,
     availableAgents,
     agent,
     agentNotReady: deviceAgentNotReady(device, agent),

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AutomationsApi
+import com.exponential.app.data.api.PinsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.toActionDto
@@ -67,6 +68,7 @@ class ActionsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
     private val automationsApi: AutomationsApi,
+    private val pinsApi: PinsApi,
     private val selection: TeamSelection,
     private val json: Json,
 ) : ViewModel() {
@@ -128,6 +130,36 @@ class ActionsViewModel @Inject constructor(
                 db.automationDao().observeByTeam(teamId)
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-778: which of the listed actions sit in the caller's "Pinned" section,
+     * off the synced pins table — the list's own Pin / Unpin row reads it, so
+     * the toggle flips when the shape lands rather than on an optimistic guess.
+     */
+    val pinnedActionIds: StateFlow<Set<String>> =
+        combine(dbFlow, selection.selectedId) { db, teamId ->
+            db to teamId
+        }.flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) {
+                flowOf(emptySet())
+            } else {
+                db.pinDao().observeByTeam(teamId).map { pins ->
+                    pins.mapNotNull { it.actionId }.toSet()
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** Pin / unpin one action (`pins.toggle`). Builtins have no team row and
+     *  are never offered the control — the list carries none today either. */
+    fun togglePin(actionId: String) {
+        val teamId = selection.selectedId.value ?: return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching {
+                pinsApi.toggle(accountId, teamId, DomainContract.pinKindAction, actionId)
+            }
+        }
+    }
 
     // Every coding_sessions row of the selected team, newest first — the
     // source both automation lists derive from (one DAO flow, not two).

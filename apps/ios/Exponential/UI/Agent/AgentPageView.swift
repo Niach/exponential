@@ -32,6 +32,9 @@ struct AgentPageView: View {
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// The seed's team has been made the active one (once per push).
     @State private var alignedSeedTeam = false
+    /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
+    /// under the reader's finger (web `useState(() => pickChatSuggestions())`).
+    @State private var suggestions = ChatSuggestions.pick()
 
     var body: some View {
         ZStack {
@@ -43,6 +46,10 @@ struct AgentPageView: View {
                         if steerEnabled == false {
                             relayOffNote
                         } else if steerEnabled == true {
+                            // EXP-820: a few suggestion chips over the empty
+                            // prompt box — the pool is byte-identical ×4 and
+                            // each mount draws `ChatSuggestions.count` of it.
+                            suggestionChips(composer)
                             AgentComposerCard(model: composer) { issueId in
                                 deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
                             }
@@ -182,6 +189,41 @@ struct AgentPageView: View {
             isAdmin: deps.auth.isAdmin,
             dbPool: pool
         ).isOwner
+    }
+
+    // MARK: - Suggestions (EXP-820)
+
+    /// The chips over an EMPTY composer: no subject and nothing typed, exactly
+    /// web's gate (`launch-composer.tsx` `showSuggestions`) — once the field has
+    /// text or a subject they would only be in the way.
+    ///
+    /// A tap inserts the suggestion at the caret and, for one carrying a `#`
+    /// placeholder, parks the caret right behind that `#` so the issue-ref
+    /// autocomplete opens on the spot (`ChatSuggestions.caretOffset`).
+    @ViewBuilder
+    private func suggestionChips(_ composer: AgentComposerModel) -> some View {
+        if composer.subject == AgentComposerPrompt.Subject.none, composer.trimmedDraft.isEmpty {
+            // A phone scrolls them sideways rather than wrapping: the pool's
+            // longer prompts are a full sentence, and a wrapped row of them
+            // would push the composer off the first screen.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        GlassPill(
+                            suggestion,
+                            mode: .action {
+                                composer.draftEditor.insertTextAtCaret(
+                                    suggestion,
+                                    caretOffset: ChatSuggestions.caretOffset(suggestion)
+                                )
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+            .accessibilityIdentifier("chat-suggestions")
+        }
     }
 
     // MARK: - Captions

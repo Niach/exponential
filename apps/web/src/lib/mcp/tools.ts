@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import {
   automationTriggerSchema,
+  CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
   dateOnlySchema,
   DEFAULT_ACCENT_COLOR,
@@ -83,7 +84,10 @@ import {
   loadIssueRelations,
 } from "@/lib/issue-relations"
 import { resolveIssueReference } from "@/lib/issue-resolver"
-import { issueWireColumns } from "@/lib/issue-columns"
+import {
+  issueWireColumns,
+  withTruncatedDescriptions,
+} from "@/lib/issue-columns"
 import { deleteObject, getObject, uploadObject } from "@/lib/storage"
 import {
   buildAttachmentStorageKey,
@@ -390,6 +394,18 @@ const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
 // nothing else does.
 const READ_ONLY = { readOnlyHint: true } as const
 
+// EXP-847: what "closed" means for `exponential_issues_list`'s default —
+// the three terminal status CATEGORIES and the anchors they dual-write
+// (CATEGORY_ANCHOR), so the filter works on custom statuses too.
+const CLOSED_STATUS_CATEGORIES = [
+  `completed`,
+  `cancelled`,
+  `duplicate`,
+] as const satisfies ReadonlyArray<(typeof issueStatusCategoryValues)[number]>
+const CLOSED_STATUS_ANCHORS = CLOSED_STATUS_CATEGORIES.map(
+  (category) => CATEGORY_ANCHOR[category]
+)
+
 // EXP-707: the ONE pagination model — every *_list tool declares limit/offset
 // (default 50, cap 200; gated by api-conventions.test.ts). Small-table tools
 // slice after their existing filters rather than in SQL.
@@ -473,7 +489,6 @@ const dateOnlyLoose = z
 const isoDateTime = z
   .string()
   .refine((v) => !Number.isNaN(Date.parse(v)), `Expected an ISO date or datetime`)
-const issueStatusCategoryEnumSchema = z.enum(issueStatusCategoryValues)
 // Enum validated at runtime only (no inline JSON-schema enum) — the budget
 // trick above, for a value list the same tool already spells out once.
 const looseEnum = <T extends string>(values: ReadonlyArray<T>) =>
@@ -843,21 +858,24 @@ export function registerExponentialTools(
     {
       annotations: READ_ONLY,
       // EXP-684: every filter a scheduled sweep needs server-side. The schema
-      // is budget-trimmed (context-budget.test.ts): value lists appear once,
-      // their exclude* twins and priority validate at runtime.
-      description: `List issues. Custom statuses filter by statusId/statusCategory (exponential_statuses_list); exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: title substring; assigneeId null = unassigned.`,
+      // is budget-trimmed (context-budget.test.ts): EXP-847 took the last two
+      // inline value lists out too, so status/statusCategory, their exclude*
+      // twins and priority all validate at runtime (the refusal names the
+      // values; issues_create spells the status enum out).
+      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut to 200 chars (issues_get has all). Custom statuses: exponential_statuses_list; exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: title substring; assigneeId null = unassigned.`,
       inputSchema: strictInput({
         boardId: uuidString.optional(),
         boardIds: z.array(uuidString).optional(),
         teamId: uuidString.optional(),
-        status: z.array(issueStatusEnumSchema).optional(),
+        status: z.array(looseEnum(issueStatusValues)).optional(),
         statusId: z.array(uuidString).optional(),
-        statusCategory: z.array(issueStatusCategoryEnumSchema).optional(),
+        statusCategory: z.array(looseEnum(issueStatusCategoryValues)).optional(),
         excludeStatus: z.array(looseEnum(issueStatusValues)).optional(),
         excludeStatusId: z.array(uuidString).optional(),
         excludeStatusCategory: z
           .array(looseEnum(issueStatusCategoryValues))
           .optional(),
+        includeClosed: z.boolean().default(false),
         priority: z.array(looseEnum(issuePriorityValues)).optional(),
         assigneeId: z.string().nullable().optional(),
         labelIds: z.array(uuidString).optional(),
@@ -877,7 +895,7 @@ export function registerExponentialTools(
           .refine((v) => v.length >= 1 && v.length <= 256, `1-256 chars`)
           .optional(),
         sort: issueListSort,
-        limit: z.number().int().min(1).max(200).default(50),
+        limit: z.number().int().min(1).max(1000).default(50),
         offset: z.number().int().min(0).default(0),
       }),
     },
@@ -891,6 +909,7 @@ export function registerExponentialTools(
       excludeStatus,
       excludeStatusId,
       excludeStatusCategory,
+      includeClosed,
       priority,
       assigneeId,
       labelIds,
@@ -998,6 +1017,29 @@ export function registerExponentialTools(
             )!
           )
         }
+        // EXP-847: a listing is about OPEN work. With no status filter of any
+        // kind the closed categories drop out — `includeClosed: true` (or any
+        // explicit status/statusId/statusCategory) asks for them back. The
+        // predicate keys on the status ROW's category (customs included) and
+        // falls back to the dual-written anchor for a (theoretical) NULL
+        // status_id, so nothing is silently hidden or silently kept.
+        const statusFiltered =
+          (status && status.length > 0) ||
+          (statusId && statusId.length > 0) ||
+          (statusCategory && statusCategory.length > 0)
+        if (!includeClosed && !statusFiltered) {
+          conditions.push(
+            or(
+              sql`${issues.statusId} not in ${statusIdsInCategories([
+                ...CLOSED_STATUS_CATEGORIES,
+              ])}`,
+              and(
+                isNull(issues.statusId),
+                notInArray(issues.status, [...CLOSED_STATUS_ANCHORS])
+              )
+            )!
+          )
+        }
 
         if (priority && priority.length > 0) {
           conditions.push(inArray(issues.priority, priority))
@@ -1084,7 +1126,8 @@ export function registerExponentialTools(
           .limit(limit)
           .offset(offset)
 
-        return ok(rows)
+        // EXP-847: list rows carry a description HEAD, never whole bodies.
+        return ok(withTruncatedDescriptions(rows))
       } catch (e) {
         return err(e)
       }

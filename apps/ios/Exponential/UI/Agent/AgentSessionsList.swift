@@ -71,24 +71,29 @@ struct AgentSessionsList: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassSectionHeader("Running")
-            if vm.rows.isEmpty {
-                noAgentsRow
-            } else {
-                // EXP-818: a run started by another run nests under its
-                // parent, indented (`SessionTree`, the ×4 rule).
-                ForEach(
-                    SessionTree.nest(
-                        vm.rows,
-                        id: { $0.session.id },
-                        parent: { $0.session.parentSessionId },
-                        startedAt: { $0.session.startedAt }
-                    ),
-                    id: \.session.id
-                ) { entry in
-                    sessionRow(entry.session)
-                        .padding(.leading, CGFloat(entry.depth) * 16)
+        // EXP-818: the Running/Past groups are filled BANDS over flat rows
+        // (`GlassSectionBand` + `.flatRow()`) — the runs read as a table, the
+        // way web's and the IDE's session lists do.
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand("Running")
+                if vm.rows.isEmpty {
+                    noAgentsRow
+                } else {
+                    // EXP-818: a run started by another run nests under its
+                    // parent, indented (`SessionTree`, the ×4 rule).
+                    ForEach(
+                        SessionTree.nest(
+                            vm.rows,
+                            id: { $0.session.id },
+                            parent: { $0.session.parentSessionId },
+                            startedAt: { $0.session.startedAt }
+                        ),
+                        id: \.session.id
+                    ) { entry in
+                        sessionRow(entry.session)
+                            .padding(.leading, CGFloat(entry.depth) * 16)
+                    }
                 }
             }
 
@@ -173,8 +178,8 @@ struct AgentSessionsList: View {
     /// (`PastRuns.select` drops every `started_reason` row).
     @ViewBuilder
     private var pastSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassSectionHeader("Past")
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand("Past")
             ForEach(vm.pastRows) { row in
                 EndedRunRow(
                     title: PastRuns.title(row.session, issue: row.issue),
@@ -206,7 +211,7 @@ struct AgentSessionsList: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     // MARK: - Session rows
@@ -224,7 +229,7 @@ struct AgentSessionsList: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         .accessibilityIdentifier("agent-session-row")
         // EXP-698: the row's tap goes to the LIVE session when steering is on;
         // the issue keeps a route: press and hold.

@@ -24,7 +24,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 
 /**
  * EXP-637: one run in a runs list — the Actions screen's "Recent automated
@@ -62,7 +62,7 @@ fun EndedRunRow(
         modifier = modifier
             .fillMaxWidth()
             .testTag("ended-run-row")
-            .glassRow()
+            .flatRow()
             .clickable(onClick = onOpen)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
     ) {

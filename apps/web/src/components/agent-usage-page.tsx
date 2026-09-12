@@ -43,6 +43,7 @@ import {
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { AddAccountDialog } from "@/components/add-account-dialog"
 import {
+  addAccountBlockReason,
   addAccountDevices,
   addAccountLoginTarget,
   clampProfileLabel,
@@ -236,11 +237,13 @@ export function AgentAccountsSection({
     () => new Map(devices.filter((row) => row.userId === currentUserId).map((row) => [row.deviceId, row])),
     [devices, currentUserId]
   )
-  // EXP-827: "Add account" — the Add-device twin in the header, only while
-  // one of my machines could take a sign-in.
+  // EXP-827: "Add account" — the Add-device twin in the header. EXP-845: it
+  // never hides. A control that vanishes reads as a feature that is not there;
+  // a DISABLED one with the reason ("None of those machines is online right
+  // now") reads as a machine that is off.
   const [addOpen, setAddOpen] = useState(false)
-  const canAdd = useMemo(
-    () => addAccountDevices(devices, { currentUserId, now }).length > 0,
+  const addBlocked = useMemo(
+    () => addAccountBlockReason(devices, { currentUserId, now }),
     [devices, currentUserId, now]
   )
 
@@ -256,16 +259,17 @@ export function AgentAccountsSection({
                 Refreshes every 5 minutes
               </span>
             )}
-            {canAdd && (
+            <span title={addBlocked ?? undefined}>
               <Pill
                 mode="action"
+                disabled={addBlocked !== null}
                 onClick={() => setAddOpen(true)}
                 data-testid="add-account-button"
               >
                 <AddIcon className="size-3" />
                 Add account
               </Pill>
-            )}
+            </span>
           </>
         }
       />
@@ -369,6 +373,23 @@ function AccountCard({
         : [],
     [group, ownDevices, currentUserId, now]
   )
+  // EXP-845: the "+" stays put when no machine can take the login — disabled,
+  // with the reason. Only an account nobody could ever add elsewhere (no
+  // email to sign in WITH) has no control at all.
+  const addBlocked = useMemo(
+    () =>
+      group.signedIn && group.email
+        ? addAccountBlockReason([...ownDevices.values()], {
+            currentUserId,
+            now,
+            agent: group.agent,
+            agentLabel: agentLabel(group.agent),
+            exclude: group.rows.map((row) => row.deviceId),
+          })
+        : null,
+    [group, ownDevices, currentUserId, now]
+  )
+  const showAdd = group.signedIn === true && Boolean(group.email)
   const addTo = (row: Device) => {
     const target = addAccountLoginTarget(
       row,
@@ -441,7 +462,21 @@ function AccountCard({
             device={ownDevices.get(row.deviceId) ?? null}
           />
         ))}
-        {addTargets.length > 0 && (
+        {showAdd && addBlocked !== null && (
+          <span title={addBlocked}>
+            <Pill
+              size="sm"
+              mode="action"
+              disabled
+              aria-label="Add a machine to this account"
+              className="px-1.5"
+              data-testid={`account-add-device-${group.key}`}
+            >
+              <AddIcon className="size-3" />
+            </Pill>
+          </span>
+        )}
+        {showAdd && addBlocked === null && addTargets.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Pill

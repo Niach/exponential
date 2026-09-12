@@ -32,3 +32,35 @@ export const issueWireColumns = {
   createdAt: issues.createdAt,
   updatedAt: issues.updatedAt,
 }
+
+// EXP-847: the LIST projection. `exponential_issues_list` hands whole issue
+// rows to an agent, and 50 full descriptions are the bulk of a listing's
+// tokens — so a list row carries a HEAD of the description and the agent
+// fetches the rest with `exponential_issues_get` (which keeps the full text).
+// The columns themselves stay `issueWireColumns` (api-conventions.test.ts
+// locks that set); the cut is a mapping over the selected rows.
+export const ISSUE_LIST_DESCRIPTION_MAX = 200
+
+/** The description cut to `ISSUE_LIST_DESCRIPTION_MAX` characters, with an
+ * ellipsis appended when anything was dropped. Null/short text is returned
+ * untouched. */
+export function truncateIssueDescription(
+  description: string | null | undefined
+): string | null {
+  if (typeof description !== `string`) return description ?? null
+  return description.length > ISSUE_LIST_DESCRIPTION_MAX
+    ? `${description.slice(0, ISSUE_LIST_DESCRIPTION_MAX)}…`
+    : description
+}
+
+/** `truncateIssueDescription` over a list projection's rows. Rows that carry
+ * no `description` key at all pass through unchanged. */
+export function withTruncatedDescriptions<
+  T extends { description?: string | null },
+>(rows: readonly T[]): T[] {
+  return rows.map((row) =>
+    `description` in row
+      ? { ...row, description: truncateIssueDescription(row.description) }
+      : row
+  )
+}

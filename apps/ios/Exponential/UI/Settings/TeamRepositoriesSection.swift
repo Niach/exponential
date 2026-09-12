@@ -72,7 +72,8 @@ struct TeamRepositoriesSection: View {
             // EXP-721: the ONE shared header (Boards/Labels/Members parity) —
             // the hand-rolled `.headline` + count line is gone (EXP-698 retired
             // header counts); the in-flight spinner rides the trailing slot.
-            GlassSectionHeader("Repositories") {
+            // EXP-818: a filled group BAND over flat rows.
+            GlassSectionBand("Repositories") {
                 if loading {
                     ProgressView().controlSize(.small).tint(.white.opacity(0.5))
                 }
@@ -307,7 +308,10 @@ struct TeamRepositoriesSection: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassRow()
+        // EXP-818: the repositories are a LIST — flat rows under the band. The
+        // GitHub status/notice rows below stay carded: they are notices, not
+        // items of this list.
+        .flatRow()
     }
 
     // MARK: - GitHub status line (EXP-329)

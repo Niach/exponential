@@ -69,7 +69,8 @@ struct SupportInboxListContent: View {
             }
         } else {
             ScrollView {
-                LazyVStack(spacing: 8) {
+                // EXP-818: the ticket list is a TABLE — flat rows, no gap.
+                LazyVStack(spacing: 0) {
                     ForEach(vm.threads) { thread in
                         NavigationLink(
                             value: AppRoute.supportThread(accountId: accountId, threadId: thread.id)
@@ -129,7 +130,9 @@ struct SupportInboxListContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        // EXP-818: the flat list row (the material card is gone — glass is
+        // tokens on every surface).
+        .flatRow()
         .opacity(thread.unread || thread.status == "open" ? 1 : 0.6)
     }
 

@@ -124,7 +124,12 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
     // own. The portrait stack put the agent's usage windows at the bottom of
     // one long column, and the shell's scroll wrapper squeezed the clipped
     // agent card until the last window was cut off (see [`Render`]).
-    let height = (window.viewport_size().height * 0.85).min(px(560.));
+    //
+    // EXP-827: no 560px cap. The dialog takes the window's height (less the
+    // shell's inset) and scrolls INSIDE its columns — the cap made the
+    // worktrees column two rows tall on a 1440p display while the space was
+    // right there.
+    let height = window.viewport_size().height * 0.85;
     let spec = DialogSpec::new("Device settings", size(px(820.), height))
         .resizable(size(px(680.), px(420.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
@@ -373,10 +378,14 @@ fn dev_agent_status() -> Option<(
 /// panes cannot drift.
 ///
 /// Row 1 is the account line ([`account_line`] — the address alone) with the
-/// Login / Switch-account pill when this client may start one; row 2 is the
-/// usage windows while the numbers are FRESH — stale limits beside a live
-/// machine read as current ones, so they degrade to an "as of …" line
-/// instead. Both are flat: the group around them draws the surface.
+/// Login / Switch-account pill when this client may start one and the round
+/// Usage button beside it; row 2 is the report's AGE. Both are flat: the group
+/// around them draws the surface.
+///
+/// EXP-827: the usage WINDOWS are not here any more. They live in ONE place —
+/// the Devices page's Accounts section ([`crate::accounts_section`]) — and
+/// `on_open_usage` is the way there (web `device-agent-account.tsx`: a round
+/// `ui-usage` button, shown only once there is an account or a report to open).
 #[allow(clippy::too_many_arguments)] // two call sites, one row set
 pub(crate) fn agent_account_rows<V: Render>(
     agent: CodingAgent,
@@ -386,6 +395,7 @@ pub(crate) fn agent_account_rows<V: Render>(
     affordance: Option<LoginAffordance>,
     pending: bool,
     on_login: impl Fn(&mut V, bool, &mut gpui::Context<V>) + 'static,
+    on_open_usage: impl Fn(&mut V, &mut Window, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> Vec<Div> {
     let muted = cx.theme().muted_foreground;
@@ -432,19 +442,28 @@ pub(crate) fn agent_account_rows<V: Render>(
             })),
         );
     }
+    // EXP-827: the round way to the numbers, beside the login pill — shown
+    // only when there is an account or a report to look at.
+    let has_report = usage.is_some_and(|usage| !usage.windows.is_empty());
+    if account.is_some() || has_report {
+        account_row = account_row.child(
+            crate::controls::glass_icon_button(
+                SharedString::from(format!("agent-usage-{}", agent.id())),
+                Icon::new(registry::UI_USAGE),
+                cx,
+            )
+            .web_icon_xs()
+            .tooltip("Usage")
+            .on_click(cx.listener(move |view: &mut V, _, window, cx| {
+                on_open_usage(view, window, cx)
+            })),
+        );
+    }
     let mut rows = vec![account_row];
 
-    let fresh = usage.filter(|usage| {
-        !usage.windows.is_empty() && crate::usage_bar::is_fresh(&usage.fetched_at, now)
-    });
-    if let Some(usage) = fresh {
-        // EXP-694: inside the agent's own group the windows are plain rows —
-        // the group already draws the surface.
-        let cards = crate::usage_bar::render_usage_cards(agent, usage, now, true, cx);
-        rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(cards)));
-    } else if usage.is_some() || account.is_some() {
+    if usage.is_some() || account.is_some() {
         // Say when the numbers were taken instead of pretending they are
-        // current.
+        // current (the only thing the account block says about usage now).
         let stamp = account
             .map(|account| account.checked_at.clone())
             .or_else(|| usage_at.map(str::to_string))
@@ -1742,6 +1761,14 @@ impl DeviceSettingsView {
             affordance,
             pending,
             move |this: &mut Self, switch, cx| this.start_login(agent, switch, cx),
+            // EXP-827: the Usage button closes the dialog and lands on the
+            // Devices page's Accounts section in the window that opened it
+            // (web `openUsage`).
+            |_: &mut Self, window, cx| {
+                native_dialog::close_then(window, cx, |window, cx| {
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
+                });
+            },
             cx,
         );
 

@@ -29,6 +29,7 @@ import com.exponential.app.domain.rateLimitIsWall
 import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.modeChip
+import com.exponential.app.domain.planModeBadge
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
 import com.exponential.app.domain.TURN_STATE_ENDED
@@ -1123,6 +1124,25 @@ class AgentFeedTest {
             .applying(usage(124_000, 200_000, null))
             .applying(usage(0, 0, null))
         assertNull(state.usage)
+    }
+
+    /**
+     * EXP-847: the header's read-only Plan badge — the advertised label of the
+     * mode the agent is in, and ONLY in plan mode, so an approved
+     * `ExitPlanMode` visibly clears it on the next `config_state`.
+     */
+    @Test
+    fun `the plan badge shows only while the agent is planning`() {
+        val modes = listOf(ConfigMode(PLAN_MODE_ID, "Plan"), ConfigMode("default", "Default"))
+        assertEquals(
+            "Plan",
+            planModeBadge(SessionConfigState(currentMode = PLAN_MODE_ID, modes = modes)),
+        )
+        // Left plan mode: no badge.
+        assertNull(planModeBadge(SessionConfigState(currentMode = "default", modes = modes)))
+        // No modes advertised (codex), nothing published yet: no badge either.
+        assertNull(planModeBadge(SessionConfigState(currentMode = PLAN_MODE_ID)))
+        assertNull(planModeBadge(null))
     }
 
     /** EXP-772: the mode is the ONLY steering chip left. Advertised options

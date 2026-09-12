@@ -40,7 +40,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 
 /**
  * The Support tab's list (EXP-180): the active team's support tickets behind
@@ -108,7 +108,7 @@ private fun SupportThreadRowItem(thread: SupportThreadRow, onClick: () -> Unit) 
             .fillMaxWidth()
             .testTag("support-thread-row")
             .alpha(if (faded) 0.6f else 1f)
-            .glassRow()
+            .flatRow()
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,

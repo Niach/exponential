@@ -384,8 +384,10 @@ class StyleguideScreenshotsTest {
         // so a swallowed tap fails the run instead of duplicating a shot.
         composeRule.onAllNodes(hasContentDescription("Start coding")).onFirst().performClick()
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
-        // The submit label proves the composer resolved its subject (a chat).
-        flow.waitFor(hasText("Start chat"), NAV_TIMEOUT)
+        // EXP-827: the submit is the round send glyph, so its contract label
+        // ("Start chat") is its NAME — still the proof that the composer
+        // resolved its subject.
+        flow.waitFor(hasContentDescription("Start chat"), NAV_TIMEOUT)
         // The machine pool resolves after the page; the options pills are
         // the demo machine's, so the shot must not precede them.
         flow.waitForGone(hasText("No desktop online", substring = true), SYNC_TIMEOUT)
@@ -402,7 +404,7 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(hasText("Done")).onFirst().performClick()
         flow.waitForGone(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
         flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
-        flow.waitFor(hasText("Start batch · 2"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Start batch · 2"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-issues")
 
@@ -412,7 +414,7 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(hasText(FIX_CONFLICTS_ACTION_NAME)).onFirst().performClick()
         flow.waitForGone(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Run action"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-action")
         // A pushed detail: back pops to the Devices tab.
@@ -450,7 +452,7 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag("new-action")).performClick()
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Run action"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_action-create")
         // A pushed detail: back pops to the Actions tab.

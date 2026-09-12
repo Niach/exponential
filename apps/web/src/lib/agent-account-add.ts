@@ -91,3 +91,56 @@ export function clampProfileLabel(label: string): string {
     ? trimmed.slice(0, MAX_PROFILE_LABEL)
     : trimmed
 }
+
+/** EXP-845: WHY no machine can take a sign-in right now — the tooltip the
+ * DISABLED "+" / "Add account" control carries. The controls used to vanish
+ * when `addAccountDevices` came back empty, which reads as a missing feature
+ * rather than as a machine that is off; they render disabled with this reason
+ * instead. `null` = at least one machine can take it, so the control is live.
+ *
+ * The reasons walk the same filters `addAccountDevices` applies, in that
+ * order, so the first one that empties the list is the one named.
+ */
+export function addAccountBlockReason(
+  rows: readonly Device[],
+  opts: {
+    currentUserId: string
+    now: Date
+    /** Named for a per-account "+", absent for the section's Add account. */
+    agent?: string
+    /** The agent's display name, for the copy (`Codex`). */
+    agentLabel?: string
+    /** Machines already holding the account (the per-account "+"). */
+    exclude?: Iterable<string>
+  }
+): string | null {
+  if (addAccountDevices(rows, opts).length > 0) return null
+  const excluded = new Set(opts.exclude ?? [])
+  const mine = rows.filter((row) => row.userId === opts.currentUserId)
+  if (mine.length === 0) {
+    return `Connect one of your machines first.`
+  }
+  const candidates = mine.filter((row) => !excluded.has(row.deviceId))
+  if (candidates.length === 0) {
+    return `Every machine of yours already uses this account.`
+  }
+  const agentName = opts.agentLabel ?? opts.agent
+  const withAgent = opts.agent
+    ? candidates.filter((row) => agentInstalledOn(row, opts.agent!))
+    : candidates.filter((row) => addableAgents(row).length > 0)
+  if (withAgent.length === 0) {
+    return agentName
+      ? `No machine of yours has ${agentName} installed.`
+      : `No machine of yours reports an agent to sign in to.`
+  }
+  const online = withAgent.filter((row) =>
+    deviceRowIsOnline(row.lastSeenAt, opts.now)
+  )
+  if (online.length === 0) {
+    return withAgent.length === 1
+      ? `${withAgent[0].label || withAgent[0].deviceId} is offline.`
+      : `None of those machines is online right now.`
+  }
+  // Online and installed, but nothing can be driven remotely.
+  return `Remote sign-in needs a newer Exponential version on that machine.`
+}

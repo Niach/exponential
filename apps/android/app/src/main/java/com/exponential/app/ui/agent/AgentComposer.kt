@@ -39,6 +39,7 @@ import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.renumberImageMarkers
+import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassPill
@@ -61,9 +62,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * - strip: the pending images (the steer composer's tiles + `[Image #k]`
  *   markers, EXP-698);
  * - tools: `#` opens the issue picker, ▶ the action picker, the image glyph
- *   the photo picker; the submit is a LABELLED primary pill whose title
- *   follows the subject ("Start chat" / "Start coding" / "Start batch · N" /
- *   "Run action").
+ *   the photo picker; the submit is the round send glyph (EXP-827: icon-only
+ *   ×4), NAMED by the contract's per-subject title ("Start chat" / "Start
+ *   coding" / "Start batch · N" / "Run action").
  *
  * Test tags are byte-identical with the iOS identifiers (the styleguide and
  * store captures address both platforms by the same names).
@@ -233,14 +234,16 @@ internal fun AgentComposer(
             )
         },
         submit = {
-            // The contract's label IS the affordance (iOS `GlassPill` primary
-            // parity) — a bare send arrow could not say "Start batch · 3".
-            GlassPill(
-                submitLabel,
+            // EXP-827: the round send glyph, icon-only ×4 — the chips above the
+            // field already say what the send starts, so the contract's
+            // per-subject label ("Start batch · 3") stays the button's NAME
+            // (its content description) instead of its width.
+            ComposerSubmitButton(
+                ExpIcons.uiSubmit,
+                contentDescription = submitLabel,
                 onClick = onSubmit,
-                primary = true,
-                enabled = canSubmit && !sending,
-                loading = sending,
+                enabled = canSubmit,
+                sending = sending,
                 modifier = Modifier.testTag("agent-composer-submit"),
             )
         },

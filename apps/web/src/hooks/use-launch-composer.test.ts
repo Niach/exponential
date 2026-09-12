@@ -480,6 +480,118 @@ describe(`useLaunchComposer seed`, () => {
     expect(result.current.launch.device?.deviceId).toBe(`dev-2`)
   })
 
+  // EXP-836: the play button on a device row names a machine; it has to win
+  // over the person's DEFAULT machine on every path the devices shape can
+  // hydrate on, and it must not stick as a new default.
+  it(`pre-picks a seeded device over the default machine, however late`, async () => {
+    const mac: SteerDevice = {
+      ...device,
+      deviceId: `mac`,
+      deviceLabel: `macbook`,
+      rowId: `row-mac`,
+      isDefault: true,
+    }
+    const mint: SteerDevice = {
+      ...device,
+      deviceId: `mint`,
+      deviceLabel: `mint`,
+      rowId: `row-mint`,
+    }
+    // a) seeded at mount.
+    expect(
+      mount({ issueIds: [], deviceId: `mint` }, makeRemote({ devices: [mac, mint] }))
+        .result.current.launch.device?.deviceId
+    ).toBe(`mint`)
+
+    // b) seeded after mount (the route holds the seed in state and hands it
+    // over on the next render).
+    const late = mount(null, makeRemote({ devices: [mac, mint] }))
+    expect(late.result.current.launch.device?.deviceId).toBe(`mac`)
+    late.rerender({ seed: { issueIds: [], deviceId: `mint` } })
+    await waitFor(() => expect(late.onSeedConsumed).toHaveBeenCalled())
+    expect(late.result.current.launch.device?.deviceId).toBe(`mint`)
+    expect(late.result.current.deviceRequestNote).toBeNull()
+  })
+
+  it(`holds the request until the devices shape hydrates`, async () => {
+    const mac: SteerDevice = { ...device, deviceId: `mac`, isDefault: true, rowId: `row-mac` }
+    const mint: SteerDevice = { ...device, deviceId: `mint`, deviceLabel: `mint`, rowId: `row-mint` }
+    const onSeedConsumed = vi.fn()
+    const hook = renderHook(
+      ({ devices }: { devices: SteerDevice[] | null }) =>
+        useLaunchComposer({
+          teamId: `t1`,
+          remote: makeRemote({ devices }),
+          seed: { issueIds: [], deviceId: `mint` },
+          onSeedConsumed,
+        }),
+      { initialProps: { devices: null as SteerDevice[] | null } }
+    )
+    // Nothing synced yet: no machine at all, the request still pending — and
+    // NOT an accusation that the machine is gone.
+    expect(hook.result.current.launch.device).toBeUndefined()
+    expect(hook.result.current.deviceRequestNote).toBeNull()
+    // The default machine lands FIRST, the requested one a beat later.
+    hook.rerender({ devices: [mac] })
+    expect(hook.result.current.launch.device?.deviceId).toBe(`mac`)
+    hook.rerender({ devices: [mac, mint] })
+    await waitFor(() =>
+      expect(hook.result.current.launch.device?.deviceId).toBe(`mint`)
+    )
+  })
+
+  it(`lets the select override the request, one-shot`, () => {
+    const mac: SteerDevice = { ...device, deviceId: `mac`, isDefault: true, rowId: `row-mac` }
+    const mint: SteerDevice = { ...device, deviceId: `mint`, rowId: `row-mint` }
+    const { result } = mount(
+      { issueIds: [], deviceId: `mint` },
+      makeRemote({ devices: [mac, mint] })
+    )
+    act(() => result.current.launch.setDeviceId(`mac`))
+    expect(result.current.launch.device?.deviceId).toBe(`mac`)
+    // The seed does not reassert itself on the next devices poll…
+    expect(result.current.launch.unavailableRequestId).toBeNull()
+    // …and nothing writes the machine's `isDefault` flag either: picking is
+    // local state, the default only moves through `devices.setDefault`.
+    expect(mint.isDefault).toBeUndefined()
+  })
+
+  it(`explains a requested machine the composer cannot start on`, () => {
+    const mac: SteerDevice = { ...device, deviceId: `mac`, isDefault: true, rowId: `row-mac` }
+    // Registered, online, but every agent signed out: not a candidate.
+    const mint: SteerDevice = {
+      ...device,
+      deviceId: `mint`,
+      deviceLabel: `mint`,
+      rowId: `row-mint`,
+      agents: [],
+    }
+    const { result } = mount(
+      { issueIds: [], deviceId: `mint` },
+      makeRemote({ devices: [mac, mint] })
+    )
+    expect(result.current.launch.device?.deviceId).toBe(`mac`)
+    expect(result.current.deviceRequestNote).toBe(
+      `No agent is signed in on mint.`
+    )
+
+    // Offline says so instead.
+    const offline = mount(
+      { issueIds: [], deviceId: `mint` },
+      makeRemote({ devices: [mac, { ...mint, agents: [`claude`], online: false }] })
+    )
+    expect(offline.result.current.deviceRequestNote).toBe(`mint is offline.`)
+
+    // A machine that is not in the registry at all.
+    const gone = mount(
+      { issueIds: [], deviceId: `ghost` },
+      makeRemote({ devices: [mac] })
+    )
+    expect(gone.result.current.deviceRequestNote).toBe(
+      `That machine is no longer in your registry.`
+    )
+  })
+
   it(`seeds an action's repo input from its bound repository (EXP-349)`, () => {
     mockState.rows.a = [
       {

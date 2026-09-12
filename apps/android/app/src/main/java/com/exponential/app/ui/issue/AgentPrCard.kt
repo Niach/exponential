@@ -40,20 +40,18 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassPillDefaults
-import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
 
 // The issue detail's agent surfaces (EXP-156). EXP-698 r4 split them in two,
 // because they answer different questions and belong in different places:
-// [CodingNowCard] is the live session, in the property-chip box's own chrome
-// directly under it, and [AgentPrCard] is only the PR / branch row below the
+// [CodingNowCard] is the live session, one chrome-less line directly under the
+// property chips (EXP-818), and [AgentPrCard] is only the PR / branch row below the
 // description, linking to the dedicated Changes page. The Start-coding
 // launcher moved into the bottom bar's start circle (EXP-240), so neither of
 // them starts anything; each renders only when it has something to say.
@@ -98,10 +96,13 @@ fun AgentPrCard(
 }
 
 /**
- * The live session, in the SAME box the property chips sit in (EXP-698 r4) and
- * mounted right under them: a run in progress is a property of the issue you
- * are looking at, not a footnote below the description. The PR/branch rows
- * stay where they were, next to the code they link to.
+ * The live session on the issue screen. EXP-818 took its CARD away: the run is
+ * one line under the property chips now — the caller's own run as a primary
+ * "Watch" pill straight into it, a teammate's as a muted `● Coding now · name`
+ * caption (web `issue-coding-rows.tsx`'s `start` slot, IDE `coding_now_slot`).
+ * A second bordered box under the chips said the same thing the tray's start
+ * circle already says, and the state it showed is the only part worth a line.
+ * The PR/branch rows stay where they were, next to the code they link to.
  */
 @Composable
 fun CodingNowCard(
@@ -122,19 +123,18 @@ fun CodingNowCard(
         steerEnabled = steerEnabled,
         currentUserId = currentUserId,
         onWatch = onWatch,
-        // The property-chip box's own chrome, to the pixel — the two boxes
-        // stack, so a different fill or padding would read as a mistake.
-        modifier = modifier
-            .fillMaxWidth()
-            .glassCard()
-            .padding(10.dp),
+        // No chrome of its own any more (EXP-818) — a caption and a pill sit
+        // straight on the screen, aligned with the chips above them.
+        modifier = modifier.fillMaxWidth(),
     )
 }
 
-// Live session: a status dot + label + who/where, tapping into the steer
-// viewer when steering is available; an inert caption when it's off. `running`
-// shows the pulsing green "Coding now"; the parked states show a static dot —
-// review green / done blue / needs-input amber (EXP-194/EXP-214).
+// EXP-818: the live session as ONE line — the caller's own run is the primary
+// "Watch" pill and nothing else (the state is what the session screen it opens
+// is for), a teammate's is the muted `dot + state (+ · who)` caption, read-only
+// (EXP-312 keeps live sessions owner-only). `running` pulses the dot off the
+// synced `agent_busy` flag; the parked states are static tones — review green /
+// done blue / needs-input amber (EXP-194/EXP-214).
 @Composable
 private fun SessionRow(
     session: CodingSessionEntity,
@@ -163,60 +163,51 @@ private fun SessionRow(
             // action two hit targets with only one of them looking tappable.
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // EXP-698 r5: the state is a READONLY Sm pill tinted by its tone —
-            // the same badge web and the IDE draw. A bare dot + coloured word
-            // was the last hand-rolled status glyph on the issue screen.
-            val tone = when (state) {
-                CodingSessionDisplayState.Running -> LiveGreen
-                CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
-                CodingSessionDisplayState.Review -> ReviewGreen
-                CodingSessionDisplayState.Done -> DoneBlue
-            }
-            // EXP-848: the pulse is the MID-TURN cue (synced `agent_busy`) —
-            // a live run between turns keeps the pill's static disc.
-            val running = state == CodingSessionDisplayState.Running && session.agentBusy
-            GlassPill(
-                when (state) {
-                    CodingSessionDisplayState.Running -> "Coding now"
-                    CodingSessionDisplayState.NeedsInput -> "Needs input"
-                    CodingSessionDisplayState.Review -> "Ready for review"
-                    CodingSessionDisplayState.Done -> "Done"
-                },
-                size = PillSize.Sm,
-                mode = PillMode.Readonly,
-                tint = tone,
-                // A live run keeps its PULSE — the one moving thing on the
-                // screen — in the pill's leading slot; the parked states are
-                // the pill's own static disc.
-                leading = if (running) {
-                    { PulsingDot(size = GlassPillDefaults.DotSize) }
-                } else {
-                    null
-                },
-                dot = if (running) null else tone,
-            )
-            Spacer(Modifier.width(8.dp))
-            val who = userDisplayName(sessionOwner, session.userId)
-            val device = session.deviceLabel?.takeIf { it.isNotBlank() }
-            Text(
-                who + if (device != null) " · $device" else "",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
             if (watchable) {
-                Spacer(Modifier.width(8.dp))
-                // EXP-698 r4: the ONE emphatic pill on the issue screen —
-                // watching your own run live is the action the card exists
-                // for, and a 18dp chevron never said so.
+                // The ONE emphatic pill on the issue screen (EXP-698 r4):
+                // watching your own run live is the whole affordance, and the
+                // run's state is the first thing the screen it opens says.
                 GlassPill(
                     "Watch",
                     size = PillSize.Sm,
                     primary = true,
                     icon = ExpIcons.navDevices,
                     onClick = { onWatch(session.id) },
+                )
+            } else {
+                // A teammate's run (or the caller's own with steering off):
+                // read-only, so it is a caption — the state, and whose run it
+                // is when it is not the reader's.
+                val tone = when (state) {
+                    CodingSessionDisplayState.Running -> LiveGreen
+                    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+                    CodingSessionDisplayState.Review -> ReviewGreen
+                    CodingSessionDisplayState.Done -> DoneBlue
+                }
+                // EXP-848: the pulse is the MID-TURN cue (synced `agent_busy`)
+                // — a live run between turns keeps a static disc.
+                val running = state == CodingSessionDisplayState.Running && session.agentBusy
+                if (running) {
+                    PulsingDot(size = GlassPillDefaults.DotSize)
+                } else {
+                    StaticDot(tone, size = GlassPillDefaults.DotSize)
+                }
+                Spacer(Modifier.width(6.dp))
+                val who = userDisplayName(sessionOwner, session.userId)
+                Text(
+                    // Web parity (`verb` + ` · name` only when it is someone
+                    // else's): the machine name left with the card.
+                    when (state) {
+                        CodingSessionDisplayState.Running -> "Coding now"
+                        CodingSessionDisplayState.NeedsInput -> "Needs input"
+                        CodingSessionDisplayState.Review -> "Ready for review"
+                        CodingSessionDisplayState.Done -> "Done"
+                    } + if (ownSession) "" else " · $who",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

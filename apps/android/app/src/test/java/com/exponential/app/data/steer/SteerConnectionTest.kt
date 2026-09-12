@@ -4,6 +4,7 @@ import com.exponential.app.data.api.SteerTicketResult
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.TURN_STATE_STARTED
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -18,8 +19,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -1023,6 +1027,64 @@ class SteerConnectionTest {
         try {
             liveWithFeed(transport, connection)
             assertFalse(connection.canLoadEarlier())
+        } finally {
+            connection.close()
+        }
+    }
+
+    /**
+     * EXP-783/EXP-848: an older page is TRANSCRIPT only. It is folded through
+     * the reducer over a FRESH state, so the `config_state` / `usage` /
+     * `rate_limit` / `compaction` / `turn` slots it happens to contain are the
+     * state of a moment long gone and must never replace the live ones — a
+     * page carrying a stale `turn: started` would have made an idle agent read
+     * as working, and one carrying the mode it ran in would have re-lit the
+     * Plan chip. Only `feed` (and its byte tally) comes forward.
+     */
+    @Test
+    fun anOlderPageNeverClobbersTheLatestWinsSlots() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            // Seq-stamped: a page ask is anchored on the oldest seq on screen.
+            socket.emit("""{"t":"activity","seq":40,"event":{"kind":"narration","text":"tail"}}""")
+            // The live state: plan mode, a context meter, mid-turn.
+            socket.emit(CONFIG_FRAME)
+            socket.emit(USAGE_FRAME)
+            socket.emit("""{"t":"activity","event":{"kind":"turn","state":"started"}}""")
+            socket.emit("""{"t":"activity_synced","truncated":true,"firstSeq":40}""")
+            waitUntil("the live slots") {
+                connection.activity.value.config != null &&
+                    connection.activity.value.usage != null &&
+                    connection.activity.value.turnState == TURN_STATE_STARTED
+            }
+            assertTrue(connection.loadEarlier())
+            val ask = withTimeoutOrNull(5_000) {
+                var frame: String? = null
+                while (frame == null) {
+                    frame = socket.sent.lastOrNull { it.contains(""""t":"history_page"""") }
+                    if (frame == null) delay(2)
+                }
+                frame
+            }
+            val requestId = json.parseToJsonElement(ask!!).jsonObject["requestId"]!!
+                .jsonPrimitive.content
+            // The page: one older narration, plus the state of THAT moment.
+            socket.emit(
+                """{"t":"history_chunk","requestId":"$requestId","done":true,""" +
+                    """"seqs":[10,11,12],"events":[""" +
+                    """{"kind":"narration","text":"older"},""" +
+                    """{"kind":"config_state","options":[],"currentMode":"default"},""" +
+                    """{"kind":"turn","state":"ended"}]}""",
+            )
+            waitUntil("the prepended page") { connection.activity.value.feed.size == 2 }
+            val after = connection.activity.value
+            assertEquals(TURN_STATE_STARTED, after.turnState)
+            assertEquals("plan", after.config?.currentMode)
+            assertNotNull(after.usage)
         } finally {
             connection.close()
         }

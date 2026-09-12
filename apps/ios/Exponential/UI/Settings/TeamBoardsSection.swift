@@ -15,11 +15,13 @@ struct TeamBoardsSection: View {
     @State private var showCreate = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // EXP-721: the ONE shared header (Labels/Members parity) — the
-            // hand-rolled `.headline` + count line is gone, counts having been
-            // retired from section headers by EXP-698.
-            GlassSectionHeader("Boards") {
+        // EXP-818: the filled group band over flat rows (Labels/Members
+        // parity) — the boards read as a table, not as a stack of cards.
+        VStack(alignment: .leading, spacing: 0) {
+            // EXP-721: the ONE shared header — the hand-rolled `.headline` +
+            // count line is gone, counts having been retired from section
+            // headers by EXP-698.
+            GlassSectionBand("Boards") {
                 // New boards require repo-connect rights — owner-gated, matching
                 // the server's create policy.
                 if isOwner {
@@ -83,7 +85,7 @@ struct TeamBoardsSection: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .glassRow()
+                    .flatRow()
                 }
             }
         }

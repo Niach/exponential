@@ -51,6 +51,8 @@ import {
   askStepperView,
   collectSubagents,
   diffTruncationNote,
+  expToolCaption,
+  expToolDisplay,
   freeAnswerFor,
   BACK_TO_CURRENT_STEP,
   FREE_TEXT_PLACEHOLDER,
@@ -64,6 +66,7 @@ import {
   optionHotkey,
   pendingAnswerable,
   opensInlineField,
+  planModeChipLabel,
   rateLimitBanner,
   rowClass,
   sessionIsWorking,
@@ -76,6 +79,8 @@ import {
   visibleSubagentTabs,
   type AnswerState,
   type AnswerStates,
+  type ExpToolDisplay,
+  type ExpToolPreview,
   type RowClass,
   type SessionConfigState,
   type SessionRateLimitState,
@@ -155,6 +160,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
+import { ExponentialLogo } from "@/components/exponential-logo"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
@@ -628,6 +634,8 @@ export function AgentSessionView({
   // run's device reported one. `usageNow` already ticks for the stale check,
   // so the countdown rides it rather than opening a second timer.
   const blockedLabel = blockedBadgeLabel(session.blocked, usageNow)
+  /** EXP-847: "Plan" while the live config says plan mode is in force. */
+  const planChip = planModeChipLabel(config)
   /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
    *  implies ownership (EXP-312), and only a live stream can be killed. */
   const {
@@ -790,6 +798,19 @@ export function AgentSessionView({
             )}
           </div>
         </div>
+        {/* EXP-847: plan mode, VISIBLE. Read-only by design — EXP-790 made
+            mode a launch-time choice, so this says what the run is doing and
+            clears itself the moment an approved ExitPlanMode changes
+            `currentMode`. */}
+        {planChip && (
+          <span
+            className="shrink-0 rounded-sm border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            title="This run is in plan mode — it proposes a plan before it edits anything. Mode is chosen at launch."
+            data-testid="session-plan-chip"
+          >
+            {planChip}
+          </span>
+        )}
         {/* EXP-778: pin the run to the sidebar's Pinned group. */}
         <PinToggleButton
           teamId={session.teamId ?? undefined}
@@ -2488,6 +2509,23 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   )
   const summary = summarizeSubagentRow(items)
   const { done, detail, toolCount } = summary
+  // EXP-847: the same contract caption a collapsed tool group carries
+  // ("Ran 4 commands · edited 2 files"), not a bare "N tool calls". When the
+  // publisher counted more calls than survived the replay buffer, the extras
+  // count as `other` — the caption then reads "Used 12 tools", never a lie
+  // about what they were.
+  const caption = useMemo(
+    () =>
+      toolGroupCaption(
+        tools.length >= toolCount
+          ? tools
+          : [
+              ...tools,
+              ...Array.from({ length: toolCount - tools.length }, () => ({})),
+            ]
+      ),
+    [tools, toolCount]
+  )
   const expandable = tools.length > 0
   const header = (
     <>
@@ -2501,8 +2539,7 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
       {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
       <span className="shrink-0 text-[0.6875rem]">
         {done ? `done` : `running`}
-        {toolCount > 0 &&
-          ` · ${toolCount} tool call${toolCount === 1 ? `` : `s`}`}
+        {toolCount > 0 && ` · ${caption}`}
       </span>
       {detail && (
         <span className="truncate text-[0.6875rem]" title={detail}>
@@ -2674,6 +2711,11 @@ function AgentConversation({
  *  worktree, this is the one call. */
 function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
   const failed = item.failed === true
+  // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
+  // "Created issue · <title>" plus the preview its answer carried — instead of
+  // the raw `mcp__exponential__exponential_issues_create`.
+  const exp = expToolDisplay(item.name)
+  if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
       <div
@@ -2706,6 +2748,155 @@ function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
       {item.diff && <ToolDiff diff={item.diff} />}
     </div>
   )
+}
+
+/** EXP-846: an Exponential MCP call. The brand mark leads (the same asset the
+ *  auth shell and the About card draw), then the contract caption —
+ *  progressive while the call runs ("Creating issue"), done once it settled
+ *  ("Created issue") — then the call's subject, then the preview the engine
+ *  distilled from the answer. A FAILED call keeps the generic failed styling
+ *  and shows no preview: there is no result to preview. Nothing is forced —
+ *  mark plus caption is a complete row when the answer named nothing. */
+function ExpToolRow({
+  item,
+  display,
+  flush = false,
+}: {
+  item: ToolItem
+  display: ExpToolDisplay
+  flush?: boolean
+}) {
+  const failed = item.failed === true
+  const caption = expToolCaption(display, item.settled === true)
+  // The subject is the input field the contract names (`subjectKey`), which
+  // the publisher sends as the call's `detail`. Once the call SETTLED the
+  // answer's own title/identifier is the better word for the same thing (and
+  // the honest one while a publisher derives `detail` generically), so it
+  // wins there.
+  const subject =
+    (item.settled
+      ? (item.preview?.title ?? item.preview?.identifier ?? item.detail)
+      : item.detail) ?? null
+  return (
+    <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
+      <div
+        className={cn(
+          `flex min-w-0 items-center gap-2`,
+          TRANSCRIPT_TOOL_TEXT,
+          failed && `text-rose-400`
+        )}
+      >
+        <ExponentialLogo
+          variant="light"
+          size={12}
+          className={cn(
+            `size-3 shrink-0`,
+            failed ? `text-rose-400/70` : `text-muted-foreground/60`
+          )}
+        />
+        <span className="shrink-0 font-medium">{caption}</span>
+        {subject && (
+          <span
+            className={cn(
+              `truncate text-[0.6875rem]`,
+              failed ? `text-rose-400/80` : `text-muted-foreground`
+            )}
+            title={subject}
+          >
+            {subject}
+          </span>
+        )}
+        {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
+      </div>
+      {!failed && item.preview && (
+        <ExpToolResult kind={display.result} preview={item.preview} />
+      )}
+    </div>
+  )
+}
+
+/** EXP-846: the settled call's result, by contract `result` kind. An issue
+ *  gets the very chip an `#IDENT` reference renders (preview on hover, tap
+ *  opens the issue) when the row is synced here, and its identifier + title as
+ *  plain text when it is not; a PR gets its link; a list its row count; the
+ *  named things a small chip. `none` renders nothing at all. */
+function ExpToolResult({
+  kind,
+  preview,
+}: {
+  kind: string
+  preview: ExpToolPreview
+}) {
+  const issueRefs = useIssueRefs()
+  const label = preview.title ?? preview.identifier ?? preview.id ?? null
+  if (kind === `issue`) {
+    const resolved = preview.id
+      ? (issueRefs?.resolveById(preview.id) ??
+        (preview.identifier
+          ? issueRefs?.resolve(preview.identifier)
+          : null) ??
+        null)
+      : preview.identifier
+        ? (issueRefs?.resolve(preview.identifier) ?? null)
+        : null
+    if (resolved) {
+      return (
+        <div className="ml-5 pt-0.5">
+          <IssueRefPill issue={resolved} />
+        </div>
+      )
+    }
+    if (!preview.identifier && !preview.title) return null
+    return (
+      <div className="ml-5 flex min-w-0 items-center gap-1.5 pt-0.5 text-[0.6875rem] text-muted-foreground">
+        {preview.identifier && (
+          <span className="shrink-0 font-mono">{preview.identifier}</span>
+        )}
+        {preview.title && <span className="truncate">{preview.title}</span>}
+      </div>
+    )
+  }
+  if (kind === `pr`) {
+    if (!preview.url) return null
+    return (
+      <div className="ml-5 min-w-0 pt-0.5 text-[0.6875rem]">
+        <a
+          href={preview.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block truncate text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          title={preview.url}
+        >
+          {preview.url}
+        </a>
+      </div>
+    )
+  }
+  if (kind === `list`) {
+    if (preview.count === undefined) return null
+    return (
+      <div className="ml-5 pt-0.5 text-[0.6875rem] text-muted-foreground">
+        {`${preview.count} result${preview.count === 1 ? `` : `s`}`}
+      </div>
+    )
+  }
+  if (
+    kind === `session` ||
+    kind === `board` ||
+    kind === `action` ||
+    kind === `automation` ||
+    kind === `comment`
+  ) {
+    if (!label) return null
+    return (
+      <div className="ml-5 pt-0.5">
+        <Pill size="sm" className="max-w-[18rem]" title={label}>
+          <span className="min-w-0 truncate">{label}</span>
+        </Pill>
+      </div>
+    )
+  }
+  return null
 }
 
 /** EXP-786: one call's diff, through the same file renderer the "Latest

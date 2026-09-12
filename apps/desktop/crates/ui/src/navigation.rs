@@ -274,6 +274,49 @@ pub(crate) fn derive_origin(
     }
 }
 
+/// EXP-827: where a SESSION screen's Back goes — the place the run was opened
+/// from, not whatever happens to sit on the window's history.
+///
+/// Back used to be a plain [`go_back`], so a reader who walked from the session
+/// to two other issues and back landed on an unrelated issue. A session knows
+/// better: its tab carries the list it was opened beside ([`TabOrigin`], the
+/// [`derive_origin`] breadcrumb), so
+///
+/// * opened from the Agent page / anything context-free (`ToolWindow::Sessions`)
+///   → the Agent page, where its row is;
+/// * opened from a LIST beside an issue the run is bound to → that issue's
+///   detail, which offers Watch again;
+/// * anything else (a batch, an action, a chat run opened from a board) → the
+///   Agent page.
+///
+/// Pure, so every combination is a unit test below.
+pub(crate) fn session_back_target(origin: Option<&TabOrigin>, issue_id: Option<&str>) -> Screen {
+    let from_sessions = origin
+        .map(|origin| origin.tool == crate::sidebar::ToolWindow::Sessions)
+        .unwrap_or(true);
+    match issue_id {
+        Some(issue_id) if !from_sessions => Screen::IssueDetail {
+            issue_id: issue_id.to_string(),
+        },
+        _ => Screen::Chat,
+    }
+}
+
+/// Go to `screen` the way BACK goes there: when it is already the top of the
+/// back stack this is a plain [`go_back`] (the history pops, the forward stack
+/// gets the screen we left), otherwise a normal navigation to it. Used by the
+/// session screen's Back, which aims at an ORIGIN rather than at history.
+pub(crate) fn go_back_to(window: &Window, cx: &mut App, screen: Screen) {
+    let previous_matches = nav_for_window_readonly(window, cx)
+        .map(|nav| nav.read(cx).previous_screen() == Some(&screen))
+        .unwrap_or(false);
+    if previous_matches {
+        go_back(window, cx);
+    } else {
+        navigate(window, cx, screen);
+    }
+}
+
 /// Human title for a screen — the center tab label, and the undocked
 /// window's header/title (EXP-65). Issue tabs show the synced issue TITLE
 /// (EXP-288 — "the tabs [carry] our issue names, not only the shortcode"),
@@ -1608,6 +1651,42 @@ mod tests {
         assert_eq!(derive_origin(None, inbox.clone(), &issue, None), inbox);
         // Settings → ticket: Support.
         assert_eq!(derive_origin(Some(&Screen::Settings), board.clone(), &ticket, None).tool, ToolWindow::Support);
+    }
+
+    /// EXP-827: a session's Back follows the breadcrumb, not history — the
+    /// issue it was opened beside, or the Agent page.
+    #[test]
+    fn session_back_follows_the_tab_origin() {
+        use crate::sidebar::{InboxTab, ToolWindow};
+        let inbox = TabOrigin {
+            tool: ToolWindow::Inbox,
+            board_id: None,
+            inbox_tab: Some(InboxTab::Inbox),
+        };
+        let board = TabOrigin {
+            tool: ToolWindow::BoardIssues,
+            board_id: Some("b1".into()),
+            inbox_tab: None,
+        };
+        let sessions = TabOrigin {
+            tool: ToolWindow::Sessions,
+            board_id: None,
+            inbox_tab: None,
+        };
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        // Opened from a board / the Inbox beside its issue: back to the issue
+        // (where Watch again is).
+        assert_eq!(session_back_target(Some(&board), Some("i1")), issue);
+        assert_eq!(session_back_target(Some(&inbox), Some("i1")), issue);
+        // Opened from the Agent page: back to the Agent page, even for an
+        // issue-bound run — the list the row is in is the one to return to.
+        assert_eq!(session_back_target(Some(&sessions), Some("i1")), Screen::Chat);
+        // A batch / action / chat run has no issue to return to.
+        assert_eq!(session_back_target(Some(&board), None), Screen::Chat);
+        // No tab origin at all (a closed tab, a fresh window): the Agent page.
+        assert_eq!(session_back_target(None, Some("i1")), Screen::Chat);
     }
 
     /// EXP-818: go-back parks the screen it left for go-forward; a real

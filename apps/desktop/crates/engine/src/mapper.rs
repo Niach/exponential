@@ -1338,7 +1338,7 @@ impl Mapper {
     /// here to the wire cap.
     fn exp_tool_preview(&self, id: &str, result: &Value) -> Option<steer::ToolPreview> {
         let title = self.tools.get(id).map(|state| state.title.as_str())?;
-        exp_tool_row(title)?;
+        steer::exp_tool_row(title)?;
         let preview = exp_tool_preview(result)?;
         Some(preview.clamp())
     }
@@ -1497,6 +1497,15 @@ impl Mapper {
             if let Some(description) = string("description") {
                 return Some(self.clean(description, TOOL_DETAIL_MAX));
             }
+        }
+        // EXP-846: one of OUR MCP calls names its subject in a field the
+        // contract knows (`expToolSubjectKeys`: an issue's `title`, a comment's
+        // `issueId`), which is the only thing worth showing beside "Creating
+        // issue". Ahead of the generic keys below — `exponential_issues_update`
+        // carries an `id`, not a path or a pattern, and the generic pass would
+        // have found nothing at all.
+        if let Some(subject) = steer::exp_tool_subject_key(title).and_then(string) {
+            return Some(self.clean(subject, TOOL_DETAIL_MAX));
         }
         if let Some(path) = string("file_path").or_else(|| string("path")).or_else(|| string("filePath")) {
             return Some(self.clean(&self.display_path(&PathBuf::from(path)), TOOL_DETAIL_MAX));
@@ -2478,21 +2487,6 @@ fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
     }
 }
 
-/// EXP-785: the two ACP statuses that SETTLE a call; anything else is churn.
-/// EXP-846: the Exponential MCP tool a call NAMES, if any — a name ending in
-/// `exponential_<row>` for a contract `expToolNames` row, whatever namespace
-/// an adapter put in front of it (`mcp__exponential__exponential_issues_create`
-/// on claude, the bare tool name elsewhere). The contract PREFIX is required,
-/// which is what keeps another server's `issues_create` out.
-fn exp_tool_row(name: &str) -> Option<&'static str> {
-    let name = name.trim();
-    domain::contract::EXP_TOOL_NAMES.iter().copied().find(|row| {
-        name.len() > row.len()
-            && name.ends_with(*row)
-            && name[..name.len() - row.len()].ends_with(domain::contract::EXP_TOOL_PREFIX)
-    })
-}
-
 /// EXP-846: the JSON an MCP answer actually carries. MCP returns a
 /// `{content:[{type:"text",text:"…"}]}` envelope and the text is usually the
 /// JSON itself, so both shapes (and a bare object) resolve to one value here;
@@ -2579,6 +2573,7 @@ fn subject_object(payload: &Value) -> Option<&Map<String, Value>> {
     objects.next().is_none().then_some(first)
 }
 
+/// EXP-785: the two ACP statuses that SETTLE a call; anything else is churn.
 fn settle_status(status: ToolCallStatus) -> Option<ToolUpdateStatus> {
     match status {
         ToolCallStatus::Completed => Some(ToolUpdateStatus::Completed),
@@ -2846,6 +2841,43 @@ mod tests {
                 assert_eq!(name, "mcp.exponential.issues_get");
                 assert_eq!(detail, &None);
             }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    /// EXP-846: one of OUR calls publishes the SUBJECT its contract entry names
+    /// (`expToolSubjectKeys`) as the row's detail, so the transcript reads
+    /// "Creating issue · Fix the sync loop" instead of a bare caption. A tool
+    /// whose entry names no subject (a list) publishes none.
+    #[test]
+    fn an_exponential_call_publishes_its_contract_subject() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(
+            ToolCallId::new("tc-mcp-1"),
+            "mcp__exponential__exponential_issues_create",
+        )
+        .kind(ToolKind::Other)
+        .raw_input(json!({"boardId": "b-1", "title": "Fix the sync loop"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                // The NAME stays the raw tool name — the caption is the
+                // client's, off the contract tables.
+                assert_eq!(name, "mcp__exponential__exponential_issues_create");
+                assert_eq!(detail.as_deref(), Some("Fix the sync loop"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+
+        // A list names no subject: nothing is invented for it.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-mcp-2"), "exponential_issues_list")
+            .kind(ToolKind::Other)
+            .raw_input(json!({"boardId": "b-1"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { detail, .. } => assert_eq!(detail, &None),
             other => panic!("expected a tool event, got {other:?}"),
         }
     }
@@ -3193,27 +3225,6 @@ mod tests {
         let mut stopped = MapOut::default();
         mapper.on_stop(StopReason::Cancelled, &mut stopped);
         assert_eq!(stopped.idle, Some(true));
-    }
-
-    /// EXP-846: which names are OURS. Every adapter's namespace shape, our own
-    /// contract prefix, and a firm no for anything else.
-    #[test]
-    fn exp_tool_row_recognises_our_tools_through_every_namespace() {
-        assert_eq!(
-            exp_tool_row("mcp__exponential__exponential_issues_create"),
-            Some("issues_create")
-        );
-        assert_eq!(exp_tool_row("exponential_pr_open"), Some("pr_open"));
-        assert_eq!(
-            exp_tool_row("exponential.exponential_issues_list"),
-            Some("issues_list")
-        );
-        // Another server's same-named tool is NOT ours: the contract prefix is
-        // what identifies one. A builtin and an invented row are out too.
-        assert_eq!(exp_tool_row("mcp__linear__issues_create"), None);
-        assert_eq!(exp_tool_row("issues_create"), None);
-        assert_eq!(exp_tool_row("Bash"), None);
-        assert_eq!(exp_tool_row("exponential_issues_invented"), None);
     }
 
     /// EXP-846: the subject out of one of our answers — through the MCP text

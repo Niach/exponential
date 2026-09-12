@@ -29,37 +29,39 @@ struct AgentAccountsSection: View {
 
     var body: some View {
         let now = Date()
-        Group {
-            GlassSectionHeader("Accounts") {
-                if viewModel.accountsAutoRefresh {
-                    Text("Refreshes every 5 minutes")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            }
-            .accessibilityIdentifier("accounts-header")
-
+        // EXP-818: one FILLED band per agent over its flat rows — the accounts
+        // read as a table, like every other list on this page.
+        VStack(alignment: .leading, spacing: 12) {
             if !viewModel.accountsLoaded {
-                loadingRow
+                VStack(alignment: .leading, spacing: 0) {
+                    accountsBand
+                    loadingRow
+                }
             } else if viewModel.accountSections.isEmpty {
-                emptyRow
+                VStack(alignment: .leading, spacing: 0) {
+                    accountsBand
+                    emptyRow
+                }
             } else {
-                ForEach(viewModel.accountSections) { section in
-                    // Contract agent order — a band only renders when a
-                    // machine reported the agent.
-                    Text(LaunchVocabulary.agentLabel(section.agent))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.horizontal, 4)
-                        .padding(.top, 4)
-                    ForEach(section.groups) { group in
-                        AgentAccountRow(
-                            group: group,
-                            now: now,
-                            refreshing: viewModel.refreshingAccounts.contains(group.key),
-                            onRefresh: { viewModel.refreshAccount(group) },
-                            onOpenDevice: onOpenDevice
-                        )
+                // The "Accounts" band leads the group of the FIRST agent; every
+                // further agent gets its own band with the agent's name.
+                ForEach(Array(viewModel.accountSections.enumerated()), id: \.element.id) { index, section in
+                    VStack(alignment: .leading, spacing: 0) {
+                        if index == 0 {
+                            accountsBand
+                        }
+                        // Contract agent order — a band only renders when a
+                        // machine reported the agent.
+                        GlassSectionBand(LaunchVocabulary.agentLabel(section.agent))
+                        ForEach(section.groups) { group in
+                            AgentAccountRow(
+                                group: group,
+                                now: now,
+                                refreshing: viewModel.refreshingAccounts.contains(group.key),
+                                onRefresh: { viewModel.refreshAccount(group) },
+                                onOpenDevice: onOpenDevice
+                            )
+                        }
                     }
                 }
             }
@@ -73,6 +75,20 @@ struct AgentAccountsSection: View {
         }
     }
 
+    /// The section's own heading — the plain-text header stays here (it sits
+    /// OVER the per-agent bands, so a second filled strip would stack two
+    /// bands on top of each other).
+    private var accountsBand: some View {
+        GlassSectionHeader("Accounts") {
+            if viewModel.accountsAutoRefresh {
+                Text("Refreshes every 5 minutes")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        .accessibilityIdentifier("accounts-header")
+    }
+
     private var loadingRow: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(.white)
@@ -83,7 +99,7 @@ struct AgentAccountsSection: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     /// Web parity, word for word: the same glyph and sentence the web section
@@ -98,7 +114,7 @@ struct AgentAccountsSection: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 }
 
@@ -162,7 +178,7 @@ private struct AgentAccountRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         .accessibilityIdentifier("account-row-\(group.key)")
     }
 

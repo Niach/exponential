@@ -112,6 +112,39 @@ struct PinMenuItem: View {
     }
 }
 
+/// EXP-845: the pin BUTTON beside a screen's `…` — the issue detail's and the
+/// steering header's trailing control, the twin of web's `PinToggleButton`.
+/// Bare glyph in a 32pt frame, like every other toolbar-hosted control here
+/// (iOS 26 draws its own capsule around a bar item, so ours would read as two
+/// rings). A pinned target takes the `ui-unpin` glyph at full white, so the
+/// state reads without a label.
+///
+/// Deliberately NOT on list rows (EXP-845 decision): pins are set from the
+/// thing itself — its header or its `…` — exactly as issues are.
+struct PinToolbarButton: View {
+    let store: PinStore
+    let targetId: String
+
+    var body: some View {
+        let pinned = store.isPinned(targetId)
+        Button {
+            store.toggle(targetId)
+        } label: {
+            AppIcon(
+                pinned ? AppIcons.uiUnpin : AppIcons.uiPin,
+                size: AppIcon.Size.medium,
+                weight: .medium
+            )
+            .foregroundStyle(.white.opacity(pinned ? TextOpacity.primary : TextOpacity.secondary))
+            .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(pinned ? "Unpin" : "Pin")
+        .accessibilityIdentifier("pin-toggle")
+    }
+}
+
 /// The active team's pins RESOLVED against the local store, in display
 /// order — the board switcher's Pinned section. Rows whose target has not
 /// synced (or is gone) are hidden, never shown as dead rows.

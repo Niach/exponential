@@ -212,10 +212,13 @@ struct ActionsListView: View {
             Spacer()
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    // EXP-574 (web parity): the "Actions" header with the
+                // EXP-818: a filled group BAND over flat rows — the list reads
+                // as a table instead of a stack of cards (web `ListRow`,
+                // desktop `surface::flat_row`).
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    // EXP-574 (web parity): the "Actions" band with the
                     // "New action" entry (EXP-431) as its trailing control.
-                    GlassSectionHeader("Actions") {
+                    GlassSectionBand("Actions") {
                         newActionButton
                     }
                     ForEach(vm.actions) { actionRow($0) }
@@ -253,9 +256,9 @@ struct ActionsListView: View {
             Spacer()
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    // EXP-574 (web parity): section headers.
-                    GlassSectionHeader("Automations") {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    // EXP-574 (web parity): section bands (EXP-818).
+                    GlassSectionBand("Automations") {
                         if vm.permissions.isOwner {
                             newAutomationButton(vm)
                         }
@@ -288,8 +291,8 @@ struct ActionsListView: View {
     /// doesn't stack onto a node that already presents something.
     @ViewBuilder
     private func recentAutomatedRuns(_ vm: ActionsViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassSectionHeader("Recent automated runs")
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand("Recent automated runs")
                 .padding(.top, 12)
             ForEach(vm.automationRuns) { automatedRunRow($0, vm: vm) }
         }
@@ -427,7 +430,7 @@ struct ActionsListView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         .accessibilityIdentifier("automation-row")
     }
 
@@ -534,7 +537,7 @@ struct ActionsListView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
-            .glassRow()
+            .flatRow()
             .contentShape(Rectangle())
         }
         // `.plain` is what every tappable glass row in the app wears (the
@@ -668,7 +671,7 @@ struct ActionsListView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         .accessibilityIdentifier("action-row")
     }
 }

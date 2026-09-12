@@ -8,6 +8,10 @@ import { cn } from "@/lib/utils"
 import { boardCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { compareBoards, useTeamMemberships } from "@/hooks/use-team-data"
+import { getActionIcon } from "@/lib/board-icons"
+import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useOpenSession } from "@/hooks/use-open-session"
+import { usePinnedEntries } from "@/hooks/use-pins"
 import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
@@ -30,6 +34,9 @@ interface BoardSwitcherSheetProps {
 }
 
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+const NavIssuesIcon = conceptIcon(`nav-issues`)
+const CodingAssistantIcon = conceptIcon(`coding-assistant`)
+const PinIcon = conceptIcon(`ui-pin`)
 // EXP-687: one glyph for "boards" across every web surface that moves an
 // issue or a reader between them (icons.test.ts gates it).
 const NavBoardsIcon = conceptIcon(`nav-boards`)
@@ -102,6 +109,15 @@ export function BoardSwitcherSheet({
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="flex flex-col gap-4 px-2 pb-2">
+              {/* EXP-778/818: the phone's ONLY route to the Pinned list — the
+                  sidebar that carries it on md+ is a keyboard away (Cmd+B),
+                  and the natives put pins in this very sheet. Current team
+                  only: a pin is per team, like the sidebar group. */}
+              <PinnedSheetSection
+                teamId={team?.id}
+                teamSlug={teamSlug}
+                onNavigate={() => onOpenChange(false)}
+              />
               {orderedTeams.map((row) => {
                 const teamBoards = boardsByTeam.get(row.id) ?? []
                 return (
@@ -190,5 +206,80 @@ export function BoardSwitcherSheet({
         onOpenChange={setCreateTeamOpen}
       />
     </>
+  )
+}
+
+/** EXP-818: the sheet's Pinned section — the sidebar group's rows, resolved by
+ * the same hook (`usePinnedEntries`), as sheet rows. Hidden when nothing is
+ * pinned (or nothing resolves), exactly like the sidebar group. Unpinning
+ * stays on the detail surfaces; this is a jump list. */
+function PinnedSheetSection({
+  teamId,
+  teamSlug,
+  onNavigate,
+}: {
+  teamId: string | undefined
+  teamSlug: string
+  onNavigate: () => void
+}) {
+  const navigate = useNavigate()
+  const openSession = useOpenSession()
+  const openComposer = useOpenComposer()
+  const entries = usePinnedEntries(teamId)
+  if (entries.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 px-3 pt-1">
+        <PinIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate text-sm font-medium">Pinned</span>
+      </div>
+      {entries.map((entry) => {
+        const open = () => {
+          onNavigate()
+          if (entry.kind === `issue`) {
+            void navigate({
+              to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+              params: {
+                teamSlug,
+                boardSlug: entry.boardSlug,
+                issueIdentifier: entry.identifier,
+              },
+            })
+            return
+          }
+          if (entry.kind === `session`) {
+            openSession(entry.session)
+            return
+          }
+          openComposer({ actionId: entry.action.id })
+        }
+        // One glyph per kind — the sidebar group's vocabulary.
+        const EntryIcon =
+          entry.kind === `action`
+            ? getActionIcon(entry.action)
+            : entry.kind === `session`
+              ? CodingAssistantIcon
+              : NavIssuesIcon
+        return (
+          <GlassRow
+            key={entry.pin.id}
+            interactive
+            className="gap-3"
+            onClick={open}
+          >
+            <EntryIcon className="size-4 shrink-0 text-muted-foreground" />
+            {entry.kind !== `action` && entry.identifier && (
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {entry.identifier}
+              </span>
+            )}
+            <span className="min-w-0 flex-1 truncate text-sm">
+              {entry.title}
+            </span>
+            <ChevronRightIcon className="size-4 shrink-0 text-foreground/50" />
+          </GlassRow>
+        )
+      })}
+    </div>
   )
 }

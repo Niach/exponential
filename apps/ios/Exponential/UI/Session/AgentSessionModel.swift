@@ -256,10 +256,26 @@ final class AgentSessionModel {
         )
     }
 
-    /// EXP-772: the composer's ONE chip — the agent's mode. Nil until the
+    /// EXP-772: the run's mode, as the agent advertises it. Nil until the
     /// first `config_state`, and on every run whose agent advertises no modes.
+    ///
+    /// EXP-790 made mode LAUNCH-TIME, so this is never a control any more — but
+    /// EXP-847 keeps it as what the header's READ-ONLY Plan chip reads: a plan
+    /// run has to SAY so, and an approved `ExitPlanMode` visibly clears it when
+    /// the next `config_state` lands.
     var modeChip: AgentModeChip? {
         AgentFeed.modeChip(sessionConfig)
+    }
+
+    /// EXP-847: the run is in PLAN mode right now — the header chip's whole
+    /// rule, mirrored ×4. Read off the latest `config_state` (the `plan` +
+    /// one-other pair collapses into `planToggle`, a longer mode list is
+    /// compared by id), so leaving plan mode clears the chip by itself. Never a
+    /// control: EXP-790 keeps plan mode launch-time.
+    var planModeActive: Bool {
+        guard let chip = modeChip else { return false }
+        if let toggle = chip.planToggle { return toggle.on }
+        return sessionConfig?.currentMode == AgentFeed.planModeId
     }
 
     /// EXP-746: the id the catalog is keyed on — this run's agent, or, for an
@@ -675,8 +691,10 @@ final class AgentSessionModel {
     /// at the end instead of after every frame.
     @ObservationIgnored private var applyingBatch = false
     /// EXP-848: set while `prependPage` folds an OLDER page through the live
-    /// reducer — the latest-wins turn slot is about the run's present, so a
-    /// page from the far end of the transcript must not touch it.
+    /// reducer — every latest-wins slot (turn, config, usage, rate limit, the
+    /// compaction strip) is about the run's PRESENT, so a page from the far end
+    /// of the transcript must not touch any of them. Web does the same by
+    /// saving and restoring those slots around its fold.
     @ObservationIgnored private var prependingPage = false
     /// EXP-656: the activity events of an in-flight join replay. nil = not
     /// staging; non-nil (even empty) = the visible feed is frozen and every
@@ -2184,14 +2202,22 @@ final class AgentSessionModel {
                 tool: tool,
                 detail: Self.trimmedField(event["detail"])
             ))
+        // EXP-846/848: every LATEST-WINS slot below is about the run's PRESENT,
+        // so a page of OLDER transcript folded through this same reducer
+        // (`prependingPage`) must never repaint one — web saves and restores
+        // them around its fold (`steer-session-store.ts` `prependPage`), which
+        // is exactly what skipping them here achieves.
         case "config_state":
             // EXP-746: latest-wins STATE, not a row. A malformed frame keeps
             // whatever the chips already show (the fold's contract).
+            guard !prependingPage else { return }
             sessionConfig = AgentFeed.applyConfigState(sessionConfig, event: event)
         case "usage":
+            guard !prependingPage else { return }
             sessionUsage = AgentFeed.applyUsage(sessionUsage, event: event)
         case "rate_limit":
             // EXP-784: the fourth slot; an empty/`ok` status clears it.
+            guard !prependingPage else { return }
             sessionRateLimit = AgentFeed.applyRateLimit(sessionRateLimit, event: event)
         case "turn":
             // EXP-848: latest-wins STATE, never a row. Skipped while an OLDER
@@ -2205,12 +2231,18 @@ final class AgentSessionModel {
             // one even for an UNMATCHED `ended` (codex publishes no start
             // marker for auto-compaction, so the gap still gets explained).
             let phase = event["phase"] as? String
-            compacting = AgentFeed.applyCompaction(compacting, event: event)
-            if phase == "started" {
-                armCompactionTimeout(startedAt: event["at"] as? Double)
-            } else if phase == "ended" {
-                compactionTimeoutTask?.cancel()
-                compactionTimeoutTask = nil
+            // The marker ROW is transcript, so an older page still prepends it;
+            // the live strip and its backstop are present-tense state.
+            if !prependingPage {
+                compacting = AgentFeed.applyCompaction(compacting, event: event)
+                if phase == "started" {
+                    armCompactionTimeout(startedAt: event["at"] as? Double)
+                } else if phase == "ended" {
+                    compactionTimeoutTask?.cancel()
+                    compactionTimeoutTask = nil
+                }
+            }
+            if phase == "ended" {
                 append(.compaction(id: takeEventId()))
             }
         default:

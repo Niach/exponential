@@ -79,6 +79,7 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 
 // One confirm target per destructive/consequential settings action. Each tab
@@ -310,7 +311,7 @@ private fun BoardsSection(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 BoardIcon(board)
                 // EXP-698: the NAME owns the first line and the repo chip sits
@@ -725,7 +726,7 @@ private fun RepositoryRow(
     // EXP-721: the row IS the card — self-bordered glass at the board/label
     // row padding, gapped from its siblings by the section.
     Column(
-        modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -865,7 +866,7 @@ private fun MembersSection(
                 // role pill and the overflow circle — the pill used to sit
                 // flush against both of its neighbours.
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
                 Column(modifier = Modifier.weight(1f)) {
@@ -1030,7 +1031,7 @@ private fun LabelRow(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Box(Modifier.size(12.dp).background(parseColor(label.color), CircleShape))
         Text(label.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)

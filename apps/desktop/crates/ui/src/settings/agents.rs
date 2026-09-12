@@ -659,6 +659,11 @@ impl AgentsPane {
             move |_: &mut Self, switch, cx| {
                 crate::agent_login::open_login_tab(agent_tab, switch, cx)
             },
+            // EXP-827: the windows themselves live on the Devices page's
+            // Accounts section — this pane only points there.
+            |_: &mut Self, window, cx| {
+                crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
+            },
             cx,
         );
 

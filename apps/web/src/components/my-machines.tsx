@@ -339,6 +339,13 @@ export function MyMachines({
             const unauthed = deviceUnauthedAgentIds(device)
             const runnable = deviceHasRunnableAgent(device)
             const signInNeeded = online && !runnable && unauthed.length > 0
+            // EXP-836: play hands this machine to the Agent composer, which
+            // only starts on an online machine WITH a runnable agent — so the
+            // button gates on exactly that. It used to gate on `signInNeeded`
+            // alone, so a machine reporting no agents at all (nothing
+            // installed, an older build) opened the composer and the
+            // pre-picked machine silently lost to the default one.
+            const startable = online && runnable
             const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
             const latest =
               device.kind === `server`
@@ -488,18 +495,20 @@ export function MyMachines({
                     title={
                       signInNeeded
                         ? `Sign in to ${unauthed[0]} on this machine first.`
-                        : undefined
+                        : online && !runnable
+                          ? `No agent is signed in on this machine.`
+                          : undefined
                     }
                   >
                     <Button
                       variant="glass"
                       size="icon"
-                      disabled={!online || signInNeeded}
+                      disabled={!startable}
                       onClick={() => onStartCoding(device.deviceId)}
                       aria-label="Start coding"
                       // The wrapping span explains a sign-in block; its tooltip
                       // must not be shadowed by this one.
-                      title={signInNeeded ? undefined : `Start coding`}
+                      title={startable ? `Start coding` : undefined}
                     >
                       <StartCodingIcon />
                     </Button>
@@ -585,10 +594,16 @@ export function MyMachines({
                     <Button
                       variant="glass"
                       size="icon"
-                      disabled={!online || signInNeeded}
+                      // EXP-836: same predicate as own machines — the composer
+                      // cannot start on a machine with no runnable agent.
+                      disabled={!online || !runnable}
                       onClick={() => onStartCoding(device.deviceId)}
+                      title={
+                        online && !runnable
+                          ? `No agent is signed in on this machine.`
+                          : `Start coding`
+                      }
                       aria-label="Start coding"
-                      title="Start coding"
                     >
                       <StartCodingIcon />
                     </Button>

@@ -75,7 +75,7 @@ use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
 use crate::mention_input::MentionInput;
 use crate::navigation::{self, ChatSeed, Navigation};
 use crate::queries;
-use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
+use crate::surface::{glass_pill, PillMode, PillSize};
 
 /// The page's one field: wide, rounded, Enter sends and Shift+Enter breaks a
 /// line — the steer composer's rhythm, on a page with nothing else on it.
@@ -88,8 +88,9 @@ const NO_REPO_LABEL: &str = "No repository";
 /// EXP-790/EXP-820: the suggestion POOL over an empty prompt — the desktop
 /// twin of the web page's `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`,
 /// rendered by `routes/t/$teamSlug/agent.tsx`), byte-identical and in the
-/// same order. A suggestion ending in `#` opens the issue picker the moment it
-/// lands; the others are plain text. The page shows [`CHAT_SUGGESTION_COUNT`]
+/// same order. A suggestion carrying a `#` opens the issue picker the moment
+/// it lands (the caret parks right after that `#`); the others are plain text.
+/// The page shows [`CHAT_SUGGESTION_COUNT`]
 /// of them, picked once per page ([`pick_chat_suggestions`]).
 pub(crate) const CHAT_SUGGESTIONS: [&str; 16] = [
     "Fix #",
@@ -1435,6 +1436,12 @@ impl ChatScreenView {
 
     /// EXP-696: hand the run to another machine. Success clears the composer
     /// and says where the run went; a refusal renders in the error slot.
+    ///
+    /// EXP-818: it then FOLLOWS the run in — a remote start lands in the
+    /// session screen exactly as a local one does
+    /// ([`coding_flow::follow_remote_start`], which waits for the row the
+    /// other machine writes). The toast stays: it names the machine, which is
+    /// the one thing the screen itself does not announce.
     fn launch_remote(
         &mut self,
         input: api::steer::StartSessionInput,
@@ -1447,6 +1454,8 @@ impl ChatScreenView {
             cx.notify();
             return;
         };
+        let device_id = input.device_id.clone();
+        let subject = coding_flow::RemoteRunSubject::of(&input);
         self.launching = true;
         self.error = None;
         cx.notify();
@@ -1465,6 +1474,7 @@ impl ChatScreenView {
                             ))),
                             cx,
                         );
+                        coding_flow::follow_remote_start(device_id, subject, window, cx);
                         this.after_started(window, cx);
                     }
                     Err(err) => this.error = Some(err.user_message().into()),
@@ -1514,8 +1524,11 @@ impl ChatScreenView {
         .detach();
     }
 
-    /// The run is on its way: clear the draft, the images and the subject
-    /// (the launcher navigates to the session itself).
+    /// The run is on its way: clear the draft, the images and the subject.
+    /// Navigating into the run is NOT this function's job — a local launch
+    /// lands there from `coding_flow::spawn_into_window`, a remote one from
+    /// `coding_flow::follow_remote_start` once the other machine's row syncs
+    /// (EXP-818: both paths open the session screen).
     fn after_started(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.input
             .update(cx, |input, cx| input.set_value("", window, cx));
@@ -1995,8 +2008,10 @@ impl ChatScreenView {
     }
 
     /// EXP-790: the suggestion chips, shown over the EMPTY, subject-less
-    /// field only. A click inserts the text through the mention widget so a
-    /// trailing `#` opens the issue picker, exactly as typing it would.
+    /// field only. A click inserts the text through the mention widget and
+    /// parks the caret after the suggestion's first `#`
+    /// ([`MentionInput::insert_suggestion`]), so the issue picker opens
+    /// exactly as typing the token would — wherever in the sentence it sits.
     fn render_suggestions(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if !matches!(self.subject, Subject::None) || !self.input.read(cx).value().trim().is_empty() {
             return None;
@@ -2007,7 +2022,8 @@ impl ChatScreenView {
                 .cursor_pointer()
                 .child(div().text_xs().child(text))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.mention.update(cx, |mention, cx| mention.insert_text(text, window, cx));
+                    this.mention
+                        .update(cx, |mention, cx| mention.insert_suggestion(text, window, cx));
                     cx.notify();
                 }))
         });
@@ -2051,13 +2067,21 @@ impl Render for ChatScreenView {
 
         let blocker = self.launch_blocker(cx);
         let no_session_note = self.no_session_note();
+        // EXP-827: ICON-ONLY — the ONE round send of `composer::glass_composer`
+        // (the steer composer's button, same ring, same 32px hit box). The
+        // label the web `submitLabel` mirrors is the TOOLTIP now: the composer
+        // card is the page's only control, so a word beside the arrow only
+        // repeated what the chips above it already say.
         let label = chat_launch::submit_label(&self.subject_kind());
-        let submit = glass_pill_button("chat-send", PillSize::Md, cx)
-            .icon(Icon::new(registry::UI_SUBMIT))
-            .label(SharedString::from(label))
-            .disabled(blocker.is_some())
-            .loading(self.launching || self.sending)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
+        let submit = crate::composer::composer_submit(
+            "chat-send",
+            registry::UI_SUBMIT,
+            blocker.is_some(),
+            cx,
+        )
+        .tooltip(SharedString::from(label))
+        .loading(self.launching || self.sending)
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
         let chips = self.render_chips(cx);
         let fields = self.render_action_fields(cx);
         let leading = match (chips, fields) {

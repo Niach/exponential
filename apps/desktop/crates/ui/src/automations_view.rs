@@ -423,6 +423,10 @@ impl AutomationsView {
                     id_prefix: "run",
                     index,
                     lead: run_rows::RunRowLead::Automation,
+                    // Automated runs are flat: an automation fires ONE run,
+                    // and a sub-session it starts is listed on the Agent page.
+                    depth: 0,
+                    fold: None,
                     identifier: None,
                     title: parts.title,
                     caption: Some(parts.caption),

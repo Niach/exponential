@@ -41,6 +41,11 @@ struct DeviceSettingsSheet: View {
     let viewModel: AgentsViewModel
     let deviceId: String
     let teams: [TeamEntity]
+    /// EXP-827: where the round Usage button goes — the Devices page's Accounts
+    /// section (web `device-settings-dialog.tsx` `openUsage`). The sheet closes
+    /// itself first; a host with nowhere to send the caller passes nothing and
+    /// the button simply does not render.
+    var onOpenUsage: (() -> Void)? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -617,6 +622,21 @@ struct DeviceSettingsSheet: View {
                 if canOfferLogin(device, agent: agent), !pending {
                     loginButton(agent: agent, account: account)
                 }
+                // EXP-827: the round Usage button — the inline cards that used
+                // to sit under this block are gone; the numbers live on ONE
+                // surface (Devices → Accounts) on every client.
+                if let onOpenUsage, account != nil || hasUsage(device, agent: agent) {
+                    CircleIconButton(
+                        AppIcons.uiUsage,
+                        accessibilityLabel: "Usage",
+                        size: DesignTokens.Size.controlSm,
+                        glyphSize: AppIcon.Size.small
+                    ) {
+                        dismiss()
+                        onOpenUsage()
+                    }
+                    .accessibilityIdentifier("device-usage-button")
+                }
             }
             if pending {
                 HStack(spacing: 6) {
@@ -639,19 +659,24 @@ struct DeviceSettingsSheet: View {
         return AgentUsagePresentation.accountCaption(account)
     }
 
-    /// EXP-688: the agent's rate-limit cards, or — when the numbers are past
-    /// the freshness window — how old they are. Fresh numbers only: an old
-    /// percentage beside a live machine reads as a current one.
+    /// Whether this machine reported any usage windows for the agent — what the
+    /// Usage button needs to be worth offering.
+    private func hasUsage(_ device: SteerDevice, agent: String) -> Bool {
+        (device.agentUsage?[agent]?.windows?.isEmpty == false)
+    }
+
+    /// EXP-827: how old the machine's report is, and nothing else. The
+    /// rate-limit CARDS moved to the one surface that owns them (Devices →
+    /// Accounts, EXP-829) — a second copy of the bars inside this sheet was the
+    /// same numbers twice, and a stale set beside a live machine read as
+    /// current. The round Usage button in `accountBlock` is the way there.
     @ViewBuilder
     private func usageBlock(_ device: SteerDevice, agent: String) -> some View {
-        if let usage = device.agentUsage?[agent] {
-            if AgentUsagePresentation.isFresh(fetchedAt: usage.fetchedAt) {
-                AgentUsageCards(usage: usage, compact: true)
-            } else if let asOf = asOfCaption(device, account: device.agentAccounts?[agent]) {
-                Text(asOf)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+        if device.agentUsage?[agent] != nil || device.agentAccounts?[agent] != nil,
+           let asOf = asOfCaption(device, account: device.agentAccounts?[agent]) {
+            Text(asOf)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
     }
 

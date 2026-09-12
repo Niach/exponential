@@ -3,8 +3,11 @@ import {
   ackAnswer,
   activeQuestionIds,
   mergeNarrationFragment,
+  expToolCaption,
+  expToolDisplay,
   modeChip,
   parseConfigState,
+  planModeChipLabel,
   planModeToggle,
   parseRateLimit,
   parseSessionUsage,
@@ -1116,6 +1119,25 @@ describe(`config state`, () => {
     expect(modeChip(blank)?.valueLabel).toBe(CONFIG_DEFAULT_VALUE_LABEL)
   })
 
+  // EXP-847: the session header's read-only chip — plan mode only.
+  it(`the plan chip shows only while plan mode is in force`, () => {
+    const modes = [
+      { id: `default`, label: `Default` },
+      { id: `plan`, label: `Plan` },
+    ]
+    expect(
+      planModeChipLabel(parseConfigState(state({ modes, currentMode: `plan` })))
+    ).toBe(`Plan`)
+    // An approved ExitPlanMode switches the mode — the chip goes with it.
+    expect(
+      planModeChipLabel(
+        parseConfigState(state({ modes, currentMode: `default` }))
+      )
+    ).toBeNull()
+    expect(planModeChipLabel(parseConfigState(state({ modes: [] })))).toBeNull()
+    expect(planModeChipLabel(null)).toBeNull()
+  })
+
   // EXP-772: the plan + one-other pair draws a Plan SWITCH; anything else
   // keeps the two-value chip.
   it(`planModeToggle recognizes the plan + one other pair`, () => {
@@ -1708,5 +1730,37 @@ describe(`turn state + working predicate (EXP-848)`, () => {
     expect(parseToolPreview({ count: 0 })).toEqual({ count: 0 })
     expect(parseToolPreview({ title: `   `, count: -2 })).toBeNull()
     expect(parseToolPreview(null)).toBeNull()
+  })
+})
+
+// ── EXP-846: the Exponential MCP tool row ───────────────────────────────────
+
+describe(`expToolDisplay`, () => {
+  it(`recognises our tools through every MCP namespace`, () => {
+    expect(expToolDisplay(`mcp__exponential__exponential_issues_create`)?.name).toBe(
+      `issues_create`
+    )
+    expect(expToolDisplay(`exponential_pr_open`)?.name).toBe(`pr_open`)
+    expect(expToolDisplay(`exponential.exponential_issues_list`)?.name).toBe(
+      `issues_list`
+    )
+  })
+
+  it(`keeps another server's tool out`, () => {
+    // The contract PREFIX has to sit right in front of the row name.
+    expect(expToolDisplay(`mcp__linear__issues_create`)).toBeNull()
+    expect(expToolDisplay(`issues_create`)).toBeNull()
+    expect(expToolDisplay(`Bash`)).toBeNull()
+    expect(expToolDisplay(`exponential_issues_invented`)).toBeNull()
+    expect(expToolDisplay(undefined)).toBeNull()
+  })
+
+  it(`reads progressive while the call runs and done once it settled`, () => {
+    const row = expToolDisplay(`exponential_issues_create`)!
+    expect(expToolCaption(row, false)).toBe(`Creating issue`)
+    expect(expToolCaption(row, true)).toBe(`Created issue`)
+    // The contract names the subject field and the preview kind.
+    expect(row.subjectKey).toBe(`title`)
+    expect(row.result).toBe(`issue`)
   })
 })

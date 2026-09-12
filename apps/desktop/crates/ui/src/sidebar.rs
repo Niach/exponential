@@ -692,10 +692,10 @@ pub(crate) fn session_row_state(ended: bool, paused: bool, needs_input: bool) ->
 
 impl SessionRowState {
     /// The row's trailing badge: a spinner while the agent is ACTUALLY
-    /// working (`busy` — EXP-818: the local engine's turn signal; a remote
-    /// run, whose turns this process cannot see, never spins), the amber
-    /// dot while the agent waits (the Devices entry's palette), nothing
-    /// else.
+    /// working (`busy` — EXP-848: the local engine's turn signal for a run
+    /// hosted here, the synced `agent_busy` column for one on another
+    /// machine), the amber dot while the agent waits (the Devices entry's
+    /// palette), nothing else.
     fn badge(self, busy: bool) -> Option<RailBadge> {
         match self {
             SessionRowState::Working => busy.then_some(RailBadge::Working),
@@ -730,6 +730,7 @@ fn rail_row(
         icon.xsmall().flex_shrink_0().into_any_element(),
         label,
         active,
+        None,
         badge,
         cx,
     )
@@ -737,11 +738,18 @@ fn rail_row(
 
 /// [`rail_row`] with an arbitrary LEAD element (EXP-818: a Sessions row leads
 /// with a state dot, and a parent row with its collapse chevron).
+///
+/// `note` is the muted caption between the title and the badge — EXP-827: a
+/// Sessions row's host MACHINE goes there, so the row reads
+/// `● title · macbook ◌` and the spinner stays the row's LAST element (it used
+/// to be appended by the caller, which put the machine name to the RIGHT of a
+/// spinner that then jumped as the name's width changed).
 fn rail_row_lead(
     id: impl Into<gpui::ElementId>,
     lead: gpui::AnyElement,
     label: impl Into<SharedString>,
     active: bool,
+    note: Option<SharedString>,
     badge: Option<RailBadge>,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
@@ -767,6 +775,17 @@ fn rail_row_lead(
         .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .child(lead)
         .child(div().flex_1().min_w_0().truncate().child(label.into()))
+        .when_some(note, |this, note| {
+            this.child(
+                div()
+                    .flex_shrink_0()
+                    .max_w(px(96.))
+                    .truncate()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(note),
+            )
+        })
         .when_some(badge, |this, badge| {
             this.child(rail_badge_element(badge, 12., cx))
         })
@@ -1082,6 +1101,9 @@ impl RailView {
                 lead,
                 title,
                 active,
+                // The host machine, muted, between the title and the badge —
+                // the mobile byline's `· macbook`, on one line.
+                device.map(SharedString::from),
                 state.badge(busy),
                 cx,
             )
@@ -1091,19 +1113,6 @@ impl RailView {
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                 crate::session_screen::open_session(&open_id, window, cx);
             }));
-            if let Some(device) = device {
-                // The host machine, muted, right of the title and left of the
-                // badge — the mobile byline's `· macbook`, on one line.
-                row_el = row_el.child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(96.))
-                        .truncate()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(device)),
-                );
-            }
             if state == SessionRowState::Ended {
                 let screens = screens.clone();
                 let close_id = session_id.clone();
@@ -1173,7 +1182,7 @@ impl RailView {
                         .into_any_element();
                     let issue_id = issue.id.clone();
                     let board_id = issue.board_id.clone();
-                    rail_row_lead(("rail-pin", index), lead, issue.title.clone(), active, None, cx)
+                    rail_row_lead(("rail-pin", index), lead, issue.title.clone(), active, None, None, cx)
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             crate::navigation::open_issue_scoped(
                                 window,
@@ -1220,7 +1229,7 @@ impl RailView {
                         .bg(state.dot(display, muted))
                         .into_any_element();
                     let open_id = row.id.clone();
-                    rail_row_lead(("rail-pin", index), dot, title, active, None, cx)
+                    rail_row_lead(("rail-pin", index), dot, title, active, None, None, cx)
                         .when(state == SessionRowState::Paused, |row| row.opacity(0.6))
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             crate::session_screen::open_session(&open_id, window, cx);
@@ -1239,7 +1248,7 @@ impl RailView {
                         .flex_shrink_0()
                         .into_any_element();
                     let action_id = action.id.clone();
-                    rail_row_lead(("rail-pin", index), lead, name, false, None, cx)
+                    rail_row_lead(("rail-pin", index), lead, name, false, None, None, cx)
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             // `ActionsView::run`: no agent CLI, nothing to
                             // run — the composer would refuse anyway.

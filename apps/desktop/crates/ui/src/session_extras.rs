@@ -614,6 +614,12 @@ pub(crate) struct ConfigChip {
 
 /// EXP-772: the mode chip, or `None` when the run advertises no modes (codex
 /// advertises none, so its composer draws nothing). Mirrored ×4 as `modeChip`.
+///
+/// EXP-847 gave it its reader back: the session HEADER wears it as a READ-ONLY
+/// "Plan" chip while `current_mode` is [`PLAN_MODE_ID`]
+/// (`SteerSessionView::plan_mode_label`), so a run that is planning says so and
+/// an approved `ExitPlanMode` visibly clears it. Never a control — EXP-790
+/// keeps the mode a launch-time choice.
 pub(crate) fn mode_chip(config: Option<&steer::SessionConfig>) -> Option<ConfigChip> {
     let config = config?;
     if config.modes.is_empty() {

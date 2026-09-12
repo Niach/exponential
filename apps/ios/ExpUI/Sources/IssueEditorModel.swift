@@ -1005,7 +1005,13 @@ public final class IssueEditorModel {
     /// the `applyMention` pattern: revision bump + desiredSelection so the text
     /// view re-applies without losing first responder, plus a selection update
     /// so the autocomplete recomputes against the new caret immediately.
-    public func insertTextAtCaret(_ text: String) {
+    ///
+    /// EXP-820: `caretOffset` parks the caret INSIDE the inserted text (UTF-16
+    /// offset from its start) instead of after it — what a chat suggestion's
+    /// `#` placeholder needs so the issue-ref menu opens on the spot (web
+    /// `MentionTextareaHandle.insertText(text, caretOffset)`). Out-of-range
+    /// values clamp; nil keeps the caret at the end.
+    public func insertTextAtCaret(_ text: String, caretOffset: Int? = nil) {
         // EXP-726: the target may be a TABLE CELL — the bar's `@`/`#`/emoji
         // affordances must land at the caret inside it, not silently no-op.
         guard let targetId = insertionTargetBlockId,
@@ -1026,7 +1032,9 @@ public final class IssueEditorModel {
         )
         write(mutable, id: id, at: location)
         bumpRevision(id)
-        let caret = range.location + (text as NSString).length
+        let inserted = (text as NSString).length
+        let offset = caretOffset.map { max(0, min($0, inserted)) } ?? inserted
+        let caret = range.location + offset
         desiredSelection = (id, caret)
         selection = (id, NSRange(location: caret, length: 0))
         // An explicit `@`/`#` affordance IS a text change, so it may open the

@@ -652,7 +652,8 @@ pub(crate) fn render_context_block(
 //
 // Mirrored with the web `agent-usage.ts` bottom section — same field names,
 // same fallbacks, same ordering — so a rule changed on one side is greppable
-// from the other. [`crate::usage_view`] is the only renderer.
+// from the other. [`render_usage_cards`] below is the only renderer (EXP-818
+// retired the `usage_view` page this section used to live on).
 
 /// The ambient login's profile id — the local constant the launcher already
 /// uses, byte-identical with the web's `SYSTEM_PROFILE_ID`.

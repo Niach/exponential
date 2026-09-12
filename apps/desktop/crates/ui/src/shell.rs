@@ -1077,6 +1077,9 @@ impl Render for Shell {
                     .bg(theme::background_gradient())
                     .text_color(cx.theme().foreground)
                     .child(body)
+                    // EXP-837: the text-selection disarm — a window move eats
+                    // the mouse-up that would have ended a selection drag.
+                    .child(crate::text_selection_guard::selection_guard())
                     .child(preview_host)
                     .children(sheet_layer)
                     .children(dialog_layer)

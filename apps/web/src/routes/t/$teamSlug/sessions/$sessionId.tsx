@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   createFileRoute,
   Link,
@@ -10,13 +10,24 @@ import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
 import { AgentShell } from "@/components/agent-shell"
+import { InboxView } from "@/components/inbox/inbox-view"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { conceptIcon } from "@/lib/icons.generated"
-import { deviceCollection } from "@/lib/collections"
+import {
+  codingSessionCollection,
+  deviceCollection,
+} from "@/lib/collections"
+import { parseOrigin } from "@/lib/detail-origin"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
+import {
+  findStartedRun,
+  STARTED_RUN_DEADLINE_MS,
+  STARTED_RUN_SKEW_MS,
+} from "@/lib/started-run-match"
+import { useOpenSession } from "@/hooks/use-open-session"
 import {
   deviceCanResumeRun,
   deviceRowIsOnline,
@@ -43,6 +54,12 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
+  // EXP-818: `?from=` is WHERE this run was opened from (`lib/detail-origin.ts`
+  // — the desktop's `derive_origin`), so Back returns to that list instead of
+  // always landing on the Agent page. Absent = the Agent page's own list.
+  validateSearch: (search: Record<string, unknown>): { from?: string } => ({
+    from: typeof search.from === `string` && search.from ? search.from : undefined,
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -56,6 +73,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
+  const { from } = Route.useSearch()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -67,20 +85,50 @@ function SessionPage() {
     sessionId
   )
 
-  // EXP-827: Back is ALWAYS the Agent page — the shell's list is where a run
-  // is opened from, and popping browser history landed on whatever issue
-  // happened to be open before (the sidebar's Sessions rows navigate from
-  // anywhere). The browser's own back is untouched.
+  // EXP-818: Back returns to the ORIGIN the run was opened from — the inbox,
+  // a board, the issue whose Watch started this (where the Watch button is
+  // waiting again) — and to the Agent page when there was no list context
+  // (a deep link, a full-page screen). Still a deliberate navigation, not the
+  // browser's history: EXP-827 removed that for good reason (the sidebar's
+  // Sessions rows navigate from anywhere), the destination is just no longer
+  // hard-coded. The browser's own back is untouched.
+  const origin = useMemo(() => parseOrigin(from), [from])
   const goBack = useCallback(() => {
+    if (origin?.kind === `inbox`) {
+      void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug }, search: {} })
+      return
+    }
+    if (origin?.kind === `board`) {
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug`,
+        params: { teamSlug, boardSlug: origin.boardSlug },
+        search: {},
+      })
+      return
+    }
+    if (origin?.kind === `issue`) {
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: {
+          teamSlug,
+          boardSlug: origin.boardSlug,
+          issueIdentifier: origin.identifier,
+        },
+        search: {},
+      })
+      return
+    }
     void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
-  }, [navigate, teamSlug])
+  }, [navigate, teamSlug, origin])
   // EXP-827: the linked issue opens IN the shell, beside the sessions list.
+  // The origin rides along so the issue's own Back still knows it.
   const openIssue = useCallback(() => {
     void navigate({
       to: `/t/$teamSlug/sessions/$sessionId/issue`,
       params: { teamSlug, sessionId },
+      search: from ? { from } : {},
     })
-  }, [navigate, teamSlug, sessionId])
+  }, [navigate, teamSlug, sessionId, from])
 
   if (!team || !currentUserId || !isReady) {
     return (
@@ -90,13 +138,39 @@ function SessionPage() {
     )
   }
 
-  // EXP-818: every state renders INSIDE the Agent shell — the sessions list
-  // stays on the left whatever the right pane says.
-  const shell = (content: React.ReactNode) => (
-    <AgentShell teamId={team.id} currentUserId={currentUserId} activeSessionId={sessionId}>
-      {content}
-    </AgentShell>
-  )
+  // EXP-818: every state renders beside a LIST — which one is the origin's
+  // call (`lib/detail-origin.ts`, the desktop's tool-column rule): a run
+  // opened off the inbox keeps the inbox stream on the left, everything else
+  // gets the Agent shell's sessions list. Below md the session is the whole
+  // screen either way.
+  const shell = (content: React.ReactNode) =>
+    origin?.kind === `inbox` ? (
+      <div className="flex h-full min-h-0">
+        <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
+          <InboxView
+            teamSlug={teamSlug}
+            compact
+            activeIssueId={null}
+            onOpenIssue={(openedIssue) => {
+              void navigate({
+                to: `/t/$teamSlug/inbox`,
+                params: { teamSlug },
+                search: { issue: openedIssue.id },
+              })
+            }}
+          />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
+      </div>
+    ) : (
+      <AgentShell
+        teamId={team.id}
+        currentUserId={currentUserId}
+        activeSessionId={sessionId}
+      >
+        {content}
+      </AgentShell>
+    )
 
   if (!session || !row) {
     return shell(
@@ -212,6 +286,40 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
   const [resuming, setResuming] = useState(false)
   const device = useSessionDevice(session)
   const canResume = useCanResumeOn(session)
+  // EXP-818: a resume OPENS the run it started, exactly like a remote start
+  // does (`use-remote-start.ts`): the relaunched run arrives as a NEW row over
+  // Electric, and leaving the reader on the dead one (with a spinner that
+  // never settles) was the whole complaint. `resumedFromId` names it.
+  const openSession = useOpenSession()
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  const { data: sessionRows } = useLiveQuery(
+    (query) =>
+      sentAt !== null
+        ? query.from({ s: codingSessionCollection })
+        : undefined,
+    [sentAt !== null]
+  )
+  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (deadlineRef.current) clearTimeout(deadlineRef.current)
+    },
+    []
+  )
+  useEffect(() => {
+    if (sentAt === null) return
+    const match = findStartedRun(
+      (sessionRows ?? []) as CodingSession[],
+      { kind: `resumed`, fromId: session.id },
+      session.userId,
+      sentAt - STARTED_RUN_SKEW_MS
+    )
+    if (!match) return
+    if (deadlineRef.current) clearTimeout(deadlineRef.current)
+    setSentAt(null)
+    setResuming(false)
+    openSession(match)
+  }, [sessionRows, sentAt, session.id, session.userId, openSession])
 
   const byline = pastRunByline({
     deviceLabel: device.label ?? session.deviceLabel,
@@ -221,8 +329,9 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
         : ``,
   })
 
-  // The resumed run arrives as a NEW row over Electric; the button only has to
-  // send the command, so it settles as soon as the relay accepted it.
+  // The command is only half of it: the button stays busy until the new row
+  // syncs in and its page opens, and says so if the machine never starts it
+  // (the desktop holds the reason — a conflicted worktree, a failed doctor).
   const resume = async () => {
     if (!session.deviceId) return
     setResuming(true)
@@ -231,10 +340,19 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
         resumeSessionId: session.id,
         deviceId: session.deviceId,
       })
+      setSentAt(Date.now())
+      if (deadlineRef.current) clearTimeout(deadlineRef.current)
+      deadlineRef.current = setTimeout(() => {
+        setSentAt(null)
+        setResuming(false)
+        toast.error(
+          `${device.label ?? `That machine`} never started this run`,
+          { description: `Open the Exponential desktop app there to see why.` }
+        )
+      }, STARTED_RUN_DEADLINE_MS)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
-    } finally {
       setResuming(false)
+      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
     }
   }
 

@@ -673,15 +673,15 @@ fun IssueDetailScreen(
                 onOpenProperties = { propertiesOpen = true },
             )
 
-            // EXP-698 r4: the live run sits in its OWN box directly under the
-            // property chips — same chrome, same width — instead of below the
-            // description where it read as an afterthought. The PR/branch rows
-            // stay down there, next to the code they link to.
+            // EXP-698 r4 / EXP-818: the live run sits directly under the
+            // property chips, instead of below the description where it read as
+            // an afterthought — a muted caption, or the Watch pill into the
+            // reader's own run. The PR/branch rows stay down there, next to
+            // the code they link to.
             if (session != null) {
-                // The two boxes read as one stack (iOS parity, EXP-698 r5):
-                // the gap between chips and card is tighter than the gap to
-                // the description below.
-                Spacer(Modifier.height(12.dp))
+                // Tighter than the gap to the description below: the line
+                // belongs to the chips above it.
+                Spacer(Modifier.height(8.dp))
                 CodingNowCard(
                     session = session,
                     prState = issue.prState,

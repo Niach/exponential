@@ -1806,10 +1806,12 @@ impl ClaudeSession {
                 // EXP-847: the `Agent` call's own words for the job, off the
                 // tool table the `content_block_start` filled. Read ONCE here:
                 // the tool result takes the entry away.
-                let title = tool_use_id
+                let spawn_input = tool_use_id
                     .as_deref()
                     .and_then(|id| state.tools.get(id))
-                    .and_then(|entry| task_title(&entry.input));
+                    .map(|entry| entry.input.clone());
+                let title = spawn_input.as_ref().and_then(task_title);
+                let subagent_type = task_agent_type(subagent_type.as_deref(), spawn_input.as_ref());
                 state.tasks.insert(
                     task_id.clone(),
                     TaskEntry {
@@ -2938,6 +2940,32 @@ fn task_title(input: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// EXP-847: the subagent TYPE the chip's secondary caption reads. The CLI
+/// reports `agentType: "agent"` for a teammate spawn — a word that says
+/// nothing about the job — so a GENERIC or empty report defers to what the
+/// spawning `Agent` call itself named (`subagent_type`, then `name`). `None`
+/// when neither side named anything.
+fn task_agent_type(reported: Option<&str>, input: Option<&Value>) -> Option<String> {
+    let specific = |value: &str| {
+        let value = value.trim();
+        (!value.is_empty() && value != GENERIC_AGENT_TYPE).then(|| value.to_string())
+    };
+    if let Some(reported) = reported.and_then(specific) {
+        return Some(reported);
+    }
+    let named = input.and_then(|input| {
+        ["subagent_type", "agentType", "agent_type", "name"]
+            .into_iter()
+            .filter_map(|key| input.get(key).and_then(Value::as_str))
+            .find_map(specific)
+    });
+    named.or_else(|| reported.map(str::trim).filter(|r| !r.is_empty()).map(str::to_string))
+}
+
+/// The CLI's placeholder subagent type for a teammate spawn (see
+/// [`task_agent_type`]).
+const GENERIC_AGENT_TYPE: &str = "agent";
+
 fn is_task_tool(name: &str) -> bool {
     matches!(name, "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet")
 }
@@ -4064,6 +4092,34 @@ mod tests {
         );
         assert_eq!(task_title(&json!({ "prompt": "do it" })), None);
         assert_eq!(task_title(&Value::Null), None);
+    }
+
+    /// EXP-847: `agentType: "agent"` (what the CLI reports for a teammate
+    /// spawn) says nothing — the spawning call's own `subagent_type`/`name`
+    /// takes over, and only a call that named nothing either keeps the
+    /// generic word.
+    #[test]
+    fn a_generic_agent_type_defers_to_the_spawning_call() {
+        let input = json!({ "subagent_type": "explore", "name": "scout" });
+        assert_eq!(
+            task_agent_type(Some("agent"), Some(&input)),
+            Some("explore".to_string())
+        );
+        assert_eq!(
+            task_agent_type(Some("  "), Some(&json!({ "name": "scout" }))),
+            Some("scout".to_string())
+        );
+        // A SPECIFIC report always wins — the CLI knows the type best.
+        assert_eq!(
+            task_agent_type(Some("general-purpose"), Some(&input)),
+            Some("general-purpose".to_string())
+        );
+        // Nothing named anywhere: the generic word is all there is.
+        assert_eq!(
+            task_agent_type(Some("agent"), Some(&json!({ "prompt": "do it" }))),
+            Some("agent".to_string())
+        );
+        assert_eq!(task_agent_type(None, None), None);
     }
 
     /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on

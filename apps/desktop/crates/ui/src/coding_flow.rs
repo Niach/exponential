@@ -1523,6 +1523,140 @@ pub fn spawn_into_window(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// EXP-818: following a REMOTE start into its run
+// ---------------------------------------------------------------------------
+
+/// How long a remote start waits for the run's row to sync before giving up on
+/// opening it. The frame is already on the machine by then — the toast said so
+/// — so this is only about whether we navigate for the user.
+const REMOTE_OPEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How often the wait re-reads the synced rows. Electric notifies sooner than
+/// this on a live shape; a poll keeps the watch out of the entity graph (the
+/// launcher is a plain `&mut App` path).
+const REMOTE_OPEN_TICK: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// EXP-818: which freshly synced row a remote start is waiting for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RemoteRunSubject {
+    /// An issue start — the row names the issue.
+    Issue(String),
+    /// A resume (`resumeSessionId`): the new row links back through
+    /// `resumed_from_id`.
+    Resume(String),
+    /// A batch, action or chat start: nothing on the row identifies it beyond
+    /// the machine it runs on, so any NEW live row there is the one.
+    Any,
+}
+
+impl RemoteRunSubject {
+    /// The subject a `steer.startSession` payload is waiting for: a resume
+    /// links back by `resumed_from_id`, a single-issue start names its issue,
+    /// and a batch / action / chat start names nothing the row carries.
+    pub(crate) fn of(input: &api::steer::StartSessionInput) -> Self {
+        if let Some(resumed_from) = input.resume_session_id.clone() {
+            return RemoteRunSubject::Resume(resumed_from);
+        }
+        match input.issue_id.clone() {
+            Some(issue_id) => RemoteRunSubject::Issue(issue_id),
+            None => RemoteRunSubject::Any,
+        }
+    }
+
+    /// Whether `row` (already known to be new, live and on the target machine)
+    /// is the run this start asked for.
+    fn matches(&self, row: &domain::rows::CodingSession) -> bool {
+        match self {
+            RemoteRunSubject::Issue(issue_id) => row.issue_id.as_deref() == Some(issue_id.as_str()),
+            RemoteRunSubject::Resume(from) => {
+                row.resumed_from_id.as_deref() == Some(from.as_str())
+            }
+            RemoteRunSubject::Any => true,
+        }
+    }
+}
+
+/// EXP-818: follow a remote start INTO the run, exactly as a local start lands
+/// in its session screen.
+///
+/// `steer.startSession` only confirms the frame reached the machine; the
+/// `coding_sessions` row is written by THAT machine and arrives over Electric a
+/// moment later, which is why this is a watch and not a return value. The ids
+/// already on screen are snapshotted first, so an unrelated run that happens to
+/// be on the same machine can never be mistaken for this one; the newest
+/// matching row wins, and nothing happens at all if none arrives within
+/// [`REMOTE_OPEN_WAIT`] (the toast already told the user where the run went).
+pub(crate) fn follow_remote_start(
+    device_id: String,
+    subject: RemoteRunSubject,
+    window: &Window,
+    cx: &mut App,
+) {
+    let known: HashSet<String> = session_ids(cx);
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let deadline = std::time::Instant::now() + REMOTE_OPEN_WAIT;
+        loop {
+            cx.background_executor().timer(REMOTE_OPEN_TICK).await;
+            if let Some(session_id) = cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, cx))
+            {
+                // The window may have closed while we waited; there is nothing
+                // else to do with the run then (its tab opens on the next
+                // visit to the Agent page).
+                let _ = handle.update(cx, |_, window, cx| {
+                    crate::session_screen::open_session(&session_id, window, cx);
+                });
+                return;
+            }
+            if std::time::Instant::now() >= deadline {
+                return;
+            }
+        }
+    })
+    .detach();
+}
+
+/// Every synced `coding_sessions` id right now — the "already there" baseline
+/// of [`follow_remote_start`].
+fn session_ids(cx: &App) -> HashSet<String> {
+    let Some(store) = Store::try_global(cx) else {
+        return HashSet::new();
+    };
+    store
+        .collections()
+        .coding_sessions
+        .read(cx)
+        .iter()
+        .map(|row| row.id.clone())
+        .collect()
+}
+
+/// The newest row that is NEW (not in `known`), live, hosted on `device_id` and
+/// matches `subject`.
+fn fresh_remote_run(
+    known: &HashSet<String>,
+    device_id: &str,
+    subject: &RemoteRunSubject,
+    cx: &App,
+) -> Option<String> {
+    let store = Store::try_global(cx)?;
+    let collections = store.collections();
+    let rows = collections.coding_sessions.read(cx);
+    rows.iter()
+        .filter(|row| !known.contains(&row.id))
+        .filter(|row| row.device_id.as_deref() == Some(device_id))
+        .filter(|row| row.status.as_deref() != Some("ended"))
+        .filter(|row| subject.matches(row))
+        .max_by(|a, b| {
+            a.started_at
+                .as_deref()
+                .unwrap_or_default()
+                .cmp(b.started_at.as_deref().unwrap_or_default())
+        })
+        .map(|row| row.id.clone())
+}
+
 /// End `session_id`'s row off the foreground, best effort. Both arms' failure
 /// paths use it: `prepare` already created the row, so a start that never
 /// happened must not leave "coding now" ghosting on every client.
@@ -2059,5 +2193,62 @@ mod tests {
             closed(plan_branch_takeover(claims(&holders))),
             vec!["issue-session", "batch-session"],
         );
+    }
+
+    // ── EXP-818: following a remote start into its run ────────────────────
+
+    /// The subject a remote start waits for: a resume by `resumed_from_id`, a
+    /// single issue by its id, everything else by "any new row on that
+    /// machine" — and the row matcher agrees with each.
+    #[test]
+    fn a_remote_start_waits_for_its_own_row() {
+        use api::steer::StartSessionInput;
+        let row = |issue_id: Option<&str>, resumed_from: Option<&str>| {
+            domain::rows::CodingSession {
+                id: "s1".to_string(),
+                issue_id: issue_id.map(str::to_string),
+                resumed_from_id: resumed_from.map(str::to_string),
+                ..sample_session()
+            }
+        };
+        let resume = StartSessionInput {
+            resume_session_id: Some("old".to_string()),
+            device_id: "dev".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            RemoteRunSubject::of(&resume),
+            RemoteRunSubject::Resume("old".to_string())
+        );
+        assert!(RemoteRunSubject::of(&resume).matches(&row(None, Some("old"))));
+        assert!(!RemoteRunSubject::of(&resume).matches(&row(None, Some("other"))));
+
+        let issue = StartSessionInput {
+            issue_id: Some("i1".to_string()),
+            device_id: "dev".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            RemoteRunSubject::of(&issue),
+            RemoteRunSubject::Issue("i1".to_string())
+        );
+        assert!(RemoteRunSubject::of(&issue).matches(&row(Some("i1"), None)));
+        assert!(!RemoteRunSubject::of(&issue).matches(&row(Some("i2"), None)));
+
+        // A batch / action / chat start: the row says nothing we could match,
+        // so any new row on the target machine is it.
+        let batch = StartSessionInput {
+            issue_ids: Some(vec!["i1".to_string(), "i2".to_string()]),
+            device_id: "dev".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(RemoteRunSubject::of(&batch), RemoteRunSubject::Any);
+        assert!(RemoteRunSubject::of(&batch).matches(&row(None, None)));
+    }
+
+    /// A bare row the subject matcher can vary one field of.
+    fn sample_session() -> domain::rows::CodingSession {
+        serde_json::from_value(serde_json::json!({ "id": "s1" }))
+            .expect("a row needs nothing but an id")
     }
 }

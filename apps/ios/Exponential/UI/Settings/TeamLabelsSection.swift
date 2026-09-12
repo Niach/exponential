@@ -14,8 +14,10 @@ struct TeamLabelsSection: View {
     @State private var actionError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            GlassSectionHeader("Labels") {
+        // EXP-818: a filled group band over flat rows — the labels read as a
+        // table (web `ListRow`, desktop `surface::flat_row`).
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand("Labels") {
                 // "New label" rides the header (Boards' "New board" pattern,
                 // EXP-331) — labels stay member-level, so no owner gating.
                 GlassPill("New label", icon: AppIcons.uiAdd, mode: .action {
@@ -56,7 +58,7 @@ struct TeamLabelsSection: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .glassRow()
+                .flatRow()
             }
 
             if let actionError {

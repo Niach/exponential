@@ -143,6 +143,12 @@ struct AutomationFormSheet: View {
                     options: eligibleActions.map(\.id),
                     label: { id in
                         eligibleActions.first { $0.id == id }?.name ?? id
+                    },
+                    // EXP-827: an action is recognised by its curated icon —
+                    // the glyph leads the name here and in the picker sheet,
+                    // exactly as the web dialog draws it.
+                    icon: { id in
+                        eligibleActions.first { $0.id == id }?.icon ?? AppIcons.actionDefault
                     }
                 )
             }

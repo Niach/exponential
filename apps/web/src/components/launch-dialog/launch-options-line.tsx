@@ -227,6 +227,11 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             {`Not ready on ${device.deviceLabel || device.deviceId}. Run the doctor there.`}
           </span>
         )}
+        {/* EXP-836: a play button named a machine this composer cannot start
+            on — say which and why, instead of quietly using the default. */}
+        {model.deviceRequestNote && (
+          <span className="text-amber-500">{model.deviceRequestNote}</span>
+        )}
         {/* The desktop inserts the row when the launcher spins up; the page
             flips to the live view the moment it syncs. */}
         {model.sentTo && <span>{`Waiting for ${model.sentTo}…`}</span>}

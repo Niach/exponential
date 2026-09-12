@@ -11,6 +11,7 @@ import {
 } from "@/lib/filters"
 import type { Issue, IssueLabel } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
+import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { IssueDetailView } from "@/components/issue-detail-view"
 
 export const Route = createFileRoute(
@@ -41,7 +42,7 @@ function IssueDetailPage() {
     () => issueFiltersFromSearch(search),
     [search.status, search.priority, search.labels]
   )
-  const { board, boardReady, team, users } = useBoardViewData({
+  const { board, boardReady, team, users, visibleGroups } = useBoardViewData({
     filters,
     boardSlug,
     teamSlug,
@@ -118,16 +119,32 @@ function IssueDetailPage() {
     )
   }
 
+  // EXP-818: the issue brings its BOARD along — the board's list stays beside
+  // it on md+ (the Agent page's and the inbox's master-detail), so opening an
+  // issue never loses the list it came from and the next one is one click away.
   return (
-    <IssueDetailView
-      issue={issue}
-      issueLabelIds={issueLabelIds}
-      users={users}
-      board={board}
-      teamSlug={teamSlug}
-      teamId={team.id}
-      readOnly={!permissions.canMutateIssue(issue)}
-      filterSearch={search}
-    />
+    <div className="flex h-full min-h-0">
+      <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
+        <BoardIssueListPane
+          groups={visibleGroups}
+          teamSlug={teamSlug}
+          boardSlug={boardSlug}
+          activeIssueId={issue.id}
+          filterSearch={search}
+        />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <IssueDetailView
+          issue={issue}
+          issueLabelIds={issueLabelIds}
+          users={users}
+          board={board}
+          teamSlug={teamSlug}
+          teamId={team.id}
+          readOnly={!permissions.canMutateIssue(issue)}
+          filterSearch={search}
+        />
+      </div>
+    </div>
   )
 }

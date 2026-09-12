@@ -42,6 +42,13 @@ struct AgentsView: View {
     @State private var removeTarget: SteerDevice?
     @State private var updatingIds: Set<String> = []
     @State private var deviceError: String?
+    /// EXP-827: a fresh value asks the page to scroll to its Accounts section
+    /// (the device sheet's Usage button). A token rather than a Bool: a second
+    /// tap has to scroll again.
+    @State private var usageRequest: UUID?
+
+    /// The scroll anchor of the Accounts section — web's `#accounts` hash.
+    private static let accountsAnchor = "accounts"
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
     /// sheet reads the LIVE devices-shape row itself, so a value captured here
@@ -144,44 +151,64 @@ struct AgentsView: View {
 
     @ViewBuilder
     private func machinesContent(_ vm: AgentsViewModel) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                GlassSectionHeader("My machines")
-                if let myDevices {
-                    if myDevices.isEmpty {
-                        deviceHintRow
-                    } else {
-                        ForEach(myDevices) { deviceRow($0) }
+        // EXP-818: the page is a TABLE now — a filled group band per group with
+        // its flat rows hanging straight off it (`GlassSectionBand` +
+        // `.flatRow()`), so the stack of bordered cards this used to be reads
+        // as one list. The anchor below is what the device sheet's Usage button
+        // scrolls to.
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand("My machines")
+                        if let myDevices {
+                            if myDevices.isEmpty {
+                                deviceHintRow
+                            } else {
+                                ForEach(myDevices) { deviceRow($0) }
+                            }
+                        } else {
+                            deviceLoadingRow
+                        }
                     }
-                } else {
-                    deviceLoadingRow
-                }
 
-                // EXP-432: teammates' shared servers, grouped below the
-                // caller's own. Absent entirely when nothing is shared.
-                if !teamDevices.isEmpty {
-                    GlassSectionHeader("Team machines")
-                    ForEach(teamDevices) { deviceRow($0) }
-                }
+                    // EXP-432: teammates' shared servers, grouped below the
+                    // caller's own. Absent entirely when nothing is shared.
+                    if !teamDevices.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            GlassSectionBand("Team machines")
+                            ForEach(teamDevices) { deviceRow($0) }
+                        }
+                    }
 
-                // EXP-829: the agent accounts across those machines (web /
-                // desktop EXP-818 parity). A chip opens the machine's
-                // settings sheet — the same target as the row menu's Edit.
-                AgentAccountsSection(viewModel: vm) { deviceId in
-                    settingsTarget = DeviceSettingsTarget(id: deviceId)
+                    // EXP-829: the agent accounts across those machines (web /
+                    // desktop EXP-818 parity). A chip opens the machine's
+                    // settings sheet — the same target as the row menu's Edit.
+                    AgentAccountsSection(viewModel: vm) { deviceId in
+                        settingsTarget = DeviceSettingsTarget(id: deviceId)
+                    }
+                    .id(Self.accountsAnchor)
+                    if let deviceError {
+                        Text(deviceError)
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                            .padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                if let deviceError {
-                    Text(deviceError)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                .padding()
             }
-            .padding()
+            // EXP-827: the device sheet's round Usage button lands here — the
+            // numbers live on ONE surface (web hashes to `#accounts`; a phone
+            // scrolls to the same section).
+            .onChange(of: usageRequest) { _, request in
+                guard request != nil else { return }
+                withAnimation { proxy.scrollTo(Self.accountsAnchor, anchor: .top) }
+            }
+            // Clearance for the floating tab bar (EXP-36) — on the SCROLLER
+            // itself, so its content inset is the one that grows.
+            .tabBarBottomInset()
         }
-        // Clearance for the floating tab bar (EXP-36).
-        .tabBarBottomInset()
         // EXP-481: Edit opens the device settings sheet (name, sharing, agent
         // defaults, worktrees) — the row menu's rename alert retired into it.
         // EXP-490: it takes the view model and the device id, not a snapshot —
@@ -191,7 +218,10 @@ struct AgentsView: View {
                 DeviceSettingsSheet(
                     viewModel: viewModel,
                     deviceId: target.id,
-                    teams: teamState.teams
+                    teams: teamState.teams,
+                    // EXP-827: the sheet closes itself, then this page scrolls
+                    // to Accounts — the one surface the usage bars live on.
+                    onOpenUsage: { usageRequest = UUID() }
                 )
             }
         }
@@ -294,7 +324,7 @@ struct AgentsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         // EXP-409: a machine that can run nothing reads like an offline one.
         .opacity(device.needsAgentSignIn ? 0.6 : 1)
     }
@@ -397,7 +427,7 @@ struct AgentsView: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     private var deviceLoadingRow: some View {
@@ -410,7 +440,7 @@ struct AgentsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     // MARK: - Machine actions

@@ -1127,6 +1127,17 @@ export function modeChip(
   }
 }
 
+/** EXP-847: the session header's READ-ONLY plan chip — the mode chip's label
+ *  while the run is in PLAN mode, null otherwise. Never a control: EXP-790
+ *  keeps mode a launch-time choice, so this only makes the state visible, and
+ *  an approved `ExitPlanMode` clears `currentMode` and the chip with it. */
+export function planModeChipLabel(
+  config: SessionConfigState | null | undefined
+): string | null {
+  const chip = modeChip(config)
+  return chip && chip.value === `plan` ? chip.valueLabel : null
+}
+
 /** EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
  *  That shape (claude) draws a "Plan" switch instead of a two-value chip;
  *  anything else falls back to the chip. `null` when the run is not that
@@ -1293,6 +1304,49 @@ export function opensInlineField(
     item.options.length >= 2 &&
     index === item.options.length - 1
   )
+}
+
+// ── EXP-846: the Exponential MCP tool row ───────────────────────────────────
+
+/** One `expToolDisplay` row off the contract. */
+export interface ExpToolDisplay {
+  name: string
+  progressive: string
+  done: string
+  subjectKey: string
+  result: string
+}
+
+/** EXP-846: the Exponential MCP tool a call NAMES, or null for anything else.
+ *  Mirrors the engine's `exp_tool_row` (`crates/engine/src/mapper.rs`): the
+ *  contract PREFIX has to sit right in front of a known row name, whatever
+ *  namespace an adapter put in front of THAT
+ *  (`mcp__exponential__exponential_issues_create` on claude, the bare
+ *  `exponential_issues_create` elsewhere) — which is what keeps another MCP
+ *  server's `issues_create` out. */
+export function expToolDisplay(
+  name: string | null | undefined
+): ExpToolDisplay | null {
+  if (!name) return null
+  const trimmed = name.trim()
+  const prefix = contract.expToolDisplay.prefix
+  for (const row of contract.expToolDisplay.tools) {
+    if (trimmed.length <= row.name.length) continue
+    if (!trimmed.endsWith(row.name)) continue
+    if (trimmed.slice(0, trimmed.length - row.name.length).endsWith(prefix)) {
+      return row as ExpToolDisplay
+    }
+  }
+  return null
+}
+
+/** EXP-846: what an Exponential tool row READS — the contract's progressive
+ *  caption while the call is in flight, its done caption once it settled. */
+export function expToolCaption(
+  display: ExpToolDisplay,
+  settled: boolean
+): string {
+  return settled ? display.done : display.progressive
 }
 
 // ── EXP-785: the collapsed tool group's caption ─────────────────────────────

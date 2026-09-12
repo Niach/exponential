@@ -175,7 +175,7 @@ fun DeviceSettingsSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             // ── Name ─────────────────────────────────────────────────────
-            SectionHeader("Name", modifier = Modifier.padding(horizontal = 12.dp))
+            SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
             OptionGroup {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -243,7 +243,7 @@ fun DeviceSettingsSheet(
             // the default-device toggle: a machine may be shared with
             // several teams at once.
             if (device.isServer) {
-                SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 12.dp))
+                SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 16.dp))
                 OptionGroup {
                     teams.forEach { team ->
                         SwitchRow(
@@ -368,7 +368,7 @@ fun DeviceSettingsSheet(
             // ── Worktrees (EXP-481) ──────────────────────────────────────
             // 12dp + the header's own 4dp = 16: the label sits 4dp inside the
             // OptionGroup edge below it, like web and iOS.
-            SectionHeader("Worktrees", modifier = Modifier.padding(horizontal = 12.dp)) {
+            SectionHeader("Worktrees", modifier = Modifier.padding(horizontal = 16.dp)) {
                 val pruneState = commandStates[PRUNE_COMMAND_KEY]
                 if (worktrees.isNotEmpty()) {
                     if (pruneState is DeviceCommandUiState.Sending ||
@@ -585,6 +585,8 @@ private fun AgentAccountBlock(
     val fresh = usage?.takeIf {
         AgentUsagePresentation.isFresh(it.fetchedAt, System.currentTimeMillis())
     }
+    // EXP-827: the agent's numbers live behind the round Usage button now.
+    var usageSheetOpen by remember { mutableStateOf(false) }
     Column(modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -602,6 +604,18 @@ private fun AgentAccountBlock(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            // EXP-827: the numbers are not this sheet's job any more — a round
+            // Usage button opens them, the way every other usage surface is
+            // reached (the session header's "…" → Usage). Stacked usage cards
+            // inside a settings sheet buried the controls under them.
+            if (fresh != null) {
+                Spacer(Modifier.width(8.dp))
+                CircleIconButton(
+                    ExpIcons.uiUsage,
+                    contentDescription = "Usage",
+                    onClick = { usageSheetOpen = true },
+                )
+            }
             when {
                 busy -> CircularProgressIndicator(
                     modifier = Modifier.size(14.dp).padding(end = 2.dp),
@@ -641,12 +655,10 @@ private fun AgentAccountBlock(
         } else {
             CommandCaption(codeState)
         }
-        if (fresh != null) {
-            Spacer(Modifier.height(10.dp))
-            AgentUsageCards(usage = fresh, compact = true)
-        } else if (usage != null || account != null) {
-            // Nothing live to show, so the block says how old what it knows is
-            // instead of looking current.
+        if (usage != null || account != null) {
+            // How old what this block knows is — the only honest thing to say
+            // beside a number nobody is watching refresh (EXP-827: the numbers
+            // themselves are a tap away, so the caption stands on its own).
             (account?.checkedAt ?: usageAt)?.let { at ->
                 val relative = relativeTime(at)
                 if (relative.isNotEmpty()) {
@@ -659,6 +671,16 @@ private fun AgentAccountBlock(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+            }
+        }
+    }
+    // EXP-827: the agent's own numbers, in the sheet the rest of the app opens
+    // them in (the session header's Usage), named by the agent they belong to.
+    if (usageSheetOpen && fresh != null) {
+        GlassSheet(title = "${agentLabel(agent)} usage", onDismiss = { usageSheetOpen = false }) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                AgentUsageCards(usage = fresh)
+                Spacer(Modifier.height(8.dp))
             }
         }
     }

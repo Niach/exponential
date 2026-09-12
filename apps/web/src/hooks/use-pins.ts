@@ -1,10 +1,17 @@
 import { useCallback, useMemo, useState } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { toast } from "sonner"
 import type { PinKind } from "@exp/db-schema/domain"
-import { pinCollection } from "@/lib/collections"
+import {
+  actionCollection,
+  codingSessionCollection,
+  issueCollection,
+  pinCollection,
+} from "@/lib/collections"
+import { sessionIdentity } from "@/lib/session-identity"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import type { Pin } from "@/db/schema"
+import type { CodingSession, Issue, Pin, SyncedAction } from "@/db/schema"
 
 // EXP-778: personal pins — the sidebar's "Pinned" group. The `pins` shape is
 // per USER (static `user_id = me`), so the collection only ever holds the
@@ -88,4 +95,135 @@ export function usePinToggle(
   }, [teamId, targetId, busy, synced, kind])
 
   return { pinned, toggle, busy }
+}
+
+// ── EXP-778 (EXP-818): the pinned rows, RESOLVED ─────────────────────────────
+// A pin only renders when its target resolves, which every pin surface has to
+// decide the same way. `usePinnedEntries` does the resolving once so a second
+// surface — the phone's board-switcher sheet, which is the only Pinned there is
+// without a keyboard (Cmd+B opens the sidebar) — renders the same rows the
+// sidebar group does.
+
+export type PinnedEntry =
+  | {
+      pin: Pin
+      kind: `issue`
+      issue: Issue
+      boardSlug: string
+      identifier: string
+      title: string
+    }
+  | {
+      pin: Pin
+      kind: `session`
+      session: CodingSession
+      issue: Issue | null
+      identifier: string | null
+      title: string
+    }
+  | { pin: Pin; kind: `action`; action: SyncedAction; title: string }
+
+export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
+  const pins = useTeamPins(teamId)
+  const boards = useTeamBoards(teamId)
+  const sessionIds = useMemo(
+    () => pins.flatMap((pin) => (pin.sessionId ? [pin.sessionId] : [])),
+    [pins]
+  )
+  const { data: sessions } = useLiveQuery(
+    (query) =>
+      sessionIds.length > 0
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => inArray(s.id, sessionIds))
+        : undefined,
+    [sessionIds.join(`,`)]
+  )
+  // The pinned issues PLUS the pinned sessions' issues, so a session row can
+  // name its identifier (the Sessions group's rule).
+  const issueIds = useMemo(() => {
+    const ids = new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))
+    for (const session of (sessions ?? []) as CodingSession[]) {
+      if (session.issueId) ids.add(session.issueId)
+    }
+    return [...ids].sort()
+  }, [pins, sessions])
+  const { data: issues } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query
+            .from({ i: issueCollection })
+            .where(({ i }) => inArray(i.id, issueIds))
+        : undefined,
+    [issueIds.join(`,`)]
+  )
+  const { data: actions } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ a: actionCollection })
+            .where(({ a }) => eq(a.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+
+  return useMemo(() => {
+    const boardsById = new Map((boards ?? []).map((board) => [board.id, board]))
+    const issuesById = new Map(
+      ((issues ?? []) as Issue[]).map((issue) => [issue.id, issue])
+    )
+    const sessionsById = new Map(
+      ((sessions ?? []) as CodingSession[]).map((session) => [
+        session.id,
+        session,
+      ])
+    )
+    const actionsById = new Map(
+      ((actions ?? []) as SyncedAction[]).map((action) => [action.id, action])
+    )
+    return pins.flatMap((pin): PinnedEntry[] => {
+      if (pin.kind === `issue` && pin.issueId) {
+        const issue = issuesById.get(pin.issueId)
+        const board = issue ? boardsById.get(issue.boardId) : undefined
+        if (!issue || !board) return []
+        return [
+          {
+            pin,
+            kind: `issue`,
+            issue,
+            boardSlug: board.slug,
+            identifier: issue.identifier,
+            title: issue.title,
+          },
+        ]
+      }
+      if (pin.kind === `session` && pin.sessionId) {
+        const session = sessionsById.get(pin.sessionId)
+        if (!session) return []
+        const issue = session.issueId
+          ? (issuesById.get(session.issueId) ?? null)
+          : null
+        const identity = sessionIdentity({ session, issue: issue ?? undefined })
+        return [
+          {
+            pin,
+            kind: `session`,
+            session,
+            issue,
+            identifier: identity.identifier,
+            title: identity.identifier
+              ? identity.subject
+              : (session.actionName ??
+                (session.issueId ? identity.subject : `Batch run`)),
+          },
+        ]
+      }
+      if (pin.kind === `action` && pin.actionId) {
+        const action = actionsById.get(pin.actionId)
+        if (!action) return []
+        return [{ pin, kind: `action`, action, title: action.name }]
+      }
+      return []
+    })
+  }, [pins, boards, issues, sessions, actions])
 }

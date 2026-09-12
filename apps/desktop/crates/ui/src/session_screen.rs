@@ -25,7 +25,7 @@
 //! This screen owns the CHROME around that transcript — the identity header
 //! with the session's usage and kill. The transcript view keeps everything
 //! that is about the conversation itself (the feed, the banners, the
-//! Latest-changes bar, the composer and its mode control), which is why it
+//! Changes bar, the composer and its mode control), which is why it
 //! renders headerless here ([`SteerSessionView::set_chrome`]).
 //!
 //! Lifetime rule: a view lives exactly as long as its TAB. `ScreensPanel`
@@ -43,7 +43,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, menu::DropdownMenu as _, notification::Notification, popover::Popover, v_flex,
+    h_flex, notification::Notification, popover::Popover, v_flex,
     ActiveTheme as _, Sizable as _, WindowExt as _,
 };
 
@@ -547,6 +547,10 @@ impl SessionScreenView {
         let usage = inner.usage();
         let usage_summary = crate::session_extras::context_summary(usage.as_ref());
         let agent = inner.builtin_agent();
+        // EXP-847: the run is in PLAN mode right now — a read-only chip, never
+        // a control (EXP-790: the mode is a launch-time choice). It clears
+        // itself the moment an approved `ExitPlanMode` moves the mode on.
+        let plan_mode = inner.plan_mode_label();
         let over = inner.session_over();
         let local = inner.is_local();
         let device_id = inner
@@ -581,18 +585,23 @@ impl SessionScreenView {
             .py_1p5()
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            // EXP-818: back — the window history (the issue this run was
-            // opened from, the list before it), the web session route's
-            // back button. Left of the identity, where every client puts it.
-            .child(
+            // EXP-818/827: back — to where this run was OPENED FROM (the
+            // tab's `TabOrigin` breadcrumb: its issue, or the Agent page),
+            // never into whatever the window's history happens to hold. Left
+            // of the identity, where every client puts it.
+            .child({
+                let session_id = self.session_id.clone();
+                let issue_id = issue_id.clone();
                 Button::new("session-back")
                     .ghost()
                     .cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_BACK)
                     .tooltip("Back")
-                    .on_click(|_, window, cx| crate::navigation::go_back(window, cx)),
-            )
+                    .on_click(move |_, window, cx| {
+                        back_to_origin(&session_id, issue_id.as_deref(), window, cx);
+                    })
+            })
             .child(
                 div()
                     .flex_shrink_0()
@@ -633,6 +642,21 @@ impl SessionScreenView {
                         })
                     })),
             )
+            .when_some(plan_mode.filter(|_| !over), |this, label| {
+                this.child(
+                    crate::surface::glass_pill(
+                        "session-plan-mode",
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .child(
+                        gpui_component::Icon::new(registry::CODING_PLAN)
+                            .with_size(px(crate::surface::PillSize::Sm.glyph())),
+                    )
+                    .child(div().text_xs().child(label)),
+                )
+            })
             // EXP-746: the session's own context meter. Gone once the run is
             // over (a finished run's live numbers are a snapshot of nothing)
             // and never on a replay, whose numbers are the ones the run ended
@@ -723,34 +747,107 @@ impl SessionScreenView {
                     cx,
                 ))
             })
-            .when_some(issue_id, |this, issue_id| {
-                this.child(
-                    Button::new("session-more")
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::UI_MORE)
-                        .tooltip("Session actions")
-                        .dropdown_menu(move |menu, _window, _cx| {
-                            let issue_id = issue_id.clone();
-                            menu.item(
-                                gpui_component::menu::PopupMenuItem::new("Open issue").on_click(
-                                    move |_, window, cx| {
-                                        crate::navigation::navigate(
-                                            window,
-                                            cx,
-                                            Screen::IssueDetail {
-                                                issue_id: issue_id.clone(),
-                                            },
-                                        );
-                                    },
-                                ),
-                            )
-                        }),
-                )
-            })
             .into_any_element()
     }
+
+    /// EXP-827 — the ISSUE BAND under the header: the run's issue as a
+    /// clickable row (status glyph, identifier, title) with a visible
+    /// "Open issue" pill at its end. The issue used to be reachable only
+    /// through the header's ⋯ menu, which is where a one-item menu hides the
+    /// one thing a reader of an issue-bound run wants next. `None` for a
+    /// batch / action / chat run, and while the issue row has not synced.
+    fn render_issue_band(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let issue_id = self
+            .inner
+            .read(cx)
+            .session_row()
+            .and_then(|row| row.issue_id.clone())?;
+        let issue = sync::Store::try_global(cx)?
+            .collections()
+            .issues
+            .read(cx)
+            .get(&issue_id)
+            .cloned()?;
+        let status = crate::queries::resolve_issue_status(cx, &issue);
+        let muted = cx.theme().muted_foreground;
+        let title = issue.title.trim();
+        let title = SharedString::from(if title.is_empty() {
+            "Untitled issue".to_string()
+        } else {
+            title.to_string()
+        });
+        let open_id = issue_id.clone();
+        let pill_id = issue_id.clone();
+        Some(
+            h_flex()
+                .id(SharedString::from(format!("session-issue-band-{issue_id}")))
+                .w_full()
+                .flex_shrink_0()
+                .min_w_0()
+                .gap_2()
+                .items_center()
+                .px_2()
+                .py_1()
+                .border_b_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+                .on_click(move |_, window, cx| {
+                    open_issue(&open_id, window, cx);
+                })
+                .child(crate::icons::resolved_status_icon(&status, cx).xsmall())
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(issue.identifier.clone())),
+                )
+                .child(div().flex_1().min_w_0().truncate().text_sm().child(title))
+                .child(
+                    crate::surface::glass_pill_button(
+                        "session-open-issue",
+                        crate::surface::PillSize::Sm,
+                        cx,
+                    )
+                    .icon(
+                        gpui_component::Icon::new(registry::UI_EXTERNAL_LINK)
+                            .with_size(px(crate::surface::PillSize::Sm.glyph())),
+                    )
+                    .label("Open issue")
+                    .on_click(move |_, window, cx| {
+                        open_issue(&pill_id, window, cx);
+                    }),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
+/// Open `issue_id`'s detail — the issue band's click and its pill.
+fn open_issue(issue_id: &str, window: &mut Window, cx: &mut App) {
+    crate::navigation::navigate(
+        window,
+        cx,
+        Screen::IssueDetail {
+            issue_id: issue_id.to_string(),
+        },
+    );
+}
+
+/// EXP-827: Back from a session — to the screen the run was OPENED from
+/// (`navigation::session_back_target` over the tab's recorded origin), which
+/// for an issue-bound run is its issue (Watch again is there) and otherwise the
+/// Agent page.
+fn back_to_origin(session_id: &str, issue_id: Option<&str>, window: &mut Window, cx: &mut App) {
+    let screen = Screen::Session {
+        session_id: session_id.to_string(),
+    };
+    let origin = crate::screens::screens_for_window(window, cx)
+        .and_then(|panel| panel.read(cx).origin_of(&screen));
+    let target = crate::navigation::session_back_target(origin.as_ref(), issue_id);
+    crate::navigation::go_back_to(window, cx, target);
 }
 
 /// EXP-818: the session header's Stop — a small glass pill with the stop
@@ -770,9 +867,14 @@ pub(crate) fn stop_session_pill(id: impl Into<gpui::ElementId>, cx: &App) -> But
 
 /// EXP-800: send a resume to the machine that hosted the run — the
 /// composer's `launch_remote` recipe (`chat_screen`). The server checks owner,
-/// `ended`, the device and its `resume-run` cap; the resumed run then arrives
-/// as a new synced row and `screens::sync_session_tabs` moves this tab over
-/// via `resumed_from_id`, so all that is left here is to say where it went.
+/// `ended`, the device and its `resume-run` cap.
+///
+/// EXP-818: it then FOLLOWS the resumed run in, like every other start
+/// (`coding_flow::follow_remote_start` waits for the row the other machine
+/// writes, matched by `resumed_from_id`). The tab swap
+/// (`screens::sync_session_tabs`, also keyed on `resumed_from_id`) still
+/// happens on its own; opening the new row is what makes the click land
+/// somewhere instead of only toasting.
 fn resume_remote(
     session_id: String,
     device_id: String,
@@ -789,15 +891,17 @@ fn resume_remote(
     };
     let input = api::steer::StartSessionInput {
         resume_session_id: Some(session_id),
-        device_id,
+        device_id: device_id.clone(),
         ..Default::default()
     };
+    let subject = crate::coding_flow::RemoteRunSubject::of(&input);
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
             .spawn(async move { api::steer::start_session(&trpc, &input) })
             .await;
+        let sent = result.is_ok();
         let note = match result {
             Ok(()) => Notification::success(SharedString::from(format!(
                 "Resume sent to {device_label}."
@@ -806,6 +910,9 @@ fn resume_remote(
         };
         let _ = handle.update(cx, |_, window, cx| {
             window.push_notification(note, cx);
+            if sent {
+                crate::coding_flow::follow_remote_start(device_id, subject, window, cx);
+            }
         });
     })
     .detach();
@@ -874,17 +981,19 @@ impl Focusable for SessionScreenView {
 impl Render for SessionScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(cx);
+        let issue_band = self.render_issue_band(cx);
         let summary = self.render_summary(cx);
-        // EXP-773: one column — the identity header, a finished run's summary,
-        // then the transcript, whose own footer carries the Latest-changes bar
-        // and the composer. The 280px right rail the changes used to live in
-        // is gone.
+        // EXP-773: one column — the identity header, EXP-827's issue band, a
+        // finished run's summary, then the transcript, whose own footer carries
+        // the Changes bar and the composer. The 280px right rail the changes
+        // used to live in is gone.
         v_flex()
             .size_full()
             .min_w_0()
             .min_h_0()
             .track_focus(&self.focus_handle)
             .child(header)
+            .children(issue_band)
             .children(summary)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }
