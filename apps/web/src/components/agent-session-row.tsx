@@ -12,7 +12,10 @@ import {
   sessionDisplayState,
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
-import { sessionRowIsWorking } from "@/lib/coding-session-display"
+import {
+  sessionAgentCaption,
+  sessionRowIsWorking,
+} from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { useNow } from "@/hooks/use-now"
@@ -138,6 +141,8 @@ export function SessionRow({
   // EXP-804: null unless the device reported the agent's usage wall on this
   // row. Orthogonal to `displayState`, so it renders alongside it.
   const blockedLabel = blockedBadgeLabel(session.blocked, useNow(30_000))
+  // EXP-850 §8: the device-written caption of the run's live workflow.
+  const caption = sessionAgentCaption(session)
   // EXP-549/550: the host machine per the synced devices row — its RENAMED
   // label, and greyed-out "Paused" while it is offline (the agent is parked,
   // not gone; it resumes when the machine comes back).
@@ -201,6 +206,13 @@ export function SessionRow({
                 : (issue?.title ?? `Issue syncing…`)}
           </span>
         </div>
+        {/* EXP-850 §8: what the agent is doing right now, straight off the
+            synced `agent_caption` — the SECOND line, above the byline. */}
+        {caption && (
+          <div className="truncate text-xs text-muted-foreground" title={caption}>
+            {caption}
+          </div>
+        )}
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {paused ? (
             <span className="shrink-0 font-medium">Paused</span>

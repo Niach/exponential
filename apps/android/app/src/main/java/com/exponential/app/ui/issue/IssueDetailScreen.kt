@@ -351,6 +351,9 @@ fun IssueDetailScreen(
                             if (pinned) "Unpin" else "Pin",
                             onClick = viewModel::togglePin,
                             active = pinned,
+                            // EXP-850 (S10): the pin is a ghost glyph ×4 — no
+                            // circle, no fill, wherever a pin toggle renders.
+                            borderless = true,
                             modifier = Modifier.padding(end = 4.dp),
                         )
                         // The Box stays: it anchors the dropdown to the button.

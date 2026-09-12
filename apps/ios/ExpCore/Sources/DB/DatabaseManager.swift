@@ -409,6 +409,10 @@ public final class DatabaseManager: @unchecked Sendable {
                 // server end path — what a session row's pulsing dot keys on
                 // (`status = running` only means the row is live).
                 t.column("agent_busy", .boolean).notNull().defaults(to: false)
+                // EXP-850 §8: the run's live caption (the running workflow's
+                // §7 sentence), device-written and cleared by every server end
+                // path — the second line of every session list row.
+                t.column("agent_caption", .text)
                 // EXP-804: the agent's usage wall as row state (raw jsonb
                 // text, NULL = not blocked). A blocked run still reads
                 // `running`, so this is what tells a walled run from a
@@ -1476,6 +1480,29 @@ public final class DatabaseManager: @unchecked Sendable {
             if !existing.contains("agent_busy") {
                 try db.alter(table: "coding_sessions") { t in
                     t.add(column: "agent_busy", .boolean).notNull().defaults(to: false)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            // The shape key is 'coding-sessions' WITH A DASH (the proxy route
+            // name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v37 (EXP-850 §8): `coding_sessions.agent_caption` rides along on the
+        // coding-sessions shape — the device-written second line of every
+        // session row. Same additive-ALTER-then-refetch shape as v36.
+        migrator.registerMigration("v37_coding_session_agent_caption") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("agent_caption") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "agent_caption", .text)
                 }
             }
             // Force a re-snapshot so already-synced rows pick up the column.

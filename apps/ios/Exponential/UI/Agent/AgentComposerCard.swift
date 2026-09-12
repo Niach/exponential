@@ -83,8 +83,10 @@ struct AgentComposerCard: View {
                 AgentActionPickerSheet(model: model)
             }
 
+            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
+            // concept ×4; `editor-image` stays the comment/description glyph.
             GlassComposerToolButton(
-                AppIcons.editorImage,
+                AppIcons.uiAdd,
                 accessibilityLabel: "Attach image",
                 enabled: !model.attachFull && !model.sending
             ) {

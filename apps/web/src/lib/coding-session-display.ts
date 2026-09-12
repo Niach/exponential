@@ -44,3 +44,19 @@ export function sessionRowIsWorking(
     session.agentBusy === true
   )
 }
+
+/** EXP-850 §8: the second line of a session list row — the device-written
+ * `agent_caption` (today the caption of the run's newest running workflow,
+ * `workflowCaption`), or null. Every list renders it BEFORE the device
+ * byline, and only while the run is live: the server clears the column on
+ * every path that ends a row, and an ended row that a stale client still
+ * holds must not keep narrating. Hand-mirrored with `sessionDisplayState` ×4
+ * (desktop `queries::session_agent_caption`, which additionally prefers the
+ * in-process caption signal for a run its own engine hosts). */
+export function sessionAgentCaption(
+  session: Pick<CodingSession, `status` | `agentCaption`>
+): string | null {
+  if (session.status === `ended` || session.status === `merged`) return null
+  const caption = session.agentCaption?.trim()
+  return caption ? caption : null
+}

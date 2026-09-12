@@ -1,146 +1,21 @@
-//! The ONE "Changes" surface (EXP-678/688/698, extracted by EXP-746; EXP-818
-//! shortened the band's label from "Latest changes" to "Changes" ×4).
+//! The session's CHANGES vocabulary (EXP-678/688/698, extracted by EXP-746,
+//! repurposed by EXP-850 §11).
 //!
-//! A session's branch diff plus its Merge affordance, in one collapsible row.
-//! It was born inside `terminal_dock.rs` as a `&self` method on the panel with
-//! two callers (a local PTY tab and a remote steer view); EXP-746 gives the
-//! ACP session screen a THIRD renderer, so the chrome, the merge-target rules
-//! and the pure snapshot helpers live here, generic over the view that hosts
-//! them.
-//!
-//! ONE placement (EXP-773): a 28px band whose expanded body is a fixed 288px
-//! (the web's `max-h-72`) of the per-file collapsible diff list, painted UNDER
-//! the transcript and above the composer — the web `agent-session` layout. The
-//! session screen used to wear it as a 280px right RAIL instead; a rail beside
-//! a conversation is not where changes read.
+//! The bottom "Changes" band is GONE: the session's diff opens as a
+//! right-hand pane now ([`crate::diff_pane`]), toggled by the header's Diff
+//! pill. What survived the band is everything that was never chrome — the
+//! diff PARSE and its cache ([`sync`], [`ChangesSnapshot`], [`changes_totals`]),
+//! the Merge button ([`merge_button`], which the session header wears) and
+//! the ONE merge-target rule every session surface applies
+//! ([`merge_target_for_run`], [`merge_meta_for_session`], [`merge_when_live`]).
 
-use gpui::{
-    div, px, AnyElement, App, ClickEvent, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-};
+use gpui::{AnyElement, App, ClickEvent, Context, Entity, IntoElement, Render, Styled as _};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    Disableable as _, Sizable as _,
 };
 
-use crate::icons::{registry, ExpIcon};
-
-/// The Changes bar's own height, and the expanded diff's (the web's
-/// `max-h-72`).
-pub(crate) const CHANGES_BAR_H: f32 = 28.;
-pub(crate) const CHANGES_DIFF_H: f32 = 288.;
-
-/// Everything one painting of the bar needs. Generic over the hosting view so
-/// the toggle stays the caller's own state (the dock keeps two snapshots, the
-/// session screen one).
-pub(crate) struct ChangesSpec<V: Render> {
-    pub(crate) toggle_id: &'static str,
-    /// `None` when there is no diff at all (an open PR whose branch no longer
-    /// differs): the row still draws, carrying only the Merge pill.
-    pub(crate) totals: Option<(u32, u32)>,
-    pub(crate) expanded: bool,
-    pub(crate) merge: Option<MergeTarget>,
-    pub(crate) diff_view: Entity<crate::diff::DiffView>,
-    pub(crate) on_toggle: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
-}
-
-/// EXP-698 — the ONE Changes row: the collapsible `+N −M` summary on
-/// the left, the Merge capsule on the right, and (expanded) the side-by-side
-/// diff underneath. Every session surface renders through this, so the bar is
-/// one design with one set of metrics.
-pub(crate) fn render<V: Render>(spec: ChangesSpec<V>, cx: &mut Context<V>) -> AnyElement {
-    let ChangesSpec {
-        toggle_id,
-        totals,
-        expanded,
-        merge,
-        diff_view,
-        on_toggle,
-    } = spec;
-    let muted = cx.theme().muted_foreground;
-    let mut left = h_flex()
-        .id(toggle_id)
-        .min_w_0()
-        .flex_1()
-        .gap_1p5()
-        .items_center()
-        .text_xs()
-        .text_color(muted);
-    if let Some((additions, deletions)) = totals {
-        left = left
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                on_toggle(this, cx);
-            }))
-            .child(
-                Icon::new(if expanded {
-                    registry::UI_CHEVRON_DOWN
-                } else {
-                    registry::UI_CHEVRON_RIGHT
-                })
-                .xsmall(),
-            )
-            .child(Icon::new(registry::CODING_DIFF).xsmall())
-            // EXP-818: "Changes" — ×4 (web, iOS, Android say the same).
-            .child("Changes")
-            .child(
-                div()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(theme::tokens::GREEN.to_hsla())
-                    .child(SharedString::from(format!("+{additions}"))),
-            )
-            .child(
-                div()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(cx.theme().danger)
-                    .child(SharedString::from(format!("-{deletions}"))),
-            );
-    }
-
-    let merge_pill = merge.as_ref().map(|merge| {
-        let merge_state = crate::pr_merge::MergeState::global(cx);
-        merge_button(merge, &merge_state, cx)
-    });
-
-    let mut row = h_flex()
-        .w_full()
-        .h(px(CHANGES_BAR_H))
-        .px_2()
-        .gap_2()
-        .items_center()
-        .flex_shrink_0()
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_SECTION.to_hsla())
-        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
-        .child(left);
-    if let Some(merge_pill) = merge_pill {
-        row = row.child(
-            // READONLY: the shell is only the capsule around the merge
-            // button — the button owns the cursor and the hover, and a
-            // second hover lift on the wrapper would light up on the
-            // capsule's own padding, which does nothing.
-            crate::surface::glass_pill(
-                "changes-bar-merge",
-                crate::surface::PillSize::Sm,
-                crate::surface::PillMode::Readonly,
-                cx,
-            )
-            .px_0()
-            .child(merge_pill),
-        );
-    }
-
-    let bar = v_flex().w_full().flex_shrink_0().child(row);
-    if expanded {
-        // The body is the per-file collapsible list (`DiffView::set_collapsible`),
-        // which virtualizes and scrolls inside this fixed band — the web
-        // `FileDiffList` under a `max-h-72`.
-        bar.child(div().w_full().h(px(CHANGES_DIFF_H)).child(diff_view))
-            .into_any_element()
-    } else {
-        bar.into_any_element()
-    }
-}
+use crate::icons::ExpIcon;
 
 /// The session's Merge pill: the same two-click arm/confirm machinery every
 /// other Merge surface drives ([`crate::pr_merge`]). A failed merge (typically
@@ -253,13 +128,6 @@ pub(crate) struct ChangesSnapshot {
     pub(crate) additions: u32,
     pub(crate) deletions: u32,
     pub(crate) expanded: bool,
-}
-
-/// The bar shows for a diff OR an open PR: a Merge button with nothing above
-/// it is the EXP-688 complaint, and a diff with no PR yet is still the
-/// session's work. Pure (unit-tested).
-pub(crate) fn changes_bar_visible(has_diff: bool, has_open_pr: bool) -> bool {
-    has_diff || has_open_pr
 }
 
 /// A finished run offers no Merge — iOS and web gate their pill on the same
@@ -434,45 +302,21 @@ mod tests {
     }
 
 
-    /// The bar renders for a diff OR an open PR — and for neither it is not
-    /// painted at all (a shell tab has no session to describe).
+    /// EXP-850 §10: the Merge control is offered only while the run is LIVE
+    /// — the header drops it the moment the session is over, and the PR
+    /// merges from Reviews after that. iOS and web gate their pill on the
+    /// same liveness.
     #[test]
-    fn changes_bar_shows_for_diff_or_open_pr() {
-        assert!(changes_bar_visible(true, false));
-        assert!(changes_bar_visible(false, true));
-        assert!(changes_bar_visible(true, true));
-        assert!(!changes_bar_visible(false, false));
-    }
-
-    /// The terminal bar and the session screen's bar are ONE surface, so both
-    /// ask the same two questions — is there anything to show, and may this
-    /// run still be merged. A bar that appeared on one surface where it stays
-    /// hidden on the other would be two rules pretending to be one.
-    #[test]
-    fn every_surface_agrees_on_visibility() {
+    fn merge_is_offered_only_while_the_run_is_live() {
         let target = MergeTarget::Issue {
             issue_id: "i-1".to_string(),
         };
-        // Live: the Merge survives, so a run with no diff yet still draws the
-        // surface for its PR.
-        assert_eq!(merge_when_live(Some(target.clone()), false), Some(target.clone()));
-        assert!(changes_bar_visible(
-            false,
-            merge_when_live(Some(target.clone()), false).is_some()
-        ));
-        // Over: the Merge goes, and with no diff either there is nothing left
-        // to paint in EITHER placement.
-        assert_eq!(merge_when_live(Some(target.clone()), true), None);
-        assert!(!changes_bar_visible(
-            false,
-            merge_when_live(Some(target.clone()), true).is_some()
-        ));
-        // …but an ended run that still has a diff keeps showing it: the work
-        // is what the reader came for.
-        assert!(changes_bar_visible(
-            true,
-            merge_when_live(Some(target), true).is_some()
-        ));
+        assert_eq!(
+            merge_when_live(Some(target.clone()), false),
+            Some(target.clone())
+        );
+        assert_eq!(merge_when_live(Some(target), true), None);
+        assert_eq!(merge_when_live(None, false), None);
     }
 
     /// EXP-498: the batch run's merge target — any synced OPEN-PR issue on

@@ -4,6 +4,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
 import {
+  sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
 } from "@/lib/coding-session-display"
@@ -116,6 +117,9 @@ function SessionItem({
   const state = sessionDisplayState(session, prState)
   const working = sessionRowIsWorking(session, prState)
   const isChat = identity.identifier === null && session.actionName === `Chat`
+  // EXP-850 §8: the device-written caption of the run's live workflow — the
+  // row's SECOND line, before the host machine's label.
+  const caption = sessionAgentCaption(session)
   const title = identity.identifier
     ? identity.subject
     : (session.actionName ?? (session.issueId ? identity.subject : `Batch run`))
@@ -124,7 +128,7 @@ function SessionItem({
       <SidebarMenuButton
         isActive={active}
         onClick={onOpen}
-        className={cn(paused && `opacity-60`)}
+        className={cn(caption && `h-auto py-1`, paused && `opacity-60`)}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         title={paused ? `${device.label ?? `The device`} is offline` : undefined}
       >
@@ -157,12 +161,24 @@ function SessionItem({
             <RunningIndicator state={state} paused={paused} working={working} />
           )}
         </span>
-        {identity.identifier && (
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {identity.identifier}
+        <span className="flex min-w-0 flex-1 flex-col items-start">
+          <span className="flex w-full min-w-0 items-center gap-1.5">
+            {identity.identifier && (
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {identity.identifier}
+              </span>
+            )}
+            <span className="min-w-0 flex-1 truncate">{title}</span>
           </span>
-        )}
-        <span className="min-w-0 flex-1 truncate">{title}</span>
+          {caption && (
+            <span
+              className="w-full truncate text-xs text-muted-foreground"
+              title={caption}
+            >
+              {caption}
+            </span>
+          )}
+        </span>
         {device.label && (
           <span className="max-w-[6rem] shrink-0 truncate text-xs text-muted-foreground">
             {device.label}

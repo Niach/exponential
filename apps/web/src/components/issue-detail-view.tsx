@@ -805,7 +805,14 @@ export function IssueDetailView({
   // EXP-778: the small pin toggle beside the title — pinned issues land in
   // the sidebar's Pinned group on every client.
   const pinToggle = (
-    <PinToggleButton teamId={teamId} kind="issue" targetId={issue.id} />
+    // EXP-850 §10: ghost everywhere a pin toggle renders — no circle stroke,
+    // no fill (the session header and the action dialog already read this way).
+    <PinToggleButton
+      teamId={teamId}
+      kind="issue"
+      targetId={issue.id}
+      variant="ghost"
+    />
   )
 
   // The phone header collapses copy-link / unmark / delete into ONE `…`

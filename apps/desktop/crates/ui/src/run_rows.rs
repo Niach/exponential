@@ -80,6 +80,11 @@ pub(crate) struct RunRowSpec {
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
     pub(crate) caption: Option<SharedString>,
+    /// EXP-850 §8: the run's live agent caption (the newest running
+    /// workflow's, `queries::session_agent_caption`) as the row's SECOND
+    /// line, under the title and ahead of the device byline. `None` for every
+    /// row with nothing to say, which is most of them.
+    pub(crate) subcaption: Option<SharedString>,
     pub(crate) on_open: Option<RunRowAction>,
     pub(crate) kill: Option<RunRowKill>,
 }
@@ -101,6 +106,7 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         identifier,
         title,
         caption,
+        subcaption,
         on_open,
         kill,
     } = spec;
@@ -217,7 +223,7 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .flex_col()
         .w_full()
         .min_w_0()
-        .gap_2()
+        .gap_0p5()
         .px_3()
         .py_2p5()
         // One indent step per nesting level (the rail's `14px` per level).
@@ -227,6 +233,16 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
                 .on_click(move |event, window, cx| on_open(event, window, cx))
         })
         .child(header)
+        // EXP-850 §8: the agent caption, on its own line under the title.
+        .children(subcaption.map(|subcaption| {
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(muted)
+                .child(subcaption)
+        }))
         .into_any_element()
 }
 
@@ -372,10 +388,12 @@ mod tests {
             identifier: None,
             title: parts.title.clone(),
             caption: Some(parts.caption.clone()),
+            subcaption: None,
             on_open: None,
             kill: None,
         };
         assert!(matches!(spec.lead, RunRowLead::Automation));
+        assert!(spec.subcaption.is_none());
         assert!(spec.kill.is_none());
         assert!(spec.identifier.is_none());
     }

@@ -95,9 +95,16 @@ public struct AgentQuestion: Equatable, Sendable, Identifiable {
 }
 
 /// Lifecycle of a `subagent` activity event (protocol v2).
-public enum AgentSubagentStatus: String, Sendable {
+///
+/// EXP-856: `duplicate` is not a lifecycle step but a WARNING — a
+/// `task_started` whose id matches an agent that is still live, i.e. a second
+/// copy of a running agent resumed from its transcript. It renders as an amber
+/// row under the card (or inline) and never moves the run's own state; the
+/// duplicate's later `started`/`completed` edges flow under the same id.
+public enum AgentSubagentStatus: String, Sendable, CaseIterable {
     case started
     case completed
+    case duplicate
 }
 
 /// EXP-848: whether the agent is inside a TURN right now — the engine's own
@@ -111,6 +118,24 @@ public enum AgentSubagentStatus: String, Sendable {
 public enum AgentTurnState: String, Sendable, CaseIterable {
     case started
     case ended
+}
+
+/// EXP-850 §5: the `turn` slot in full — the edge plus what the working
+/// caption needs, so the trailing row can say `Weaving… (2m 04s · ↓ 12.4k
+/// tokens)` instead of a bare "Working…". A publisher too old to stamp
+/// `startedAt` leaves both nil and the caption falls back.
+public struct AgentTurnSlot: Equatable, Sendable {
+    public var state: AgentTurnState
+    /// Unix ms the turn started, on BOTH edges.
+    public var startedAt: Int?
+    /// Output tokens produced in this turn so far (monotone within a turn).
+    public var tokens: Int?
+
+    public init(state: AgentTurnState = .ended, startedAt: Int? = nil, tokens: Int? = nil) {
+        self.state = state
+        self.startedAt = startedAt
+        self.tokens = tokens
+    }
 }
 
 /// EXP-846: the result preview a `tool_update` carries for an Exponential MCP
@@ -383,10 +408,14 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// (its `name` input as a fallback) — what the person asked this subagent
     /// for, which reads far better than the bare `agentType`. Absent on older
     /// publishers and on a spawn that named neither.
+    ///
+    /// EXP-850/856: `workflowId` is set on every edge of a WORKFLOW agent —
+    /// those nest under the workflow card, never as loose rows, and are never
+    /// offered as steerable tabs.
     case subagent(
         id: Int, subagentId: String, agentType: String,
         status: AgentSubagentStatus, detail: String?, toolCalls: Int? = nil,
-        title: String? = nil
+        title: String? = nil, workflowId: String? = nil
     )
     /// A permission prompt the agent hit (protocol v2) — INFORMATIONAL: the
     /// desktop's own TUI owns the approval, there is nothing to answer here.
@@ -402,7 +431,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .tool(id, _, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
-        case let .subagent(id, _, _, _, _, _, _): id
+        case let .subagent(id, _, _, _, _, _, _, _): id
         case let .permission(id, _, _): id
         case let .compaction(id): id
         }
@@ -432,10 +461,13 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
                 next.id = id
                 return .question(next)
             }()
-        case let .subagent(_, subagentId, agentType, status, detail, toolCalls, title):
+        case let .subagent(
+            _, subagentId, agentType, status, detail, toolCalls, title, workflowId
+        ):
             .subagent(
                 id: id, subagentId: subagentId, agentType: agentType,
-                status: status, detail: detail, toolCalls: toolCalls, title: title
+                status: status, detail: detail, toolCalls: toolCalls, title: title,
+                workflowId: workflowId
             )
         case let .permission(_, tool, detail):
             .permission(id: id, tool: tool, detail: detail)
@@ -466,7 +498,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var subagentKey: String? {
         switch self {
         case let .tool(_, _, _, subagentId, _, _, _, _, _, _): return subagentId
-        case let .subagent(_, subagentId, _, _, _, _, _): return subagentId
+        case let .subagent(_, subagentId, _, _, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
         default: return nil
@@ -495,8 +527,17 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
     /// EXP-748: the highest count the subagent's own markers reported, if any.
     /// Replay evicts subagent tool events first, so `items` can undercount.
     public let reportedToolCalls: Int?
+    /// EXP-850 §3/§4: the workflow card this agent belongs to. Such a run is
+    /// never a loose transcript row and never a steerable tab — it renders
+    /// INSIDE its card.
+    public let workflowId: String?
+    /// EXP-856: the duplicate warning's sentence, verbatim off the wire, when
+    /// a second copy of this agent started while the first was still running.
+    public let duplicateDetail: String?
 
     public var id: Int { anchorId }
+    /// EXP-856: a second copy of this agent is running.
+    public var duplicate: Bool { duplicateDetail != nil }
     /// EXP-847: the label every surface draws — what the spawn asked for, with
     /// the agent's TYPE as the fallback (older publishers send no title, and a
     /// spawn may name neither). Mirrored ×4.
@@ -518,7 +559,9 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
         done: Bool,
         items: [AgentFeedItem],
         reportedToolCalls: Int? = nil,
-        title: String? = nil
+        title: String? = nil,
+        workflowId: String? = nil,
+        duplicateDetail: String? = nil
     ) {
         self.anchorId = anchorId
         self.subagentId = subagentId
@@ -528,6 +571,8 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
         self.done = done
         self.items = items
         self.reportedToolCalls = reportedToolCalls
+        self.workflowId = workflowId
+        self.duplicateDetail = duplicateDetail
     }
 }
 
@@ -753,7 +798,7 @@ public enum AgentFeed {
             return overhead + name.utf8.count + (detail?.utf8.count ?? 0) + (diff?.utf8.count ?? 0)
         case let .permission(_, tool, detail):
             return overhead + tool.utf8.count + (detail?.utf8.count ?? 0)
-        case let .subagent(_, subagentId, agentType, _, detail, _, title):
+        case let .subagent(_, subagentId, agentType, _, detail, _, title, _):
             return overhead + subagentId.utf8.count + agentType.utf8.count
                 + (detail?.utf8.count ?? 0) + (title?.utf8.count ?? 0)
         case let .question(question):
@@ -844,15 +889,16 @@ public enum AgentFeed {
     public static func applyCompaction(
         _ current: AgentCompaction?, event: [String: Any]
     ) -> AgentCompaction? {
-        switch event["phase"] as? String {
-        case "started":
-            let trigger = (event["trigger"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return AgentCompaction(trigger: trigger)
-        case "ended":
-            return nil
-        default:
-            return current
-        }
+        applyCompaction(current, edge: AgentActivityDecoder.compaction(event))
+    }
+
+    /// The same fold over the DECODED edge — what the view model runs.
+    public static func applyCompaction(
+        _ current: AgentCompaction?, edge: AgentCompactionEdge
+    ) -> AgentCompaction? {
+        if edge.started { return AgentCompaction(trigger: edge.trigger) }
+        if edge.ended { return nil }
+        return current
     }
 
     // MARK: - Live agent configuration (EXP-746)
@@ -878,42 +924,7 @@ public enum AgentFeed {
     public static func applyConfigState(
         _ current: AgentSessionConfig?, event: [String: Any]
     ) -> AgentSessionConfig? {
-        // `options` is required on the wire (possibly empty) — its absence
-        // means this is not a config_state we can read.
-        guard let rawOptions = event["options"] as? [[String: Any]] else { return current }
-        let options: [AgentConfigOption] = rawOptions.compactMap { raw in
-            guard let id = string(raw["id"]) else { return nil }
-            return AgentConfigOption(
-                id: id,
-                label: string(raw["label"]) ?? id,
-                category: string(raw["category"]),
-                value: raw["value"] as? String,
-                values: configValues(raw["values"])
-            )
-        }
-        let modes: [AgentConfigMode] = (event["modes"] as? [[String: Any]] ?? []).compactMap { raw in
-            guard let id = string(raw["id"]) else { return nil }
-            return AgentConfigMode(
-                id: id,
-                label: string(raw["label"]) ?? id,
-                description: string(raw["description"])
-            )
-        }
-        let commands: [AgentConfigCommand] = (event["commands"] as? [[String: Any]] ?? [])
-            .compactMap { raw in
-                guard let name = string(raw["name"]) else { return nil }
-                return AgentConfigCommand(
-                    name: name,
-                    description: (raw["description"] as? String) ?? "",
-                    hint: string(raw["hint"])
-                )
-            }
-        return AgentSessionConfig(
-            options: options,
-            currentMode: string(event["currentMode"]),
-            modes: modes,
-            commands: commands
-        )
+        AgentActivityDecoder.configState(event).applied(to: current)
     }
 
     /// EXP-785: ACP's tool-call kinds — the contract's `toolKind` list.
@@ -951,8 +962,16 @@ public enum AgentFeed {
     public static func applyToolUpdate(
         feed: [AgentFeedItem], event: [String: Any]
     ) -> [AgentFeedItem]? {
-        guard let id = string(event["id"]),
-              let at = feed.lastIndex(where: { item in
+        guard let update = AgentActivityDecoder.toolUpdate(event) else { return nil }
+        return applyToolUpdate(feed: feed, update: update)
+    }
+
+    /// The same fold over the DECODED payload — what the view model runs.
+    public static func applyToolUpdate(
+        feed: [AgentFeedItem], update: AgentToolUpdate
+    ) -> [AgentFeedItem]? {
+        let id = update.id
+        guard let at = feed.lastIndex(where: { item in
                   if case let .tool(_, _, _, _, callId, _, _, _, _, _) = item {
                       return callId == id
                   }
@@ -965,14 +984,14 @@ public enum AgentFeed {
         else { return nil }
         var nextSettled = settled
         var nextFailed = failed
-        if let status = event["status"] as? String, status == "completed" || status == "failed" {
+        if update.settles {
             nextSettled = true
-            nextFailed = status == "failed"
+            nextFailed = update.failed
         }
-        let nextDiff = string(event["diff"]) ?? diff
+        let nextDiff = update.diff ?? diff
         // EXP-846: latest preview wins; an update without one keeps what the
         // row already shows (a settle and the result can arrive apart).
-        let nextPreview = toolPreview(event["preview"]) ?? preview
+        let nextPreview = update.preview ?? preview
         var next = feed
         next[at] = .tool(
             id: rowId, name: name, detail: detail, subagentId: subagentId,
@@ -989,10 +1008,28 @@ public enum AgentFeed {
     /// missing) `state` leaves it exactly as it was — the `applyCompaction`
     /// contract: a malformed frame must never flip the working indicator.
     public static func applyTurn(
-        _ current: AgentTurnState, event: [String: Any]
-    ) -> AgentTurnState {
-        guard let raw = event["state"] as? String,
-              let next = AgentTurnState(rawValue: raw) else { return current }
+        _ current: AgentTurnSlot, event: [String: Any]
+    ) -> AgentTurnSlot {
+        applyTurn(current, edge: AgentActivityDecoder.turn(event))
+    }
+
+    /// The same fold over the DECODED edge (EXP-850 §5).
+    ///
+    /// A republish that omits `startedAt`/`tokens` never blanks what the slot
+    /// already learned — the engine sends the edge alone on older publishers —
+    /// and a NEW `startedAt` resets the token counter, because the count is
+    /// per turn.
+    public static func applyTurn(
+        _ current: AgentTurnSlot, edge: AgentTurnEdge
+    ) -> AgentTurnSlot {
+        var next = current
+        if let state = edge.state { next.state = state }
+        if let startedAt = edge.startedAt, startedAt != current.startedAt {
+            next.startedAt = startedAt
+            next.tokens = edge.tokens
+            return next
+        }
+        if let tokens = edge.tokens { next.tokens = tokens }
         return next
     }
 
@@ -1074,13 +1111,7 @@ public enum AgentFeed {
     public static func applyRateLimit(
         _ current: AgentSessionRateLimit?, event: [String: Any]
     ) -> AgentSessionRateLimit? {
-        guard let status = event["status"] as? String, !rateLimitClears(status) else { return nil }
-        let resetsAt = (event["resetsAt"] as? NSNumber)?.intValue
-        return AgentSessionRateLimit(
-            status: status.trimmingCharacters(in: .whitespacesAndNewlines),
-            resetsAt: (resetsAt ?? -1) >= 0 ? resetsAt : nil,
-            message: string(event["message"])?.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        AgentActivityDecoder.rateLimit(event).applied(to: current)
     }
 
     /// EXP-818/831: whether a rate-limit report is a WALL worth a banner —
@@ -1202,16 +1233,7 @@ public enum AgentFeed {
     public static func applyUsage(
         _ current: AgentSessionUsage?, event: [String: Any]
     ) -> AgentSessionUsage? {
-        guard let used = (event["contextUsed"] as? NSNumber)?.intValue,
-              let size = (event["contextSize"] as? NSNumber)?.intValue
-        else { return current }
-        guard size > 0 else { return nil }
-        let cost = (event["costUsd"] as? NSNumber)?.doubleValue
-        return AgentSessionUsage(
-            contextUsed: max(0, used),
-            contextSize: size,
-            costUsd: (cost ?? -1) >= 0 ? cost : nil
-        )
+        AgentActivityDecoder.usage(event).applied(to: current)
     }
 
     /// The composer's ONE chip (EXP-772): the agent's mode, or nil when the
@@ -1433,7 +1455,54 @@ public enum AgentFeed {
     /// tool calls" row (EXP-97). Grouped items are pulled OUT of their in-place
     /// position into the row their group opened, so a late-arriving step (or a
     /// subagent call that lands behind an unrelated one) still joins its group.
-    public static func rows(_ feed: [AgentFeedItem], from start: Int = 0) -> [AgentFeedRow] {
+    ///
+    /// EXP-850: `workflowIds` names the tool calls that ARE workflow cards —
+    /// such a row never joins a "N tool calls" run (the card has to render in
+    /// its place), and the subagent runs of a workflow's agents are dropped
+    /// from the transcript entirely, because the card nests them.
+    /// EXP-850 §9: every still-pending question/ask row is moved after all
+    /// later rows, in its original relative order, so the card a human has to
+    /// answer is always the last thing in the transcript.
+    public static func rows(
+        _ feed: [AgentFeedItem], from start: Int = 0, workflowIds: Set<String> = []
+    ) -> [AgentFeedRow] {
+        pendingCardsLast(
+            project(feed, from: start, workflowIds: workflowIds, keepWorkflowAgents: false)
+        )
+    }
+
+    /// §9: pending cards last, everything else in place. Pure and mirrored ×4.
+    public static func pendingCardsLast(_ rows: [AgentFeedRow]) -> [AgentFeedRow] {
+        var settled: [AgentFeedRow] = []
+        var pending: [AgentFeedRow] = []
+        for row in rows {
+            if isPendingCard(row) {
+                pending.append(row)
+            } else {
+                settled.append(row)
+            }
+        }
+        return pending.isEmpty ? rows : settled + pending
+    }
+
+    /// A question row still waiting on a human — unresolved and not dismissed.
+    /// An ask group is pending while ANY of its steps is.
+    public static func isPendingCard(_ row: AgentFeedRow) -> Bool {
+        switch row {
+        case let .single(item):
+            guard let question = item.question else { return false }
+            return !question.resolved && !question.dismissed
+        case let .ask(group):
+            return group.questions.contains { !$0.resolved && !$0.dismissed }
+        case .toolRun, .subagentRun:
+            return false
+        }
+    }
+
+    private static func project(
+        _ feed: [AgentFeedItem], from start: Int, workflowIds: Set<String>,
+        keepWorkflowAgents: Bool
+    ) -> [AgentFeedRow] {
         var builders: [RowBuilder] = []
         var askAt: [String: Int] = [:]
         var subagentAt: [String: Int] = [:]
@@ -1468,11 +1537,13 @@ public enum AgentFeed {
                 continue
             }
 
-            if item.isTool {
+            if item.isTool, !isWorkflowTool(item, workflowIds: workflowIds) {
                 var end = i + 1
                 // A tool tagged with a subagent belongs to that group, never to
-                // a main-thread run.
-                while end < feed.count, feed[end].isTool, feed[end].subagentKey == nil {
+                // a main-thread run; a WORKFLOW call is its own card row and
+                // never collapses into one either (EXP-850 §3).
+                while end < feed.count, feed[end].isTool, feed[end].subagentKey == nil,
+                      !isWorkflowTool(feed[end], workflowIds: workflowIds) {
                     end += 1
                 }
                 if end - i >= 2 {
@@ -1485,7 +1556,17 @@ public enum AgentFeed {
             builders.append(RowBuilder(kind: .single, items: [item]))
             i += 1
         }
-        return builders.compactMap(makeRow)
+        return builders.compactMap { makeRow($0, keepWorkflowAgents: keepWorkflowAgents) }
+    }
+
+    /// Whether this tool row IS a workflow card (its call id carries one).
+    private static func isWorkflowTool(
+        _ item: AgentFeedItem, workflowIds: Set<String>
+    ) -> Bool {
+        guard !workflowIds.isEmpty,
+              case let .tool(_, _, _, _, callId, _, _, _, _, _) = item,
+              let callId else { return false }
+        return workflowIds.contains(callId)
     }
 
     /// The stepper's current step: the first question of the ask that is
@@ -1499,8 +1580,13 @@ public enum AgentFeed {
     /// Every subagent seen in the feed, in first-appearance order (EXP-356) —
     /// the session view renders one conversation tab per run, labeled and
     /// summarized exactly like its group row.
-    public static func subagents(_ feed: [AgentFeedItem]) -> [AgentSubagentRun] {
-        rows(feed).compactMap { row in
+    /// EXP-850: workflow agents are INCLUDED here — the card looks its own
+    /// agents' runs up through this list — while `rows` drops them from the
+    /// transcript and `visibleSubagentTabs` drops them from the tab strip.
+    public static func subagents(
+        _ feed: [AgentFeedItem], from start: Int = 0
+    ) -> [AgentSubagentRun] {
+        project(feed, from: start, workflowIds: [], keepWorkflowAgents: true).compactMap { row in
             if case let .subagentRun(run) = row { return run }
             return nil
         }
@@ -1510,10 +1596,13 @@ public enum AgentFeed {
     /// the focused one even when done — a completion never yanks the user out
     /// of a conversation they are reading; the tab disappears once they click
     /// away. Completed runs stay readable via their inline group row in Main.
+    ///
+    /// EXP-850 §3: a WORKFLOW's agents are never tabs — they are not steerable
+    /// and they render inside their card.
     public static func visibleSubagentTabs(
         _ agents: [AgentSubagentRun], selected: String?
     ) -> [AgentSubagentRun] {
-        agents.filter { !$0.done || $0.subagentId == selected }
+        agents.filter { $0.workflowId == nil && (!$0.done || $0.subagentId == selected) }
     }
 
     /// Mutable accumulator behind `rows` — the row cases carry immutable
@@ -1530,7 +1619,9 @@ public enum AgentFeed {
         var items: [AgentFeedItem]
     }
 
-    private static func makeRow(_ builder: RowBuilder) -> AgentFeedRow? {
+    private static func makeRow(
+        _ builder: RowBuilder, keepWorkflowAgents: Bool
+    ) -> AgentFeedRow? {
         switch builder.kind {
         case .single:
             guard let item = builder.items.first else { return nil }
@@ -1555,18 +1646,32 @@ public enum AgentFeed {
             // EXP-748: the highest count any marker reported — a re-emitted
             // edge must never shrink the row's "N tool calls".
             var reported: Int?
+            // EXP-856: the duplicate warning's own sentence, kept beside the
+            // run so a collapsed card still shows it.
+            var duplicateDetail: String?
+            // EXP-850: the card this agent belongs to, when it is one of a
+            // workflow's.
+            var workflowId: String?
             // EXP-847: the FIRST marker that named a title wins — the spawn's
             // own `description` rides the `started` edge, and a completed edge
             // that carries none must not blank the row's label.
             var title: String?
             for item in builder.items {
-                guard case let .subagent(_, _, type, status, mark, calls, named) = item
+                guard case let .subagent(_, _, type, status, mark, calls, named, flow) = item
                 else { continue }
                 if !type.isEmpty { types.append(type) }
+                // EXP-856: the duplicate edge is a WARNING beside the run, not
+                // a lifecycle step — it neither finishes the run nor replaces
+                // its delegation detail.
+                if status == .duplicate {
+                    duplicateDetail = mark
+                    continue
+                }
                 if status == .completed { done = true }
                 if let mark { detail = mark }
                 if let calls { reported = max(reported ?? 0, calls) }
                 if title == nil, let named, !named.isEmpty { title = named }
+                if workflowId == nil, let flow, !flow.isEmpty { workflowId = flow }
             }
             // First marker with a REAL type wins — "agent" is the desktop's
             // fallback sentinel, and old builds stamp it onto the completed
@@ -1574,6 +1679,9 @@ public enum AgentFeed {
             let agentType = types.first { $0 != Self.subagentFallbackType }
                 ?? types.first
                 ?? Self.subagentFallbackType
+            // EXP-850 §3/§4: a workflow agent's run belongs to its card, so
+            // the transcript projection drops it entirely.
+            if !keepWorkflowAgents, workflowId != nil { return nil }
             return .subagentRun(AgentSubagentRun(
                 anchorId: anchorId,
                 subagentId: subagentId,
@@ -1583,7 +1691,9 @@ public enum AgentFeed {
                 // EXP-773: everything but the lifecycle markers, in order.
                 items: builder.items.filter { if case .subagent = $0 { false } else { true } },
                 reportedToolCalls: reported,
-                title: title
+                title: title,
+                workflowId: workflowId,
+                duplicateDetail: duplicateDetail
             ))
         }
     }

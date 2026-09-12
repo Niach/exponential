@@ -698,6 +698,8 @@ export function groupFeedRows<
     kind: string
     askId?: string
     subagentId?: string
+    resolved?: boolean
+    workflowId?: string
   },
 >(feed: readonly T[], start = 0): FeedRow<T>[] {
   const rows: FeedRow<T>[] = []
@@ -749,7 +751,10 @@ export function groupFeedRows<
       rows.push(row)
       continue
     }
-    if (item.kind !== `tool`) {
+    // EXP-850 §3: the `Workflow` call renders as its own CARD, so it never
+    // disappears inside a collapsed "N tool calls" run — neither as the run's
+    // opener nor as a member of one.
+    if (item.kind !== `tool` || item.workflowId !== undefined) {
       rows.push({ kind: `single`, item })
       continue
     }
@@ -757,7 +762,8 @@ export function groupFeedRows<
     while (
       end + 1 < feed.length &&
       feed[end + 1].kind === `tool` &&
-      feed[end + 1].subagentId === undefined
+      feed[end + 1].subagentId === undefined &&
+      feed[end + 1].workflowId === undefined
     )
       end++
     if (end === i) rows.push({ kind: `single`, item })
@@ -765,7 +771,35 @@ export function groupFeedRows<
       rows.push({ kind: `toolRun`, id: item.id, items: feed.slice(i, end + 1) })
     i = end
   }
-  return rows
+  return hoistPendingCards(rows)
+}
+
+/** EXP-850 §9: a question or plan waiting on the reader belongs at the BOTTOM
+ *  of the transcript — the tool rows and prose an agent flushes after asking
+ *  used to bury the card off screen. A stable partition: pending cards keep
+ *  their relative order behind everything else, and a card that resolves
+ *  returns to its natural position on the next projection. */
+function hoistPendingCards<T extends { id: number; kind: string; resolved?: boolean }>(
+  rows: FeedRow<T>[]
+): FeedRow<T>[] {
+  const pending: FeedRow<T>[] = []
+  const rest: FeedRow<T>[] = []
+  for (const row of rows) {
+    if (rowIsPendingCard(row)) pending.push(row)
+    else rest.push(row)
+  }
+  return pending.length === 0 ? rows : [...rest, ...pending]
+}
+
+/** A render row the session is BLOCKED on: an unresolved question card, or an
+ *  ask group with at least one unresolved step. */
+export function rowIsPendingCard<
+  T extends { id: number; kind: string; resolved?: boolean },
+>(row: FeedRow<T>): boolean {
+  const pending = (item: T) => item.kind === `question` && item.resolved !== true
+  if (row.kind === `ask`) return row.items.some(pending)
+  if (row.kind === `single`) return pending(row.item)
+  return false
 }
 
 // ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
@@ -830,6 +864,12 @@ export function transcriptGap(prev: RowClass | null, cur: RowClass): number {
  *  the label selection must skip past, never a type to prefer (EXP-350). */
 export const SUBAGENT_FALLBACK_TYPE = `agent`
 
+/** EXP-856: the contract `subagentStatus` a warning edge carries — a second
+ *  copy of an agent that is still running (claude's `SendMessage` resumes a
+ *  finished agent's transcript into a fresh process). Never a lifecycle
+ *  state: the agent's own `started`/`completed` edges keep flowing. */
+export const DUPLICATE_STATUS = `duplicate`
+
 /** One subagent's summary for tab navigation (EXP-356). */
 export interface SubagentSummary {
   subagentId: string
@@ -840,6 +880,12 @@ export interface SubagentSummary {
   done: boolean
   detail?: string
   toolCount: number
+  /** EXP-850 §3/§4: this agent belongs to a workflow card — it is never a
+   *  steerable tab and its rows nest under that card. */
+  workflowId?: string
+  /** EXP-856: a SECOND copy of this agent started while the first was still
+   *  running — the amber warning row's sentence, verbatim off the wire. */
+  duplicateDetail?: string
 }
 
 /** EXP-847: what a subagent is CALLED on screen — the spawning call's
@@ -864,6 +910,7 @@ export function collectSubagents<
     title?: string
     status?: string
     detail?: string
+    workflowId?: string
   },
 >(feed: readonly T[]): SubagentSummary[] {
   const order: string[] = []
@@ -893,7 +940,11 @@ export function visibleSubagentTabs(
   agents: readonly SubagentSummary[],
   selected: string | null
 ): SubagentSummary[] {
-  return agents.filter((a) => !a.done || a.subagentId === selected)
+  return agents.filter(
+    // EXP-850 §3: a workflow's agents are never tabs and are never steerable
+    // — they live inside the workflow card.
+    (a) => a.workflowId === undefined && (!a.done || a.subagentId === selected)
+  )
 }
 
 /** What a subagent group row displays (EXP-350) — one place for the label /
@@ -917,6 +968,7 @@ export function summarizeSubagentRow<
     status?: string
     detail?: string
     toolCalls?: number
+    workflowId?: string
   },
 >(
   items: readonly T[]
@@ -926,8 +978,15 @@ export function summarizeSubagentRow<
   done: boolean
   detail?: string
   toolCount: number
+  workflowId?: string
+  duplicateDetail?: string
 } {
-  const markers = items.filter((i) => i.kind === `subagent`)
+  const allMarkers = items.filter((i) => i.kind === `subagent`)
+  // EXP-856: a `duplicate` edge is a WARNING about the agent, not a lifecycle
+  // edge of it — its detail is the warning sentence, so it never overwrites
+  // the agent's own detail line.
+  const duplicates = allMarkers.filter((m) => m.status === DUPLICATE_STATUS)
+  const markers = allMarkers.filter((m) => m.status !== DUPLICATE_STATUS)
   const types = markers
     .map((m) => m.agentType?.trim() ?? ``)
     .filter((t) => t !== ``)
@@ -940,10 +999,13 @@ export function summarizeSubagentRow<
       types.find((t) => t !== SUBAGENT_FALLBACK_TYPE) ??
       types[0] ??
       SUBAGENT_FALLBACK_TYPE,
-    title: markers.map((m) => m.title?.trim()).find((t) => t),
+    title: allMarkers.map((m) => m.title?.trim()).find((t) => t),
     done: markers.some((m) => m.status === `completed`),
     detail: [...markers].reverse().find((m) => m.detail?.trim())?.detail,
     toolCount: Math.max(items.filter((i) => i.kind === `tool`).length, reported),
+    workflowId: allMarkers.map((m) => m.workflowId?.trim()).find((id) => id),
+    duplicateDetail: [...duplicates].reverse().find((m) => m.detail?.trim())
+      ?.detail,
   }
 }
 
@@ -1550,4 +1612,286 @@ export function sessionIsWorking(input: {
     !input.blocked &&
     !input.compacting
   )
+}
+
+// ── EXP-850: workflows, background tasks and the wait strip ─────────────────
+// The steer wire gained two latest-wins kinds (`workflow`, keyed per id, and
+// `background_tasks`) plus a `wait` tool kind. The folds live here so the
+// store stays a reducer and every projection is unit tested; the ×4 rule
+// homes are `crates/steer/src/workflow.rs`, iOS `AgentFeed` and Android
+// `AgentFeed.kt`. Nothing below is ever a feed ROW: a workflow patches onto
+// the `tool` row that spawned it (same id) and the tasks live in a slot.
+
+/** Every string on a workflow card is cut by the publisher at this length;
+ *  the client re-clamps because the wire is a device's word, not ours. */
+const WORKFLOW_TEXT_MAX = contract.steerWorking.previewMax
+
+/** One phase of a workflow (`task_progress` `workflow_phase` entries). */
+export interface WorkflowPhase {
+  index: number
+  title: string
+}
+
+/** A workflow agent's lifecycle, the contract's `workflowAgentState`. */
+export type WorkflowAgentState = `queued` | `running` | `done` | `error`
+
+export const WORKFLOW_AGENT_STATES: readonly WorkflowAgentState[] = [
+  `queued`,
+  `running`,
+  `done`,
+  `error`,
+]
+
+/** One row of the card: what the agent is called, where it runs and what it
+ *  has produced so far. Everything past `index`/`state` is optional — a
+ *  queued agent reports nothing but its label. */
+export interface WorkflowAgent {
+  index: number
+  label?: string
+  phaseIndex?: number
+  agentId?: string
+  model?: string
+  state: WorkflowAgentState
+  tokens?: number
+  toolCalls?: number
+  durationMs?: number
+  lastTool?: string
+  lastToolSummary?: string
+  resultPreview?: string
+  error?: string
+}
+
+/** The contract's `workflowStatus`. */
+export type WorkflowStatus = `running` | `completed` | `failed` | `stopped`
+
+export const WORKFLOW_STATUSES: readonly WorkflowStatus[] = [
+  `running`,
+  `completed`,
+  `failed`,
+  `stopped`,
+]
+
+/** A `workflow` event, folded. `id` is the spawning `Workflow` tool call's
+ *  id — the key the card is patched onto its tool row by. */
+export interface WorkflowState {
+  id: string
+  name: string
+  description?: string
+  status: WorkflowStatus
+  phases: WorkflowPhase[]
+  agents: WorkflowAgent[]
+  summary?: string
+  at?: number
+}
+
+/** The contract's `backgroundTaskKind`. */
+export type BackgroundTaskKind = `shell` | `workflow` | `agent` | `other`
+
+export const BACKGROUND_TASK_KINDS: readonly BackgroundTaskKind[] = [
+  `shell`,
+  `workflow`,
+  `agent`,
+  `other`,
+]
+
+/** One row of the strip above the composer — a shell command, a workflow or
+ *  an agent the CLI is running in the background. */
+export interface BackgroundTask {
+  id: string
+  kind: BackgroundTaskKind
+  description: string
+  toolId?: string
+}
+
+function clampText(value: unknown): string | undefined {
+  if (typeof value !== `string`) return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, WORKFLOW_TEXT_MAX) : undefined
+}
+
+function wireCount(value: unknown): number | undefined {
+  return typeof value === `number` && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : undefined
+}
+
+function wireIndex(value: unknown): number | undefined {
+  return typeof value === `number` && Number.isFinite(value)
+    ? Math.round(value)
+    : undefined
+}
+
+/** Fold a `workflow` event. Null = a payload without the two fields the card
+ *  cannot be drawn without (its id and its name); everything else degrades to
+ *  a missing line rather than to a dropped card, because a newer publisher
+ *  may well send fields this build does not know. An unreadable `status` reads
+ *  as `running`: a card that is still moving is the safe guess, and the
+ *  terminal frame that follows corrects it. */
+export function parseWorkflow(event: unknown): WorkflowState | null {
+  if (!isEventRecord(event)) return null
+  const id = wireId(event.id)
+  const name = clampText(event.name)
+  if (!id || !name) return null
+  const status = typeof event.status === `string` ? event.status.trim() : ``
+  const phases: WorkflowPhase[] = []
+  if (Array.isArray(event.phases)) {
+    for (const raw of event.phases) {
+      if (!isEventRecord(raw)) continue
+      const index = wireIndex(raw.index)
+      const title = clampText(raw.title)
+      if (index === undefined || !title) continue
+      phases.push({ index, title })
+    }
+  }
+  const agents: WorkflowAgent[] = []
+  if (Array.isArray(event.agents)) {
+    for (const raw of event.agents) {
+      if (!isEventRecord(raw)) continue
+      const index = wireIndex(raw.index)
+      if (index === undefined) continue
+      const state = typeof raw.state === `string` ? raw.state.trim() : ``
+      agents.push({
+        index,
+        label: clampText(raw.label),
+        phaseIndex: wireIndex(raw.phaseIndex),
+        agentId: wireId(raw.agentId) ?? undefined,
+        model: clampText(raw.model),
+        state: (WORKFLOW_AGENT_STATES as readonly string[]).includes(state)
+          ? (state as WorkflowAgentState)
+          : `queued`,
+        tokens: wireCount(raw.tokens),
+        toolCalls: wireCount(raw.toolCalls),
+        durationMs: wireCount(raw.durationMs),
+        lastTool: clampText(raw.lastTool),
+        lastToolSummary: clampText(raw.lastToolSummary),
+        resultPreview: clampText(raw.resultPreview),
+        error: clampText(raw.error),
+      })
+    }
+  }
+  return {
+    id,
+    name,
+    description: clampText(event.description),
+    status: (WORKFLOW_STATUSES as readonly string[]).includes(status)
+      ? (status as WorkflowStatus)
+      : `running`,
+    phases,
+    agents,
+    summary: clampText(event.summary),
+    at: wireCount(event.at),
+  }
+}
+
+/** Fold a `background_tasks` event — the FULL current list, so an empty array
+ *  closes the strip. Null = an unreadable payload (the slot then stands). */
+export function parseBackgroundTasks(event: unknown): BackgroundTask[] | null {
+  if (!isEventRecord(event)) return null
+  if (!Array.isArray(event.tasks)) return null
+  const tasks: BackgroundTask[] = []
+  for (const raw of event.tasks) {
+    if (!isEventRecord(raw)) continue
+    const id = wireId(raw.id)
+    const description = clampText(raw.description)
+    if (!id || !description) continue
+    const kind = typeof raw.kind === `string` ? raw.kind.trim() : ``
+    tasks.push({
+      id,
+      kind: (BACKGROUND_TASK_KINDS as readonly string[]).includes(kind)
+        ? (kind as BackgroundTaskKind)
+        : `other`,
+      description,
+      toolId: wireId(raw.toolId) ?? undefined,
+    })
+  }
+  return tasks
+}
+
+/** The newest workflow that is still running, or null — the caption source
+ *  (§5) and what makes a card's agents non-steerable (§3). */
+export function runningWorkflow(
+  workflows: readonly WorkflowState[]
+): WorkflowState | null {
+  let latest: WorkflowState | null = null
+  for (const workflow of workflows) {
+    if (workflow.status !== `running`) continue
+    latest = workflow
+  }
+  return latest
+}
+
+/** Per-phase agent tallies for the card's phase strip: how many of that
+ *  phase's agents are queued, running, done or errored. Phases with no agents
+ *  still render (they are the plan). */
+export interface WorkflowPhaseCounts extends WorkflowPhase {
+  queued: number
+  running: number
+  done: number
+  error: number
+}
+
+export function workflowPhaseCounts(
+  workflow: Pick<WorkflowState, `phases` | `agents`>
+): WorkflowPhaseCounts[] {
+  return workflow.phases.map((phase) => {
+    const counts = { queued: 0, running: 0, done: 0, error: 0 }
+    for (const agent of workflow.agents) {
+      if (agent.phaseIndex !== phase.index) continue
+      counts[agent.state] += 1
+    }
+    return { ...phase, ...counts }
+  })
+}
+
+/** §1/§2 — the strip directly above the composer: one line per background
+ *  task, then one per OPEN (unsettled) `wait` tool row. Empty = no strip. */
+export interface BackgroundStripLine {
+  kind: `task` | `wait`
+  /** A stable React key: the task id, or the wait row's feed id. */
+  key: string
+  text: string
+}
+
+export function backgroundStripLines(input: {
+  backgroundTasks?: readonly BackgroundTask[] | null
+  feed: readonly {
+    id: number
+    kind: string
+    name?: string
+    detail?: string
+    toolKind?: ToolKind
+    settled?: boolean
+  }[]
+}): BackgroundStripLine[] {
+  const lines: BackgroundStripLine[] = (input.backgroundTasks ?? []).map(
+    (task) => ({ kind: `task` as const, key: `task:${task.id}`, text: task.description })
+  )
+  for (const item of input.feed) {
+    if (item.kind !== `tool` || item.toolKind !== `wait`) continue
+    if (item.settled === true) continue
+    const subject = item.detail?.trim() || item.name?.trim()
+    if (!subject) continue
+    lines.push({
+      kind: `wait`,
+      key: `wait:${item.id}`,
+      text: `Waiting on ${subject}`,
+    })
+  }
+  return lines
+}
+
+/** EXP-856 §4: the subagents that belong to a workflow, by id — their edges
+ *  nest under the card and never open a steerable tab. */
+export function workflowSubagentIds(
+  feed: readonly { kind: string; subagentId?: string; workflowId?: string }[]
+): Map<string, string> {
+  const byId = new Map<string, string>()
+  for (const item of feed) {
+    if (item.kind !== `subagent`) continue
+    const subagentId = item.subagentId
+    const workflowId = item.workflowId
+    if (!subagentId || !workflowId) continue
+    if (!byId.has(subagentId)) byId.set(subagentId, workflowId)
+  }
+  return byId
 }

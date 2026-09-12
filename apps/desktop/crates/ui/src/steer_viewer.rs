@@ -29,14 +29,15 @@
 //!   [`ViewerHandle::kick`]; see the "Wakeups" section below. Without them a
 //!   woken laptop waits out the transport's staleness window and backoff.
 //!
-//! EXP-698 closed the two biggest gaps: the pinned **Changes** strip
-//! and the in-session **Merge** pill render for a steered session too. The
-//! old rationale ("a remote run's diff is not on this machine") was wrong —
-//! the host publishes its worktree diff on the activity channel and
-//! [`SteerFeed::latest_diff`] holds it. The bar itself lives in
-//! [`crate::changes_bar`]; the session screen's "Changes" rail draws it from
-//! [`Self::latest_diff`] and resolves the merge target off the synced
-//! `coding_sessions` row.
+//! EXP-698 closed the two biggest gaps: the run's **changes** and its
+//! **Merge**. The old rationale ("a remote run's diff is not on this
+//! machine") was wrong — the host publishes its worktree diff on the
+//! activity channel and [`SteerFeed::latest_diff`] holds it. EXP-850 §10/§11
+//! moved both out of the bottom band: the diff opens as a right-hand PANE
+//! inside this view ([`crate::diff_pane`], toggled by the screen header's
+//! Diff pill), and Merge is a header control resolved off the synced
+//! `coding_sessions` row ([`crate::changes_bar`] keeps the parse and the
+//! merge-target rule).
 //!
 //! EXP-789 closed the last parity gap: the subagent TAB strip ("Main" plus
 //! one tab per running subagent, the focused one lingering after it ends)
@@ -48,7 +49,12 @@
 //! while a card is pending, free text ("Type something." / a plan's "keep
 //! planning") is typed INLINE in that option row, and an answered step of a
 //! multi-question ask is re-openable until the ask completes
-//! ([`ask_complete`]). The only deliberate gap left: no fullscreen toggle —
+//! ([`ask_complete`]). EXP-850 added the derived rows around that
+//! conversation — the §9 pending-card-last projection, the §3 workflow card,
+//! the §4 duplicate warning, the §5 working caption, the §1/§2 strip and the
+//! §12 file cards — whose RULES are pure in [`crate::session_rows`] and
+//! [`crate::workflow_card`].
+//! The only deliberate gap left: no fullscreen toggle —
 //! the screen's own chrome is the desktop's answer to that.
 
 use std::collections::{HashMap, HashSet};
@@ -98,6 +104,20 @@ const FREE_TEXT_MAX: usize = 4000;
 
 /// How often the staged-replay fallback re-checks its quiet window.
 const STAGING_TICK: Duration = Duration::from_millis(100);
+
+/// EXP-850 §5: how often the working row repaints while the agent works —
+/// its caption counts SECONDS, so the row needs a beat the clock-free feed
+/// cannot give it.
+const WORKING_TICK: Duration = Duration::from_secs(1);
+
+/// EXP-850 §5: the working mark's pulse — opacity 0.4↔1 over 1.4 s,
+/// ease-in-out, ×4.
+const WORKING_PULSE: Duration = Duration::from_millis(1400);
+
+/// EXP-850 §3: the fold key of one workflow agent's nested events.
+fn agent_fold_key(workflow_id: &str, index: u32) -> String {
+    format!("{workflow_id}#{index}")
+}
 
 /// EXP-776: how far beyond the viewport the transcript list renders and
 /// measures rows (`gpui::ListState` overdraw) — about a screen, so a wheel
@@ -338,13 +358,31 @@ pub(crate) struct SteerSessionView {
     /// pinned plan, thoughts) a `Local`/`Replay` source produces. Empty for
     /// every remote session — the wire carries none of it.
     extras: crate::session_extras::LocalExtras,
-    /// EXP-773: the "Changes" bar's parse of the published worktree
-    /// diff, and the per-file list its expanded half renders into. It lives
-    /// HERE rather than on the hosting screen because the bar sits between the
-    /// transcript and the composer (web `agent-session` parity), and both of
-    /// those are this view's.
+    /// EXP-773: the parse of the published worktree diff, and the per-file
+    /// diff the pane renders. EXP-850 §11 moved the surface from a bottom
+    /// band to a right-hand PANE; the parse stayed here, because the pane
+    /// splits this view's own column.
     changes: Option<crate::changes_bar::ChangesSnapshot>,
     changes_diff: Entity<crate::diff::DiffView>,
+    /// EXP-850 §11: whether the diff pane is open, whether its file list is
+    /// unfolded, and which file its header names.
+    diff_open: bool,
+    diff_list_open: bool,
+    diff_selected: usize,
+    /// The view's own measured width — what [`crate::diff_pane::pane_width`]
+    /// splits (the composer's `composer_width` recipe).
+    view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
+    /// EXP-850 §12: the per-turn file cards, keyed by the row they hang
+    /// under, rebuilt once per frame by [`Self::sync_list`].
+    file_cards: HashMap<FeedItemId, crate::session_rows::FileCard>,
+    /// …and the cards whose `{rest} more` half is unfolded.
+    expanded_cards: HashSet<FeedItemId>,
+    /// EXP-850 §3: the workflow agents whose nested events are unfolded,
+    /// keyed `{workflow id}#{agent index}`.
+    expanded_agents: HashSet<String>,
+    /// EXP-856: the duplicate edges this view has already raised an OS
+    /// notification for — one per agent id, however often the edge repeats.
+    duplicates_notified: HashSet<String>,
     /// The extras cards expanded on a row (their own set: a folded tool BODY
     /// and a folded diff are different questions about the same row).
     expanded_extras: HashSet<FeedItemId>,
@@ -554,12 +592,20 @@ impl SteerSessionView {
             extras: crate::session_extras::LocalExtras::default(),
             changes: None,
             changes_diff: cx.new(|cx| {
-                let mut diff = crate::diff::DiffView::new(window, cx);
-                // EXP-773: the expanded body is a per-file collapsible list,
-                // like the web `FileDiffList` — not one flat wall of hunks.
-                diff.set_collapsible(true);
-                diff
+                // EXP-850 §11: the pane stacks every file's hunks (the file
+                // LIST beside it is the per-file affordance now, and picking
+                // a row scrolls to that file's hunks rather than to a card
+                // that then has to be opened).
+                crate::diff::DiffView::new(window, cx)
             }),
+            diff_open: false,
+            diff_list_open: true,
+            diff_selected: 0,
+            view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
+            file_cards: HashMap::new(),
+            expanded_cards: HashSet::new(),
+            expanded_agents: HashSet::new(),
+            duplicates_notified: HashSet::new(),
             expanded_extras: HashSet::new(),
             pruned_before: 0,
             window_from: None,
@@ -588,6 +634,7 @@ impl SteerSessionView {
         };
         this.refresh_row(cx);
         this.arm_stale_tick(cx);
+        this.arm_working_tick(cx);
         // Seed the wakeup edges from the world as it is right now, so the
         // first observer call is a comparison rather than a false edge.
         this.device_offline = this.device(cx).offline;
@@ -679,16 +726,34 @@ impl SteerSessionView {
         let awaiting = !self.active.is_empty();
         let stale = self.stale_minutes(paused, awaiting);
         let device = self.device(cx);
+        let label = phase_label(
+            &self.phase,
+            device.label.as_deref(),
+            awaiting,
+            paused,
+            stale,
+        );
+        // EXP-850 §5/§7: while a workflow RUNS, what the run is doing beats
+        // where it is doing it — the caption becomes the workflow's own
+        // (the ×4 `workflowCaption`), exactly as the working row's does.
+        let label = match self.header_workflow_caption(paused, awaiting) {
+            Some(caption) => caption,
+            None => label,
+        };
         (
             self.phase_tone(cx, paused, awaiting, stale.is_some()),
-            phase_label(
-                &self.phase,
-                device.label.as_deref(),
-                awaiting,
-                paused,
-                stale,
-            ),
+            label,
         )
+    }
+
+    /// The running workflow's caption, when it is what the header should say:
+    /// a LIVE run that is neither paused nor waiting on an answer (both of
+    /// those are the reader's business and outrank a progress line).
+    fn header_workflow_caption(&self, paused: bool, awaiting: bool) -> Option<String> {
+        if paused || awaiting || self.phase != ViewerPhase::Live {
+            return None;
+        }
+        self.running_workflow_caption()
     }
 
     /// The builtin agent behind this session, for the usage sheet's device
@@ -712,8 +777,8 @@ impl SteerSessionView {
     }
 
     /// The synced `coding_sessions` row behind this viewer — what the
-    /// header names the run from, and what the Changes bar resolves
-    /// its Merge target from
+    /// header names the run from, and what the header's Merge pill resolves
+    /// its target from
     /// ([`crate::changes_bar::merge_meta_for_session`]).
     pub(crate) fn session_row(&self) -> Option<&domain::rows::CodingSession> {
         self.row.as_ref()
@@ -890,6 +955,9 @@ impl SteerSessionView {
         self.expanded_groups.retain(|id| *id >= first);
         self.expanded_bodies.retain(|id| *id >= first);
         self.expanded_extras.retain(|id| *id >= first);
+        // EXP-850 §12: a file card is keyed by the edit row it hangs under,
+        // so it is evicted with that row like every other per-row flag.
+        self.expanded_cards.retain(|id| *id >= first);
         // `picked` is keyed by `answer_key`, not by row id, so it has to be
         // retained against the question ids still in the feed. Read them
         // borrow-free (`items()` and `picked` are disjoint fields) and without
@@ -1051,6 +1119,16 @@ impl SteerSessionView {
                 self.feed.row_specs_from_into(start, &mut self.rows);
             }
         }
+        // EXP-850 §3/§4: a workflow's agents are the CARD's rows, never loose
+        // ones, and §9 floats an unanswered card under everything that
+        // followed it. Both are pure ([`crate::session_rows`]) and both run
+        // on the projection, so the list diff sees one settled order.
+        if focus.is_none() {
+            crate::session_rows::hide_workflow_agent_rows(&mut self.rows, self.feed.items());
+            crate::session_rows::pending_last(&mut self.rows, self.feed.items());
+        }
+        // EXP-850 §12: the per-turn file cards, derived once per frame.
+        self.file_cards = crate::session_rows::file_cards(self.feed.items());
         self.prune_dropped_rows();
         // The "Working…" line belongs to the main transcript — a subagent's
         // tab has its own running spinner in the strip.
@@ -1070,12 +1148,23 @@ impl SteerSessionView {
             // moves this row's height without its own content changing.
             let fingerprint =
                 transcript_rows::fold_gap(fingerprint, f32::from(self.row_gap(ix)));
+            // EXP-850: a row can grow a workflow card (§3) or a file card
+            // (§12) whose height moves without the row's own content moving —
+            // the card's state is part of the row's measure.
+            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec));
             keys.push(RowKey { id, fingerprint });
         }
         if self.working {
             let gap = f32::from(self.row_gap(self.rows.len()));
+            // EXP-850 §5: the working row's text is no longer a constant (a
+            // verb, a ticking duration, a workflow's caption), so its
+            // fingerprint folds in what it will say.
+            let caption = self.working_caption();
             keys.push(RowKey {
-                fingerprint: transcript_rows::fold_gap(RowKey::WORKING.fingerprint, gap),
+                fingerprint: transcript_rows::fold_extra(
+                    transcript_rows::fold_gap(RowKey::WORKING.fingerprint, gap),
+                    caption.len() as u64,
+                ),
                 ..RowKey::WORKING
             });
         }
@@ -1296,6 +1385,9 @@ impl SteerSessionView {
                 }
             }
             ViewerEvent::Activity(seq, activity) => {
+                // EXP-856: the duplicate toast rides the EVENT, not the feed
+                // — one per agent id, before the row it becomes.
+                self.note_duplicate_agent(&activity, cx);
                 self.feed.apply_seq(seq, activity);
                 self.sync_changes(cx);
                 if self.feed.is_staging() {
@@ -1452,6 +1544,7 @@ impl SteerSessionView {
                 let was_compacting = self.feed.compacting().is_some();
                 let pulse = feed_pulse(&self.feed);
                 let before = self.feed.items().last().map(|item| item.id);
+                self.note_duplicate_agent(&event, cx);
                 self.feed.apply(event);
                 if let Some(tool_call_id) = tool_call_id {
                     let after = self.feed.items().last().map(|item| item.id);
@@ -2219,7 +2312,7 @@ impl SteerSessionView {
             .then(|| SharedString::from(chip.value_label))
     }
 
-    // ── EXP-773: the "Changes" bar ────────────────────────────────────────
+    // ── EXP-850 §11: the diff pane ────────────────────────────────────────
 
     /// Install the parse of the newly published diff, when
     /// [`crate::changes_bar::sync`] says it changed. The cache key is the raw
@@ -2236,7 +2329,12 @@ impl SteerSessionView {
             return;
         };
         self.changes = next;
-        if self.changes.as_ref().is_some_and(|state| state.expanded) {
+        // A file that is no longer in the diff must not keep the header.
+        let files = self.changes.as_ref().map_or(0, |state| state.files.len());
+        if self.diff_selected >= files {
+            self.diff_selected = 0;
+        }
+        if self.diff_open {
             self.rebuild_changes_diff(cx);
         }
     }
@@ -2250,45 +2348,229 @@ impl SteerSessionView {
             .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
     }
 
-    /// Flip the bar open/shut, building the diff rows the first time it opens
-    /// (they are only worth rendering when visible).
-    fn toggle_changes_expanded(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(state) = self.changes.as_mut() else {
-            return;
-        };
-        state.expanded = !state.expanded;
-        if state.expanded {
+    /// `+N −M` over the whole published diff — the header's Diff pill.
+    /// `None` when this run published no diff at all (the pill is hidden).
+    pub(crate) fn diff_totals(&self) -> Option<(u32, u32)> {
+        self.changes
+            .as_ref()
+            .map(|state| (state.additions, state.deletions))
+    }
+
+    /// Whether the diff pane is up right now (the header's pill is a toggle).
+    pub(crate) fn diff_open(&self) -> bool {
+        self.diff_open
+    }
+
+    /// Open or shut the pane (the header's Diff pill). Opening builds the
+    /// rows — they are only worth rendering when visible.
+    pub(crate) fn toggle_diff(&mut self, cx: &mut gpui::Context<Self>) {
+        self.diff_open = !self.diff_open;
+        if self.diff_open {
             self.rebuild_changes_diff(cx);
         }
         cx.notify();
     }
 
-    /// EXP-773 — the collapsible "Changes +N −M [Merge]" row, painted
-    /// UNDER the transcript and above the composer (web `agent-session`). It
-    /// draws for a diff OR an open PR, so the Merge pill never stands alone.
-    fn render_changes_bar(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let merge = self
-            .session_row()
-            .and_then(|row| crate::changes_bar::merge_meta_for_session(row, cx));
-        let merge = crate::changes_bar::merge_when_live(merge, self.session_over());
-        let has_diff = self.feed.latest_diff().is_some();
-        if !crate::changes_bar::changes_bar_visible(has_diff, merge.is_some()) {
+    /// EXP-850 §12 — open the pane scrolled to `path` (a file card's row).
+    /// A path the published diff does not name simply opens the pane.
+    fn open_diff_at(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        let index = self
+            .changes
+            .as_ref()
+            .and_then(|state| state.files.iter().position(|file| file.path == path));
+        if !self.diff_open {
+            self.diff_open = true;
+            self.rebuild_changes_diff(cx);
+        }
+        if let Some(index) = index {
+            self.select_diff_file(index, cx);
+        }
+        cx.notify();
+    }
+
+    /// Name `index` in the header and scroll the diff to it (§11).
+    fn select_diff_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+        self.diff_selected = index;
+        self.changes_diff
+            .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
+        cx.notify();
+    }
+
+    /// §11 — the right-hand pane: the file list, the selected file's header
+    /// and the shared [`crate::diff::DiffView`]. `None` while it is shut or
+    /// while this run has published no diff.
+    fn render_diff_pane(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.diff_open {
             return None;
         }
-        let state = self.changes.as_ref();
-        let expanded = state.is_some_and(|state| state.expanded);
-        let totals = state.map(|state| (state.additions, state.deletions));
-        Some(crate::changes_bar::render(
-            crate::changes_bar::ChangesSpec {
-                toggle_id: "session-changes-toggle",
-                totals,
-                expanded,
-                merge,
-                diff_view: self.changes_diff.clone(),
-                on_toggle: Box::new(|this: &mut Self, cx| this.toggle_changes_expanded(cx)),
+        let state = self.changes.as_ref()?;
+        let files: Vec<crate::diff_pane::PaneFile> = state
+            .files
+            .iter()
+            .map(|file| crate::diff_pane::PaneFile {
+                path: SharedString::from(file.path.clone()),
+                additions: file.additions,
+                deletions: file.deletions,
+            })
+            .collect();
+        let width = px(crate::diff_pane::pane_width(f32::from(self.view_width.get())));
+        Some(crate::diff_pane::render(
+            crate::diff_pane::DiffPaneSpec {
+                files,
+                selected: self.diff_selected,
+                list_open: self.diff_list_open,
+                width,
+                diff: self.changes_diff.clone(),
+                on_close: Box::new(|this: &mut Self, cx| {
+                    this.diff_open = false;
+                    cx.notify();
+                }),
+                on_toggle_list: Box::new(|this: &mut Self, cx| {
+                    this.diff_list_open = !this.diff_list_open;
+                    cx.notify();
+                }),
+                on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
+                    this.select_diff_file(index, cx);
+                }),
             },
             cx,
         ))
+    }
+
+    /// The Merge target this run offers, or `None` once it is over
+    /// ([`crate::changes_bar`]'s ONE rule). The header renders it (§10).
+    pub(crate) fn merge_target(&self, cx: &App) -> Option<crate::changes_bar::MergeTarget> {
+        let merge = self
+            .session_row()
+            .and_then(|row| crate::changes_bar::merge_meta_for_session(row, cx));
+        crate::changes_bar::merge_when_live(merge, self.session_over())
+    }
+
+    // ── EXP-850 §3/§4/§5/§12: the derived rows ────────────────────────────
+
+    /// The workflow card patched onto a tool row (§3: latest-wins per id, the
+    /// `Workflow` call's own id), when this item IS that call.
+    fn workflow_of(&self, item: &FeedItem) -> Option<&steer::WorkflowState> {
+        let FeedKind::Tool { call_id, .. } = &item.kind else {
+            return None;
+        };
+        self.feed.workflow_for(call_id.as_deref()?)
+    }
+
+    /// The per-turn file card hanging under a row (§12) — the card is
+    /// anchored on the segment's last EDIT, which may be any item of a
+    /// grouped tool run.
+    fn file_card_of(&self, spec: &FeedRowSpec) -> Option<&crate::session_rows::FileCard> {
+        let items = self.feed.items();
+        spec.item_indices()
+            .iter()
+            .rev()
+            .filter_map(|&ix| items.get(ix))
+            .find_map(|item| self.file_cards.get(&item.id))
+    }
+
+    /// The DUPLICATE warnings belonging to `workflow_id` (§4: they render
+    /// under the card, and stay there when it collapses).
+    fn workflow_duplicates(&self, workflow_id: &str) -> Vec<crate::session_rows::DuplicateWarning> {
+        crate::session_rows::duplicate_warnings(self.feed.items())
+            .into_iter()
+            .filter(|warning| warning.workflow_id.as_deref() == Some(workflow_id))
+            .collect()
+    }
+
+    /// What a row carries BEYOND its feed item — the workflow card's live
+    /// state, the file card under it, the fold flags. Folded into the row's
+    /// fingerprint ([`transcript_rows::fold_extra`]) so a card that grew
+    /// re-measures the row it hangs under.
+    fn row_extra(&self, spec: &FeedRowSpec) -> u64 {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::hash::DefaultHasher::new();
+        let items = self.feed.items();
+        for &ix in spec.item_indices() {
+            let Some(item) = items.get(ix) else {
+                continue;
+            };
+            if let Some(workflow) = self.workflow_of(item) {
+                workflow.agents.len().hash(&mut hasher);
+                workflow.done_agents().hash(&mut hasher);
+                workflow.phases.len().hash(&mut hasher);
+                workflow.status.as_str().hash(&mut hasher);
+                workflow.summary.as_ref().map(String::len).hash(&mut hasher);
+                self.workflow_duplicates(&workflow.id).len().hash(&mut hasher);
+                for agent in &workflow.agents {
+                    agent.state.as_str().hash(&mut hasher);
+                    self.expanded_agents
+                        .contains(&agent_fold_key(&workflow.id, agent.index))
+                        .hash(&mut hasher);
+                }
+            }
+        }
+        if let Some(card) = self.file_card_of(spec) {
+            card.files.len().hash(&mut hasher);
+            self.expanded_cards.contains(&card.anchor).hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// §5 — the caption of the newest RUNNING workflow, which replaces the
+    /// working verb (and, on the session list rows, the row's second line).
+    pub(crate) fn running_workflow_caption(&self) -> Option<String> {
+        self.feed.running_workflow().map(steer::workflow_caption)
+    }
+
+    /// §5 — what the synthetic working row says right now.
+    fn working_caption(&self) -> String {
+        let workflow = self.running_workflow_caption();
+        crate::session_rows::working_caption(&crate::session_rows::WorkingFacts {
+            started_at: self.feed.turn_started_at(),
+            tokens: self.feed.turn_tokens(),
+            now_ms: chrono::Utc::now().timestamp_millis(),
+            workflow: workflow.as_deref(),
+        })
+    }
+
+    /// §5 — the working row's own beat. The duration ticks in SECONDS and the
+    /// feed is clock-free, so the row needs a wakeup of its own; it repaints
+    /// only while the run is actually working, so an idle session pays a
+    /// timer and nothing else.
+    fn arm_working_tick(&self, cx: &mut gpui::Context<Self>) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(WORKING_TICK).await;
+            if this
+                .update(cx, |this, cx| {
+                    if this.working_now() {
+                        cx.notify();
+                    }
+                })
+                .is_err()
+            {
+                return;
+            }
+        })
+        .detach();
+    }
+
+    /// EXP-856 §4 — raise the OS notification for a `duplicate` edge, ONCE
+    /// per agent id however often the edge repeats (a republished frame, a
+    /// reopened tab's replay). The amber row in the transcript is the
+    /// in-app half and renders regardless.
+    fn note_duplicate_agent(&mut self, event: &steer::ActivityEvent, cx: &mut App) {
+        let steer::ActivityEvent::Subagent {
+            id,
+            status: SubagentStatus::Duplicate,
+            detail,
+            ..
+        } = event
+        else {
+            return;
+        };
+        let Some(detail) = detail.as_deref().map(str::trim).filter(|d| !d.is_empty()) else {
+            return;
+        };
+        if !self.duplicates_notified.insert(id.clone()) {
+            return;
+        }
+        crate::os_notifications::raise_duplicate_agent(&self.session_id, detail, cx);
     }
 
     /// Whether this view drives an in-process engine (the header's kill copy
@@ -3145,13 +3427,17 @@ impl SteerSessionView {
         let device = self.device(cx);
         let awaiting = !self.active.is_empty();
         let stale = self.stale_minutes(paused, awaiting);
-        let caption = phase_label(
-            &self.phase,
-            device.label.as_deref(),
-            awaiting,
-            paused,
-            stale,
-        );
+        let caption = self
+            .header_workflow_caption(paused, awaiting)
+            .unwrap_or_else(|| {
+                phase_label(
+                    &self.phase,
+                    device.label.as_deref(),
+                    awaiting,
+                    paused,
+                    stale,
+                )
+            });
         let identity = self.identity(cx);
         let can_kill = self.can_kill(cx);
 
@@ -3404,7 +3690,6 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         // EXP-783: painting the first row means the reader reached the top of
         // the window; pull the next page of the run in behind it. The
         // extension front-splices, gpui rebases the scroll anchor, and row 0
@@ -3415,23 +3700,24 @@ impl SteerSessionView {
             cx.notify();
         }
         let Some(spec) = self.rows.get(ix) else {
-            let working = tool_text(h_flex())
-                .w_full()
-                .gap_2()
-                .items_center()
-                .child(
-                    Icon::new(registry::CODING_ASSISTANT)
-                        .xsmall()
-                        .text_color(muted.opacity(0.6)),
-                )
-                .child(div().text_color(muted).child("Working…"))
-                .into_any_element();
-            return self.transcript_row(ix, working);
+            return self.transcript_row(ix, self.render_working_row(cx));
         };
         let live = self.phase == ViewerPhase::Live;
         let last_row = self.rows.len().saturating_sub(1);
+        let spec = spec.clone();
         let row = spec.resolve(self.feed.items());
         let element = self.render_row(&row, ix == last_row && live, &self.active, window, cx);
+        // EXP-850 §12: the turn's file card, under the last edit it made.
+        let element = match self.render_file_card(&spec, cx) {
+            Some(card) => v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1()
+                .child(element)
+                .child(card)
+                .into_any_element(),
+            None => element,
+        };
         self.transcript_row(ix, element)
     }
 
@@ -3445,7 +3731,31 @@ impl SteerSessionView {
     ) -> AnyElement {
         match row {
             FeedRow::Single(item) => self.render_item(item, active, window, cx),
-            FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
+            // EXP-850 §3: a `Workflow` call that got grouped into a tool run
+            // still renders its CARD — under the group row rather than
+            // buried inside "N tool calls".
+            FeedRow::ToolRun { id, items } => {
+                let group = self.render_tool_run(*id, items, live_tail, cx);
+                let workflows: Vec<steer::WorkflowState> = items
+                    .iter()
+                    .filter_map(|item| self.workflow_of(item).cloned())
+                    .collect();
+                if workflows.is_empty() {
+                    group
+                } else {
+                    let cards: Vec<AnyElement> = workflows
+                        .iter()
+                        .map(|workflow| self.render_workflow_card(workflow, window, cx))
+                        .collect();
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_1()
+                        .child(group)
+                        .children(cards)
+                        .into_any_element()
+                }
+            }
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => {
                 self.render_subagent(*id, items, window, cx)
@@ -3560,7 +3870,12 @@ impl SteerSessionView {
                         .child(self.render_user_message(item.id, text, cx)),
                 )
                 .into_any_element(),
-            FeedKind::Tool { .. } => self.render_tool_item(item, true, cx),
+            // EXP-850 §3: a `Workflow` call renders as its CARD, never as a
+            // tool row — the card is the row (looked up by the call's id).
+            FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
+                Some(workflow) => self.render_workflow_card(&workflow, window, cx),
+                None => self.render_tool_item(item, true, cx),
+            },
             FeedKind::Permission { tool, detail } => {
                 let amber = theme::tokens::YELLOW.to_hsla();
                 tool_text(v_flex())
@@ -4150,6 +4465,13 @@ impl SteerSessionView {
                 }))
         });
         let mut column = v_flex().w_full().min_w_0().child(header);
+        // EXP-856 §4: a duplicate edge on an ORDINARY subagent renders inline
+        // under its group — and stays there when the group folds away.
+        for warning in crate::session_rows::duplicate_warnings(
+            &items.iter().map(|item| (*item).clone()).collect::<Vec<_>>(),
+        ) {
+            column = column.child(self.render_duplicate_row(&warning, cx));
+        }
         if expanded {
             for item in body {
                 match &item.kind {
@@ -4183,6 +4505,450 @@ impl SteerSessionView {
             }
         }
         column.into_any_element()
+    }
+
+    // ── EXP-850: the working row, the workflow card, the strips ───────────
+
+    /// §5 — the synthetic trailing row: the turn's verb (or the running
+    /// workflow's caption) with its duration and token count, under the
+    /// RUNNING AGENT's own brand mark, pulsing.
+    ///
+    /// gpui exposes no OS reduce-motion signal (see `theme::motion`), so the
+    /// pulse is unconditional here; the hook, if one is ever wanted, is the
+    /// shared settings file, not a speculative flag.
+    fn render_working_row(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let glyph = match self.builtin_agent() {
+            Some(agent) => crate::coding_selects::agent_icon(agent),
+            // An external agent has no brand mark — the generic AGENT
+            // concept, the same fallback every run list uses.
+            None => registry::SETTINGS_AGENTS,
+        };
+        tool_text(h_flex())
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .child(Icon::new(glyph).xsmall().text_color(muted))
+                    .with_animation(
+                        "steer-working-pulse",
+                        gpui::Animation::new(WORKING_PULSE)
+                            .repeat()
+                            .with_easing(bounce(ease_in_out)),
+                        |mark, delta| mark.opacity(0.4 + 0.6 * delta),
+                    ),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(muted)
+                    .child(SharedString::from(self.working_caption())),
+            )
+            .into_any_element()
+    }
+
+    /// §3 — the WORKFLOW card, rendered in place of its `Workflow` tool row:
+    /// name + description, the phase strip, one row per agent, the summary
+    /// when it finished, and (§4) the duplicate warnings underneath.
+    fn render_workflow_card(
+        &self,
+        workflow: &steer::WorkflowState,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let running = workflow.status == steer::WorkflowStatus::Running;
+        let header = tool_text(h_flex())
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .child(
+                Icon::new(registry::CODING_SUBAGENT)
+                    .xsmall()
+                    .text_color(muted),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(cx.theme().foreground)
+                    .child(SharedString::from(format!(
+                        "Workflow {}",
+                        workflow.name.trim()
+                    ))),
+            )
+            .when(running, |this| this.child(Spinner::new().xsmall()))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(crate::workflow_card::card_status(
+                        workflow,
+                    ))),
+            );
+        let mut column = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .rounded(px(theme::tokens::radius::MD))
+            .border_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+            .px_2()
+            .py_1p5()
+            .child(header);
+        if let Some(description) = workflow
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|description| !description.is_empty())
+        {
+            column = column.child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .truncate()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(description.to_string())),
+            );
+        }
+        // The phase strip: one chip per phase with its queued/running/done/
+        // failed counts.
+        let phases = crate::workflow_card::phase_counts(workflow);
+        if !phases.is_empty() {
+            let mut strip = h_flex().w_full().min_w_0().gap_1p5().flex_wrap();
+            for (index, phase) in phases.iter().enumerate() {
+                strip = strip.child(
+                    crate::surface::glass_pill(
+                        ("steer-workflow-phase", index),
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_2xs()
+                            .child(SharedString::from(phase.title.clone())),
+                    )
+                    .when(phase.total() > 0, |this| {
+                        this.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_2xs()
+                                .text_color(muted)
+                                .child(SharedString::from(phase.caption())),
+                        )
+                    }),
+                );
+            }
+            column = column.child(strip);
+        }
+        for agent in &workflow.agents {
+            column = column.child(self.render_workflow_agent(workflow, agent, window, cx));
+        }
+        // §4: the duplicate warnings belong to the card, and stay when its
+        // agent rows fold away.
+        for warning in self.workflow_duplicates(&workflow.id) {
+            column = column.child(self.render_duplicate_row(&warning, cx));
+        }
+        column.into_any_element()
+    }
+
+    /// §3 — one agent row of a workflow card, unfolding into the nested
+    /// events that agent produced when it produced any.
+    fn render_workflow_agent(
+        &self,
+        workflow: &steer::WorkflowState,
+        agent: &steer::WorkflowAgent,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let tone = match agent.state {
+            steer::WorkflowAgentState::Queued => muted.opacity(0.5),
+            steer::WorkflowAgentState::Running => theme::tokens::GREEN.to_hsla(),
+            steer::WorkflowAgentState::Done => muted,
+            steer::WorkflowAgentState::Error => cx.theme().danger,
+        };
+        let nested = agent
+            .agent_id
+            .as_deref()
+            .map(|id| crate::session_rows::nested_agent_items(self.feed.items(), id))
+            .unwrap_or_default();
+        let key = agent_fold_key(&workflow.id, agent.index);
+        let expandable = !nested.is_empty();
+        let expanded = expandable && self.expanded_agents.contains(&key);
+        let meta = crate::workflow_card::agent_meta(agent);
+        let detail = crate::workflow_card::agent_detail(agent);
+        let mut row = tool_text(h_flex())
+            .id(("steer-workflow-agent", agent.index as usize))
+            .w_full()
+            .min_w_0()
+            .gap_1p5()
+            .items_center()
+            .pl_2()
+            .text_color(muted)
+            .when(expandable, |this| {
+                this.child(
+                    Icon::new(if expanded {
+                        registry::UI_CHEVRON_DOWN
+                    } else {
+                        registry::UI_CHEVRON_RIGHT
+                    })
+                    .xsmall(),
+                )
+            })
+            .child(status_dot(tone))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(cx.theme().foreground)
+                    .child(SharedString::from(crate::workflow_card::agent_label(agent))),
+            )
+            .when(agent.state == steer::WorkflowAgentState::Running, |this| {
+                this.child(Spinner::new().xsmall())
+            });
+        if !meta.is_empty() {
+            row = row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_2xs()
+                    .child(SharedString::from(meta)),
+            );
+        }
+        if let Some(detail) = detail {
+            row = row.child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_2xs()
+                    .text_color(if agent.state == steer::WorkflowAgentState::Error {
+                        cx.theme().danger
+                    } else {
+                        muted
+                    })
+                    .child(SharedString::from(detail)),
+            );
+        }
+        let row = row.when(expandable, |row| {
+            let key = key.clone();
+            row.cursor_pointer()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    if !this.expanded_agents.insert(key.clone()) {
+                        this.expanded_agents.remove(&key);
+                    }
+                    cx.notify();
+                }))
+        });
+        let mut column = v_flex().w_full().min_w_0().child(row);
+        if expanded {
+            let items = self.feed.items();
+            for ix in nested {
+                let Some(item) = items.get(ix) else {
+                    continue;
+                };
+                column = column.child(
+                    div()
+                        .pl_5()
+                        .py_0p5()
+                        .child(match &item.kind {
+                            FeedKind::Tool { .. } => self.render_tool_item(item, true, cx),
+                            _ => self.render_item(item, &HashSet::new(), window, cx),
+                        }),
+                );
+            }
+        }
+        column.into_any_element()
+    }
+
+    /// §4 — the amber duplicate warning: the wire's own sentence, verbatim.
+    fn render_duplicate_row(
+        &self,
+        warning: &crate::session_rows::DuplicateWarning,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let amber = theme::tokens::YELLOW.to_hsla();
+        let _ = cx;
+        tool_text(h_flex())
+            .w_full()
+            .min_w_0()
+            .gap_1p5()
+            .items_start()
+            .child(
+                div().mt(px(2.)).flex_shrink_0().child(
+                    Icon::new(registry::UI_WARNING)
+                        .xsmall()
+                        .text_color(amber.opacity(0.9)),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_2xs()
+                    .text_color(amber.opacity(0.9))
+                    .child(SharedString::from(warning.detail.clone())),
+            )
+            .into_any_element()
+    }
+
+    /// §12 — the turn's file card: `{N} files edited`, up to
+    /// [`crate::session_rows::FILE_CARD_ROWS`] rows of `path +a -d` and a
+    /// `{rest} more` toggle. A row opens the diff pane at that file.
+    fn render_file_card(
+        &self,
+        spec: &FeedRowSpec,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        let card = self.file_card_of(spec)?;
+        let muted = cx.theme().muted_foreground;
+        let green = theme::tokens::GREEN.to_hsla();
+        let danger = cx.theme().danger;
+        let anchor = card.anchor;
+        let expanded = self.expanded_cards.contains(&anchor);
+        let shown = if expanded {
+            card.files.len()
+        } else {
+            card.files.len().min(crate::session_rows::FILE_CARD_ROWS)
+        };
+        let rest = card.files.len().saturating_sub(shown);
+        let mut column = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_0p5()
+            .rounded(px(theme::tokens::radius::MD))
+            .border_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+            .px_2()
+            .py_1p5()
+            .child(
+                tool_text(h_flex())
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .items_center()
+                    .text_color(muted)
+                    .child(Icon::new(registry::CODING_DIFF).xsmall())
+                    .child(SharedString::from(card.title())),
+            );
+        for (index, file) in card.files.iter().take(shown).enumerate() {
+            let path = file.path.clone();
+            column = column.child(
+                h_flex()
+                    .id(("steer-file-card-row", anchor as usize * 64 + index))
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .items_center()
+                    .cursor_pointer()
+                    .rounded(px(theme::tokens::radius::SM))
+                    .px_1()
+                    .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_2xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(muted)
+                            .child(SharedString::from(path.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_2xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(green)
+                            .child(SharedString::from(format!("+{}", file.additions))),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_2xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(danger)
+                            .child(SharedString::from(format!("-{}", file.deletions))),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        this.open_diff_at(&path, cx);
+                    })),
+            );
+        }
+        if rest > 0 || expanded {
+            column = column.child(
+                div()
+                    .id(("steer-file-card-more", anchor as usize))
+                    .px_1()
+                    .cursor_pointer()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(if expanded {
+                        "Show less".to_string()
+                    } else {
+                        format!("{rest} more")
+                    }))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        if !this.expanded_cards.insert(anchor) {
+                            this.expanded_cards.remove(&anchor);
+                        }
+                        cx.notify();
+                    })),
+            );
+        }
+        Some(column.into_any_element())
+    }
+
+    /// §1/§2 — the strip directly above the composer: one line per background
+    /// task, one per OPEN wait row. `None` when there is neither.
+    fn render_task_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let lines =
+            crate::session_rows::strip_lines(self.feed.background_tasks(), self.feed.items());
+        if lines.is_empty() {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let mut column = v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .gap_0p5()
+            .px_3()
+            .py_1p5()
+            .border_t_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
+        for line in lines {
+            let glyph = match line {
+                crate::session_rows::StripLine::Task(_) => registry::UI_REPEAT,
+                crate::session_rows::StripLine::Waiting(_) => registry::UI_CLOCK,
+            };
+            column = column.child(
+                tool_text(h_flex())
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .items_center()
+                    .text_color(muted)
+                    .child(Icon::new(glyph).xsmall().text_color(muted.opacity(0.7)))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(line.text().to_string())),
+                    ),
+            );
+        }
+        Some(column.into_any_element())
     }
 
     /// One `askId` group as a stepper card: the answered steps (re-openable
@@ -5234,11 +6000,11 @@ impl SteerSessionView {
         .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
         // EXP-698: the attach tool is ALWAYS offered — steer images upload to
         // the session route, so a batch/action run (no issue at all) attaches
-        // exactly like an issue run. EXP-818: its glyph is `editor-image`,
-        // the image glyph every other composer (comments, the description
-        // editor) wears — web, iOS and Android swapped with it.
+        // exactly like an issue run. EXP-850 §13: its glyph is `ui-add` on
+        // every steer composer ×4; `editor-image` stayed with the comment and
+        // description editors.
         .tool(
-            crate::composer::composer_tool("steer-attach", registry::EDITOR_IMAGE, cx)
+            crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
                 .tooltip("Attach image")
                 .disabled(self.sending)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -5791,10 +6557,32 @@ impl Render for SteerSessionView {
             .then(|| self.render_rate_limit_banner(cx))
             .flatten();
         let composer = composer_visible.then(|| self.render_composer(cx));
-        // EXP-773: the Changes bar sits between the transcript and the
-        // composer, exactly where the web view puts it — an ended run keeps
-        // it (the work is what the reader came for), it only loses the Merge.
-        let changes = self.render_changes_bar(cx);
+        // EXP-850 §1/§2: the background-task / waiting strip sits directly
+        // above the composer, under everything else.
+        let tasks = self.render_task_strip(cx);
+        // EXP-850 §11: the diff PANE splits this column — transcript left,
+        // diff right. On a view too narrow for both the pane takes the whole
+        // width (the transcript is one toggle away).
+        let pane = self.render_diff_pane(cx);
+        let width = f32::from(self.view_width.get());
+        let conversation_visible =
+            pane.is_none() || crate::diff_pane::transcript_visible(width);
+        let width_probe = self.view_width.clone();
+        let conversation = conversation_visible.then(|| {
+            v_flex()
+                .flex_1()
+                .h_full()
+                .min_w_0()
+                .min_h_0()
+                .overflow_hidden()
+                .children(strip)
+                .child(feed)
+                .children(banners)
+                .children(compacting)
+                .children(rate_limit)
+                .children(tasks)
+                .children(composer)
+        });
         v_flex()
             .key_context("SteerSession")
             .track_focus(&self.focus_handle)
@@ -5810,13 +6598,37 @@ impl Render for SteerSessionView {
             .min_h_0()
             .overflow_hidden()
             .children(header)
-            .children(strip)
-            .child(feed)
-            .children(banners)
-            .children(compacting)
-            .children(rate_limit)
-            .children(changes)
-            .children(composer)
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .min_w_0()
+                    .child(
+                        // Deliberately NOT `h_flex` — its `items_center`
+                        // would size both columns to their content instead
+                        // of the pane's height.
+                        div()
+                            .flex()
+                            .flex_row()
+                            .size_full()
+                            .min_w_0()
+                            .min_h_0()
+                            .children(conversation)
+                            .children(pane),
+                    )
+                    // The view's width, read back for the next frame's split
+                    // (the canvas paints nothing).
+                    .child(
+                        gpui::canvas(
+                            move |bounds, _, _| width_probe.set(bounds.size.width),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    ),
+            )
     }
 }
 

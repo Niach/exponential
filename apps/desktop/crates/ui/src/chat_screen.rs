@@ -2172,7 +2172,9 @@ impl Render for ChatScreenView {
         .tool(self.issue_tool(cx))
         .tool(self.action_tool(cx))
         .tool(
-            crate::composer::composer_tool("chat-tool-attach", registry::EDITOR_IMAGE, cx)
+            // EXP-850 §13: the steer composers attach with the `ui-add` plus
+            // ×4 — `editor-image` stays the comment/description editors'.
+            crate::composer::composer_tool("chat-tool-attach", registry::UI_ADD, cx)
                 .tooltip("Attach images")
                 .disabled(self.sending)
                 .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {

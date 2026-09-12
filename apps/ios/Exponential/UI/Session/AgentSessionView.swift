@@ -214,6 +214,10 @@ struct AgentSessionView: View {
                     banners(model)
                     rateLimitBanner(model)
                     compactionStrip(model)
+                    // EXP-850 §1/§2: the monitors and background shell
+                    // commands, directly above the composer. Absent when
+                    // there is nothing running.
+                    AgentBottomStrip(lines: model.visibleStripLines)
                     bottomBar(model)
                 } else {
                     Spacer()
@@ -661,6 +665,10 @@ struct AgentSessionView: View {
             // A trailing question/plan means the session is blocked on a
             // human — say so instead of looking silently stuck (EXP-97).
             if model?.awaitingInput == true { return "Needs your input\(device)" }
+            // EXP-850 §5/§7: while a workflow runs the caption IS the
+            // workflow's. It carries its own phase segment, so the device
+            // suffix is dropped rather than truncated off a one-line header.
+            if let workflow = model?.runningWorkflow { return workflow.caption }
             // FEED-26: nothing is blocking it and nothing has happened for ten
             // minutes — say how long instead of a healthy-looking "Live".
             if let minutes = model?.staleActivityMinutes {
@@ -1052,7 +1060,14 @@ struct AgentSessionView: View {
                             // looser local copy, so this row could pulse while
                             // the composer showed Send.
                             if model.agentWorking {
-                                WorkingIndicatorRow()
+                                // EXP-850 §5: the turn's verb (or the running
+                                // workflow's caption) with its duration and
+                                // token count, beside the agent's own pulsing
+                                // brand mark.
+                                WorkingIndicatorRow(
+                                    agent: (model.session ?? session).agent,
+                                    caption: { model.workingCaption(now: $0) }
+                                )
                                     .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
                                         prev: rows.last?.rowClass, cur: .tool
                                     )))
@@ -1199,11 +1214,10 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview):
-                ToolRow(
-                    name: name, detail: detail, failed: failed, diff: diff,
-                    settled: settled, preview: preview,
-                    refs: markdownContext.issueRefs
+            case let .tool(_, name, detail, _, callId, _, settled, failed, diff, preview):
+                toolOrWorkflowRow(
+                    name: name, detail: detail, callId: callId,
+                    settled: settled, failed: failed, diff: diff, preview: preview
                 )
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -1222,7 +1236,7 @@ struct AgentSessionView: View {
                 }
             case let .question(question):
                 questionCard(question)
-            case let .subagent(_, _, agentType, status, detail, _, title):
+            case let .subagent(_, _, agentType, status, detail, _, title, _):
                 SubagentRow(
                     agentType: agentType, title: title, status: status, detail: detail
                 )
@@ -1232,6 +1246,44 @@ struct AgentSessionView: View {
                 CompactionMarkerRow()
             }
         }
+    }
+
+    /// EXP-850 §3: a `Workflow` call renders as its CARD — the latest-wins
+    /// `workflow` event with the same id — never as a tool row plus a second
+    /// card row; everything else is the ordinary tool row.
+    ///
+    /// Its own method, not a branch inside `feedRow`: that switch is ONE
+    /// expression to the type checker and spelling this out inline blew its
+    /// budget outright ("failed to produce diagnostic for expression").
+    @ViewBuilder
+    private func toolOrWorkflowRow(
+        name: String,
+        detail: String?,
+        callId: String?,
+        settled: Bool,
+        failed: Bool,
+        diff: String?,
+        preview: AgentToolPreview?
+    ) -> some View {
+        if let workflow: AgentWorkflow = model?.workflow(for: callId) {
+            AgentWorkflowCardRow(
+                workflow: workflow,
+                runFor: workflowAgentRun,
+                context: markdownContext
+            )
+        } else {
+            ToolRow(
+                name: name, detail: detail, failed: failed, diff: diff,
+                settled: settled, preview: preview,
+                refs: markdownContext.issueRefs
+            )
+        }
+    }
+
+    /// The nested run behind one workflow agent — a method rather than a
+    /// closure literal at the call site, for the same budget reason.
+    private func workflowAgentRun(_ agentId: String?) -> AgentSubagentRun? {
+        model?.subagentRun(agentId: agentId)
     }
 
     /// A lone question card: a plan approval or a single-question ask.
@@ -2028,9 +2080,10 @@ struct AgentSessionView: View {
                     .padding(.bottom, 4)
             }
         } tools: {
-            // EXP-818: the image glyph every other composer wears (×4).
+            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
+            // concept ×4; `editor-image` stays the comment/description glyph.
             GlassComposerToolButton(
-                AppIcons.editorImage,
+                AppIcons.uiAdd,
                 accessibilityLabel: "Attach image",
                 enabled: !attachDisabled
             ) {
@@ -2205,7 +2258,7 @@ struct AgentSessionView: View {
 /// between the SCALED line box and the SCALED font — resolved per render,
 /// never precomputed. `AgentMarkdownText.chatCodePalette` carries the same two
 /// tokens into the markdown renderer, which resolves them the same way.
-private enum TranscriptType {
+enum TranscriptType {
     static func bodyFont() -> Font { Font(bodyUIFont()) }
 
     static func bodyLineSpacing() -> CGFloat {
@@ -2252,7 +2305,7 @@ private enum TranscriptType {
 
 /// A tool row / transcript caption: 12pt on an 18pt line at the default text
 /// size, scaled from there.
-private struct TranscriptToolText: ViewModifier {
+struct TranscriptToolText: ViewModifier {
     let weight: PlatformFont.Weight
     /// `UIFontMetrics` resolves off the CURRENT trait collection, which SwiftUI
     /// cannot see into — reading the size category is what makes this view
@@ -2268,7 +2321,7 @@ private struct TranscriptToolText: ViewModifier {
 }
 
 extension View {
-    fileprivate func transcriptToolText(_ weight: PlatformFont.Weight = .regular) -> some View {
+    func transcriptToolText(_ weight: PlatformFont.Weight = .regular) -> some View {
         modifier(TranscriptToolText(weight: weight))
     }
 }
@@ -2296,39 +2349,6 @@ private struct NarrationBubble: View {
                 context: context,
                 options: [.autolinkBareURLs, .hardLineBreaks]
             )
-        }
-    }
-}
-
-/// The trailing "agent is busy" row (EXP-389): a gently pulsing "Working…"
-/// under the newest event whenever the session is live and nothing waits on
-/// the user — without it a feed that ends in tool rows gives no cue whether
-/// the agent is still going. Static under Reduce Motion.
-private struct WorkingIndicatorRow: View {
-    @Environment(\.motion) private var motion
-    @State private var pulsing = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.codingAssistant, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("Working…")
-                .transcriptToolText()
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
-        .opacity(pulsing ? 0.4 : 1)
-        .onAppear {
-            // EXP-523: ambient loops keep their own periods — a different
-            // design axis from the shared duration tokens — but read the
-            // Reduce Motion decision from `motion` rather than the raw
-            // environment key. The flag must STAY false there: `pulsing`
-            // drives the resting opacity too, so flipping it with a nil
-            // animation would pin the row at 0.4 instead of leaving it
-            // static.
-            guard !motion.reduceMotion else { return }
-            withAnimation(motion.pulse(duration: 0.9)) {
-                pulsing = true
-            }
         }
     }
 }
@@ -3199,7 +3219,9 @@ private struct QuestionCard: View {
                 primary
                     ? DesignTokens.Palette.primaryForeground.opacity(0.12)
                     : GlassTokens.fillActive,
-                in: RoundedRectangle(cornerRadius: 5)
+                // EXP-850 §13: the number-key chip wears `radius.sm` ×4 (the
+                // option row itself is `radius.md`, never a capsule).
+                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
             )
             .accessibilityHidden(true)
     }
@@ -3734,6 +3756,12 @@ private struct SubagentGroupRow: View {
                     .lineLimit(2)
                     .padding(.leading, 20)
             }
+            // EXP-856: a second copy of this agent is running — the wire's own
+            // sentence, kept whether the group is expanded or collapsed.
+            if let duplicate = run.duplicateDetail {
+                AgentDuplicateWarningRow(detail: duplicate)
+                    .padding(.leading, 20)
+            }
             if expanded {
                 // EXP-773: the run's whole conversation in order — its prose
                 // and the turns addressed to it, not just its tool calls.
@@ -3754,7 +3782,7 @@ private struct SubagentGroupRow: View {
 /// EXP-773: one row of a subagent's conversation — its prose, a turn
 /// addressed to it, or one of its tool calls. Anything else a group somehow
 /// collected renders nothing rather than crashing the feed.
-private struct SubagentItemRow: View {
+struct SubagentItemRow: View {
     let item: AgentFeedItem
     let context: AgentMarkdownContext
     /// EXP-787: inside an expanded group the conversation keeps its own

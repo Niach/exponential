@@ -65,6 +65,9 @@ fun feedItemBytes(item: AgentFeedItem): Long {
                 item.subagentId.length + item.agentType.length + (item.detail?.length ?: 0) +
                     (item.title?.length ?: 0)
                 ).toLong()
+        // EXP-856: the warning row carries the engine's sentence verbatim.
+        is AgentFeedItem.DuplicateAgent ->
+            (item.subagentId.length + item.detail.length + (item.title?.length ?: 0)).toLong()
         is AgentFeedItem.Question ->
             (item.text.length + (item.answer?.length ?: 0) + (item.header?.length ?: 0) +
                 item.options.sumOf { it.label.length + it.key.length }).toLong()
@@ -213,6 +216,24 @@ sealed interface AgentFeedItem {
         val detail: String? = null,
         val toolCalls: Int? = null,
         val title: String? = null,
+        /** EXP-850 (S4): this agent belongs to that workflow card — its edges
+         *  nest under the card and it is never offered as a steerable tab. */
+        val workflowId: String? = null,
+        override val seq: Long? = null,
+    ) : AgentFeedItem
+
+    /** EXP-856: a SECOND copy of an agent that is still running started under
+     *  the same id — `SendMessage` to a live agent resumes it from its
+     *  transcript, and that copy edits the same files as the original. The
+     *  engine writes the whole sentence ([detail]); every client renders it
+     *  verbatim as an amber warning row, under the workflow card when
+     *  [workflowId] is set and inline otherwise. */
+    data class DuplicateAgent(
+        override val id: Long,
+        val subagentId: String,
+        val detail: String,
+        val title: String? = null,
+        val workflowId: String? = null,
         override val seq: Long? = null,
     ) : AgentFeedItem
 
@@ -244,6 +265,7 @@ fun AgentFeedItem.withId(id: Long): AgentFeedItem = when (this) {
     is AgentFeedItem.UserMessage -> copy(id = id)
     is AgentFeedItem.Question -> copy(id = id)
     is AgentFeedItem.Subagent -> copy(id = id)
+    is AgentFeedItem.DuplicateAgent -> copy(id = id)
     is AgentFeedItem.Permission -> copy(id = id)
     is AgentFeedItem.Compaction -> copy(id = id)
 }
@@ -366,6 +388,20 @@ fun rateLimitBannerShows(state: SessionRateLimitState, nowMs: Long): Boolean =
 
 /** EXP-785: a wire `toolKind`, or null for anything this build does not know. */
 fun parseToolKind(raw: String?): String? = raw?.takeIf { it in DomainContract.toolKindValues }
+
+/** EXP-850 (S1): claude's `TaskOutput` / `Monitor` calls — the agent is
+ *  WAITING on something it started. An unsettled one is listed in the strip
+ *  above the composer; in the transcript it stays an ordinary tool row, and
+ *  `toolGroupSummary` counts it exactly like `other`. */
+const val TOOL_KIND_WAIT = "wait"
+
+/** EXP-850 (S1): the open waits, in feed order — an unsettled `wait` tool row
+ *  labeled by its detail (the task's description), falling back to the tool's
+ *  own name when the publisher resolved none. */
+fun openWaitLabels(feed: List<AgentFeedItem>): List<String> = feed
+    .filterIsInstance<AgentFeedItem.Tool>()
+    .filter { it.toolKind == TOOL_KIND_WAIT && !it.settled }
+    .map { it.detail?.takeIf { d -> d.isNotBlank() } ?: it.name }
 
 /**
  * EXP-846: what an EXPONENTIAL MCP tool call returned, as the engine read it
@@ -675,6 +711,9 @@ fun completeSubagent(
     detail: String?,
     toolCalls: Int? = null,
     title: String? = null,
+    /** EXP-850 (S4): a completed edge may be the first one naming the
+     *  workflow; one that names none never erases it. */
+    workflowId: String? = null,
 ): List<AgentFeedItem>? {
     val index = feed.indexOfLast {
         it is AgentFeedItem.Subagent && it.subagentId == subagentId && !it.completed
@@ -691,6 +730,7 @@ fun completeSubagent(
             // EXP-847: a completed edge may be the first frame carrying the
             // description; one that carries none never erases it.
             title = title ?: item.title,
+            workflowId = workflowId ?: item.workflowId,
         )
     }
 }
@@ -761,6 +801,10 @@ sealed interface AgentFeedRow {
         /** EXP-847: the spawning Agent call's description, from the first
          *  marker that carried one. Null = no publisher said. */
         val title: String? = null,
+        /** EXP-850 (S4): the workflow this agent belongs to. Such a run is
+         *  never a steerable tab and never a loose transcript row — it renders
+         *  inside its workflow card. */
+        val workflowId: String? = null,
     ) : AgentFeedRow
 }
 
@@ -801,6 +845,7 @@ val AgentFeedRow.rowClass: AgentRowClass
             -> AgentRowClass.Prose
             is AgentFeedItem.Tool,
             is AgentFeedItem.Subagent,
+            is AgentFeedItem.DuplicateAgent,
             is AgentFeedItem.Permission,
             -> AgentRowClass.Tool
         }
@@ -829,7 +874,21 @@ fun transcriptGap(prev: AgentRowClass?, cur: AgentRowClass): TranscriptGap = whe
  *    anchored where the ask's first card landed,
  *  - runs of ≥2 consecutive PLAIN tool calls collapse into one "N tool calls"
  *    row (a tagged tool belongs to its subagent, never to a main-thread run). */
-fun groupFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> {
+fun groupFeedRows(
+    feed: List<AgentFeedItem>,
+    from: Int = 0,
+    /** EXP-850 (S3/S4): the workflow cards this screen HAS — their agents and
+     *  their duplicate warnings render inside the card instead of as loose
+     *  transcript rows. Empty (the default) leaves every row where it is, so a
+     *  tagged edge whose card never arrived is never lost. */
+    workflowIds: Set<String> = emptySet(),
+): List<AgentFeedRow> =
+    pendingQuestionsLast(nestWorkflowRows(projectFeedRows(feed, from), workflowIds))
+
+/** The projection WITHOUT the EXP-850 workflow nesting and without the S9
+ *  reorder — every subagent run is a row of its own here, which is what makes
+ *  [collectSubagents] see the workflow's agents too. */
+private fun projectFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> {
     // EXP-783: `from` restricts the projection to the rendered WINDOW. The
     // grouping starts from an empty state there, so a window that cuts through
     // a tool run, an ask or a subagent's calls opens a FRESH group at the
@@ -880,6 +939,9 @@ fun groupFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> 
                                 scoped.count { it is AgentFeedItem.Tool },
                                 markers.mapNotNull { it.toolCalls }.maxOrNull() ?: 0,
                             ),
+                            // EXP-850 (S4): the first marker that named a
+                            // workflow — this run belongs to that card.
+                            workflowId = markers.firstNotNullOfOrNull { it.workflowId },
                         ),
                     )
                 }
@@ -918,6 +980,50 @@ fun groupFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> 
     return rows
 }
 
+/**
+ * EXP-850 (S3): the `Workflow` tool row renders as its CARD, so it can never
+ * sit collapsed inside a "N tool calls" group — a run of consecutive tool rows
+ * is split around every call whose id has a card. The surrounding rows stay
+ * grouped (a lone survivor becomes a Single, exactly as if it had never had a
+ * neighbour), and the row ids stay the first covered item's, so nothing the
+ * reader is anchored to moves.
+ */
+fun splitWorkflowToolRows(
+    rows: List<AgentFeedRow>,
+    workflowIds: Set<String>,
+): List<AgentFeedRow> {
+    if (workflowIds.isEmpty()) return rows
+    if (rows.none { it is AgentFeedRow.ToolRun && it.items.any { i -> i.callId in workflowIds } }) {
+        return rows
+    }
+    val out = mutableListOf<AgentFeedRow>()
+    for (row in rows) {
+        if (row !is AgentFeedRow.ToolRun || row.items.none { it.callId in workflowIds }) {
+            out.add(row)
+            continue
+        }
+        val run = mutableListOf<AgentFeedItem.Tool>()
+        fun flush() {
+            when (run.size) {
+                0 -> Unit
+                1 -> out.add(AgentFeedRow.Single(run.first()))
+                else -> out.add(AgentFeedRow.ToolRun(run.toList()))
+            }
+            run.clear()
+        }
+        for (item in row.items) {
+            if (item.callId in workflowIds) {
+                flush()
+                out.add(AgentFeedRow.Single(item))
+            } else {
+                run.add(item)
+            }
+        }
+        flush()
+    }
+    return out
+}
+
 /** Ask steps in stepper order: by 1-based index, with the index-less final
  *  submit step last. */
 fun orderedSteps(steps: List<AgentFeedItem.Question>): List<AgentFeedItem.Question> =
@@ -927,7 +1033,72 @@ fun orderedSteps(steps: List<AgentFeedItem.Question>): List<AgentFeedItem.Questi
  *  session screen renders one conversation tab per run, labeled and summarized
  *  exactly like its group row (iOS/web parity). */
 fun collectSubagents(feed: List<AgentFeedItem>): List<AgentFeedRow.SubagentRun> =
-    groupFeedRows(feed).filterIsInstance<AgentFeedRow.SubagentRun>()
+    projectFeedRows(feed).filterIsInstance<AgentFeedRow.SubagentRun>()
+
+/**
+ * EXP-850 (S3/S4): a workflow's own rows leave the main transcript — its
+ * agents' runs and the duplicate warnings tagged with its id render INSIDE its
+ * card.
+ *
+ * Only for cards this screen actually HOLDS ([workflowIds]): an edge tagged
+ * with a workflow whose frame never arrived keeps its ordinary row, because a
+ * warning nobody can see is the one thing EXP-856 exists to prevent.
+ */
+private fun nestWorkflowRows(
+    rows: List<AgentFeedRow>,
+    workflowIds: Set<String>,
+): List<AgentFeedRow> {
+    if (workflowIds.isEmpty()) return rows
+    return rows.filterNot { row ->
+        when (row) {
+            is AgentFeedRow.SubagentRun -> row.workflowId in workflowIds
+            is AgentFeedRow.Single ->
+                (row.item as? AgentFeedItem.DuplicateAgent)?.workflowId in workflowIds
+            else -> false
+        }
+    }
+}
+
+/** EXP-850 (S3/S4): the workflow's own rows, for the card to render — its
+ *  agents' runs (in feed order) and the duplicate warnings it collected. */
+fun workflowAgentRuns(
+    feed: List<AgentFeedItem>,
+    workflowId: String,
+): List<AgentFeedRow.SubagentRun> =
+    collectSubagents(feed).filter { it.workflowId == workflowId }
+
+/** EXP-856: the duplicate warnings belonging to [workflowId] — rendered under
+ *  its card, and kept there even when the card is collapsed. */
+fun workflowDuplicates(
+    feed: List<AgentFeedItem>,
+    workflowId: String,
+): List<AgentFeedItem.DuplicateAgent> =
+    feed.filterIsInstance<AgentFeedItem.DuplicateAgent>().filter { it.workflowId == workflowId }
+
+/**
+ * EXP-850 (S9): a question or plan still waiting on this client moves AFTER
+ * every later row — the card the agent is blocked on belongs at the bottom of
+ * the transcript, where the composer would be, not buried under the tool rows
+ * that kept arriving behind it. Pending rows keep their relative order, and a
+ * resolved one drops straight back into its natural place.
+ */
+fun pendingQuestionsLast(rows: List<AgentFeedRow>): List<AgentFeedRow> {
+    val pending = rows.filter { it.awaitsAnswer }
+    if (pending.isEmpty() || pending.size == rows.size) return rows
+    // Already last, in order: nothing to move.
+    if (rows.takeLast(pending.size) == pending) return rows
+    return rows.filterNot { it.awaitsAnswer } + pending
+}
+
+/** Whether a rendered row is a question this client could still answer — a
+ *  single card or any step of an ask, unresolved and not dismissed. */
+val AgentFeedRow.awaitsAnswer: Boolean
+    get() = when (this) {
+        is AgentFeedRow.Single ->
+            (item as? AgentFeedItem.Question)?.let { !it.resolved && !it.dismissed } == true
+        is AgentFeedRow.QuestionStepper -> steps.any { !it.resolved && !it.dismissed }
+        else -> false
+    }
 
 /** The tabs the strip actually shows (EXP-387): running subagents, plus the
  *  focused one even when done — a completion never yanks the user out of a
@@ -937,7 +1108,9 @@ fun visibleSubagentTabs(
     agents: List<AgentFeedRow.SubagentRun>,
     selected: String?,
 ): List<AgentFeedRow.SubagentRun> =
-    agents.filter { !it.completed || it.subagentId == selected }
+    // EXP-850 (S3): a workflow's agents are never tabs and never steerable —
+    // they are read inside the workflow card that owns them.
+    agents.filter { it.workflowId == null && (!it.completed || it.subagentId == selected) }
 
 /** The step a stepper card should show: the first one still waiting on this
  *  client, or null once every step is answered — the card then renders the
@@ -1021,6 +1194,24 @@ data class ActivityFeedState(
      *  or [TURN_STATE_ENDED], and ENDED until a `turn` event says otherwise
      *  (an older publisher sends none, and an idle run must never pulse). */
     val turnState: String = TURN_STATE_ENDED,
+    /** EXP-850 (S5): when the running turn started (unix ms), as the engine
+     *  stamped it — the working caption's clock AND the seed of its verb, so
+     *  the wording is stable for the whole turn. Null before any publisher
+     *  said (a codex run, an older engine): the caption then has no suffix. */
+    val turnStartedAt: Long? = null,
+    /** EXP-850 (S5): output tokens produced in the running turn so far,
+     *  republished at most every `steerWorking.tokenTickMs`. A republish that
+     *  omits it never blanks what we already learned; a NEW [turnStartedAt]
+     *  resets it, because those tokens belong to the turn that is over. */
+    val turnTokens: Long? = null,
+    /** EXP-850 (S2): what the machine is running in the background, as ONE
+     *  latest-wins list — an empty one closes the strip above the composer. */
+    val backgroundTasks: List<BackgroundTask> = emptyList(),
+    /** EXP-850 (S3): one card per workflow, latest-wins PER ID, in
+     *  first-appearance order and capped at [WORKFLOW_SLOT_CAP] (oldest id
+     *  evicted). Never feed rows: a card is patched onto the `tool` row
+     *  carrying the same id. */
+    val workflows: List<WorkflowState> = emptyList(),
     /** Per-card answer locks, keyed by the card's wire id (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
     /** What THIS client picked per locked card — the option labels (a typed
@@ -1205,17 +1396,39 @@ fun ActivityFeedState.applyActivityEvent(
     "subagent" -> {
         val subagentId = event.str("id")?.takeIf { it.isNotBlank() }
         val detail = event.str("detail")?.takeIf { it.isNotBlank() }
-        val completed = event.str("status") == "completed"
+        val status = event.str("status")
+        val completed = status == "completed"
         val toolCalls = event.int("toolCalls")?.takeIf { it >= 0 }
         // EXP-847: the spawning Agent call's own description of the run.
         val title = event.str("title")?.takeIf { it.isNotBlank() }
+        // EXP-850 (S4): the workflow this agent belongs to, when it belongs to
+        // one — its edges nest under that card and never become a tab.
+        val workflowId = event.str("workflowId")?.takeIf { it.isNotBlank() }
         val closed = if (subagentId != null && completed) {
-            completeSubagent(feed, subagentId, detail, toolCalls, title)
+            completeSubagent(feed, subagentId, detail, toolCalls, title, workflowId)
         } else {
             null
         }
         when {
             subagentId == null -> this
+            // EXP-856: a second copy of a still-running agent. Its own row,
+            // never folded into the agent's lifecycle marker — the warning has
+            // to survive the group collapsing. A publisher that sends the
+            // status without the sentence is skipped rather than guessed at.
+            status == "duplicate" -> if (detail == null) {
+                this
+            } else {
+                append(
+                    AgentFeedItem.DuplicateAgent(
+                        id = nextEventId,
+                        subagentId = subagentId,
+                        detail = detail,
+                        title = title,
+                        workflowId = workflowId,
+                        seq = seq,
+                    ),
+                )
+            }
             closed != null -> withFeed(closed)
             else -> append(
                 AgentFeedItem.Subagent(
@@ -1226,6 +1439,7 @@ fun ActivityFeedState.applyActivityEvent(
                     detail = detail,
                     toolCalls = toolCalls,
                     title = title,
+                    workflowId = workflowId,
                     seq = seq,
                 ),
             )
@@ -1325,8 +1539,94 @@ fun ActivityFeedState.applyActivityEvent(
     // EXP-848: the fifth slot — the agent's turn edge. A state this build
     // cannot name leaves the slot standing (the `config_state` rule): guessing
     // would either pulse an idle run or still a working one.
-    "turn" -> event.str("state")?.takeIf { it in DomainContract.turnStateValues }
-        ?.let { copy(turnState = it) } ?: this
+    // EXP-850 (S5): the same slot now carries the turn's clock and its output
+    // tokens. A republish that omits either NEVER blanks what we already
+    // learned (the engine only restates what changed), but a NEW `startedAt`
+    // is a new turn, and its token count starts from whatever that frame says.
+    "turn" -> {
+        val state = event.str("state")?.takeIf { it in DomainContract.turnStateValues }
+        val startedAt = event.long("startedAt")?.takeIf { it > 0L }
+        val tokens = event.long("tokens")?.takeIf { it >= 0L }
+        val freshTurn = startedAt != null && startedAt != turnStartedAt
+        copy(
+            turnState = state ?: turnState,
+            turnStartedAt = startedAt ?: turnStartedAt,
+            turnTokens = when {
+                freshTurn -> tokens
+                tokens != null -> tokens
+                else -> turnTokens
+            },
+        )
+    }
+    // EXP-850 (S2): the machine's background tasks, as ONE latest-wins list —
+    // an EMPTY array is meaningful (nothing is running any more), so only a
+    // payload that is not an array at all leaves the previous list standing.
+    "background_tasks" -> {
+        val raw = event["tasks"] as? JsonArray
+        if (raw == null) {
+            this
+        } else {
+            copy(
+                backgroundTasks = raw.orEmptyList { task ->
+                    val id = task.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
+                    val description = task.str("description")?.takeIf { it.isNotBlank() }
+                        ?: return@orEmptyList null
+                    BackgroundTask(
+                        id = id,
+                        kind = task.str("kind")
+                            ?.takeIf { it in DomainContract.backgroundTaskKindValues }
+                            ?: BACKGROUND_TASK_KIND_OTHER,
+                        description = description,
+                        toolId = task.str("toolId")?.takeIf { it.isNotBlank() },
+                    )
+                },
+            )
+        }
+    }
+    // EXP-850 (S3): one card per workflow, latest-wins PER ID. Never a feed
+    // row — the screen patches it onto the `tool` row carrying the same id.
+    "workflow" -> {
+        val id = event.str("id")?.takeIf { it.isNotBlank() }
+        val name = event.str("name")?.takeIf { it.isNotBlank() }
+        if (id == null || name == null) {
+            this
+        } else {
+            val next = WorkflowState(
+                id = id,
+                name = name,
+                description = event.str("description")?.takeIf { it.isNotBlank() },
+                status = event.str("status")
+                    ?.takeIf { it in DomainContract.workflowStatusValues }
+                    ?: WORKFLOW_STATUS_RUNNING,
+                phases = (event["phases"] as? JsonArray).orEmptyList { phase ->
+                    val index = phase.int("index") ?: return@orEmptyList null
+                    WorkflowPhase(index, phase.str("title").orEmpty())
+                },
+                agents = (event["agents"] as? JsonArray).orEmptyList { agent ->
+                    val index = agent.int("index") ?: return@orEmptyList null
+                    WorkflowAgent(
+                        index = index,
+                        label = agent.str("label").orEmpty(),
+                        phaseIndex = agent.int("phaseIndex"),
+                        agentId = agent.str("agentId")?.takeIf { it.isNotBlank() },
+                        model = agent.str("model")?.takeIf { it.isNotBlank() },
+                        state = agent.str("state")
+                            ?.takeIf { it in DomainContract.workflowAgentStateValues }
+                            ?: WORKFLOW_AGENT_STATE_QUEUED,
+                        tokens = agent.long("tokens")?.takeIf { it >= 0L },
+                        toolCalls = agent.int("toolCalls")?.takeIf { it >= 0 },
+                        durationMs = agent.long("durationMs")?.takeIf { it >= 0L },
+                        lastTool = agent.str("lastTool")?.takeIf { it.isNotBlank() },
+                        lastToolSummary = agent.str("lastToolSummary")?.takeIf { it.isNotBlank() },
+                        resultPreview = agent.str("resultPreview")?.takeIf { it.isNotBlank() },
+                        error = agent.str("error")?.takeIf { it.isNotBlank() },
+                    )
+                },
+                summary = event.str("summary")?.takeIf { it.isNotBlank() },
+            )
+            copy(workflows = upsertWorkflow(workflows, next))
+        }
+    }
     // EXP-784: the fourth slot. Null clears — an empty/`ok` status says the
     // window lifted, and an unreadable payload must not leave a stale "rate
     // limited" banner beside a live run.
@@ -1346,6 +1646,33 @@ fun ActivityFeedState.applyActivityEvent(
     }
     else -> this
 }
+
+/** EXP-850 (S3): latest-wins per id, keeping FIRST-APPEARANCE order — a card
+ *  that updates must not jump to the end of the list — and capped at
+ *  [WORKFLOW_SLOT_CAP] with the oldest id evicted, exactly like the journal
+ *  and the relay's slot store. */
+fun upsertWorkflow(workflows: List<WorkflowState>, next: WorkflowState): List<WorkflowState> {
+    val at = workflows.indexOfFirst { it.id == next.id }
+    if (at >= 0) {
+        if (workflows[at] == next) return workflows
+        return workflows.toMutableList().apply { this[at] = next }
+    }
+    val grown = workflows + next
+    return if (grown.size <= WORKFLOW_SLOT_CAP) {
+        grown
+    } else {
+        grown.subList(grown.size - WORKFLOW_SLOT_CAP, grown.size).toList()
+    }
+}
+
+/** The card for the `tool` row carrying [id], when one has been published. */
+fun ActivityFeedState.workflowFor(id: String?): WorkflowState? =
+    id?.let { key -> workflows.firstOrNull { it.id == key } }
+
+/** EXP-850 (S5): the NEWEST workflow still running — whose caption replaces
+ *  the working row's verb, and which the device mirrors into the session
+ *  row's `agent_caption`. Null when none runs. */
+fun ActivityFeedState.runningWorkflow(): WorkflowState? = workflows.lastOrNull { it.isRunning }
 
 /** EXP-846: one `tool_update.preview` object. Null when the field is absent or
  *  not an object, and an object with nothing readable in it is null too — a

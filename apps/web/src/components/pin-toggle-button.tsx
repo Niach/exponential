@@ -19,7 +19,10 @@ export function PinToggleButton({
   teamId,
   kind,
   targetId,
-  variant = `glass`,
+  // EXP-850 §10: GHOST is the default now — a pin toggle is a borderless
+  // glyph on every surface (issue header, session header, action dialog); the
+  // glass capsule is kept only for a caller that still asks for it.
+  variant = `ghost`,
   size = `icon-sm`,
   className,
 }: {

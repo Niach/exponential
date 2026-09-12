@@ -53,6 +53,9 @@ struct RunningRow {
     identifier: Option<SharedString>,
     title: SharedString,
     caption: Option<SharedString>,
+    /// EXP-850 §8: the run's agent caption (the newest running workflow's) —
+    /// the row's second line.
+    agent_caption: Option<SharedString>,
     tone: Hsla,
     /// The machine's name, for the kill confirm ("… on Studio").
     device_label: Option<String>,
@@ -170,8 +173,18 @@ impl RunningSessionsSection {
                         .or(session.pr_state.as_deref()),
                 );
                 let paused = queries::session_is_paused(display, &presentation);
+                // EXP-850 §8: a run this process hosts reads the engine's own
+                // caption signal (it WROTE the column; waiting for the echo
+                // would only add latency), every other row the synced one —
+                // the `session_agent_busy` precedence, one rule.
+                let local_caption = hosts
+                    .iter()
+                    .find(|(id, _)| id == &session.id)
+                    .and_then(|(_, host)| host.session.caption_signal().get());
                 RunningRow {
                     session_id: session.id.clone(),
+                    agent_caption: queries::session_agent_caption(session, local_caption, now)
+                        .map(SharedString::from),
                     depth,
                     has_children,
                     identifier: issue.map(|issue| SharedString::from(issue.identifier.clone())),
@@ -253,6 +266,7 @@ impl Render for RunningSessionsSection {
                     identifier: row.identifier.clone(),
                     title: row.title.clone(),
                     caption: row.caption.clone(),
+                    subcaption: row.agent_caption.clone(),
                     on_open: Some(Box::new(move |_, window, cx| {
                         crate::session_screen::open_session(&open_id, window, cx);
                     })),
@@ -393,6 +407,9 @@ impl Render for PastSessionsSection {
                     identifier: row.identifier.clone(),
                     title: row.title.clone(),
                     caption: Some(row.byline.clone()),
+                    // A finished run's last workflow is history, not a status
+                    // line (EXP-850 §8 gates the caption on liveness).
+                    subcaption: None,
                     // EXP-773: a plain link. The transcript, the summary and
                     // Resume all live in the fullscreen session view now.
                     on_open: Some(Box::new(move |_, window, cx| {

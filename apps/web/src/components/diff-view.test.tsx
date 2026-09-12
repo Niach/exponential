@@ -119,3 +119,34 @@ describe(`FileDiffList`, () => {
     ).toBeTruthy()
   })
 })
+
+// EXP-850 §11/§12: the session diff pane drives the list from outside — it
+// owns the (collapsible) file column and hands the list the file the reader
+// picked, which has to EXPAND that file even when its size collapsed it.
+describe(`focusFile`, () => {
+  it(`expands and scrolls to the named file`, () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const raf = vi
+      .spyOn(window, `requestAnimationFrame`)
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 0
+      })
+    render(
+      <FileDiffList
+        files={[makeLargeFile(600)]}
+        showFileNav={false}
+        focusFile="big/generated.txt"
+      />
+    )
+    expect(screen.getByText(`line 42`)).toBeTruthy()
+    expect(scrollIntoView).toHaveBeenCalled()
+    raf.mockRestore()
+  })
+
+  it(`no focus leaves the size-based default standing`, () => {
+    render(<FileDiffList files={[makeLargeFile(600)]} showFileNav={false} />)
+    expect(screen.queryByText(`line 42`)).toBeNull()
+  })
+})

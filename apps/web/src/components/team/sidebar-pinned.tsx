@@ -5,6 +5,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
 import { sessionIdentity } from "@/lib/session-identity"
 import {
+  sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
 } from "@/lib/coding-session-display"
@@ -177,22 +178,37 @@ function PinnedRows({
       const title = identity.identifier
         ? identity.subject
         : (session.actionName ?? (session.issueId ? identity.subject : `Batch run`))
+      // EXP-850 §8: the live run's own caption, the row's second line.
+      const caption = sessionAgentCaption(session)
       return [
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
             isActive={routeSessionId === session.id}
+            className={caption ? `h-auto py-1` : undefined}
             // EXP-851: a pinned row is context-free — the main menu stays.
             onClick={() => openSession(session, { origin: null })}
           >
             <span className="flex w-4 shrink-0 items-center justify-center">
               <RunningIndicator state={state} paused={ended} working={working} />
             </span>
-            {identity.identifier && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {identity.identifier}
+            <span className="flex min-w-0 flex-1 flex-col items-start">
+              <span className="flex w-full min-w-0 items-center gap-1.5">
+                {identity.identifier && (
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {identity.identifier}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate">{title}</span>
               </span>
-            )}
-            <span className="min-w-0 flex-1 truncate">{title}</span>
+              {caption && (
+                <span
+                  className="w-full truncate text-xs text-muted-foreground"
+                  title={caption}
+                >
+                  {caption}
+                </span>
+              )}
+            </span>
           </SidebarMenuButton>
           <UnpinAction label={title} onClick={() => unpin(pin)} />
         </SidebarMenuItem>,

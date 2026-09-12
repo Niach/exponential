@@ -12,8 +12,11 @@
 //! when present, and the row re-streams over the shape, so the button's
 //! glyph settles off the collection (the mark-read pattern in `sidebar`).
 
-use gpui::App;
-use gpui_component::{button::Button, Icon};
+use gpui::{App, Styled as _};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    Icon, Sizable as _,
+};
 use sync::Store;
 
 use domain::rows::Pin;
@@ -105,10 +108,15 @@ pub(crate) fn toggle_pin(team_id: String, kind: &'static str, target_id: String,
         .detach();
 }
 
-/// The small glass pin toggle every pinnable header wears (issue detail,
-/// session screen, action row): `ui-pin` while unpinned, `ui-unpin` while
-/// pinned, tooltip to match. The click stops propagation so a row-level
-/// click handler underneath never fires too.
+/// The pin toggle every pinnable header wears (issue detail, session screen,
+/// action dialog): `ui-pin` while unpinned, `ui-unpin` while pinned, tooltip
+/// to match. The click stops propagation so a row-level click handler
+/// underneath never fires too.
+///
+/// EXP-850 §10 — a GHOST button: no circle stroke, no resting fill, the same
+/// borderless shape on every surface that renders a pin. It used to be the
+/// 32px glass icon circle, which in a header full of pills read as a control
+/// of the same weight as Merge and Stop; a pin is a bookmark.
 pub(crate) fn pin_toggle_button(
     id: impl Into<gpui::ElementId>,
     team_id: String,
@@ -122,7 +130,11 @@ pub(crate) fn pin_toggle_button(
     } else {
         (registry::UI_PIN, "Pin")
     };
-    crate::controls::glass_icon_button(id, Icon::from(glyph), cx)
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .xsmall()
+        .icon(Icon::from(glyph))
         .tooltip(tooltip)
         .on_click(move |_, _window, cx| {
             cx.stop_propagation();

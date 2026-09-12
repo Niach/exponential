@@ -672,15 +672,20 @@ fn rail_row(
     )
 }
 
-/// EXP-851: the muted CAPTION a rail session row shows between its title and
-/// its badge. Today the host machine's label (EXP-827's `· macbook`).
+/// EXP-851/EXP-850 §8: the muted CAPTION a rail session row shows between its
+/// title and its badge — the ONE place it is decided.
 ///
-/// HOOK for the session lane: once `queries::session_agent_caption` lands
-/// (the agent + account line the session surfaces show), call it here and
-/// fall back to `device` — this is the ONE place the rail's caption is
-/// decided, so nothing else has to change.
-fn rail_session_caption(device: Option<String>) -> Option<SharedString> {
-    device.map(SharedString::from)
+/// The run's live agent caption wins (the newest running workflow's, off the
+/// in-process signal for a run we host and off the synced `agent_caption`
+/// column for every other), and the host MACHINE's label (EXP-827's
+/// `· macbook`) is the fallback: at rail width there is room for one, and
+/// what the agent is doing right now beats where it is doing it.
+fn rail_session_caption(caption: Option<String>, device: Option<String>) -> Option<SharedString> {
+    caption
+        .map(|caption| caption.trim().to_string())
+        .filter(|caption| !caption.is_empty())
+        .or(device)
+        .map(SharedString::from)
 }
 
 /// [`rail_row`] with an arbitrary LEAD element (EXP-818: a Sessions row leads
@@ -997,6 +1002,18 @@ impl RailView {
                     .session_by_id(&session_id)
                     .map(|session| !session.host.session.turn_signal().is_idle())
             });
+            // EXP-850 §8: the run's agent caption, with the same precedence
+            // as `local_busy` — the in-process signal for a run this process
+            // hosts, the synced column for every other.
+            let local_caption = local_sessions.as_ref().and_then(|sessions| {
+                sessions
+                    .read(cx)
+                    .session_by_id(&session_id)
+                    .and_then(|session| session.host.session.caption_signal().get())
+            });
+            let agent_caption = row
+                .as_ref()
+                .and_then(|row| queries::session_agent_caption(row, local_caption, now));
             let busy = row
                 .as_ref()
                 .map(|row| queries::session_agent_busy(row, local_busy, now))
@@ -1050,7 +1067,7 @@ impl RailView {
                 active,
                 // The row's muted caption slot, between the title and the
                 // badge (`● title · macbook ◌`).
-                rail_session_caption(device),
+                rail_session_caption(agent_caption, device),
                 state.badge(busy),
                 cx,
             )
@@ -3739,15 +3756,28 @@ mod tests {
         }
     }
 
-    /// EXP-851: the rail session row's caption slot — the host machine today,
-    /// the hook the session lane fills with the agent line.
+    /// EXP-851/EXP-850 §8: the rail session row's caption slot — the run's
+    /// agent caption when it has one, the host machine otherwise.
     #[test]
-    fn a_rail_session_row_captions_its_host() {
+    fn a_rail_session_row_captions_its_agent_then_its_host() {
         assert_eq!(
-            rail_session_caption(Some("macbook".to_string())).as_deref(),
+            rail_session_caption(None, Some("macbook".to_string())).as_deref(),
             Some("macbook")
         );
-        assert_eq!(rail_session_caption(None), None);
+        assert_eq!(
+            rail_session_caption(
+                Some("Workflow wire-probe · 2/3 agents done".to_string()),
+                Some("macbook".to_string())
+            )
+            .as_deref(),
+            Some("Workflow wire-probe · 2/3 agents done")
+        );
+        // A blank caption is not a caption.
+        assert_eq!(
+            rail_session_caption(Some("   ".to_string()), Some("macbook".to_string())).as_deref(),
+            Some("macbook")
+        );
+        assert_eq!(rail_session_caption(None, None), None);
     }
 
     fn ids(values: &[&str]) -> Vec<String> {

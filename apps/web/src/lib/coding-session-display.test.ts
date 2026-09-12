@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
 } from "./coding-session-display"
@@ -69,5 +70,34 @@ describe(`sessionRowIsWorking`, () => {
     ]) {
       expect(sessionRowIsWorking(session, null)).toBe(false)
     }
+  })
+})
+
+// EXP-850 §8: the session row's second line.
+describe(`sessionAgentCaption`, () => {
+  it(`is the device-written caption of a live row`, () => {
+    expect(
+      sessionAgentCaption({
+        status: `running`,
+        agentCaption: `Workflow wire-probe · 2/3 agents done · Beta`,
+      })
+    ).toBe(`Workflow wire-probe · 2/3 agents done · Beta`)
+    expect(
+      sessionAgentCaption({ status: `in_review`, agentCaption: `Workflow x · stopped` })
+    ).toBe(`Workflow x · stopped`)
+  })
+
+  it(`is null without one, and for a blank one`, () => {
+    expect(sessionAgentCaption({ status: `running`, agentCaption: null })).toBeNull()
+    expect(sessionAgentCaption({ status: `running`, agentCaption: `   ` })).toBeNull()
+  })
+
+  it(`an ended or merged row never narrates`, () => {
+    expect(
+      sessionAgentCaption({ status: `ended`, agentCaption: `Workflow x · 1/2 agents done` })
+    ).toBeNull()
+    expect(
+      sessionAgentCaption({ status: `merged`, agentCaption: `Workflow x · done · 2 agents` })
+    ).toBeNull()
   })
 })

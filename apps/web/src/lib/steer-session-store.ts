@@ -6,9 +6,12 @@ import {
   parseConfigState,
   parseRateLimit,
   parseSessionUsage,
+  parseBackgroundTasks,
   parseToolKind,
   parseToolPreview,
   parseTurnState,
+  parseWorkflow,
+  runningWorkflow as newestRunningWorkflow,
   applyQuestionResolved,
   beginAnswer,
   clearAnswer,
@@ -27,6 +30,7 @@ import {
   trimFeed,
   HISTORY_PAGE_LIMIT,
   type AnswerStates,
+  type BackgroundTask,
   type EchoEntry,
   type SessionConfigState,
   type SessionRateLimitState,
@@ -34,6 +38,7 @@ import {
   type ExpToolPreview,
   type ToolKind,
   type TurnState,
+  type WorkflowState,
 } from "@/lib/agent-feed"
 import {
   isAcceptedImageContentType,
@@ -218,11 +223,19 @@ export type ActivityEvent =
       kind: `subagent`
       id: string
       agentType: string
+      /** EXP-850 §3/§4: the workflow card this agent belongs to (the spawning
+       *  `Workflow` call's id). Its edges nest under that card and never open
+       *  a steerable tab. Absent on an ordinary subagent. */
+      workflowId?: string
       /** EXP-847: the spawning Agent tool call's `description` (else its
        *  `name`) — what the chips and the top bar say; `agentType` stays the
        *  secondary caption. Absent on older publishers. */
       title?: string
-      status: `started` | `completed`
+      /** EXP-856: `duplicate` is a WARNING edge (a second copy of an agent
+       *  that is still running), never a lifecycle state — the agent's own
+       *  `started`/`completed` edges keep flowing under the same id. An older
+       *  client that does not know the value ignores the row. */
+      status: `started` | `completed` | `duplicate`
       detail?: string
       // EXP-748: the tool calls the publisher attributed to the subagent,
       // stamped on the COMPLETED edge. Authoritative over the tool rows the
@@ -277,6 +290,35 @@ export type ActivityEvent =
   | {
       kind: `turn`
       state: TurnState
+      /** EXP-850 §5: when this turn began (ms epoch) — on BOTH states. It
+       *  picks the working caption's verb and measures its duration; a NEW
+       *  value resets the token counter. */
+      startedAt?: number
+      /** Output tokens produced in this turn so far, republished at most
+       *  every `steerWorking.tokenTickMs`. A republish that omits it never
+       *  blanks what the slot already learned. */
+      tokens?: number
+      at?: number
+    }
+  // EXP-850 §2: everything the CLI is running in the background — the FULL
+  // current list on every frame, so an empty array closes the strip. The
+  // sixth latest-wins slot; never a feed row.
+  | {
+      kind: `background_tasks`
+      tasks?: unknown
+      at?: number
+    }
+  // EXP-850 §3: a workflow's live card — latest-wins PER `id` (the spawning
+  // `Workflow` tool call's id), patched onto the tool row with that id.
+  | {
+      kind: `workflow`
+      id: string
+      name: string
+      description?: string
+      status?: string
+      phases?: unknown
+      agents?: unknown
+      summary?: string
       at?: number
     }
 
@@ -399,6 +441,10 @@ export type FeedItem = FeedSeq &
       /** EXP-846: the Exponential MCP result preview a `tool_update` folded
        *  in (issue/PR/list…). Plumbed now, rendered in a later phase. */
       preview?: ExpToolPreview
+      /** EXP-850 §3: this call IS a workflow (`workflows.get(callId)` holds
+       *  its card). The row renders as the card, never as a tool row, and it
+       *  never joins a collapsed tool run. */
+      workflowId?: string
     }
   | { id: number; kind: `user_message`; text: string; subagentId?: string }
   | { id: number; kind: `permission`; tool: string; detail?: string }
@@ -410,8 +456,10 @@ export type FeedItem = FeedSeq &
       /** EXP-847: the spawning call's description — shown instead of
        *  `agentType` wherever a subagent is named. */
       title?: string
-      status: `started` | `completed`
+      status: `started` | `completed` | `duplicate`
       detail?: string
+      /** EXP-850 §3: the workflow card this agent belongs to. */
+      workflowId?: string
       /** EXP-748: the publisher's own tool-call count for the subagent (the
        *  completed edge carries it); absent on the started edge and on older
        *  publishers. `summarizeSubagentRow` prefers it over the visible rows. */
@@ -489,6 +537,20 @@ export interface SteerSessionSnapshot {
    *  `turn` event says otherwise, so nothing pulses by default. THE input to
    *  `sessionIsWorking`. */
   turnState: TurnState
+  /** EXP-850 §5: when the current turn began (ms epoch), or null — the
+   *  working caption's verb and its clock. */
+  turnStartedAt: number | null
+  /** Output tokens this turn has produced so far, or null while unknown. */
+  turnTokens: number | null
+  /** EXP-850 §2: what the CLI is running in the background — the strip above
+   *  the composer. Empty = no strip. */
+  backgroundTasks: BackgroundTask[]
+  /** EXP-850 §3: every workflow this run published, by id (the spawning
+   *  `Workflow` call's id). A SIDE MAP, never feed rows: the tool row with
+   *  that id renders as the card. */
+  workflows: ReadonlyMap<string, WorkflowState>
+  /** The newest workflow still running — the caption source (§5/§7). */
+  runningWorkflow: WorkflowState | null
   answerStates: AnswerStates
   /** The socket is actually open. Distinct from the phase: a silent
    *  slow-consumer redial keeps `phase: live` while the socket is briefly
@@ -628,6 +690,15 @@ export function createSteerSessionStore(
   let rateLimit: SessionRateLimitState | null = null
   // EXP-848: idle until the publisher says otherwise.
   let turnState: TurnState = `ended`
+  // EXP-850 §5: the turn's start and its token count — both unknown until a
+  // `turn` frame carries them (codex publishes neither, which is why the
+  // caption's duration/token group is optional).
+  let turnStartedAt: number | null = null
+  let turnTokens: number | null = null
+  // EXP-850 §2/§3: the two new latest-wins slots. `workflows` is keyed per
+  // workflow id, in first-appearance order (a Map preserves insertion order).
+  let backgroundTasks: BackgroundTask[] = []
+  let workflows = new Map<string, WorkflowState>()
   let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
   let connected = false
@@ -682,6 +753,11 @@ export function createSteerSessionStore(
     usage,
     rateLimit,
     turnState,
+    turnStartedAt,
+    turnTokens,
+    backgroundTasks,
+    workflows,
+    runningWorkflow: null,
     answerStates,
     connected,
     canLoadEarlier: false,
@@ -701,6 +777,11 @@ export function createSteerSessionStore(
       usage,
       rateLimit,
       turnState,
+      turnStartedAt,
+      turnTokens,
+      backgroundTasks,
+      workflows,
+      runningWorkflow: newestRunningWorkflow([...workflows.values()]),
       answerStates,
       connected,
       // EXP-796: a page can only be asked for over an OPEN socket — once the
@@ -868,13 +949,18 @@ export function createSteerSessionStore(
       }
       case `tool`: {
         const detail = event.detail?.trim() ? event.detail : undefined
+        const callId = event.id?.trim() ? event.id : undefined
         append({
           kind: `tool`,
           name: event.name,
           detail,
           subagentId: event.subagentId,
-          callId: event.id?.trim() ? event.id : undefined,
+          callId,
           toolKind: parseToolKind(event.toolKind),
+          // EXP-850 §3: the card may have arrived BEFORE its tool row (the
+          // relay replays the workflow slots after the log), so the row is
+          // stamped on creation too — the two orders end in the same feed.
+          workflowId: callId && workflows.has(callId) ? callId : undefined,
         })
         return
       }
@@ -969,10 +1055,21 @@ export function createSteerSessionStore(
           subagentId: event.id,
           agentType: event.agentType,
           title: event.title?.trim() ? event.title.trim() : undefined,
-          status: event.status === `completed` ? `completed` : `started`,
+          // EXP-856: `duplicate` is its own edge (an amber warning row);
+          // anything this build does not know reads as `started`, which is
+          // what an older client does with a newer status.
+          status:
+            event.status === `completed`
+              ? `completed`
+              : event.status === `duplicate`
+                ? `duplicate`
+                : `started`,
           detail: event.detail?.trim() ? event.detail : undefined,
           toolCalls:
             typeof event.toolCalls === `number` ? event.toolCalls : undefined,
+          workflowId: event.workflowId?.trim()
+            ? event.workflowId.trim()
+            : undefined,
         })
         return
       }
@@ -1040,6 +1137,51 @@ export function createSteerSessionStore(
         // mid-turn would stop the working indicator over a thinking agent.
         const next = parseTurnState(event)
         if (next) turnState = next
+        // EXP-850 §5: `startedAt`/`tokens` ride the same slot. A republish
+        // that omits either NEVER blanks what the slot already learned (the
+        // publisher throttles the token tick, so most frames carry the start
+        // alone); a NEW start is a new turn, so the token count resets.
+        const startedAt = event.startedAt
+        if (typeof startedAt === `number` && Number.isFinite(startedAt)) {
+          if (startedAt !== turnStartedAt) {
+            turnStartedAt = startedAt
+            turnTokens = null
+          }
+        }
+        const tokens = event.tokens
+        if (typeof tokens === `number` && Number.isFinite(tokens) && tokens >= 0) {
+          turnTokens = Math.round(tokens)
+        }
+        return
+      }
+      case `background_tasks`: {
+        // EXP-850 §2: the FULL list, so an empty array closes the strip. An
+        // unreadable payload keeps the previous list (the `config_state`
+        // rule) rather than hiding work that is still running.
+        const tasks = parseBackgroundTasks(event)
+        if (tasks) backgroundTasks = tasks
+        return
+      }
+      case `workflow`: {
+        // EXP-850 §3: latest-wins PER id in a side map — never a feed row.
+        // The tool row that spawned it carries the same id and renders as the
+        // card; its own `tool_update` settle folds into that row, so the card
+        // is never doubled.
+        const workflow = parseWorkflow(event)
+        if (!workflow) return
+        const next = new Map(workflows)
+        next.set(workflow.id, workflow)
+        workflows = next
+        const at = feed.findIndex(
+          (item) => item.kind === `tool` && item.callId === workflow.id
+        )
+        if (at >= 0) {
+          const current = feed[at] as ToolItem
+          if (current.workflowId === workflow.id) return
+          const updated = feed.slice()
+          updated[at] = { ...current, workflowId: workflow.id }
+          setFeed(updated, [])
+        }
         return
       }
       default:
@@ -1188,6 +1330,11 @@ export function createSteerSessionStore(
     // EXP-848: the replay carries the device's latest `turn` — until it lands,
     // idle (the same rule as a fresh store).
     turnState = `ended`
+    // EXP-850: the same rule for the three slots the replay restates.
+    turnStartedAt = null
+    turnTokens = null
+    backgroundTasks = []
+    workflows = new Map()
     clearCompaction()
     // Seeded BEFORE the fold so a replayed `answer_ack`/`question_resolved`
     // for a carried lock lands on it; locks whose card the replay did not
@@ -1259,7 +1406,16 @@ export function createSteerSessionStore(
     // page folding its own `turn`/`config_state`/`usage`/`rate_limit` through
     // the reducer would repaint them with history (a stale `turn started` made
     // a finished run pulse). Saved here, restored below.
-    const savedSlots = { config, usage, rateLimit, turnState }
+    const savedSlots = {
+      config,
+      usage,
+      rateLimit,
+      turnState,
+      turnStartedAt,
+      turnTokens,
+      backgroundTasks,
+      workflows,
+    }
     feed = []
     feedBytes = 0
     nextId = 0
@@ -1283,6 +1439,10 @@ export function createSteerSessionStore(
     usage = savedSlots.usage
     rateLimit = savedSlots.rateLimit
     turnState = savedSlots.turnState
+    turnStartedAt = savedSlots.turnStartedAt
+    turnTokens = savedSlots.turnTokens
+    backgroundTasks = savedSlots.backgroundTasks
+    workflows = savedSlots.workflows
     if (page.length === 0) {
       historyExhausted = true
       return

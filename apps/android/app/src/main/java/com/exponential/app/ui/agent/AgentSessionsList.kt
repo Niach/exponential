@@ -265,6 +265,24 @@ private fun AgentSessionRow(
                         }
                     },
                 )
+                // EXP-850 (S8): what the run is DOING right now, written by
+                // the device (today the running workflow's caption) — the
+                // SECOND line, above the device byline. The server clears it
+                // on every end path, so an ended row never keeps a stale one.
+                session.agentCaption?.takeIf { it.isNotBlank() }?.let { caption ->
+                    Text(
+                        caption,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(start = 20.dp)
+                            .testTag("session-agent-caption"),
+                    )
+                }
                 // EXP-549: the LIVE machine label, so a rename lands here
                 // instead of the row keeping the original hostname forever.
                 val deviceName = device.displayLabel

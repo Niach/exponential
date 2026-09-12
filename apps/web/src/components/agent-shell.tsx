@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { relativeTime } from "@/components/comment-rows/format"
 import { RunningIndicator, pastRunRowByline } from "@/components/agent-session-row"
 import {
+  sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
 } from "@/lib/coding-session-display"
@@ -171,6 +172,7 @@ function RunningRow({
   const prState = rowPrState(session, issue)
   const state = sessionDisplayState(session, prState)
   const working = sessionRowIsWorking(session, prState)
+  const caption = sessionAgentCaption(session)
   const isChat = identity.identifier === null && session.actionName === `Chat`
   return (
     <ListRow
@@ -219,6 +221,13 @@ function RunningRow({
           )}
           <span className="truncate">{identity.subject}</span>
         </div>
+        {/* EXP-850 §8: the run's own caption (its live workflow), the SECOND
+            line, before the device byline. */}
+        {caption && (
+          <div className="truncate text-xs text-muted-foreground" title={caption}>
+            {caption}
+          </div>
+        )}
         <div className="truncate text-xs text-muted-foreground">
           {paused ? `Paused · ` : ``}
           {device.label || session.deviceLabel || `Desktop`}

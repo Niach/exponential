@@ -154,11 +154,28 @@ final class AgentSessionModel {
     /// `compaction` activity event and cleared by its `ended` edge, the replay
     /// swap, the end of the session, and a backstop timer.
     private(set) var compacting: AgentCompaction?
-    /// EXP-848: whether the agent is inside a TURN right now — the engine's
-    /// `turn` edges as a latest-wins slot beside `compacting`, never a feed
-    /// row. `.ended` until one arrives: an idle run must not pulse by default,
-    /// and a publisher too old to emit them simply never reads as working.
-    private(set) var turnState: AgentTurnState = .ended
+    /// EXP-848/850: the `turn` slot — whether the agent is inside a TURN right
+    /// now (the engine's own edges, never a guess off the feed's shape) plus
+    /// §5's caption inputs, the turn's start stamp and its output-token count.
+    /// A latest-wins slot beside `compacting`, never a feed row. `.ended`
+    /// until one arrives: an idle run must not pulse by default, and a
+    /// publisher too old to emit them simply never reads as working.
+    private(set) var turn = AgentTurnSlot()
+    /// EXP-848: the edge alone, which is what every working/pulse rule reads.
+    var turnState: AgentTurnState { turn.state }
+    /// EXP-850 §2: the background tasks the agent is running right now — a
+    /// latest-wins slot (an empty list closes the strip above the composer).
+    private(set) var backgroundTasks: [AgentBackgroundTask] = [] {
+        didSet { rebuildStripLines() }
+    }
+    /// EXP-850 §1/§2: the strip above the composer, derived ONCE per change
+    /// (EXP-582: an O(feed) projection read from a view body is what pinned
+    /// the main thread during a replay).
+    private(set) var stripLines: [AgentStripLine] = []
+    /// EXP-850 §3: the run's workflow cards, latest-wins per id in
+    /// first-appearance order. Each one patches onto the `tool` row with the
+    /// same id; it is never a feed row of its own.
+    private(set) var workflows: [AgentWorkflow] = []
     /// FEED-26: when this run's feed last CHANGED while live, falling back to
     /// the moment the phase became live. What `staleActivityMinutes` counts
     /// from.
@@ -545,12 +562,16 @@ final class AgentSessionModel {
             windowStart: start, historyTruncated: historyTruncated,
             historyExhausted: historyExhausted, connected: connected
         )
-        let next = AgentFeed.rows(feed, from: start)
-        rows = next
-        subagents = next.compactMap { row in
-            if case let .subagentRun(run) = row { return run }
-            return nil
-        }
+        // EXP-850 §3: a workflow's tool row never collapses into a "N tool
+        // calls" run (the card renders in its place) and its agents' runs are
+        // nested INSIDE the card, so the transcript projection drops them.
+        rows = AgentFeed.rows(feed, from: start, workflowIds: Set(workflows.map(\.id)))
+        // The runs list keeps the workflow agents — the card looks its own
+        // agents up here; `visibleSubagentTabs` is what hides them from the
+        // tab strip.
+        subagents = AgentFeed.subagents(feed, from: start)
+        // §1/§2: an open `wait` row is a feed row, so the strip follows it.
+        rebuildStripLines()
         let active = AgentFeed.activeQuestionIds(feed)
         activeQuestionIds = active
         activeCards = feed.compactMap { item in
@@ -592,6 +613,44 @@ final class AgentSessionModel {
             // raw jsonb text may be present but unreadable.
             blocked: AgentUsagePresentation.parseBlocked(session?.blocked) != nil,
             compacting: compacting != nil
+        )
+    }
+
+    // MARK: - Workflows and the bottom strip (EXP-850)
+
+    /// The card a tool row carries, looked up by its call id — the §3 patch:
+    /// the `workflow` event renders IN PLACE of the `Workflow` tool row.
+    func workflow(for callId: String?) -> AgentWorkflow? {
+        guard let callId else { return nil }
+        return workflows.first { $0.id == callId }
+    }
+
+    /// §7: the NEWEST still-running card — what the working caption and the
+    /// header speak for while a workflow runs.
+    var runningWorkflow: AgentWorkflow? { AgentFeed.runningWorkflow(workflows) }
+
+    /// §4: the subagent run behind one workflow agent, for the card's nested
+    /// preview and its duplicate warning.
+    func subagentRun(agentId: String?) -> AgentSubagentRun? {
+        guard let agentId else { return nil }
+        return subagents.first { $0.subagentId == agentId }
+    }
+
+    /// §1/§2: what the strip above the composer actually draws — nothing at
+    /// all once the run is over.
+    var visibleStripLines: [AgentStripLine] { isOver ? [] : stripLines }
+
+    private func rebuildStripLines() {
+        stripLines = AgentFeed.stripLines(backgroundTasks: backgroundTasks, feed: feed)
+    }
+
+    /// §5: the trailing working row's caption at `now` — the turn's verb (or
+    /// the running workflow's caption) with its duration and token count. The
+    /// row itself ticks the clock, so this stays pure.
+    func workingCaption(now: Date) -> String {
+        AgentFeed.workingCaption(
+            startedAt: turn.startedAt, tokens: turn.tokens, now: now,
+            workflow: runningWorkflow
         )
     }
 
@@ -1924,7 +1983,11 @@ final class AgentSessionModel {
     /// so they are cleared together.
     private func clearLiveWork() {
         clearCompaction()
-        turnState = .ended
+        turn = AgentTurnSlot()
+        // EXP-850: the two §1-§3 slots are live work too — a replay swap or an
+        // ended run must not leave a strip or a running card standing.
+        backgroundTasks = []
+        workflows = []
     }
 
     /// Close the strip and disarm its backstop. Idempotent — every path that
@@ -2128,22 +2191,22 @@ final class AgentSessionModel {
         }
     }
 
+    /// EXP-850: the wire READING lives in `AgentActivityDecoder` (ExpCore,
+    /// unit-tested against the engine's own JSON); this switch is only what
+    /// each decoded event DOES to the session's state. An unknown kind
+    /// decodes to nil and is skipped — never fatal, because a newer desktop
+    /// may publish events this build has no renderer for.
     private func handleActivityEvent(_ event: [String: Any]?) {
-        guard let event, let kind = event["kind"] as? String else { return }
-        switch kind {
-        case "narration":
-            guard let text = event["text"] as? String,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { return }
-            let messageId = Self.trimmedField(event["messageId"])
-            let narrationAgent = Self.trimmedField(event["subagentId"])
+        guard let decoded = AgentActivityDecoder.decode(event) else { return }
+        switch decoded {
+        case let .narration(text, messageId, narrationAgent, beforeQuestionId):
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above the card.
             // The id is taken up front so the spliced row can be stamped
             // with its wire sequence without a scan for "which one is new"
             // (EXP-783); an anchor that matches nothing falls through with it.
             var splicedId: Int?
-            if let anchor = Self.trimmedField(event["beforeQuestionId"]) {
+            if let anchor = beforeQuestionId {
                 let id = takeEventId()
                 splicedId = id
                 if let out = AgentFeed.spliceBeforeQuestion(
@@ -2175,56 +2238,44 @@ final class AgentSessionModel {
                 id: splicedId ?? takeEventId(), text: text,
                 messageId: messageId, subagentId: narrationAgent
             ))
-        case "tool":
-            guard let name = event["name"] as? String else { return }
+        case let .tool(name, detail, subagentId, callId, toolKind):
             append(.tool(
                 id: takeEventId(),
                 name: name,
-                detail: Self.trimmedField(event["detail"]),
-                subagentId: Self.trimmedField(event["subagentId"]),
-                callId: Self.trimmedField(event["id"]),
-                toolKind: AgentFeed.toolKind(event["toolKind"])
+                detail: detail,
+                subagentId: subagentId,
+                callId: callId,
+                toolKind: toolKind
             ))
-        case "tool_update":
+        case let .toolUpdate(update):
             // EXP-785/786: folded INTO the tool row with that call id — never
             // a row. An id this feed does not hold is dropped.
-            guard let next = AgentFeed.applyToolUpdate(feed: feed, event: event) else { return }
+            guard let next = AgentFeed.applyToolUpdate(feed: feed, update: update) else { return }
             feed = next
             recountFeedBytes()
-        case "diff":
+        case let .diff(diff):
             // Diffs never enter the feed — the latest replaces the previous
             // one behind the pinned "Latest changes" chip.
-            let diff = event["diff"] as? String
-            latestDiff = (diff?.isEmpty == false) ? diff : nil
-        case "user_message":
-            guard let text = event["text"] as? String,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            latestDiff = diff
+        case let .userMessage(text, subagentId):
             // A message this client just sent was already echoed locally —
             // skip its transcript-derived twin (EXP-78).
             if consumeEcho(text) { return }
             // EXP-773: a turn addressed to a subagent renders inside that
             // subagent's run, never in the main thread.
-            append(.userMessage(
-                id: takeEventId(), text: text,
-                subagentId: Self.trimmedField(event["subagentId"])
-            ))
-        case "question":
-            guard let question = decodeQuestion(event) else { return }
+            append(.userMessage(id: takeEventId(), text: text, subagentId: subagentId))
+        case let .question(draft):
             // A re-emitted wire id REPLACES its card in place (the desktop
             // augments options it discovers later); anything else appends.
             let before = feed.count
-            feed = AgentFeed.upsertQuestion(feed, question: question)
+            feed = AgentFeed.upsertQuestion(feed, question: draft.question(id: takeEventId()))
             // Appended: stamp its sequence. Replaced in place: the card's
             // options grew, so re-derive the byte accumulator.
             if feed.count > before, let seq = currentSeq, let id = feed.last?.id {
                 seqById[id] = seq
             }
             recountFeedBytes()
-        case "question_resolved":
-            let id = Self.trimmedField(event["id"])
-            let askId = Self.trimmedField(event["askId"])
-            let answers = (event["answers"] as? [String]) ?? []
-            let dismissed = (event["dismissed"] as? Bool) ?? false
+        case let .questionResolved(id, askId, answers, dismissed):
             // Collect the retiring cards' lock keys BEFORE they resolve —
             // a retired card has nothing left for the optimistic lock to guard.
             // EXP-820: ALREADY-resolved cards too — a re-answered earlier step
@@ -2244,125 +2295,83 @@ final class AgentSessionModel {
                 recountFeedBytes()
             }
             for key in retiredKeys { answerTracker.resolve(key) }
-        case "answer_ack":
+        case let .answerAck(id):
             // The desktop injected the answer — the card stays locked for good
             // and a stepper advances to its next step.
-            guard let id = Self.trimmedField(event["id"]) else { return }
             answerTracker.acknowledge(id)
-        case "subagent":
-            guard let subagentId = Self.trimmedField(event["id"]),
-                  let raw = event["status"] as? String,
-                  let status = AgentSubagentStatus(rawValue: raw) else { return }
+        case let .subagent(subagentId, agentType, status, detail, toolCalls, title, workflowId):
             append(.subagent(
                 id: takeEventId(),
                 subagentId: subagentId,
-                agentType: Self.trimmedField(event["agentType"]) ?? "agent",
+                agentType: agentType,
                 status: status,
-                detail: Self.trimmedField(event["detail"]),
+                detail: detail,
                 // EXP-748: the publisher's count, stamped on the completed
                 // edge — it outlives the tool rows replay evicts first.
-                toolCalls: event["toolCalls"] as? Int,
+                toolCalls: toolCalls,
                 // EXP-847: what the spawn asked for; absent on older builds.
-                title: Self.trimmedField(event["title"])
+                title: title,
+                // EXP-850/856: a workflow agent's edges nest under its card.
+                workflowId: workflowId
             ))
-        case "permission":
-            guard let tool = Self.trimmedField(event["tool"]) else { return }
-            append(.permission(
-                id: takeEventId(),
-                tool: tool,
-                detail: Self.trimmedField(event["detail"])
-            ))
-        // EXP-846/848: every LATEST-WINS slot below is about the run's PRESENT,
-        // so a page of OLDER transcript folded through this same reducer
-        // (`prependingPage`) must never repaint one — web saves and restores
-        // them around its fold (`steer-session-store.ts` `prependPage`), which
-        // is exactly what skipping them here achieves.
-        case "config_state":
+        case let .permission(tool, detail):
+            append(.permission(id: takeEventId(), tool: tool, detail: detail))
+        // EXP-846/848/850: every LATEST-WINS slot below is about the run's
+        // PRESENT, so a page of OLDER transcript folded through this same
+        // reducer (`prependingPage`) must never repaint one — web saves and
+        // restores them around its fold (`steer-session-store.ts`
+        // `prependPage`), which is exactly what skipping them here achieves.
+        case let .configState(update):
             // EXP-746: latest-wins STATE, not a row. A malformed frame keeps
             // whatever the chips already show (the fold's contract).
             guard !prependingPage else { return }
-            sessionConfig = AgentFeed.applyConfigState(sessionConfig, event: event)
-        case "usage":
+            sessionConfig = update.applied(to: sessionConfig)
+        case let .usage(update):
             guard !prependingPage else { return }
-            sessionUsage = AgentFeed.applyUsage(sessionUsage, event: event)
-        case "rate_limit":
+            sessionUsage = update.applied(to: sessionUsage)
+        case let .rateLimit(update):
             // EXP-784: the fourth slot; an empty/`ok` status clears it.
             guard !prependingPage else { return }
-            sessionRateLimit = AgentFeed.applyRateLimit(sessionRateLimit, event: event)
-        case "turn":
+            sessionRateLimit = update.applied(to: sessionRateLimit)
+        case let .turn(edge):
             // EXP-848: latest-wins STATE, never a row. Skipped while an OLDER
             // page folds through this reducer — a turn edge from the far end of
             // the transcript says nothing about what the run is doing now.
+            // EXP-850 §5: it also carries the working caption's clock and
+            // token count.
             guard !prependingPage else { return }
-            turnState = AgentFeed.applyTurn(turnState, event: event)
-        case "compaction":
+            turn = AgentFeed.applyTurn(turn, edge: edge)
+        case let .backgroundTasks(tasks):
+            // EXP-850 §2: the FULL current list, latest-wins — an empty array
+            // closes the strip above the composer.
+            guard !prependingPage else { return }
+            backgroundTasks = tasks
+        case let .workflow(workflow):
+            // EXP-850 §3: latest-wins PER ID. The card patches onto the tool
+            // row with the same id, so the projection has to be redone.
+            guard !prependingPage else { return }
+            workflows = AgentFeed.applyWorkflow(workflows, workflow: workflow)
+            reproject()
+        case let .compaction(edge):
             // EXP-724. The strip's state is the pure fold; the marker row is
             // the caller's job because only `ended` writes one — and it writes
             // one even for an UNMATCHED `ended` (codex publishes no start
             // marker for auto-compaction, so the gap still gets explained).
-            let phase = event["phase"] as? String
             // The marker ROW is transcript, so an older page still prepends it;
             // the live strip and its backstop are present-tense state.
             if !prependingPage {
-                compacting = AgentFeed.applyCompaction(compacting, event: event)
-                if phase == "started" {
-                    armCompactionTimeout(startedAt: event["at"] as? Double)
-                } else if phase == "ended" {
+                compacting = AgentFeed.applyCompaction(compacting, edge: edge)
+                if edge.started {
+                    armCompactionTimeout(startedAt: edge.at)
+                } else if edge.ended {
                     compactionTimeoutTask?.cancel()
                     compactionTimeoutTask = nil
                 }
             }
-            if phase == "ended" {
+            if edge.ended {
                 append(.compaction(id: takeEventId()))
             }
-        default:
-            // Unknown kinds are skipped, never fatal — a newer desktop may
-            // publish events this build has no renderer for.
-            break
         }
-    }
-
-    private func decodeQuestion(_ event: [String: Any]) -> AgentQuestion? {
-        // The wire id is required (EXP-613): it addresses the `answer` frame
-        // and every resolution event, so an id-less card would be unanswerable
-        // and never retire. No publisher emits one.
-        guard let wireId = Self.trimmedField(event["id"]),
-              let text = event["text"] as? String, !text.isEmpty,
-              let rawOptions = event["options"] as? [[String: Any]] else { return nil }
-        let options: [AgentQuestionOption] = rawOptions.compactMap { o in
-            guard let label = o["label"] as? String, let key = o["key"] as? String,
-                  !key.isEmpty else { return nil }
-            return AgentQuestionOption(
-                label: label, key: key, description: Self.trimmedField(o["description"]),
-                freeText: o["freeText"] as? Bool ?? false
-            )
-        }
-        guard !options.isEmpty else { return nil }
-        return AgentQuestion(
-            id: takeEventId(),
-            wireId: wireId,
-            askId: Self.trimmedField(event["askId"]),
-            index: Self.positiveInt(event["index"]),
-            total: Self.positiveInt(event["total"]),
-            header: Self.trimmedField(event["header"]),
-            text: text,
-            options: options,
-            multiSelect: (event["multiSelect"] as? Bool) ?? false,
-            planMode: (event["planMode"] as? Bool) ?? false
-        )
-    }
-
-    /// A wire string field, nil unless it carries something.
-    private static func trimmedField(_ value: Any?) -> String? {
-        guard let text = value as? String,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return text
-    }
-
-    private static func positiveInt(_ value: Any?) -> Int? {
-        guard let number = value as? NSNumber else { return nil }
-        let int = number.intValue
-        return int >= 1 ? int : nil
     }
 
     /// Whether an incoming `user_message` matches a recent local echo —

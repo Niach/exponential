@@ -165,6 +165,21 @@ pub(crate) fn fold_gap(fingerprint: u64, gap: f32) -> u64 {
     hasher.finish()
 }
 
+/// EXP-850 — fold a row's DERIVED content into its fingerprint.
+///
+/// A row can carry things that are not in the feed item it renders: the
+/// workflow card patched onto a `Workflow` tool row (§3, whose agents change
+/// as the run goes), the per-turn file card under the last edit of a segment
+/// (§12), the duplicate warning under a card (§4). All of them move the row's
+/// measured height without its own item changing, which is exactly what a
+/// fingerprint is for.
+pub(crate) fn fold_extra(fingerprint: u64, extra: u64) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    fingerprint.hash(&mut hasher);
+    extra.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// What the list must be told to match a new key set (see [`plan_list_sync`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ListOp {
@@ -254,6 +269,15 @@ pub(crate) fn plan_list_sync(old: &[RowKey], new: &[RowKey]) -> Vec<ListOp> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-850: derived content is part of a row's measure — a card that
+    /// grew re-keys the row it hangs under, and identical content does not.
+    #[test]
+    fn folded_extras_change_a_rows_fingerprint() {
+        assert_eq!(fold_extra(7, 3), fold_extra(7, 3));
+        assert_ne!(fold_extra(7, 3), fold_extra(7, 4));
+        assert_ne!(fold_extra(7, 3), 7);
+    }
 
     fn key(id: u64, fingerprint: u64) -> RowKey {
         RowKey { id, fingerprint }

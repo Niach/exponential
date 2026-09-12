@@ -423,19 +423,27 @@ function FilePatch({ file, open, onOpenChange, isMobile }: FilePatchProps) {
 // the desktop IDE's diff file list + scroll_to_file).
 // ---------------------------------------------------------------------------
 
-function FileNav({
+// EXP-850 §11: exported since the session diff PANE owns its own (collapsible)
+// file column — the same list, one level up, so picking a file scrolls the
+// patch list beside it.
+export function FileNav({
   files,
   onJump,
   isMobile,
+  selected,
+  className,
 }: {
   files: PullFile[]
   onJump: (filename: string) => void
   isMobile: boolean
+  /** The path the pane is showing — highlighted in the list. */
+  selected?: string | null
+  className?: string
 }) {
   const additions = files.reduce((n, f) => n + f.additions, 0)
   const deletions = files.reduce((n, f) => n + f.deletions, 0)
   return (
-    <div className="rounded-md border border-border">
+    <div className={cn(`rounded-md border border-border`, className)}>
       <div className="flex items-center gap-2 rounded-t-md border-b border-border bg-muted/30 px-3 py-1.5 text-xs">
         <span className="font-medium">{files.length} files changed</span>
         <span className="ml-auto" />
@@ -450,7 +458,10 @@ function FileNav({
               variant="ghost"
               size="xs"
               onClick={() => onJump(f.filename)}
-              className="flex h-6 w-full items-center justify-start gap-2 rounded-none px-3 font-normal"
+              className={cn(
+                `flex h-6 w-full items-center justify-start gap-2 rounded-none px-3 font-normal`,
+                selected === f.filename && `bg-glass-active`
+              )}
             >
               <span
                 className={cn(
@@ -482,10 +493,15 @@ export function FileDiffList({
   files,
   showFileNav = true,
   defaultCollapsed = false,
+  focusFile = null,
 }: {
   files: PullFile[]
   showFileNav?: boolean
   defaultCollapsed?: boolean
+  /** EXP-850 §12: open this file and scroll to it — the session diff pane
+   *  hands it whatever the reader picked (a file card row, the file list).
+   *  A CHANGE scrolls; re-picking the file already in view is a no-op. */
+  focusFile?: string | null
 }) {
   // Sparse user overrides on top of size-based defaults, keyed by filename —
   // a tier-3 refresh replaces `files` without discarding the user's toggles.
@@ -515,6 +531,14 @@ export function FileDiffList({
         ?.scrollIntoView({ behavior: `smooth`, block: `start` })
     })
   }
+
+  // The pane's own selection: the same jump, driven from outside.
+  const jumpRef = useRef(jumpTo)
+  jumpRef.current = jumpTo
+  useEffect(() => {
+    if (!focusFile) return
+    jumpRef.current(focusFile)
+  }, [focusFile])
 
   return (
     <div className="space-y-2 p-3">

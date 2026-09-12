@@ -67,6 +67,13 @@ import {
   type EchoEntry,
   type FeedRow,
   type QuestionLike,
+  backgroundStripLines,
+  parseBackgroundTasks,
+  parseWorkflow,
+  rowIsPendingCard,
+  runningWorkflow,
+  workflowPhaseCounts,
+  workflowSubagentIds,
 } from "./agent-feed"
 import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
 import { contract } from "@exp/domain-contract"
@@ -604,6 +611,9 @@ describe(`groupFeedRows`, () => {
     ])
   })
 
+  // EXP-850 §9: both asks here are still PENDING, so they sit behind every
+  // other row — the card a run is blocked on belongs at the bottom of the
+  // transcript. Their relative order is the feed's.
   it(`one ask's questions collapse into a single stepper row`, () => {
     const feed = [
       item(1, `question`, { askId: `a` }),
@@ -612,8 +622,8 @@ describe(`groupFeedRows`, () => {
       item(4, `question`, { askId: `b` }),
     ]
     expect(groupFeedRows(feed)).toEqual([
-      { kind: `ask`, id: 1, askId: `a`, items: [feed[0], feed[2]] },
       { kind: `single`, item: feed[1] },
+      { kind: `ask`, id: 1, askId: `a`, items: [feed[0], feed[2]] },
       { kind: `ask`, id: 4, askId: `b`, items: [feed[3]] },
     ])
   })
@@ -1839,5 +1849,408 @@ describe(`expToolDisplay`, () => {
     // The contract names the subject field and the preview kind.
     expect(row.subjectKey).toBe(`title`)
     expect(row.result).toBe(`issue`)
+  })
+})
+
+// ── EXP-850 ─────────────────────────────────────────────────────────────────
+
+describe(`pending cards move to the bottom (§9)`, () => {
+  const item = (id: number, kind: string, over: Record<string, unknown> = {}) =>
+    ({ id, kind, ...over }) as {
+      id: number
+      kind: string
+      askId?: string
+      resolved?: boolean
+    }
+
+  it(`an unresolved question row follows every later row`, () => {
+    const feed = [
+      item(1, `narration`),
+      item(2, `question`, { questionId: `q1` }),
+      item(3, `tool`),
+      item(4, `narration`),
+    ]
+    expect(groupFeedRows(feed).map((row) => row.kind)).toEqual([
+      `single`,
+      `single`,
+      `single`,
+      `single`,
+    ])
+    expect(
+      groupFeedRows(feed).map((row) =>
+        row.kind === `single` ? row.item.id : row.id
+      )
+    ).toEqual([1, 3, 4, 2])
+  })
+
+  it(`a resolved card returns to its natural position`, () => {
+    const feed = [
+      item(1, `question`, { questionId: `q1`, resolved: true }),
+      item(2, `tool`),
+    ]
+    expect(
+      groupFeedRows(feed).map((row) =>
+        row.kind === `single` ? row.item.id : row.id
+      )
+    ).toEqual([1, 2])
+  })
+
+  it(`two pending cards keep their relative order`, () => {
+    const feed = [
+      item(1, `question`, { questionId: `q1` }),
+      item(2, `question`, { questionId: `q2` }),
+      item(3, `narration`),
+    ]
+    expect(
+      groupFeedRows(feed).map((row) =>
+        row.kind === `single` ? row.item.id : row.id
+      )
+    ).toEqual([3, 1, 2])
+  })
+
+  it(`an ask group moves as one while any step is pending`, () => {
+    const feed = [
+      item(1, `question`, { askId: `ask`, questionId: `q1`, resolved: true }),
+      item(2, `question`, { askId: `ask`, questionId: `q2` }),
+      item(3, `tool`),
+    ]
+    const rows = groupFeedRows(feed)
+    expect(rows.map((row) => row.kind)).toEqual([`single`, `ask`])
+    expect(rowIsPendingCard(rows[1])).toBe(true)
+  })
+
+  it(`a fully answered ask stays put`, () => {
+    const feed = [
+      item(1, `question`, { askId: `ask`, questionId: `q1`, resolved: true }),
+      item(2, `question`, { askId: `ask`, questionId: `q2`, resolved: true }),
+      item(3, `tool`),
+    ]
+    expect(groupFeedRows(feed).map((row) => row.kind)).toEqual([
+      `ask`,
+      `single`,
+    ])
+  })
+})
+
+describe(`a workflow tool row never joins a tool run (§3)`, () => {
+  const item = (id: number, over: Record<string, unknown> = {}) =>
+    ({ id, kind: `tool`, ...over }) as {
+      id: number
+      kind: string
+      workflowId?: string
+    }
+
+  it(`splits the run around it`, () => {
+    const feed = [
+      item(1),
+      item(2, { workflowId: `toolu_w` }),
+      item(3),
+      item(4),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `single`, item: feed[0] },
+      { kind: `single`, item: feed[1] },
+      { kind: `toolRun`, id: 3, items: [feed[2], feed[3]] },
+    ])
+  })
+})
+
+describe(`parseWorkflow`, () => {
+  const wire = {
+    kind: `workflow`,
+    id: `toolu_017aGvi2moAfSykrRA4LmyT4`,
+    name: `wire-probe`,
+    description: `Probe the workflow progress wire`,
+    status: `running`,
+    phases: [
+      { index: 1, title: `Alpha` },
+      { index: 2, title: `Beta` },
+    ],
+    agents: [
+      {
+        index: 1,
+        label: `alpha:one`,
+        phaseIndex: 1,
+        agentId: `a0ce244c651aaa623`,
+        model: `claude-haiku-4-5-20251001`,
+        state: `done`,
+        tokens: 9629,
+        toolCalls: 0,
+        durationMs: 1075,
+        resultPreview: `ok`,
+      },
+      { index: 2, label: `alpha:two`, phaseIndex: 1, state: `queued` },
+    ],
+    summary: `Dynamic workflow completed`,
+  }
+
+  it(`folds the wire frame verbatim`, () => {
+    const workflow = parseWorkflow(wire)
+    expect(workflow).not.toBeNull()
+    expect(workflow?.id).toBe(wire.id)
+    expect(workflow?.name).toBe(`wire-probe`)
+    expect(workflow?.status).toBe(`running`)
+    expect(workflow?.phases).toEqual([
+      { index: 1, title: `Alpha` },
+      { index: 2, title: `Beta` },
+    ])
+    expect(workflow?.agents[0]).toEqual({
+      index: 1,
+      label: `alpha:one`,
+      phaseIndex: 1,
+      agentId: `a0ce244c651aaa623`,
+      model: `claude-haiku-4-5-20251001`,
+      state: `done`,
+      tokens: 9629,
+      toolCalls: 0,
+      durationMs: 1075,
+      lastTool: undefined,
+      lastToolSummary: undefined,
+      resultPreview: `ok`,
+      error: undefined,
+    })
+    expect(workflow?.summary).toBe(`Dynamic workflow completed`)
+  })
+
+  it(`needs an id and a name, nothing else`, () => {
+    expect(parseWorkflow({ name: `x`, status: `running` })).toBeNull()
+    expect(parseWorkflow({ id: `w`, status: `running` })).toBeNull()
+    expect(parseWorkflow(null)).toBeNull()
+    expect(parseWorkflow({ id: `w`, name: `x` })).toEqual({
+      id: `w`,
+      name: `x`,
+      description: undefined,
+      status: `running`,
+      phases: [],
+      agents: [],
+      summary: undefined,
+      at: undefined,
+    })
+  })
+
+  it(`an unknown status reads as running and an unknown agent state as queued`, () => {
+    const workflow = parseWorkflow({
+      ...wire,
+      status: `simmering`,
+      agents: [{ index: 1, state: `dreaming` }],
+    })
+    expect(workflow?.status).toBe(`running`)
+    expect(workflow?.agents[0].state).toBe(`queued`)
+  })
+
+  it(`clamps every string to the contract's preview cap`, () => {
+    const long = `x`.repeat(400)
+    const workflow = parseWorkflow({ ...wire, name: long, summary: long })
+    expect(workflow?.name.length).toBe(contract.steerWorking.previewMax)
+    expect(workflow?.summary?.length).toBe(contract.steerWorking.previewMax)
+  })
+
+  it(`drops malformed phases and agents instead of the card`, () => {
+    const workflow = parseWorkflow({
+      ...wire,
+      phases: [{ index: 1 }, `nope`, { title: `Beta` }, { index: 2, title: `Beta` }],
+      agents: [{ label: `no index` }, { index: 3, state: `running` }],
+    })
+    expect(workflow?.phases).toEqual([{ index: 2, title: `Beta` }])
+    expect(workflow?.agents.map((agent) => agent.index)).toEqual([3])
+  })
+})
+
+describe(`parseBackgroundTasks`, () => {
+  it(`folds the wire list`, () => {
+    expect(
+      parseBackgroundTasks({
+        kind: `background_tasks`,
+        tasks: [
+          {
+            id: `b4mwz6csc`,
+            kind: `shell`,
+            description: `Sleep in the background`,
+            toolId: `toolu_01MCRoRaXN1cvEsHJzDEg2B3`,
+          },
+        ],
+      })
+    ).toEqual([
+      {
+        id: `b4mwz6csc`,
+        kind: `shell`,
+        description: `Sleep in the background`,
+        toolId: `toolu_01MCRoRaXN1cvEsHJzDEg2B3`,
+      },
+    ])
+  })
+
+  it(`an empty list is a real answer, a broken payload is not`, () => {
+    expect(parseBackgroundTasks({ kind: `background_tasks`, tasks: [] })).toEqual(
+      []
+    )
+    expect(parseBackgroundTasks({ kind: `background_tasks` })).toBeNull()
+    expect(parseBackgroundTasks(`nope`)).toBeNull()
+  })
+
+  it(`an unknown kind reads as other and a nameless task is dropped`, () => {
+    expect(
+      parseBackgroundTasks({
+        tasks: [
+          { id: `a`, kind: `quantum`, description: `Run it` },
+          { id: `b`, kind: `shell` },
+          { kind: `shell`, description: `no id` },
+        ],
+      })
+    ).toEqual([{ id: `a`, kind: `other`, description: `Run it`, toolId: undefined }])
+  })
+})
+
+describe(`runningWorkflow and the phase strip`, () => {
+  const workflow = (id: string, status: string) => ({
+    id,
+    name: id,
+    status: status as `running`,
+    phases: [],
+    agents: [],
+  })
+
+  it(`is the NEWEST still-running card`, () => {
+    expect(
+      runningWorkflow([
+        workflow(`a`, `running`),
+        workflow(`b`, `completed`),
+        workflow(`c`, `running`),
+      ])?.id
+    ).toBe(`c`)
+    expect(runningWorkflow([workflow(`a`, `completed`)])).toBeNull()
+    expect(runningWorkflow([])).toBeNull()
+  })
+
+  it(`tallies each phase's agents by state`, () => {
+    expect(
+      workflowPhaseCounts({
+        phases: [
+          { index: 1, title: `Alpha` },
+          { index: 2, title: `Beta` },
+        ],
+        agents: [
+          { index: 1, phaseIndex: 1, state: `done` },
+          { index: 2, phaseIndex: 1, state: `error` },
+          { index: 3, phaseIndex: 2, state: `running` },
+          { index: 4, phaseIndex: 2, state: `queued` },
+          { index: 5, state: `queued` },
+        ],
+      })
+    ).toEqual([
+      { index: 1, title: `Alpha`, queued: 0, running: 0, done: 1, error: 1 },
+      { index: 2, title: `Beta`, queued: 1, running: 1, done: 0, error: 0 },
+    ])
+  })
+})
+
+describe(`backgroundStripLines (§1/§2)`, () => {
+  it(`one line per task, then one per OPEN wait row`, () => {
+    expect(
+      backgroundStripLines({
+        backgroundTasks: [
+          { id: `b1`, kind: `shell`, description: `Sleep in the background` },
+        ],
+        feed: [
+          { id: 1, kind: `tool`, name: `Bash`, detail: `ls` },
+          {
+            id: 2,
+            kind: `tool`,
+            name: `TaskOutput`,
+            detail: `Sleep in the background`,
+            toolKind: `wait`,
+          },
+          {
+            id: 3,
+            kind: `tool`,
+            name: `Monitor`,
+            detail: `Watch the build`,
+            toolKind: `wait`,
+            settled: true,
+          },
+        ],
+      })
+    ).toEqual([
+      { kind: `task`, key: `task:b1`, text: `Sleep in the background` },
+      { kind: `wait`, key: `wait:2`, text: `Waiting on Sleep in the background` },
+    ])
+  })
+
+  it(`falls back to the tool name when the wait row names no subject`, () => {
+    expect(
+      backgroundStripLines({
+        feed: [{ id: 7, kind: `tool`, name: `Monitor`, toolKind: `wait` }],
+      })
+    ).toEqual([{ kind: `wait`, key: `wait:7`, text: `Waiting on Monitor` }])
+  })
+
+  it(`is empty when nothing runs`, () => {
+    expect(backgroundStripLines({ feed: [] })).toEqual([])
+    expect(
+      backgroundStripLines({
+        backgroundTasks: [],
+        feed: [{ id: 1, kind: `tool`, name: `Bash` }],
+      })
+    ).toEqual([])
+  })
+})
+
+describe(`workflow agents are never tabs (§3/§4)`, () => {
+  const marker = (over: Record<string, unknown>) => ({
+    kind: `subagent`,
+    agentType: `general-purpose`,
+    status: `started`,
+    ...over,
+  })
+
+  it(`maps a workflow's agents by id`, () => {
+    expect(
+      workflowSubagentIds([
+        marker({ subagentId: `a1`, workflowId: `toolu_w` }),
+        marker({ subagentId: `a2` }),
+        { kind: `tool`, subagentId: `a1` },
+      ])
+    ).toEqual(new Map([[`a1`, `toolu_w`]]))
+  })
+
+  it(`the tab strip drops them`, () => {
+    const agents = collectSubagents([
+      marker({ subagentId: `a1`, workflowId: `toolu_w`, title: `alpha:one` }),
+      marker({ subagentId: `a2`, title: `explore` }),
+    ])
+    expect(agents.map((a) => a.workflowId)).toEqual([`toolu_w`, undefined])
+    expect(visibleSubagentTabs(agents, null).map((a) => a.subagentId)).toEqual([
+      `a2`,
+    ])
+    // Not even while it is the selected tab: a workflow agent is not steerable.
+    expect(visibleSubagentTabs(agents, `a1`).map((a) => a.subagentId)).toEqual([
+      `a2`,
+    ])
+  })
+
+  it(`a duplicate edge is a warning, never the row's detail or its done state`, () => {
+    const summary = summarizeSubagentRow([
+      marker({ status: `started`, detail: `Map the crate` }),
+      marker({
+        status: `duplicate`,
+        detail: `Second copy of slowpoke started while the first is still running (resumed by SendMessage)`,
+        title: `slowpoke`,
+        workflowId: `toolu_w`,
+      }),
+    ])
+    expect(summary.detail).toBe(`Map the crate`)
+    expect(summary.done).toBe(false)
+    expect(summary.title).toBe(`slowpoke`)
+    expect(summary.workflowId).toBe(`toolu_w`)
+    expect(summary.duplicateDetail).toBe(
+      `Second copy of slowpoke started while the first is still running (resumed by SendMessage)`
+    )
+  })
+
+  it(`an ordinary subagent carries neither field`, () => {
+    const summary = summarizeSubagentRow([marker({ status: `completed` })])
+    expect(summary.workflowId).toBeUndefined()
+    expect(summary.duplicateDetail).toBeUndefined()
+    expect(summary.done).toBe(true)
   })
 })

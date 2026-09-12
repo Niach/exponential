@@ -22,11 +22,12 @@
 //! [`feed_source_for`] is that decision, pure and unit-tested; materializing
 //! it is [`resolve_source`].
 //!
-//! This screen owns the CHROME around that transcript — the identity header
-//! with the session's usage and kill. The transcript view keeps everything
-//! that is about the conversation itself (the feed, the banners, the
-//! Changes bar, the composer and its mode control), which is why it
-//! renders headerless here ([`SteerSessionView::set_chrome`]).
+//! This screen owns the CHROME around that transcript — the EXP-850 §10
+//! header: Back, the identity block, then the read-only Plan chip, Pin,
+//! Context, Diff, Merge and Stop. The transcript view keeps everything that
+//! is about the conversation itself (the feed, the banners, the diff pane the
+//! Diff pill toggles, the composer), which is why it renders headerless here
+//! ([`SteerSessionView::set_chrome`]).
 //!
 //! Lifetime rule: a view lives exactly as long as its TAB. `ScreensPanel`
 //! creates it on first activation and calls [`SessionScreenView::shutdown`]
@@ -637,6 +638,13 @@ impl SessionScreenView {
         // refused mid-turn, and taking it later would hold this borrow across
         // the settings read below.
         let working = inner.working_now();
+        // EXP-850 §10: the Diff pill's totals (hidden without a diff) and
+        // whether the pane is up; §11's pane lives inside the transcript view.
+        let diff_totals = inner.diff_totals();
+        let diff_open = inner.diff_open();
+        // EXP-850 §10: the Merge control the Changes band used to carry — the
+        // ONE merge-target rule, offered only while the run is live.
+        let merge_target = inner.merge_target(cx);
         // The pill only exists for a LIVE run's own meter (see the header
         // below) — resolving the machine's windows for a header that will not
         // show them is a settings read and a jsonb parse per repaint.
@@ -753,6 +761,19 @@ impl SessionScreenView {
                     .child(div().text_xs().child(label)),
                 )
             })
+            // EXP-778/EXP-850 §10: the personal pin toggle — a pinned run
+            // lands in the rail's Pinned section, live or ended. It sits
+            // between the Plan chip and the Context pill, and it is a GHOST
+            // button everywhere a pin renders.
+            .when_some(pin_team_id, |this, team_id| {
+                this.child(crate::pins::pin_toggle_button(
+                    "session-pin",
+                    team_id,
+                    domain::contract::PIN_KIND_SESSION,
+                    self.session_id.clone(),
+                    cx,
+                ))
+            })
             // EXP-746: the session's own context meter. Gone once the run is
             // over (a finished run's live numbers are a snapshot of nothing)
             // and never on a replay, whose numbers are the ones the run ended
@@ -786,6 +807,67 @@ impl SessionScreenView {
                     )
                 },
             )
+            // EXP-850 §10: the Diff pill — the `coding-diff` glyph with the
+            // run's `+N −M`, toggling the pane beside the transcript. Hidden
+            // when the run has published no diff at all.
+            .when_some(diff_totals, |this, (additions, deletions)| {
+                let inner = self.inner.clone();
+                this.child(
+                    crate::surface::glass_pill(
+                        "session-diff",
+                        crate::surface::PillSize::Sm,
+                        if diff_open {
+                            crate::surface::PillMode::Select { selected: true }
+                        } else {
+                            crate::surface::PillMode::Action
+                        },
+                        cx,
+                    )
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(if diff_open {
+                            "Hide changes"
+                        } else {
+                            "Show changes"
+                        })
+                        .build(window, cx)
+                    })
+                    .child(
+                        Icon::new(registry::CODING_DIFF)
+                            .with_size(px(crate::surface::PillSize::Sm.glyph())),
+                    )
+                    .child(
+                        div()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(theme::tokens::GREEN.to_hsla())
+                            .child(SharedString::from(format!("+{additions}"))),
+                    )
+                    .child(
+                        div()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(cx.theme().danger)
+                            .child(SharedString::from(format!("-{deletions}"))),
+                    )
+                    .on_click(cx.listener(move |_, _, _window, cx| {
+                        inner.update(cx, |view, cx| view.toggle_diff(cx));
+                    })),
+                )
+            })
+            // EXP-850 §10: Merge, where the Changes band used to carry it —
+            // the same two-click arm/confirm control, offered only while the
+            // run is live and its PR open.
+            .when_some(merge_target, |this, target| {
+                let merge_state = crate::pr_merge::MergeState::global(cx);
+                this.child(
+                    crate::surface::glass_pill(
+                        "session-merge",
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .px_0()
+                    .child(crate::changes_bar::merge_button(&target, &merge_state, cx)),
+                )
+            })
             .when_some(resume, |this, path| {
                 let session_id = self.session_id.clone();
                 let button = Button::new("session-resume")
@@ -836,17 +918,6 @@ impl SessionScreenView {
                     move |_, window, cx| {
                         inner.update(cx, |view, cx| view.prompt_kill(window, cx));
                     },
-                ))
-            })
-            // EXP-778: the personal pin toggle — a pinned run lands in the
-            // rail's Pinned section, live or ended.
-            .when_some(pin_team_id, |this, team_id| {
-                this.child(crate::pins::pin_toggle_button(
-                    "session-pin",
-                    team_id,
-                    domain::contract::PIN_KIND_SESSION,
-                    self.session_id.clone(),
-                    cx,
                 ))
             })
             .into_any_element()

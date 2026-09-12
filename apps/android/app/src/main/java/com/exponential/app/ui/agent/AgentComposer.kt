@@ -225,8 +225,10 @@ internal fun AgentComposer(
                 enabled = !sending,
                 modifier = Modifier.testTag("agent-composer-actions-button"),
             )
+            // EXP-850 (S13): the Agent page composer attaches with the
+            // `ui-add` plus ×4, like the session composer.
             ComposerToolButton(
-                ExpIcons.editorImage,
+                ExpIcons.uiAdd,
                 contentDescription = "Attach image",
                 onClick = onPickImages,
                 enabled = canAttach && !sending,

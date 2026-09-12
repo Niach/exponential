@@ -430,6 +430,9 @@ impl AutomationsView {
                     identifier: None,
                     title: parts.title,
                     caption: Some(parts.caption),
+                    // An automated run's list is not a live status surface
+                    // (EXP-850 §8 names the session lists); nothing to say.
+                    subcaption: None,
                     on_open: Some(Box::new(move |_, window, cx| {
                         crate::session_screen::open_session(&open_id, window, cx);
                     })),
