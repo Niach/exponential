@@ -46,22 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-turn-signal-accounts-and-switching",
+    id: "2026-09-passwordless-login-and-passkeys",
     date: "2026-09-12",
-    title: "Working… that clears, accounts that tell the truth, and switching mid-run",
-    summary: "The Working indicator follows the agent's real turn, Exponential tool calls render as cards, account health comes from a live probe, a Claude run can switch accounts when it hits a limit, and the UI wave lands on all four clients.",
-    body: r#"- **Working… ends when the agent does**: the session footer, the Stop button and every session list now follow a real end-of-turn signal from the engine instead of the connection state, on web, desktop, iOS and Android. A rate-limited or compacting run no longer says Working, and a replayed transcript starts idle.
-- **Exponential tool cards**: when the agent calls Exponential, the transcript shows the Exponential mark with a plain caption (Creating issue, Opened pull request) and, once done, a preview of the result: the issue pill, the PR link or a result count.
-- **Subagents by name**: subagent chips carry the task the agent gave them, their rows summarize the tools they used, and a read-only Plan chip shows while the run is still in plan mode.
-- **Sentences no longer split**: a subagent's tool call no longer cuts the main narration mid-word.
-- **Accounts you can trust**: an account's health comes from a real usage probe, so a dead login reads Needs re-login instead of Signed in. Accounts is the decision page (per-agent tabs, live usage, health); Devices is where you sign in, re-login or pick which signed-in account a machine uses. Codex accounts stay signed in on their own, and switching a codex account never signs it out elsewhere.
-- **Switch account mid-run**: a Claude run that hits its limit can continue on another account from the usage sheet or the rate-limit notice. It carries on as a new run linked to the old one; the first message after a switch is a little slower.
-- **The machine you clicked**: a machine's play button opens the composer with that machine selected, and the composer says why when a machine cannot take the run.
-- **Sessions that remember where you came from**: Back from a session returns to the issue, board or inbox it was opened from, resume and remote start jump straight into the run, sub-sessions nest under their parent, and an issue band inside the session opens the issue.
-- **Mobile parity**: Stop in the session header, a Watch pill instead of the Coding now card, suggestion chips on a new chat, pin buttons on iOS, pin on Android action rows, a Pinned section on the phone web sidebar, and flat rows under filled group headers on every list.
-- **Desktop polish**: an icon-only send button, a device settings dialog that fits, Usage as a round button next to Switch account, action icons in the automation picker, and dragging the window no longer selects text in a session.
-- **Leaner agent context**: issue lists returned to agents default to open work with short descriptions, and batch runs are told to share exploration instead of repeating it.
-- **pi retired**: the pi agent is gone. Any ACP binary still runs through the external agent option, with two caveats: pi does not speak ACP natively, so it is not a drop-in there, and an external agent runs without the MCP bridge, plan mode, usage and account reporting, the slash-command catalog and remote start."#,
+    title: "Continue with email, or with a passkey",
+    summary: "The login screen is one list of Continue buttons: Apple, Google, email with a one-time code instead of a password, and passkeys, on web, desktop, iOS and Android.",
+    body: r#"- **One screen, one verb**: signing in and creating an account are the same tap. Every option reads Continue with Apple, Continue with Google, Continue with email or Login with passkey, and an unknown email simply becomes a new account.
+- **A code instead of a password**: Continue with email mails a 6-digit code that works once and expires after ten minutes. Type it where you started, on any client. Instances without a mail transport keep the password form behind the same button.
+- **Passkeys**: add one under Settings, Account, Passkeys, then sign in with Face ID, Touch ID, Windows Hello or a security key. iOS and Android run the ceremony on the device; the desktop app hands off to your browser and returns on its own.
+- **Self-hosted**: codes need SMTP or SES; passkeys need an https instance address. Both can be switched off with AUTH_EMAIL_OTP_ENABLED and AUTH_PASSKEY_ENABLED."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

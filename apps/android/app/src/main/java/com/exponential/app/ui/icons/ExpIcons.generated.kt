@@ -2174,6 +2174,80 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `fingerprint`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "fingerprint",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 13.12c0 2.38 0 6.38-1 8.88"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17.29 21.02c.12-.6.43-2.3.5-3.02"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M2 12a10 10 0 0 1 18-6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M2 16h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21.8 16c.2-2 .131-5.354 0-6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8.65 22c.21-.66.45-1.32.57-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 6.8a6 6 0 0 1 9 5.2v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `flag`: ImageVector by lazy {
         ImageVector.Builder(
             name = "flag",
@@ -6337,6 +6411,7 @@ public object ExpIcons {
         "file" -> `file`
         "file-diff" -> `file-diff`
         "file-text" -> `file-text`
+        "fingerprint" -> `fingerprint`
         "flag" -> `flag`
         "flask-conical" -> `flask-conical`
         "fold-vertical" -> `fold-vertical`
@@ -6478,6 +6553,8 @@ public object ExpIcons {
     public val actionRun: ImageVector get() = `play`
     /** Concept `action-suggestion`. */
     public val actionSuggestion: ImageVector get() = `lightbulb`
+    /** Concept `auth-passkey`. */
+    public val authPasskey: ImageVector get() = `fingerprint`
     /** Concept `coding-assistant`. */
     public val codingAssistant: ImageVector get() = `sparkles`
     /** Concept `coding-command`. */

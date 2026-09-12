@@ -6,6 +6,11 @@
 //! - `POST /api/auth/sign-in/email` — `{email, password}` → `{token, user}`
 //!   (Better Auth bearer plugin; a `Set-Cookie` session fallback is parsed
 //!   when the JSON token is absent, iOS-parity).
+//! - EXP-857 passwordless one-time code:
+//!   `POST /api/auth/email-otp/send-verification-otp` mails a 6-digit code
+//!   (200 even for an unknown address — existence never leaks) and
+//!   `POST /api/auth/sign-in/email-otp` redeems it for the same
+//!   `{token, user}` a password sign-in returns.
 //! - `GET  /api/auth/get-session` — bearer session validation.
 //! - `POST /api/auth/sign-out` — best-effort server-side revocation.
 //! - OAuth via the system browser: start URLs for `/api/mobile-oauth-start`
@@ -99,6 +104,16 @@ pub struct AuthConfig {
     /// then falls back to password login.
     #[serde(default)]
     pub device_flow_enabled: bool,
+    /// EXP-857: passwordless email one-time-code login (Better Auth
+    /// `email-otp`) is offered — i.e. the instance has a mail transport.
+    /// Defaults FALSE: an older server without the field has no
+    /// `/api/auth/email-otp/*` routes.
+    #[serde(default)]
+    pub email_otp_enabled: bool,
+    /// EXP-857: passkey (WebAuthn) login is offered. Defaults FALSE for the
+    /// same reason.
+    #[serde(default)]
+    pub passkey_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -252,29 +267,57 @@ impl AuthClient {
         )?
         .ok_or_status()?;
 
-        let cookies = response.cookies;
-        let parsed: SignInResponseBody = serde_json::from_str(&response.body)
-            .map_err(|e| ApiError::Decode(format!("sign-in response: {e}")))?;
+        parse_sign_in_success(response)
+    }
 
-        match (parsed.token, parsed.user) {
-            // Better Auth bearer plugin returns { token, user }.
-            (Some(token), Some(user)) => Ok(SignInSuccess { token, user }),
-            // Fallback: extract the session token from Set-Cookie.
-            (None, Some(user)) => {
-                let token = cookies
-                    .iter()
-                    .find_map(|c| extract_session_token_cookie(c))
-                    .ok_or_else(|| {
-                        ApiError::Decode(
-                            "sign-in succeeded but no session token returned".to_string(),
-                        )
-                    })?;
-                Ok(SignInSuccess { token, user })
-            }
-            _ => Err(ApiError::Decode(
-                "sign-in succeeded but no user returned".to_string(),
-            )),
+    /// EXP-857 `POST /api/auth/email-otp/send-verification-otp` — mail a
+    /// 6-digit sign-in code (Better Auth `email-otp`, valid 10 minutes).
+    /// Answers 200 even for an unknown address (never leaks existence), so a
+    /// success here only means "the request was accepted".
+    pub fn send_sign_in_code(&self, instance_url: &str, email: &str) -> Result<(), ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({ "email": email, "type": "sign-in" });
+        let response = send(
+            versioned(
+                self.client
+                    .post(format!("{base}/api/auth/email-otp/send-verification-otp")),
+            )
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            // Better Auth's CSRF check 403s POSTs without an Origin header.
+            .header("Origin", &base)
+            .body(payload.to_string()),
+        )?;
+        if !(200..300).contains(&response.status) {
+            return Err(otp_response_error(response.status, &response.body));
         }
+        Ok(())
+    }
+
+    /// EXP-857 `POST /api/auth/sign-in/email-otp` — redeem the mailed code for
+    /// a session. Same `{token, user}` shape (and the same `Set-Cookie`
+    /// fallback) as the password path; a wrong/expired/burnt code comes back
+    /// as `ApiError::Http` carrying the contract's copy (see
+    /// [`otp_error_message`]).
+    pub fn sign_in_with_email_code(
+        &self,
+        instance_url: &str,
+        email: &str,
+        code: &str,
+    ) -> Result<SignInSuccess, ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({ "email": email, "otp": code });
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/auth/sign-in/email-otp")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?;
+        if !(200..300).contains(&response.status) {
+            return Err(otp_response_error(response.status, &response.body));
+        }
+        parse_sign_in_success(response)
     }
 
     /// `POST /api/auth/device/code` — start the RFC 8628 device-code grant
@@ -438,6 +481,84 @@ impl AuthClient {
     }
 }
 
+/// The shared `{token, user}` reader behind every sign-in endpoint
+/// (`/sign-in/email`, `/sign-in/email-otp`): the bearer plugin's JSON token
+/// wins, and when it is absent the session token is lifted out of
+/// `Set-Cookie` (iOS-parity).
+fn parse_sign_in_success(response: AuthResponse) -> Result<SignInSuccess, ApiError> {
+    let cookies = response.cookies;
+    let parsed: SignInResponseBody = serde_json::from_str(&response.body)
+        .map_err(|e| ApiError::Decode(format!("sign-in response: {e}")))?;
+
+    match (parsed.token, parsed.user) {
+        // Better Auth bearer plugin returns { token, user }.
+        (Some(token), Some(user)) => Ok(SignInSuccess { token, user }),
+        // Fallback: extract the session token from Set-Cookie.
+        (None, Some(user)) => {
+            let token = cookies
+                .iter()
+                .find_map(|c| extract_session_token_cookie(c))
+                .ok_or_else(|| {
+                    ApiError::Decode("sign-in succeeded but no session token returned".to_string())
+                })?;
+            Ok(SignInSuccess { token, user })
+        }
+        _ => Err(ApiError::Decode(
+            "sign-in succeeded but no user returned".to_string(),
+        )),
+    }
+}
+
+/// A failed one-time-code request as an [`ApiError`], with the message already
+/// resolved to the contract's copy. 426 stays the EXP-104 upgrade gate — it is
+/// not an OTP failure.
+fn otp_response_error(status: u16, body: &str) -> ApiError {
+    if status == 426 {
+        return ApiError::UpgradeRequired;
+    }
+    ApiError::Http {
+        status,
+        message: otp_error_message(status, body),
+    }
+}
+
+/// EXP-857: the user-facing sentence for a failed one-time-code call. Pure so
+/// the mapping is testable without a server. Better Auth answers
+/// `{"code": "...", "message": "..."}`; the three code-specific sentences are
+/// the contract's preferred copy, anything else falls back to the server's own
+/// message, then to a generic line.
+pub fn otp_error_message(status: u16, body: &str) -> String {
+    #[derive(Deserialize)]
+    struct OtpError {
+        #[serde(default)]
+        code: Option<String>,
+        #[serde(default)]
+        message: Option<String>,
+    }
+
+    let parsed = serde_json::from_str::<OtpError>(body).ok();
+    match parsed.as_ref().and_then(|e| e.code.as_deref()) {
+        Some("INVALID_OTP") => {
+            return "That code is not right. Check the email and try again.".to_string()
+        }
+        Some("OTP_EXPIRED") => return "That code expired. Request a new one.".to_string(),
+        Some("TOO_MANY_ATTEMPTS") => {
+            return "Too many attempts. Request a new code.".to_string()
+        }
+        _ => {}
+    }
+    if let Some(message) = parsed
+        .and_then(|e| e.message)
+        .filter(|message| !message.trim().is_empty())
+    {
+        return message;
+    }
+    if status == 429 {
+        return "Too many requests. Wait a minute and try again.".to_string();
+    }
+    format!("Something went wrong (HTTP {status}). Try again.")
+}
+
 /// Normalize a user-typed instance URL (iOS `normalizeBaseUrl` parity): trim
 /// whitespace, strip trailing slashes, default to `https://` when no scheme.
 pub fn normalize_instance_url(input: &str) -> String {
@@ -527,6 +648,19 @@ pub fn google_oauth_start_url(instance_url: &str, code_challenge: &str) -> Strin
 pub fn apple_oauth_start_url(instance_url: &str, code_challenge: &str) -> String {
     format!(
         "{}/api/mobile-oauth-start?provider=apple&code_challenge={code_challenge}",
+        normalize_instance_url(instance_url)
+    )
+}
+
+/// EXP-857 browser handoff (`provider=browser`): the server sets its state
+/// cookie and redirects to the web login page, where the user may finish with
+/// ANY method (passkey, code, Google, Apple). The hop ends on the same
+/// `/api/mobile-oauth-return` deep link as the social providers, so the whole
+/// PKCE + callback + exchange path is reused unchanged. This is how the
+/// desktop signs in with a passkey (no native WebAuthn ceremony).
+pub fn browser_login_start_url(instance_url: &str, code_challenge: &str) -> String {
+    format!(
+        "{}/api/mobile-oauth-start?provider=browser&code_challenge={code_challenge}",
         normalize_instance_url(instance_url)
     )
 }
@@ -682,6 +816,67 @@ mod tests {
             oidc_oauth_start_url("https://app.exponential.at/", "authentik prod", "chal-3"),
             "https://app.exponential.at/api/mobile-oauth-start?providerId=authentik%20prod&code_challenge=chal-3"
         );
+        // EXP-857: the passkey / any-method browser handoff.
+        assert_eq!(
+            browser_login_start_url("app.exponential.at", "chal-4"),
+            "https://app.exponential.at/api/mobile-oauth-start?provider=browser&code_challenge=chal-4"
+        );
+        assert_eq!(
+            browser_login_start_url("http://localhost:3000/", "chal-5"),
+            "http://localhost:3000/api/mobile-oauth-start?provider=browser&code_challenge=chal-5"
+        );
+    }
+
+    #[test]
+    fn otp_error_messages_follow_the_contract() {
+        // The three code-specific sentences win over the server's own text.
+        assert_eq!(
+            otp_error_message(400, r#"{"code":"INVALID_OTP","message":"Invalid OTP"}"#),
+            "That code is not right. Check the email and try again."
+        );
+        assert_eq!(
+            otp_error_message(400, r#"{"code":"OTP_EXPIRED","message":"OTP expired"}"#),
+            "That code expired. Request a new one."
+        );
+        assert_eq!(
+            otp_error_message(400, r#"{"code":"TOO_MANY_ATTEMPTS","message":"nope"}"#),
+            "Too many attempts. Request a new code."
+        );
+        // An unknown code falls back to the server's message…
+        assert_eq!(
+            otp_error_message(400, r#"{"code":"INVALID_EMAIL","message":"Invalid email"}"#),
+            "Invalid email"
+        );
+        // …a body without one to a generic line (429 says what to do).
+        assert_eq!(
+            otp_error_message(429, "{}"),
+            "Too many requests. Wait a minute and try again."
+        );
+        assert_eq!(
+            otp_error_message(500, "<html>502 Bad Gateway</html>"),
+            "Something went wrong (HTTP 500). Try again."
+        );
+        assert_eq!(
+            otp_error_message(400, r#"{"code":"X","message":"   "}"#),
+            "Something went wrong (HTTP 400). Try again."
+        );
+    }
+
+    #[test]
+    fn otp_response_error_keeps_the_upgrade_gate() {
+        // EXP-104: a 426 on the OTP routes is the stale-build gate, never an
+        // OTP failure (it must not read as "that code is wrong").
+        assert!(matches!(
+            otp_response_error(426, "{}"),
+            ApiError::UpgradeRequired
+        ));
+        match otp_response_error(400, r#"{"code":"OTP_EXPIRED"}"#) {
+            ApiError::Http { status, message } => {
+                assert_eq!(status, 400);
+                assert_eq!(message, "That code expired. Request a new one.");
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
     }
 
     #[test]
@@ -858,18 +1053,24 @@ mod tests {
         let full: AuthConfig = serde_json::from_str(
             r#"{"passwordEnabled":false,"passwordResetEnabled":false,
                 "oidcProviders":[{"id":"authentik","name":"Authentik"}],
-                "googleLoginEnabled":true,"appleLoginEnabled":true,"githubEnabled":true}"#,
+                "googleLoginEnabled":true,"appleLoginEnabled":true,"githubEnabled":true,
+                "emailOtpEnabled":true,"passkeyEnabled":true}"#,
         )
         .unwrap();
         assert!(!full.password_enabled);
         assert!(full.google_login_enabled);
         assert!(full.apple_login_enabled);
         assert_eq!(full.oidc_providers[0].id, "authentik");
+        assert!(full.email_otp_enabled);
+        assert!(full.passkey_enabled);
 
         // Tolerant: unknown/missing fields degrade to defaults.
         let sparse: AuthConfig = serde_json::from_str(r#"{"futureField":1}"#).unwrap();
         assert!(sparse.password_enabled); // defaults true like iOS
         assert!(!sparse.apple_login_enabled);
         assert!(sparse.oidc_providers.is_empty());
+        // EXP-857: an older server without the fields offers neither method.
+        assert!(!sparse.email_otp_enabled);
+        assert!(!sparse.passkey_enabled);
     }
 }

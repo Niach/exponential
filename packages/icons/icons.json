@@ -104,6 +104,7 @@
     "settings-repositories": "github",
     "settings-tools": "square-terminal",
     "settings-agents": "bot",
+    "auth-passkey": "fingerprint",
     "settings-local-repos": "hard-drive",
     "settings-account": "circle-user",
     "settings-notifications": "bell",

@@ -256,3 +256,37 @@ export const apikeys = pgTable(
     index(`apikeys_key_idx`).on(table.key),
   ]
 )
+
+// Table for the `@better-auth/passkey` plugin (EXP-857 passkey login). With
+// `usePlural: true` on the drizzle adapter, Better Auth looks up schema export
+// `passkeys` for the `passkey` model; the property keys MUST match the plugin's
+// field names (`credentialID`, not `credentialId`) because the adapter resolves
+// columns by key. One row per registered WebAuthn credential; `counter` is the
+// signature counter the verifier bumps on every login (clone detection),
+// `backedUp`/`deviceType` come from the authenticator flags, `transports` is a
+// comma-joined list the client echoes back as allowCredentials hints. Cascades
+// like every other user-linked auth table (REV2-16). SERVER-ONLY, never synced.
+export const passkeys = pgTable(
+  `passkeys`,
+  {
+    id: text(`id`).primaryKey(),
+    name: text(`name`),
+    publicKey: text(`public_key`).notNull(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    credentialID: text(`credential_id`).notNull(),
+    counter: integer(`counter`).notNull(),
+    deviceType: text(`device_type`).notNull(),
+    backedUp: boolean(`backed_up`).notNull(),
+    transports: text(`transports`),
+    createdAt: timestamp(`created_at`).$defaultFn(
+      () => /* @__PURE__ */ new Date()
+    ),
+    aaguid: text(`aaguid`),
+  },
+  (table) => [
+    index(`passkeys_user_id_idx`).on(table.userId),
+    index(`passkeys_credential_id_idx`).on(table.credentialID),
+  ]
+)

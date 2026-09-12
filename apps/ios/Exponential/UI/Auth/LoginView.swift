@@ -9,7 +9,7 @@ struct LoginView: View {
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
-        case email, password
+        case email, password, code
     }
 
     var body: some View {
@@ -28,7 +28,10 @@ struct LoginView: View {
 
                     Spacer().frame(height: 32)
 
-                    Text("Sign in")
+                    // EXP-857: one title across the four clients, and no button
+                    // on this screen says "Sign in" any more — signing in and
+                    // signing up are the same act here.
+                    Text("Continue to Exponential")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(.white)
 
@@ -107,12 +110,34 @@ struct LoginView: View {
                             }
                         }
 
-                        if (config.appleLoginEnabled || config.googleLoginEnabled || !config.oidcProviders.isEmpty) && config.passwordEnabled {
-                            divider
+                        // EXP-857: the email branch is one more button in the
+                        // same stack; it opens the code (or password) step in
+                        // place instead of leading with a form.
+                        if (config.emailOtpEnabled || config.passwordEnabled), vm.emailStep == .hidden {
+                            GlassOAuthButton("Continue with email", action: {
+                                vm.showEmailStep()
+                            }) {
+                                AppIcon(AppIcons.uiMail, size: AppIcon.Size.medium)
+                            }
+                            .accessibilityIdentifier("login-continue-with-email-button")
                         }
 
-                        if config.passwordEnabled {
-                            passwordForm(vm)
+                        if config.passkeyEnabled {
+                            GlassOAuthButton("Login with passkey", action: {
+                                vm.startPasskeyLogin()
+                            }) {
+                                AppIcon(AppIcons.authPasskey, size: AppIcon.Size.medium)
+                            }
+                            .accessibilityIdentifier("login-passkey-button")
+                        }
+
+                        if vm.emailStep != .hidden {
+                            divider
+                            if vm.usesCodeFlow {
+                                emailCodeForm(vm, config: config)
+                            } else if config.passwordEnabled {
+                                passwordForm(vm)
+                            }
                         }
                     }
                 }
@@ -143,6 +168,82 @@ struct LoginView: View {
         }
     }
 
+    /// The one-time code branch (EXP-857): address first, then the mailed code.
+    /// Both steps live in the same card the buttons are in.
+    @ViewBuilder
+    private func emailCodeForm(_ vm: LoginViewModel, config: AuthConfig) -> some View {
+        VStack(spacing: 12) {
+            if vm.emailStep == .code {
+                Text("We sent a 6-digit code to \(vm.codeSentTo ?? vm.email).")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                GlassTextField("Code", text: Binding(
+                    get: { vm.code },
+                    set: { vm.code = $0 }
+                ), accessibilityIdentifier: "login-code-field")
+                    .textContentType(.oneTimeCode)
+                    .keyboardType(.numberPad)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .code)
+                    .onSubmit {
+                        Task { await vm.verifyCode() }
+                    }
+
+                GlassSubmitButton(
+                    vm.verifyingCode ? "Checking…" : "Continue",
+                    enabled: !vm.code.isEmpty,
+                    loading: vm.verifyingCode
+                ) {
+                    Task { await vm.verifyCode() }
+                }
+                .accessibilityIdentifier("login-verify-code-button")
+
+                HStack(spacing: 16) {
+                    actionLink("Resend code", identifier: "login-resend-code-link") {
+                        Task { await vm.resendCode() }
+                    }
+                    actionLink("Use a different email", identifier: "login-change-email-link") {
+                        focusedField = .email
+                        vm.changeEmail()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                GlassTextField("Email", text: Binding(
+                    get: { vm.email },
+                    set: { vm.email = $0 }
+                ), accessibilityIdentifier: "login-email-field")
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .email)
+                    .onSubmit {
+                        Task { await vm.sendCode() }
+                    }
+
+                GlassSubmitButton(
+                    vm.sendingCode ? "Sending code…" : "Send code",
+                    enabled: !vm.email.isEmpty,
+                    loading: vm.sendingCode
+                ) {
+                    Task { await vm.sendCode() }
+                }
+                .accessibilityIdentifier("login-send-code-button")
+
+                if config.passwordEnabled {
+                    actionLink("Use a password instead", identifier: "login-use-password-link") {
+                        vm.usePassword()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func passwordForm(_ vm: LoginViewModel) -> some View {
         VStack(spacing: 12) {
@@ -168,7 +269,7 @@ struct LoginView: View {
                 }
 
             GlassSubmitButton(
-                "Sign in",
+                "Continue",
                 enabled: !vm.email.isEmpty && !vm.password.isEmpty,
                 loading: vm.loading
             ) {
@@ -194,6 +295,15 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+    }
+
+    /// An in-app text link (the web ones below leave for the browser).
+    @ViewBuilder
+    private func actionLink(_ label: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(label, action: action)
+            .font(.footnote)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-passwordless-login-and-passkeys`,
+    date: `2026-09-12`,
+    title: `Continue with email, or with a passkey`,
+    summary: `The login screen is one list of Continue buttons: Apple, Google, email with a one-time code instead of a password, and passkeys, on web, desktop, iOS and Android.`,
+    body: `- **One screen, one verb**: signing in and creating an account are the same tap. Every option reads Continue with Apple, Continue with Google, Continue with email or Login with passkey, and an unknown email simply becomes a new account.
+- **A code instead of a password**: Continue with email mails a 6-digit code that works once and expires after ten minutes. Type it where you started, on any client. Instances without a mail transport keep the password form behind the same button.
+- **Passkeys**: add one under Settings, Account, Passkeys, then sign in with Face ID, Touch ID, Windows Hello or a security key. iOS and Android run the ceremony on the device; the desktop app hands off to your browser and returns on its own.
+- **Self-hosted**: codes need SMTP or SES; passkeys need an https instance address. Both can be switched off with AUTH_EMAIL_OTP_ENABLED and AUTH_PASSKEY_ENABLED.`,
+  },
+  {
     id: `2026-09-turn-signal-accounts-and-switching`,
     date: `2026-09-12`,
     title: `Working… that clears, accounts that tell the truth, and switching mid-run`,

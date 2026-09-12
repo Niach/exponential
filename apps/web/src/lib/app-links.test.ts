@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  androidPasskeyOrigins,
   buildAppleAppSiteAssociation,
   buildAssetLinks,
   parseFingerprints,
@@ -27,6 +28,35 @@ describe(`buildAppleAppSiteAssociation`, () => {
       { "/": `/t/*/boards/*/issues/*` },
       { "/": `/invite/*` },
     ])
+  })
+
+  it(`associates the same app ids for passkeys (webcredentials, EXP-857)`, () => {
+    const aasa = buildAppleAppSiteAssociation() as {
+      webcredentials: { apps: string[] }
+    }
+    expect(aasa.webcredentials.apps).toEqual([
+      `V6W7BVCSM8.at.exponential`,
+      `V6W7BVCSM8.at.exponential.staging`,
+    ])
+  })
+})
+
+describe(`androidPasskeyOrigins`, () => {
+  it(`turns a colon-hex cert fingerprint into the apk-key-hash origin`, () => {
+    // sha256 = 00..ff pattern; base64url of those 32 bytes, no padding.
+    const hex = Array.from({ length: 32 }, (_, i) =>
+      i.toString(16).padStart(2, `0`).toUpperCase()
+    ).join(`:`)
+    const expected = Buffer.from(hex.replace(/:/g, ``), `hex`).toString(
+      `base64url`
+    )
+    expect(androidPasskeyOrigins([hex])).toEqual([
+      `android:apk-key-hash:${expected}`,
+    ])
+  })
+
+  it(`drops fingerprints that are not a 32-byte hex digest`, () => {
+    expect(androidPasskeyOrigins([`AA:BB`, ``])).toEqual([])
   })
 })
 
@@ -63,7 +93,10 @@ describe(`buildAssetLinks`, () => {
       `at.exponential.staging`,
     ])
     for (const s of statements) {
-      expect(s.relation).toEqual([`delegate_permission/common.handle_all_urls`])
+      expect(s.relation).toEqual([
+        `delegate_permission/common.handle_all_urls`,
+        `delegate_permission/common.get_login_creds`,
+      ])
       expect(s.target.namespace).toBe(`android_app`)
       expect(s.target.sha256_cert_fingerprints).toEqual([`AA:BB`, `CC:DD`])
     }

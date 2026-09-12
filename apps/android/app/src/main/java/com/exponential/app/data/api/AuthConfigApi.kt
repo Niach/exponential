@@ -26,6 +26,12 @@ data class AuthConfig(
     val googleLoginEnabled: Boolean = false,
     // Absent from pre-SIWA servers — the default keeps decoding tolerant.
     val appleLoginEnabled: Boolean = false,
+    // EXP-857. One-time code login is offered (the instance can send mail) and
+    // passkey login is offered. Both absent from pre-EXP-857 servers, so both
+    // default to false: an instance that doesn't publish the flag must not be
+    // shown an affordance it would dead-end.
+    val emailOtpEnabled: Boolean = false,
+    val passkeyEnabled: Boolean = false,
 )
 
 /**

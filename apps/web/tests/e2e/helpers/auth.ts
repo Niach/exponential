@@ -29,8 +29,14 @@ export async function registerUser(
   }
 
   await expect(
-    page.locator(`[data-slot="card-title"]`).filter({ hasText: `Sign in` })
+    page
+      .locator(`[data-slot="card-title"]`)
+      .filter({ hasText: `Continue to Exponential` })
   ).toBeVisible()
+  // EXP-857: the method list comes first; the password form (and its
+  // create-account toggle) lives behind "Continue with email" on instances
+  // without a mail transport, which the e2e stack is.
+  await page.getByRole(`button`, { name: `Continue with email` }).click()
   await page.getByRole(`button`, { name: `Create one` }).click()
   await expect(
     page
@@ -59,8 +65,11 @@ export async function loginUser(
   }
 
   await expect(
-    page.locator(`[data-slot="card-title"]`).filter({ hasText: `Sign in` })
+    page
+      .locator(`[data-slot="card-title"]`)
+      .filter({ hasText: `Continue to Exponential` })
   ).toBeVisible()
+  await page.getByRole(`button`, { name: `Continue with email` }).click()
 
   await page.getByLabel(`Email`).fill(user.email)
   await page.getByLabel(`Password`, { exact: true }).fill(user.password)
@@ -69,7 +78,7 @@ export async function loginUser(
     // Existing users land somewhere under /t/ (team root or their
     // last-visited board).
     expect(page).toHaveURL(options.expectedPath ?? /\/t\/[^/]+/),
-    page.getByRole(`button`, { name: `Sign in`, exact: true }).click(),
+    page.getByRole(`button`, { name: `Continue`, exact: true }).click(),
   ])
 }
 

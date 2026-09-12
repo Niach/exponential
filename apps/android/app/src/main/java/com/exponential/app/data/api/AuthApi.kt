@@ -34,6 +34,21 @@ data class SignInRequest(val email: String, val password: String)
 @Serializable
 data class SignInResponse(val token: String? = null, val user: AuthUser? = null)
 
+// EXP-857 one-time code login (Better Auth email-otp plugin). `type` is the
+// plugin's own discriminator — "sign-in" mails a login code.
+@Serializable
+data class EmailOtpSendRequest(val email: String, val type: String = "sign-in")
+
+@Serializable
+data class EmailOtpSignInRequest(val email: String, val otp: String)
+
+// EXP-857 passkey verify answer: the token sits one level down, under `session`.
+@Serializable
+data class PasskeySession(val token: String? = null)
+
+@Serializable
+data class PasskeyVerifyResponse(val session: PasskeySession? = null, val user: AuthUser? = null)
+
 @Serializable
 data class AuthUser(
     val id: String,
@@ -105,10 +120,7 @@ class AuthApi @Inject constructor(
             }
 
             // Fallback: read raw set-cookie value `better-auth.session_token=<token>`.
-            val cookies = response.headers.getAll("set-cookie").orEmpty()
-            val token = cookies
-                .firstOrNull { it.contains("session_token=", ignoreCase = true) }
-                ?.let { Regex("""session_token=([^;]+)""").find(it)?.groupValues?.get(1) }
+            val token = sessionTokenCookie(response.headers.getAll("set-cookie").orEmpty())
 
             if (token != null) {
                 val resolvedEmail = parsed.user?.email ?: email
@@ -119,6 +131,137 @@ class AuthApi @Inject constructor(
                 }
             } else {
                 SignInResult.Failure("Sign-in succeeded but no session token returned")
+            }
+        } catch (e: Exception) {
+            SignInResult.Failure(trpcErrorMessage(e, "Network error"))
+        }
+    }
+
+    /**
+     * EXP-857 step 1 of the one-time code login: ask the server to mail a
+     * 6-digit code. The server answers 200 even for an unknown address (it
+     * never leaks account existence), so a success here only means "sent if it
+     * could be". Failure carries the server's own `message` — it is rendered on
+     * the login screen.
+     */
+    suspend fun sendSignInCode(instanceUrl: String, email: String): Result<Unit> {
+        val baseUrl = instanceUrl
+        return try {
+            val response = client.post("$baseUrl/api/auth/email-otp/send-verification-otp") {
+                contentType(ContentType.Application.Json)
+                // Better Auth CSRF, exactly like signInWithPassword.
+                header("Origin", baseUrl.trimEnd('/'))
+                setBody(EmailOtpSendRequest(email = email))
+            }
+            if (!response.status.isSuccess()) {
+                val message = AuthWire.sendCodeErrorMessage(
+                    status = response.status.value,
+                    message = authErrorMessage(response.bodyAsText()),
+                )
+                return Result.failure(IllegalStateException(message))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
+        }
+    }
+
+    /**
+     * EXP-857 step 2: redeem the mailed code. Same `{ token, user }` /
+     * Set-Cookie answer shape as [signInWithPassword], so the token extraction
+     * and [completeLogin] hand-off are identical; only the error copy differs
+     * (the code-specific wording in [AuthWire.otpErrorMessage]).
+     */
+    suspend fun signInWithEmailCode(instanceUrl: String, email: String, code: String): SignInResult {
+        val baseUrl = instanceUrl
+
+        return try {
+            val response = client.post("$baseUrl/api/auth/sign-in/email-otp") {
+                contentType(ContentType.Application.Json)
+                header("Origin", baseUrl.trimEnd('/'))
+                setBody(EmailOtpSignInRequest(email = email, otp = code))
+            }
+            if (!response.status.isSuccess()) {
+                val body = response.bodyAsText()
+                return SignInResult.Failure(
+                    AuthWire.otpErrorMessage(authErrorCode(body), authErrorMessage(body)),
+                )
+            }
+
+            val parsed: SignInResponse = json.decodeFromString(response.bodyAsText())
+            val token = parsed.token ?: sessionTokenCookie(response.headers.getAll("set-cookie").orEmpty())
+                ?: return SignInResult.Failure("Sign-in succeeded but no session token returned")
+            val resolvedEmail = parsed.user?.email ?: email
+            if (completeLogin(baseUrl, token, parsed.user?.id, resolvedEmail, parsed.user?.isAdmin == true)) {
+                SignInResult.Success(token, resolvedEmail)
+            } else {
+                SignInResult.Failure("Couldn't verify your account. Please try again.")
+            }
+        } catch (e: Exception) {
+            SignInResult.Failure(trpcErrorMessage(e, "Network error"))
+        }
+    }
+
+    /**
+     * EXP-857 passkey login, step 1: the WebAuthn request options, served
+     * verbatim for CredentialManager plus the Set-Cookie pairs that carry the
+     * signed challenge. The client's cookie jar is disabled, so those pairs are
+     * replayed by hand on [verifyPasskeyAuthentication] — without them the
+     * server answers CHALLENGE_NOT_FOUND.
+     */
+    suspend fun passkeyAuthenticationOptions(instanceUrl: String): Result<PasskeyOptions> {
+        val baseUrl = instanceUrl
+        return try {
+            val response = client.get("$baseUrl/api/auth/passkey/generate-authenticate-options")
+            if (!response.status.isSuccess()) {
+                val message = authErrorMessage(response.bodyAsText())
+                    ?: "Couldn't start the passkey login (HTTP ${response.status.value})"
+                return Result.failure(IllegalStateException(message))
+            }
+            Result.success(
+                PasskeyOptions(
+                    requestJson = response.bodyAsText(),
+                    cookies = AuthWire.setCookiePairs(response.headers.getAll("set-cookie").orEmpty()),
+                ),
+            )
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
+        }
+    }
+
+    /**
+     * EXP-857 passkey login, step 2: post the assertion CredentialManager
+     * produced. The answer is `{ session: { token }, user }`; the bearer plugin
+     * also mirrors the token into a `set-auth-token` header, and the cookie
+     * fallback of the password path still applies.
+     */
+    suspend fun verifyPasskeyAuthentication(
+        instanceUrl: String,
+        cookies: List<String>,
+        responseJson: String,
+    ): SignInResult {
+        val baseUrl = instanceUrl
+        return try {
+            val response = client.post("$baseUrl/api/auth/passkey/verify-authentication") {
+                contentType(ContentType.Application.Json)
+                header("Origin", baseUrl.trimEnd('/'))
+                if (cookies.isNotEmpty()) header("Cookie", AuthWire.cookieHeader(cookies))
+                setBody(AuthWire.passkeyVerifyBody(json, responseJson))
+            }
+            if (!response.status.isSuccess()) {
+                val message = authErrorMessage(response.bodyAsText())
+                return SignInResult.Failure(message ?: "Passkey login failed (HTTP ${response.status.value})")
+            }
+            val parsed: PasskeyVerifyResponse = json.decodeFromString(response.bodyAsText())
+            val token = parsed.session?.token
+                ?: response.headers["set-auth-token"]?.takeIf { it.isNotBlank() }
+                ?: sessionTokenCookie(response.headers.getAll("set-cookie").orEmpty())
+                ?: return SignInResult.Failure("Passkey login succeeded but no session token returned")
+            val resolvedEmail = parsed.user?.email
+            if (completeLogin(baseUrl, token, parsed.user?.id, resolvedEmail, parsed.user?.isAdmin == true)) {
+                SignInResult.Success(token, resolvedEmail ?: "")
+            } else {
+                SignInResult.Failure("Couldn't verify your account. Please try again.")
             }
         } catch (e: Exception) {
             SignInResult.Failure(trpcErrorMessage(e, "Network error"))
@@ -164,6 +307,17 @@ class AuthApi @Inject constructor(
         (json.parseToJsonElement(body) as? JsonObject)
             ?.get("message")?.jsonPrimitive?.contentOrNull
     }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /** The machine-readable `code` of a Better Auth error body (EXP-857 maps the OTP ones to copy). */
+    private fun authErrorCode(body: String): String? = runCatching {
+        (json.parseToJsonElement(body) as? JsonObject)
+            ?.get("code")?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /** `better-auth.session_token=<token>` out of raw Set-Cookie headers. */
+    private fun sessionTokenCookie(cookies: List<String>): String? = cookies
+        .firstOrNull { it.contains("session_token=", ignoreCase = true) }
+        ?.let { Regex("""session_token=([^;]+)""").find(it)?.groupValues?.get(1) }
 
     // Redeem an oauth-return PKCE code for the session token (REV-13):
     // POST /api/mobile-oauth-exchange with the code from the deep link and the

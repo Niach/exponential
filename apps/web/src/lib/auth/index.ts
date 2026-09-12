@@ -4,10 +4,12 @@ import {
   bearer,
   customSession,
   deviceAuthorization,
+  emailOTP,
   genericOAuth,
   mcp,
 } from "better-auth/plugins"
 import { apiKey } from "@better-auth/api-key"
+import { passkey } from "@better-auth/passkey"
 import { creem } from "@creem_io/better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
@@ -21,11 +23,16 @@ import {
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
 import {
   isAuthRateLimitEnabled,
+  isEmailOtpEnabled,
+  isPasskeyEnabled,
   isPasswordSignupDisabled,
+  passkeyRelyingParty,
 } from "@/lib/auth/config"
+import { androidPasskeyOrigins, parseFingerprints } from "@/lib/app-links"
 import {
   recordEmailDelivery,
   sendPasswordResetEmail,
+  sendSignInCodeEmail,
   sendVerificationEmail,
 } from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
@@ -241,6 +248,11 @@ export const auth = betterAuth({
       // rate (10/min vs 18/min) against online password guessing.
       "/sign-in/*": { window: 60, max: 10 },
       "/sign-up/*": { window: 60, max: 10 },
+      // EXP-857: one code request per 20s per address-hop is plenty for a
+      // human, and it bounds the mail a NAT can make us send. The plugin's
+      // own 3/60s default on the same path stays underneath as the floor.
+      "/email-otp/send-verification-otp": { window: 60, max: 3 },
+      "/passkey/*": { window: 60, max: 30 },
     },
   },
   socialProviders: {
@@ -303,6 +315,16 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        // EXP-857: a first sign-in with a one-time code creates the account
+        // with no name (the code flow never asks for one) — default it from
+        // the mailbox so the chrome never shows an empty identity. Apple's
+        // name-less accounts already fall back to the email in the UI; this
+        // only fills what would otherwise be the empty string.
+        before: async (user) => {
+          if (user.name && user.name.trim().length > 0) return
+          const local = user.email?.split(`@`)[0] ?? ``
+          return { data: { ...user, name: local || user.email || `` } }
+        },
         after: async (user, ctx) => {
           try {
             await maybePromoteNewUser(user.id, user.email, user.emailVerified)
@@ -397,6 +419,57 @@ export const auth = betterAuth({
   },
   plugins: [
     bearer(),
+    // EXP-857 passwordless "Continue with email": a 6-digit code mailed by the
+    // ONE transactional sender, valid 10 minutes, burned after 5 wrong tries.
+    // Sign-up through the code follows the same public-signup switch as the
+    // password form (a closed instance mails nothing for unknown addresses).
+    // Registered only when mail is configured — without a transport the
+    // endpoint would answer success and never deliver.
+    ...(isEmailOtpEnabled()
+      ? [
+          emailOTP({
+            otpLength: 6,
+            expiresIn: 60 * 10,
+            allowedAttempts: 5,
+            disableSignUp: isPasswordSignupDisabled(),
+            sendVerificationOTP: async ({ email, otp, type }) => {
+              // Only the sign-in code is offered anywhere in the product;
+              // the plugin's other flows (verification/reset by code) are
+              // never called by a client, so their mail stays unsent.
+              if (type !== `sign-in`) return
+              const result = await sendSignInCodeEmail({ to: email, code: otp })
+              await recordEmailDelivery({
+                toEmail: email,
+                kind: `sign_in_code`,
+                result,
+              })
+            },
+          }),
+        ]
+      : []),
+    // EXP-857 "Login with passkey" (WebAuthn). rpID = the instance hostname;
+    // the accepted client origins are the web origin (also what iOS's
+    // associated-domain ceremony reports) plus one apk-key-hash origin per
+    // Android signing cert (derived from the SAME fingerprints that feed
+    // assetlinks.json). Registration needs a fresh session and happens on
+    // the web Account page; natives only authenticate.
+    ...(isPasskeyEnabled()
+      ? [
+          passkey({
+            ...passkeyRelyingParty(),
+            origin: [
+              new URL(process.env.BETTER_AUTH_URL!).origin,
+              ...androidPasskeyOrigins(
+                parseFingerprints(process.env.ANDROID_APP_LINK_FINGERPRINTS)
+              ),
+            ],
+            authenticatorSelection: {
+              residentKey: `preferred`,
+              userVerification: `preferred`,
+            },
+          }),
+        ]
+      : []),
     apiKey({
       // Personal API keys (desktop coding sessions / MCP clients) — minted by
       // the user for their own auth, never a synthetic identity.

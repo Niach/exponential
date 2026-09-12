@@ -76,6 +76,7 @@ export const EMAIL_DELIVERY_KINDS = [
   `support_confirmation`,
   `widget_resolution`,
   `password_reset`,
+  `sign_in_code`,
   `email_verification`,
   `contact`,
   `notification`,

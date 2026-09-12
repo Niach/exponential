@@ -32,6 +32,10 @@ export function buildAppleAppSiteAssociation(): unknown {
         },
       ],
     },
+    // EXP-857: lets the iOS app run the passkey ceremony natively for this
+    // host (ASAuthorizationPlatformPublicKeyCredentialProvider needs the
+    // `webcredentials:<host>` association on both sides).
+    webcredentials: { apps: APPLE_APP_IDS },
   }
 }
 
@@ -51,11 +55,29 @@ export function parseFingerprints(raw: string | undefined): string[] {
 export function buildAssetLinks(fingerprints: string[]): unknown[] | null {
   if (fingerprints.length === 0) return null
   return ANDROID_PACKAGES.map((packageName) => ({
-    relation: [`delegate_permission/common.handle_all_urls`],
+    relation: [
+      `delegate_permission/common.handle_all_urls`,
+      // EXP-857: lets Credential Manager hand this host's passkeys to the app.
+      `delegate_permission/common.get_login_creds`,
+    ],
     target: {
       namespace: `android_app`,
       package_name: packageName,
       sha256_cert_fingerprints: fingerprints,
     },
   }))
+}
+
+// EXP-857: the WebAuthn origin Android's Credential Manager writes into
+// clientDataJSON is not an https origin but
+// `android:apk-key-hash:<base64url(sha256(signing cert DER))>` — the same
+// SHA-256 the Digital Asset Links fingerprint spells as colon-hex. Derive the
+// accepted origins from the ONE env var so the two stay in lockstep.
+export function androidPasskeyOrigins(fingerprints: string[]): string[] {
+  return fingerprints
+    .map((fingerprint) => fingerprint.replace(/:/g, ``))
+    .filter((hex) => /^[0-9A-F]{64}$/.test(hex))
+    .map(
+      (hex) => `android:apk-key-hash:${Buffer.from(hex, `hex`).toString(`base64url`)}`
+    )
 }

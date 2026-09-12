@@ -163,6 +163,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "file" => ExpIcon::File,
         "file-diff" => ExpIcon::FileDiff,
         "file-text" => ExpIcon::FileText,
+        "fingerprint" => ExpIcon::Fingerprint,
         "flag" => ExpIcon::Flag,
         "flask-conical" => ExpIcon::FlaskConical,
         "fold-vertical" => ExpIcon::FoldVertical,
@@ -305,6 +306,8 @@ pub const ACTION_REPOSITORY: ExpIcon = ExpIcon::GitBranch;
 pub const ACTION_RUN: ExpIcon = ExpIcon::Play;
 /// Registry concept `action-suggestion` -> Lucide `lightbulb`.
 pub const ACTION_SUGGESTION: ExpIcon = ExpIcon::Lightbulb;
+/// Registry concept `auth-passkey` -> Lucide `fingerprint`.
+pub const AUTH_PASSKEY: ExpIcon = ExpIcon::Fingerprint;
 /// Registry concept `coding-assistant` -> Lucide `sparkles`.
 pub const CODING_ASSISTANT: ExpIcon = ExpIcon::Sparkles;
 /// Registry concept `coding-command` -> Lucide `square-slash`.

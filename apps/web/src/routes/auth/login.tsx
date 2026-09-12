@@ -8,6 +8,7 @@ import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { oauthErrorMessage } from "@/lib/deep-link"
 import { useState } from "react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,6 +38,19 @@ async function loadAuthConfig(): Promise<AuthConfig> {
   }
 }
 
+// The native browser handoff (EXP-857): a desktop/mobile app that cannot run
+// a ceremony itself opens this page with the return route as `redirect`
+// (/api/mobile-oauth-start?provider=browser sets the state cookie first), and
+// the completed login deep-links back into the app from there.
+const NATIVE_RETURN_PATH = `/api/mobile-oauth-return`
+
+// Passkey ceremony outcomes the user caused on purpose — nothing to explain.
+const PASSKEY_SILENT_CODES = new Set([
+  `AUTH_CANCELLED`,
+  `ERROR_CEREMONY_ABORTED`,
+  `NotAllowedError`,
+])
+
 export const Route = createFileRoute(`/auth/login`)({
   component: LoginPage,
   ssr: false,
@@ -54,10 +68,15 @@ export const Route = createFileRoute(`/auth/login`)({
   }),
 })
 
-// Signup and login are ONE merged page (EXP-188): a sign-in/create-account
-// mode toggle, shown only when password auth is on AND public sign-up is
-// open (signupEnabled from buildAuthConfig). /auth/register is a pure
-// redirect here.
+type Step = `methods` | `email` | `code`
+type EmailMode = `otp` | `password`
+
+// ONE screen for signing in AND signing up (EXP-188, reworded in EXP-857):
+// every button says "Continue with …" because the same tap creates the
+// account when it does not exist yet. The stack is Apple, Google, the
+// configured OIDC providers, email and passkey; "Continue with email" expands
+// in place into the one-time-code flow (or the password form on an instance
+// without mail, with its create-account toggle).
 function LoginPage() {
   const { redirect: redirectTo, error: errorParam } = Route.useSearch()
   const {
@@ -67,18 +86,30 @@ function LoginPage() {
     oidcProviders,
     googleLoginEnabled,
     appleLoginEnabled,
+    emailOtpEnabled,
+    passkeyEnabled,
   } = Route.useLoaderData()
   const [oauthResumeUrl] = useState(captureOAuthResumeUrl)
   // oauthResumeUrl is the separately-guarded MCP OAuth resume path (an
   // internally composed relative URL) — only the router-provided redirect
   // needs the same-origin-path clamp (re-applied here as sink-side defense).
   const destination = oauthResumeUrl || sanitizeRedirectPath(redirectTo)
+  const nativeHandoff = destination === NATIVE_RETURN_PATH
+  const emailAvailable = emailOtpEnabled || passwordEnabled
+  const [step, setStep] = useState<Step>(`methods`)
+  const [emailMode, setEmailMode] = useState<EmailMode>(
+    emailOtpEnabled ? `otp` : `password`
+  )
   const [mode, setMode] = useState<`signin` | `signup`>(`signin`)
-  const isSignup = mode === `signup` && passwordEnabled && signupEnabled
+  const isSignup =
+    mode === `signup` && emailMode === `password` && passwordEnabled && signupEnabled
   const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
+  const [code, setCode] = useState(``)
+  const [sentTo, setSentTo] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
+  const [passkeyPending, setPasskeyPending] = useState(false)
   const {
     pendingProvider,
     error,
@@ -95,35 +126,110 @@ function LoginPage() {
     if (errorParam) setError(oauthErrorMessage(errorParam))
   }, [errorParam, setError])
 
+  const finishLogin = React.useCallback(async () => {
+    await authClient.getSession()
+    // Full-page navigation wipes the in-memory first-touch capture —
+    // forward any ref/utm params so the next load can claim them
+    // (cookieless attribution, EXP-362; no-op without params).
+    window.location.href = withFirstTouchParams(destination || `/`)
+  }, [destination])
+
+  // Passkey conditional UI (EXP-857): browsers that support it list the
+  // user's passkeys in the email field's autofill, so a returning user
+  // never has to pick a method. The pending request is aborted by any later
+  // explicit ceremony; its rejection is noise, not an error.
+  React.useEffect(() => {
+    if (!passkeyEnabled || typeof window === `undefined`) return
+    const credential = (
+      window as Window & {
+        PublicKeyCredential?: {
+          isConditionalMediationAvailable?: () => Promise<boolean>
+        }
+      }
+    ).PublicKeyCredential
+    if (!credential?.isConditionalMediationAvailable) return
+    let cancelled = false
+    void credential
+      .isConditionalMediationAvailable()
+      .then(async (available) => {
+        if (!available || cancelled) return
+        const { error: passkeyError } = await authClient.signIn.passkey({
+          autoFill: true,
+        })
+        if (!passkeyError && !cancelled) await finishLogin()
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [passkeyEnabled, finishLogin])
+
+  const openEmailStep = () => {
+    setError(``)
+    setStep(`email`)
+  }
+
+  const backToMethods = () => {
+    setError(``)
+    setStep(`methods`)
+    setCode(``)
+  }
+
   const toggleMode = (next: `signin` | `signup`) => {
     setMode(next)
     setError(``)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const switchEmailMode = (next: EmailMode) => {
+    setEmailMode(next)
+    setStep(`email`)
+    setCode(``)
+    setError(``)
+  }
+
+  const sendCode = async (target: string) => {
     setIsLoading(true)
     setError(``)
-
     try {
-      const onSuccess = async () => {
-        await authClient.getSession()
-        // Full-page navigation wipes the in-memory first-touch capture —
-        // forward any ref/utm params so the next load can claim them
-        // (cookieless attribution, EXP-362; no-op without params).
-        window.location.href = withFirstTouchParams(destination || `/`)
+      const { error: sendError } = await authClient.emailOtp.sendVerificationOtp(
+        { email: target, type: `sign-in` }
+      )
+      if (sendError) {
+        setError(authErrorMessage(sendError, `Couldn't send the code. Try again.`))
+        return
       }
-      const { error } = isSignup
+      setSentTo(target)
+      setCode(``)
+      setStep(`code`)
+    } catch {
+      setError(`An unexpected error occurred`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (emailMode === `otp`) {
+      await sendCode(email.trim())
+      return
+    }
+    setIsLoading(true)
+    setError(``)
+    try {
+      const { error: authError } = isSignup
         ? await authClient.signUp.email(
             { name, email, password },
-            { onSuccess }
+            { onSuccess: finishLogin }
           )
-        : await authClient.signIn.email({ email, password }, { onSuccess })
-
-      if (error) {
+        : await authClient.signIn.email(
+            { email, password },
+            { onSuccess: finishLogin }
+          )
+      if (authError) {
         setError(
           authErrorMessage(
-            error,
+            authError,
             isSignup
               ? `Couldn't create your account. Try again.`
               : `Couldn't sign you in. Try again.`
@@ -137,63 +243,147 @@ function LoginPage() {
     }
   }
 
-  return (
-    <AuthFormShell
-      title={isSignup ? `Create an account` : `Sign in`}
-      description={
-        isSignup
-          ? `Enter your details to get started`
-          : passwordEnabled
-            ? `Enter your email and password to continue`
-            : `Sign in with your account`
+  const handleCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(``)
+    try {
+      const { error: otpError } = await authClient.signIn.emailOtp(
+        { email: sentTo, otp: code.trim() },
+        { onSuccess: finishLogin }
+      )
+      if (otpError) {
+        setError(authErrorMessage(otpError, `Couldn't check the code. Try again.`))
       }
-      footer={
-        passwordEnabled && signupEnabled ? (
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {isSignup ? (
-              <>
-                Already have an account?{` `}
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto p-0 text-primary underline-offset-4 hover:underline"
-                  onClick={() => toggleMode(`signin`)}
-                >
-                  Sign in
-                </Button>
-              </>
-            ) : (
-              <>
-                Don&apos;t have an account?{` `}
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto p-0 text-primary underline-offset-4 hover:underline"
-                  onClick={() => toggleMode(`signup`)}
-                >
-                  Create one
-                </Button>
-              </>
-            )}
-          </p>
-        ) : null
-      }
-    >
-      <div className="space-y-4">
-        <OAuthProviderButtons
-          oidcProviders={oidcProviders}
-          googleLoginEnabled={googleLoginEnabled}
-          appleLoginEnabled={appleLoginEnabled}
-          verb={isSignup ? `Sign up` : `Sign in`}
-          pendingProvider={pendingProvider}
-          showDivider={passwordEnabled}
-          onOidc={signInWithOidc}
-          onGoogle={signInWithGoogle}
-          onApple={signInWithApple}
-        />
+    } catch {
+      setError(`An unexpected error occurred`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-        {passwordEnabled && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+  const signInWithPasskey = async () => {
+    setPasskeyPending(true)
+    setError(``)
+    try {
+      const { error: passkeyError } = await authClient.signIn.passkey()
+      if (!passkeyError) {
+        await finishLogin()
+        return
+      }
+      const code = (passkeyError as { code?: string }).code
+      if (code && PASSKEY_SILENT_CODES.has(code)) {
+        return
+      }
+      setError(
+        authErrorMessage(passkeyError, `Couldn't sign you in with a passkey.`)
+      )
+    } catch {
+      setError(`An unexpected error occurred`)
+    } finally {
+      setPasskeyPending(false)
+    }
+  }
+
+  const busy = isLoading || passkeyPending || pendingProvider !== null
+  const PasskeyIcon = conceptIcon(`auth-passkey`)
+  const MailIcon = conceptIcon(`ui-mail`)
+
+  const title =
+    step === `code`
+      ? `Check your email`
+      : isSignup
+        ? `Create an account`
+        : `Continue to Exponential`
+  const description =
+    step === `code`
+      ? `We sent a 6-digit code to ${sentTo}.`
+      : nativeHandoff
+        ? `You'll be sent back to the app once you continue.`
+        : isSignup
+          ? `Enter your details to get started`
+          : `Sign in or create your account`
+
+  const footer =
+    step === `email` && emailMode === `password` && passwordEnabled && signupEnabled ? (
+      <p className="mt-4 text-center text-sm text-muted-foreground">
+        {isSignup ? (
+          <>
+            Already have an account?{` `}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-primary underline-offset-4 hover:underline"
+              onClick={() => toggleMode(`signin`)}
+            >
+              Continue with your email
+            </Button>
+          </>
+        ) : (
+          <>
+            Don&apos;t have an account?{` `}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-primary underline-offset-4 hover:underline"
+              onClick={() => toggleMode(`signup`)}
+            >
+              Create one
+            </Button>
+          </>
+        )}
+      </p>
+    ) : null
+
+  return (
+    <AuthFormShell title={title} description={description} footer={footer}>
+      <div className="space-y-4">
+        {step === `methods` && (
+          <>
+            <OAuthProviderButtons
+              oidcProviders={oidcProviders}
+              googleLoginEnabled={googleLoginEnabled}
+              appleLoginEnabled={appleLoginEnabled}
+              verb="Continue"
+              pendingProvider={pendingProvider}
+              showDivider={false}
+              onOidc={signInWithOidc}
+              onGoogle={signInWithGoogle}
+              onApple={signInWithApple}
+            />
+
+            {emailAvailable && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={busy}
+                onClick={openEmailStep}
+              >
+                <MailIcon />
+                Continue with email
+              </Button>
+            )}
+
+            {passkeyEnabled && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={busy}
+                onClick={signInWithPasskey}
+              >
+                <PasskeyIcon />
+                {passkeyPending ? `Waiting for your passkey…` : `Login with passkey`}
+              </Button>
+            )}
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </>
+        )}
+
+        {step === `email` && (
+          <form onSubmit={handleEmailSubmit} className="space-y-4">
             {isSignup && (
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
@@ -213,51 +403,133 @@ function LoginPage() {
               <Input
                 id="email"
                 type="email"
-                autoComplete="email"
+                autoComplete={passkeyEnabled ? `username webauthn` : `email`}
+                autoFocus
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
               />
             </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                {!isSignup && passwordResetEnabled && (
-                  <Link
-                    to="/auth/forgot-password"
-                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                )}
+            {emailMode === `password` && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  {!isSignup && passwordResetEnabled && (
+                    <Link
+                      to="/auth/forgot-password"
+                      className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    >
+                      Forgot password?
+                    </Link>
+                  )}
+                </div>
+                <PasswordInput
+                  id="password"
+                  autoComplete={isSignup ? `new-password` : `current-password`}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                />
               </div>
-              <PasswordInput
-                id="password"
-                autoComplete={isSignup ? `new-password` : `current-password`}
+            )}
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+
+            <Button type="submit" className="w-full" disabled={busy}>
+              {emailMode === `otp`
+                ? isLoading
+                  ? `Sending code…`
+                  : `Send code`
+                : isSignup
+                  ? isLoading
+                    ? `Creating account…`
+                    : `Create account`
+                  : isLoading
+                    ? `Checking…`
+                    : `Continue`}
+            </Button>
+
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                onClick={backToMethods}
+              >
+                All options
+              </Button>
+              {emailOtpEnabled && passwordEnabled && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  onClick={() =>
+                    switchEmailMode(emailMode === `otp` ? `password` : `otp`)
+                  }
+                >
+                  {emailMode === `otp` ? `Use a password instead` : `Use a code instead`}
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {step === `code` && (
+          <form onSubmit={handleCodeSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="code">Code</Label>
+              <Input
+                id="code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="one-time-code"
+                autoFocus
                 required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ``))}
+                placeholder="123456"
+                className="text-center text-lg tracking-[0.4em]"
               />
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isSignup
-                ? isLoading
-                  ? `Creating account...`
-                  : `Create account`
-                : isLoading
-                  ? `Signing in...`
-                  : `Sign in`}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={busy || code.trim().length < 6}
+            >
+              {isLoading ? `Checking…` : `Continue`}
             </Button>
-          </form>
-        )}
 
-        {!passwordEnabled && error && (
-          <p className="text-sm text-destructive">{error}</p>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                disabled={busy}
+                onClick={() => void sendCode(sentTo)}
+              >
+                Resend code
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                onClick={() => {
+                  setError(``)
+                  setCode(``)
+                  setStep(`email`)
+                }}
+              >
+                Use a different email
+              </Button>
+            </div>
+          </form>
         )}
       </div>
     </AuthFormShell>

@@ -205,6 +205,10 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.security.crypto)
     implementation(libs.browser)
+    // EXP-857: passkey login via CredentialManager (+ the Play Services
+    // provider that serves the WebAuthn assertion below API 34).
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services.auth)
     implementation(libs.commonmark.core)
     implementation(libs.commonmark.ext.strikethrough)
     implementation(libs.commonmark.ext.tables)

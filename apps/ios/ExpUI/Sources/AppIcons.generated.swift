@@ -158,6 +158,7 @@ public enum AppIcons {
         "file",
         "file-diff",
         "file-text",
+        "fingerprint",
         "flag",
         "flask-conical",
         "fold-vertical",
@@ -303,6 +304,8 @@ public enum AppIcons {
     public static let actionRun: String = "play"
     /// Concept `action-suggestion`.
     public static let actionSuggestion: String = "lightbulb"
+    /// Concept `auth-passkey`.
+    public static let authPasskey: String = "fingerprint"
     /// Concept `coding-assistant`.
     public static let codingAssistant: String = "sparkles"
     /// Concept `coding-command`.
