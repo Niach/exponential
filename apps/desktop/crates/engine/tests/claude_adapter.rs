@@ -167,6 +167,46 @@ impl Run {
         })
     }
 
+    /// EXP-850 §3: every workflow card the adapter published, in order.
+    fn workflow_cards(&self) -> Vec<Value> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                notification.meta.as_ref()?.get(engine::WORKFLOW_META_KEY).cloned()
+            })
+            .collect()
+    }
+
+    /// EXP-850 §2: every background-task list the adapter published.
+    fn background_task_lists(&self) -> Vec<Value> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                notification.meta.as_ref()?.get(engine::BACKGROUND_TASKS_META_KEY).cloned()
+            })
+            .collect()
+    }
+
+    /// EXP-850 §5: the turn-token reports, in order.
+    fn turn_tokens(&self) -> Vec<u64> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                notification.meta.as_ref()?.get(engine::TURN_TOKENS_META_KEY)?.as_u64()
+            })
+            .collect()
+    }
+
+    /// EXP-853: the `config_state.currentMode` sequence THE WIRE carried —
+    /// the chip's whole history for this run.
+    fn published_modes(&self) -> Vec<String> {
+        self.wire()
+            .into_iter()
+            .filter(|event| event["kind"] == "config_state")
+            .filter_map(|event| event["currentMode"].as_str().map(str::to_string))
+            .collect()
+    }
+
     /// The control responses the adapter wrote back to claude.
     fn control_responses(&self) -> Vec<&Value> {
         self.stdin
@@ -312,7 +352,20 @@ fn spec(scenario: &str, work: &Path, plan_mode: bool) -> AdapterSpec {
 /// holds (it must carry its own `initialize.jsonl`: the fake's fallback to
 /// `../initialize.jsonl` only reaches inside the fixture tree).
 fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
-    let spawn = terminal::pty::SpawnSpec::new(fake_claude().display().to_string())
+    spec_env(scenario_dir, work, plan_mode, &[])
+}
+
+/// [`spec_at`] with extra RUN-scoped environment — the seam EXP-853's
+/// `plan-stuck` uses to shrink the mode-announcement grace instead of
+/// sleeping ten seconds (the adapter reads it off its OWN spawn env, so one
+/// test can never change another's clock).
+fn spec_env(
+    scenario_dir: &Path,
+    work: &Path,
+    plan_mode: bool,
+    extra: &[(&str, &str)],
+) -> AdapterSpec {
+    let mut spawn = terminal::pty::SpawnSpec::new(fake_claude().display().to_string())
         .cwd(work)
         // Transcripts are looked up in the CHILD's config dir, so `session/list`
         // and `session/load` read the run's own scratch tree, never the
@@ -323,6 +376,9 @@ fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
         .env("EXP_FAKE_CLAUDE_STDIN", work.join("stdin.jsonl").display().to_string())
         // The key the inline --mcp-config resolves through `${EXP_MCP_TOKEN}`.
         .env(coding::MCP_TOKEN_ENV, "expu_test-key");
+    for (key, value) in extra {
+        spawn = spawn.env(*key, *value);
+    }
     AdapterSpec {
         kind: AdapterKind::Claude,
         agent: coding::AgentKind::Builtin(coding::CodingAgent::Claude),
@@ -474,8 +530,20 @@ async fn drive_at(
     permission: PermissionAnswer,
     elicitation: ElicitationAnswer,
 ) -> Run {
-    let adapter =
-        ClaudeAgent::new(spec_at(scenario_dir, work, plan_mode)).expect("the adapter builds");
+    drive_env(scenario_dir, work, prompt, plan_mode, &[], permission, elicitation).await
+}
+
+async fn drive_env(
+    scenario_dir: &Path,
+    work: &Path,
+    prompt: &str,
+    plan_mode: bool,
+    env: &[(&str, &str)],
+    permission: PermissionAnswer,
+    elicitation: ElicitationAnswer,
+) -> Run {
+    let adapter = ClaudeAgent::new(spec_env(scenario_dir, work, plan_mode, env))
+        .expect("the adapter builds");
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let permissions: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::new(Mutex::new(Vec::new()));
     let elicitations: Arc<Mutex<Vec<CreateElicitationRequest>>> = Arc::new(Mutex::new(Vec::new()));
@@ -2174,5 +2242,366 @@ async fn a_cancel_with_no_turn_behind_it_never_interrupts_the_next_one() {
     assert!(
         !stdin.contains(r#""subtype":"interrupt""#),
         "the stale cancel was not replayed at the next turn: {stdin}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// EXP-850 / EXP-856 — workflows, background tasks, wait rows, duplicates
+// ---------------------------------------------------------------------------
+
+/// EXP-850 §3 — the workflow card, against the RAW `workflow.jsonl` capture
+/// (claude 2.1.269): `task_started` opens it, nine `task_progress` frames fill
+/// its phases and agents, `task_notification` closes it with a summary.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workflow_publishes_one_card_per_state_change() {
+    let _session = one_session_at_a_time();
+    let work = workdir("workflow");
+    let run = drive(
+        "workflow",
+        &work.0,
+        "Run a two-phase workflow with three agents.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let cards = run.workflow_cards();
+    assert!(cards.len() >= 3, "one card per state change: {cards:?}");
+    // The card's id IS the `Workflow` tool call's, so clients patch it onto
+    // that row instead of appending a second one.
+    let id = "toolu_017aGvi2moAfSykrRA4LmyT4";
+    assert!(cards.iter().all(|card| card["id"] == serde_json::json!(id)), "{cards:?}");
+    assert_eq!(cards[0]["name"], serde_json::json!("wire-probe"));
+    assert_eq!(
+        cards[0]["description"],
+        serde_json::json!("Probe the workflow progress wire")
+    );
+
+    // The first card carrying agents: two phases, the first agent RUNNING
+    // (`start` with a `startedAt`) and the second still QUEUED (`start`
+    // without one) — the distinction the CLI only makes by that field.
+    let first_with_agents = cards
+        .iter()
+        .find(|card| !card["agents"].as_array().map(Vec::is_empty).unwrap_or(true))
+        .expect("a card with agents");
+    assert_eq!(first_with_agents["phases"].as_array().map(Vec::len), Some(2));
+    assert_eq!(first_with_agents["phases"][0]["title"], serde_json::json!("Alpha"));
+    assert_eq!(first_with_agents["phases"][1]["title"], serde_json::json!("Beta"));
+    let agents = first_with_agents["agents"].as_array().expect("agents");
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[0]["label"], serde_json::json!("alpha:one"));
+    assert_eq!(agents[0]["state"], serde_json::json!("running"));
+    assert_eq!(agents[0]["agentId"], serde_json::json!("a0ce244c651aaa623"));
+    assert_eq!(agents[1]["label"], serde_json::json!("alpha:two"));
+    assert_eq!(agents[1]["state"], serde_json::json!("queued"));
+
+    // The FINAL card: three agents done, status completed, the notification's
+    // summary on it.
+    let last = cards.last().expect("a final card");
+    assert_eq!(last["status"], serde_json::json!("completed"));
+    let agents = last["agents"].as_array().expect("agents");
+    assert_eq!(agents.len(), 3);
+    assert!(
+        agents.iter().all(|agent| agent["state"] == serde_json::json!("done")),
+        "{agents:?}"
+    );
+    assert_eq!(
+        last["summary"],
+        serde_json::json!("Dynamic workflow \"Probe the workflow progress wire\" completed")
+    );
+    // §3: the card REPLACES the subagent edge for its own task — a workflow
+    // is never a subagent row.
+    assert!(
+        !run.subagent_edges().iter().any(|(edge, _)| edge == id),
+        "{:?}",
+        run.subagent_edges()
+    );
+
+    // Through the mapper it is a latest-wins `workflow` event whose caption is
+    // the shared contract function.
+    let wire = run.wire();
+    let events: Vec<&Value> =
+        wire.iter().filter(|event| event["kind"] == "workflow").collect();
+    assert!(!events.is_empty(), "{wire:?}");
+    let final_state: steer::WorkflowState =
+        serde_json::from_value(events.last().copied().cloned().expect("a card"))
+            .expect("the card parses as the wire type");
+    assert_eq!(
+        steer::workflow_caption(&final_state),
+        "Workflow wire-probe \u{b7} done \u{b7} 3 agents"
+    );
+}
+
+/// EXP-850 §1/§2 — the background-task strip and the two WAIT rows, against
+/// the raw `background-tasks.jsonl` capture.
+#[tokio::test(flavor = "multi_thread")]
+async fn background_tasks_and_wait_rows_reach_the_wire() {
+    let _session = one_session_at_a_time();
+    let work = workdir("background-tasks");
+    let run = drive(
+        "background-tasks",
+        &work.0,
+        "Sleep in the background, read its output, then monitor two ticks.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    // The FULL list, every time it changes — including the empty ones that
+    // close the strip.
+    let lists = run.background_task_lists();
+    assert!(lists.len() >= 4, "{lists:?}");
+    let first = lists[0].as_array().expect("a list");
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0]["id"], serde_json::json!("b4mwz6csc"));
+    assert_eq!(first[0]["kind"], serde_json::json!("shell"));
+    assert_eq!(first[0]["description"], serde_json::json!("Sleep in the background"));
+    // The CLI names the launching tool call on `task_started`, which arrives
+    // AFTER the list — so the first frame has no `toolId` and the adapter
+    // re-publishes the strip once it knows one.
+    assert!(first[0]["toolId"].is_null(), "{first:?}");
+    assert!(
+        lists.iter().any(|list| {
+            list.as_array().is_some_and(|tasks| {
+                tasks.iter().any(|task| {
+                    task["toolId"] == serde_json::json!("toolu_01MCRoRaXN1cvEsHJzDEg2B3")
+                })
+            })
+        }),
+        "the launching tool call reaches the strip: {lists:?}"
+    );
+    assert_eq!(
+        lists.last().and_then(|list| list.as_array()).map(Vec::len),
+        Some(0),
+        "the strip closes: {lists:?}"
+    );
+
+    // §1: `TaskOutput` and `Monitor` are `wait` rows; the Bash that launched
+    // the background task stays `execute` and is NOT a wait.
+    let wire = run.wire();
+    let waits: Vec<&Value> = wire
+        .iter()
+        .filter(|event| event["kind"] == "tool" && event["toolKind"] == "wait")
+        .collect();
+    assert_eq!(waits.len(), 2, "{wire:?}");
+    assert_eq!(waits[0]["name"], serde_json::json!("TaskOutput"));
+    // The detail is the DESCRIPTION of the task the id names, off the live
+    // background-task list — not the id.
+    assert_eq!(waits[0]["detail"], serde_json::json!("Sleep in the background"));
+    assert_eq!(waits[1]["name"], serde_json::json!("Monitor"));
+    assert_eq!(waits[1]["detail"], serde_json::json!("two ticks"));
+    let background_bash = wire
+        .iter()
+        .find(|event| event["kind"] == "tool" && event["detail"] == "Sleep in the background"
+            && event["toolKind"] == "execute")
+        .expect("the backgrounded Bash stays an execute row");
+    assert_eq!(background_bash["name"], serde_json::json!("Bash"));
+    // §2: a backgrounded shell task (`task_type: local_bash`, the Bash and the
+    // Monitor) rides the strip ONLY. It is not an agent, so it never becomes
+    // a subagent edge (a live run showed every such task as a loose
+    // "agent · done" row and a subagent tab).
+    let shell_edges: Vec<&Value> = wire
+        .iter()
+        .filter(|event| event["kind"] == "subagent")
+        .collect();
+    assert!(shell_edges.is_empty(), "shell tasks publish no subagent edge: {shell_edges:?}");
+
+    // §5: the adapter measures the turn's output tokens (claude's
+    // `thinking_tokens` deltas plus the assistant messages' `output_tokens`)
+    // and reports them MONOTONE. The turn slot itself is opened by the HOST,
+    // so the `startedAt`/`tokens` fold is locked in `mapper::exp850_tests`.
+    let tokens = run.turn_tokens();
+    assert!(!tokens.is_empty(), "the adapter measured tokens");
+    assert!(
+        tokens.windows(2).all(|pair| pair[0] <= pair[1]),
+        "the count never goes backwards: {tokens:?}"
+    );
+    // The turn's LAST report is the sum of every thinking delta and the
+    // highest per-message `output_tokens` — never a double count of the
+    // streamed frame and the consolidated one that repeats it.
+    assert!(tokens.last().copied().unwrap_or(0) > 0, "{tokens:?}");
+}
+
+/// EXP-856 — a `SendMessage` to a LIVE workflow agent resumes it as a second
+/// copy, which the CLI announces as a `task_started` under the agent's OWN id.
+/// Against the raw `duplicate-agent.jsonl` reproduction.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_copy_of_a_live_agent_publishes_a_duplicate_edge() {
+    let _session = one_session_at_a_time();
+    let work = workdir("duplicate-agent");
+    let run = drive(
+        "duplicate-agent",
+        &work.0,
+        "Run a workflow whose agent messages you, then reply to it.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    // The agent id the workflow named — the SAME string the second
+    // `task_started` carries as its `task_id`.
+    let agent = "a55b7012793deae02";
+    let workflow = "toolu_017Lh63mYhRJ3MrA4A1PXytt";
+    let duplicate = run
+        .wire()
+        .into_iter()
+        .find(|event| event["kind"] == "subagent" && event["status"] == "duplicate")
+        .expect("a duplicate edge");
+    assert_eq!(duplicate["id"], serde_json::json!(agent));
+    assert_eq!(duplicate["workflowId"], serde_json::json!(workflow));
+    assert_eq!(duplicate["title"], serde_json::json!("slowpoke"));
+    assert_eq!(
+        duplicate["detail"],
+        serde_json::json!(
+            "Second copy of slowpoke started while the first is still running (resumed by SendMessage)"
+        )
+    );
+
+    // The warning goes out BEFORE the copy's own started edge, and both carry
+    // the same id — one identity for the whole life of the agent.
+    let statuses: Vec<String> = run
+        .wire()
+        .into_iter()
+        .filter(|event| event["kind"] == "subagent" && event["id"] == agent)
+        .filter_map(|event| event["status"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(statuses.first().map(String::as_str), Some("duplicate"), "{statuses:?}");
+    assert!(statuses.contains(&"started".to_string()), "{statuses:?}");
+
+    // The workflow itself is still a card, never a subagent row.
+    let cards = run.workflow_cards();
+    assert!(!cards.is_empty());
+    assert!(cards.iter().all(|card| card["id"] == serde_json::json!(workflow)));
+    assert_eq!(
+        cards.last().expect("a final card")["status"],
+        serde_json::json!("completed")
+    );
+}
+
+/// EXP-856 review — the same reproduction with the WORKFLOW stopped before
+/// the second `task_started` arrives. A stopped workflow leaves its agents
+/// frozen mid-`running`, so the "is the first copy still live" test used to
+/// answer yes forever and warned about a duplicate that was really a
+/// legitimate resume. No warning here; the started edge still flows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_agent_of_a_stopped_workflow_publishes_no_duplicate() {
+    let _session = one_session_at_a_time();
+    let work = workdir("duplicate-agent-stopped");
+    let run = drive(
+        "duplicate-agent-stopped",
+        &work.0,
+        "Run a workflow whose agent messages you, then reply to it.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let agent = "a55b7012793deae02";
+    let wire = run.wire();
+    assert!(
+        !wire
+            .iter()
+            .any(|event| event["kind"] == "subagent" && event["status"] == "duplicate"),
+        "a stopped workflow's agent is not a live copy"
+    );
+    let statuses: Vec<String> = wire
+        .iter()
+        .filter(|event| event["kind"] == "subagent" && event["id"] == agent)
+        .filter_map(|event| event["status"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(statuses.first().map(String::as_str), Some("started"), "{statuses:?}");
+}
+
+// ---------------------------------------------------------------------------
+// EXP-853 — the plan-mode chip stops flapping
+// ---------------------------------------------------------------------------
+
+/// EXP-853 §6.4 (plan-flap) — the CLI re-announces `permissionMode` on every
+/// turn `init`, and the one right after a plan approval still says `plan`
+/// because the CLI has not applied the switch yet. That announcement is
+/// DROPPED (rule 2) and the approval's own mode wins, so the wire carries
+/// exactly `plan` → `bypassPermissions` and nothing else.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plan_approval_is_not_walked_back_by_the_next_init() {
+    let _session = one_session_at_a_time();
+    let work = workdir("plan-flap");
+    let run = drive(
+        "plan-flap",
+        &work.0,
+        "Plan the change, then exit plan mode.",
+        false,
+        pick("exit-plan-bypass"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    assert_eq!(
+        run.published_modes(),
+        vec!["plan".to_string(), "bypassPermissions".to_string()],
+        "the chip flapped: {:?}",
+        run.published_modes()
+    );
+    // Rule 1 (kept): a byte-identical `config_state` is dropped, so no frame
+    // ever restates the mode already in force (the dedupe itself is locked by
+    // `mapper::exp850_tests::an_identical_config_state_is_dropped`).
+    let wire = run.wire();
+    let frames: Vec<&Value> =
+        wire.iter().filter(|event| event["kind"] == "config_state").collect();
+    assert!(
+        frames.windows(2).all(|pair| pair[0] != pair[1]),
+        "a byte-identical config_state went out twice: {frames:?}"
+    );
+    // Rule 3: the engine ALSO tells the CLI, so its next init agrees instead
+    // of re-announcing the mode it has not applied.
+    let modes: Vec<&str> = run
+        .stdin
+        .iter()
+        .filter_map(|line| line.get("request")?.get("subtype")?.as_str().map(|_| line))
+        .filter(|line| line["request"]["subtype"] == "set_permission_mode")
+        .filter_map(|line| line["request"]["mode"].as_str())
+        .collect();
+    assert_eq!(modes, vec!["bypassPermissions"], "{:?}", run.stdin);
+}
+
+/// EXP-853 §6.4 (plan-stuck) — past the grace window the CLI's word IS the
+/// truth: a run whose approval never took keeps announcing `plan`, and the
+/// chip must say so rather than lie about a mode the agent is not in.
+///
+/// The window is shrunk to zero through this run's OWN spawn env
+/// (`EXP_MODE_ANNOUNCE_GRACE_MS`) — the same replay, ten seconds later.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cli_that_keeps_announcing_plan_wins_past_the_grace_window() {
+    let _session = one_session_at_a_time();
+    let work = workdir("plan-stuck");
+    let run = drive_env(
+        &Path::new(FIXTURES).join("plan-stuck"),
+        &work.0,
+        "Plan the change, then exit plan mode.",
+        false,
+        &[("EXP_MODE_ANNOUNCE_GRACE_MS", "0")],
+        pick("exit-plan-bypass"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    assert_eq!(
+        run.published_modes(),
+        vec![
+            "plan".to_string(),
+            "bypassPermissions".to_string(),
+            "plan".to_string(),
+        ],
+        "the chip must tell the truth: {:?}",
+        run.published_modes()
     );
 }

@@ -872,6 +872,13 @@ export const codingSessions = pgTable(
     // and it is what the session lists key their working spinner on: `running`
     // alone only says the run is live, not that the agent is thinking.
     agentBusy: boolean(`agent_busy`).notNull().default(false),
+    // EXP-850: the device-written working caption, the ONE line a session list
+    // row can show about what the run is doing right now (the newest running
+    // workflow's `workflowCaption`). NULL = nothing to say, which is also what
+    // the device writes at turn end and at teardown, and what every server end
+    // path clears alongside `agent_busy`. Capped at the contract's
+    // `steerWorking.previewMax` (160) by the writer, never a story.
+    agentCaption: text(`agent_caption`),
     // EXP-804: the agent's usage wall as row state. NULL = not blocked. The
     // run stays `running` — a blocked run is still live, steerable and
     // killable; this is orthogonal to status, like `needs_input` above.

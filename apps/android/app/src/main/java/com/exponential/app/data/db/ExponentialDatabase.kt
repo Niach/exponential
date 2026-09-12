@@ -253,9 +253,14 @@ import androidx.room.TypeConverters
     //      the column every live run reads as busy. New column on the
     //      coding-sessions shape allowlist; destructive fallback wipes +
     //      resyncs so every row arrives carrying it.
+    // v56 (EXP-850): coding_sessions.agent_caption — the device-written "what
+    //      this run is doing right now" line (the running workflow's caption),
+    //      nullable text. New column on the coding-sessions shape allowlist;
+    //      destructive fallback wipes + resyncs so every row arrives carrying
+    //      it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 55,
+    version = 56,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

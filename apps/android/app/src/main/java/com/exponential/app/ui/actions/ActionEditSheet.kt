@@ -137,6 +137,8 @@ fun ActionEditSheet(
                     if (pinned) "Unpin" else "Pin",
                     onClick = viewModel::togglePin,
                     active = pinned,
+                    // EXP-850 (S10): the ghost pin, the same variant ×4.
+                    borderless = true,
                 )
             }
         } else {

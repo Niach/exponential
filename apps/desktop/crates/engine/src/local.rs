@@ -97,6 +97,11 @@ pub enum ToolCardKind {
     Think,
     Fetch,
     SwitchMode,
+    /// EXP-850 §1: a WAIT call (claude's `TaskOutput`/`Monitor`). ACP v1 has
+    /// no such kind, so the adapter names it in `_meta`
+    /// ([`TOOL_KIND_META_KEY`]) and both the wire kind and this card bucket
+    /// come off that.
+    Wait,
     Other,
 }
 
@@ -159,6 +164,35 @@ pub const SUBAGENT_ID_META_KEY: &str = "subagentId";
 /// typed for the user surfaces as a user bubble.
 pub const INJECTED_PROMPT_META_KEY: &str = "exponentialInjectedPrompt";
 
+/// EXP-850 §1: the `_meta` key an adapter stamps on a `ToolCall` (or the
+/// notification carrying it) to name a wire [`steer::ToolKind`] ACP itself
+/// cannot express — today only `"wait"`. The mapper prefers it over the ACP
+/// kind for BOTH the wire row and the local card.
+pub const TOOL_KIND_META_KEY: &str = "exponentialToolKind";
+
+/// EXP-850 §1: the `_meta` key carrying the wire `detail` of such a row. The
+/// adapter resolves it from state the mapper cannot see (a `TaskOutput`'s
+/// task id against the current background-task list), so it hands the answer
+/// over rather than a lookup.
+pub const TOOL_DETAIL_META_KEY: &str = "exponentialToolDetail";
+
+/// EXP-850 §2: the `_meta` key the background-task list rides on (a no-op
+/// `session_info_update`, like the rate-limit slot). Value: the FULL current
+/// list as `[{id, kind, description, toolId?}]`; an empty array means nothing
+/// is running.
+pub const BACKGROUND_TASKS_META_KEY: &str = "exponentialBackgroundTasks";
+
+/// EXP-850 §3: the `_meta` key ONE workflow card rides on (same carrier).
+/// Value: the whole `workflow` payload minus its `kind` tag — the adapter
+/// always sends the complete state, never a delta.
+pub const WORKFLOW_META_KEY: &str = "exponentialWorkflow";
+
+/// EXP-850 §5: the `_meta` key carrying the output tokens the CURRENT turn has
+/// produced so far (a plain number, monotone within the turn). The mapper
+/// folds it onto the `turn` slot and republishes at most every
+/// `steerWorking.tokenTickMs`.
+pub const TURN_TOKENS_META_KEY: &str = "exponentialTurnTokens";
+
 /// The `_meta` key on a `CompactionUpdate` (or the notification carrying it)
 /// naming what triggered the compaction — ACP has no field for it. Folded by
 /// `steer::normalize_compaction_trigger` (`manual` stays, everything else is
@@ -182,6 +216,9 @@ pub struct SubagentEdge {
     /// a fallback) — what the model said this subagent is FOR. `None` for an
     /// adapter whose wire names neither.
     pub title: Option<String>,
+    /// EXP-850 §4: the workflow card this agent belongs to, when its task id
+    /// matched a workflow agent's `agentId`.
+    pub workflow_id: Option<String>,
 }
 
 /// A local mirror of `steer::SubagentStatus`, so an adapter never has to
@@ -190,6 +227,11 @@ pub struct SubagentEdge {
 pub enum SubagentEdgeStatus {
     Started,
     Completed,
+    /// EXP-856: a second copy of an id that is still live (a `SendMessage` to
+    /// a running agent resumes it). A WARNING edge — it neither opens nor
+    /// closes the subagent, and the copy's own `started`/`completed` follow
+    /// under the same id.
+    Duplicate,
 }
 
 impl SubagentEdge {
@@ -208,6 +250,7 @@ impl SubagentEdge {
                 match self.status {
                     SubagentEdgeStatus::Started => "started",
                     SubagentEdgeStatus::Completed => "completed",
+                    SubagentEdgeStatus::Duplicate => "duplicate",
                 }
                 .to_string(),
             ),
@@ -226,6 +269,12 @@ impl SubagentEdge {
         }
         if let Some(title) = &self.title {
             edge.insert("title".to_string(), serde_json::Value::String(title.clone()));
+        }
+        if let Some(workflow_id) = &self.workflow_id {
+            edge.insert(
+                "workflowId".to_string(),
+                serde_json::Value::String(workflow_id.clone()),
+            );
         }
         meta.insert(SUBAGENT_META_KEY.to_string(), serde_json::Value::Object(edge));
         meta
@@ -247,6 +296,8 @@ impl SubagentEdge {
             Some("completed" | "failed" | "cancelled" | "stopped" | "ended") => {
                 SubagentEdgeStatus::Completed
             }
+            // EXP-856: the warning edge, which is neither end of the life.
+            Some("duplicate") => SubagentEdgeStatus::Duplicate,
             _ => SubagentEdgeStatus::Started,
         };
         Some(SubagentEdge {
@@ -269,6 +320,10 @@ impl SubagentEdge {
                 .get("title")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string),
+            workflow_id: edge
+                .get("workflowId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
         })
     }
 }
@@ -286,6 +341,24 @@ mod tests {
             detail: Some("found it".to_string()),
             tool_calls: Some(3),
             title: Some("Audit the shape proxies".to_string()),
+            workflow_id: None,
+        };
+        assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
+    }
+
+    #[test]
+    fn a_duplicate_edge_round_trips_with_its_workflow() {
+        let edge = SubagentEdge {
+            id: "a55b7012793deae02".to_string(),
+            agent_type: "general-purpose".to_string(),
+            status: SubagentEdgeStatus::Duplicate,
+            detail: Some(
+                "Second copy of slowpoke started while the first is still running (resumed by SendMessage)"
+                    .to_string(),
+            ),
+            tool_calls: None,
+            title: Some("slowpoke".to_string()),
+            workflow_id: Some("toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()),
         };
         assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
     }

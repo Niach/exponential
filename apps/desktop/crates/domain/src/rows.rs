@@ -551,6 +551,12 @@ pub struct CodingSession {
     /// written before the column existed, which reads as not busy.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub agent_busy: Option<bool>,
+    /// EXP-850 §8: device-written like `agent_busy` — the caption of the
+    /// newest RUNNING claude workflow (`steer::workflow_caption`, ≤160 chars),
+    /// rendered as the session row's SECOND line on every client. `None` =
+    /// nothing to say (no workflow runs, or the row predates the column).
+    #[serde(default)]
+    pub agent_caption: Option<String>,
     /// EXP-804 jsonb `{kind, agent, window, resetsAt, since}` — the agent's
     /// usage wall as row state; `None` = not blocked. Orthogonal to `status`
     /// exactly like `needs_input` above: a blocked run still reads `running`

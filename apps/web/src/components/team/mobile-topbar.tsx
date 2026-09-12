@@ -63,6 +63,9 @@ export function TeamMobileTopbar({
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const feedbackAvailable = useFeedbackWidgetAvailable()
 
+  // EXP-851: the Agent page joined the titled surfaces — it is a LIST screen
+  // (composer over Running/Past), not a detail, so it wears this bar like the
+  // others instead of a header of its own.
   const sectionTitle = matchRoute({
     to: `/t/$teamSlug/inbox`,
     fuzzy: true,
@@ -70,16 +73,18 @@ export function TeamMobileTopbar({
     ? `Inbox`
     : matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
       ? `Devices`
-      : matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true }) ||
-          matchRoute({ to: `/t/$teamSlug/automations`, fuzzy: true })
-        ? `Actions`
-        : matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
-          ? `Reviews`
-          : matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
-            ? `Support`
-            : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
-              ? `Settings`
-              : undefined
+      : matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true })
+        ? `Agent`
+        : matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true }) ||
+            matchRoute({ to: `/t/$teamSlug/automations`, fuzzy: true })
+          ? `Actions`
+          : matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
+            ? `Reviews`
+            : matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
+              ? `Support`
+              : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
+                ? `Settings`
+                : undefined
 
   if (!visible) return null
 

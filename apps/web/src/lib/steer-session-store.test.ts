@@ -2193,3 +2193,318 @@ describe(`canLoadEarlier needs an open socket (EXP-796)`, () => {
     store.dispose()
   })
 })
+
+// ── EXP-850: workflows, background tasks and the turn's numbers ─────────────
+
+describe(`background_tasks (§2)`, () => {
+  it(`is a latest-wins slot an empty list closes`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `background_tasks`,
+        tasks: [
+          {
+            id: `b4mwz6csc`,
+            kind: `shell`,
+            description: `Sleep in the background`,
+            toolId: `toolu_01MC`,
+          },
+        ],
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().backgroundTasks).toEqual([
+      {
+        id: `b4mwz6csc`,
+        kind: `shell`,
+        description: `Sleep in the background`,
+        toolId: `toolu_01MC`,
+      },
+    ])
+    // Never a feed row.
+    expect(store.getSnapshot().feed).toHaveLength(0)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `background_tasks`, tasks: [] },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().backgroundTasks).toEqual([])
+    store.dispose()
+  })
+
+  it(`an unreadable payload keeps the list standing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `background_tasks`,
+        tasks: [{ id: `b1`, kind: `shell`, description: `Run it` }],
+      },
+    })
+    socket.frame({ t: `activity`, event: { kind: `background_tasks` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().backgroundTasks).toHaveLength(1)
+    store.dispose()
+  })
+})
+
+describe(`workflow cards (§3)`, () => {
+  const workflowEvent = (over: Record<string, unknown> = {}) => ({
+    kind: `workflow`,
+    id: `toolu_w`,
+    name: `wire-probe`,
+    status: `running`,
+    phases: [{ index: 1, title: `Alpha` }],
+    agents: [{ index: 1, label: `alpha:one`, state: `running`, agentId: `a1` }],
+    ...over,
+  })
+
+  it(`patches onto the tool row with the same id, never a second row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool`, name: `Workflow`, id: `toolu_w` },
+    })
+    socket.frame({ t: `activity`, event: workflowEvent() })
+    await vi.advanceTimersByTimeAsync(100)
+    const snapshot = store.getSnapshot()
+    expect(snapshot.feed).toHaveLength(1)
+    expect(snapshot.feed[0]).toMatchObject({
+      kind: `tool`,
+      callId: `toolu_w`,
+      workflowId: `toolu_w`,
+    })
+    expect(snapshot.workflows.get(`toolu_w`)?.name).toBe(`wire-probe`)
+    expect(snapshot.runningWorkflow?.id).toBe(`toolu_w`)
+    store.dispose()
+  })
+
+  it(`a card that arrives BEFORE its tool row still stamps it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: workflowEvent() })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool`, name: `Workflow`, id: `toolu_w` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const feed = store.getSnapshot().feed
+    expect(feed).toHaveLength(1)
+    expect(feed[0]).toMatchObject({ workflowId: `toolu_w` })
+    store.dispose()
+  })
+
+  it(`the row's own settle folds into the card's row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool`, name: `Workflow`, id: `toolu_w` },
+    })
+    socket.frame({ t: `activity`, event: workflowEvent() })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool_update`, id: `toolu_w`, status: `completed` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: workflowEvent({ status: `completed`, summary: `All done` }),
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const snapshot = store.getSnapshot()
+    expect(snapshot.feed).toHaveLength(1)
+    expect(snapshot.feed[0]).toMatchObject({
+      settled: true,
+      workflowId: `toolu_w`,
+    })
+    expect(snapshot.workflows.get(`toolu_w`)?.summary).toBe(`All done`)
+    expect(snapshot.runningWorkflow).toBeNull()
+    store.dispose()
+  })
+
+  it(`latest-wins per id, the newest running one leads`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: workflowEvent() })
+    socket.frame({
+      t: `activity`,
+      event: workflowEvent({ id: `toolu_w2`, name: `second` }),
+    })
+    socket.frame({
+      t: `activity`,
+      event: workflowEvent({
+        agents: [{ index: 1, label: `alpha:one`, state: `done` }],
+      }),
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const snapshot = store.getSnapshot()
+    expect(snapshot.workflows.size).toBe(2)
+    expect(snapshot.workflows.get(`toolu_w`)?.agents[0].state).toBe(`done`)
+    expect(snapshot.runningWorkflow?.id).toBe(`toolu_w2`)
+    store.dispose()
+  })
+
+  it(`a replay reset clears the cards, the tasks and the turn numbers`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: workflowEvent() })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `background_tasks`, tasks: [{ id: `b`, kind: `shell`, description: `x` }] },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 5, tokens: 9 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(REPLAY_MAX_MS + 100)
+    const snapshot = store.getSnapshot()
+    expect(snapshot.workflows.size).toBe(0)
+    expect(snapshot.backgroundTasks).toEqual([])
+    expect(snapshot.turnStartedAt).toBeNull()
+    expect(snapshot.turnTokens).toBeNull()
+    store.dispose()
+  })
+})
+
+describe(`subagent edges (§4)`, () => {
+  it(`a duplicate edge lands with its workflow id and its sentence`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `subagent`,
+        id: `a55b7012793deae02`,
+        agentType: `general-purpose`,
+        status: `duplicate`,
+        detail: `Second copy of slowpoke started while the first is still running (resumed by SendMessage)`,
+        title: `slowpoke`,
+        workflowId: `toolu_017Lh63mYhRJ3MrA4A1PXytt`,
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).toMatchObject({
+      kind: `subagent`,
+      status: `duplicate`,
+      title: `slowpoke`,
+      workflowId: `toolu_017Lh63mYhRJ3MrA4A1PXytt`,
+      detail: `Second copy of slowpoke started while the first is still running (resumed by SendMessage)`,
+    })
+    store.dispose()
+  })
+
+  it(`a status this build does not know reads as started`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `subagent`, id: `a1`, agentType: `agent`, status: `resumed` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).toMatchObject({ status: `started` })
+    store.dispose()
+  })
+})
+
+describe(`turn startedAt and tokens (§5)`, () => {
+  it(`rides the turn slot and never blanks on a republish`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 1_000, tokens: 512 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnStartedAt).toBe(1_000)
+    expect(store.getSnapshot().turnTokens).toBe(512)
+    // A start-only republish keeps the tokens.
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 1_000 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnTokens).toBe(512)
+    // A token tick keeps the start.
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, tokens: 900 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot()).toMatchObject({
+      turnStartedAt: 1_000,
+      turnTokens: 900,
+    })
+    store.dispose()
+  })
+
+  it(`a NEW start resets the token counter`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 1_000, tokens: 512 },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 2_000 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot()).toMatchObject({
+      turnStartedAt: 2_000,
+      turnTokens: null,
+      turnState: `started`,
+    })
+    store.dispose()
+  })
+
+  it(`the ended edge keeps the numbers (they are what the row last said)`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `started`, startedAt: 1_000, tokens: 512 },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `turn`, state: `ended`, startedAt: 1_000 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot()).toMatchObject({
+      turnState: `ended`,
+      turnStartedAt: 1_000,
+      turnTokens: 512,
+    })
+    store.dispose()
+  })
+})
+
+describe(`wait tool rows (§1)`, () => {
+  it(`keeps the wire kind on an ordinary tool row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `tool`,
+        name: `TaskOutput`,
+        detail: `Sleep in the background`,
+        id: `toolu_1`,
+        toolKind: `wait`,
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).toMatchObject({
+      kind: `tool`,
+      name: `TaskOutput`,
+      toolKind: `wait`,
+    })
+    store.dispose()
+  })
+})

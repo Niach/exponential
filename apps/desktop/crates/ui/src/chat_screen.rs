@@ -303,6 +303,13 @@ pub(crate) struct ChatScreenView {
     /// picked (a menu can outlive the chip it was opened from).
     spare_picks: ActionInputPicks,
     focus_handle: FocusHandle,
+    /// EXP-851: the Agent page's OWN session list — the Running and Past
+    /// sections that sat in the retired tool column beside it. They stack
+    /// UNDER the composer now, in the page's one scroll.
+    sessions_running: Entity<crate::sessions_section::RunningSessionsSection>,
+    sessions_past: Entity<crate::sessions_section::PastSessionsSection>,
+    /// That one scroll (composer + both sections).
+    page_scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -407,6 +414,10 @@ impl ChatScreenView {
             suggestions: pick_chat_suggestions(suggestion_seed()),
             spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
+            sessions_running: cx.new(crate::sessions_section::RunningSessionsSection::new),
+            sessions_past: cx
+                .new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx)),
+            page_scroll: gpui::ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
         this.ensure_launch(window, cx);
@@ -2161,7 +2172,9 @@ impl Render for ChatScreenView {
         .tool(self.issue_tool(cx))
         .tool(self.action_tool(cx))
         .tool(
-            crate::composer::composer_tool("chat-tool-attach", registry::EDITOR_IMAGE, cx)
+            // EXP-850 §13: the steer composers attach with the `ui-add` plus
+            // ×4 — `editor-image` stays the comment/description editors'.
+            crate::composer::composer_tool("chat-tool-attach", registry::UI_ADD, cx)
                 .tooltip("Attach images")
                 .disabled(self.sending)
                 .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
@@ -2218,27 +2231,52 @@ impl Render for ChatScreenView {
         if let Some(error) = &self.error {
             notes = notes.child(div().text_color(danger).child(error.clone()));
         }
+        // EXP-851: composer on top, the Running/Past session rows beneath it,
+        // ONE scroll. The composer keeps its centred max-width column; the
+        // sections share it so the page reads as one stack rather than the
+        // retired centre-plus-list split.
         v_flex()
             .size_full()
             .min_h_0()
-            .items_center()
-            .justify_center()
-            .p_6()
             .track_focus(&self.focus_handle)
-            .child(
+            .child(crate::scroll_pane::v_scroll_pane(
+                "chat-page-scroll",
+                &self.page_scroll,
                 v_flex()
                     .w_full()
-                    .max_w(px(PROMPT_MAX_W))
                     .min_w_0()
-                    .gap_2()
-                    .children(suggestions)
+                    .items_center()
+                    .p_6()
+                    .gap_6()
+                    // Both stacks must NOT shrink: inside the scroll column a
+                    // flex-shrinkable child gets squeezed to the viewport and
+                    // its trailing rows (options, the blocker note) painted
+                    // under the Running band that follows.
                     .child(
-                        crate::composer::glass_composer(composer)
-                            .capture_action(cx.listener(Self::on_paste)),
+                        v_flex()
+                            .w_full()
+                            .max_w(px(PROMPT_MAX_W))
+                            .min_w_0()
+                            .flex_shrink_0()
+                            .gap_2()
+                            .children(suggestions)
+                            .child(
+                                crate::composer::glass_composer(composer)
+                                    .capture_action(cx.listener(Self::on_paste)),
+                            )
+                            .child(options)
+                            .child(notes),
                     )
-                    .child(options)
-                    .child(notes),
-            )
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .max_w(px(PROMPT_MAX_W))
+                            .min_w_0()
+                            .flex_shrink_0()
+                            .child(self.sessions_running.clone())
+                            .child(self.sessions_past.clone()),
+                    ),
+            ))
     }
 }
 

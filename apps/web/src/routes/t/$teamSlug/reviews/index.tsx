@@ -156,6 +156,8 @@ function ReviewsPage() {
     void navigate({
       to: `/t/$teamSlug/reviews/$issueIdentifier`,
       params: { teamSlug, issueIdentifier },
+      // EXP-851: the queue stays in the sidebar beside the review.
+      search: { from: `reviews` },
     })
   }
 

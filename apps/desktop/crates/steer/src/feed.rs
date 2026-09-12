@@ -194,6 +194,10 @@ pub enum FeedKind {
         /// (its `description` input). Clients render it and keep `agent_type`
         /// as a secondary caption; `None` for publishers that name neither.
         title: Option<String>,
+        /// EXP-850 §4: the workflow this agent belongs to — the row nests
+        /// under that card instead of the main feed, and a `duplicate` marker
+        /// renders as an amber warning inside it.
+        workflow_id: Option<String>,
     },
     Question(QuestionCard),
     /// EXP-724: the quiet "Context compacted" divider `compaction ended`
@@ -286,6 +290,23 @@ impl FeedItem {
 
     pub fn is_tool(&self) -> bool {
         matches!(self.kind, FeedKind::Tool { .. })
+    }
+
+    /// EXP-850 §3: this tool call's id, when it has one — the key a workflow
+    /// card is matched on (the card's `id` IS the `Workflow` call's id).
+    pub fn call_id(&self) -> Option<&str> {
+        match &self.kind {
+            FeedKind::Tool { call_id, .. } => call_id.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// EXP-850 §3: whether this row IS a workflow's `Workflow` call, given
+    /// the ids the feed holds cards for. Such a row renders as the CARD, so
+    /// it is never folded into a collapsed "N tool calls" run (×4).
+    pub fn is_workflow_call(&self, workflow_ids: &[&str]) -> bool {
+        self.call_id()
+            .is_some_and(|id| workflow_ids.contains(&id))
     }
 }
 
@@ -386,6 +407,17 @@ pub struct SteerFeed {
     /// EXP-848: the turn slot — `Ended` until a `turn` event says otherwise,
     /// so a feed that has never seen one never reads as working.
     turn_state: crate::frames::TurnState,
+    /// EXP-850 §5: the current turn's start (unix ms) and the output tokens
+    /// it has produced, off the same slot — the working caption's inputs.
+    turn_started_at: Option<i64>,
+    turn_tokens: Option<u64>,
+    /// EXP-850 §2: the background-task strip, latest-wins whole.
+    background_tasks: Vec<crate::frames::BackgroundTask>,
+    /// EXP-850 §3: the workflow cards, latest-wins PER ID, in
+    /// first-appearance order. A SIDE map rather than a feed item: the card
+    /// renders on the `tool` row with the same id (`workflow_for`), so
+    /// `FeedRowSpec` grouping never has to know about it.
+    workflows: Vec<crate::workflow::WorkflowState>,
     answers: HashMap<String, AnswerState>,
     next_id: FeedItemId,
     /// Locally-echoed sent messages awaiting their transcript-derived twin.
@@ -462,6 +494,44 @@ impl SteerFeed {
     /// EXP-848: whether the agent is executing a turn right now — the ONE
     /// input to every client's `working` predicate. `Ended` until a `turn`
     /// event arrives, so an idle-looking run never pulses.
+    /// EXP-850 §2: the agent's background tasks as the publisher last listed
+    /// them (empty = nothing running, so the strip closes).
+    pub fn background_tasks(&self) -> &[crate::frames::BackgroundTask] {
+        &self.background_tasks
+    }
+
+    /// EXP-850 §3: every workflow card this feed holds, in first-appearance
+    /// order.
+    pub fn workflows(&self) -> &[crate::workflow::WorkflowState] {
+        &self.workflows
+    }
+
+    /// The workflow card for a `tool` row's call id, if this feed holds one.
+    pub fn workflow_for(&self, id: &str) -> Option<&crate::workflow::WorkflowState> {
+        self.workflows.iter().find(|workflow| workflow.id == id)
+    }
+
+    /// EXP-850 §3/§7: the NEWEST workflow still running — what the session
+    /// caption (`coding_sessions.agent_caption`) and the working strip speak
+    /// for.
+    pub fn running_workflow(&self) -> Option<&crate::workflow::WorkflowState> {
+        self.workflows
+            .iter()
+            .rev()
+            .find(|workflow| workflow.status == crate::workflow::WorkflowStatus::Running)
+    }
+
+    /// EXP-850 §5: when the CURRENT turn started (unix ms), when the
+    /// publisher said. The working caption's duration clock.
+    pub fn turn_started_at(&self) -> Option<i64> {
+        self.turn_started_at
+    }
+
+    /// EXP-850 §5: output tokens the current turn has produced so far.
+    pub fn turn_tokens(&self) -> Option<u64> {
+        self.turn_tokens
+    }
+
     pub fn turn_state(&self) -> crate::frames::TurnState {
         self.turn_state
     }
@@ -963,6 +1033,7 @@ impl SteerFeed {
                 detail,
                 tool_calls,
                 title,
+                workflow_id,
                 ..
             } => {
                 if id.is_empty() {
@@ -975,6 +1046,7 @@ impl SteerFeed {
                     detail: non_blank(detail),
                     tool_calls,
                     title: non_blank(title),
+                    workflow_id: non_blank(workflow_id),
                 });
             }
             ActivityEvent::Permission { tool, detail, .. } => {
@@ -1057,8 +1129,50 @@ impl SteerFeed {
                     message: non_blank(message),
                 });
             }
-            // EXP-848: the fifth slot — latest-wins, never a row.
-            ActivityEvent::Turn { state, .. } => self.turn_state = state,
+            // EXP-848: the fifth slot — latest-wins, never a row. EXP-850 §5
+            // hung the working caption's two inputs off it; a republish that
+            // OMITS them (an older publisher) must not blank what this feed
+            // already learned about the same turn.
+            ActivityEvent::Turn {
+                state,
+                started_at,
+                tokens,
+                ..
+            } => {
+                if state == crate::frames::TurnState::Started
+                    && started_at.is_some()
+                    && started_at != self.turn_started_at
+                {
+                    // A NEW turn: its token counter starts from nothing.
+                    self.turn_tokens = None;
+                }
+                self.turn_state = state;
+                if started_at.is_some() {
+                    self.turn_started_at = started_at;
+                }
+                if tokens.is_some() {
+                    self.turn_tokens = tokens;
+                }
+            }
+            // EXP-850 §2: latest-wins whole, exactly like `config_state` — an
+            // EMPTY list is the publisher saying nothing runs any more.
+            ActivityEvent::BackgroundTasks { tasks, .. } => self.background_tasks = tasks,
+            // EXP-850 §3: latest-wins PER ID. The newest frame for an id
+            // replaces its predecessor in place (the card keeps its position
+            // among the others); a new id appends.
+            ActivityEvent::Workflow(workflow) => {
+                if workflow.id.is_empty() {
+                    return;
+                }
+                match self
+                    .workflows
+                    .iter_mut()
+                    .find(|held| held.id == workflow.id)
+                {
+                    Some(held) => *held = workflow,
+                    None => self.workflows.push(workflow),
+                }
+            }
         }
     }
 
@@ -1244,25 +1358,34 @@ impl SteerFeed {
 
     /// The feed grouped into render rows ([`group_feed_rows`]).
     pub fn rows(&self) -> Vec<FeedRow<'_>> {
-        group_feed_rows(&self.items)
+        group_feed_rows(&self.items, &self.workflow_ids())
+    }
+
+    /// EXP-850 §3: the ids this feed holds workflow cards for — the grouping's
+    /// "never fold this tool row" set (at most `JOURNAL_WORKFLOW_CAP` of them).
+    pub fn workflow_ids(&self) -> Vec<&str> {
+        self.workflows
+            .iter()
+            .map(|workflow| workflow.id.as_str())
+            .collect()
     }
 
     /// The same grouping as [`Self::rows`], as OWNED index specs
     /// ([`group_feed_row_specs`]) — what a renderer caches between frames.
     pub fn row_specs(&self) -> Vec<FeedRowSpec> {
-        group_feed_row_specs(&self.items)
+        group_feed_row_specs(&self.items, &self.workflow_ids())
     }
 
     /// EXP-783: the same specs over `items[start..]` only, with ABSOLUTE
     /// indices — the transcript window. `start = 0` is [`Self::row_specs`].
     pub fn row_specs_from(&self, start: usize) -> Vec<FeedRowSpec> {
-        group_feed_row_specs_from(&self.items, start)
+        group_feed_row_specs_from(&self.items, start, &self.workflow_ids())
     }
 
     /// [`Self::row_specs_from`] into a caller-owned buffer, so a renderer that
     /// reprojects every frame reuses one allocation.
     pub fn row_specs_from_into(&self, start: usize, out: &mut Vec<FeedRowSpec>) {
-        group_feed_row_specs_into(&self.items, start, out);
+        group_feed_row_specs_into(&self.items, start, &self.workflow_ids(), out);
     }
 
     /// The index of the first item at or after `id` — what a renderer turns
@@ -1513,8 +1636,8 @@ impl FeedItem {
 /// [`active_question_ids`] over it) is never restructured, so answerability is
 /// unaffected. Grouped items are pulled out of their in-place position into
 /// the row their group opened (web `groupFeedRows`).
-pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
-    group_feed_row_specs(items)
+pub fn group_feed_rows<'a>(items: &'a [FeedItem], workflow_ids: &[&str]) -> Vec<FeedRow<'a>> {
+    group_feed_row_specs(items, workflow_ids)
         .iter()
         .map(|spec| spec.resolve(items))
         .collect()
@@ -1615,8 +1738,8 @@ impl FeedRowSpec {
 }
 
 /// The grouping behind [`group_feed_rows`], as index specs.
-pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
-    group_feed_row_specs_from(items, 0)
+pub fn group_feed_row_specs(items: &[FeedItem], workflow_ids: &[&str]) -> Vec<FeedRowSpec> {
+    group_feed_row_specs_from(items, 0, workflow_ids)
 }
 
 /// EXP-783 — the same grouping restricted to `items[start..]`, emitting
@@ -1629,14 +1752,23 @@ pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
 /// rather than by an item the reader cannot see. Extending the window upward
 /// therefore re-keys that boundary row, which the list sync renders as a
 /// replacement of one row alongside the front splice.
-pub fn group_feed_row_specs_from(items: &[FeedItem], start: usize) -> Vec<FeedRowSpec> {
+pub fn group_feed_row_specs_from(
+    items: &[FeedItem],
+    start: usize,
+    workflow_ids: &[&str],
+) -> Vec<FeedRowSpec> {
     let mut rows = Vec::new();
-    group_feed_row_specs_into(items, start, &mut rows);
+    group_feed_row_specs_into(items, start, workflow_ids, &mut rows);
     rows
 }
 
 /// [`group_feed_row_specs_from`] into a caller-owned buffer (cleared first).
-pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Vec<FeedRowSpec>) {
+pub fn group_feed_row_specs_into(
+    items: &[FeedItem],
+    start: usize,
+    workflow_ids: &[&str],
+    rows: &mut Vec<FeedRowSpec>,
+) {
     rows.clear();
     // Row index of the open group, keyed by ask / subagent id.
     let mut ask_rows: HashMap<String, usize> = HashMap::new();
@@ -1682,7 +1814,10 @@ pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Ve
             i += 1;
             continue;
         }
-        if !item.is_tool() {
+        // EXP-850 §3: the `Workflow` call renders as its own CARD, so it is
+        // never folded into a collapsed "N tool calls" run — neither as the
+        // run's opener nor as a member of one (web `groupFeedRows`).
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -1694,6 +1829,7 @@ pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Ve
         while end + 1 < items.len()
             && items[end + 1].is_tool()
             && items[end + 1].subagent_id().is_none()
+            && !items[end + 1].is_workflow_call(workflow_ids)
         {
             end += 1;
         }
@@ -1805,6 +1941,13 @@ pub struct SubagentSummary {
     /// `None` when this feed holds no tool row for the subagent (an evicted
     /// replay, EXP-748) — the caption falls back to the publisher's count.
     pub tool_summary: Option<String>,
+    /// EXP-856: a `duplicate` edge landed for this id — a second copy started
+    /// while the first was still running. Rendered as an amber warning row
+    /// that SURVIVES the card collapsing.
+    pub duplicate: bool,
+    /// EXP-850 §4: the workflow this agent belongs to. Such an agent is never
+    /// a steerable tab — it nests under the workflow card instead.
+    pub workflow_id: Option<String>,
 }
 
 /// Every subagent seen in the feed, in first-appearance order, each summarized
@@ -1835,6 +1978,8 @@ pub fn collect_subagents(items: &[FeedItem]) -> Vec<SubagentSummary> {
                 tool_count: summary.tool_count,
                 title: summary.title,
                 tool_summary: subagent_tool_summary(rows),
+                duplicate: summary.duplicate,
+                workflow_id: summary.workflow_id,
             }
         })
         .collect()
@@ -1874,6 +2019,9 @@ pub fn visible_subagent_tabs(
 ) -> Vec<SubagentSummary> {
     agents
         .iter()
+        // EXP-850 §4: a workflow's agents are never tabs — they render inside
+        // the workflow card and are not steerable.
+        .filter(|agent| agent.workflow_id.is_none())
         .filter(|agent| !agent.done || Some(agent.subagent_id.as_str()) == selected)
         .cloned()
         .collect()
@@ -1900,6 +2048,11 @@ pub struct SubagentRowSummary {
     pub detail: Option<String>,
     pub tool_count: usize,
     pub title: Option<String>,
+    /// EXP-856: a `duplicate` edge landed under this id.
+    pub duplicate: bool,
+    /// EXP-850 §4: the workflow card this agent belongs to, when any edge
+    /// named one.
+    pub workflow_id: Option<String>,
 }
 
 pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
@@ -1908,6 +2061,7 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
         SubagentStatus,
         Option<&'a str>,
         Option<u32>,
+        Option<&'a str>,
         Option<&'a str>,
     );
     let markers: Vec<Marker<'_>> = items
@@ -1919,6 +2073,7 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
                 detail,
                 tool_calls,
                 title,
+                workflow_id,
                 ..
             } => Some((
                 agent_type.trim(),
@@ -1926,6 +2081,7 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
                 detail.as_deref(),
                 *tool_calls,
                 title.as_deref(),
+                workflow_id.as_deref(),
             )),
             _ => None,
         })
@@ -1940,7 +2096,7 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
     // still captions "done · 240 tool calls".
     let reported = markers
         .iter()
-        .filter_map(|(_, _, _, tool_calls, _)| *tool_calls)
+        .filter_map(|(_, _, _, tool_calls, _, _)| *tool_calls)
         .max()
         .unwrap_or(0) as usize;
     SubagentRowSummary {
@@ -1953,10 +2109,14 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
         done: markers
             .iter()
             .any(|(_, status, ..)| *status == SubagentStatus::Completed),
+        // EXP-856: a duplicate WARNING never becomes the row's caption — it
+        // renders as its own amber marker, and the lifecycle detail beside it
+        // stays whatever the started/completed edges said.
         detail: markers
             .iter()
             .rev()
-            .find_map(|(_, _, detail, _, _)| detail.filter(|d| !d.trim().is_empty()))
+            .filter(|(_, status, ..)| *status != SubagentStatus::Duplicate)
+            .find_map(|(_, _, detail, _, _, _)| detail.filter(|d| !d.trim().is_empty()))
             .map(str::to_string),
         tool_count: items
             .iter()
@@ -1967,8 +2127,17 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
         // later edge without it must not blank the chip.
         title: markers
             .iter()
-            .find_map(|(_, _, _, _, title)| title.filter(|t| !t.trim().is_empty()))
+            .find_map(|(_, _, _, _, title, _)| title.filter(|t| !t.trim().is_empty()))
             .map(|title| title.trim().to_string()),
+        duplicate: markers
+            .iter()
+            .any(|(_, status, ..)| *status == SubagentStatus::Duplicate),
+        workflow_id: markers
+            .iter()
+            .find_map(|(_, _, _, _, _, workflow_id)| {
+                workflow_id.filter(|id| !id.trim().is_empty())
+            })
+            .map(str::to_string),
     }
 }
 
@@ -3116,6 +3285,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -3175,6 +3345,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -3241,6 +3412,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -3258,6 +3430,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         // EXP-350: an old desktop stamps the FALLBACK type on the completed
         // edge — it must never degrade the label, and its detail wins.
@@ -3269,6 +3442,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
 
         let agents = feed.subagents();
@@ -3299,6 +3473,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: Some("  Audit the shape proxies  ".into()),
+            workflow_id: None,
         });
         feed.apply(ActivityEvent::Subagent {
             id: "a1".into(),
@@ -3308,6 +3483,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         let agents = feed.subagents();
         assert_eq!(agents.len(), 1);
@@ -3332,6 +3508,8 @@ mod tests {
             tool_count: 0,
             title: None,
             tool_summary: None,
+            duplicate: false,
+            workflow_id: None,
         }
     }
 
@@ -3377,6 +3555,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         }); // 1
         let scoped_tool = |name: &str, agent: &str| ActivityEvent::Tool {
             name: name.into(),
@@ -3406,6 +3585,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         }); // 8
 
         let items = feed.items();
@@ -3438,6 +3618,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -3455,6 +3636,7 @@ mod tests {
             at: None,
             tool_calls: Some(240),
             title: None,
+            workflow_id: None,
         });
         assert_eq!(feed.subagents()[0].tool_count, 240);
 
@@ -3468,6 +3650,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         });
         for name in ["Read", "Edit"] {
             feed.apply(ActivityEvent::Tool {
@@ -3487,6 +3670,7 @@ mod tests {
             at: None,
             tool_calls: Some(1),
             title: None,
+            workflow_id: None,
         });
         assert_eq!(feed.subagents()[1].tool_count, 2);
     }
@@ -3649,6 +3833,7 @@ mod tests {
             tool_calls: None,
             at: None,
             title: None,
+            workflow_id: None,
         });
         edged.apply(fragment("helper.", Some("msg_8"), None));
         assert_eq!(texts(&edged), vec!["Spawning a helper.", "toolu_task"]);
@@ -3685,6 +3870,7 @@ mod tests {
             tool_calls: None,
             at: None,
             title: None,
+            workflow_id: None,
         });
         feed.apply(fragment("looking around", Some("msg_9"), Some("toolu_task")));
         feed.apply(ActivityEvent::Tool {
@@ -3789,6 +3975,7 @@ mod tests {
             tool_calls: None,
             at: None,
             title: None,
+            workflow_id: None,
         });
         feed.apply(ActivityEvent::compaction(CompactionPhase::Ended, None));
         feed.apply(ActivityEvent::Question {
@@ -3829,5 +4016,225 @@ mod tests {
                 .collect::<Vec<_>>(),
             rows.iter().map(FeedRow::class).collect::<Vec<_>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod exp850_tests {
+    use super::*;
+    use crate::frames::{BackgroundTask, BackgroundTaskKind, TurnState};
+    use crate::workflow::{
+        WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowState, WorkflowStatus,
+    };
+
+    fn card(id: &str, status: WorkflowStatus, agents: Vec<WorkflowAgent>) -> ActivityEvent {
+        ActivityEvent::workflow(WorkflowState {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            status,
+            phases: vec![
+                WorkflowPhase { index: 1, title: "Alpha".to_string() },
+                WorkflowPhase { index: 2, title: "Beta".to_string() },
+            ],
+            agents,
+            ..WorkflowState::default()
+        })
+    }
+
+    fn agent(index: u32, phase: u32, state: WorkflowAgentState) -> WorkflowAgent {
+        WorkflowAgent {
+            index,
+            label: format!("agent-{index}"),
+            phase_index: Some(phase),
+            agent_id: Some(format!("a{index}")),
+            state,
+            ..WorkflowAgent::default()
+        }
+    }
+
+    /// EXP-850 §3: the card is a SIDE map keyed by id, never a feed item —
+    /// so row grouping never has to know about it — and the newest frame for
+    /// an id replaces its predecessor in place.
+    #[test]
+    fn a_workflow_card_is_state_beside_the_feed() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::narration("working"));
+        feed.apply(card("wf-1", WorkflowStatus::Running, vec![]));
+        feed.apply(card("wf-2", WorkflowStatus::Running, vec![]));
+        assert_eq!(feed.len(), 1, "only the narration is a row");
+        assert_eq!(
+            feed.workflows().iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
+            vec!["wf-1", "wf-2"]
+        );
+        feed.apply(card(
+            "wf-1",
+            WorkflowStatus::Running,
+            vec![agent(1, 1, WorkflowAgentState::Running)],
+        ));
+        assert_eq!(feed.workflows().len(), 2);
+        assert_eq!(feed.workflow_for("wf-1").map(|w| w.agents.len()), Some(1));
+        assert_eq!(feed.workflow_for("missing"), None);
+        // An id-less frame says nothing.
+        feed.apply(card("", WorkflowStatus::Running, vec![]));
+        assert_eq!(feed.workflows().len(), 2);
+    }
+
+    /// EXP-850 §7/§8: `running_workflow` is the caption's subject — the
+    /// NEWEST card still running, and nothing once they have all finished.
+    #[test]
+    fn the_running_workflow_is_the_newest_one_still_going() {
+        let mut feed = SteerFeed::new();
+        feed.apply(card(
+            "wf-1",
+            WorkflowStatus::Running,
+            vec![agent(1, 1, WorkflowAgentState::Running)],
+        ));
+        feed.apply(card(
+            "wf-2",
+            WorkflowStatus::Running,
+            vec![agent(1, 2, WorkflowAgentState::Done)],
+        ));
+        assert_eq!(feed.running_workflow().map(|w| w.id.as_str()), Some("wf-2"));
+        assert_eq!(
+            feed.running_workflow().map(crate::workflow_caption),
+            Some("Workflow wire-probe \u{b7} 1/1 agents done \u{b7} Beta".to_string())
+        );
+        feed.apply(card(
+            "wf-2",
+            WorkflowStatus::Completed,
+            vec![agent(1, 2, WorkflowAgentState::Done)],
+        ));
+        assert_eq!(feed.running_workflow().map(|w| w.id.as_str()), Some("wf-1"));
+        feed.apply(card(
+            "wf-1",
+            WorkflowStatus::Stopped,
+            vec![agent(1, 1, WorkflowAgentState::Running)],
+        ));
+        assert!(feed.running_workflow().is_none());
+    }
+
+    /// EXP-850 §2: the strip's slot — latest-wins WHOLE, and an empty list is
+    /// the publisher closing it, not silence.
+    #[test]
+    fn the_background_task_strip_is_a_slot() {
+        let mut feed = SteerFeed::new();
+        assert!(feed.background_tasks().is_empty());
+        feed.apply(ActivityEvent::background_tasks(vec![BackgroundTask {
+            id: "b1".to_string(),
+            kind: BackgroundTaskKind::Shell,
+            description: "Sleep in the background".to_string(),
+            tool_id: Some("toolu_1".to_string()),
+        }]));
+        assert_eq!(feed.len(), 0, "never a row");
+        assert_eq!(feed.background_tasks().len(), 1);
+        assert_eq!(feed.background_tasks()[0].description, "Sleep in the background");
+        feed.apply(ActivityEvent::background_tasks(Vec::new()));
+        assert!(feed.background_tasks().is_empty());
+    }
+
+    /// EXP-850 §5: the turn slot carries the caption's clock and counter; a
+    /// republish that OMITS them (an older publisher) never blanks what the
+    /// feed already learned, and a NEW turn resets the counter.
+    #[test]
+    fn the_turn_slot_keeps_the_caption_inputs() {
+        let mut feed = SteerFeed::new();
+        assert_eq!(feed.turn_started_at(), None);
+        assert_eq!(feed.turn_tokens(), None);
+        feed.apply(ActivityEvent::turn_at(TurnState::Started, Some(1_000), None));
+        assert_eq!(feed.turn_started_at(), Some(1_000));
+        feed.apply(ActivityEvent::turn_at(TurnState::Started, Some(1_000), Some(420)));
+        assert_eq!(feed.turn_tokens(), Some(420));
+        // An older publisher's bare edge keeps both.
+        feed.apply(ActivityEvent::turn(TurnState::Ended));
+        assert_eq!(feed.turn_state(), TurnState::Ended);
+        assert_eq!(feed.turn_started_at(), Some(1_000));
+        assert_eq!(feed.turn_tokens(), Some(420));
+        // A NEW turn starts counting again.
+        feed.apply(ActivityEvent::turn_at(TurnState::Started, Some(2_000), None));
+        assert_eq!(feed.turn_started_at(), Some(2_000));
+        assert_eq!(feed.turn_tokens(), None);
+    }
+
+    /// EXP-850 §3 review — a `Workflow` call renders as its CARD, so the
+    /// grouping never folds it into a collapsed "N tool calls" run: it is
+    /// neither a run's opener nor a member of one, and it SPLITS the run it
+    /// sat in (web `groupFeedRows`, ×4).
+    #[test]
+    fn a_workflow_call_splits_a_tool_run() {
+        let mut feed = SteerFeed::new();
+        let call = |name: &str, id: &str| ActivityEvent::Tool {
+            name: name.to_string(),
+            detail: None,
+            id: Some(id.to_string()),
+            tool_kind: None,
+            subagent_id: None,
+            at: None,
+        };
+        feed.apply(call("Bash", "tc-1"));
+        feed.apply(call("Workflow", "toolu_wf"));
+        feed.apply(call("Bash", "tc-2"));
+
+        // With no card for that id it is an ordinary call: one run of three.
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { ref items, .. } if items.len() == 3));
+
+        // The card arrives: three rows, the middle one the card's own.
+        feed.apply(card("toolu_wf", WorkflowStatus::Running, vec![]));
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0], FeedRowSpec::Single { .. }));
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 1, .. }));
+        assert!(matches!(rows[2], FeedRowSpec::Single { .. }));
+
+        // …and a run either side of it still collapses.
+        let mut feed = SteerFeed::new();
+        feed.apply(call("Bash", "tc-1"));
+        feed.apply(call("Read", "tc-2"));
+        feed.apply(call("Workflow", "toolu_wf"));
+        feed.apply(call("Bash", "tc-3"));
+        feed.apply(call("Read", "tc-4"));
+        feed.apply(card("toolu_wf", WorkflowStatus::Running, vec![]));
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { ref items, .. } if items == &[0, 1]));
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 2, .. }));
+        assert!(matches!(rows[2], FeedRowSpec::ToolRun { ref items, .. } if items == &[3, 4]));
+    }
+
+    /// EXP-856: the duplicate edge is a MARKER row that survives the card
+    /// collapsing, it never becomes the row's caption, and a workflow agent is
+    /// never offered as a steerable tab.
+    #[test]
+    fn a_duplicate_edge_is_a_marker_under_its_card() {
+        let mut feed = SteerFeed::new();
+        let edge = |status: SubagentStatus, detail: Option<&str>| ActivityEvent::Subagent {
+            id: "a55b7012793deae02".to_string(),
+            agent_type: "general-purpose".to_string(),
+            status,
+            detail: detail.map(str::to_string),
+            at: None,
+            tool_calls: None,
+            title: Some("slowpoke".to_string()),
+            workflow_id: Some("wf-1".to_string()),
+        };
+        feed.apply(edge(SubagentStatus::Started, None));
+        feed.apply(edge(
+            SubagentStatus::Duplicate,
+            Some("Second copy of slowpoke started while the first is still running (resumed by SendMessage)"),
+        ));
+        feed.apply(edge(SubagentStatus::Completed, Some("ok")));
+        assert_eq!(feed.len(), 3, "the warning keeps its own row");
+
+        let agents = collect_subagents(feed.items());
+        assert_eq!(agents.len(), 1);
+        assert!(agents[0].duplicate);
+        assert_eq!(agents[0].workflow_id.as_deref(), Some("wf-1"));
+        assert_eq!(agents[0].title.as_deref(), Some("slowpoke"));
+        // The lifecycle detail wins over the warning's sentence.
+        assert_eq!(agents[0].detail.as_deref(), Some("ok"));
+        // §4: a workflow's agents are never tabs.
+        assert!(visible_subagent_tabs(&agents, None).is_empty());
+        assert!(visible_subagent_tabs(&agents, Some("a55b7012793deae02")).is_empty());
     }
 }

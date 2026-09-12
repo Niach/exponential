@@ -301,6 +301,48 @@ describe(`steer relay end-to-end`, () => {
     pub.send(JSON.stringify({ t: `activity`, event: usage }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: usage })
 
+    // EXP-850 §2/§3: the two new latest-wins kinds ride the same rails — the
+    // workflow cards keyed PER ID, replayed between `turn` and the strip.
+    const workflow = {
+      kind: `workflow`,
+      id: `toolu_017aGvi2moAfSykrRA4LmyT4`,
+      name: `wire-probe`,
+      description: `Probe the workflow progress wire`,
+      status: `running`,
+      phases: [
+        { index: 1, title: `Alpha` },
+        { index: 2, title: `Beta` },
+      ],
+      agents: [
+        {
+          index: 1,
+          label: `alpha:one`,
+          phaseIndex: 1,
+          agentId: `a0ce244c651aaa623`,
+          model: `claude-haiku-4-5-20251001`,
+          state: `running`,
+        },
+      ],
+    }
+    const backgroundTasks = {
+      kind: `background_tasks`,
+      tasks: [
+        {
+          id: `w5zr2977l`,
+          kind: `workflow`,
+          description: `Probe the workflow progress wire`,
+          toolId: `toolu_017aGvi2moAfSykrRA4LmyT4`,
+        },
+      ],
+    }
+    pub.send(JSON.stringify({ t: `activity`, event: workflow }))
+    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: workflow })
+    pub.send(JSON.stringify({ t: `activity`, event: backgroundTasks }))
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity`,
+      event: backgroundTasks,
+    })
+
     const late = await connect(
       ticket({ role: `viewer`, sub: `late-user`, sessionId })
     )
@@ -314,6 +356,11 @@ describe(`steer relay end-to-end`, () => {
     // The newest snapshot only, and after the log.
     expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: configState })
     expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: usage })
+    expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: workflow })
+    expect(await lateIn.nextJson()).toEqual({
+      t: `activity`,
+      event: backgroundTasks,
+    })
     expect(await lateIn.nextJson()).toEqual({ t: `activity_synced` })
     late.close()
 

@@ -4,9 +4,9 @@
 //! Shell layout (EXP-269 glass): the in-app **titlebar** (34px drag strip
 //! with embedded window controls, `crate::app_title_bar`) above everything,
 //! the 44px **icon rail** left of the dock area, and the dock area filling
-//! the rest — all over the page gradient. The dock area's **center** is
-//! [`CenterPanel`] — a resizable split of the tool window column (sidebar)
-//! and the screens panel; UNDER the cutout panel, on the bare ground, sits
+//! the rest — all over the page gradient. The dock area's **center** is the
+//! [`ScreensPanel`] — ONE main view, full width (EXP-851 retired the
+//! sidebar/screens split); UNDER the cutout panel, on the bare ground, sits
 //! the **session bar** (`crate::session_bar`, EXP-769 — session + terminal
 //! tabs, Chat, `+`). EXP-771 moved it OUT of the card: it is the content
 //! column's last child now, the bottom twin of the decoration band the
@@ -28,24 +28,22 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
-    Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _, IntoElement,
+    Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement, Pixels, Render, SharedString, Size, Styled, Task, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{DockArea, DockAreaState, DockEvent, DockItem, Panel, PanelControl, PanelEvent, PanelView},
-    h_flex,
-    resizable::{h_resizable, resizable_panel, ResizableState},
-    v_flex, ActiveTheme as _, Icon, Root, Sizable as _,
+    dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
+    h_flex, v_flex, ActiveTheme as _, Icon, Root, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
 use crate::{
     debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
-    navigation::{nav_for_window, resolved_screen, Navigation, Screen},
+    navigation::Screen,
     screens::ScreensPanel,
     settings::{SettingsNavPanel, SETTINGS_NAV_WIDTH},
-    sidebar::{RailView, SidebarPanel},
+    sidebar::RailView,
     update::{self, UpdatePhase, UpdateState},
     window_size::SizeFrame,
 };
@@ -77,13 +75,18 @@ use crate::icons::registry;
 /// v10: the bottom terminal dock is GONE (EXP-769) — terminals are center
 ///     screens and the session bar under the dock area is the Shell's own
 ///     36px strip; a persisted bottom dock would rehydrate a dead panel.
-const LAYOUT_VERSION: usize = 10;
+/// v11: the CENTER SPLIT is gone (EXP-851) — there is one sidebar and one
+///     main view, so the dock's center is the screens panel itself and the
+///     persisted split size names a pane that no longer exists.
+const LAYOUT_VERSION: usize = 11;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
-/// Default tool-window width inside the center split — web parity. The 44px
-/// icon rail renders OUTSIDE the dock area (`Shell::render`).
-const SIDEBAR_WIDTH: Pixels = px(crate::sidebar::DEFAULT_DOCK_WIDTH);
+/// EXP-851: the `ListNav` column's width — the left column while a detail
+/// opened from a list is up. Wider than the rail (208px) because it carries
+/// issue titles beside their identifiers, narrower than the retired tool
+/// column (520px) because it is navigation, not the list itself.
+pub(crate) const LIST_NAV_WIDTH: f32 = 320.;
 
 /// EXP-723 cutout: the gap between the working panel and the window edges —
 /// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
@@ -107,63 +110,114 @@ const PANEL_MARGIN_TOP: f32 = 6.;
 /// `mainPanelClass(docked)`).
 const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 
-/// EXP-456: whether this window is in the tab-less Settings mode — the left
-/// column shows the settings nav instead of the rail.
-pub(crate) fn window_in_settings(window: &Window, cx: &mut App) -> bool {
-    let nav = nav_for_window(window, cx);
-    matches!(resolved_screen(&nav, cx), Some(Screen::Settings))
+/// EXP-851: who owns the window's leftmost column. Exactly THREE occupants —
+/// the rail (the default), the settings nav (Settings replaces the rail
+/// outright, EXP-456) and the `ListNav` (the list an open detail was picked
+/// from, EXP-851).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LeftOccupant {
+    Rail,
+    Settings,
+    ListNav,
+}
+
+impl LeftOccupant {
+    /// The column's width for this occupant.
+    pub(crate) fn width(self) -> f32 {
+        match self {
+            LeftOccupant::Rail => crate::sidebar::RAIL_W,
+            LeftOccupant::Settings => SETTINGS_NAV_WIDTH,
+            LeftOccupant::ListNav => LIST_NAV_WIDTH,
+        }
+    }
+}
+
+/// EXP-851: the pure occupant rule — Settings wins, then a list origin, else
+/// the rail. `origin` is the list the ACTIVE screen carries
+/// ([`list_nav_origin`]).
+pub(crate) fn left_occupant_for(
+    screen: Option<&Screen>,
+    origin: Option<&crate::navigation::TabOrigin>,
+) -> LeftOccupant {
+    if matches!(screen, Some(Screen::Settings)) {
+        return LeftOccupant::Settings;
+    }
+    if origin.is_some() {
+        return LeftOccupant::ListNav;
+    }
+    LeftOccupant::Rail
+}
+
+/// EXP-851: the list the ACTIVE screen sits beside, or `None` for the rail.
+/// A detail's list rides its TAB ([`crate::screens::ScreensPanel::origin_of`],
+/// stamped by `navigation::derive_origin`), so a tab click, a go-back and a
+/// go-forward all restore the column for free; every other screen — a list
+/// screen included — shows the rail.
+pub(crate) fn list_nav_origin(
+    window: &Window,
+    cx: &App,
+) -> Option<crate::navigation::TabOrigin> {
+    let nav = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)?;
+    let screen = crate::navigation::resolved_screen(&nav, cx)?;
+    if !screen.carries_list() {
+        return None;
+    }
+    crate::screens::screens_for_window(window, cx)
+        .and_then(|panel| panel.read(cx).origin_of(&screen))
+}
+
+/// EXP-456/EXP-851: which occupant this window's left column shows.
+pub(crate) fn window_left_occupant(window: &Window, cx: &App) -> LeftOccupant {
+    let screen = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)
+        .and_then(|nav| crate::navigation::resolved_screen(&nav, cx));
+    let origin = list_nav_origin(window, cx);
+    left_occupant_for(screen.as_ref(), origin.as_ref())
 }
 
 /// EXP-456: the left column's TARGET width — `app_title_bar`'s strip budget
 /// reads this instead of raw `RAIL_W` (during the swap animation the target
 /// is the width the strip is about to have; a ~200ms transient under-budget
-/// is invisible). EXP-723: the rail has ONE width now, so this only ever
-/// distinguishes the settings nav from the rail.
+/// is invisible).
 pub(crate) fn left_column_target_width(window: &mut Window, cx: &mut App) -> f32 {
-    if window_in_settings(window, cx) {
-        SETTINGS_NAV_WIDTH
-    } else {
-        crate::sidebar::RAIL_W
-    }
+    window_left_occupant(window, cx).width()
 }
 
-/// EXP-456: duration of the rail ⇄ settings-nav swap and (EXP-523) of the
-/// rail's own expand/collapse. The shared `standard` motion token — every
+/// EXP-456: duration of the left-column occupant swap and (EXP-523) of the
+/// column's own width morph. The shared `standard` motion token — every
 /// client's default duration — rather than the 200ms it was hand-set to when
 /// this was the app's only animation.
 const LEFT_COL_ANIM_DURATION: Duration = theme::motion::STANDARD;
 
-/// EXP-456: pure state machine for the rail ⇄ settings-nav swap — the
-/// upstream `Sidebar` recipe (`gpui_component::sidebar`'s animation state)
-/// as plain `Shell` fields: from/target width, whether both children stay
-/// mounted, and an epoch guarding the unmount timer against retargets.
+/// EXP-456/EXP-851: pure state machine for the left column's occupant swap —
+/// the upstream `Sidebar` recipe (`gpui_component::sidebar`'s animation
+/// state) as plain `Shell` fields: from/target width, WHICH occupants those
+/// widths belong to, whether both children stay mounted, and an epoch
+/// guarding the unmount timer against retargets.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct LeftColumnAnim {
     from: f32,
     to: f32,
-    /// The rail's width inside the swap strip, captured at retarget time —
-    /// the slide distance (EXP-456 expands a collapsed rail transiently, so
-    /// this is usually `RAIL_EXPANDED_W`).
-    rail_w: f32,
-    /// Target occupant: true = settings nav.
-    settings: bool,
+    /// The occupant sliding OUT (only meaningful while `swapping`).
+    from_occupant: LeftOccupant,
+    /// Target occupant.
+    occupant: LeftOccupant,
     /// Both children stay mounted while the swap transition runs.
     swapping: bool,
-    /// EXP-523: a same-occupant WIDTH animation is in flight — the rail
-    /// expanding or collapsing. Distinct from `swapping`, which mounts BOTH
-    /// children; here the single child just rides a morphing clip.
+    /// EXP-523: a same-occupant WIDTH animation is in flight. Distinct from
+    /// `swapping`, which mounts BOTH children; here the single child just
+    /// rides a morphing clip.
     width_only: bool,
     /// Guards the unmount timer against retargets (upstream `hide_request`).
     epoch: u64,
 }
 
 impl LeftColumnAnim {
-    fn new(settings: bool, width: f32, rail_w: f32) -> Self {
+    fn new(occupant: LeftOccupant) -> Self {
         Self {
-            from: width,
-            to: width,
-            rail_w,
-            settings,
+            from: occupant.width(),
+            to: occupant.width(),
+            from_occupant: occupant,
+            occupant,
             swapping: false,
             width_only: false,
             epoch: 0,
@@ -172,15 +226,15 @@ impl LeftColumnAnim {
 
     /// Sync with the rendered state. Returns `Some(epoch)` when a swap
     /// STARTED and the caller must spawn the settle timer.
-    fn retarget(&mut self, settings: bool, target: f32, rail_w: f32) -> Option<u64> {
-        if self.settings == settings {
-            // Same occupant: the rail expanding or collapsing (or no change).
-            // EXP-523 animates it — the child keeps its TARGET width and the
-            // column's `overflow_hidden` clip morphs around it, so the labels
-            // are revealed by a wipe and nothing inside the rail re-layouts
-            // mid-flight. A width change arriving while a settings SWAP is in
-            // flight is still absorbed: retargeting there would restart the
-            // swap from the wrong geometry.
+    fn retarget(&mut self, occupant: LeftOccupant) -> Option<u64> {
+        let target = occupant.width();
+        if self.occupant == occupant {
+            // Same occupant: a width change (or no change at all). EXP-523
+            // animates it — the child keeps its TARGET width and the column's
+            // `overflow_hidden` clip morphs around it, so nothing inside
+            // re-layouts mid-flight. A width change arriving while a SWAP is
+            // in flight is absorbed: retargeting there would restart the swap
+            // from the wrong geometry.
             if self.swapping {
                 self.to = target;
                 return None;
@@ -189,12 +243,10 @@ impl LeftColumnAnim {
                 // No actual change (this runs on every render).
                 self.from = target;
                 self.to = target;
-                self.rail_w = rail_w;
                 return None;
             }
             self.from = if self.width_only { self.to } else { self.from };
             self.to = target;
-            self.rail_w = rail_w;
             self.width_only = true;
             self.epoch += 1;
             return Some(self.epoch);
@@ -203,8 +255,8 @@ impl LeftColumnAnim {
         // the same limitation) — acceptable over 200ms.
         self.from = self.to;
         self.to = target;
-        self.rail_w = rail_w;
-        self.settings = settings;
+        self.from_occupant = self.occupant;
+        self.occupant = occupant;
         self.swapping = true;
         self.width_only = false;
         self.epoch += 1;
@@ -217,6 +269,7 @@ impl LeftColumnAnim {
             self.swapping = false;
             self.width_only = false;
             self.from = self.to;
+            self.from_occupant = self.occupant;
             true
         } else {
             false
@@ -258,9 +311,12 @@ pub struct Shell {
     /// EXP-456: the settings navigation — it takes the RAIL's slot (the
     /// window's leftmost column) while `Screen::Settings` is up, sliding in
     /// as the rail slides out; the settings detail fills everything right of
-    /// it (`CenterPanel` renders just the screens then).
+    /// it.
     settings_nav: Entity<SettingsNavPanel>,
-    /// EXP-456: the rail ⇄ settings-nav swap transition state.
+    /// EXP-851: the `ListNav` — the third occupant of that same slot, the
+    /// simplified list an open detail was picked from.
+    list_nav: Entity<crate::sidebar::ListPanel>,
+    /// EXP-456/EXP-851: the left column's occupant-swap transition state.
     left_anim: LeftColumnAnim,
     _left_anim_task: Option<Task<()>>,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
@@ -483,17 +539,13 @@ impl Shell {
         // docs); building it here keeps its subscriptions alive across
         // settings round-trips.
         let settings_nav = cx.new(|cx| SettingsNavPanel::new(window, cx));
+        let list_nav =
+            cx.new(|cx| crate::sidebar::ListPanel::new(crate::sidebar::ListMode::Nav, window, cx));
 
         // EXP-456: seed the swap state from the CURRENT screen so a window
         // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
         // no spurious entry animation.
-        let in_settings = window_in_settings(window, cx);
-        let rail_w = crate::sidebar::RAIL_W;
-        let left_anim = LeftColumnAnim::new(
-            in_settings,
-            if in_settings { SETTINGS_NAV_WIDTH } else { rail_w },
-            rail_w,
-        );
+        let left_anim = LeftColumnAnim::new(window_left_occupant(window, cx));
 
         Self {
             dock_area,
@@ -501,6 +553,7 @@ impl Shell {
             title_bar,
             rail,
             settings_nav,
+            list_nav,
             left_anim,
             _left_anim_task: None,
             login,
@@ -522,12 +575,8 @@ impl Shell {
     /// when settings open/close and schedules the settle timer that unmounts
     /// the outgoing child (the upstream `gpui_component::sidebar` recipe).
     fn sync_left_column(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let in_settings = window_in_settings(window, cx);
-        let target = left_column_target_width(window, cx);
-        if let Some(epoch) =
-            self.left_anim
-                .retarget(in_settings, target, crate::sidebar::RAIL_W)
-        {
+        let occupant = window_left_occupant(window, cx);
+        if let Some(epoch) = self.left_anim.retarget(occupant) {
             // Settle after the transition: unmount the outgoing child so its
             // controls leave the hit-test/tab order. Dropping a superseded
             // task cancels its timer; the epoch guards against a stale one
@@ -577,24 +626,13 @@ impl Shell {
 
         let anim = self.left_anim;
         if !anim.swapping {
-            let child: AnyElement = if anim.settings {
-                // The explicit sized wrapper is load-bearing for entity
-                // children (the dock wrapper's flex-child rule).
-                div()
-                    .w(px(SETTINGS_NAV_WIDTH))
-                    .h_full()
-                    .child(self.settings_nav.clone())
-                    .into_any_element()
-            } else {
-                self.rail.clone().into_any_element()
-            };
+            let child = self.left_child(anim.occupant);
             if !anim.width_only {
                 return column.w(px(anim.to)).child(child).into_any_element();
             }
-            // EXP-523: the rail expanding/collapsing. The child is pinned at
-            // its TARGET width (`sidebar.rs` sizes it from the same flag) and
-            // the column's clip morphs around it — a wipe, not a reflow, so
-            // no label re-wraps or icon re-centers mid-flight.
+            // EXP-523: a same-occupant width morph. The child is pinned at its
+            // TARGET width and the column's clip morphs around it — a wipe,
+            // not a reflow, so no label re-wraps mid-flight.
             return gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
                 .ease(theme::motion::standard())
                 .width(px(anim.from), px(anim.to))
@@ -609,49 +647,40 @@ impl Shell {
                                 .w(px(anim.to))
                                 .child(child),
                         ),
-                    left_anim_id("shell-leftcol-rail-width", anim.from, anim.to),
+                    left_anim_id("shell-leftcol-width-only", anim.from, anim.to),
                 )
                 .into_any_element();
         }
 
-        // Swap in flight: BOTH children ride an absolute [rail | nav] strip
-        // that slides while the clip width morphs — the rail exits
-        // stage-left as the settings nav takes its place, and the reverse on
-        // the way back.
-        let (left_from, left_to) = if anim.settings {
-            (px(0.), px(-anim.rail_w))
-        } else {
-            (px(-anim.rail_w), px(0.))
-        };
+        // Swap in flight: BOTH occupants ride an absolute [outgoing |
+        // incoming] strip that slides left by the outgoing width while the
+        // clip morphs — the same wipe in every direction, which is what made
+        // a THIRD occupant (EXP-851's ListNav) a pure data change.
         let strip = h_flex()
             .absolute()
             .top_0()
             .bottom_0()
-            .w(px(anim.rail_w + SETTINGS_NAV_WIDTH))
+            .w(px(anim.from + anim.to))
             .child(
                 div()
-                    .w(px(anim.rail_w))
+                    .w(px(anim.from))
                     .h_full()
                     .flex_shrink_0()
-                    .child(self.rail.clone()),
+                    .child(self.left_child(anim.from_occupant)),
             )
             .child(
                 div()
-                    .w(px(SETTINGS_NAV_WIDTH))
+                    .w(px(anim.to))
                     .h_full()
                     .flex_shrink_0()
-                    .child(self.settings_nav.clone()),
+                    .child(self.left_child(anim.occupant)),
             );
         let strip = gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
             .ease(theme::motion::standard())
-            .slide_x(left_from, left_to)
+            .slide_x(px(0.), px(-anim.from))
             .apply(
                 strip,
-                left_anim_id(
-                    "shell-leftcol-slide",
-                    f32::from(left_from),
-                    f32::from(left_to),
-                ),
+                left_anim_id("shell-leftcol-slide", 0., -anim.from),
             );
         gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
             .ease(theme::motion::standard())
@@ -660,6 +689,21 @@ impl Shell {
                 column.child(strip),
                 left_anim_id("shell-leftcol-width", anim.from, anim.to),
             )
+            .into_any_element()
+    }
+
+    /// One occupant of the left column, in a sized wrapper (load-bearing for
+    /// entity children — the dock wrapper's flex-child rule).
+    fn left_child(&self, occupant: LeftOccupant) -> AnyElement {
+        let child: AnyElement = match occupant {
+            LeftOccupant::Rail => self.rail.clone().into_any_element(),
+            LeftOccupant::Settings => self.settings_nav.clone().into_any_element(),
+            LeftOccupant::ListNav => self.list_nav.clone().into_any_element(),
+        };
+        div()
+            .w(px(occupant.width()))
+            .h_full()
+            .child(child)
             .into_any_element()
     }
 
@@ -697,14 +741,14 @@ impl Shell {
     /// (Re)install the fixed chrome on BOTH the restore and default paths:
     ///
     /// - The **center** is always rebuilt fresh as a chrome-less
-    ///   `DockItem::Panel` holding [`CenterPanel`] (the sidebar/screens
-    ///   resizable split) — a `DockItem::Tabs` would grow the redundant
+    ///   `DockItem::Panel` holding the [`ScreensPanel`] (EXP-851: the ONE
+    ///   main view) — a `DockItem::Tabs` would grow the redundant
     ///   "Shell" `TabPanel` title bar (+ zoom control), and a persisted
     ///   panel rehydrates wrapped in a `TabPanel` all the same, so we never
     ///   restore the center from disk. `EXP_DEV_BOARD=1` keeps a tab strip so
     ///   the second (debug-board) tab stays reachable.
-    /// - There is deliberately **no left dock** (v6): the sidebar lives
-    ///   inside the center split so the session bar spans beneath it.
+    /// - There is deliberately **no left dock** (v6): the sidebar is the
+    ///   Shell's own left column so the session bar spans beneath it.
     /// - There is **no bottom dock** either (v10, EXP-769): terminals are
     ///   center screens, and the session bar is the Shell's own strip under
     ///   the dock area — nothing terminal-shaped is persisted (EXP-301).
@@ -717,8 +761,10 @@ impl Shell {
 
         // Fresh chrome-less center (see the doc note): a single `DockItem::Panel`
         // renders raw (no title bar); the dev-board escape hatch keeps tabs.
+        // EXP-851: the SCREENS panel is the center outright — there is no
+        // split left to wrap it in.
         let center_panel: Arc<dyn PanelView> =
-            Arc::new(cx.new(|cx| CenterPanel::new(window, cx)));
+            Arc::new(cx.new(|cx| ScreensPanel::new(window, cx)));
         let center = if std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1") {
             let debug: Arc<dyn PanelView> = Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx)));
             DockItem::tabs(vec![center_panel, debug], &weak, window, cx)
@@ -1487,219 +1533,6 @@ fn format_progress(received: u64, total: Option<u64>) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CenterPanel — sidebar + screens as a resizable split
-// ---------------------------------------------------------------------------
-
-/// The dock area's center: the tool-window column (sidebar) and the screens
-/// panel in a draggable horizontal split. Lives INSIDE the dock area so the
-/// bottom terminal dock spans beneath both. Implements [`Panel`] because
-/// everything docked must (§3.3), but renders chrome-less via
-/// `DockItem::Panel`; it is rebuilt fresh each launch, never restored.
-pub struct CenterPanel {
-    focus_handle: FocusHandle,
-    sidebar: Entity<SidebarPanel>,
-    screens: Entity<ScreensPanel>,
-    /// The tool-column split's dragged width. Owned HERE, not by the element:
-    /// `h_resizable`'s own state is per-frame element state (gpui drops what a
-    /// frame never touched), and settings unmount the split entirely — without
-    /// this entity a Settings round-trip would snap the column back to its
-    /// default width.
-    center_split: Entity<ResizableState>,
-    nav: Entity<Navigation>,
-    /// The window's shared rail state — the empty-board mode keys on its
-    /// active tool (EXP-698).
-    rail_shared: Entity<crate::sidebar::RailShared>,
-    /// EXP-525/698: whether last render UNMOUNTED the center split (either
-    /// full-page mode). A structural flip settles only on the NEXT frame, and
-    /// the app must not idle on the flip frame (the EXP-492 stray-pass class).
-    last_split_unmounted: Option<bool>,
-    _subscriptions: Vec<gpui::Subscription>,
-}
-
-/// EXP-698 round 7: the empty-board rule as a truth table — an empty board
-/// takes the WHOLE center (no detail pane), matching web
-/// (`shots/board-empty/web.webp`). Pure so the combination is testable; the
-/// render path feeds it live facts and short-circuits before the expensive
-/// ones.
-fn board_empty_full_center(
-    screen_open: bool,
-    board_issues_tool: bool,
-    has_board: bool,
-    issues_ready: bool,
-    board_is_empty: bool,
-) -> bool {
-    !screen_open && board_issues_tool && has_board && issues_ready && board_is_empty
-}
-
-/// EXP-698 round 7: does the center drop its split and give the whole width
-/// to the board? Only for the Board Issues tool on a board whose SYNCED issue
-/// set is empty — filters are irrelevant (a board filtered to zero results
-/// still has issues and keeps the split), and §4.1's `is_ready` keeps a
-/// still-syncing collection from flashing the mode on every cold start.
-/// Shared with the sidebar, which drops its right hairline in this mode.
-pub(crate) fn board_empty_full(
-    nav: &Entity<Navigation>,
-    rail_shared: &Entity<crate::sidebar::RailShared>,
-    cx: &App,
-) -> bool {
-    let screen_open = resolved_screen(nav, cx).is_some();
-    let board_issues_tool = matches!(
-        rail_shared.read(cx).tool(),
-        crate::sidebar::ToolWindow::BoardIssues
-    );
-    // The cheap half gates the rest — this runs every frame.
-    if screen_open || !board_issues_tool {
-        return false;
-    }
-    let Some(store) = Store::try_global(cx) else {
-        return false;
-    };
-    let board = navigation::active_board_id(nav, cx);
-    let issues = store.collections().issues.read(cx);
-    let issues_ready = issues.is_ready();
-    // A membership probe, not `issues_in_board` — that clones and sorts the
-    // whole board to answer "is there one".
-    let board_is_empty = issues_ready
-        && board
-            .as_deref()
-            .is_some_and(|board_id| !issues.iter().any(|issue| issue.board_id == board_id));
-    board_empty_full_center(
-        screen_open,
-        board_issues_tool,
-        board.is_some(),
-        issues_ready,
-        board_is_empty,
-    )
-}
-
-/// Stable serialization name (§3.3) — present in dumps even though the center
-/// is always rebuilt fresh.
-pub(crate) const CENTER_PANEL_NAME: &str = "Center";
-
-impl CenterPanel {
-    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = nav_for_window(window, cx);
-        // The left column swaps on the ACTIVE SCREEN (EXP-282) — this panel
-        // must re-render when navigation moves, not just its children.
-        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
-        // EXP-698: the empty-board full-width mode keys on the rail's active
-        // tool and on the board's SYNCED issue rows — the split must re-mount
-        // when the tool changes or the board's first issue arrives.
-        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
-        subscriptions.push(cx.observe(&rail_shared, |_, _, cx| cx.notify()));
-        // `try_global`: the rehydrate test builds panels without a store.
-        if let Some(store) = Store::try_global(cx) {
-            let issues = store.collections().issues.clone();
-            subscriptions.push(cx.observe(&issues, |_, _, cx| cx.notify()));
-        }
-        Self {
-            focus_handle: cx.focus_handle(),
-            sidebar: cx.new(|cx| SidebarPanel::new(window, cx)),
-            screens: cx.new(|cx| ScreensPanel::new(window, cx)),
-            center_split: cx.new(|_| ResizableState::default()),
-            nav,
-            rail_shared,
-            last_split_unmounted: None,
-            _subscriptions: subscriptions,
-        }
-    }
-}
-
-impl Panel for CenterPanel {
-    fn panel_name(&self) -> &'static str {
-        CENTER_PANEL_NAME
-    }
-
-    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        "Team"
-    }
-
-    /// The split IS the center — closing it would leave an empty center
-    /// baked into the persisted layout.
-    fn closable(&self, _cx: &App) -> bool {
-        false
-    }
-
-    fn zoomable(&self, _cx: &App) -> Option<PanelControl> {
-        None
-    }
-}
-
-impl gpui::EventEmitter<PanelEvent> for CenterPanel {}
-
-impl Focusable for CenterPanel {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-
-impl Render for CenterPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-456: in settings the nav column lives in the Shell's LEFT
-        // column (it replaces the rail), so the whole center is the settings
-        // detail — no resizable split (the detail column caps itself), and
-        // the tool column is unmounted. EXP-480: the Actions page is the
-        // same tab-less full-page mode (the rail stays; any rail-tool click
-        // leaves it via `activate_tool`'s `set_screen(None)`). EXP-698 round
-        // 7: an EMPTY board is the second no-split mode — web renders it as
-        // ONE full-width area (`shots/board-empty/web.webp`), so the "Nothing
-        // open" detail pane must not sit beside a board that has nothing to
-        // open. It is the mirror image of `full_page`: there the SCREEN takes
-        // the center, here the BOARD does.
-        // EXP-791: a terminal is full-width too (`Screen::is_full_width`).
-        // EXP-818: a coding session is NOT any more — it sits beside the list
-        // it was opened from, like an issue.
-        let full_page = resolved_screen(&self.nav, cx).is_some_and(|screen| {
-            matches!(screen, Screen::Settings) || screen.is_full_width()
-        });
-        let board_empty_full = !full_page && board_empty_full(&self.nav, &self.rail_shared, cx);
-        // EXP-525: a mount/unmount of the center split settles its layout on
-        // the FOLLOWING frame (gpui's stray fit-content passes, EXP-492 —
-        // the screens.rs layout tests draw twice per width for the same
-        // reason). Force that second frame so a static page (Actions) can't
-        // idle on the flip frame's collapsed decoration band. Both no-split
-        // modes fold into ONE bool here: what matters is the STRUCTURAL flip,
-        // not which mode caused it.
-        let split_unmounted = full_page || board_empty_full;
-        if self.last_split_unmounted != Some(split_unmounted) {
-            self.last_split_unmounted = Some(split_unmounted);
-            window.request_animation_frame();
-        }
-        if full_page {
-            return div()
-                .size_full()
-                .child(self.screens.clone())
-                .into_any_element();
-        }
-        if board_empty_full {
-            return div()
-                .size_full()
-                .child(self.sidebar.clone())
-                .into_any_element();
-        }
-        div()
-            .size_full()
-            .child(
-                h_resizable("center-split")
-                    // Panel-owned state: settings unmount this split, and
-                    // element state dies with the frame that stops touching it.
-                    .with_state(&self.center_split)
-                    .child(
-                        resizable_panel()
-                            .size(SIDEBAR_WIDTH)
-                            // Max must stay clear of the default (EXP-109: 520px)
-                            // or the sidebar starts grow-locked at its own cap.
-                            // Floor = the inline bulk bar's one-line width.
-                            .size_range(px(crate::sidebar::MIN_DOCK_WIDTH)..px(880.))
-                            .child(self.sidebar.clone()),
-                    )
-                    .child(resizable_panel().child(self.screens.clone())),
-            )
-            .into_any_element()
-    }
-}
-
 /// Per-window layout state file (§3.3 "Each window persists its
 /// DockAreaState"). macOS: `~/Library/Application Support/Exponential/…`;
 /// Linux: `~/.local/share/exponential/…`.
@@ -1730,24 +1563,6 @@ mod tests {
     use crate::settings::SETTINGS_NAV_WIDTH;
     use crate::sidebar::RAIL_W;
 
-    /// EXP-698 round 7: only a Board Issues tool, on a real board, whose
-    /// SYNCED issue set is empty, takes the whole center. Every other fact
-    /// keeps the split — a still-syncing collection especially (§4.1).
-    #[test]
-    fn empty_board_takes_the_center_only_when_every_fact_says_so() {
-        assert!(board_empty_full_center(false, true, true, true, true));
-        // A center tab is open — the detail pane has something to show.
-        assert!(!board_empty_full_center(true, true, true, true, true));
-        // Another tool (Files / Source Control / Inbox) keeps its detail pane.
-        assert!(!board_empty_full_center(false, false, true, true, true));
-        // No board resolved yet.
-        assert!(!board_empty_full_center(false, true, false, true, true));
-        // Empty because the shape has not caught up, not because it is empty.
-        assert!(!board_empty_full_center(false, true, true, false, true));
-        // The board HAS issues (a filter hiding them all is not our business).
-        assert!(!board_empty_full_center(false, true, true, true, false));
-    }
-
     /// EXP-771: the session bar band's geometry, the same numbers the web
     /// shell uses. The band is the panel's twin at the bottom — the panel's
     /// 10px side margins, a 6px gap between card and band (the decoration
@@ -1762,38 +1577,121 @@ mod tests {
         assert_eq!(crate::session_bar::SESSION_BAR_H, 36.);
     }
 
+    /// EXP-851: the occupant rule. Settings wins over everything (it replaces
+    /// the rail outright); a detail carrying a list gets the ListNav; the
+    /// rail is the default, including on every LIST screen.
+    #[test]
+    fn the_occupant_is_settings_then_a_list_then_the_rail() {
+        use crate::navigation::TabOrigin;
+        use crate::sidebar::ToolWindow;
+        let board = TabOrigin {
+            tool: ToolWindow::BoardIssues,
+            board_id: Some("b1".into()),
+            inbox_tab: None,
+        };
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        assert_eq!(
+            left_occupant_for(Some(&Screen::Settings), Some(&board)),
+            LeftOccupant::Settings,
+            "settings replaces the rail even beside a list"
+        );
+        assert_eq!(
+            left_occupant_for(Some(&issue), Some(&board)),
+            LeftOccupant::ListNav
+        );
+        assert_eq!(left_occupant_for(Some(&issue), None), LeftOccupant::Rail);
+        assert_eq!(
+            left_occupant_for(
+                Some(&Screen::BoardIssues {
+                    board_id: "b1".into()
+                }),
+                None
+            ),
+            LeftOccupant::Rail,
+            "a list screen shows the rail, not a copy of itself"
+        );
+        assert_eq!(left_occupant_for(None, None), LeftOccupant::Rail);
+    }
+
+    /// The three occupants have the three widths the columns are drawn at.
+    #[test]
+    fn occupant_widths_are_the_column_constants() {
+        assert_eq!(LeftOccupant::Rail.width(), RAIL_W);
+        assert_eq!(LeftOccupant::Settings.width(), SETTINGS_NAV_WIDTH);
+        assert_eq!(LeftOccupant::ListNav.width(), LIST_NAV_WIDTH);
+        assert_eq!(LIST_NAV_WIDTH, 320.);
+    }
+
     #[test]
     fn retarget_into_settings_starts_swap_and_bumps_epoch() {
-        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        let epoch = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_W);
+        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
+        let epoch = anim.retarget(LeftOccupant::Settings);
         assert_eq!(epoch, Some(1));
         assert!(anim.swapping);
         assert_eq!(anim.from, RAIL_W);
         assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
-        assert!(anim.settings);
+        assert_eq!(anim.from_occupant, LeftOccupant::Rail);
+        assert_eq!(anim.occupant, LeftOccupant::Settings);
     }
 
-    /// EXP-523's same-occupant WIDTH animation. EXP-723 removed the rail
-    /// collapse, so nothing in the app drives this path today — but the state
-    /// machine still has to handle a width change without mounting both
-    /// children, which is why the widths here are literals rather than the
-    /// (now single) rail constant.
+    /// EXP-851: the rail ⇄ ListNav swap — the same machine, and the one that
+    /// actually changes width (208 → 320 and back).
+    #[test]
+    fn rail_and_list_nav_swap_in_both_directions() {
+        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
+        assert_eq!(anim.retarget(LeftOccupant::ListNav), Some(1));
+        assert!(anim.swapping);
+        assert_eq!(anim.from, RAIL_W);
+        assert_eq!(anim.to, LIST_NAV_WIDTH);
+        assert!(anim.finish(1));
+        assert!(!anim.swapping);
+        assert_eq!(anim.from, LIST_NAV_WIDTH);
+        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
+        // … and back out to the rail.
+        assert_eq!(anim.retarget(LeftOccupant::Rail), Some(2));
+        assert!(anim.swapping);
+        assert_eq!(anim.from, LIST_NAV_WIDTH);
+        assert_eq!(anim.to, RAIL_W);
+        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
+        assert_eq!(anim.occupant, LeftOccupant::Rail);
+        // A re-render with the SAME occupant is a no-op (this runs every frame).
+        assert_eq!(anim.retarget(LeftOccupant::Rail), None);
+    }
+
+    /// EXP-851: ListNav → Settings (the gear, clicked while a detail sits
+    /// beside its list) is a swap like any other — two equal-width columns
+    /// would have looked like nothing happened without the occupant field.
+    #[test]
+    fn list_nav_swaps_into_settings() {
+        let mut anim = LeftColumnAnim::new(LeftOccupant::ListNav);
+        let epoch = anim.retarget(LeftOccupant::Settings).unwrap();
+        assert!(anim.swapping);
+        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
+        assert_eq!(anim.occupant, LeftOccupant::Settings);
+        assert_eq!(anim.from, LIST_NAV_WIDTH);
+        assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
+        assert!(anim.finish(epoch));
+        assert_eq!(anim.from_occupant, LeftOccupant::Settings);
+    }
+
+    /// EXP-523's same-occupant WIDTH animation. Nothing in the app drives it
+    /// today (each occupant has ONE width), but the state machine still has
+    /// to handle a width change without mounting both children — hence the
+    /// hand-built state rather than a `retarget` call.
     #[test]
     fn same_occupant_animates_the_width_without_swapping() {
-        let mut anim = LeftColumnAnim::new(false, 44., 44.);
-        assert_eq!(anim.retarget(false, 208., 208.), Some(1));
+        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
+        anim.to = 44.;
+        anim.from = 44.;
+        // Pretend the rail's width changed under it.
+        anim.from = if anim.width_only { anim.to } else { anim.from };
+        anim.to = 208.;
+        anim.width_only = true;
+        anim.epoch += 1;
         assert!(!anim.swapping, "same occupant must not mount both children");
-        assert!(anim.width_only);
         assert_eq!(anim.from, 44., "it must start where the rail actually was");
-        assert_eq!(anim.to, 208.);
-        assert_eq!(anim.rail_w, 208.);
-
-        // `sync_left_column` runs `retarget` on EVERY render — an unchanged
-        // target must stay a no-op, or the animation restarts every frame and
-        // the rail never arrives.
-        assert_eq!(anim.retarget(false, 208., 208.), None);
-        assert_eq!(anim.epoch, 1);
-
         assert!(anim.finish(1));
         assert!(!anim.width_only);
         assert_eq!(anim.from, anim.to);
@@ -1801,10 +1699,10 @@ mod tests {
 
     #[test]
     fn finish_ignores_stale_epochs() {
-        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        let first = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_W).unwrap();
+        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
+        let first = anim.retarget(LeftOccupant::Settings).unwrap();
         // Mid-flight reversal: the new swap replaces the old one.
-        let second = anim.retarget(false, RAIL_W, RAIL_W).unwrap();
+        let second = anim.retarget(LeftOccupant::Rail).unwrap();
         assert_ne!(first, second);
         // The superseded timer fires anyway (cancellation raced) — no-op.
         assert!(!anim.finish(first));
@@ -1817,15 +1715,16 @@ mod tests {
 
     /// Upstream sidebar rule: a retarget restarts from the prior TARGET (the
     /// animation ids restart the transition, so the visual jump is bounded by
-    /// one swap). Literal widths so the assertion stays meaningful now that
-    /// the rail and the settings nav are the same width.
+    /// one swap). EXP-851: a mid-flight reversal also swaps the OUTGOING
+    /// occupant back, or the strip would keep sliding the wrong child out.
     #[test]
     fn midflight_reversal_jumps_from_the_previous_target() {
-        let mut anim = LeftColumnAnim::new(false, 208., 208.);
-        anim.retarget(true, 164., 208.).unwrap();
-        anim.retarget(false, 208., 208.).unwrap();
-        assert_eq!(anim.from, 164.);
-        assert_eq!(anim.to, 208.);
-        assert!(!anim.settings);
+        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
+        anim.retarget(LeftOccupant::ListNav).unwrap();
+        anim.retarget(LeftOccupant::Rail).unwrap();
+        assert_eq!(anim.from, LIST_NAV_WIDTH);
+        assert_eq!(anim.to, RAIL_W);
+        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
+        assert_eq!(anim.occupant, LeftOccupant::Rail);
     }
 }

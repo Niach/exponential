@@ -384,6 +384,11 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // live", so THIS is what a session row's pulsing dot keys on; false on
     // every row written before the column existed.
     public let agentBusy: Bool
+    // EXP-850 §8: the run's live caption — today the workflow caption of the
+    // newest running workflow, device-written (throttled to one write per 5s)
+    // and cleared by every server end path. A session list row renders it as
+    // its SECOND line, before the device byline; NULL = nothing to say.
+    public let agentCaption: String?
     // EXP-804: the agent's usage wall, stored as the raw jsonb TEXT off the
     // wire (`{kind, agent, window, resetsAt, since}`) exactly like the device
     // row's `agentUsage`; nil = not blocked. Orthogonal to `status` the way
@@ -453,6 +458,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         branch: String? = nil,
         needsInput: Bool = false,
         agentBusy: Bool = false,
+        agentCaption: String? = nil,
         blocked: String? = nil,
         actionId: String? = nil,
         actionName: String? = nil,
@@ -482,6 +488,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.branch = branch
         self.needsInput = needsInput
         self.agentBusy = agentBusy
+        self.agentCaption = agentCaption
         self.blocked = blocked
         self.actionId = actionId
         self.actionName = actionName
@@ -510,6 +517,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case deviceId = "device_id"
         case needsInput = "needs_input"
         case agentBusy = "agent_busy"
+        case agentCaption = "agent_caption"
         case blocked
         case actionId = "action_id"
         case actionName = "action_name"
@@ -552,6 +560,8 @@ extension CodingSessionEntity: Codable {
         // EXP-848: same wire-bool tolerance as `needs_input`; pre-EXP-848
         // snapshots omit the key entirely.
         agentBusy = c.decodeWireBool(forKey: .agentBusy, default: false)
+        // EXP-850: pre-EXP-850 snapshots omit the key — decode permissively.
+        agentCaption = try c.decodeIfPresent(String.self, forKey: .agentCaption)
         // EXP-804: jsonb — raw text off the wire, a native object from
         // fixtures; pre-EXP-804 snapshots omit the key entirely.
         blocked = c.decodeWireJsonString(forKey: .blocked)

@@ -984,6 +984,64 @@ export const codingSessionsRouter = router({
       return { updated: updated.length > 0 }
     }),
 
+  // EXP-850: the device-written WORKING CAPTION — one short line saying what
+  // the run is doing right now (the newest running workflow's caption, see
+  // `workflowCaption`), `null` when there is nothing to say (no workflow, turn
+  // end, teardown). Same rails as setAgentBusy above, for the same reasons:
+  // owner-or-host only, live statuses only (an ended row stays final and never
+  // grows a caption again), and a refused write is a silent `updated: false`
+  // the device never retries. The device throttles to one write per 5 s and
+  // only on change; the cap here is the contract's `steerWorking.previewMax`,
+  // so a caption is always one list row, never a story.
+  setAgentCaption: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        caption: z
+          .string()
+          .max(contract.steerWorking.previewMax)
+          .nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
+          status: codingSessions.status,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.id))
+        .limit(1)
+
+      if (!existing) return { updated: false }
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can update it`,
+        })
+      }
+
+      // Blank is nothing to say, not a blank second line on every client.
+      const caption = input.caption?.trim() ? input.caption.trim() : null
+
+      const updated = await ctx.db
+        .update(codingSessions)
+        .set({ agentCaption: caption })
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            inArray(codingSessions.status, [`running`, `in_review`])
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      return { updated: updated.length > 0 }
+    }),
+
   // EXP-804: the agent's usage wall as ROW STATE. A walled run keeps status
   // `running` and a moving `updated_at` — it is still live, steerable and
   // killable — so without this column a rate-limited run is indistinguishable
@@ -1131,8 +1189,9 @@ export const codingSessionsRouter = router({
           endedAt: new Date(),
           endedBy: `client`,
           needsInput: false,
-          // EXP-848: an ended run is never busy.
+          // EXP-848/850: an ended run is never busy and says nothing.
           agentBusy: false,
+          agentCaption: null,
         })
         .where(
           and(eq(codingSessions.id, input.id), ne(codingSessions.status, `ended`))

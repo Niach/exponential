@@ -103,6 +103,14 @@ interface Contract {
     }[]
   }
   turnState: Section
+  // EXP-850/856: steer wire vocabulary shared by the engine, the relay and
+  // every viewer — subagent edges, workflow cards, background tasks and the
+  // claude-style working caption.
+  subagentStatus: Section
+  workflowAgentState: Section
+  workflowStatus: Section
+  backgroundTaskKind: Section
+  steerWorking: { verbs: string[]; tokenTickMs: number; previewMax: number }
 }
 
 const contract: Contract = JSON.parse(
@@ -314,6 +322,13 @@ ${swiftStringArray("expToolDone", expToolDone)}
 ${swiftStringArray("expToolSubjectKeys", expToolSubjectKeys)}
 ${swiftStringArray("expToolResults", expToolResults)}
 ${swiftStringArray("turnStateValues", contract.turnState.values)}
+${swiftStringArray("subagentStatusValues", contract.subagentStatus.values)}
+${swiftStringArray("workflowAgentStateValues", contract.workflowAgentState.values)}
+${swiftStringArray("workflowStatusValues", contract.workflowStatus.values)}
+${swiftStringArray("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
+${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
+    public static let steerWorkingTokenTickMs: Int = ${contract.steerWorking.tokenTickMs}
+    public static let steerWorkingPreviewMax: Int = ${contract.steerWorking.previewMax}
 
     public static let issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
@@ -411,6 +426,13 @@ ${kotlinStringArray("expToolDone", expToolDone)}
 ${kotlinStringArray("expToolSubjectKeys", expToolSubjectKeys)}
 ${kotlinStringArray("expToolResults", expToolResults)}
 ${kotlinStringArray("turnStateValues", contract.turnState.values)}
+${kotlinStringArray("subagentStatusValues", contract.subagentStatus.values)}
+${kotlinStringArray("workflowAgentStateValues", contract.workflowAgentState.values)}
+${kotlinStringArray("workflowStatusValues", contract.workflowStatus.values)}
+${kotlinStringArray("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
+${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
+    const val steerWorkingTokenTickMs: Long = ${contract.steerWorking.tokenTickMs}L
+    const val steerWorkingPreviewMax: Int = ${contract.steerWorking.previewMax}
 
     const val issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
@@ -510,6 +532,13 @@ ${rustStrSlice("expToolDone", expToolDone)}
 ${rustStrSlice("expToolSubjectKeys", expToolSubjectKeys)}
 ${rustStrSlice("expToolResults", expToolResults)}
 ${rustStrSlice("turnStateValues", contract.turnState.values)}
+${rustStrSlice("subagentStatusValues", contract.subagentStatus.values)}
+${rustStrSlice("workflowAgentStateValues", contract.workflowAgentState.values)}
+${rustStrSlice("workflowStatusValues", contract.workflowStatus.values)}
+${rustStrSlice("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
+${rustStrSlice("steerWorkingVerbs", contract.steerWorking.verbs)}
+pub const STEER_WORKING_TOKEN_TICK_MS: i64 = ${contract.steerWorking.tokenTickMs};
+pub const STEER_WORKING_PREVIEW_MAX: usize = ${contract.steerWorking.previewMax};
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.startedMax};
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};

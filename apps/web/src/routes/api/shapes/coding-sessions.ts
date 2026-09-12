@@ -30,7 +30,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // — every client's session lists nest a child under its parent), and
 // `agent_busy` for EXP-848 (device-written turn state: every client's session
 // list keys its working spinner on it, because `running` alone says live, not
-// thinking) — each a
+// thinking), and `agent_caption` for EXP-850 (the device-written working
+// caption — the second line of every session list row, which otherwise only
+// says a run is live and never what it is doing) — each a
 // ONE-TIME shape-identity rotation (benign: small table, full resync; land in
 // one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
@@ -64,6 +66,7 @@ const CODING_SESSION_COLUMNS = [
   `parent_session_id`,
   `needs_input`,
   `agent_busy`,
+  `agent_caption`,
   `blocked`,
   `started_at`,
   `ended_at`,

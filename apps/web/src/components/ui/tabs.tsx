@@ -11,6 +11,19 @@ import { cn } from "@/lib/utils"
 // through `data-[state=active]` instead.
 export const SEGMENTED_LIST = `inline-flex h-9 w-fit items-center justify-center rounded-full border border-glass-stroke-section bg-glass-section p-[3px] text-muted-foreground`
 
+// EXP-851: the strip's ROW. The Inbox / My issues strip and the Support
+// Open / Resolved strip are ONE control at ONE size — same trigger padding
+// (`SEGMENTED_TAB`), same row padding — in the big list views…
+export const SEGMENTED_ROW = `flex shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2 md:px-6`
+
+// …and in the sidebar's list nav, where the 16rem slot is the only thing that
+// changes (the strip itself is identical).
+export const SEGMENTED_ROW_COMPACT = `flex shrink-0 items-center justify-between gap-2 px-2 pt-2 pb-2`
+
+/** The ONE trigger sizing both strips use — no per-surface `h-8`/`text-xs`
+ *  overrides, or the two drift by a pixel again. */
+export const SEGMENTED_TAB = `px-3`
+
 export const SEGMENTED_ITEM = `inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`
 
 function Tabs({

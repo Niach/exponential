@@ -24,6 +24,11 @@ import type { StatusRowOption } from "@/lib/team-statuses"
 // lib/filters.ts); validateSearch drops anything unrecognised.
 type BoardSearch = IssueFilterSearch & {
   description?: string
+  /** EXP-856: the origin token a detail hands BACK when it returns here
+   *  (`lib/detail-origin.ts`). A board is a list screen, so the sidebar keeps
+   *  its main menu either way — the param only has to survive the round trip
+   *  instead of being dropped on the way in. */
+  from?: string
   new?: 1
   title?: string
 }
@@ -36,6 +41,8 @@ export const Route = createFileRoute(
     title: typeof search.title === `string` ? search.title : undefined,
     description:
       typeof search.description === `string` ? search.description : undefined,
+    from:
+      typeof search.from === `string` && search.from ? search.from : undefined,
     ...parseIssueFilterSearch(search),
   }),
   component: BoardPage,
@@ -193,10 +200,13 @@ function BoardPage() {
               },
               // Carry the board's active filters so the detail header's
               // prev/next switcher walks the same filtered+sorted sequence.
+              // EXP-851: and the origin, so the sidebar keeps THIS board's
+              // list beside the issue.
               search: {
                 status: search.status,
                 priority: search.priority,
                 labels: search.labels,
+                from: `board:${boardSlug}`,
               },
             })
           }

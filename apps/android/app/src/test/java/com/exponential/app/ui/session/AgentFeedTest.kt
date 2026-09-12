@@ -5,6 +5,39 @@ import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AnswerState
+import com.exponential.app.domain.BACKGROUND_TASK_KIND_OTHER
+import com.exponential.app.domain.TOOL_KIND_WAIT
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_DONE
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_ERROR
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_QUEUED
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_RUNNING
+import com.exponential.app.domain.WORKFLOW_PHASE_EMPTY
+import com.exponential.app.domain.WORKFLOW_SLOT_CAP
+import com.exponential.app.domain.WORKFLOW_STATUS_COMPLETED
+import com.exponential.app.domain.WORKFLOW_STATUS_RUNNING
+import com.exponential.app.domain.WORKFLOW_UNPHASED_TITLE
+import com.exponential.app.domain.WORKING_FALLBACK_CAPTION
+import com.exponential.app.domain.WorkflowAgent
+import com.exponential.app.domain.WorkflowPhase
+import com.exponential.app.domain.WorkflowState
+import com.exponential.app.domain.awaitsAnswer
+import com.exponential.app.domain.backgroundTaskLabel
+import com.exponential.app.domain.caption
+import com.exponential.app.domain.formatWorkingDuration
+import com.exponential.app.domain.formatWorkingTokens
+import com.exponential.app.domain.openWaitLabels
+import com.exponential.app.domain.runningWorkflow
+import com.exponential.app.domain.splitWorkflowToolRows
+import com.exponential.app.domain.waitingLabel
+import com.exponential.app.domain.workflowAgentMetrics
+import com.exponential.app.domain.workflowAgentNote
+import com.exponential.app.domain.workflowAgentRuns
+import com.exponential.app.domain.workflowDuplicates
+import com.exponential.app.domain.workflowFor
+import com.exponential.app.domain.workflowPhaseCounts
+import com.exponential.app.domain.workflowPhaseSummary
+import com.exponential.app.domain.workingCaption
+import com.exponential.app.domain.workingVerb
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
@@ -1519,6 +1552,502 @@ class AgentFeedTest {
         assertNull((none.feed.single() as AgentFeedItem.Tool).preview)
     }
 
+
+    // ── EXP-850 / EXP-856: workflows, background tasks, waits, the turn clock ──
+    //
+    // Every payload below is the EXACT wire JSON the engine publishes (the
+    // captures under crates/engine/tests/fixtures/claude/wire-captures/), so a
+    // field renamed on either side fails here.
+
+    @Test
+    fun `a workflow frame lands as a card keyed by its tool id`() {
+        val state = ActivityFeedState().applying(workflowEvent())
+        // Never a feed row — the card is patched onto the `tool` row with the
+        // same id (S3).
+        assertTrue(state.feed.isEmpty())
+        val workflow = state.workflowFor("toolu_017aGvi2moAfSykrRA4LmyT4")
+        assertNotNull(workflow)
+        assertEquals("wire-probe", workflow!!.name)
+        assertEquals("Probe the workflow progress wire", workflow.description)
+        assertEquals(WORKFLOW_STATUS_RUNNING, workflow.status)
+        assertEquals(listOf(1 to "Alpha", 2 to "Beta"), workflow.phases.map { it.index to it.title })
+        assertEquals(2, workflow.agents.size)
+        val first = workflow.agents.first()
+        assertEquals("alpha:one", first.label)
+        assertEquals(1, first.phaseIndex)
+        assertEquals("a0ce244c651aaa623", first.agentId)
+        assertEquals("claude-haiku-4-5-20251001", first.model)
+        assertEquals(WORKFLOW_AGENT_STATE_DONE, first.state)
+        assertEquals(9629L, first.tokens)
+        assertEquals(0, first.toolCalls)
+        assertEquals(1075L, first.durationMs)
+        assertEquals("ok", first.resultPreview)
+        assertEquals(WORKFLOW_AGENT_STATE_QUEUED, workflow.agents[1].state)
+        assertEquals("Dynamic workflow \"…\" completed", workflow.summary)
+    }
+
+    @Test
+    fun `a workflow frame replaces the previous one for the same id`() {
+        val state = ActivityFeedState()
+            .applying(workflowEvent())
+            .applying(
+                event(
+                    """{"kind":"workflow","id":"toolu_017aGvi2moAfSykrRA4LmyT4","name":"wire-probe",""" +
+                        """"status":"completed","phases":[],"agents":[]}""",
+                ),
+            )
+        assertEquals(1, state.workflows.size)
+        assertEquals(WORKFLOW_STATUS_COMPLETED, state.workflows.single().status)
+        assertNull(state.runningWorkflow())
+    }
+
+    @Test
+    fun `a second workflow keeps first-appearance order and the newest running one wins`() {
+        val state = ActivityFeedState()
+            .applying(workflowEvent())
+            .applying(
+                event(
+                    """{"kind":"workflow","id":"toolu_two","name":"second","status":"running",""" +
+                        """"agents":[]}""",
+                ),
+            )
+            // An update to the FIRST card must not move it to the end.
+            .applying(workflowEvent())
+        assertEquals(
+            listOf("toolu_017aGvi2moAfSykrRA4LmyT4", "toolu_two"),
+            state.workflows.map { it.id },
+        )
+        assertEquals("second", state.runningWorkflow()?.name)
+    }
+
+    @Test
+    fun `the workflow slot store is capped at sixteen ids`() {
+        var state = ActivityFeedState()
+        for (i in 1..WORKFLOW_SLOT_CAP + 3) {
+            state = state.applying(
+                event("""{"kind":"workflow","id":"w$i","name":"n$i","status":"running","agents":[]}"""),
+            )
+        }
+        assertEquals(WORKFLOW_SLOT_CAP, state.workflows.size)
+        assertEquals("w4", state.workflows.first().id)
+        assertEquals("w19", state.workflows.last().id)
+    }
+
+    @Test
+    fun `a malformed workflow frame leaves the previous card standing`() {
+        val state = ActivityFeedState()
+            .applying(workflowEvent())
+            .applying(event("""{"kind":"workflow","name":"no id here","status":"running"}"""))
+            .applying(event("""{"kind":"workflow","id":"toolu_x","status":"running"}"""))
+        assertEquals(1, state.workflows.size)
+        assertEquals(WORKFLOW_STATUS_RUNNING, state.workflows.single().status)
+    }
+
+    @Test
+    fun `background tasks are a latest-wins slot an empty list closes`() {
+        val running = ActivityFeedState().applying(
+            event(
+                """{"kind":"background_tasks","tasks":[{"id":"b4mwz6csc","kind":"shell",""" +
+                    """"description":"Sleep in the background","toolId":"toolu_01MCRoRaXN1cvEsHJzDEg2B3"}]}""",
+            ),
+        )
+        assertTrue(running.feed.isEmpty())
+        val task = running.backgroundTasks.single()
+        assertEquals("b4mwz6csc", task.id)
+        assertEquals("shell", task.kind)
+        assertEquals("Sleep in the background", task.description)
+        assertEquals("toolu_01MCRoRaXN1cvEsHJzDEg2B3", task.toolId)
+        assertEquals("Sleep in the background", backgroundTaskLabel(task.description))
+        val closed = running.applying(event("""{"kind":"background_tasks","tasks":[]}"""))
+        assertTrue(closed.backgroundTasks.isEmpty())
+    }
+
+    @Test
+    fun `a background task with an unknown kind still lists and a broken frame is ignored`() {
+        val state = ActivityFeedState()
+            .applying(
+                event(
+                    """{"kind":"background_tasks","tasks":[{"id":"b1","kind":"quantum",""" +
+                        """"description":"Something new"},{"id":"b2"},{"kind":"shell","description":"No id"}]}""",
+                ),
+            )
+        assertEquals(listOf("b1"), state.backgroundTasks.map { it.id })
+        assertEquals(BACKGROUND_TASK_KIND_OTHER, state.backgroundTasks.single().kind)
+        // No `tasks` array at all: the previous list survives.
+        val kept = state.applying(event("""{"kind":"background_tasks"}"""))
+        assertEquals(1, kept.backgroundTasks.size)
+    }
+
+    @Test
+    fun `an open wait row is listed in the strip and settles out of it`() {
+        val open = ActivityFeedState().applying(
+            event(
+                """{"kind":"tool","name":"TaskOutput","detail":"Sleep in the background",""" +
+                    """"id":"toolu_1","toolKind":"wait"}""",
+            ),
+        )
+        val row = open.feed.single() as AgentFeedItem.Tool
+        assertEquals(TOOL_KIND_WAIT, row.toolKind)
+        assertEquals(listOf("Sleep in the background"), openWaitLabels(open.feed))
+        assertEquals("Waiting on Sleep in the background", waitingLabel(openWaitLabels(open.feed).single()))
+        val settled = open.applying(
+            event("""{"kind":"tool_update","id":"toolu_1","status":"completed"}"""),
+        )
+        assertTrue(openWaitLabels(settled.feed).isEmpty())
+        // It stays an ordinary transcript row either way (S1).
+        assertEquals(1, settled.feed.size)
+    }
+
+    @Test
+    fun `a wait row without a detail falls back to the tool name`() {
+        val state = ActivityFeedState().applying(
+            event("""{"kind":"tool","name":"Monitor","id":"toolu_2","toolKind":"wait"}"""),
+        )
+        assertEquals(listOf("Monitor"), openWaitLabels(state.feed))
+    }
+
+    @Test
+    fun `a duplicate subagent edge is its own warning row`() {
+        val state = ActivityFeedState().applying(duplicateEvent())
+        val warning = state.feed.single() as AgentFeedItem.DuplicateAgent
+        assertEquals("a55b7012793deae02", warning.subagentId)
+        assertEquals(
+            "Second copy of slowpoke started while the first is still running (resumed by SendMessage)",
+            warning.detail,
+        )
+        assertEquals("slowpoke", warning.title)
+        assertEquals("toolu_017Lh63mYhRJ3MrA4A1PXytt", warning.workflowId)
+        // The agent's own later edges keep flowing under the same id.
+        val started = state.applying(
+            event(
+                """{"kind":"subagent","id":"a55b7012793deae02","agentType":"general-purpose",""" +
+                    """"status":"started","workflowId":"toolu_017Lh63mYhRJ3MrA4A1PXytt"}""",
+            ),
+        )
+        assertEquals(2, started.feed.size)
+        val marker = started.feed.last() as AgentFeedItem.Subagent
+        assertEquals("toolu_017Lh63mYhRJ3MrA4A1PXytt", marker.workflowId)
+    }
+
+    @Test
+    fun `a duplicate edge without the sentence is skipped`() {
+        val state = ActivityFeedState().applying(
+            event("""{"kind":"subagent","id":"a1","agentType":"general-purpose","status":"duplicate"}"""),
+        )
+        assertTrue(state.feed.isEmpty())
+    }
+
+    @Test
+    fun `a workflow agent is never a subagent tab`() {
+        val state = ActivityFeedState()
+            .applying(
+                event(
+                    """{"kind":"subagent","id":"a1","agentType":"general-purpose","status":"started",""" +
+                        """"title":"alpha:one","workflowId":"wf-1"}""",
+                ),
+            )
+            .applying(subagentStartedEvent("plain"))
+        val agents = collectSubagents(state.feed)
+        assertEquals(listOf("a1", "plain"), agents.map { it.subagentId })
+        assertEquals("wf-1", agents.first().workflowId)
+        assertEquals(listOf("plain"), visibleSubagentTabs(agents, null).map { it.subagentId })
+        // Not even while focused: a workflow agent is not steerable.
+        assertEquals(listOf("plain"), visibleSubagentTabs(agents, "a1").map { it.subagentId })
+    }
+
+    @Test
+    fun `a workflow's agents and warnings leave the main transcript for its card`() {
+        var state = ActivityFeedState()
+            .applying(event("""{"kind":"tool","name":"Workflow","id":"wf-1","toolKind":"other"}"""))
+            .applying(
+                event(
+                    """{"kind":"subagent","id":"a1","agentType":"general-purpose","status":"started",""" +
+                        """"title":"alpha:one","workflowId":"wf-1"}""",
+                ),
+            )
+            .applying(toolEvent("Edit", subagentId = "a1"))
+            .applying(
+                event(
+                    """{"kind":"subagent","id":"a1","status":"duplicate","agentType":"general-purpose",""" +
+                        """"detail":"Second copy of alpha:one started while the first is still running""" +
+                        """ (resumed by SendMessage)","workflowId":"wf-1"}""",
+                ),
+            )
+        val rows = groupFeedRows(state.feed, 0, setOf("wf-1"))
+        // The Workflow tool row (which the screen draws as the card) is all
+        // that is left at the top level.
+        assertEquals(1, rows.size)
+        assertEquals("wf-1", ((rows.single() as AgentFeedRow.Single).item as AgentFeedItem.Tool).callId)
+        assertEquals(listOf("a1"), workflowAgentRuns(state.feed, "wf-1").map { it.subagentId })
+        assertEquals(1, workflowAgentRuns(state.feed, "wf-1").single().items.size)
+        assertEquals(1, workflowDuplicates(state.feed, "wf-1").size)
+        // No card for it (its frame never arrived): the warning and the run
+        // keep their ordinary rows rather than vanishing.
+        assertEquals(3, groupFeedRows(state.feed).size)
+        state = ActivityFeedState().applying(
+            event(
+                """{"kind":"subagent","id":"a1","status":"duplicate","agentType":"general-purpose",""" +
+                    """"detail":"Second copy started","workflowId":"wf-1"}""",
+            ),
+        )
+        // With the card there, the warning is ITS row and no longer a loose
+        // one — the screen renders it inside the card (collapsed or not).
+        assertTrue(groupFeedRows(state.feed, 0, setOf("wf-1")).isEmpty())
+        assertEquals(1, workflowDuplicates(state.feed, "wf-1").size)
+    }
+
+    @Test
+    fun `a workflow tool row never collapses into a tool group`() {
+        val rows = listOf<AgentFeedRow>(
+            AgentFeedRow.ToolRun(
+                listOf(
+                    AgentFeedItem.Tool(1, "Read", "a.ts", callId = "c1"),
+                    AgentFeedItem.Tool(2, "Workflow", null, callId = "wf-1"),
+                    AgentFeedItem.Tool(3, "Read", "b.ts", callId = "c2"),
+                    AgentFeedItem.Tool(4, "Read", "c.ts", callId = "c3"),
+                ),
+            ),
+        )
+        val split = splitWorkflowToolRows(rows, setOf("wf-1"))
+        assertEquals(3, split.size)
+        assertEquals(1L, (split[0] as AgentFeedRow.Single).item.id)
+        assertEquals("wf-1", ((split[1] as AgentFeedRow.Single).item as AgentFeedItem.Tool).callId)
+        assertEquals(listOf(3L, 4L), (split[2] as AgentFeedRow.ToolRun).items.map { it.id })
+        // Nothing to split: the very same list comes back.
+        assertSame(rows, splitWorkflowToolRows(rows, setOf("other")))
+        assertSame(rows, splitWorkflowToolRows(rows, emptySet()))
+    }
+
+    @Test
+    fun `the turn slot carries the clock and the tokens`() {
+        val started = ActivityFeedState().applying(
+            event("""{"kind":"turn","state":"started","startedAt":1789204409163,"tokens":1432}"""),
+        )
+        assertEquals(TURN_STATE_STARTED, started.turnState)
+        assertEquals(1789204409163L, started.turnStartedAt)
+        assertEquals(1432L, started.turnTokens)
+        // A tick that only restates the tokens keeps the start.
+        val ticked = started.applying(event("""{"kind":"turn","state":"started","tokens":2000}"""))
+        assertEquals(1789204409163L, ticked.turnStartedAt)
+        assertEquals(2000L, ticked.turnTokens)
+        // A republish carrying neither blanks nothing (a journal replay).
+        val republished = ticked.applying(event("""{"kind":"turn","state":"started"}"""))
+        assertEquals(1789204409163L, republished.turnStartedAt)
+        assertEquals(2000L, republished.turnTokens)
+        // A NEW start is a new turn: its token count starts over.
+        val next = republished.applying(
+            event("""{"kind":"turn","state":"started","startedAt":1789204509163}"""),
+        )
+        assertEquals(1789204509163L, next.turnStartedAt)
+        assertNull(next.turnTokens)
+        // The end edge carries the start too, and never resets what it names.
+        val ended = next.applying(
+            event("""{"kind":"turn","state":"ended","startedAt":1789204509163,"tokens":77}"""),
+        )
+        assertEquals(TURN_STATE_ENDED, ended.turnState)
+        assertEquals(77L, ended.turnTokens)
+    }
+
+    @Test
+    fun `an unreadable turn state leaves the slot standing`() {
+        val state = ActivityFeedState()
+            .applying(event("""{"kind":"turn","state":"started","startedAt":1000}"""))
+            .applying(event("""{"kind":"turn","state":"pondering","tokens":9}"""))
+        assertEquals(TURN_STATE_STARTED, state.turnState)
+        assertEquals(9L, state.turnTokens)
+    }
+
+    // EXP-850 (S9): the card the agent is blocked on belongs at the bottom.
+    @Test
+    fun `a pending question moves after every later row`() {
+        val feed = listOf(
+            narrationItem(1, "before"),
+            question(2),
+            tool(3),
+            narrationItem(4, "after"),
+        )
+        val rows = groupFeedRows(feed)
+        assertEquals(listOf(1L, 3L, 4L, 2L), rows.map { it.id })
+        assertTrue(rows.last().awaitsAnswer)
+    }
+
+    @Test
+    fun `a resolved question returns to its natural position`() {
+        val feed = listOf(
+            narrationItem(1, "before"),
+            question(2).copy(resolved = true, answer = "Red"),
+            tool(3),
+        )
+        assertEquals(listOf(1L, 2L, 3L), groupFeedRows(feed).map { it.id })
+        // A DISMISSED ask is over too, so it stays where it happened.
+        val dismissed = listOf(
+            narrationItem(1, "before"),
+            question(2).copy(dismissed = true),
+            tool(3),
+        )
+        assertEquals(listOf(1L, 2L, 3L), groupFeedRows(dismissed).map { it.id })
+    }
+
+    @Test
+    fun `pending questions keep their relative order at the bottom`() {
+        val feed = listOf(question(1), tool(2), question(3), narrationItem(4, "tail"))
+        assertEquals(listOf(2L, 4L, 1L, 3L), groupFeedRows(feed).map { it.id })
+        // A stepper with an open step moves as one row.
+        val ask = listOf(
+            step("ask-1", 1, 1),
+            step("ask-1", 2, 2),
+            tool(3),
+        )
+        assertEquals(listOf(3L, 1L), groupFeedRows(ask).map { it.id })
+    }
+
+    @Test
+    fun `a feed of nothing but pending cards is left alone`() {
+        val feed = listOf(question(1), question(2))
+        val rows = groupFeedRows(feed)
+        assertEquals(listOf(1L, 2L), rows.map { it.id })
+    }
+
+    // ── EXP-850 (S5): the working caption ────────────────────────────────────
+
+    @Test
+    fun `the working verb is a stable pick out of the contract's list`() {
+        val verbs = DomainContract.steerWorkingVerbs
+        assertEquals(24, verbs.size)
+        assertEquals(verbs[0], workingVerb(0L))
+        assertEquals(verbs[1], workingVerb(1L))
+        assertEquals(verbs[(1789204409163L % 24L).toInt()], workingVerb(1789204409163L))
+        // Same turn, same word — the caption must not flicker between ticks.
+        assertEquals(workingVerb(1789204409163L), workingVerb(1789204409163L))
+        assertNull(workingVerb(null))
+    }
+
+    @Test
+    fun `the duration reads 37s then 2m 04s then 1h 03m`() {
+        assertEquals("37s", formatWorkingDuration(1_000L, 1_000L + 37_000L))
+        assertEquals("2m 04s", formatWorkingDuration(1_000L, 1_000L + 124_000L))
+        assertEquals("1h 03m", formatWorkingDuration(1_000L, 1_000L + 3_780_000L))
+        assertEquals("0s", formatWorkingDuration(1_000L, 1_000L))
+        // Clock skew clamps rather than dropping the whole group (web parity).
+        assertEquals("0s", formatWorkingDuration(5_000L, 1_000L))
+        assertNull(formatWorkingDuration(null, 1_000L))
+    }
+
+    @Test
+    fun `the token count reads 812 then 2_0k then 1_2M`() {
+        assertEquals("812", formatWorkingTokens(812L))
+        assertEquals("2.0k", formatWorkingTokens(2_000L))
+        assertEquals("1.2k", formatWorkingTokens(1_234L))
+        assertEquals("999.9k", formatWorkingTokens(999_999L))
+        assertEquals("1.2M", formatWorkingTokens(1_234_567L))
+        assertEquals("0", formatWorkingTokens(0L))
+        assertNull(formatWorkingTokens(null))
+    }
+
+    @Test
+    fun `the working caption is the verb its clock and its tokens`() {
+        val startedAt = 1789204409163L
+        val verb = workingVerb(startedAt)
+        assertEquals(
+            "$verb… (37s · ↓ 1.4k tokens)",
+            workingCaption(startedAt, 1432L, startedAt + 37_000L),
+        )
+        // Either half alone still renders a group.
+        assertEquals("$verb… (37s)", workingCaption(startedAt, null, startedAt + 37_000L))
+        // Nothing known at all: the plain fallback, never a naked bracket.
+        assertEquals(WORKING_FALLBACK_CAPTION, workingCaption(null, null, 0L))
+        assertEquals("Working… (↓ 812 tokens)", workingCaption(null, 812L, 0L))
+    }
+
+    @Test
+    fun `a running workflow replaces the verb and keeps the suffix`() {
+        val startedAt = 1789204409163L
+        val state = ActivityFeedState()
+            .applying(workflowEvent())
+            .applying(
+                event("""{"kind":"turn","state":"started","startedAt":$startedAt,"tokens":1432}"""),
+            )
+        val caption = state.runningWorkflow()!!.caption()
+        assertEquals("Workflow wire-probe · 1/2 agents done · Alpha", caption)
+        assertEquals(
+            "$caption (37s · ↓ 1.4k tokens)",
+            workingCaption(state.turnStartedAt, state.turnTokens, startedAt + 37_000L, caption),
+        )
+    }
+
+    // ── EXP-850 (S3): the card's derived pieces ─────────────────────────────
+
+    @Test
+    fun `the phase strip counts every agent`() {
+        val workflow = WorkflowState(
+            id = "w",
+            name = "probe",
+            status = WORKFLOW_STATUS_RUNNING,
+            phases = listOf(WorkflowPhase(1, "Alpha"), WorkflowPhase(2, "Beta")),
+            agents = listOf(
+                WorkflowAgent(index = 1, label = "a", phaseIndex = 1, state = WORKFLOW_AGENT_STATE_DONE),
+                WorkflowAgent(index = 2, label = "b", phaseIndex = 1, state = WORKFLOW_AGENT_STATE_ERROR),
+                WorkflowAgent(index = 3, label = "c", phaseIndex = 2, state = WORKFLOW_AGENT_STATE_RUNNING),
+                WorkflowAgent(index = 4, label = "d", phaseIndex = 2, state = WORKFLOW_AGENT_STATE_QUEUED),
+                // A phase this workflow never declared, and one with none at all.
+                WorkflowAgent(index = 5, label = "e", phaseIndex = 9, state = WORKFLOW_AGENT_STATE_QUEUED),
+                WorkflowAgent(index = 6, label = "f", state = WORKFLOW_AGENT_STATE_QUEUED),
+            ),
+        )
+        val strip = workflowPhaseCounts(workflow)
+        assertEquals(listOf("Alpha", "Beta", WORKFLOW_UNPHASED_TITLE), strip.map { it.title })
+        assertEquals("1 done · 1 failed", workflowPhaseSummary(strip[0]))
+        assertEquals("1 running · 1 queued", workflowPhaseSummary(strip[1]))
+        assertEquals(2, strip[2].queued)
+        // A declared phase nothing has reached yet says so.
+        val empty = workflowPhaseCounts(
+            WorkflowState(id = "w", name = "n", status = WORKFLOW_STATUS_RUNNING, phases = listOf(WorkflowPhase(1, "Alpha"))),
+        )
+        assertEquals(WORKFLOW_PHASE_EMPTY, workflowPhaseSummary(empty.single()))
+    }
+
+    @Test
+    fun `an agent row says what it cost and what it is on`() {
+        val done = WorkflowAgent(
+            index = 1,
+            label = "alpha:one",
+            state = WORKFLOW_AGENT_STATE_DONE,
+            model = "claude-haiku-4-5-20251001",
+            tokens = 9629L,
+            toolCalls = 1,
+            durationMs = 1075L,
+            resultPreview = "ok",
+        )
+        assertEquals(
+            "claude-haiku-4-5-20251001 · 9.6k tokens · 1 tool call · 1s",
+            workflowAgentMetrics(done),
+        )
+        assertEquals("ok", workflowAgentNote(done))
+        val running = WorkflowAgent(
+            index = 2,
+            label = "beta:shell",
+            state = WORKFLOW_AGENT_STATE_RUNNING,
+            lastTool = "Bash",
+            lastToolSummary = "running the suite",
+        )
+        assertEquals("running the suite", workflowAgentNote(running))
+        assertNull(workflowAgentMetrics(running))
+        val failed = WorkflowAgent(index = 3, label = "x", state = WORKFLOW_AGENT_STATE_ERROR, error = "boom")
+        assertEquals("boom", workflowAgentNote(failed))
+        assertNull(workflowAgentNote(WorkflowAgent(index = 4, label = "y", state = WORKFLOW_AGENT_STATE_QUEUED)))
+    }
+
+    @Test
+    fun `a workflow row weighs nothing against the feed budget`() {
+        // The cards are state beside the feed, like the diff and the config —
+        // they must never push transcript rows out of the byte budget.
+        val state = ActivityFeedState().applying(workflowEvent()).applying(
+            event("""{"kind":"background_tasks","tasks":[{"id":"b1","kind":"shell","description":"x"}]}"""),
+        )
+        assertEquals(0L, state.feedBytes)
+        assertEquals(0L, state.nextEventId)
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────
 
     private fun ActivityFeedState.applying(event: JsonObject, seq: Long? = null) =
@@ -1597,4 +2126,27 @@ class AgentFeedTest {
 
     private fun submitStep(askId: String, feedId: Long, wireId: String = "w$feedId") =
         question(feedId).copy(wireId = wireId, askId = askId)
+
+    /** The EXACT `workflow` frame from the claude wire capture (S3). */
+    private fun workflowEvent() = event(
+        """
+        {"kind":"workflow","id":"toolu_017aGvi2moAfSykrRA4LmyT4","name":"wire-probe",
+         "description":"Probe the workflow progress wire","status":"running",
+         "phases":[{"index":1,"title":"Alpha"},{"index":2,"title":"Beta"}],
+         "agents":[{"index":1,"label":"alpha:one","phaseIndex":1,"agentId":"a0ce244c651aaa623",
+                    "model":"claude-haiku-4-5-20251001","state":"done","tokens":9629,"toolCalls":0,
+                    "durationMs":1075,"resultPreview":"ok"},
+                   {"index":2,"label":"alpha:two","phaseIndex":1,"state":"queued"}],
+         "summary":"Dynamic workflow \"…\" completed"}
+        """,
+    )
+
+    /** The EXACT duplicate-agent edge from the capture (EXP-856). */
+    private fun duplicateEvent() = event(
+        """
+        {"kind":"subagent","id":"a55b7012793deae02","agentType":"general-purpose","status":"duplicate",
+         "detail":"Second copy of slowpoke started while the first is still running (resumed by SendMessage)",
+         "title":"slowpoke","workflowId":"toolu_017Lh63mYhRJ3MrA4A1PXytt"}
+        """,
+    )
 }

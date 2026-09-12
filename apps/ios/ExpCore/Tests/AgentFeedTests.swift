@@ -518,9 +518,12 @@ final class AgentFeedTests: XCTestCase {
             return XCTFail("expected a subagent run")
         }
         XCTAssertEqual(run.toolCount, 1)
-        guard case let .ask(group) = rows[1] else { return XCTFail("expected an ask group") }
+        // EXP-850 §9: the ask is still unanswered, so it sits BELOW the prose
+        // that arrived after it — the card a human has to answer is always the
+        // last thing in the transcript.
+        XCTAssertEqual(rows[1], .single(feed[2]))
+        guard case let .ask(group) = rows[2] else { return XCTFail("expected an ask group") }
         XCTAssertEqual(group.questions.map(\.id), [2, 5])
-        XCTAssertEqual(rows[2], .single(feed[2]))
     }
 
     func testGroupsTheStepsOfOneAskWithTheSubmitStepLast() {
@@ -1307,13 +1310,16 @@ final class AgentFeedTests: XCTestCase {
     }
 
     func testApplyTurnIsLatestWinsAndIgnoresNonsense() {
-        XCTAssertEqual(AgentFeed.applyTurn(.ended, event: ["state": "started"]), .started)
-        XCTAssertEqual(AgentFeed.applyTurn(.started, event: ["state": "ended"]), .ended)
+        func state(_ current: AgentTurnState, _ event: [String: Any]) -> AgentTurnState {
+            AgentFeed.applyTurn(AgentTurnSlot(state: current), event: event).state
+        }
+        XCTAssertEqual(state(.ended, ["state": "started"]), .started)
+        XCTAssertEqual(state(.started, ["state": "ended"]), .ended)
         // A malformed frame never flips the indicator (the applyCompaction
         // contract).
-        XCTAssertEqual(AgentFeed.applyTurn(.started, event: ["state": "halfway"]), .started)
-        XCTAssertEqual(AgentFeed.applyTurn(.started, event: [:]), .started)
-        XCTAssertEqual(AgentFeed.applyTurn(.ended, event: ["state": 1]), .ended)
+        XCTAssertEqual(state(.started, ["state": "halfway"]), .started)
+        XCTAssertEqual(state(.started, [:]), .started)
+        XCTAssertEqual(state(.ended, ["state": 1]), .ended)
     }
 
     func testWorkingNeedsAnOpenTurnAndNothingWaitingOnAHuman() {
@@ -1421,6 +1427,320 @@ final class AgentFeedTests: XCTestCase {
         // Blank strings carry nothing — the whole preview drops.
         XCTAssertNil(AgentFeed.toolPreview(["title": "   ", "url": ""]))
         XCTAssertEqual(AgentFeed.toolPreview(["count": 0])?.count, 0)
+    }
+
+    // MARK: - EXP-850 §9: the pending card sits at the bottom
+
+    func testAPendingQuestionMovesAfterEveryLaterRow() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1)),
+            tool(2), tool(3),
+            .narration(id: 4, text: "still working"),
+        ]
+        let rows = AgentFeed.rows(feed)
+        // The card is answerable, so it is the LAST thing in the transcript —
+        // the tool run and the prose that arrived after it keep their order.
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows.map(\.id), [2, 4, 1])
+        XCTAssertTrue(AgentFeed.isPendingCard(rows[2]))
+    }
+
+    func testAResolvedCardReturnsToItsNaturalPosition() {
+        var answered = question(1)
+        answered.resolved = true
+        let feed: [AgentFeedItem] = [
+            .question(answered), tool(2), .narration(id: 3, text: "done"),
+        ]
+        XCTAssertEqual(AgentFeed.rows(feed).map(\.id), [1, 2, 3])
+        // A DISMISSED card is not pending either — the engine tore it down.
+        var dismissed = question(4)
+        dismissed.dismissed = true
+        XCTAssertFalse(AgentFeed.isPendingCard(.single(.question(dismissed))))
+    }
+
+    func testPendingCardsKeepTheirRelativeOrderAtTheBottom() {
+        let feed: [AgentFeedItem] = [
+            .question(question(1, wireId: "q1", askId: "ask_1", index: 1, total: 2)),
+            tool(2),
+            .question(question(3)),
+            .narration(id: 4, text: "prose"),
+        ]
+        let rows = AgentFeed.rows(feed)
+        // The ask group opened first, so it stays ahead of the lone card.
+        XCTAssertEqual(rows.map(\.id), [2, 4, 1, 3])
+    }
+
+    // MARK: - EXP-850 §3: the workflow card's row projection
+
+    private func workflowTool(_ id: Int, callId: String) -> AgentFeedItem {
+        .tool(id: id, name: "Workflow", detail: "wire-probe", subagentId: nil, callId: callId)
+    }
+
+    func testAWorkflowToolRowNeverCollapsesIntoAToolRun() {
+        let feed: [AgentFeedItem] = [
+            workflowTool(1, callId: "w1"),
+            .tool(id: 2, name: "Read", detail: "a.ts", subagentId: nil, callId: "t2"),
+            .tool(id: 3, name: "Edit", detail: "b.ts", subagentId: nil, callId: "t3"),
+        ]
+        // Without the card the three calls are one collapsed run…
+        XCTAssertEqual(AgentFeed.rows(feed).count, 1)
+        // …with it, the Workflow call is its own row (the card renders THERE)
+        // and only the other two collapse.
+        let rows = AgentFeed.rows(feed, workflowIds: ["w1"])
+        XCTAssertEqual(rows.count, 2)
+        guard case .single = rows[0] else { return XCTFail("the card row must stand alone") }
+        guard case let .toolRun(run) = rows[1] else { return XCTFail("expected a tool run") }
+        XCTAssertEqual(run.map(\.id), [2, 3])
+    }
+
+    func testWorkflowAgentsAreNeitherTranscriptRowsNorTabs() {
+        let feed: [AgentFeedItem] = [
+            .subagent(
+                id: 1, subagentId: "a1", agentType: "general-purpose", status: .started,
+                detail: "phase one", title: "alpha:one", workflowId: "w1"
+            ),
+            tool(2, subagentId: "a1"),
+            .subagent(
+                id: 3, subagentId: "b1", agentType: "general-purpose", status: .started,
+                detail: "an ordinary detour", title: "reviewer"
+            ),
+            tool(4, subagentId: "b1"),
+        ]
+        // The card nests its own agent, so the transcript shows only the
+        // ordinary subagent's group.
+        let rows = AgentFeed.rows(feed, workflowIds: ["w1"])
+        XCTAssertEqual(rows.count, 1)
+        guard case let .subagentRun(ordinary) = rows[0] else { return XCTFail("expected a run") }
+        XCTAssertEqual(ordinary.subagentId, "b1")
+        // The runs list keeps BOTH — that is how the card finds its agent.
+        let runs = AgentFeed.subagents(feed)
+        XCTAssertEqual(runs.map(\.subagentId), ["a1", "b1"])
+        XCTAssertEqual(runs[0].workflowId, "w1")
+        // …and the tab strip offers only the steerable one.
+        XCTAssertEqual(
+            AgentFeed.visibleSubagentTabs(runs, selected: nil).map(\.subagentId), ["b1"]
+        )
+        // Even when it is the selected tab, a workflow agent is never offered.
+        XCTAssertEqual(
+            AgentFeed.visibleSubagentTabs(runs, selected: "a1").map(\.subagentId), ["b1"]
+        )
+    }
+
+    // MARK: - EXP-856 §4: the duplicate warning
+
+    func testADuplicateEdgeWarnsBesideItsRunWithoutFinishingIt() {
+        let sentence = "Second copy of slowpoke started while the first is still running (resumed by SendMessage)"
+        let feed: [AgentFeedItem] = [
+            .subagent(
+                id: 1, subagentId: "a1", agentType: "general-purpose", status: .started,
+                detail: "the first copy", title: "slowpoke"
+            ),
+            tool(2, subagentId: "a1"),
+            .subagent(
+                id: 3, subagentId: "a1", agentType: "general-purpose", status: .duplicate,
+                detail: sentence, title: "slowpoke"
+            ),
+        ]
+        let runs = AgentFeed.subagents(feed)
+        let run = runs.first
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(run?.duplicateDetail, sentence)
+        XCTAssertEqual(run?.duplicate, true)
+        // The warning never finishes the run and never replaces its own
+        // delegation detail.
+        XCTAssertEqual(run?.done, false)
+        XCTAssertEqual(run?.detail, "the first copy")
+        XCTAssertEqual(run?.label, "slowpoke")
+    }
+
+    // MARK: - EXP-850 §2/§3: the latest-wins slots
+
+    func testApplyWorkflowIsLatestWinsPerIdInFirstAppearanceOrder() {
+        let first = AgentWorkflow(id: "w1", name: "one")
+        let second = AgentWorkflow(id: "w2", name: "two")
+        var cards = AgentFeed.applyWorkflow([], workflow: first)
+        cards = AgentFeed.applyWorkflow(cards, workflow: second)
+        cards = AgentFeed.applyWorkflow(
+            cards, workflow: AgentWorkflow(id: "w1", name: "one", status: .completed)
+        )
+        XCTAssertEqual(cards.map(\.id), ["w1", "w2"])
+        XCTAssertEqual(cards[0].status, .completed)
+        // The NEWEST still-running card speaks for the run.
+        XCTAssertEqual(AgentFeed.runningWorkflow(cards)?.id, "w2")
+        let done = cards.map { AgentWorkflow(id: $0.id, name: $0.name, status: .completed) }
+        XCTAssertNil(AgentFeed.runningWorkflow(done))
+    }
+
+    func testTheStripListsEveryTaskThenEveryOpenWait() {
+        let feed: [AgentFeedItem] = [
+            .tool(
+                id: 1, name: "TaskOutput", detail: "Sleep in the background",
+                subagentId: nil, callId: "toolu_1", toolKind: "wait"
+            ),
+            .tool(
+                id: 2, name: "Monitor", detail: "Watch the build",
+                subagentId: nil, callId: "toolu_2", toolKind: "wait", settled: true
+            ),
+            .tool(
+                id: 3, name: "Monitor", detail: nil,
+                subagentId: nil, callId: "toolu_3", toolKind: "wait"
+            ),
+            tool(4),
+        ]
+        let tasks = [
+            AgentBackgroundTask(id: "b1", kind: "shell", description: "Sleep in the background")
+        ]
+        let lines = AgentFeed.stripLines(backgroundTasks: tasks, feed: feed)
+        XCTAssertEqual(
+            lines.map(\.text),
+            [
+                "Sleep in the background",
+                "Waiting on Sleep in the background",
+                // A detail-less wait row falls back to the tool's own name.
+                "Waiting on Monitor",
+            ]
+        )
+        XCTAssertEqual(lines.map(\.kind), [.backgroundTask, .wait, .wait])
+        // A SETTLED wait row is off the strip; nothing at all means no strip.
+        XCTAssertTrue(AgentFeed.stripLines(backgroundTasks: [], feed: [tool(1)]).isEmpty)
+    }
+
+    func testTheWorkflowCardsPhaseAndAgentCaptions() {
+        XCTAssertEqual(
+            AgentFeed.workflowPhaseCaption(
+                AgentWorkflowPhaseCounts(queued: 1, running: 2, done: 3, error: 1)
+            ),
+            "3 done · 2 running · 1 queued · 1 failed"
+        )
+        // Zero segments are omitted; nothing at all is an empty caption.
+        XCTAssertEqual(
+            AgentFeed.workflowPhaseCaption(AgentWorkflowPhaseCounts(done: 2)), "2 done"
+        )
+        XCTAssertEqual(AgentFeed.workflowPhaseCaption(AgentWorkflowPhaseCounts()), "")
+
+        XCTAssertEqual(
+            AgentFeed.workflowAgentTelemetry(AgentWorkflowAgent(
+                index: 1, label: "alpha", state: .done,
+                tokens: 12_400, toolCalls: 1, durationMs: 65_000
+            )),
+            "12.4k tokens · 1 tool · 1m 05s"
+        )
+        // A queued agent has reported nothing yet — no trailing telemetry.
+        XCTAssertNil(
+            AgentFeed.workflowAgentTelemetry(AgentWorkflowAgent(index: 2, label: "beta"))
+        )
+        XCTAssertEqual(
+            AgentFeed.workflowAgentTelemetry(AgentWorkflowAgent(
+                index: 3, label: "gamma", state: .running, toolCalls: 7
+            )),
+            "7 tools"
+        )
+    }
+
+    /// The card's phase counts come off its own agents, phase by phase.
+    func testPhaseCountsGroupTheCardsAgents() {
+        let workflow = AgentWorkflow(
+            id: "w1", name: "probe",
+            phases: [
+                AgentWorkflowPhase(index: 1, title: "Alpha"),
+                AgentWorkflowPhase(index: 2, title: "Beta"),
+            ],
+            agents: [
+                AgentWorkflowAgent(index: 1, label: "a", phaseIndex: 1, state: .done),
+                AgentWorkflowAgent(index: 2, label: "b", phaseIndex: 1, state: .error),
+                AgentWorkflowAgent(index: 3, label: "c", phaseIndex: 2, state: .running),
+                AgentWorkflowAgent(index: 4, label: "d", phaseIndex: 2, state: .queued),
+            ]
+        )
+        XCTAssertEqual(workflow.counts(inPhase: 1), AgentWorkflowPhaseCounts(done: 1, error: 1))
+        XCTAssertEqual(
+            workflow.counts(inPhase: 2), AgentWorkflowPhaseCounts(queued: 1, running: 1)
+        )
+        XCTAssertEqual(workflow.counts(inPhase: 7).total, 0)
+        XCTAssertEqual(workflow.agents(inPhase: 2).map(\.label), ["c", "d"])
+    }
+
+    // MARK: - EXP-850 §5: the working caption
+
+    func testTheTurnSlotKeepsWhatItLearnedAndResetsTokensOnANewTurn() {
+        var slot = AgentFeed.applyTurn(
+            AgentTurnSlot(), edge: AgentTurnEdge(state: .started, startedAt: 1000, tokens: 10)
+        )
+        XCTAssertEqual(slot, AgentTurnSlot(state: .started, startedAt: 1000, tokens: 10))
+        // A republish of the same turn tops the count up…
+        slot = AgentFeed.applyTurn(slot, edge: AgentTurnEdge(startedAt: 1000, tokens: 40))
+        XCTAssertEqual(slot.tokens, 40)
+        // …and an edge that carries neither never blanks what it learned.
+        slot = AgentFeed.applyTurn(slot, edge: AgentTurnEdge(state: .started))
+        XCTAssertEqual(slot, AgentTurnSlot(state: .started, startedAt: 1000, tokens: 40))
+        // A NEW turn resets the count, because tokens are per turn.
+        slot = AgentFeed.applyTurn(slot, edge: AgentTurnEdge(state: .started, startedAt: 9000))
+        XCTAssertEqual(slot, AgentTurnSlot(state: .started, startedAt: 9000, tokens: nil))
+    }
+
+    func testWorkingDurationAndTokenFormats() {
+        XCTAssertEqual(AgentFeed.workingDuration(ms: 0), "0s")
+        XCTAssertEqual(AgentFeed.workingDuration(ms: -500), "0s")
+        XCTAssertEqual(AgentFeed.workingDuration(ms: 37_400), "37s")
+        XCTAssertEqual(AgentFeed.workingDuration(ms: 59_999), "59s")
+        XCTAssertEqual(AgentFeed.workingDuration(ms: 124_000), "2m 04s")
+        XCTAssertEqual(AgentFeed.workingDuration(ms: 600_000), "10m 00s")
+        XCTAssertEqual(AgentFeed.workingDuration(ms: 3_780_000), "1h 03m")
+
+        XCTAssertEqual(AgentFeed.workingTokens(0), "0")
+        XCTAssertEqual(AgentFeed.workingTokens(812), "812")
+        XCTAssertEqual(AgentFeed.workingTokens(999), "999")
+        XCTAssertEqual(AgentFeed.workingTokens(2000), "2.0k")
+        XCTAssertEqual(AgentFeed.workingTokens(1432), "1.4k")
+        // Truncated, never rounded up — a count can never read `1000.0k`.
+        XCTAssertEqual(AgentFeed.workingTokens(999_950), "999.9k")
+        XCTAssertEqual(AgentFeed.workingTokens(1_234_567), "1.2M")
+    }
+
+    func testTheWorkingCaptionPicksItsVerbOffTheTurnStart() {
+        let startedAt = 1_789_204_409_163
+        // `verbs[startedAt % verbs.count]` — every client picks the same word
+        // for the same turn, so it never flickers.
+        XCTAssertEqual(AgentFeed.workingVerb(startedAt: startedAt), "Brewing")
+        XCTAssertEqual(
+            AgentFeed.workingVerb(startedAt: startedAt),
+            DomainContract.steerWorkingVerbs[startedAt % DomainContract.steerWorkingVerbs.count]
+        )
+        let now = Date(timeIntervalSince1970: Double(startedAt + 124_000) / 1000)
+        XCTAssertEqual(
+            AgentFeed.workingCaption(startedAt: startedAt, tokens: 1432, now: now),
+            "Brewing… (2m 04s · ↓ 1.4k tokens)"
+        )
+        // No token count yet: the duration stands alone.
+        XCTAssertEqual(
+            AgentFeed.workingCaption(startedAt: startedAt, tokens: nil, now: now),
+            "Brewing… (2m 04s)"
+        )
+        // A publisher too old to stamp the turn's start falls back entirely.
+        XCTAssertEqual(
+            AgentFeed.workingCaption(startedAt: nil, tokens: 900, now: now), "Working…"
+        )
+    }
+
+    func testARunningWorkflowTakesOverTheWorkingCaption() {
+        let startedAt = 1_789_204_409_163
+        let now = Date(timeIntervalSince1970: Double(startedAt + 124_000) / 1000)
+        let workflow = AgentWorkflow(
+            id: "w1", name: "wire-probe", status: .running,
+            phases: [AgentWorkflowPhase(index: 1, title: "Alpha")],
+            agents: [AgentWorkflowAgent(index: 1, label: "alpha:one", phaseIndex: 1, state: .running)]
+        )
+        XCTAssertEqual(
+            AgentFeed.workingCaption(
+                startedAt: startedAt, tokens: 1432, now: now, workflow: workflow
+            ),
+            "Workflow wire-probe · 0/1 agents done · Alpha (2m 04s · ↓ 1.4k tokens)"
+        )
+        // Even with no turn clock the card still names the work.
+        XCTAssertEqual(
+            AgentFeed.workingCaption(startedAt: nil, tokens: nil, now: now, workflow: workflow),
+            "Workflow wire-probe · 0/1 agents done · Alpha"
+        )
     }
 
     // MARK: - Fixtures

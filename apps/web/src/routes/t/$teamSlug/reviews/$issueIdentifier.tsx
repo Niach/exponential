@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
-  ArrowLeft,
   ExternalLink,
   GitBranch,
   GitMerge,
@@ -23,6 +22,7 @@ import {
 } from "@/hooks/use-team-data"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useOpenComposer } from "@/hooks/use-open-composer"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
@@ -52,6 +52,12 @@ import { useSteerConfig } from "@/components/agent-session"
 export const Route = createFileRoute(
   `/t/$teamSlug/reviews/$issueIdentifier`
 )({
+  // EXP-851: the list this review was opened from (`lib/detail-origin.ts`) —
+  // the sidebar keeps the queue beside it; absent means the main menu stays.
+  validateSearch: (search: Record<string, unknown>): { from?: string } => ({
+    from:
+      typeof search.from === `string` && search.from ? search.from : undefined,
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -336,41 +342,17 @@ function ReviewDetailPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Mobile header (EXP-706) — a round back button and the section title,
-          no actions (those live in the floating bar). A plain flex sibling
-          ABOVE the scroller, not a sticky child of it: the route's own column
-          already pins it, and the scrollport stays free of overlay chrome. */}
-      <div className="flex items-center gap-2 border-b border-border bg-background/80 px-3 py-2 backdrop-blur-xl md:hidden">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9 shrink-0 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
-          aria-label="Back to reviews"
-          onClick={() =>
-            void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
-          }
-        >
-          <ArrowLeft className="size-4" />
-        </Button>
-        <span className="flex-1 truncate text-center text-sm font-semibold">
-          Review
-        </span>
-        {/* Balances the back button so the title stays optically centred. */}
-        <span className="size-9 shrink-0" />
-      </div>
-
-      {/* Breadcrumb (desktop only — mobile has the back button above) */}
-      <div className="hidden items-center gap-1.5 border-b border-border px-4 py-2 text-xs text-muted-foreground md:flex">
-        <Link
-          to="/t/$teamSlug/reviews"
-          params={{ teamSlug }}
-          className="hover:text-foreground"
-        >
-          Reviews
-        </Link>
-        <span className="text-muted-foreground/50">/</span>
-        <span className="font-mono text-foreground">{issue.identifier}</span>
-      </div>
+      {/* EXP-851: the shared detail header on phones — round back, the
+          identifier centred. The desktop breadcrumb is gone: the sidebar's
+          list nav says where you are, and the queue is one click away in it. */}
+      <MobileDetailHeader
+        className="md:hidden"
+        title={<span className="font-mono">{issue.identifier}</span>}
+        backLabel="Back to reviews"
+        onBack={() =>
+          void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
+        }
+      />
 
       {/* Desktop header (EXP-706) — deliberately NOT a card: the branch over a
           quiet state · files · ±totals line, with the actions on the right.

@@ -100,6 +100,7 @@ function RunningPing() {
 // unit-tested without dragging the component graph in (EXP-531); re-exported
 // here for the existing importers.
 import {
+  sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
   type SessionDisplayState,
@@ -442,7 +443,7 @@ function AgentRow({
           <button
             type="button"
             aria-label="Open coding session"
-            onClick={() => openSession(ownLatest)}
+            onClick={() => openSession(ownLatest, { originIssueId: issue.id })}
             className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
           >
             {glyph}
@@ -471,7 +472,7 @@ function AgentRow({
             size="sm"
             mode="action"
             primary
-            onClick={() => openSession(ownLatest)}
+            onClick={() => openSession(ownLatest, { originIssueId: issue.id })}
           >
             <WatchIcon />
             Watch
@@ -488,23 +489,33 @@ function AgentRow({
             : state === `done`
               ? `Done`
               : `Coding now`
+      // EXP-850 §8: the device-written caption of the run's live workflow —
+      // the second line of this slot, before anything else it says.
+      const caption = sessionAgentCaption(latest)
       return (
         <span
-          className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+          className="flex min-w-0 shrink-0 flex-col text-xs text-muted-foreground"
           title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
         >
-          {paused ? (
-            <StateDot className="bg-muted-foreground/40" />
-          ) : (
-            <SessionStateDot
-              state={sessionDisplayState(latest, issue.prState)}
-              working={sessionRowIsWorking(latest, issue.prState)}
-            />
-          )}
-          <span className="truncate">
-            {verb}
-            {ownLatest ? `` : ` · ${displayUserName(owner, latest.userId)}`}
+          <span className="flex min-w-0 items-center gap-1.5">
+            {paused ? (
+              <StateDot className="bg-muted-foreground/40" />
+            ) : (
+              <SessionStateDot
+                state={sessionDisplayState(latest, issue.prState)}
+                working={sessionRowIsWorking(latest, issue.prState)}
+              />
+            )}
+            <span className="truncate">
+              {verb}
+              {ownLatest ? `` : ` · ${displayUserName(owner, latest.userId)}`}
+            </span>
           </span>
+          {caption && (
+            <span className="truncate pl-3.5" title={caption}>
+              {caption}
+            </span>
+          )}
         </span>
       )
     }

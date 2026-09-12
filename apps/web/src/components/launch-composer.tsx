@@ -32,7 +32,10 @@ import { cn } from "@/lib/utils"
 
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
 const ActionRunIcon = conceptIcon(`action-run`)
-const EditorImageIcon = conceptIcon(`editor-image`)
+// EXP-850 §13: the STEER composers (this one and the session composer)
+// attach with the `ui-add` plus ×4; comment and description editors keep
+// `editor-image`.
+const UiAddIcon = conceptIcon(`ui-add`)
 const UiSubmitIcon = conceptIcon(`ui-submit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiCloseIcon = conceptIcon(`ui-close`)
@@ -241,7 +244,7 @@ export function LaunchComposer({
                 fileInputRef.current?.click()
               }}
             >
-              <EditorImageIcon />
+              <UiAddIcon />
             </ComposerTool>
           </>
         }

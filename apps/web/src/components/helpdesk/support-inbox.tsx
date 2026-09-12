@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
-  ArrowLeft,
   Check,
   ExternalLink,
   Info,
@@ -41,7 +40,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import {
+  SEGMENTED_ROW,
+  SEGMENTED_ROW_COMPACT,
+  SEGMENTED_TAB,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { conceptIcon } from "@/lib/icons.generated"
 import { cn } from "@/lib/utils"
@@ -60,6 +67,9 @@ type ThreadRow = Awaited<
   ReturnType<typeof trpc.helpdesk.listThreads.query>
 >[number]
 type ThreadDetail = Awaited<ReturnType<typeof trpc.helpdesk.getThread.query>>
+/** What the details rail and the header need off a ticket — satisfied by both
+ *  a list row and the loaded conversation's own thread row. */
+type ThreadHeader = ThreadDetail[`thread`]
 type WidgetSubmissionRow = Awaited<
   ReturnType<typeof trpc.widgets.submissionForThread.query>
 >
@@ -78,23 +88,32 @@ function reporterLabel(row: {
   return row.reporterName || row.reporterEmail
 }
 
-// Featurebase-style 3-pane support inbox (EXP-128; EXP-180 made threads
-// standalone). Threads/messages are server-only tables (no Electric shape),
-// so the list and the open thread poll tRPC. A thread carries its own
-// open/resolved status; an issue exists only once a member escalates the
-// ticket — the escalated issue IS synced, so the details rail resolves it
-// live from the issues collection. On small screens the list and the
-// conversation stack (back button) and the details rail becomes a sheet
-// behind the header's info button — escalate/linked-issue stay reachable
-// on every viewport.
-export function SupportInbox({
+// EXP-851: the helpdesk is TWO surfaces now, not a 3-pane view — a LIST
+// (`/t/$teamSlug/support`, and the same rows in the sidebar's list nav) and a
+// CONVERSATION on its own route (`/t/$teamSlug/support/$threadId`), so a
+// ticket is a URL you can share, refresh and come back to. Threads/messages
+// are server-only tables (no Electric shape), so both poll tRPC. The ticket's
+// details rail stays beside the conversation on lg+ and behind the header's
+// info button below it.
+
+type SupportFilter = `open` | `resolved`
+
+/** The team's threads in one tab, polled — the list view and the sidebar's
+ *  list nav render the SAME component, only narrower. */
+export function SupportThreadList({
   teamId,
   teamSlug,
+  activeThreadId = null,
+  compact = false,
 }: {
   teamId: string
   teamSlug: string
+  /** The conversation that is open, for the highlighted row. */
+  activeThreadId?: string | null
+  /** The sidebar's 16rem slot: no reading column, tighter strip padding. */
+  compact?: boolean
 }) {
-  const [filter, setFilter] = useState<`open` | `resolved`>(`open`)
+  const [filter, setFilter] = useState<SupportFilter>(`open`)
   const [page, setPage] = useState<ThreadRow[] | null>(null)
   const [olderPages, setOlderPages] = useState<ThreadRow[]>([])
   // `pageFull` says the newest page filled up, `exhausted` that a "load
@@ -103,7 +122,6 @@ export function SupportInbox({
   const [pageFull, setPageFull] = useState(false)
   const [exhausted, setExhausted] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const loadThreads = useCallback(async () => {
     try {
@@ -129,16 +147,15 @@ export function SupportInbox({
     return () => clearInterval(timer)
   }, [loadThreads])
 
-  // Opening the Support surface — and opening any conversation in it —
-  // clears the team's unread support_reply notifications (REV2-13). The badge
-  // sits ON this entry and nothing else can clear it: those rows have no
-  // issue, so markReadByIssue never matches them. Fire-and-forget; a failure
-  // just leaves the badge lit.
+  // Opening the Support surface clears the team's unread support_reply
+  // notifications (REV2-13). The badge sits ON this entry and nothing else can
+  // clear it: those rows have no issue, so markReadByIssue never matches them.
+  // Fire-and-forget; a failure just leaves the badge lit.
   useEffect(() => {
     void trpc.notifications.markReadSupport
       .mutate({ teamId })
       .catch(() => {})
-  }, [teamId, selectedId])
+  }, [teamId])
 
   const pageRows = page ?? []
   const pageIds = new Set(pageRows.map((row) => row.id))
@@ -168,116 +185,111 @@ export function SupportInbox({
     }
   }
 
-  // Keep the selection valid as rows move between the Open/Resolved tabs.
-  const selected =
-    threads?.find((thread) => thread.id === selectedId) ?? null
-
   return (
-    <div className="flex h-full min-h-0">
-      {/* Left — conversation list */}
-      <div
-        className={`w-full shrink-0 flex-col border-r md:flex md:w-80 ${
-          selected ? `hidden` : `flex`
-        }`}
-      >
-        {/* EXP-449: no page title — the tabs sit left-aligned like the
-            Inbox's. */}
-        <div className="flex items-center gap-1 border-b px-3 py-2.5">
-          <Tabs
-            value={filter}
-            onValueChange={(value) =>
-              setFilter(value as `open` | `resolved`)
-            }
-          >
-            <TabsList className="h-8">
-              {([`open`, `resolved`] as const).map((tab) => {
-                const TabIcon = TAB_ICON[tab]
-                return (
-                  <TabsTrigger
-                    key={tab}
-                    value={tab}
-                    className="gap-1.5 px-3 text-xs capitalize"
-                  >
-                    <TabIcon className="size-3 shrink-0" />
-                    {tab}
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-          </Tabs>
-        </div>
-        <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* EXP-851: the Open/Resolved strip and the Inbox / My issues strip are
+          ONE control — same trigger sizing, same row padding. */}
+      <div className={compact ? SEGMENTED_ROW_COMPACT : SEGMENTED_ROW}>
+        <Tabs
+          value={filter}
+          onValueChange={(value) => setFilter(value as SupportFilter)}
+          className="w-fit shrink-0"
+        >
+          <TabsList>
+            {([`open`, `resolved`] as const).map((tab) => {
+              const TabIcon = TAB_ICON[tab]
+              return (
+                <TabsTrigger key={tab} value={tab} className={SEGMENTED_TAB}>
+                  <TabIcon />
+                  {tab === `open` ? `Open` : `Resolved`}
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
+        </Tabs>
+      </div>
+      <div className={cn(`min-h-0 flex-1 overflow-y-auto`, TAB_BAR_CLEARANCE)}>
+        <div
+          className={cn(
+            `flex w-full flex-col`,
+            compact ? `p-2` : `mx-auto max-w-3xl px-4 py-2`
+          )}
+        >
           {threads === null ? (
             <div className="flex items-center justify-center py-10">
               <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
           ) : threads.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-              <LifeBuoy className="h-6 w-6 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
+            compact ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">
                 {filter === `open`
                   ? `No open conversations.`
                   : `No resolved conversations yet.`}
-              </p>
-            </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                <LifeBuoy className="h-6 w-6 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  {filter === `open`
+                    ? `No open conversations.`
+                    : `No resolved conversations yet.`}
+                </p>
+              </div>
+            )
           ) : (
-            <div className="flex flex-col gap-0 p-2">
-              {threads.map((thread) => (
-                <ListRow
-                  key={thread.id}
-                  asChild
-                  active={thread.id === selectedId}
-                  interactive={thread.id !== selectedId}
-                  className={cn(
-                    `w-full flex-col items-stretch gap-0 px-3 py-2.5 text-left`,
-                    thread.id === selectedId && `bg-glass-active`
-                  )}
+            threads.map((thread) => (
+              <ListRow
+                key={thread.id}
+                asChild
+                active={thread.id === activeThreadId}
+                interactive={thread.id !== activeThreadId}
+                className="w-full flex-col items-stretch gap-0 px-3 py-2.5 text-left"
+                data-testid={`support-row-${thread.id}`}
+              >
+                <Link
+                  to="/t/$teamSlug/support/$threadId"
+                  params={{ teamSlug, threadId: thread.id }}
+                  search={{ from: `support` }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(thread.id)}
-                  >
-                    {/* EXP-715: the ticket SUBJECT leads (every client); the
-                        reporter + latest public message sit under it. */}
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          `min-w-0 flex-1 truncate text-sm`,
-                          thread.unread && `font-medium`
-                        )}
-                      >
-                        {thread.title}
-                      </span>
-                      {/* EXP-698: fixed trailing columns — the stamp is
-                          right-aligned in its own slot and the unread dot
-                          keeps its 8px slot whether or not it is lit, so read
-                          and unread rows line up exactly. 6rem, not the
-                          inbox's 4: helpdesk prints the long form
-                          ("2 minutes ago"), which a 4rem slot truncates. */}
-                      <span className="w-24 shrink-0 truncate text-right text-[0.65rem] text-muted-foreground">
-                        {relativeTime(thread.updatedAt)}
-                      </span>
-                      <span className="w-2 shrink-0">
-                        {thread.unread && (
-                          <span
-                            className="block h-2 w-2 rounded-full bg-primary"
-                            aria-label="Awaiting reply"
-                          />
-                        )}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {thread.lastMessage?.body
-                        ? `${reporterLabel(thread)} · ${thread.lastMessage.body}`
-                        : reporterLabel(thread)}
-                    </p>
-                  </button>
-                </ListRow>
-              ))}
-            </div>
+                  {/* EXP-715: the ticket SUBJECT leads (every client); the
+                      reporter + latest public message sit under it. */}
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        `min-w-0 flex-1 truncate text-sm`,
+                        thread.unread && `font-medium`
+                      )}
+                    >
+                      {thread.title}
+                    </span>
+                    {/* EXP-698: fixed trailing columns — the stamp is
+                        right-aligned in its own slot and the unread dot keeps
+                        its 8px slot whether or not it is lit, so read and
+                        unread rows line up exactly. 6rem, not the inbox's 4:
+                        helpdesk prints the long form ("2 minutes ago"). */}
+                    <span className="w-24 shrink-0 truncate text-right text-[0.65rem] text-muted-foreground">
+                      {relativeTime(thread.updatedAt)}
+                    </span>
+                    <span className="w-2 shrink-0">
+                      {thread.unread && (
+                        <span
+                          className="block h-2 w-2 rounded-full bg-primary"
+                          aria-label="Awaiting reply"
+                        />
+                      )}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {thread.lastMessage?.body
+                      ? `${reporterLabel(thread)} · ${thread.lastMessage.body}`
+                      : reporterLabel(thread)}
+                  </p>
+                </Link>
+              </ListRow>
+            ))
           )}
           {threads !== null && threads.length > 0 && hasMore && (
-            <div className="px-2 pb-2">
+            <div className="px-2 pb-2 pt-2">
               <Pill
                 size="sm"
                 mode="action"
@@ -296,43 +308,27 @@ export function SupportInbox({
           )}
         </div>
       </div>
-
-      {/* Middle + right */}
-      {selected ? (
-        <ConversationPane
-          key={selected.id}
-          thread={selected}
-          teamId={teamId}
-          teamSlug={teamSlug}
-          onBack={() => setSelectedId(null)}
-          onChanged={loadThreads}
-        />
-      ) : (
-        <div className="hidden flex-1 items-center justify-center md:flex">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <LifeBuoy className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Select a conversation
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
-function ConversationPane({
-  thread,
+/** EXP-851: one ticket on its own route — the conversation in the main
+ *  column, the sidebar showing the Support list nav beside it. The header is
+ *  the shared `MobileDetailHeader` (round back, centred subject, round info
+ *  button), the same bar the issue, review and session details wear. */
+export function SupportConversation({
+  threadId,
   teamId,
   teamSlug,
   onBack,
   onChanged,
 }: {
-  thread: ThreadRow
+  threadId: string
   teamId: string
   teamSlug: string
   onBack: () => void
-  onChanged: () => Promise<void>
+  /** The list behind this conversation, when there is one to refresh. */
+  onChanged?: () => Promise<void>
 }) {
   const [detail, setDetail] = useState<ThreadDetail | null>(null)
   const [draft, setDraft] = useState(``)
@@ -348,17 +344,27 @@ function ConversationPane({
 
   const loadDetail = useCallback(async () => {
     try {
-      setDetail(await trpc.helpdesk.getThread.query({ threadId: thread.id }))
+      setDetail(await trpc.helpdesk.getThread.query({ threadId }))
     } catch (err) {
       console.error(`helpdesk thread load failed`, err)
     }
-  }, [thread.id])
+  }, [threadId])
 
   useEffect(() => {
     void loadDetail()
     const timer = setInterval(() => void loadDetail(), THREAD_POLL_MS)
     return () => clearInterval(timer)
   }, [loadDetail])
+
+  // Opening a conversation clears the team's unread support notifications
+  // (REV2-13) — the list used to do this on selection.
+  useEffect(() => {
+    void trpc.notifications.markReadSupport
+      .mutate({ teamId })
+      .catch(() => {})
+  }, [teamId, threadId])
+
+  const thread = detail?.thread ?? null
 
   const messageCount = detail?.messages.length ?? 0
   useEffect(() => {
@@ -371,12 +377,12 @@ function ConversationPane({
     setSending(true)
     try {
       if (mode === `reply`) {
-        await trpc.helpdesk.reply.mutate({ threadId: thread.id, body })
+        await trpc.helpdesk.reply.mutate({ threadId, body })
       } else {
-        await trpc.helpdesk.note.mutate({ threadId: thread.id, body })
+        await trpc.helpdesk.note.mutate({ threadId, body })
       }
       setDraft(``)
-      await Promise.all([loadDetail(), onChanged()])
+      await Promise.all([loadDetail(), onChanged?.()])
     } catch (err) {
       console.error(`helpdesk send failed`, err)
     } finally {
@@ -391,11 +397,11 @@ function ConversationPane({
     setStatusBusy(true)
     try {
       if (isResolved) {
-        await trpc.helpdesk.reopen.mutate({ threadId: thread.id })
+        await trpc.helpdesk.reopen.mutate({ threadId })
       } else {
-        await trpc.helpdesk.close.mutate({ threadId: thread.id })
+        await trpc.helpdesk.close.mutate({ threadId })
       }
-      await Promise.all([loadDetail(), onChanged()])
+      await Promise.all([loadDetail(), onChanged?.()])
     } catch (err) {
       console.error(`helpdesk close/reopen failed`, err)
     } finally {
@@ -404,29 +410,35 @@ function ConversationPane({
   }
 
   return (
-    <>
+    <div className="flex h-full min-h-0">
       {/* Middle — chat thread. On mobile the floating tab bar stays
           visible, so the column reserves clearance to keep the composer
           above it. */}
       <div className={`flex min-w-0 flex-1 flex-col ${TAB_BAR_CLEARANCE}`}>
+        {/* EXP-851: the shared detail header — round back, the ticket's
+            subject centred, the round info button in the trailing slot. The
+            Close/Reopen control sits on the line below, where the actions of
+            every other detail live. */}
+        <MobileDetailHeader
+          title={thread?.title ?? `Ticket`}
+          onBack={onBack}
+          backLabel="Back to conversations"
+          menu={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground lg:hidden"
+              onClick={() => setDetailsOpen(true)}
+              aria-label="Ticket details"
+            >
+              <Info />
+            </Button>
+          }
+        />
         <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0 text-muted-foreground md:hidden"
-            onClick={onBack}
-            aria-label="Back to conversations"
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">
-              {reporterLabel(thread)}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {thread.title}
-            </p>
-          </div>
+          <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {thread ? reporterLabel(thread) : ``}
+          </p>
           <Pill
             size="sm"
             mode="action"
@@ -445,15 +457,6 @@ function ConversationPane({
           >
             {isResolved ? `Reopen ticket` : `Close ticket`}
           </Pill>
-          <Button
-            variant="glass"
-            size="icon-sm"
-            className="shrink-0 lg:hidden"
-            onClick={() => setDetailsOpen(true)}
-            aria-label="Ticket details"
-          >
-            <Info />
-          </Button>
         </div>
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
@@ -479,7 +482,7 @@ function ConversationPane({
                   message.emailDeliveryStatus === `bounced` ||
                   message.emailDeliveryStatus === `complained`)
               const author = isInbound
-                ? reporterLabel(thread)
+                ? (thread ? reporterLabel(thread) : `Reporter`)
                 : displayUserName(
                     message.authorUserId
                       ? userMap.get(message.authorUserId)
@@ -590,7 +593,7 @@ function ConversationPane({
               }}
               placeholder={
                 mode === `reply`
-                  ? `Reply to ${reporterLabel(thread)}… (emailed to them)`
+                  ? `Reply to ${thread ? reporterLabel(thread) : `the reporter`}… (emailed to them)`
                   : `Add an internal note… (never sent to the reporter)`
               }
               rows={2}
@@ -602,14 +605,16 @@ function ConversationPane({
 
       {/* Right — details rail (≥lg) */}
       <div className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l px-4 py-4 lg:flex">
-        <ThreadDetails
-          thread={thread}
-          teamId={teamId}
-          teamSlug={teamSlug}
-          onEscalated={async () => {
-            await Promise.all([loadDetail(), onChanged()])
-          }}
-        />
+        {thread && (
+          <ThreadDetails
+            thread={thread}
+            teamId={teamId}
+            teamSlug={teamSlug}
+            onEscalated={async () => {
+              await Promise.all([loadDetail(), onChanged?.()])
+            }}
+          />
+        )}
       </div>
 
       {/* Below lg the same details open in a sheet from the header. */}
@@ -621,17 +626,19 @@ function ConversationPane({
           <SheetHeader className="p-0">
             <SheetTitle className="text-sm">Ticket details</SheetTitle>
           </SheetHeader>
-          <ThreadDetails
-            thread={thread}
-            teamId={teamId}
-            teamSlug={teamSlug}
-            onEscalated={async () => {
-              await Promise.all([loadDetail(), onChanged()])
-            }}
-          />
+          {thread && (
+            <ThreadDetails
+              thread={thread}
+              teamId={teamId}
+              teamSlug={teamSlug}
+              onEscalated={async () => {
+                await Promise.all([loadDetail(), onChanged?.()])
+              }}
+            />
+          )}
         </SheetContent>
       </Sheet>
-    </>
+    </div>
   )
 }
 
@@ -645,7 +652,7 @@ function ThreadDetails({
   teamSlug,
   onEscalated,
 }: {
-  thread: ThreadRow
+  thread: ThreadHeader
   teamId: string
   teamSlug: string
   onEscalated: () => Promise<void>

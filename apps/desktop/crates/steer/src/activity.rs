@@ -745,6 +745,120 @@ impl TurnSignal {
     }
 }
 
+/// EXP-850 §8: the in-process workflow CAPTION of a run hosted right here —
+/// the desktop's own session rows read this instead of waiting for the
+/// `coding_sessions.agent_caption` column the very same process just wrote
+/// (the `agent_busy` precedence rule, applied to the caption).
+///
+/// A plain mutexed slot rather than an atomic: it holds a string, it moves at
+/// most once every [`CAPTION_WRITE_INTERVAL`], and nothing reads it on the hot
+/// event path.
+#[derive(Debug, Default)]
+pub struct CaptionSignal {
+    caption: Mutex<Option<String>>,
+}
+
+impl CaptionSignal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The caption right now — `None` while no workflow runs.
+    pub fn get(&self) -> Option<String> {
+        match self.caption.lock() {
+            Ok(caption) => caption.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// Record the caption (`None` clears it). Returns whether it CHANGED,
+    /// which is what the forwarder's "only on change" rule keys on.
+    pub fn set(&self, caption: Option<String>) -> bool {
+        let mut slot = match self.caption.lock() {
+            Ok(slot) => slot,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if *slot == caption {
+            return false;
+        }
+        *slot = caption;
+        true
+    }
+}
+
+/// EXP-850 §8: the synced `coding_sessions.agent_caption` column, written at
+/// most this often — a workflow's progress moves several times a second and
+/// the column is a session-list second line, not a telemetry stream.
+pub const CAPTION_WRITE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// EXP-850 §8: the caption forwarder — the [`NeedsInputForwarder`] rule plus a
+/// rate limit. Writes only on CHANGE, never more than once per
+/// [`CAPTION_WRITE_INTERVAL`], and clears at teardown.
+pub struct CaptionForwarder {
+    forwarded: Option<Option<String>>,
+    next_write_at: Option<Instant>,
+}
+
+pub type CaptionHook = Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>;
+
+impl CaptionForwarder {
+    pub fn new() -> Self {
+        Self {
+            // A session row is born with a NULL caption, so that is the state
+            // the forwarder starts from and never has to write.
+            forwarded: Some(None),
+            next_write_at: None,
+        }
+    }
+
+    /// One tick. `caption` is the newest running workflow's caption, `None`
+    /// when none runs (at turn end and at teardown that is exactly what the
+    /// caller passes).
+    pub fn tick(&mut self, caption: Option<&str>, hook: &Option<CaptionHook>) {
+        self.tick_at(Instant::now(), caption, hook)
+    }
+
+    /// [`Self::tick`] with the clock injected — the pure half, so the rate
+    /// limit is testable without sleeping.
+    pub fn tick_at(
+        &mut self,
+        now: Instant,
+        caption: Option<&str>,
+        hook: &Option<CaptionHook>,
+    ) {
+        let wanted = caption.map(str::to_string);
+        if self.forwarded.as_ref() == Some(&wanted) {
+            return;
+        }
+        if self.next_write_at.is_some_and(|at| now < at) {
+            return;
+        }
+        let landed = match hook {
+            Some(hook) => hook(wanted.as_deref()),
+            None => true,
+        };
+        self.forwarded = landed.then(|| wanted.clone());
+        // A landed write holds the floor for the interval; a failed one is
+        // retried on the next tick like every other forwarder here.
+        self.next_write_at = landed.then(|| now + CAPTION_WRITE_INTERVAL);
+    }
+
+    /// Teardown tidiness: a session whose engine is gone runs no workflow.
+    pub fn clear_on_teardown(&mut self, hook: &Option<CaptionHook>) {
+        if self.forwarded.as_ref() != Some(&None) {
+            if let Some(hook) = hook {
+                hook(None);
+            }
+        }
+    }
+}
+
+impl Default for CaptionForwarder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// EXP-637: how long an agent-declared end waits for the turn to finish
 /// before it tears down anyway. Generous: the wait costs nothing while the
 /// agent is still producing the output the user wants to read, and the
@@ -1805,4 +1919,64 @@ mod tests {
         assert!(!redactor.redact_exact_only(&leaky).contains("hunter2secret1234"));
     }
 
+}
+
+#[cfg(test)]
+mod exp850_caption_tests {
+    use super::*;
+
+    /// EXP-850 §8: the in-process slot the desktop reads for a run it hosts.
+    #[test]
+    fn the_caption_signal_reports_changes() {
+        let signal = CaptionSignal::new();
+        assert_eq!(signal.get(), None);
+        assert!(signal.set(Some("Workflow w \u{b7} starting".to_string())));
+        assert!(!signal.set(Some("Workflow w \u{b7} starting".to_string())));
+        assert_eq!(signal.get().as_deref(), Some("Workflow w \u{b7} starting"));
+        assert!(signal.set(None));
+        assert_eq!(signal.get(), None);
+    }
+
+    /// EXP-850 §8: one write per change AND at most one per
+    /// [`CAPTION_WRITE_INTERVAL`]; a failed write is retried on the next tick.
+    #[test]
+    fn the_caption_forwarder_writes_on_change_and_rate_limits() {
+        let writes: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let landed = Arc::new(AtomicBool::new(true));
+        let hook: Option<CaptionHook> = {
+            let writes = Arc::clone(&writes);
+            let landed = Arc::clone(&landed);
+            Some(Arc::new(move |caption: Option<&str>| {
+                writes.lock().unwrap().push(caption.map(str::to_string));
+                landed.load(Ordering::Relaxed)
+            }))
+        };
+        let mut forwarder = CaptionForwarder::new();
+        let start = Instant::now();
+        // The row is born NULL: nothing to write.
+        forwarder.tick_at(start, None, &hook);
+        assert!(writes.lock().unwrap().is_empty());
+        forwarder.tick_at(start, Some("one"), &hook);
+        // Unchanged, and inside the interval: silent either way.
+        forwarder.tick_at(start, Some("one"), &hook);
+        forwarder.tick_at(start, Some("two"), &hook);
+        assert_eq!(
+            writes.lock().unwrap().clone(),
+            vec![Some("one".to_string())]
+        );
+        // Past the interval the change lands.
+        let later = start + CAPTION_WRITE_INTERVAL;
+        forwarder.tick_at(later, Some("two"), &hook);
+        assert_eq!(writes.lock().unwrap().len(), 2);
+        // A failed write is NOT confirmed, so the next tick retries it at once.
+        landed.store(false, Ordering::Relaxed);
+        let later = later + CAPTION_WRITE_INTERVAL;
+        forwarder.tick_at(later, None, &hook);
+        forwarder.tick_at(later, None, &hook);
+        assert_eq!(writes.lock().unwrap().len(), 4);
+        // Teardown clears whatever is still standing.
+        landed.store(true, Ordering::Relaxed);
+        forwarder.clear_on_teardown(&hook);
+        assert_eq!(writes.lock().unwrap().last().cloned(), Some(None));
+    }
 }

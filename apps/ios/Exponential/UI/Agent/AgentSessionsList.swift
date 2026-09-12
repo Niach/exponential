@@ -449,6 +449,17 @@ struct AgentSessionsList: View {
                     // not on the row merely being `running`.
                     busy: row.session.agentBusy
                 )
+                // EXP-850 §8: the device-written caption (today the running
+                // workflow's) is the row's SECOND line, above the byline.
+                // Only a live row (web/desktop rule): a merged run never
+                // shows what it "is doing", whatever the column still says.
+                if state != .done, let caption = row.session.agentCaption, !caption.isEmpty {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 HStack(spacing: 6) {
                     if paused {
                         Text("Paused")

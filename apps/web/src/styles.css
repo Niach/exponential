@@ -352,6 +352,21 @@ html {
       transform: translateX(300%);
     }
   }
+
+  /* EXP-850 §5 — the working caption's agent brand mark: opacity 0.4 to 1
+     over 1.4s, the same beat on all four clients. Always behind
+     `motion-safe:`. */
+  --animate-agent-pulse: agent-pulse 1.4s ease-in-out infinite;
+
+  @keyframes agent-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
 }
 
 @utility duration-fast {

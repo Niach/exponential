@@ -598,7 +598,8 @@ struct FeedState {
     /// otherwise silently drop it on a long run: the phase (the composer's
     /// gate), and the latest-wins activity kinds — the relay's own
     /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `rate_limit`
-    /// (EXP-784), `turn` (EXP-848), `diff`), which are slots in `SteerFeed`
+    /// (EXP-784), `turn` (EXP-848), `background_tasks` and the keyed
+    /// `workflow` cards (EXP-850), `diff`), which are slots in `SteerFeed`
     /// too and never feed rows. A `tool_update` (EXP-785) is an ordinary row
     /// of the ring.
     phase: Option<EnginePhase>,
@@ -613,6 +614,15 @@ struct FeedState {
     rate_limit: Option<LocalFeedEvent>,
     /// EXP-848: the turn slot — the spinner's source of truth.
     turn: Option<LocalFeedEvent>,
+    /// EXP-850 §2: the bottom strip's list — the FULL current set every time,
+    /// so only the newest frame matters.
+    background_tasks: Option<LocalFeedEvent>,
+    /// EXP-850 §3: the `workflow` cards, latest-wins PER ID and kept in
+    /// first-appearance order, exactly like `ActivityJournal::workflows`.
+    /// A running workflow republishes its card up to once a second for
+    /// minutes on end; as ring rows those frames alone would evict the whole
+    /// transcript of the run that spawned them.
+    workflows: Vec<(String, LocalFeedEvent)>,
     diff: Option<LocalFeedEvent>,
     subscribers: Vec<flume::Sender<LocalFeedEvent>>,
 }
@@ -628,9 +638,36 @@ impl FeedState {
             steer::ActivityEvent::Usage { .. } => Some(&mut self.usage),
             steer::ActivityEvent::RateLimit { .. } => Some(&mut self.rate_limit),
             steer::ActivityEvent::Turn { .. } => Some(&mut self.turn),
+            steer::ActivityEvent::BackgroundTasks { .. } => Some(&mut self.background_tasks),
             steer::ActivityEvent::Diff { .. } => Some(&mut self.diff),
             _ => None,
         }
+    }
+
+    /// EXP-850 §3: fold a `workflow` frame into its own keyed slot — the
+    /// newest frame for an id replaces its predecessor in place, a new id
+    /// appends, and the oldest card goes past
+    /// [`steer::journal::JOURNAL_WORKFLOW_CAP`]. `true` = folded, so the
+    /// caller must not push a row.
+    fn fold_workflow(&mut self, event: &LocalFeedEvent) -> bool {
+        let LocalFeedEvent::Activity {
+            event: steer::ActivityEvent::Workflow(workflow),
+            ..
+        } = event
+        else {
+            return false;
+        };
+        let id = workflow.id.clone();
+        match self.workflows.iter_mut().find(|(held, _)| *held == id) {
+            Some((_, held)) => *held = event.clone(),
+            None => {
+                self.workflows.push((id, event.clone()));
+                while self.workflows.len() > steer::journal::JOURNAL_WORKFLOW_CAP {
+                    self.workflows.remove(0);
+                }
+            }
+        }
+        true
     }
 
     /// Append a streaming terminal chunk onto the row it continues, instead
@@ -696,6 +733,8 @@ impl LocalFeed {
             state.phase = Some(phase.clone());
         } else if let Some(slot) = state.slot(&event) {
             *slot = Some(event.clone());
+        } else if state.fold_workflow(&event) {
+            // EXP-850 §3: kept in its own keyed slot, never a ring row.
         } else if !state.coalesce(&event, self.mode.output_bytes()) {
             if state.backlog.len() >= self.mode.rows() {
                 state.backlog.pop_front();
@@ -709,8 +748,10 @@ impl LocalFeed {
 
     /// A receiver that replays the backlog FIRST, so a view attaching late
     /// sees the whole session rather than the tail — then the latest-wins
-    /// state, in the relay's own replay order (`hub.ts`: the log, then
-    /// `config_state`, `usage`, `rate_limit`, `diff`), with the phase last
+    /// state, in the relay's own replay order (`hub.ts`
+    /// `LATEST_REPLAY_ORDER`: the log, then `config_state`, `usage`,
+    /// `rate_limit`, `turn`, the workflow cards, `background_tasks`,
+    /// `diff`), with the phase last
     /// because it is what the composer gates on.
     ///
     /// Replaying the state separately is what makes a REOPENED tab of a long
@@ -733,11 +774,19 @@ impl LocalFeed {
             &state.usage,
             &state.rate_limit,
             &state.turn,
-            &state.diff,
         ]
         .into_iter()
         .flatten()
         {
+            let _ = tx.send(event.clone());
+        }
+        // EXP-850 §3: the keyed workflow cards sit between `turn` and
+        // `background_tasks`, and the diff stays last — the relay's own
+        // `LATEST_REPLAY_ORDER`.
+        for (_, event) in state.workflows.iter() {
+            let _ = tx.send(event.clone());
+        }
+        for event in [&state.background_tasks, &state.diff].into_iter().flatten() {
             let _ = tx.send(event.clone());
         }
         // EXP-758: the failure first, then the phase, in the same order the
@@ -901,6 +950,19 @@ pub(crate) struct SessionCtx {
     pub(crate) publish: bool,
     pub(crate) local_sink: Option<LocalSink>,
     pub(crate) turn_signal: Arc<steer::TurnSignal>,
+    /// EXP-850 §8: the caption of the newest RUNNING workflow, in process —
+    /// what a session row hosted HERE reads instead of waiting for the
+    /// `agent_caption` column this very process is writing (the `agent_busy`
+    /// precedence rule). Moved by [`SessionCtx::deliver`] off the `workflow`
+    /// events the mapper emits, and cleared at every turn end.
+    pub(crate) caption_signal: Arc<steer::CaptionSignal>,
+    /// EXP-850 §3: the workflow cards this run has published, folded by id
+    /// (newest frame per id, oldest evicted past
+    /// [`steer::journal::JOURNAL_WORKFLOW_CAP`]) — the caption's only input.
+    /// The local feed is a RING that evicts, so the fold cannot be derived
+    /// from it; and the ticker thread must not walk a transcript once a
+    /// second either.
+    pub(crate) workflows: Mutex<Vec<steer::WorkflowState>>,
     /// The builtin agent, or the user's external ACP binary (D13).
     pub(crate) agent: coding::AgentKind,
     /// REV2-17: the ONE redactor of this run — the session's launcher secrets
@@ -987,6 +1049,19 @@ impl SessionCtx {
     }
 
     fn deliver(&self, out: MapOut) {
+        // EXP-850 §8: the caption's one input. Read BEFORE the wire vec is
+        // consumed by the sink.
+        let workflows: Vec<&steer::WorkflowState> = out
+            .wire
+            .iter()
+            .filter_map(|event| match event {
+                steer::ActivityEvent::Workflow(workflow) => Some(workflow),
+                _ => None,
+            })
+            .collect();
+        if !workflows.is_empty() {
+            self.note_captions(&workflows);
+        }
         if let Some(sink) = self.sink.get() {
             for event in out.wire {
                 sink.send(event);
@@ -1015,7 +1090,27 @@ impl SessionCtx {
         }
         if let Some(idle) = out.idle {
             self.turn_signal.set_idle(idle);
+            // EXP-850 §8: a turn that ended runs no workflow — the caption
+            // goes with it, on the same edge the busy flag does.
+            if idle {
+                self.caption_signal.set(None);
+            }
         }
+    }
+
+    /// EXP-850 §8: fold this step's workflow cards into the run's own map and
+    /// re-derive the caption — the NEWEST card still running, `None` once
+    /// they have all finished (the same rule `SteerFeed::running_workflow`
+    /// applies on every viewer).
+    fn note_captions(&self, cards: &[&steer::WorkflowState]) {
+        let caption = {
+            let mut workflows = match self.workflows.lock() {
+                Ok(workflows) => workflows,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            fold_workflow_caption(&mut workflows, cards)
+        };
+        self.caption_signal.set(caption);
     }
 
     /// FEED-25: the agent (or a turn edge) just said something.
@@ -2031,6 +2126,35 @@ pub(crate) fn thread_name(session_id: &str) -> String {
     format!("acp-engine-{short}")
 }
 
+/// EXP-850 §8 — fold workflow cards into a run's own map (latest-wins per id,
+/// oldest evicted past the journal's cap) and derive the caption: the NEWEST
+/// card still running, `None` once they have all finished. The same rule
+/// `SteerFeed::running_workflow` + `steer::workflow_caption` apply on every
+/// viewer; pure, so the precedence is testable without a session.
+pub(crate) fn fold_workflow_caption(
+    held: &mut Vec<steer::WorkflowState>,
+    cards: &[&steer::WorkflowState],
+) -> Option<String> {
+    for card in cards {
+        if card.id.is_empty() {
+            continue;
+        }
+        match held.iter_mut().find(|workflow| workflow.id == card.id) {
+            Some(workflow) => *workflow = (*card).clone(),
+            None => {
+                held.push((*card).clone());
+                while held.len() > steer::journal::JOURNAL_WORKFLOW_CAP {
+                    held.remove(0);
+                }
+            }
+        }
+    }
+    held.iter()
+        .rev()
+        .find(|workflow| workflow.status == steer::WorkflowStatus::Running)
+        .map(steer::workflow_caption)
+}
+
 /// The worktree's steer image directory (EXP-511 embeds land here).
 pub(crate) fn steer_images_dir(worktree: &std::path::Path) -> PathBuf {
     worktree.join(coding::launcher::STEER_IMAGES_DIR)
@@ -2039,6 +2163,49 @@ pub(crate) fn steer_images_dir(worktree: &std::path::Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-850 §8: the caption's precedence — latest-wins per id, the NEWEST
+    /// running card speaks, and nothing speaks once they are all finished.
+    #[test]
+    fn the_caption_follows_the_newest_running_workflow() {
+        let card = |id: &str, status: steer::WorkflowStatus| steer::WorkflowState {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            status,
+            ..steer::WorkflowState::default()
+        };
+        let mut held: Vec<steer::WorkflowState> = Vec::new();
+        let first = card("wf-1", steer::WorkflowStatus::Running);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&first]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        // A SECOND card takes the caption over while it runs...
+        let second = card("wf-2", steer::WorkflowStatus::Running);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&second]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        assert_eq!(held.len(), 2);
+        // ... and hands it back to the one still running when it finishes.
+        let second_done = card("wf-2", steer::WorkflowStatus::Completed);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&second_done]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        assert_eq!(held.len(), 2, "latest-wins per id, never an append");
+        // Nothing running: nothing to say.
+        let first_done = card("wf-1", steer::WorkflowStatus::Stopped);
+        assert_eq!(fold_workflow_caption(&mut held, &[&first_done]), None);
+        // An id-less card is ignored, and the map is capped like the journal.
+        let blank = card("", steer::WorkflowStatus::Running);
+        assert_eq!(fold_workflow_caption(&mut held, &[&blank]), None);
+        for index in 0..30 {
+            let more = card(&format!("wf-x{index}"), steer::WorkflowStatus::Completed);
+            fold_workflow_caption(&mut held, &[&more]);
+        }
+        assert_eq!(held.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+    }
 
     #[test]
     fn the_client_advertises_terminals_and_a_form_elicitation() {
@@ -2148,6 +2315,54 @@ mod tests {
             event: steer::ActivityEvent::turn(state),
             tool_call_id: None,
         }
+    }
+
+    /// EXP-850 §3: one workflow card frame; `tick` rides in `at` so a replay
+    /// can name WHICH frame of an id survived.
+    fn workflow(id: &str, status: steer::WorkflowStatus, tick: i64) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: steer::ActivityEvent::workflow(steer::WorkflowState {
+                id: id.to_string(),
+                name: "wire-probe".to_string(),
+                status,
+                at: Some(tick),
+                ..steer::WorkflowState::default()
+            }),
+            tool_call_id: Some(id.to_string()),
+        }
+    }
+
+    /// The `(id, tick)` of every workflow card in a replay, in order.
+    fn workflows(events: &[LocalFeedEvent]) -> Vec<(String, i64)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: steer::ActivityEvent::Workflow(workflow),
+                    ..
+                } => Some((workflow.id.clone(), workflow.at.unwrap_or_default())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The wire kind of every activity event in a replay — the order the
+    /// relay's `LATEST_REPLAY_ORDER` pins.
+    fn activity_kinds(events: &[LocalFeedEvent]) -> Vec<&'static str> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity { event, .. } => Some(match event {
+                    steer::ActivityEvent::Narration { .. } => "narration",
+                    steer::ActivityEvent::Turn { .. } => "turn",
+                    steer::ActivityEvent::Workflow(_) => "workflow",
+                    steer::ActivityEvent::BackgroundTasks { .. } => "background_tasks",
+                    steer::ActivityEvent::Diff { .. } => "diff",
+                    _ => "other",
+                }),
+                _ => None,
+            })
+            .collect()
     }
 
     fn turns(events: &[LocalFeedEvent]) -> Vec<steer::TurnState> {
@@ -2269,6 +2484,86 @@ mod tests {
             turns(&drain(&feed.subscribe())),
             vec![steer::TurnState::Ended]
         );
+    }
+
+    /// EXP-850 §3: a running workflow republishes its card up to once a
+    /// second for as long as it runs. As ring rows those frames would evict
+    /// the transcript of the very run that spawned them, and a late view
+    /// would then replay thousands of copies of one card. They are a keyed
+    /// latest-wins slot instead: one frame per workflow id, outside the ring.
+    #[test]
+    fn republished_workflow_cards_never_evict_a_row_and_replay_once_per_id() {
+        let feed = LocalFeed::default();
+        feed.emit(None, narration("first"));
+        for index in 0..3_000 {
+            feed.emit(
+                None,
+                workflow("wf-1", steer::WorkflowStatus::Running, index),
+            );
+            feed.emit(
+                None,
+                workflow("wf-2", steer::WorkflowStatus::Running, index),
+            );
+        }
+        feed.emit(None, narration("last"));
+
+        let replay = drain(&feed.subscribe());
+        // The narration the run actually produced is still all of the ring.
+        assert_eq!(narrations(&replay), vec!["first", "last"]);
+        // One card per id, newest frame, in first-appearance order.
+        assert_eq!(
+            workflows(&replay),
+            vec![
+                ("wf-1".to_string(), 2_999),
+                ("wf-2".to_string(), 2_999)
+            ]
+        );
+        // Replay order: the rows, then `turn`, the cards, `background_tasks`,
+        // the diff — the relay's `LATEST_REPLAY_ORDER`.
+        feed.emit(None, turn(steer::TurnState::Started));
+        feed.emit(
+            None,
+            LocalFeedEvent::Activity {
+                event: steer::ActivityEvent::background_tasks(Vec::new()),
+                tool_call_id: None,
+            },
+        );
+        feed.emit(
+            None,
+            LocalFeedEvent::Activity {
+                event: steer::ActivityEvent::Diff {
+                    diff: "--- a\n+++ b\n".to_string(),
+                    at: None,
+                },
+                tool_call_id: None,
+            },
+        );
+        let replay = drain(&feed.subscribe());
+        assert_eq!(
+            activity_kinds(&replay),
+            vec![
+                "narration",
+                "narration",
+                "turn",
+                "workflow",
+                "workflow",
+                "background_tasks",
+                "diff"
+            ]
+        );
+        // The cap is the journal's: the oldest card goes, never a row.
+        for index in 0..steer::journal::JOURNAL_WORKFLOW_CAP + 4 {
+            feed.emit(
+                None,
+                workflow(&format!("wf-x{index}"), steer::WorkflowStatus::Completed, 1),
+            );
+        }
+        let replay = drain(&feed.subscribe());
+        assert_eq!(
+            workflows(&replay).len(),
+            steer::journal::JOURNAL_WORKFLOW_CAP
+        );
+        assert_eq!(narrations(&replay), vec!["first", "last"]);
     }
 
     /// EXP-766: the CLI daemon has no `LocalSink` and never reopens a view, so

@@ -124,6 +124,16 @@ const PLATFORM_LICENCE_FALLBACK: Record<string, string> = {
   [`@emnapi/wasi-threads`]: `MIT`,
   [`@napi-rs/wasm-runtime`]: `MIT`,
   [`@tybys/wasm-util`]: `MIT`,
+  // EXP-854: `sharp` (apps/web, the MCP inline-image bound) pulls a prebuilt
+  // libvips and a prebuilt binding per platform. The musl families have no
+  // member on any host we collect from — a glibc Linux runner installs the
+  // `-linux-` variants, macOS the `-darwin-` ones.
+  // registry.npmjs.org/@img/sharp-libvips-linuxmusl-{x64,arm64}@1.2.4 →
+  // LGPL-3.0-or-later, matching every other libvips prebuild on disk.
+  [`@img/sharp-libvips-linuxmusl`]: `LGPL-3.0-or-later`,
+  // registry.npmjs.org/@img/sharp-linuxmusl-{x64,arm64}@0.34.5 → Apache-2.0,
+  // matching the sharp binding prebuilds on disk.
+  [`@img/sharp-linuxmusl`]: `Apache-2.0`,
 }
 
 // Platform / architecture / ABI tokens stripped to find a family base.

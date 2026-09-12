@@ -313,6 +313,16 @@ pub enum SystemSubtype {
     TaskStarted,
     TaskNotification,
     TaskUpdated,
+    /// EXP-850 §3: one `Workflow` run's progress array (`workflow_progress`:
+    /// `workflow_phase` + `workflow_agent` entries, latest per `type:index`).
+    TaskProgress,
+    /// EXP-850 §2: the FULL current background-task list (an empty `tasks`
+    /// array = nothing running).
+    BackgroundTasksChanged,
+    /// EXP-850 §5: the running estimate of the turn's thinking tokens
+    /// (`estimated_tokens` + `estimated_tokens_delta`) — half of the working
+    /// caption's token count.
+    ThinkingTokens,
     CommandsChanged,
     PermissionDenied,
     ModelRefusalFallback,
@@ -329,6 +339,9 @@ impl SystemSubtype {
             "task_started" => SystemSubtype::TaskStarted,
             "task_notification" => SystemSubtype::TaskNotification,
             "task_updated" => SystemSubtype::TaskUpdated,
+            "task_progress" => SystemSubtype::TaskProgress,
+            "background_tasks_changed" => SystemSubtype::BackgroundTasksChanged,
+            "thinking_tokens" => SystemSubtype::ThinkingTokens,
             "commands_changed" => SystemSubtype::CommandsChanged,
             "permission_denied" => SystemSubtype::PermissionDenied,
             "model_refusal_fallback" => SystemSubtype::ModelRefusalFallback,
@@ -1846,16 +1859,33 @@ mod tests {
 
     #[test]
     fn an_unknown_system_subtype_still_decodes() {
+        // EXP-850 claimed `background_tasks_changed`, so the "a subtype this
+        // build does not model still decodes" case needs one that is still
+        // unknown — the list grows every CLI release.
         let frame = ClaudeOut::parse(
-            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"id":"t1"}]}"#,
+            r#"{"type":"system","subtype":"prompt_suggestion_ready","tasks":[{"id":"t1"}]}"#,
         );
         match frame {
             ClaudeOut::System(system) => {
-                assert_eq!(system.subtype, "background_tasks_changed");
+                assert_eq!(system.subtype, "prompt_suggestion_ready");
                 assert_eq!(SystemSubtype::classify(&system.subtype), SystemSubtype::Other);
                 assert!(system.extra.contains_key("tasks"));
             }
             other => panic!("expected a system frame, got {other:?}"),
+        }
+    }
+
+    /// EXP-850: the three subtypes the workflow / background-task / token work
+    /// added, each classified (an `Other` here means the card, the strip or
+    /// the token count silently stops).
+    #[test]
+    fn the_exp850_system_subtypes_classify() {
+        for (subtype, expected) in [
+            ("task_progress", SystemSubtype::TaskProgress),
+            ("background_tasks_changed", SystemSubtype::BackgroundTasksChanged),
+            ("thinking_tokens", SystemSubtype::ThinkingTokens),
+        ] {
+            assert_eq!(SystemSubtype::classify(subtype), expected, "{subtype}");
         }
     }
 

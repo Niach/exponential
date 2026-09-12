@@ -251,7 +251,10 @@ extension GlassSectionBand where Leading == EmptyView, Trailing == EmptyView {
 
 extension GlassSectionBand where Leading == EmptyView {
     public init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
-        self.init(title) { EmptyView() } trailing: trailing
+        // The labelled trailing closure has to be a LITERAL — forwarding the
+        // parameter by name is a syntax error on current Swift (it parsed as
+        // two statements), which broke every ExpUI build.
+        self.init(title) { EmptyView() } trailing: { trailing() }
     }
 }
 

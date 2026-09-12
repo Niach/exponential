@@ -384,6 +384,10 @@ pub const SHAPES: [ShapeSpec; 21] = [
             // working), so dropping it silently spins every live row again.
             // Heals onto existing store tables like the rest.
             "agent_busy",
+            // EXP-850 §8: the device-written workflow caption — every session
+            // list's second line. Heals onto existing store tables like the
+            // rest; dropping it silently blanks the line on this client only.
+            "agent_caption",
             // EXP-804: the agent's usage wall as row state (jsonb, NULL =
             // not blocked). A blocked run still reads `running`, so without
             // this the IDE shows a silently stalled run as healthy. Heals
@@ -742,6 +746,15 @@ mod tests {
     fn coding_sessions_syncs_the_agent_busy_flag() {
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"agent_busy"));
+    }
+
+    /// EXP-850 §8: the workflow caption every session row renders as its
+    /// second line. Dropping it silently blanks that line on this client
+    /// while every other one still shows it.
+    #[test]
+    fn coding_sessions_syncs_the_agent_caption() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"agent_caption"));
     }
 
     #[test]

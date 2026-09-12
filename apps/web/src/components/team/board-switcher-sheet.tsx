@@ -248,7 +248,7 @@ function PinnedSheetSection({
             return
           }
           if (entry.kind === `session`) {
-            openSession(entry.session)
+            openSession(entry.session, { origin: null })
             return
           }
           openComposer({ actionId: entry.action.id })

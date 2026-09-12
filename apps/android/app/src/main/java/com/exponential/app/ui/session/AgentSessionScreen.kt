@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -138,6 +139,29 @@ import com.exponential.app.domain.ExpToolRow
 import com.exponential.app.domain.ToolResultPreview
 import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.AnswerState
+import com.exponential.app.domain.BackgroundTask
+import com.exponential.app.domain.WorkflowAgent
+import com.exponential.app.domain.WorkflowState
+import com.exponential.app.domain.backgroundTaskLabel
+import com.exponential.app.domain.caption
+import com.exponential.app.domain.openWaitLabels
+import com.exponential.app.domain.runningWorkflow
+import com.exponential.app.domain.waitingLabel
+import com.exponential.app.domain.workflowAgentRuns
+import com.exponential.app.domain.workflowDuplicates
+import com.exponential.app.domain.workflowFor
+import com.exponential.app.domain.workflowPhaseCounts
+import com.exponential.app.domain.workflowPhaseSummary
+import com.exponential.app.domain.workflowAgentMetrics
+import com.exponential.app.domain.workflowAgentNote
+import com.exponential.app.domain.splitWorkflowToolRows
+import com.exponential.app.domain.WORKFLOW_STATUS_COMPLETED
+import com.exponential.app.domain.WORKFLOW_STATUS_FAILED
+import com.exponential.app.domain.WORKFLOW_STATUS_STOPPED
+import com.exponential.app.domain.workingCaption
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_DONE
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_ERROR
+import com.exponential.app.domain.WORKFLOW_AGENT_STATE_RUNNING
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.AgentComposerSeed
@@ -183,6 +207,8 @@ import com.exponential.app.domain.transcriptGap
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.StatusIcon
@@ -469,6 +495,21 @@ fun AgentSessionScreen(
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
         compacting = activity.compacting != null,
     )
+    // EXP-850 (S5/S7): the NEWEST running workflow — its caption is what the
+    // working row and the session header say while it runs, and the device
+    // mirrors the same sentence into the row's `agent_caption`.
+    // Only while the run is LIVE: a replayed transcript can end with a workflow
+    // frozen mid-flight, and an ended run must never claim to be working on
+    // one.
+    val workflowCaption = remember(activity.workflows, phase, sessionEnded) {
+        if (phase == AgentPhase.Live && !sessionEnded) activity.runningWorkflow()?.caption() else null
+    }
+    // EXP-850 (S5): whose brand mark pulses beside the working caption. A run
+    // that named no agent is claude (the device default, EXP-484).
+    val workingAgent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
+    // EXP-850 (S1/S2): the strip above the composer — one line per background
+    // task the machine is running, plus one per still-open `wait` tool row.
+    val openWaits = remember(feed) { openWaitLabels(feed) }
     // EXP-790: the composer folds to a one-line pill while it is unfocused
     // and empty (the issue's comment bar rule); a restored draft opens it.
     var composerExpanded by rememberSaveable {
@@ -633,6 +674,10 @@ fun AgentSessionScreen(
                         staleMinutes = staleMinutes,
                         working = agentWorking,
                         planBadge = planModeBadge(activity.config),
+                        // EXP-850 (S5): while a workflow runs, what the run is
+                        // DOING is the more useful second line than "Live ·
+                        // macbook" — the dot still carries liveness.
+                        workflowCaption = workflowCaption,
                     )
                 },
                 navigationIcon = {
@@ -660,22 +705,27 @@ fun AgentSessionScreen(
                     // numbers have arrived.
                     val hasUsage = usage != null || sessionUsage != null ||
                         accountSwitch.options.isNotEmpty()
+                    // EXP-850 (S10): the trailing order is Pin, Stop, "…" —
+                    // the quiet personal marker first, then the one control
+                    // that changes the run, then the menu. EXP-778: pin state
+                    // comes off the synced pins table; it is a GHOST glyph
+                    // (no circle, no fill), the same variant as the issue
+                    // header's and the action sheet's.
+                    if (row != null) {
+                        TopBarActionButton(
+                            if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
+                            if (pinned) "Unpin" else "Pin",
+                            onClick = viewModel::togglePin,
+                            active = pinned,
+                            borderless = true,
+                        )
+                    }
                     if (canKill) {
                         TopBarActionButton(
                             ExpIcons.codingStop,
                             "Stop",
                             onClick = { killDialogOpen = true },
                             tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    // EXP-778: the personal pin toggle, beside the "…" (or
-                    // alone when the menu has nothing to offer); state comes
-                    // off the synced pins table.
-                    if (row != null) {
-                        TopBarActionButton(
-                            if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
-                            if (pinned) "Unpin" else "Pin",
-                            onClick = viewModel::togglePin,
                         )
                     }
                     if (hasUsage) {
@@ -891,6 +941,14 @@ fun AgentSessionScreen(
                             onCanLoadEarlier = { viewModel.canLoadEarlier() },
                             onLoadEarlier = { viewModel.loadEarlier() },
                             working = agentWorking,
+                            // EXP-850 (S5): the working caption's inputs.
+                            turnStartedAt = activity.turnStartedAt,
+                            turnTokens = activity.turnTokens,
+                            workflowCaption = workflowCaption,
+                            workingAgent = workingAgent,
+                            // EXP-850 (S3): the cards, looked up by the id of
+                            // the `Workflow` tool row they replace.
+                            workflows = activity.workflows,
                             // Question cards are answerable while live (EXP-78;
                             // live implies ownership since EXP-312); the card
                             // itself also checks its own state.
@@ -1276,6 +1334,17 @@ fun AgentSessionScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
+            // EXP-850 (S1/S2): what the machine is doing BESIDE the turn —
+            // one line per background task it is running, plus one per open
+            // `wait` call the agent is parked on. Absent when there is
+            // neither, and never while the run is over.
+            if (phase == AgentPhase.Live && !sessionEnded &&
+                (activity.backgroundTasks.isNotEmpty() || openWaits.isNotEmpty())
+            ) {
+                BackgroundWorkStrip(tasks = activity.backgroundTasks, waits = openWaits)
+                Spacer(Modifier.height(8.dp))
+            }
+
             // The ONE menu above the composer. `/` commands and the three
             // composer triggers are already mutually exclusive on CONTENT (a
             // slash command matches only a draft that opens with `/`, the
@@ -1651,6 +1720,10 @@ private fun SessionHeaderTitle(
     /** EXP-847: the read-only mode badge — `Plan` while the agent is in plan
      *  mode, null otherwise ([planModeBadge]). Never a control (EXP-790). */
     planBadge: String? = null,
+    /** EXP-850 (S5/S7): the running workflow's caption — it REPLACES the
+     *  status line while one runs, because "Workflow release · 2/5 agents
+     *  done" says more about the run than the machine's name does. */
+    workflowCaption: String? = null,
 ) {
     // Auto-reconnecting after a drop reads as connecting (EXP-243) — unless
     // the machine itself is offline, which is a paused run, not a connection
@@ -1691,7 +1764,8 @@ private fun SessionHeaderTitle(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                sessionStatusLine(phase, deviceLabel, awaiting, paused, stale),
+                workflowCaption
+                    ?: sessionStatusLine(phase, deviceLabel, awaiting, paused, stale),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 maxLines = 1,
@@ -1869,6 +1943,18 @@ private fun ActivityFeed(
     /** EXP-389: show the trailing "Working…" indicator — the session is live
      *  and nothing waits on the user. */
     working: Boolean,
+    /** EXP-850 (S5): the working row's caption inputs — the turn's start (the
+     *  clock AND the verb's seed), its output tokens so far, and the caption
+     *  of the running workflow, which REPLACES the verb while one runs. */
+    turnStartedAt: Long? = null,
+    turnTokens: Long? = null,
+    workflowCaption: String? = null,
+    /** EXP-850 (S5): whose brand mark pulses beside that caption. */
+    workingAgent: String? = null,
+    /** EXP-850 (S3): the workflow cards, latest-wins per id. Each one is drawn
+     *  IN PLACE OF the `tool` row carrying the same id, never as a second
+     *  row; its own settle folds into the card. */
+    workflows: List<WorkflowState> = emptyList(),
     answerEnabled: Boolean,
     answerStates: Map<String, AnswerState>,
     /** EXP-588: lock key → the locally picked answer summary. */
@@ -1909,7 +1995,23 @@ private fun ActivityFeed(
         val at = feed.indexOfFirst { it.id >= from }
         minOf(if (at == -1) tail else at, tail)
     }
-    val rows = remember(feed, windowStart) { groupFeedRows(feed, windowStart) }
+    // EXP-850 (S3): a `Workflow` tool row never collapses into a tool group —
+    // it IS the card.
+    val workflowIds = remember(workflows) { workflows.mapTo(mutableSetOf()) { it.id } }
+    val rows = remember(feed, windowStart, workflowIds) {
+        splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
+    }
+    // Cards whose tool row this window does not hold (see the tail items).
+    val orphanWorkflows = remember(rows, workflows) {
+        val shown = rows.flatMapTo(mutableSetOf()) { row ->
+            when (row) {
+                is AgentFeedRow.Single -> listOfNotNull((row.item as? AgentFeedItem.Tool)?.callId)
+                is AgentFeedRow.ToolRun -> row.items.mapNotNull { it.callId }
+                else -> emptyList()
+            }
+        }
+        workflows.filter { it.id !in shown }
+    }
     // While the reader follows the tail the window may SLIDE with the stream
     // (invisible, and it keeps the projection bounded). The moment they scroll
     // up it stays pinned: rows vanishing above a reader is exactly the jump
@@ -1951,11 +2053,11 @@ private fun ActivityFeed(
     // scrollBy finishes the scroll to the true bottom (EXP-197). agentTab is a
     // key too: switching conversations re-pins to the newest event (EXP-356),
     // and `working` re-pins when the EXP-389 footer appears/disappears.
-    LaunchedEffect(feed.size, follow, agentTab, working) {
+    LaunchedEffect(feed.size, follow, agentTab, working, orphanWorkflows.size) {
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
-            rows.size + (if (working) 1 else 0)
+            rows.size + orphanWorkflows.size + (if (working) 1 else 0)
         }
         if (follow && visible > 0) {
             listState.scrollToItem(visible - 1)
@@ -2067,7 +2169,21 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                            is AgentFeedItem.Tool -> ToolRow(item)
+                            // EXP-850 (S3): the `Workflow` call renders as its
+                            // card — name, phases, agents, summary — and never
+                            // as a tool row beside it.
+                            is AgentFeedItem.Tool ->
+                                when (val workflow = workflows.firstOrNull { it.id == item.callId }) {
+                                    null -> ToolRow(item)
+                                    else -> WorkflowCard(
+                                        workflow = workflow,
+                                        agentRuns = workflowAgentRuns(feed, workflow.id),
+                                        duplicates = workflowDuplicates(feed, workflow.id),
+                                    )
+                                }
+                            // EXP-856: a second copy of a live agent, inline —
+                            // a workflow's own duplicates render under its card.
+                            is AgentFeedItem.DuplicateAgent -> DuplicateAgentRow(item)
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
@@ -2114,6 +2230,21 @@ private fun ActivityFeed(
                     }
                 }
             }
+            // EXP-850 (S3): a card whose `Workflow` tool row is not in the
+            // rendered window (evicted, or below it) still has to be seen —
+            // it lands at the tail as a row of its own rather than taking its
+            // agents and its warnings down with it.
+            if (orphanWorkflows.isNotEmpty()) {
+                items(orphanWorkflows, key = { "workflow-${it.id}" }) { workflow ->
+                    TranscriptRow(TranscriptGap.Tool) {
+                        WorkflowCard(
+                            workflow = workflow,
+                            agentRuns = workflowAgentRuns(feed, workflow.id),
+                            duplicates = workflowDuplicates(feed, workflow.id),
+                        )
+                    }
+                }
+            }
             // EXP-389: the agent-is-busy footer under the newest event (iOS
             // parity) — main conversation only, subagent chips carry their
             // own spinner.
@@ -2122,7 +2253,12 @@ private fun ActivityFeed(
                     TranscriptRow(
                         transcriptGap(rows.lastOrNull()?.rowClass, AgentRowClass.Tool),
                     ) {
-                        WorkingIndicatorRow()
+                        WorkingIndicatorRow(
+                            startedAt = turnStartedAt,
+                            tokens = turnTokens,
+                            workflowCaption = workflowCaption,
+                            agent = workingAgent,
+                        )
                     }
                 }
             }
@@ -2274,35 +2410,406 @@ private fun NarrationBubble(
     }
 }
 
-/** The trailing "agent is busy" row (EXP-389): a gently pulsing "Working…"
- *  under the newest event whenever the session is live and nothing waits on
- *  the user — without it a feed that ends in tool rows gives no cue whether
- *  the agent is still going. */
+/**
+ * The trailing "agent is busy" row (EXP-389/EXP-850): the running agent's own
+ * brand mark, pulsing, beside what the agent is doing —
+ * `{verb}… ({duration} · ↓ {tokens} tokens)`, or the running workflow's
+ * caption in place of the verb. The clock ticks here, once a second, so the
+ * transcript around it is never recomposed for it.
+ *
+ * The PULSE is the mark alone (EXP-850 S5): the caption is text somebody is
+ * reading and must not breathe under them. Reduced motion pins the mark at
+ * full opacity.
+ */
 @Composable
-private fun WorkingIndicatorRow() {
+private fun WorkingIndicatorRow(
+    startedAt: Long? = null,
+    tokens: Long? = null,
+    workflowCaption: String? = null,
+    agent: String? = null,
+) {
+    // One tick a second, only while a start is known — with no clock to show
+    // there is nothing to recompose for.
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(startedAt) {
+        if (startedAt == null) return@LaunchedEffect
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(WORKING_CLOCK_TICK_MS)
+        }
+    }
+    val reduceMotion = LocalReduceMotion.current
     val pulse by rememberInfiniteTransition(label = "working").animateFloat(
         initialValue = 1f,
-        targetValue = 0.4f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        targetValue = if (reduceMotion) 1f else 0.4f,
+        animationSpec = infiniteRepeatable(
+            tween(WORKING_PULSE_MS, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse,
+        ),
         label = "workingAlpha",
     )
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(pulse),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            ExpIcons.codingAssistant,
+            // EXP-850: WHICH agent is working, not a generic assistant glyph.
+            // An agent this build has no mark for falls back to the neutral
+            // `settings-agents` concept (agentIconPainter's own rule).
+            agentIconPainter(agent.orEmpty()),
             contentDescription = null,
-            modifier = Modifier.size(13.dp),
+            modifier = Modifier.size(13.dp).alpha(pulse),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         Text(
-            "Working…",
+            workingCaption(startedAt, tokens, nowMs, workflowCaption),
             style = transcriptToolStyle(),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** EXP-850 (S5): the working caption's clock tick, and the brand mark's
+ *  pulse (1.4s each way, ease-in-out — the ×4 number). */
+private const val WORKING_CLOCK_TICK_MS = 1_000L
+private const val WORKING_PULSE_MS = 1_400
+
+/**
+ * EXP-850 (S1/S2): the compact strip above the composer — what the machine is
+ * doing that is NOT this turn. One line per background task (`↻ {description}`)
+ * and one per still-open `wait` call (`Waiting on {detail}`); the wait rows
+ * stay ordinary tool rows in the transcript as well, because that is where
+ * they happened.
+ */
+@Composable
+private fun BackgroundWorkStrip(tasks: List<BackgroundTask>, waits: List<String>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag("background-work-strip"),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        tasks.forEach { task ->
+            StripLine(icon = ExpIcons.uiRepeat, text = backgroundTaskLabel(task.description))
+        }
+        waits.forEach { detail ->
+            StripLine(icon = ExpIcons.uiClock, text = waitingLabel(detail))
+        }
+    }
+}
+
+/** One strip line: the concept glyph every client draws (repeat for a background task, clock for a wait) and the bare text. */
+@Composable
+private fun StripLine(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * EXP-856: a SECOND copy of an agent that is still running — messaging a live
+ * agent resumes it from its transcript, and both copies then edit the same
+ * files. The engine writes the sentence; every client renders it verbatim in
+ * amber, and a workflow's own warnings stay under its card even when the card
+ * is collapsed.
+ */
+@Composable
+private fun DuplicateAgentRow(item: AgentFeedItem.DuplicateAgent) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("duplicate-agent-row"),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            ExpIcons.uiWarning,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp).padding(top = 1.dp),
+            tint = NeedsInputAmber,
+        )
+        Text(
+            item.detail,
+            style = transcriptToolStyle(),
+            color = NeedsInputAmber,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * EXP-850 (S3): the workflow card — drawn IN PLACE OF the `Workflow` tool row
+ * with the same id (its own settle folds in here, never a second row).
+ *
+ * Collapsed it is the name, the shared caption ([WorkflowCaption], the ×4
+ * sentence) and any duplicate warnings; expanded it adds the description, the
+ * phase strip with per-phase counts, one row per agent and the summary once it
+ * is finished. A workflow's agents are never conversation tabs (they are not
+ * steerable), so their nested events are read right here: an agent row with
+ * anything under it opens into that agent's own rows.
+ */
+@Composable
+private fun WorkflowCard(
+    workflow: WorkflowState,
+    agentRuns: List<AgentFeedRow.SubagentRun>,
+    duplicates: List<AgentFeedItem.DuplicateAgent>,
+) {
+    var expanded by rememberSaveable(workflow.id) { mutableStateOf(true) }
+    val phases = remember(workflow) { workflowPhaseCounts(workflow) }
+    val agents = remember(workflow) { workflow.agents.sortedBy { it.index } }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("workflow-card"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Icon(
+                ExpIcons.uiChecklist,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Text(
+                workflow.name,
+                style = transcriptToolStyle(),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            WorkflowStatusGlyph(workflow.status)
+        }
+        // The caption every client shares — the same sentence the session
+        // header and the synced `agent_caption` carry.
+        Text(
+            workflow.caption(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 22.dp),
+        )
+        if (expanded) {
+            workflow.description?.let { description ->
+                Text(
+                    description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(start = 22.dp),
+                )
+            }
+            if (phases.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(start = 22.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    phases.forEach { phase ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                phase.title,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Secondary,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Text(
+                                workflowPhaseSummary(phase),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Tertiary,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+            agents.forEach { agent ->
+                WorkflowAgentRow(
+                    agent = agent,
+                    run = agentRuns.firstOrNull { it.subagentId == agent.agentId },
+                )
+            }
+            workflow.summary?.takeIf { !workflow.isRunning }?.let { summary ->
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.padding(start = 22.dp),
+                )
+            }
+        }
+        // EXP-856: kept whatever the card is doing — a warning that hides
+        // behind a chevron is a warning nobody reads.
+        duplicates.forEach { DuplicateAgentRow(it) }
+    }
+}
+
+/** The workflow's own state, as one glyph: a spinner while it runs, a check
+ *  when it completed, amber for a stop, the error tone for a failure. */
+@Composable
+private fun WorkflowStatusGlyph(status: String) {
+    when (status) {
+        WORKFLOW_STATUS_COMPLETED -> Icon(
+            ExpIcons.uiCheck,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = LiveGreen,
+        )
+        WORKFLOW_STATUS_FAILED -> Icon(
+            ExpIcons.uiWarning,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.error,
+        )
+        WORKFLOW_STATUS_STOPPED -> Icon(
+            ExpIcons.uiStop,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = NeedsInputAmber,
+        )
+        else -> CircularProgressIndicator(
+            modifier = Modifier.size(11.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/**
+ * EXP-850 (S3): one agent of a workflow — its label, its state, what it cost
+ * and what it is on (or produced, or failed with). With nested events under it
+ * the row opens into them; a workflow agent is never a tab, so this is where
+ * its transcript is read.
+ */
+@Composable
+private fun WorkflowAgentRow(agent: WorkflowAgent, run: AgentFeedRow.SubagentRun?) {
+    var expanded by remember(agent.agentId) { mutableStateOf(false) }
+    val items = run?.items.orEmpty()
+    val metrics = remember(agent) { workflowAgentMetrics(agent) }
+    val note = remember(agent) { workflowAgentNote(agent) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 22.dp)
+            .testTag("workflow-agent-row"),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (items.isNotEmpty()) Modifier.clickable { expanded = !expanded } else Modifier),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            WorkflowAgentStateGlyph(agent.state)
+            Text(
+                agent.label.ifBlank { "Agent ${agent.index}" },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (metrics != null) {
+                Text(
+                    metrics,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (items.isNotEmpty()) {
+                Icon(
+                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+        }
+        if (note != null) {
+            Text(
+                note,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (agent.state == WORKFLOW_AGENT_STATE_ERROR) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 20.dp),
+            )
+        }
+        if (expanded) {
+            Column(modifier = Modifier.padding(start = 20.dp)) {
+                items.forEach { SubagentItemRow(it, nested = true) }
+            }
+        }
+    }
+}
+
+/** One workflow agent's state, as the glyph its row leads with. */
+@Composable
+private fun WorkflowAgentStateGlyph(state: String) {
+    when (state) {
+        WORKFLOW_AGENT_STATE_DONE -> Icon(
+            ExpIcons.uiCheck,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = LiveGreen,
+        )
+        WORKFLOW_AGENT_STATE_ERROR -> Icon(
+            ExpIcons.uiWarning,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.error,
+        )
+        WORKFLOW_AGENT_STATE_RUNNING -> CircularProgressIndicator(
+            modifier = Modifier.size(11.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        else -> Icon(
+            ExpIcons.uiClock,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
 }
@@ -3269,7 +3776,9 @@ private fun QuestionOptionButton(
             Box(
                 modifier = Modifier
                     .size(18.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    // EXP-850 (S13): the number key wears radius.sm ×4; the
+                    // option row around it wears radius.md, never a capsule.
+                    .clip(RoundedCornerShape(DesignTokens.Radius.Sm))
                     .background(
                         if (primary) content.copy(alpha = PrimaryChipAlpha) else GlassTokens.RowFillActive,
                     ),
@@ -4183,9 +4692,11 @@ private fun ExpandedSteerComposer(
         },
         tools = {
             if (canAttach) {
-                // EXP-818: the image glyph every other composer wears (×4).
+                // EXP-850 (S13): the steer composers attach with the `ui-add`
+                // plus ×4 — a steered message can carry more than a picture,
+                // and `editor-image` stays the comment/description editors'.
                 ComposerToolButton(
-                    ExpIcons.editorImage,
+                    ExpIcons.uiAdd,
                     contentDescription = "Attach image",
                     onClick = onPickImages,
                     enabled = !sending,

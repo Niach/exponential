@@ -326,6 +326,12 @@ data class CodingSessionEntity(
     // Orthogonal to `status`: a live run sits at false between turns, which is
     // why the session lists pulse on THIS and never on status = running.
     @ColumnInfo(name = "agent_busy") @SerialName("agent_busy") @JsonNames("agentBusy") val agentBusy: PgBool = false,
+    // EXP-850 (S8): what the run is DOING right now in one line — today the
+    // caption of the newest running workflow, written by the device (throttled,
+    // on change) and cleared by every server end path. NULL = nothing to say,
+    // which is every run that is not inside a workflow. Session list rows
+    // render it as their SECOND line, before the device byline.
+    @ColumnInfo(name = "agent_caption") @SerialName("agent_caption") @JsonNames("agentCaption") val agentCaption: String? = null,
     // EXP-804: the agent's usage wall as row state, kept as the raw jsonb
     // TEXT off the wire (`{kind, agent, window, resetsAt, since}`) exactly
     // like DeviceEntity.agentUsage; NULL = not blocked. Orthogonal to

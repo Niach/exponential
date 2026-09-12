@@ -39,6 +39,7 @@ import {
   accountCaption,
   blockedBadgeLabel,
   contextPercent,
+  formatContextCompact,
   formatContextUsage,
   formatUsageCost,
   CONTEXT_SECTION_TITLE,
@@ -51,6 +52,7 @@ import {
 } from "@/lib/stale-activity"
 import {
   activeQuestionIds,
+  backgroundStripLines,
   hasPendingCard,
   answerKey,
   askStepperView,
@@ -67,7 +69,9 @@ import {
   FEED_WINDOW_STEP,
   isAnswerLocked,
   looksLikeMarkdown,
+  nestedWorkflowId,
   optionForHotkey,
+  orphanWorkflowIds,
   optionHotkey,
   pendingAnswerable,
   opensInlineField,
@@ -82,6 +86,7 @@ import {
   toolGroupCaption,
   transcriptGapToken,
   visibleSubagentTabs,
+  workflowSubagentIds,
   type AnswerState,
   type AnswerStates,
   type ExpToolDisplay,
@@ -89,9 +94,19 @@ import {
   type RowClass,
   type SessionConfigState,
   type SessionRateLimitState,
+  type BackgroundStripLine,
   type SubagentSummary,
   type TranscriptGapToken,
+  type WorkflowState,
 } from "@/lib/agent-feed"
+import { workflowCaption } from "@exp/domain-contract"
+import { workingCaption } from "@/lib/working-caption"
+import { sessionFileCards, toolDiffFiles } from "@/lib/session-file-cards"
+import { AgentBrandMark } from "@/components/agent-brand-mark"
+import { SessionDiffPane } from "@/components/session-diff-pane"
+import { SessionFileCard } from "@/components/session-file-card"
+import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-card"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
   mergeAgentCommands,
   parseSteerCommand,
@@ -158,12 +173,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
@@ -178,15 +187,17 @@ const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
+const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiBackIcon = conceptIcon(`ui-back`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
+const CodingDiffIcon = conceptIcon(`coding-diff`)
+const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
@@ -343,6 +354,11 @@ export function AgentSessionView({
     usage: sessionUsage,
     rateLimit,
     turnState,
+    turnStartedAt,
+    turnTokens,
+    backgroundTasks,
+    workflows,
+    runningWorkflow,
     answerStates,
     connected,
     canLoadEarlier: snapshotCanLoadEarlier,
@@ -358,6 +374,10 @@ export function AgentSessionView({
   )
 
   const [diffOpen, setDiffOpen] = useState(false)
+  /** EXP-850 §11: the md+ diff PANE beside the transcript, and the file it is
+   *  scrolled to (null = the top of the list). */
+  const [diffPaneOpen, setDiffPaneOpen] = useState(false)
+  const [diffFile, setDiffFile] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
@@ -661,13 +681,10 @@ export function AgentSessionView({
    *  machine reported an account for this run, not only when numbers are
    *  fresh. */
   const hasAccountRows = accountSwitch.options.length > 0
-  /** EXP-724: "Compact context" in the mobile "…" menu — a live, connected
-   *  session whose agent has the command and is not already folding. */
-  const canCompact =
-    live &&
-    connected &&
-    !compactingNow &&
-    agentCommands.some((command) => command.name === `compact`)
+  // EXP-850 §10: the `…` overflow is GONE from this header. Usage moved into
+  // the Context pill and "Compact context" is no longer a menu entry —
+  // `/compact` stays a slash command in the composer, which is where every
+  // other command is typed.
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
   // The `closed` phase (relay `bye publisher_lost`) does not redial on its
@@ -695,23 +712,19 @@ export function AgentSessionView({
     }
   }, [deviceOnline, store])
 
-  /** Pinned "Changes" (EXP-818 renamed it from "Latest changes", ×4). EXP-678: once the PR is open the strip shares
-   *  its row with a glass Merge pill — the trigger shrinks, the pill sits on
-   *  the right at the same height, and the expanded diff still spans the full
-   *  width. The pill alone holds the row when no diff has arrived yet.
-   *  EXP-688: on mobile it is a floating glass row over the feed. */
+  /** The floating "Changes" row — MOBILE ONLY since EXP-850 §11: on md+ the
+   *  diff is a pane beside the transcript (the Diff pill in the header opens
+   *  it) and the bottom bar is gone. The phone keeps its sheet, which is the
+   *  one place a small screen can afford a diff. EXP-678: it shares its row
+   *  with the glass Merge pill once the PR is open. */
   const changesBar =
-    latestDiff || canMerge ? (
+    isMobile && (latestDiff || canMerge) ? (
       <Collapsible
         open={diffOpen && Boolean(latestDiff)}
         onOpenChange={setDiffOpen}
-        className={
-          isMobile
-            ? `overflow-hidden rounded-xl border border-glass-stroke-card bg-glass-card shadow-lg backdrop-blur-md`
-            : `border-t border-border`
-        }
+        className={`overflow-hidden rounded-xl border border-glass-stroke-card bg-glass-card shadow-lg backdrop-blur-md`}
       >
-        <div className={cn(`flex items-stretch`, !isMobile && `bg-muted/30`)}>
+        <div className="flex items-stretch">
           {latestDiff ? (
             <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50">
               <ChevronRight
@@ -754,156 +767,318 @@ export function AgentSessionView({
     ) : null
   /** The floating bar's footprint, so the newest message still scrolls clear
    *  of it (and "Jump to bottom" lands above it). */
-  const floatingBar = isMobile && changesBar !== null
+  const floatingBar = changesBar !== null
+
+  /** EXP-850 §10: the Context pill — `124k / 200k` behind the usage glyph,
+   *  opening the very sheet the `…` menu used to. Hidden when the engine
+   *  reported no window, and once the run is over (a finished run's context
+   *  is not a live number any more). */
+  const contextLabel = formatContextCompact(sessionUsage)
+  /** The sheet is also the ONLY way to the machine's rate-limit cards and to
+   *  EXP-849's account switch, so a run that reports those but no context
+   *  window keeps a glyph-only pill — losing the `…` menu must not lose the
+   *  account rows with it. */
+  const contextPill =
+    sessionEnded || (!contextLabel && !agentUsage && !hasAccountRows) ? null : (
+      <Pill
+        size="sm"
+        mode="action"
+        className="shrink-0"
+        onClick={() => setUsageOpen(true)}
+        aria-label="Usage"
+        title="Usage"
+        data-testid="session-context-pill"
+      >
+        <UiUsageIcon className="size-3" />
+        {contextLabel && <span className="font-mono">{contextLabel}</span>}
+      </Pill>
+    )
+
+  /** EXP-850 §5/§7: while a workflow runs, the header caption IS the
+   *  workflow's (`Workflow wire-probe · 2/3 agents done · Beta`) — the phase
+   *  line says "Live · macbook", which a running workflow makes the less
+   *  interesting half. Everything else keeps the phase caption. */
+  const headerCaption =
+    runningWorkflow && live && !paused
+      ? workflowCaption(runningWorkflow)
+      : phaseLabel(phase, device, awaitingInput, paused, compactingNow, staleMinutes)
+
+  /** EXP-850 §12: one card per turn segment, listing what that turn changed;
+   *  clicking a row opens the pane at that file. */
+  const fileCards = useMemo(() => sessionFileCards(feed), [feed])
+
+  /** EXP-850 §3/§4: the subagents that belong to a workflow card — their rows
+   *  nest inside it instead of standing in the transcript. */
+  const workflowAgents = useMemo(() => workflowSubagentIds(feed), [feed])
+
+  /** §1/§2: what the CLI is running in the background, plus every OPEN wait
+   *  row — the compact strip directly above the composer. */
+  const stripLines = useMemo(
+    () => backgroundStripLines({ backgroundTasks, feed }),
+    [backgroundTasks, feed]
+  )
+
+  /** The pane opens at a file, so a file card click is one gesture. On a
+   *  phone there is no pane: the same click opens the floating Changes sheet,
+   *  which is that breakpoint's diff (§11 keeps the mobile sheet). */
+  const openDiffFile = useCallback(
+    (path: string) => {
+      setDiffFile(path)
+      if (isMobile) setDiffOpen(true)
+      else setDiffPaneOpen(true)
+    },
+    [isMobile]
+  )
+
+  /** §4: the duplicate warnings a workflow card carries, by workflow id. A
+   *  duplicate edge WITHOUT one renders inline in its subagent group row. */
+  const workflowDuplicates = useMemo(() => {
+    const byWorkflow = new Map<string, string[]>()
+    for (const item of feed) {
+      if (item.kind !== `subagent` || item.status !== `duplicate`) continue
+      if (!item.workflowId || !item.detail) continue
+      const held = byWorkflow.get(item.workflowId) ?? []
+      if (!held.includes(item.detail)) held.push(item.detail)
+      byWorkflow.set(item.workflowId, held)
+    }
+    return byWorkflow
+  }, [feed])
+
+  /** §3: a workflow agent's own rows, by agent id — the card folds them away
+   *  behind its agent row, and they never stand in the transcript. */
+  const workflowAgentEvents = useMemo(() => {
+    const byWorkflow = new Map<string, Map<string, ReactNode>>()
+    for (const [subagentId, workflowId] of workflowAgents) {
+      const items = feed.filter(
+        (item) =>
+          subagentIdOf(item) === subagentId &&
+          (item.kind === `tool` || item.kind === `narration`)
+      )
+      if (items.length === 0) continue
+      const agents = byWorkflow.get(workflowId) ?? new Map<string, ReactNode>()
+      agents.set(subagentId, <NestedAgentEvents items={items} />)
+      byWorkflow.set(workflowId, agents)
+    }
+    return byWorkflow
+  }, [feed, workflowAgents])
+
+  /** EXP-850 §3: cards whose `Workflow` tool row this window does not hold —
+   *  evicted, or above the rendered rows. They land at the TAIL of the
+   *  transcript, because a card is the ONLY place a running workflow's agents
+   *  and its duplicate warnings are shown (Android parity). */
+  const orphanWorkflows = useMemo(
+    () =>
+      orphanWorkflowIds(rows, workflows)
+        .map((id) => workflows.get(id))
+        .filter((workflow): workflow is WorkflowState => workflow !== undefined),
+    [rows, workflows]
+  )
+
+  /** §12: which render row each file card sits behind. A card anchored below
+   *  the rendered window is dropped (its turn is off screen). */
+  const cardsByRow = useMemo(() => {
+    const byRow = new Map<number, typeof fileCards>()
+    if (fileCards.length === 0) return byRow
+    const firstId = feed[windowStart]?.id ?? 0
+    let cursor = 0
+    while (cursor < fileCards.length && fileCards[cursor].afterId < firstId) {
+      cursor++
+    }
+    rows.forEach((row, index) => {
+      const maxId =
+        row.kind === `single` ? row.item.id : row.items[row.items.length - 1].id
+      while (cursor < fileCards.length && fileCards[cursor].afterId <= maxId) {
+        const held = byRow.get(index) ?? []
+        held.push(fileCards[cursor])
+        byRow.set(index, held)
+        cursor++
+      }
+    })
+    return byRow
+  }, [fileCards, rows, feed, windowStart])
+
+  /** EXP-850 §10: the header's trailing controls, in the ONE order every
+   *  client draws them — the read-only Plan chip, the pin, the context meter,
+   *  the diff toggle, Merge, Stop. The `…` overflow is GONE (Usage moved into
+   *  the Context pill and "Compact context" is a `/compact` slash command);
+   *  on a phone these sit in a compact second row under the native header,
+   *  which is the one bar the five detail screens share. */
+  const headerControls = (
+    <>
+      {/* EXP-847: plan mode, VISIBLE. Read-only by design — EXP-790 made
+          mode a launch-time choice, so this says what the run is doing and
+          clears itself the moment an approved ExitPlanMode changes
+          `currentMode`. */}
+      {planChip && (
+        <span
+          className="shrink-0 rounded-sm border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+          title="This run is in plan mode — it proposes a plan before it edits anything. Mode is chosen at launch."
+          data-testid="session-plan-chip"
+        >
+          {planChip}
+        </span>
+      )}
+      {/* EXP-778: pin the run to the sidebar's Pinned group. Ghost, no
+          circle stroke and no fill — the same weight everywhere a pin
+          toggle renders (issue header, action dialog). */}
+      <PinToggleButton
+        teamId={session.teamId ?? undefined}
+        kind="session"
+        targetId={session.id}
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0"
+      />
+      {/* A dropped stream redials from here too — a phone has no desktop
+          header to fall back on. */}
+      {phase.kind === `closed` && !paused && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => store.reconnect()}
+        >
+          <UiRefreshIcon />
+          Reconnect
+        </Button>
+      )}
+      {/* The phone draws this in the native header's trailing slot instead,
+          so the compact row below it never doubles the pill. */}
+      {!isMobile && contextPill}
+      {/* EXP-850 §11: the diff is a PANE beside the transcript now, and this
+          pill is its switch. Hidden while the run has published no diff. */}
+      {latestDiff && !isMobile && (
+        <Pill
+          size="sm"
+          mode="action"
+          className="shrink-0"
+          aria-pressed={diffPaneOpen}
+          onClick={() => setDiffPaneOpen((open) => !open)}
+          aria-label="Show the changes"
+          title="Show the changes"
+          data-testid="session-diff-pill"
+        >
+          <CodingDiffIcon className="size-3" />
+          <span className="font-mono">
+            <span className="text-emerald-400">+{diffStats.additions}</span>
+            {` `}
+            <span className="text-rose-400">-{diffStats.deletions}</span>
+          </span>
+        </Pill>
+      )}
+      {/* EXP-678: an open PR on a still-live run is mergeable right here. */}
+      {canMerge && mergeProps && !isMobile && (
+        <div className="shrink-0">
+          <SessionMergeButton
+            variant="glass"
+            size="sm"
+            label="Merge"
+            {...mergeProps}
+            steerEnabled={steerEnabled}
+          />
+        </div>
+      )}
+      {/* EXP-818: the ONE Stop — a small red-tinted glass pill, identical
+          on the machine that hosts the run and on one that only watches it
+          (the IDE's `stop_session_pill`); the confirm is `useKillSession`'s. */}
+      {canKill && (
+        <Pill
+          size="sm"
+          mode="action"
+          className="shrink-0 text-destructive"
+          onClick={requestKill}
+          aria-label="Stop the agent and end the session"
+          title="Stop the agent and end the session"
+        >
+          <CodingStopIcon className="size-3" />
+          Stop
+        </Pill>
+      )}
+    </>
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* EXP-740: ONE header on every breakpoint. The session is a PAGE
-          now, not a dock panel, so there is no tab under it to carry the
-          identity: this header names the run over the phase caption and hides
-          usage + kill behind a "…" menu, exactly like the native session
-          screens.  */}
-      <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          aria-label="Back"
-          onClick={onBack}
-        >
-          <UiBackIcon />
-        </Button>
-        <div className="flex min-w-0 flex-1 flex-col items-center">
-          <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+      {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
+          byte-identical to the issue, review, support-thread and session-issue
+          screens — with the Context pill as its one trailing control; the
+          run's own controls follow in a compact second row, because a native
+          bar carries exactly one. On md+ the single header row names the run
+          over its phase caption and carries every control on the right. */}
+      {isMobile ? (
+        <>
+          <MobileDetailHeader
+            title={identity.identifier ?? identity.subject}
+            onBack={onBack}
+            menu={contextPill ?? undefined}
+          />
+          <div className="flex min-w-0 items-center gap-1 border-b border-border px-2 py-1">
             <PhaseDot
               phase={phase}
               awaitingInput={awaitingInput}
               paused={paused}
               stale={staleMinutes !== null}
             />
-            {identity.identifier && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {identity.identifier}
-              </span>
-            )}
-            <span className="min-w-0 truncate text-sm font-medium">
-              {identity.subject}
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+              {headerCaption}
             </span>
-          </div>
-          <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
-            <span className="max-w-full truncate text-[11px] text-muted-foreground">
-              {phaseLabel(
-                phase,
-                device,
-                awaitingInput,
-                paused,
-                compactingNow,
-                staleMinutes
-              )}
-            </span>
-            {/* EXP-804: the PERSISTED usage wall off the session row, beside
-                the phase caption and never instead of it — a walled run is
-                still running. Deliberately not the same thing as
-                `RateLimitBanner` below, which is the LIVE stream's own
-                report: this one is already there when you open a run whose
-                stream has not connected yet, which is exactly the moment a
-                silently walled run looks healthy. */}
             {blockedLabel && (
               <span className="shrink-0 text-[11px] font-medium text-amber-400">
                 {blockedLabel}
               </span>
             )}
+            {headerControls}
           </div>
-        </div>
-        {/* EXP-847: plan mode, VISIBLE. Read-only by design — EXP-790 made
-            mode a launch-time choice, so this says what the run is doing and
-            clears itself the moment an approved ExitPlanMode changes
-            `currentMode`. */}
-        {planChip && (
-          <span
-            className="shrink-0 rounded-sm border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
-            title="This run is in plan mode — it proposes a plan before it edits anything. Mode is chosen at launch."
-            data-testid="session-plan-chip"
-          >
-            {planChip}
-          </span>
-        )}
-        {/* EXP-778: pin the run to the sidebar's Pinned group. */}
-        <PinToggleButton
-          teamId={session.teamId ?? undefined}
-          kind="session"
-          targetId={session.id}
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-        />
-        {/* A dropped stream redials from here too — a phone has no desktop
-            header to fall back on. */}
-        {phase.kind === `closed` && !paused && (
+        </>
+      ) : (
+        <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
             className="shrink-0"
-            onClick={() => store.reconnect()}
+            aria-label="Back"
+            onClick={onBack}
           >
-            <UiRefreshIcon />
-            Reconnect
+            <UiBackIcon />
           </Button>
-        )}
-        {/* EXP-818: the ONE Stop — a small red-tinted glass pill, identical
-            on the machine that hosts the run and on one that only watches it
-            (the IDE's `stop_session_pill`); the confirm is `useKillSession`'s. */}
-        {canKill && (
-          <Pill
-            size="sm"
-            mode="action"
-            className="shrink-0 text-destructive"
-            onClick={requestKill}
-            aria-label="Stop the agent and end the session"
-            title="Stop the agent and end the session"
-          >
-            <CodingStopIcon className="size-3" />
-            Stop
-          </Pill>
-        )}
-        {/* A finished run with no fresh numbers has nothing to offer, so the
-            trigger goes away rather than opening an empty menu (its width
-            stays, so the title does not jump). */}
-        {!agentUsage && !sessionUsage && !hasAccountRows && !canCompact && (
-          <span className="size-8 shrink-0" />
-        )}
-        {(agentUsage || sessionUsage || hasAccountRows || canCompact) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="h-8 w-8 shrink-0 p-0"
-                aria-label="Session actions"
-              >
-                <UiMoreIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {(agentUsage || sessionUsage || hasAccountRows) && (
-                <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
-                  <UiUsageIcon className="size-4" />
-                  Usage
-                </DropdownMenuItem>
+          <div className="flex min-w-0 flex-1 flex-col items-center">
+            <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+              <PhaseDot
+                phase={phase}
+                awaitingInput={awaitingInput}
+                paused={paused}
+                stale={staleMinutes !== null}
+              />
+              {identity.identifier && (
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {identity.identifier}
+                </span>
               )}
-              {/* EXP-724: the one command worth a menu entry — the others
-                  are typed with `/` in the composer. */}
-              {canCompact && (
-                <DropdownMenuItem
-                  onSelect={() => store.sendMessage(`/compact`)}
-                >
-                  <CodingCompactIcon className="size-4" />
-                  Compact context
-                </DropdownMenuItem>
+              <span className="min-w-0 truncate text-sm font-medium">
+                {identity.subject}
+              </span>
+            </div>
+            <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+              <span className="max-w-full truncate text-[11px] text-muted-foreground">
+                {headerCaption}
+              </span>
+              {/* EXP-804: the PERSISTED usage wall off the session row, beside
+                  the phase caption and never instead of it — a walled run is
+                  still running. Deliberately not the same thing as
+                  `RateLimitBanner` below, which is the LIVE stream's own
+                  report: this one is already there when you open a run whose
+                  stream has not connected yet, which is exactly the moment a
+                  silently walled run looks healthy. */}
+              {blockedLabel && (
+                <span className="shrink-0 text-[11px] font-medium text-amber-400">
+                  {blockedLabel}
+                </span>
               )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+            </div>
+          </div>
+          {headerControls}
+        </div>
+      )}
 
       {issue && (
         <SessionIssueBand issue={issue} onOpen={onOpenIssue} />
@@ -911,7 +1086,12 @@ export function AgentSessionView({
 
       {banner}
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
+      {/* EXP-850 §11: the transcript column and (on md+) the diff pane sit
+          side by side inside the session view — the pane splits this row, so
+          the composer keeps the transcript's width and the diff scrolls on
+          its own. */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
           {visibleTabs.length > 0 && (
@@ -1030,12 +1210,24 @@ export function AgentSessionView({
                       index === 0 ? null : rowClass(rows[index - 1]),
                       rowClass(row)
                     )
+                    // §12: the turn's file card follows the row that closed
+                    // its segment, inside the same wrapper so the ladder does
+                    // not gain a gap of its own.
+                    const cards = cardsByRow.get(index)
                     const wrap = (content: ReactNode) => (
                       <div
                         key={row.kind === `single` ? row.item.id : row.id}
                         className={gap}
                       >
                         {content}
+                        {cards?.map((card) => (
+                          <div key={`card-${card.afterId}`} className="pt-2">
+                            <SessionFileCard
+                              card={card}
+                              onOpenFile={openDiffFile}
+                            />
+                          </div>
+                        ))}
                       </div>
                     )
                     if (row.kind === `toolRun`) {
@@ -1049,6 +1241,22 @@ export function AgentSessionView({
                       )
                     }
                     if (row.kind === `subagent`) {
+                      // EXP-850 §3: a workflow's agents live INSIDE its card,
+                      // never as a loose group row in the transcript — but
+                      // ONLY when this client HOLDS that card (EXP-856): an
+                      // edge tagged with a workflow whose frame never arrived
+                      // keeps its ordinary row, warning and all. A file card
+                      // anchored here still renders (§12): the turn it closes
+                      // happened whether or not its row is drawn.
+                      if (
+                        nestedWorkflowId(
+                          { subagentId: row.subagentId },
+                          workflowAgents,
+                          workflows
+                        )
+                      ) {
+                        return cards ? wrap(null) : null
+                      }
                       return wrap(<SubagentGroupRow items={row.items} />)
                     }
                     if (row.kind === `ask`) {
@@ -1068,8 +1276,26 @@ export function AgentSessionView({
                     switch (item.kind) {
                       case `narration`:
                         return wrap(<NarrationBubble text={item.text} />)
-                      case `tool`:
+                      case `tool`: {
+                        // EXP-850 §3: the `Workflow` call renders as its CARD
+                        // (same id), so the call's own settle folds in and no
+                        // second row is ever drawn. A card this client has not
+                        // received yet falls back to the plain tool row.
+                        const workflow = item.workflowId
+                          ? workflows.get(item.workflowId)
+                          : undefined
+                        if (workflow) {
+                          return wrap(
+                            <WorkflowCard
+                              workflow={workflow}
+                              agentEvents={workflowAgentEvents.get(workflow.id)}
+                              duplicates={workflowDuplicates.get(workflow.id)}
+                              className={TRANSCRIPT_TOOL_TEXT}
+                            />
+                          )
+                        }
                         return wrap(<ToolRow item={item} flush />)
+                      }
                       case `user_message`: {
                         // EXP-724: a steered slash command renders as a
                         // compact pill, not as a chat bubble of prose.
@@ -1101,6 +1327,13 @@ export function AgentSessionView({
                           />
                         )
                       case `subagent`:
+                        // Same rule as the group row above: nested only when
+                        // the card that would hold it exists.
+                        if (
+                          nestedWorkflowId(item, workflowAgents, workflows)
+                        ) {
+                          return cards ? wrap(null) : null
+                        }
                         return wrap(<SubagentGroupRow items={[item]} />)
                       case `question`:
                         return wrap(
@@ -1116,18 +1349,49 @@ export function AgentSessionView({
                         )
                     }
                   })}
+                  {/* EXP-850 §3: a card whose `Workflow` tool row is not in
+                      the rendered window still has to be seen — it lands at
+                      the tail as a row of its own rather than taking its
+                      agents and its warnings down with it (×4). */}
+                  {orphanWorkflows.map((workflow, index) => (
+                    <div
+                      key={`workflow-${workflow.id}`}
+                      className={transcriptGapClass(
+                        index > 0
+                          ? `tool`
+                          : rows.length === 0
+                            ? null
+                            : rowClass(rows[rows.length - 1]),
+                        `tool`
+                      )}
+                    >
+                      <WorkflowCard
+                        workflow={workflow}
+                        agentEvents={workflowAgentEvents.get(workflow.id)}
+                        duplicates={workflowDuplicates.get(workflow.id)}
+                        className={TRANSCRIPT_TOOL_TEXT}
+                      />
+                    </div>
+                  ))}
                   {/* EXP-389: the agent-is-busy footer under the newest
                       event (mobile parity) — main conversation only. */}
                   {working && (
                     <div
                       className={transcriptGapClass(
-                        rows.length === 0
-                          ? null
-                          : rowClass(rows[rows.length - 1]),
+                        orphanWorkflows.length > 0
+                          ? `tool`
+                          : rows.length === 0
+                            ? null
+                            : rowClass(rows[rows.length - 1]),
                         `tool`
                       )}
                     >
-                      <WorkingIndicatorRow />
+                      <WorkingIndicatorRow
+                        agent={session.agent}
+                        startedAt={turnStartedAt}
+                        tokens={turnTokens}
+                        workflow={runningWorkflow}
+                      />
                     </div>
                   )}
                 </div>
@@ -1212,10 +1476,13 @@ export function AgentSessionView({
             </div>
           )}
 
-          {/* Desktop keeps the row pinned between the feed and the composer;
-              on mobile it FLOATS over the feed (above, inside the scroll
-              wrapper) so it costs the conversation no height. */}
-          {!isMobile && changesBar}
+          {/* EXP-850 §11: the desktop's bottom "Changes" bar is GONE — the
+              diff is the pane beside the transcript. The phone's floating
+              version renders inside the scroll wrapper above. */}
+
+          {/* EXP-850 §1/§2: monitors and background shell commands, right
+              above the composer. */}
+          <BackgroundStrip lines={stripLines} />
 
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
@@ -1242,6 +1509,16 @@ export function AgentSessionView({
               />
             </div>
           )}
+      </div>
+      {!isMobile && diffPaneOpen && diffFiles.length > 0 && (
+        <SessionDiffPane
+          sessionId={session.id}
+          files={diffFiles}
+          selected={diffFile}
+          onSelect={setDiffFile}
+          onClose={() => setDiffPaneOpen(false)}
+        />
+      )}
       </div>
 
       {killDialog}
@@ -1392,21 +1669,95 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 }
 
 /** Assistant prose — a chat bubble with a small glyph, selectable text. */
-/** The trailing "agent is busy" row (EXP-389): a gently pulsing "Working…"
- *  under the newest event whenever the session is live and nothing waits on
- *  the user — without it a feed that ends in tool rows gives no cue whether
- *  the agent is still going. Static under reduced motion. */
-function WorkingIndicatorRow() {
+/** The trailing "agent is busy" row (EXP-389, rewritten by EXP-850 §5): the
+ *  turn's verb, its clock and the tokens it has produced —
+ *  `Pondering… (2m 04s · ↓ 12.4k tokens)` — beside the RUNNING AGENT's brand
+ *  mark, pulsing. While a workflow runs the text is that workflow's caption
+ *  (§7) with the same suffix. A publisher that sends no turn start (codex,
+ *  and every pre-EXP-850 desktop) degrades to the old bare "Working…", which
+ *  is why the group is optional.
+ *
+ *  The clock ticks HERE, once a second, so a running turn re-renders one row
+ *  rather than the whole transcript. Static under reduced motion. */
+function WorkingIndicatorRow({
+  agent,
+  startedAt,
+  tokens,
+  workflow,
+}: {
+  agent: string | null
+  startedAt: number | null
+  tokens: number | null
+  workflow: WorkflowState | null
+}) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (startedAt === null) return
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(timer)
+  }, [startedAt])
+  const caption = workingCaption({
+    startedAt,
+    now,
+    tokens,
+    workflow: workflow ?? undefined,
+  })
+  return (
+    <div className={cn(`flex items-center gap-2`, TRANSCRIPT_TOOL_TEXT)}>
+      <AgentBrandMark agent={agent} pulse />
+      <span className="min-w-0 truncate text-muted-foreground">{caption}</span>
+    </div>
+  )
+}
+
+/** EXP-850 §1/§2: the strip directly above the composer — one line per
+ *  background task the CLI is running (`↻`, the repeat concept) and one per
+ *  OPEN `wait` tool row ("Waiting on …"). Absent when both are empty; the
+ *  wait row itself stays an ordinary tool row in the transcript. */
+function BackgroundStrip({ lines }: { lines: BackgroundStripLine[] }) {
+  if (lines.length === 0) return null
   return (
     <div
-      className={cn(
-        `flex items-center gap-2 motion-safe:animate-pulse`,
-        TRANSCRIPT_TOOL_TEXT
-      )}
+      className="flex flex-col gap-0.5 border-t border-border/60 px-3 py-1.5"
+      data-testid="session-background-strip"
     >
-      <CodingAssistantIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="text-muted-foreground">Working…</span>
+      {lines.map((line) => (
+        <div
+          key={line.key}
+          className={cn(
+            `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
+            TRANSCRIPT_TOOL_TEXT
+          )}
+        >
+          {line.kind === `task` ? (
+            <UiRepeatIcon className="size-3 shrink-0" />
+          ) : (
+            <UiLoadingIcon className="size-3 shrink-0 motion-safe:animate-spin" />
+          )}
+          <span className="min-w-0 truncate" title={line.text}>
+            {line.text}
+          </span>
+        </div>
+      ))}
     </div>
+  )
+}
+
+/** A workflow agent's own rows, folded away inside its card (§3) — the same
+ *  two row components the transcript uses, nothing else. */
+function NestedAgentEvents({ items }: { items: FeedItem[] }) {
+  return (
+    <>
+      {items.map((item) =>
+        item.kind === `tool` ? (
+          <ToolRow key={item.id} item={item} />
+        ) : item.kind === `narration` ? (
+          <div key={item.id} className="py-0.5">
+            <NarrationBubble text={item.text} />
+          </div>
+        ) : null
+      )}
+    </>
   )
 }
 
@@ -1971,7 +2322,10 @@ function QuestionPrompt({
                 variant={primary ? `default` : `outline`}
                 size="sm"
                 className={cn(
-                  `h-auto min-h-8 w-full justify-start whitespace-normal py-1.5 text-left text-xs`,
+                  // EXP-850 §13: an option is a ROW, so it wears the row
+                  // radius (design token `radius.md` = 10px) ×4 — never the
+                  // Button's capsule.
+                  `h-auto min-h-8 w-full justify-start whitespace-normal rounded-md py-1.5 text-left text-xs`,
                   // EXP-820: styleguide — the promoted option is the primary
                   // fill, a pick (and an open field's row) the glass active
                   // fill; nothing on this card is blue.
@@ -2008,7 +2362,7 @@ function QuestionPrompt({
                 {chip && (
                   <kbd
                     className={cn(
-                      `ml-auto shrink-0 rounded border px-1 font-mono text-[0.625rem] font-normal leading-4`,
+                      `ml-auto shrink-0 rounded-sm border px-1 font-mono text-[0.625rem] font-normal leading-4`,
                       primary
                         ? `border-primary-foreground/30 text-primary-foreground/80`
                         : `border-glass-stroke-card text-muted-foreground`
@@ -2582,6 +2936,11 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
     [tools, toolCount]
   )
   const expandable = tools.length > 0
+  // EXP-856 §4: a second copy of this agent started while the first was still
+  // running. Amber, verbatim off the wire, and OUTSIDE the fold — a collapsed
+  // group must not hide the one row that says two agents are editing the same
+  // files.
+  const duplicate = summary.duplicateDetail
   const header = (
     <>
       <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
@@ -2605,25 +2964,24 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   )
   if (!expandable) {
     return (
-      <div
-        className={cn(
-          `flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground`,
-          TRANSCRIPT_TOOL_TEXT
+      <div className={cn(`min-w-0`, TRANSCRIPT_TOOL_TEXT)}>
+        <div className="flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground">
+          {header}
+        </div>
+        {duplicate && (
+          <div className="pl-0.5 pt-0.5">
+            <DuplicateWarningRow detail={duplicate} />
+          </div>
         )}
-      >
-        {header}
       </div>
     )
   }
   return (
-    <div className="min-w-0">
+    <div className={cn(`min-w-0`, TRANSCRIPT_TOOL_TEXT)}>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          `flex w-full min-w-0 items-center gap-2 pl-0.5 text-muted-foreground hover:text-foreground`,
-          TRANSCRIPT_TOOL_TEXT
-        )}
+        className="flex w-full min-w-0 items-center gap-2 pl-0.5 text-left text-muted-foreground hover:text-foreground"
       >
         {expanded ? (
           <ChevronDown className="size-3 shrink-0" />
@@ -2632,6 +2990,11 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
         )}
         {header}
       </button>
+      {duplicate && (
+        <div className="pl-0.5 pt-0.5">
+          <DuplicateWarningRow detail={duplicate} />
+        </div>
+      )}
       {expanded && (
         <div className="ml-5">
           {tools.map((tool) => (
@@ -2958,8 +3321,11 @@ function ExpToolResult({
  *  changes" bar uses, in a scroll box no taller than that bar. */
 const ToolDiff = memo(function ToolDiff({ diff }: { diff: string }) {
   const { files, truncated } = useMemo(() => {
+    // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
+    // `diff --git` header), which `splitUnifiedDiff` alone reads as zero
+    // files — `toolDiffFiles` handles both shapes.
     const split = splitTruncatedDiff(diff)
-    return { files: splitUnifiedDiff(split.diff), truncated: split.truncated }
+    return { files: toolDiffFiles(split.diff), truncated: split.truncated }
   }, [diff])
   if (files.length === 0 && truncated === null) return null
   return (
@@ -3245,9 +3611,10 @@ function MessageComposer({
                 fileInputRef.current?.click()
               }}
             >
-              {/* EXP-818: the image glyph every other composer wears
-                  (comments, the description editor) — ×4. */}
-              <EditorImageIcon />
+              {/* EXP-850 §13: the STEER composers attach with the `ui-add`
+                  plus (×4); comment and description editors keep
+                  `editor-image`. */}
+              <UiAddIcon />
             </ComposerTool>
           </>
         }

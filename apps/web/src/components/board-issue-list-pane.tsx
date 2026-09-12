@@ -18,16 +18,25 @@ export function BoardIssueListPane({
   groups,
   teamSlug,
   boardSlug,
+  boardSlugById,
   activeIssueId,
   filterSearch,
+  from,
 }: {
   groups: IssueGroup[]
   teamSlug: string
+  /** The board every row belongs to — the single-board case. */
   boardSlug: string
+  /** EXP-851: a CROSS-BOARD list (the sidebar's My issues nav) resolves each
+   * row's board here; `boardSlug` is the fallback. */
+  boardSlugById?: Map<string, string>
   activeIssueId: string
   /** The board's active filters, carried on every row link so the detail
    * header's sequence keeps walking the same filtered list. */
   filterSearch: IssueFilterSearch
+  /** EXP-851: the `?from=` token every row hands the issue it opens, so the
+   * detail keeps THIS list beside it (`lib/detail-origin.ts`). */
+  from?: string
 }) {
   const visible = groups.filter((group) => group.issues.length > 0)
   return (
@@ -60,10 +69,10 @@ export function BoardIssueListPane({
                   to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
                   params={{
                     teamSlug,
-                    boardSlug,
+                    boardSlug: boardSlugById?.get(issue.boardId) ?? boardSlug,
                     issueIdentifier: issue.identifier,
                   }}
-                  search={filterSearch}
+                  search={{ ...filterSearch, ...(from ? { from } : {}) }}
                 >
                   <IssueStatusIcon issue={issue} className="!h-3.5 !w-3.5" />
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">

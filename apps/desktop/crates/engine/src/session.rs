@@ -326,6 +326,14 @@ impl EngineSession {
         self.0.ctx.turn_signal.clone()
     }
 
+    /// EXP-850 §8: the in-process workflow caption of THIS run — the second
+    /// line a session row hosted here renders, with no round trip through the
+    /// `agent_caption` column this process is writing (the `turn_signal`
+    /// precedence rule, applied to the caption).
+    pub fn caption_signal(&self) -> Arc<steer::CaptionSignal> {
+        self.0.ctx.caption_signal.clone()
+    }
+
     /// Stop now and end the row with `outcome` as the publisher `bye`.
     /// Idempotent.
     pub fn kill(&self, outcome: &'static str) {
@@ -553,6 +561,8 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         publish: spec.publish,
         local_sink: spec.local_sink,
         turn_signal: Arc::new(steer::TurnSignal::new()),
+        caption_signal: Arc::new(steer::CaptionSignal::new()),
+        workflows: Mutex::new(Vec::new()),
         agent: spec.agent,
         redactor,
         replay: spec.replay,

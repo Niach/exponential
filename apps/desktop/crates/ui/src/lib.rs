@@ -61,6 +61,7 @@ mod description_editor;
 mod emoji;
 mod emoji_picker;
 pub mod diff;
+mod diff_pane;
 mod file_tree;
 mod file_viewer;
 mod filter_bar;
@@ -118,6 +119,7 @@ mod session;
 mod session_extras;
 mod session_bar;
 mod session_registry;
+mod session_rows;
 mod session_screen;
 mod settings;
 mod sidebar;
@@ -126,6 +128,7 @@ mod surface;
 mod source_control;
 mod steer_viewer;
 mod transcript_rows;
+mod workflow_card;
 pub mod steer_wiring;
 mod support_thread;
 // EXP-837: the window-level disarm for a stuck text-selection drag.
@@ -203,9 +206,6 @@ pub fn init(cx: &mut App) {
     // §4.2 accept-invite fallback: "Join team…" in the footer account
     // menu (the exponential://invite/<token> deep link routes through oauth.rs).
     join_team::init(cx);
-    register_panel(cx, shell::CENTER_PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| shell::CenterPanel::new(window, cx)))
-    });
     register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
     });

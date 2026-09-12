@@ -102,7 +102,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
-             "v36_coding_session_agent_busy"]
+             "v36_coding_session_agent_busy",
+             "v37_coding_session_agent_caption"]
         )
     }
 
@@ -131,7 +132,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
-             "v36_coding_session_agent_busy"]
+             "v36_coding_session_agent_busy",
+             "v37_coding_session_agent_caption"]
         )
     }
 
@@ -188,7 +190,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
-             "v36_coding_session_agent_busy"]
+             "v36_coding_session_agent_busy",
+             "v37_coding_session_agent_caption"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -265,7 +268,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
-             "v36_coding_session_agent_busy"]
+             "v36_coding_session_agent_busy",
+             "v37_coding_session_agent_caption"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1361,6 +1365,45 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNotNil(added)
         XCTAssertTrue(added?.isNotNull ?? false)
         XCTAssertTrue(added?.type.uppercased().contains("BOOL") ?? false)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'coding-sessions'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v37 (EXP-850 §8): a store created before `coding_sessions.agent_caption`
+    // existed must gain it (nullable text — the caption is absent far more
+    // often than not) and get the coding-sessions offset reset so already-synced
+    // rows re-arrive carrying it.
+    func testCodingSessionAgentCaptionColumnAddedToExistingStore() throws {
+        let pool = try makePool("coding-session-agent-caption")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v36_coding_session_agent_busy")
+        try pool.write { db in
+            if try db.columns(in: "coding_sessions").contains(where: { $0.name == "agent_caption" }) {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: "agent_caption") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("agent_caption"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let added = try pool.read { db in
+            try db.columns(in: "coding_sessions").first { $0.name == "agent_caption" }
+        }
+        XCTAssertNotNil(added)
+        XCTAssertFalse(added?.isNotNull ?? true)
         let reset = try pool.read { db in
             try Bool.fetchOne(
                 db,

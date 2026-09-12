@@ -25,7 +25,7 @@ object DomainContract {
     val codingSessionEndedByValues: List<String> = listOf("agent", "user", "client", "merge", "system")
     val codingSessionBlockedKinds: List<String> = listOf("rate_limit")
     val codingSessionBlockedWindows: List<String> = listOf("session", "weekly", "model")
-    val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other")
+    val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "other")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val pinKindValues: List<String> = listOf("issue", "session", "action")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed")
@@ -56,6 +56,13 @@ object DomainContract {
     val expToolSubjectKeys: List<String> = listOf("name", "id", "", "id", "id", "id", "filename", "name", "id", "", "id", "id", "name", "id", "id", "", "id", "id", "issueId", "id", "issueId", "id", "", "id", "id", "id", "id", "id", "id", "", "email", "", "id", "issueId", "issueId", "issueId", "issueId", "title", "id", "id", "", "id", "id", "id", "id", "id", "name", "id", "id", "", "id", "", "", "", "title", "issueId", "title", "issueId", "title", "fullName", "", "", "question", "", "id", "id", "", "id", "issueId", "name", "id", "", "id", "name", "id", "", "id")
     val expToolResults: List<String> = listOf("action", "none", "list", "action", "none", "none", "none", "automation", "none", "list", "automation", "automation", "board", "none", "board", "list", "board", "board", "comment", "none", "list", "comment", "list", "none", "issue", "none", "none", "none", "none", "list", "none", "list", "none", "issue", "issue", "issue", "issue", "issue", "none", "issue", "list", "none", "issue", "issue", "issue", "issue", "none", "none", "none", "list", "none", "list", "list", "none", "none", "pr", "pr", "pr", "none", "none", "none", "list", "none", "none", "session", "none", "list", "session", "session", "none", "none", "list", "none", "none", "none", "list", "none")
     val turnStateValues: List<String> = listOf("started", "ended")
+    val subagentStatusValues: List<String> = listOf("started", "completed", "duplicate")
+    val workflowAgentStateValues: List<String> = listOf("queued", "running", "done", "error")
+    val workflowStatusValues: List<String> = listOf("running", "completed", "failed", "stopped")
+    val backgroundTaskKindValues: List<String> = listOf("shell", "workflow", "agent", "other")
+    val steerWorkingVerbs: List<String> = listOf("Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating")
+    const val steerWorkingTokenTickMs: Long = 2000L
+    const val steerWorkingPreviewMax: Int = 160
 
     const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L

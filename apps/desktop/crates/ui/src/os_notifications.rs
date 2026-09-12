@@ -179,6 +179,9 @@ enum Route {
     Support { team_id: Option<String> },
     /// The Inbox tab (bundles, and rows whose issue is not synced).
     Inbox,
+    /// EXP-856: a session-level alert (the duplicate-agent warning) — opens
+    /// the run it happened in.
+    Session { session_id: String },
 }
 
 fn route_for(row: &Notification) -> Route {
@@ -617,8 +620,41 @@ fn land(route: Route, window: &mut Window, cx: &mut App) {
             sidebar::activate_tool(window, cx, ToolWindow::Support);
         }
         Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
+        Route::Session { session_id } => {
+            crate::session_screen::open_session(&session_id, window, cx)
+        }
     }
 }
+
+/// EXP-856 §4 — the duplicate-agent toast: a session-level alert that does
+/// NOT come off the `notifications` shape (nothing server-side knows a second
+/// copy of an agent started), so it bypasses the gate, the coalescer and the
+/// per-type prefs and raises directly.
+///
+/// It still honours the per-machine switch, and the caller raises it ONCE per
+/// duplicate id ([`crate::steer_viewer`] holds that set) — a repeated
+/// `workflow` republish must not re-toast.
+pub(crate) fn raise_duplicate_agent(session_id: &str, detail: &str, cx: &mut App) {
+    if !CodingHub::global(cx).read(cx).settings.os_notifications {
+        return;
+    }
+    let Some(notifier) = cx.try_global::<OsNotifierGlobal>().map(|global| global.0.clone()) else {
+        return;
+    };
+    let route = Route::Session {
+        session_id: session_id.to_string(),
+    };
+    let tag = notifier.update(cx, |this, _| this.register_route(route));
+    cx.show_system_notification(SystemNotification {
+        tag,
+        title: DUPLICATE_AGENT_TITLE.into(),
+        body: detail.to_string().into(),
+        actions: Vec::new(),
+    });
+}
+
+/// The duplicate toast's title (the body is the wire's own sentence).
+pub(crate) const DUPLICATE_AGENT_TITLE: &str = "Duplicate agent";
 
 /// The `OpenBoard` / Support-row cross-team rule: a target in another team
 /// switches the window's team first (screen + back stack reset).

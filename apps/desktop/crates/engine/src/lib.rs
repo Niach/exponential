@@ -54,8 +54,10 @@ pub use host::{
 };
 pub use local::{
     EnginePhase, LocalFeedEvent, PlanEntryPriorityView, PlanEntryStatusView, PlanEntryView,
-    SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus, COMPACTION_TRIGGER_META_KEY,
-    SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY,
+    SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus,
+    BACKGROUND_TASKS_META_KEY, COMPACTION_TRIGGER_META_KEY,
+    SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
+    TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
 pub use mapper::{clamp_usage, AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
 pub use session::{

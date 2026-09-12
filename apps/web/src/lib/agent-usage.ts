@@ -289,6 +289,17 @@ export function formatContextUsage(
   return `${formatTokens(usage.contextUsed)} / ${formatTokens(usage.contextSize)} (${percent}%)`
 }
 
+/** EXP-850 §10: the session header's Context pill — `124k / 200k`, the same
+ * numbers as `formatContextUsage` without the percent (the pill is small and
+ * the sheet behind it spells the rest out). Empty when the engine reported no
+ * window, which is what HIDES the pill. */
+export function formatContextCompact(
+  usage: SessionUsageState | null | undefined
+): string {
+  if (!usage || contextPercent(usage) === null) return ``
+  return `${formatTokens(usage.contextUsed)} / ${formatTokens(usage.contextSize)}`
+}
+
 /** `$1.24`, or null under half a cent — a run that has spent essentially
  * nothing says nothing rather than `$0.00`. Byte-identical ×4. */
 export function formatUsageCost(

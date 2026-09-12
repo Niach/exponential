@@ -46,6 +46,7 @@ const IDS = [
   `EPL-1.0`,
   `EPL-2.0`,
   `ISC`,
+  `LGPL-3.0-or-later`,
   `LLVM-exception`,
   `MIT`,
   `MIT-0`,

@@ -335,4 +335,38 @@ class CodingSessionEntityDecodeTest {
         )
         assertFalse(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentBusy)
     }
+
+    // EXP-850 (S8): agent_caption — the device-written "what this run is doing
+    // right now" line. A pre-EXP-850 server sends no key at all, which must
+    // read as null (a row with nothing to say renders no second line).
+    @Test
+    fun `agent_caption decodes from both wire forms and defaults null`() {
+        fun row(extra: String) = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running"$extra,
+              "started_at": "2026-09-12 10:00:00+00",
+              "created_at": "2026-09-12 10:00:00+00",
+              "updated_at": "2026-09-12 10:00:00+00"
+            }
+        """.trimIndent()
+        assertEquals(
+            "Workflow release · 2/5 agents done · Build",
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agent_caption\": \"Workflow release · 2/5 agents done · Build\""),
+            ).agentCaption,
+        )
+        assertEquals(
+            "Workflow release · done · 5 agents",
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agentCaption\": \"Workflow release · done · 5 agents\""),
+            ).agentCaption,
+        )
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent_caption\": null")).agentCaption)
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentCaption)
+    }
 }

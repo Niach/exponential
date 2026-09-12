@@ -11,8 +11,9 @@ import {
 } from "@/lib/filters"
 import type { Issue, IssueLabel } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
-import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { IssueDetailView } from "@/components/issue-detail-view"
+
+type IssueSearch = IssueFilterSearch & { from?: string }
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -24,11 +25,18 @@ export const Route = createFileRoute(
   // beforeLoad.
   //
   // Optional ?status/priority/labels mirror the board route's filter params —
-  // navigating from a filtered board carries them here so the board
-  // breadcrumb links back to the same filtered view. All params are
-  // optional: links from the inbox (either tab) / search arrive bare.
-  validateSearch: (search: Record<string, unknown>): IssueFilterSearch =>
-    parseIssueFilterSearch(search),
+  // navigating from a filtered board carries them here so a return to the
+  // board lands on the same filtered view. All params are optional: links
+  // from the inbox (either tab) / search arrive bare.
+  //
+  // EXP-851: `?from=` is the LIST this issue was opened from
+  // (`lib/detail-origin.ts`) — the sidebar keeps it beside the issue, and
+  // absent means the main menu stays.
+  validateSearch: (search: Record<string, unknown>): IssueSearch => ({
+    ...parseIssueFilterSearch(search),
+    from:
+      typeof search.from === `string` && search.from ? search.from : undefined,
+  }),
   component: IssueDetailPage,
 })
 
@@ -42,7 +50,7 @@ function IssueDetailPage() {
     () => issueFiltersFromSearch(search),
     [search.status, search.priority, search.labels]
   )
-  const { board, boardReady, team, users, visibleGroups } = useBoardViewData({
+  const { board, boardReady, team, users } = useBoardViewData({
     filters,
     boardSlug,
     teamSlug,
@@ -119,32 +127,20 @@ function IssueDetailPage() {
     )
   }
 
-  // EXP-818: the issue brings its BOARD along — the board's list stays beside
-  // it on md+ (the Agent page's and the inbox's master-detail), so opening an
-  // issue never loses the list it came from and the next one is one click away.
+  // EXP-851: the issue IS the content panel — the board list that used to sit
+  // on its left moved into the sidebar's list nav (one list, one place, every
+  // detail), which is what gives the description and timeline the full width.
   return (
-    <div className="flex h-full min-h-0">
-      <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
-        <BoardIssueListPane
-          groups={visibleGroups}
-          teamSlug={teamSlug}
-          boardSlug={boardSlug}
-          activeIssueId={issue.id}
-          filterSearch={search}
-        />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <IssueDetailView
-          issue={issue}
-          issueLabelIds={issueLabelIds}
-          users={users}
-          board={board}
-          teamSlug={teamSlug}
-          teamId={team.id}
-          readOnly={!permissions.canMutateIssue(issue)}
-          filterSearch={search}
-        />
-      </div>
-    </div>
+    <IssueDetailView
+      issue={issue}
+      issueLabelIds={issueLabelIds}
+      users={users}
+      board={board}
+      teamSlug={teamSlug}
+      teamId={team.id}
+      readOnly={!permissions.canMutateIssue(issue)}
+      filterSearch={search}
+      origin={search.from}
+    />
   )
 }

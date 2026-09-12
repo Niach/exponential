@@ -69,26 +69,45 @@ struct Entry {
 
 /// EXP-758: the latest-wins slots, in the relay's replay order
 /// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `rate_limit`,
-/// `turn`, `diff` — the diff stays LAST, where it replayed before any of this
-/// became a map). EXP-784 added `rate_limit` beside `usage`; EXP-848 `turn`.
+/// `turn`, `workflow`, `background_tasks`, `diff` — the diff stays LAST, where
+/// it replayed before any of this became a map). EXP-784 added `rate_limit`
+/// beside `usage`; EXP-848 `turn`; EXP-850 the keyed `workflow` block and
+/// `background_tasks`.
 const SLOT_CONFIG_STATE: usize = 0;
 const SLOT_USAGE: usize = 1;
 const SLOT_RATE_LIMIT: usize = 2;
 const SLOT_TURN: usize = 3;
-const SLOT_DIFF: usize = 4;
-const SLOT_COUNT: usize = 5;
+const SLOT_BACKGROUND_TASKS: usize = 4;
+const SLOT_DIFF: usize = 5;
+const SLOT_COUNT: usize = 6;
+
+/// EXP-850 §3: how many workflow cards one session keeps. A run that starts
+/// more than this many workflows loses the OLDEST (its card is finished and
+/// its transcript rows are still in the log); the cap mirrors the relay's own
+/// `WORKFLOW_SLOT_CAP` and `history::JOURNAL_WORKFLOW_CAP`.
+pub const JOURNAL_WORKFLOW_CAP: usize = 16;
 
 /// Which slot an event owns, if any. The ONE place the latest-wins kinds are
-/// named.
+/// named. EXP-850: a `workflow` is latest-wins too but keyed by ID, so it has
+/// no fixed slot — [`ActivityJournal::push_seq`] folds it separately.
 fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
         ActivityEvent::ConfigState { .. } => Some(SLOT_CONFIG_STATE),
         ActivityEvent::Usage { .. } => Some(SLOT_USAGE),
         ActivityEvent::RateLimit { .. } => Some(SLOT_RATE_LIMIT),
         ActivityEvent::Turn { .. } => Some(SLOT_TURN),
+        ActivityEvent::BackgroundTasks { .. } => Some(SLOT_BACKGROUND_TASKS),
         ActivityEvent::Diff { .. } => Some(SLOT_DIFF),
         _ => None,
     }
+}
+
+/// EXP-850 §3: one workflow card's slot — the newest frame for an id, with
+/// the seq of the line it last occupied.
+struct WorkflowSlot {
+    id: String,
+    event: ActivityEvent,
+    seq: Option<u64>,
 }
 
 /// The replay buffer described in the module docs.
@@ -102,6 +121,10 @@ pub struct ActivityJournal {
     slots: [Option<ActivityEvent>; SLOT_COUNT],
     /// EXP-783: the seq of whatever currently occupies each slot.
     slot_seqs: [Option<u64>; SLOT_COUNT],
+    /// EXP-850 §3: the `workflow` slots, keyed by workflow id and kept in
+    /// first-appearance order (oldest evicted past [`JOURNAL_WORKFLOW_CAP`]).
+    /// Outside `entries` and both budgets like every other latest-wins slot.
+    workflows: Vec<WorkflowSlot>,
     bytes: usize,
     /// Live tool-entry count per subagent (an id with none left is removed).
     subagent_tool_counts: HashMap<String, usize>,
@@ -137,6 +160,25 @@ impl ActivityJournal {
         if let Some(slot) = slot_of(&event) {
             self.slots[slot] = Some(event);
             self.slot_seqs[slot] = seq;
+            return;
+        }
+        // EXP-850 §3: latest-wins PER WORKFLOW ID — the newest frame for an id
+        // replaces its predecessor in place, a new id appends, and the oldest
+        // card goes once the cap is reached.
+        if let ActivityEvent::Workflow(workflow) = &event {
+            let id = workflow.id.clone();
+            match self.workflows.iter_mut().find(|held| held.id == id) {
+                Some(held) => {
+                    held.event = event;
+                    held.seq = seq;
+                }
+                None => {
+                    self.workflows.push(WorkflowSlot { id, event, seq });
+                    while self.workflows.len() > JOURNAL_WORKFLOW_CAP {
+                        self.workflows.remove(0);
+                    }
+                }
+            }
             return;
         }
         if let ActivityEvent::QuestionResolved { id, ask_id, .. } = &event {
@@ -239,15 +281,33 @@ impl ActivityJournal {
     /// EXP-783: the replay with each event's wire sequence beside it — what a
     /// re-publish sends so a viewer can splice rather than swap.
     pub fn replay_seq(&self) -> impl Iterator<Item = (Option<u64>, &ActivityEvent)> {
+        // EXP-850: the relay's `LATEST_REPLAY_ORDER` — the keyed workflow
+        // cards sit between `turn` and `background_tasks`, and the diff stays
+        // last.
+        let mut tail: Vec<(Option<u64>, &ActivityEvent)> = Vec::new();
+        for slot in [SLOT_CONFIG_STATE, SLOT_USAGE, SLOT_RATE_LIMIT, SLOT_TURN] {
+            if let Some(event) = self.slots[slot].as_ref() {
+                tail.push((self.slot_seqs[slot], event));
+            }
+        }
+        for workflow in &self.workflows {
+            tail.push((workflow.seq, &workflow.event));
+        }
+        for slot in [SLOT_BACKGROUND_TASKS, SLOT_DIFF] {
+            if let Some(event) = self.slots[slot].as_ref() {
+                tail.push((self.slot_seqs[slot], event));
+            }
+        }
         self.entries
             .iter()
             .map(|entry| (entry.seq, &entry.event))
-            .chain(
-                self.slots
-                    .iter()
-                    .zip(self.slot_seqs.iter())
-                    .filter_map(|(event, seq)| event.as_ref().map(|event| (*seq, event))),
-            )
+            .chain(tail)
+    }
+
+    /// EXP-850 §3: how many workflow cards this journal holds (observability
+    /// and the cap's test).
+    pub fn workflow_slots(&self) -> usize {
+        self.workflows.len()
     }
 
     /// LOG entries only — the latest-wins slots are outside the count budget
@@ -386,6 +446,7 @@ mod tests {
             at: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         }
     }
 
@@ -819,5 +880,132 @@ mod tests {
             ActivityEvent::Narration { text, .. } => assert!(text.starts_with("11")),
             other => panic!("expected narration, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod exp850_tests {
+    use super::*;
+    use crate::workflow::{WorkflowState, WorkflowStatus};
+
+    fn workflow(id: &str, status: WorkflowStatus) -> ActivityEvent {
+        ActivityEvent::workflow(WorkflowState {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            status,
+            ..WorkflowState::default()
+        })
+    }
+
+    fn tasks(count: usize) -> ActivityEvent {
+        ActivityEvent::background_tasks(
+            (0..count)
+                .map(|i| crate::frames::BackgroundTask {
+                    id: format!("b{i}"),
+                    kind: crate::frames::BackgroundTaskKind::Shell,
+                    description: format!("task {i}"),
+                    tool_id: None,
+                })
+                .collect(),
+        )
+    }
+
+    fn kinds(journal: &ActivityJournal) -> Vec<String> {
+        journal
+            .replay()
+            .map(|event| match event {
+                ActivityEvent::Workflow(workflow) => format!("workflow:{}", workflow.id),
+                other => serde_json::to_value(other)
+                    .ok()
+                    .and_then(|value| {
+                        value.get("kind").and_then(|kind| kind.as_str()).map(str::to_string)
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    /// EXP-850 §2/§3: both new kinds are latest-wins STATE — out of the log,
+    /// out of both budgets, replayed in the relay's order (the cards between
+    /// `turn` and the strip, the diff last).
+    #[test]
+    fn the_new_slots_replay_in_the_relay_order() {
+        let mut journal = ActivityJournal::new();
+        journal.push(ActivityEvent::narration("working"));
+        journal.push(ActivityEvent::diff("+ line"));
+        journal.push(tasks(1));
+        journal.push(workflow("wf-1", WorkflowStatus::Running));
+        journal.push(ActivityEvent::turn(crate::frames::TurnState::Started));
+        journal.push(workflow("wf-2", WorkflowStatus::Running));
+        journal.push(tasks(0));
+
+        assert_eq!(
+            kinds(&journal),
+            vec![
+                "narration",
+                "turn",
+                "workflow:wf-1",
+                "workflow:wf-2",
+                "background_tasks",
+                "diff",
+            ]
+        );
+        // Only the narration is a LOG row; the slots are outside both budgets.
+        assert_eq!(journal.len(), 1);
+        assert_eq!(journal.workflow_slots(), 2);
+        // Latest-wins whole: the newest strip is the empty one.
+        let replayed: Vec<&ActivityEvent> = journal.replay().collect();
+        assert!(matches!(
+            replayed[4],
+            ActivityEvent::BackgroundTasks { tasks, .. } if tasks.is_empty()
+        ));
+    }
+
+    /// EXP-850 §3: latest-wins PER ID, in first-appearance order — a card's
+    /// newest frame replaces its predecessor without moving it.
+    #[test]
+    fn a_workflow_card_is_replaced_in_place_by_id() {
+        let mut journal = ActivityJournal::new();
+        journal.push(workflow("wf-1", WorkflowStatus::Running));
+        journal.push(workflow("wf-2", WorkflowStatus::Running));
+        journal.push(workflow("wf-1", WorkflowStatus::Completed));
+        assert_eq!(kinds(&journal), vec!["workflow:wf-1", "workflow:wf-2"]);
+        let replayed: Vec<&ActivityEvent> = journal.replay().collect();
+        assert!(matches!(
+            replayed[0],
+            ActivityEvent::Workflow(state) if state.status == WorkflowStatus::Completed
+        ));
+        assert_eq!(journal.workflow_slots(), 2);
+    }
+
+    /// EXP-850 §3: 16 cards per session, oldest evicted — the relay's
+    /// `WORKFLOW_SLOT_CAP`, mirrored.
+    #[test]
+    fn the_workflow_slots_are_capped_at_sixteen() {
+        let mut journal = ActivityJournal::new();
+        for i in 0..20 {
+            journal.push(workflow(&format!("wf-{i}"), WorkflowStatus::Running));
+        }
+        assert_eq!(journal.workflow_slots(), JOURNAL_WORKFLOW_CAP);
+        let held = kinds(&journal);
+        assert_eq!(held.first().map(String::as_str), Some("workflow:wf-4"));
+        assert_eq!(held.last().map(String::as_str), Some("workflow:wf-19"));
+    }
+
+    /// A chatty workflow (one frame a second for an hour) can never evict the
+    /// transcript: the cards are outside the count budget entirely.
+    #[test]
+    fn a_chatty_workflow_never_evicts_the_transcript() {
+        let mut journal = ActivityJournal::new();
+        journal.push(ActivityEvent::user_message("go"));
+        for _ in 0..(JOURNAL_EVENT_CAP * 2) {
+            journal.push(workflow("wf-1", WorkflowStatus::Running));
+            journal.push(tasks(1));
+        }
+        assert_eq!(journal.len(), 1);
+        assert!(matches!(
+            journal.replay().next(),
+            Some(ActivityEvent::UserMessage { .. })
+        ));
     }
 }

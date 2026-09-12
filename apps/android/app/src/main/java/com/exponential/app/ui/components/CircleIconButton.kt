@@ -61,11 +61,21 @@ fun CircleIconButton(
     tint: Color? = null,
     enabled: Boolean = true,
     active: Boolean = false,
+    /** EXP-850 (S10): the GHOST variant — no fill, no hairline, just the
+     *  glyph. The pin toggle wears it everywhere it renders (issue header,
+     *  session header, action sheet): a pin is a quiet personal marker, and
+     *  the circle made it read as loud as Stop. [active] then shows as a
+     *  full-emphasis glyph instead of a fill. */
+    borderless: Boolean = false,
     size: Dp = GlassTokens.ControlSize,
     glyphSize: Dp = 17.dp,
 ) {
     val glyph = tint ?: MaterialTheme.colorScheme.onSurface.copy(
-        alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+        alpha = when {
+            !enabled -> TextEmphasis.Quaternary
+            borderless && active -> 1f
+            else -> TextEmphasis.Secondary
+        },
     )
     Box(
         modifier = modifier.size(size),
@@ -76,11 +86,21 @@ fun CircleIconButton(
                 .minimumInteractiveComponentSize()
                 .size(size)
                 .clip(CircleShape)
-                .background(if (active) GlassTokens.RowFillActive else GlassTokens.CardFill, CircleShape)
-                .border(
-                    GlassTokens.Hairline,
-                    if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
-                    CircleShape,
+                .then(
+                    if (borderless) {
+                        Modifier
+                    } else {
+                        Modifier
+                            .background(
+                                if (active) GlassTokens.RowFillActive else GlassTokens.CardFill,
+                                CircleShape,
+                            )
+                            .border(
+                                GlassTokens.Hairline,
+                                if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
+                                CircleShape,
+                            )
+                    },
                 )
                 .clickable(enabled = enabled, onClick = onClick),
             contentAlignment = Alignment.Center,
@@ -123,6 +143,9 @@ fun TopBarActionButton(
     onClick: () -> Unit,
     tint: Color? = null,
     enabled: Boolean = true,
+    active: Boolean = false,
+    /** EXP-850 (S10): the ghost variant — see [CircleIconButton]. */
+    borderless: Boolean = false,
 ) {
     CircleIconButton(
         icon,
@@ -131,5 +154,7 @@ fun TopBarActionButton(
         modifier = Modifier.padding(end = 8.dp),
         tint = tint,
         enabled = enabled,
+        active = active,
+        borderless = borderless,
     )
 }

@@ -60,8 +60,17 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/sessions/$sessionId`,
     fuzzy: true,
   })
-  const onChat = matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true })
-  return !onIssueDetail && !onReviewDetail && !onSessionDetail && !onChat
+  // EXP-851: a support ticket is its own route now, and it is a DETAIL —
+  // the conversation carries the shared back header.
+  const onSupportThread = matchRoute({
+    to: `/t/$teamSlug/support/$threadId`,
+    fuzzy: true,
+  })
+  // EXP-851: the Agent page is a LIST screen again (composer over Running /
+  // Past in one scroller), so it keeps the standard phone chrome.
+  return (
+    !onIssueDetail && !onReviewDetail && !onSessionDetail && !onSupportThread
+  )
 }
 
 // The board the Issues tab / compose FAB / topbar switcher target: the

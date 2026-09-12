@@ -685,8 +685,9 @@ export async function endLiveIssueSessionsInTx(
     .update(codingSessions)
     .set({
       status: `ended`,
-      // EXP-848: an ended run is never busy.
+      // EXP-848/850: an ended run is never busy and says nothing.
       agentBusy: false,
+      agentCaption: null,
       endedAt: new Date(),
       endedBy: `merge`,
       updatedAt: new Date(),
@@ -766,8 +767,9 @@ export async function endMergedPrSessions(
       .update(codingSessions)
       .set({
         status: `ended`,
-        // EXP-848: an ended run is never busy.
+        // EXP-848/850: an ended run is never busy and says nothing.
         agentBusy: false,
+        agentCaption: null,
         endedAt: new Date(),
         endedBy: `merge`,
         updatedAt: new Date(),
@@ -846,8 +848,9 @@ export async function applySessionPrState(opts: {
       .update(codingSessions)
       .set({
         status: `ended`,
-        // EXP-848: an ended run is never busy.
+        // EXP-848/850: an ended run is never busy and says nothing.
         agentBusy: false,
+        agentCaption: null,
         endedAt: new Date(),
         endedBy: `merge`,
         updatedAt: new Date(),

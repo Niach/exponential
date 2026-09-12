@@ -113,7 +113,8 @@ interface Room {
    *  control socket — the device is online but produced nothing. */
   historyTimer: ReturnType<typeof setTimeout> | null
   /** EXP-746: latest-wins STATE by kind (`diff`, `config_state`, `usage`,
-   *  `rate_limit`, `turn`) —
+   *  `rate_limit`, `turn`, `background_tasks`, and EXP-850's per-id
+   *  `workflow:{id}` cards) —
    *  the newest one replaces its predecessor, stays OUT of the count/byte
    *  budget, and the join replay sends them after the log. Each schema
    *  already caps the payload (a diff at 512KB, a config at 8 options). */
@@ -177,10 +178,43 @@ const SUBAGENT_TOOL_CAP = 50
 // replay window. EXP-784 adds `rate_limit`; a `tool_update` (EXP-785) is a
 // plain log row, deliberately NOT here — it folds into its tool row. EXP-848
 // adds `turn`, so a late joiner learns whether the agent is mid-turn.
-const LATEST_WINS_KINDS = new Set([`diff`, `config_state`, `usage`, `rate_limit`, `turn`])
-// Replay order for the latest-wins slots — `diff` stays LAST, exactly where
-// it replayed before this became a map.
-const LATEST_REPLAY_ORDER = [`config_state`, `usage`, `rate_limit`, `turn`, `diff`] as const
+const LATEST_WINS_KINDS = new Set([
+  `diff`,
+  `config_state`,
+  `usage`,
+  `rate_limit`,
+  `turn`,
+  // EXP-850 §2/§3: the bottom strip and the workflow cards. A `workflow` is
+  // latest-wins PER ID, so its key is `workflow:{id}` (see `latestWinsKey`)
+  // and one room may hold WORKFLOW_SLOT_CAP of them.
+  `background_tasks`,
+  `workflow`,
+])
+// Replay order for the latest-wins slots — the keyed `workflow` cards sit
+// between `turn` and `background_tasks` (EXP-850 §3), and `diff` stays LAST,
+// exactly where it replayed before this became a map.
+const LATEST_REPLAY_ORDER = [
+  `config_state`,
+  `usage`,
+  `rate_limit`,
+  `turn`,
+  `workflow`,
+  `background_tasks`,
+  `diff`,
+] as const
+
+// EXP-850 §3: how many workflow cards one room keeps — the desktop journal's
+// JOURNAL_WORKFLOW_CAP, mirrored so a relay replay and a device replay carry
+// the same set. Oldest evicted (JS Map keeps insertion order).
+const WORKFLOW_SLOT_CAP = 16
+
+/** The `lastByKind` key an event occupies. EXP-850: a `workflow` is keyed by
+ *  its id (one card per workflow, all of them replayed), everything else by
+ *  its kind alone. */
+function latestWinsKey(event: ActivityEvent): string {
+  if (event.kind === `workflow`) return `workflow:${event.id}`
+  return event.kind
+}
 
 // An activity socket with more than this queued is evicted: activity is
 // low-volume JSON, so saturation means the consumer is gone, not lagging.
@@ -619,7 +653,17 @@ export class Hub {
         if (!room || room.publisher !== conn) return
         const entry = this.entryFor(msg.event, msg.seq)
         if (LATEST_WINS_KINDS.has(msg.event.kind)) {
-          room.lastByKind.set(msg.event.kind, entry)
+          const key = latestWinsKey(msg.event)
+          // EXP-850 §3: a room that starts more than WORKFLOW_SLOT_CAP
+          // workflows drops its OLDEST card (its transcript rows stay) rather
+          // than growing an unbounded map.
+          if (msg.event.kind === `workflow` && !room.lastByKind.has(key)) {
+            for (const held of room.lastByKind.keys()) {
+              if (this.workflowSlotCount(room) < WORKFLOW_SLOT_CAP) break
+              if (held.startsWith(`workflow:`)) room.lastByKind.delete(held)
+            }
+          }
+          room.lastByKind.set(key, entry)
         } else {
           this.appendActivity(room, entry)
         }
@@ -1187,9 +1231,25 @@ export class Hub {
       conn.sock.send(entry.framed)
     }
     for (const kind of LATEST_REPLAY_ORDER) {
+      // EXP-850 §3: every workflow card, in the order the room learned them.
+      if (kind === `workflow`) {
+        for (const [key, entry] of room.lastByKind) {
+          if (key.startsWith(`workflow:`)) conn.sock.send(entry.framed)
+        }
+        continue
+      }
       const entry = room.lastByKind.get(kind)
       if (entry) conn.sock.send(entry.framed)
     }
+  }
+
+  /** EXP-850 §3: how many workflow cards a room holds. */
+  private workflowSlotCount(room: Room): number {
+    let held = 0
+    for (const key of room.lastByKind.keys()) {
+      if (key.startsWith(`workflow:`)) held += 1
+    }
+    return held
   }
 
   private closeRoom(room: Room, outcome: string) {
