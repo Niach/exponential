@@ -60,11 +60,25 @@ pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize
     match subject {
         // An image-only chat message is a message (the steer composer's rule).
         SubjectKind::Chat if has_text || image_count > 0 => None,
-        SubjectKind::Chat => Some("Type a message."),
+        SubjectKind::Chat => Some(TYPE_A_MESSAGE),
         _ if has_text => None,
         _ => Some("Describe the action to create."),
     }
 }
+
+/// EXP-862 — which blocker earns a NOTE under the composer.
+///
+/// "Type a message." is the empty composer telling the reader to use the
+/// composer they are looking at. It still BLOCKS (the send stays disabled),
+/// it just stops being printed: an instruction that is only ever true of an
+/// untouched field is noise on every page load. Every other blocker says
+/// something the reader cannot see for themselves and is rendered as before.
+pub(crate) fn note_for_blocker(blocker: Option<&str>) -> Option<&str> {
+    blocker.filter(|reason| *reason != TYPE_A_MESSAGE)
+}
+
+/// The chat composer's empty-draft blocker (see [`note_for_blocker`]).
+const TYPE_A_MESSAGE: &str = "Type a message.";
 
 /// The issue-count gates: at least one, at most [`MAX_ISSUES_PER_RUN`].
 pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
@@ -336,7 +350,7 @@ mod tests {
     /// creator builtin, optional additional instructions everywhere else.
     #[test]
     fn text_is_required_only_for_chat_and_create_action() {
-        assert_eq!(text_blocker(&SubjectKind::Chat, "  ", 0), Some("Type a message."));
+        assert_eq!(text_blocker(&SubjectKind::Chat, "  ", 0), Some(TYPE_A_MESSAGE));
         assert_eq!(text_blocker(&SubjectKind::Chat, "", 1), None);
         assert_eq!(text_blocker(&SubjectKind::Chat, "hi", 0), None);
         let create = SubjectKind::Action {
@@ -355,6 +369,31 @@ mod tests {
         assert!(issue_count_blocker(MAX_ISSUES_PER_RUN + 1).is_some());
         assert_eq!(prompt_of("  x \n"), Some("x".into()));
         assert_eq!(prompt_of(" \n"), None);
+    }
+
+    /// EXP-862: the empty composer's own blocker is never printed under the
+    /// composer; every other reason still is.
+    #[test]
+    fn the_empty_draft_blocker_earns_no_note() {
+        assert_eq!(note_for_blocker(None), None);
+        assert_eq!(
+            note_for_blocker(text_blocker(&SubjectKind::Chat, "", 0)),
+            None,
+            "the field itself is the instruction"
+        );
+        // …and it is still a blocker: the submit stays disabled.
+        assert!(text_blocker(&SubjectKind::Chat, "", 0).is_some());
+        let create = SubjectKind::Action {
+            id: api::actions::BUILTIN_CREATE_ACTION_ID.into(),
+        };
+        assert_eq!(
+            note_for_blocker(text_blocker(&create, "", 0)),
+            Some("Describe the action to create.")
+        );
+        assert_eq!(
+            note_for_blocker(Some("Select at least one issue.")),
+            Some("Select at least one issue.")
+        );
     }
 
     /// EXP-739: the chat's repo input exists only when a repo was picked,

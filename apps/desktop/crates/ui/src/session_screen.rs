@@ -60,19 +60,46 @@ use crate::steer_viewer::{FeedSource, SteerSessionView};
 /// beside it is the one the caller came from (`navigation::derive_origin`);
 /// the EXP-791 slide-in over the issue is gone.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
-    open_session_inner(session_id, false, window, cx);
+    open_session_inner(session_id, Origin::Derive, window, cx);
 }
 
 /// EXP-851: [`open_session`] from a RAIL row (the Sessions section, a pinned
 /// run) — the rail is not a list, so the run opens with no `ListNav` beside
 /// it instead of inheriting whatever the main view was showing.
 pub(crate) fn open_session_from_rail(session_id: &str, window: &mut Window, cx: &mut App) {
-    open_session_inner(session_id, true, window, cx);
+    open_session_inner(session_id, Origin::Rail, window, cx);
+}
+
+/// EXP-862: [`open_session`] from a LIST, which pins that list explicitly —
+/// the run's Back and its left column then name the rows it was picked from
+/// (the Agent page's sessions list, the Automations page's run log) instead
+/// of whatever the breadcrumb rule can derive from the screen that was up.
+/// `None` falls back to [`open_session`].
+pub(crate) fn open_session_with_origin(
+    session_id: &str,
+    origin: Option<crate::navigation::TabOrigin>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    match origin {
+        Some(origin) => open_session_inner(session_id, Origin::List(origin), window, cx),
+        None => open_session(session_id, window, cx),
+    }
+}
+
+/// Which list (if any) the opened run is pinned beside.
+enum Origin {
+    /// Let the EXP-851 breadcrumb rule work it out from the screen we leave.
+    Derive,
+    /// Opened from the rail: no list at all.
+    Rail,
+    /// Opened from a list that names itself.
+    List(crate::navigation::TabOrigin),
 }
 
 fn open_session_inner(
     session_id: &str,
-    from_rail: bool,
+    origin: Origin,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -89,10 +116,10 @@ fn open_session_inner(
     let screen = Screen::Session {
         session_id: session_id.to_string(),
     };
-    if from_rail {
-        crate::navigation::navigate_from_rail(window, cx, screen);
-    } else {
-        crate::navigation::navigate(window, cx, screen);
+    match origin {
+        Origin::Rail => crate::navigation::navigate_from_rail(window, cx, screen),
+        Origin::List(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
+        Origin::Derive => crate::navigation::navigate(window, cx, screen),
     }
 }
 
@@ -260,9 +287,6 @@ fn row_ended(session_id: &str, cx: &App) -> bool {
         .and_then(|row| row.status.as_deref())
         .is_some_and(|status| status == domain::contract::CODING_SESSION_STATUS_ENDED)
 }
-
-/// EXP-791: the finished-run summary's height cap (scrolls inside).
-const SUMMARY_MAX_H: f32 = 160.;
 
 /// EXP-800: where an ended run's Resume goes. `Local` re-enters the run
 /// recorded in this machine's registry; `Remote` asks the machine that
@@ -481,50 +505,6 @@ impl SessionScreenView {
         (!byline.is_empty()).then(|| SharedString::from(byline))
     }
 
-    /// EXP-773 — the agent's own summary of a finished run, as a small muted
-    /// block above the transcript. It used to unfold inside the Past list; a
-    /// run is described in ONE place now, and this is it. `None` for a live
-    /// run and for one that left no summary. EXP-791: clamped to
-    /// [`SUMMARY_MAX_H`] and scrollable inside — a long summary used to push
-    /// the whole transcript below the fold.
-    fn render_summary(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if !self.run_over(cx) {
-            return None;
-        }
-        let summary = self
-            .inner
-            .read(cx)
-            .session_row()?
-            .summary
-            .clone()
-            .filter(|text| !text.trim().is_empty())?;
-        Some(
-            div()
-                .id(SharedString::from(format!("session-summary-scroll-{}", self.session_id)))
-                .w_full()
-                .flex_shrink_0()
-                .min_w_0()
-                .max_h(px(SUMMARY_MAX_H))
-                .overflow_y_scroll()
-                .px_3()
-                .py_2()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(
-                    // EXP-686: the agent writes GFM — render it, never dump
-                    // the source (the `comments.rs` recipe).
-                    crate::markdown::MarkdownView::new(
-                        SharedString::from(format!("session-summary-{}", self.session_id)),
-                        summary,
-                    )
-                    .selectable(true),
-                )
-                .into_any_element(),
-        )
-    }
-
     /// EXP-849 — this run IS the continuation of an earlier one (an ordinary
     /// Resume, or a switch to another account): say so ONCE, with the
     /// transcript's one-time cost, so a second context-window charge on a new
@@ -691,15 +671,13 @@ impl SessionScreenView {
             .child({
                 let session_id = self.session_id.clone();
                 let issue_id = issue_id.clone();
-                Button::new("session-back")
-                    .ghost()
-                    .cursor_pointer()
-                    .xsmall()
-                    .icon(registry::UI_BACK)
-                    .tooltip("Back")
-                    .on_click(move |_, window, cx| {
+                // EXP-862: the ONE back control — a borderless 32px ghost
+                // carrying the 16px chevron, ×4.
+                crate::controls::back_button("session-back", cx).on_click(
+                    move |_, window, cx| {
                         back_to_origin(&session_id, issue_id.as_deref(), window, cx);
-                    })
+                    },
+                )
             })
             .child(
                 div()
@@ -1184,14 +1162,13 @@ impl Render for SessionScreenView {
         let header = self.render_header(cx);
         let issue_band = self.render_issue_band(cx);
         // EXP-849: the continuation byline sits directly under the subject —
-        // above a finished run's summary, because it is about THIS run's
-        // history, not about its result.
+        // it is about THIS run's history, not about its result.
         let continuation = self.render_continuation(cx);
-        let summary = self.render_summary(cx);
-        // EXP-773: one column — the identity header, EXP-827's issue band, a
-        // finished run's summary, then the transcript, whose own footer carries
-        // the Changes bar and the composer. The 280px right rail the changes
-        // used to live in is gone.
+        // EXP-773: one column — the identity header, EXP-827's issue band,
+        // then the transcript, whose own footer carries the Changes bar and
+        // the composer. The 280px right rail the changes used to live in is
+        // gone, and so is the finished run's summary block: EXP-862 stopped
+        // storing `coding_sessions.summary` at all, so no client renders it.
         v_flex()
             .size_full()
             .min_w_0()
@@ -1200,22 +1177,14 @@ impl Render for SessionScreenView {
             .child(header)
             .children(issue_band)
             .children(continuation)
-            .children(summary)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{feed_source_for, resume_path_for, ResumePath, SessionFeed, SUMMARY_MAX_H};
+    use super::{feed_source_for, resume_path_for, ResumePath, SessionFeed};
     use serde_json::json;
-
-    /// EXP-791: the summary block is clamped (and scrolls inside) — it used to
-    /// take whatever height the agent's prose needed.
-    #[test]
-    fn summary_is_clamped() {
-        assert_eq!(SUMMARY_MAX_H, 160.);
-    }
 
     /// The source decision in one table: a live local engine always wins, a
     /// replay needs BOTH a transcript on this machine and an ended run, and

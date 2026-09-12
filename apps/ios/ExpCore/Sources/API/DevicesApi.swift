@@ -98,11 +98,18 @@ private struct CreateCommandInput: Encodable {
     let code: String?
     /// EXP-829 (`agent_usage_refresh`, EXP-747 C4): which login profile to
     /// re-read (`system` = the ambient login). The server requires it for
-    /// that kind and ignores it for every other.
+    /// that kind and ignores it for every other. EXP-849's
+    /// `agent_profile_use` and EXP-862's `agent_profile_remove` name their
+    /// target with it too.
     let profileId: String?
+    /// EXP-827: `agent_login` creates a NEW profile with this label first and
+    /// signs into that one — what "+ Add account" queues on a machine whose
+    /// ambient login is already taken. Never together with `profileId`: the
+    /// server refuses that pair.
+    let newProfileLabel: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, repoFullName, branch, agent, code, profileId
+        case deviceId, kind, repoFullName, branch, agent, code, profileId, newProfileLabel
         case switchAccount = "switch"
     }
 }
@@ -246,14 +253,16 @@ public final class DevicesApi: Sendable {
         agent: String? = nil,
         switchAccount: Bool? = nil,
         code: String? = nil,
-        profileId: String? = nil
+        profileId: String? = nil,
+        newProfileLabel: String? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch,
-                agent: agent, switchAccount: switchAccount, code: code, profileId: profileId
+                agent: agent, switchAccount: switchAccount, code: code, profileId: profileId,
+                newProfileLabel: newProfileLabel
             )
         )
     }

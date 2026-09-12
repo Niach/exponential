@@ -970,6 +970,136 @@ pub(crate) fn health_badge(
     )
 }
 
+/// EXP-862 — what a login has to SAY about its numbers, so no surface has to
+/// invent a caption for an empty window list (web `usageState`, iOS/Android
+/// twins):
+///
+/// * `Ready` — numbers to render (stale or not: freshness is the bar's own
+///   business, [`is_fresh`]);
+/// * `Checking` — a signed-in, monitored login this machine has not read yet.
+///   Every login is read now (the first read skips the rotation queue in
+///   `coding::agent_usage`), so this is a beat or two, not a resting state;
+/// * `Unmonitored` — the machine deliberately collects nothing for it (past
+///   its own probe cap);
+/// * `None` — nothing to report at all: the login is signed out, and its chip
+///   offers a sign-in instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UsageState {
+    Ready,
+    Checking,
+    Unmonitored,
+    None,
+}
+
+/// [`UsageState`] for one login. The web twin takes the row; here the three
+/// fields are passed so an account GROUP (which has no `unmonitored` of its
+/// own) can ask the same question of its members.
+pub(crate) fn usage_state(
+    signed_in: bool,
+    unmonitored: bool,
+    usage: Option<&AgentUsage>,
+) -> UsageState {
+    if !signed_in {
+        return UsageState::None;
+    }
+    if unmonitored {
+        return UsageState::Unmonitored;
+    }
+    if usage.is_some_and(|usage| !usage.windows.is_empty()) {
+        UsageState::Ready
+    } else {
+        UsageState::Checking
+    }
+}
+
+/// The line a row prints INSTEAD of its usage cards, or `None` when there are
+/// cards to draw. EXP-862: a signed-in login nothing has probed YET reads
+/// "Checking…" — "No usage reported" made a machine that is simply still
+/// working read as broken (×4).
+pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<String> {
+    match state {
+        UsageState::Ready => None,
+        UsageState::Checking => Some("Checking…".to_string()),
+        UsageState::Unmonitored | UsageState::None => Some(match as_of {
+            Some(line) if !line.is_empty() => format!("No usage reported · {line}"),
+            _ => "No usage reported".to_string(),
+        }),
+    }
+}
+
+/// EXP-862 — the entries a login's chip menu can offer, on a Devices row or
+/// on an Accounts row. The labels are byte-identical ×4 (Android
+/// `AgentAccountsRows.ACTION_*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChipAction {
+    SignIn,
+    SetDefault,
+    Remove,
+}
+
+impl ChipAction {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            ChipAction::SignIn => "Sign in",
+            ChipAction::SetDefault => "Set as default",
+            ChipAction::Remove => "Remove account",
+        }
+    }
+
+    pub(crate) fn icon(self) -> crate::icons::ExpIcon {
+        match self {
+            ChipAction::SignIn => crate::icons::registry::UI_SIGN_IN,
+            ChipAction::SetDefault => crate::icons::registry::UI_SWAP,
+            ChipAction::Remove => crate::icons::registry::UI_DELETE,
+        }
+    }
+}
+
+/// EXP-862 — what a login's chip menu offers, the SAME rule on every client:
+///
+/// * signed out, or a credential that expired here: a sign-in, nothing else;
+/// * healthy and not the machine's login: make it the default, or remove it;
+/// * healthy and already the default: remove it.
+///
+/// An empty list means the chip is a STATEMENT, not a control (a machine that
+/// is offline, a teammate's, or too old to take any of the commands).
+///
+/// `can_switch` is the machine's `account-switch` cap and `can_remove` its
+/// `account-remove` one: the server refuses either command without it, so an
+/// older machine simply does not offer that entry. The AMBIENT login can never
+/// be removed — it is the agent CLI's own config dir, which Exponential never
+/// created.
+pub(crate) fn chip_actions(
+    signed_in: bool,
+    health: coding::agent_accounts::Health,
+    active: bool,
+    profile_id: &str,
+    can_switch: bool,
+    can_remove: bool,
+) -> Vec<ChipAction> {
+    if !signed_in || health == coding::agent_accounts::Health::NeedsRelogin {
+        return vec![ChipAction::SignIn];
+    }
+    let mut out = Vec::new();
+    if !active && can_switch {
+        out.push(ChipAction::SetDefault);
+    }
+    if can_remove && !profile_id.trim().is_empty() && profile_id != SYSTEM_PROFILE_ID {
+        out.push(ChipAction::Remove);
+    }
+    out
+}
+
+/// The confirm "Remove account" asks, pinned ×4 (web `removeAccountConfirmCopy`):
+/// it names the login and the machine, and says in the same breath that the
+/// ACCOUNT survives — only this machine's copy of the login goes.
+pub(crate) fn remove_account_confirm(account_label: &str, device_label: &str) -> String {
+    format!(
+        "Delete {account_label} on {device_label}? The login is removed from this device \
+         only; the account itself is untouched."
+    )
+}
+
 /// The fullest window's percent, or 0 for a row with no usage at all.
 pub(crate) fn peak_percent(usage: Option<&AgentUsage>) -> u8 {
     usage
@@ -2040,6 +2170,80 @@ mod tests {
                 "claude:mid@acme.test",
                 "claude:low@acme.test",
             ]
+        );
+    }
+    /// EXP-862: the four things a login can say about its numbers. A signed-in
+    /// login nobody has probed yet is CHECKING, never "no usage reported".
+    #[test]
+    fn usage_state_names_the_four_cases() {
+        let fresh = weekly("2026-08-28T11:00:00.000Z", 12, false);
+        assert_eq!(usage_state(true, false, Some(&fresh)), UsageState::Ready);
+        assert_eq!(usage_state(true, false, None), UsageState::Checking);
+        // A report with no windows in it is still nothing to render.
+        let empty = AgentUsage {
+            fetched_at: "2026-08-28T11:00:00.000Z".to_string(),
+            stale: false,
+            windows: Vec::new(),
+        };
+        assert_eq!(usage_state(true, false, Some(&empty)), UsageState::Checking);
+        assert_eq!(usage_state(true, true, Some(&fresh)), UsageState::Unmonitored);
+        assert_eq!(usage_state(false, false, None), UsageState::None);
+
+        assert_eq!(usage_caption(UsageState::Ready, Some("as of 2 minutes ago")), None);
+        assert_eq!(
+            usage_caption(UsageState::Checking, None).as_deref(),
+            Some("Checking…")
+        );
+        assert_eq!(
+            usage_caption(UsageState::None, Some("as of 2 hours ago")).as_deref(),
+            Some("No usage reported · as of 2 hours ago")
+        );
+        assert_eq!(
+            usage_caption(UsageState::Unmonitored, None).as_deref(),
+            Some("No usage reported")
+        );
+    }
+
+    /// EXP-862 — the ×4 chip rule: a broken or missing login offers ONLY a
+    /// sign-in; a healthy one offers the default switch (with the cap) and the
+    /// removal (with the cap, never the ambient login).
+    #[test]
+    fn chip_menu_offers_one_thing_per_state() {
+        use coding::agent_accounts::Health;
+        // Signed out: a sign-in and nothing else, caps or no caps.
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, false, "0a1b", true, true),
+            vec![ChipAction::SignIn]
+        );
+        // Revoked here: still just the sign-in, even though the CLI reports in.
+        assert_eq!(
+            chip_actions(true, Health::NeedsRelogin, true, "0a1b", true, true),
+            vec![ChipAction::SignIn]
+        );
+        // Healthy, not the machine's default.
+        assert_eq!(
+            chip_actions(true, Health::Ok, false, "0a1b", true, true),
+            vec![ChipAction::SetDefault, ChipAction::Remove]
+        );
+        // Healthy and already the default: only the removal.
+        assert_eq!(
+            chip_actions(true, Health::Ok, true, "0a1b", true, true),
+            vec![ChipAction::Remove]
+        );
+        // The ambient login is never removable — it is the CLI's own dir.
+        assert!(chip_actions(true, Health::Ok, true, SYSTEM_PROFILE_ID, true, true).is_empty());
+        // An older machine advertises neither cap: the chip is a statement.
+        assert!(chip_actions(true, Health::Ok, false, "0a1b", false, false).is_empty());
+    }
+
+    /// The remove confirm names the login AND the machine, and promises the
+    /// account itself survives — byte-identical with web/iOS/Android.
+    #[test]
+    fn remove_confirm_is_the_pinned_sentence() {
+        assert_eq!(
+            remove_account_confirm("dev@acme.test", "Studio"),
+            "Delete dev@acme.test on Studio? The login is removed from this device only; \
+             the account itself is untouched."
         );
     }
 }

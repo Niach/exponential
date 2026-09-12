@@ -101,7 +101,14 @@ import {
 } from "@/lib/agent-feed"
 import { workflowCaption } from "@exp/domain-contract"
 import { workingCaption } from "@/lib/working-caption"
-import { sessionFileCards, toolDiffFiles } from "@/lib/session-file-cards"
+import {
+  diffScopeTurnLabel,
+  fileCardDiffFiles,
+  sessionFileCards,
+  toolDiffFiles,
+  type SessionFileCard as SessionFileCardData,
+} from "@/lib/session-file-cards"
+import { SESSION_DOT_CLASS, type SessionDotTone } from "@/lib/session-dot"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
 import { SessionDiffPane } from "@/components/session-diff-pane"
 import { SessionFileCard } from "@/components/session-file-card"
@@ -327,7 +334,7 @@ export function AgentSessionView({
    *  row (EXP-734). Absent (no open PR, still syncing) = no Merge pill. */
   mergeTarget?: SessionMergeTarget
   /** EXP-773: a strip between the header and the feed — the session route's
-   *  ended-run close-out (byline, Resume, the agent's summary). */
+   *  ended-run close-out (byline, Resume). */
   banner?: React.ReactNode
   /** EXP-827: the run's linked issue (its synced row), drawn as a band under
    *  the header with an "Open issue" pill — `onOpenIssue` switches the pane
@@ -378,6 +385,11 @@ export function AgentSessionView({
    *  scrolled to (null = the top of the list). */
   const [diffPaneOpen, setDiffPaneOpen] = useState(false)
   const [diffFile, setDiffFile] = useState<string | null>(null)
+  /** EXP-862: WHAT the pane is showing — the whole session (the header's Diff
+   *  pill) or the files of ONE turn (a file card's row), named by its anchor
+   *  so the scope tracks the card as the feed grows. The chip in the pane's
+   *  header returns to the session. */
+  const [diffTurn, setDiffTurn] = useState<number | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
@@ -818,16 +830,39 @@ export function AgentSessionView({
     [backgroundTasks, feed]
   )
 
-  /** The pane opens at a file, so a file card click is one gesture. On a
-   *  phone there is no pane: the same click opens the floating Changes sheet,
-   *  which is that breakpoint's diff (§11 keeps the mobile sheet). */
+  /** The pane opens at a file, so a file card click is one gesture. EXP-862:
+   *  it opens SCOPED to the turn the card closes — what that turn changed,
+   *  with the card's own patches — and the pane's chip widens it back to the
+   *  session. On a phone there is no pane: the same click opens the floating
+   *  Changes sheet, which is that breakpoint's diff (§11 keeps the mobile
+   *  sheet) and has no scope of its own. */
   const openDiffFile = useCallback(
-    (path: string) => {
+    (path: string, card: SessionFileCardData) => {
       setDiffFile(path)
-      if (isMobile) setDiffOpen(true)
-      else setDiffPaneOpen(true)
+      if (isMobile) {
+        setDiffOpen(true)
+        return
+      }
+      setDiffTurn(card.afterId)
+      setDiffPaneOpen(true)
     },
     [isMobile]
+  )
+
+  /** The scoped card, or null once the session scope is back (or the turn has
+   *  left the feed — a replay, an `activity_reset`). */
+  const diffCard = useMemo(
+    () =>
+      diffTurn === null
+        ? null
+        : (fileCards.find((card) => card.afterId === diffTurn) ?? null),
+    [fileCards, diffTurn]
+  )
+  /** What the PANE draws: the turn's files, or the whole branch. Its totals
+   *  are the scope's; the header's Diff pill keeps the branch's (§11). */
+  const paneFiles = useMemo(
+    () => (diffCard ? fileCardDiffFiles(diffCard.files) : diffFiles),
+    [diffCard, diffFiles]
   )
 
   /** §4: the duplicate warnings a workflow card carries, by workflow id. A
@@ -953,7 +988,12 @@ export function AgentSessionView({
           mode="action"
           className="shrink-0"
           aria-pressed={diffPaneOpen}
-          onClick={() => setDiffPaneOpen((open) => !open)}
+          // EXP-862: the pill IS the session scope — opening from here drops
+          // a turn scope the reader left behind.
+          onClick={() => {
+            setDiffTurn(null)
+            setDiffPaneOpen((open) => !open)
+          }}
           aria-label="Show the changes"
           title="Show the changes"
           data-testid="session-diff-pill"
@@ -1032,9 +1072,11 @@ export function AgentSessionView({
         </>
       ) : (
         <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
+          {/* EXP-862: a 32px borderless ghost with the 16px chevron — the
+              ONE back control ×4 (desktop `controls::back_button`). */}
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             className="shrink-0"
             aria-label="Back"
             onClick={onBack}
@@ -1510,13 +1552,17 @@ export function AgentSessionView({
             </div>
           )}
       </div>
-      {!isMobile && diffPaneOpen && diffFiles.length > 0 && (
+      {!isMobile && diffPaneOpen && paneFiles.length > 0 && (
         <SessionDiffPane
           sessionId={session.id}
-          files={diffFiles}
+          files={paneFiles}
           selected={diffFile}
           onSelect={setDiffFile}
           onClose={() => setDiffPaneOpen(false)}
+          scopeLabel={
+            diffCard ? diffScopeTurnLabel(diffCard.files.length) : null
+          }
+          onClearScope={() => setDiffTurn(null)}
         />
       )}
       </div>
@@ -1628,9 +1674,11 @@ function phaseLabel(
   return `Disconnected`
 }
 
-/** The status dot that leads the phase: green live, amber pulsing while it
- * connects, amber steady while it waits on a human (or, FEED-26, has gone
- * quiet past the threshold), grey otherwise. */
+/** The status dot that leads the phase. EXP-862: the colours are the ONE
+ * session-dot mapping every client draws (`SESSION_DOT_CLASS`, the desktop's
+ * `queries::session_dot_tone`) — emerald while the run is live, amber while
+ * it waits on a human (or, FEED-26, has gone quiet past the threshold), muted
+ * once it is over or paused. Connecting is the muted dot, pulsing. */
 function PhaseDot({
   phase,
   awaitingInput = false,
@@ -1648,13 +1696,18 @@ function PhaseDot({
       phase.kind === `starting` ||
       phase.kind === `history_pending`)
   const awaiting = phase.kind === `live` && (awaitingInput || stale)
+  const tone: SessionDotTone =
+    !paused && phase.kind === `live`
+      ? awaiting
+        ? `needs_input`
+        : `running`
+      : `muted`
   return (
     <span
       className={cn(
         `size-2 shrink-0 rounded-full`,
-        phase.kind === `live` && (awaiting ? `bg-amber-400` : `bg-emerald-500`),
-        connecting && `animate-pulse bg-amber-400`,
-        !connecting && phase.kind !== `live` && `bg-muted-foreground/40`
+        SESSION_DOT_CLASS[tone],
+        connecting && `animate-pulse`
       )}
     />
   )

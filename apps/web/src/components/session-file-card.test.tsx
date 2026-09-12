@@ -9,22 +9,22 @@ vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 const files = (count: number) =>
   Array.from({ length: count }, (_, i) => ({
     path: `src/file-${i}.ts`,
+    status: `modified`,
     additions: i,
     deletions: 1,
+    // EXP-862: the call's own hunks ride the row, so the pane can open on the
+    // turn alone.
+    patch: `@@ -1 +1 @@\n-old ${i}\n+new ${i}`,
   }))
 
 describe(`SessionFileCard (§12)`, () => {
-  it(`titles the turn's files and opens the pane at one`, () => {
+  it(`titles the turn's files and opens the pane at one, scoped to the turn`, () => {
     const onOpenFile = vi.fn()
-    render(
-      <SessionFileCard
-        card={{ afterId: 7, files: files(2) }}
-        onOpenFile={onOpenFile}
-      />
-    )
+    const card = { afterId: 7, files: files(2) }
+    render(<SessionFileCard card={card} onOpenFile={onOpenFile} />)
     expect(screen.getByText(`2 files edited`)).toBeTruthy()
     fireEvent.click(screen.getByTitle(`src/file-1.ts`))
-    expect(onOpenFile).toHaveBeenCalledWith(`src/file-1.ts`)
+    expect(onOpenFile).toHaveBeenCalledWith(`src/file-1.ts`, card)
   })
 
   it(`lists five paths and folds the rest`, () => {

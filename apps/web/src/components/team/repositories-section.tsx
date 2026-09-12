@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   TriangleAlert,
@@ -43,6 +43,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { BranchCombobox } from "@/components/branch-combobox"
+import { BoardGlyph } from "@/components/board-glyph"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import {
   GithubRepoPicker,
   openGithubPopup,
@@ -52,6 +54,11 @@ import {
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
+type BoardRow = {
+  icon?: string | null
+  color?: string | null
+  repositoryId?: string | null
+}
 type GithubStatus = Awaited<
   ReturnType<typeof trpc.integrations.github.status.query>
 >
@@ -71,6 +78,13 @@ export function TeamRepositoriesSection({
   currentUserId: string | undefined
   isOwner: boolean
 }) {
+  // EXP-862: the "Used by" chips render each board's own glyph in its own
+  // colour, which only the synced rows carry.
+  const teamBoards = useTeamBoards(teamId)
+  const boardRows = useMemo(
+    () => new Map<string, BoardRow>(teamBoards.map((board) => [board.id, board])),
+    [teamBoards]
+  )
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<RepoRowData | null>(null)
@@ -303,6 +317,7 @@ export function TeamRepositoriesSection({
                 <RepoRow
                   key={repo.id}
                   repo={repo}
+                  boardRows={boardRows}
                   busy={busy}
                   canManage={
                     isOwner ||
@@ -689,6 +704,7 @@ function GithubStatusLine({
 
 function RepoRow({
   repo,
+  boardRows,
   busy,
   canManage,
   manageUrl,
@@ -697,6 +713,10 @@ function RepoRow({
   onSetDefaultBranch,
 }: {
   repo: RepoRowData
+  /** The team's synced board rows, keyed by id — the "Used by" chips draw
+   *  each board's own icon tinted with its colour (EXP-862, ×4), and the
+   *  repo list only carries id/name/slug. */
+  boardRows: Map<string, BoardRow>
   busy: boolean
   // Sharer-or-owner (EXP-557): remove and the branch pin. Everyone else gets
   // a read-only row (they can still code on the shared repo).
@@ -742,7 +762,7 @@ function RepoRow({
                     events the tooltip trigger relies on. */}
                 <span className="shrink-0">
                   <Button
-                    variant="glass"
+                    variant="ghost"
                     size="icon-sm"
                     disabled
                     aria-label="Remove repository"
@@ -760,7 +780,7 @@ function RepoRow({
           </TooltipProvider>
         ) : (
           <Button
-            variant="glass"
+            variant="ghost"
             size="icon-sm"
             className="shrink-0 hover:text-destructive"
             disabled={busy}
@@ -796,7 +816,11 @@ function RepoRow({
           <>
             <span className="text-xs text-muted-foreground">Used by</span>
             {repo.boards.map((board) => (
-              <Pill key={board.id} className="max-w-[12rem]">
+              <Pill key={board.id} className="max-w-[12rem] gap-1">
+                <BoardGlyph
+                  board={boardRows.get(board.id) ?? {}}
+                  className="size-3"
+                />
                 <span className="truncate">{board.name}</span>
               </Pill>
             ))}

@@ -297,7 +297,7 @@ fun IssueListScreen(
             ) {
                 when (mode) {
                     IssueListMode.Pushed -> {
-                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
+                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, borderless = true)
                         Spacer(Modifier.weight(1f))
                         CircleIconButton(
                             ExpIcons.navSearch,

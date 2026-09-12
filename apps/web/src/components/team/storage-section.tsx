@@ -307,7 +307,7 @@ export function TeamStorageSection({
                       </div>
                     </div>
                     <Button
-                      variant="glass"
+                      variant="ghost"
                       size="icon-sm"
                       className="shrink-0 hover:text-destructive"
                       aria-label={`Delete ${row.filename}`}

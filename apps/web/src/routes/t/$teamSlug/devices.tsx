@@ -11,10 +11,14 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions and Automations are their own routes now): the caller's
-// online desktops and servers, the remote-start entry point, and the native
-// apps' Running section below them on every viewport (EXP-697). EXP-825: a
-// device row's play button is a navigation to the Agent page composer with
-// that machine pre-picked (`?device=`) — the launch dialog is gone.
+// online desktops and servers, the remote-start entry point, and the agent
+// Accounts across them. EXP-825: a device row's play button is a navigation
+// to the Agent page composer with that device pre-picked (`?device=`) — the
+// launch dialog is gone.
+//
+// EXP-862: two sections, two jobs — "My devices"/"Team devices" is the
+// SETUP/REPAIR surface (a device's logins live on its chips), Accounts the
+// DECISION one (which login to run on, and what it has spent).
 
 export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   beforeLoad: async ({ context, location }) => {
@@ -72,12 +76,11 @@ function DevicesPage() {
             />
           )}
 
-          {/* EXP-818: the agent Accounts across those machines — the Usage
+          {/* EXP-818: the agent Accounts across those devices — the Usage
               page, folded in here. (The Running / Past run sections moved
               to the Agent page's sessions list.) */}
           {isMember && currentUserId && teamId && (
             <AgentAccountsSection
-              teamSlug={teamSlug}
               teamId={teamId}
               currentUserId={currentUserId}
             />

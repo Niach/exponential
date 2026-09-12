@@ -315,9 +315,9 @@ fn with_remove_badge(
             .flex_shrink_0()
             .child(tile)
             .child(
-                // EXP-698: the glass chrome every trailing action wears, at
-                // the 24px size — a 32px badge covers half a 64px thumbnail.
-                crate::controls::glass_icon_button(
+                // EXP-862: a GHOST close glyph, at the 24px size — a 32px
+                // badge covers half a 64px thumbnail.
+                crate::controls::ghost_icon_button(
                     SharedString::from(format!("comment-attachment-remove-{attachment_id}")),
                     Icon::new(registry::UI_CLOSE),
                     cx,

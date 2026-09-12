@@ -65,17 +65,19 @@ describe(`SETTINGS_NAV Personal group`, () => {
   const team: SettingsNavContext = { isCloud: false }
   const personal = SETTINGS_NAV.find((group) => group.group === `Personal`)!
 
-  it(`is the last group with Account, Notifications, and API keys`, () => {
+  // EXP-862: "API keys" became "Security" (keys + passkeys); /api-keys is a
+  // redirect now, not a nav entry.
+  it(`is the last group with Account, Notifications, and Security`, () => {
     expect(SETTINGS_NAV[SETTINGS_NAV.length - 1]).toBe(personal)
     expect(personal.items.map((item) => item.label)).toEqual([
       `Account`,
       `Notifications`,
-      `API keys`,
+      `Security`,
     ])
     expect(personal.items.map((item) => item.to)).toEqual([
       `/t/$teamSlug/settings/account`,
       `/t/$teamSlug/settings/notifications`,
-      `/t/$teamSlug/settings/api-keys`,
+      `/t/$teamSlug/settings/security`,
     ])
   })
 
@@ -136,6 +138,32 @@ describe(`SETTINGS_NAV Features group (EXP-771, EXP-792)`, () => {
         item.label === `MCP servers`
       )
     }
+  })
+})
+
+// EXP-862: the Boards group FLATTENS like the desktop nav — the per-board
+// rows and "New board" are injected at render, so only the owner-gated
+// "Archived boards" entry and Repositories are static, in that order.
+describe(`SETTINGS_NAV Boards group (EXP-862)`, () => {
+  const team: SettingsNavContext = { isCloud: false }
+  const boardsGroup = SETTINGS_NAV.find(
+    (group) => group.group === `Boards`
+  )!
+
+  it(`lists Archived boards then Repositories, and no Boards list page`, () => {
+    expect(boardsGroup.items.map((item) => item.label)).toEqual([
+      `Archived boards`,
+      `Repositories`,
+    ])
+    expect(boardsGroup.items[0].to).toBe(
+      `/t/$teamSlug/settings/boards/archived`
+    )
+  })
+
+  it(`keeps Archived boards owner-only`, () => {
+    const archived = boardsGroup.items[0]
+    expect(archived.visible(permissionsFor(`owner`), team)).toBe(true)
+    expect(archived.visible(permissionsFor(`member`), team)).toBe(false)
   })
 })
 

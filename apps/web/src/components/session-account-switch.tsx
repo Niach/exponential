@@ -375,7 +375,7 @@ function SessionAccountRow({
     .filter(Boolean)
     .join(` · `)
   return (
-    <ListRow className="flex-col items-stretch gap-1.5 px-3 py-2">
+    <ListRow interactive className="flex-col items-stretch gap-1.5 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -394,8 +394,10 @@ function SessionAccountRow({
             </div>
           )}
         </div>
+        {/* EXP-862: a ghost control on a flat row — the row's own fill is the
+            surface, a second bordered capsule inside it was chrome on chrome. */}
         <Button
-          variant="glass"
+          variant="ghost"
           size="sm"
           className="shrink-0"
           disabled={option.blockedReason !== null || busy}

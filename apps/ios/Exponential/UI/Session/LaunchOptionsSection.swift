@@ -22,12 +22,12 @@ import SwiftUI
 //
 // `Variant.device` (EXP-694) is a MACHINE's stored launch defaults — the
 // device-settings sheet used to hand-roll the same rows. It has no device
-// picker (the sheet IS one machine) and folds that agent's account + usage
-// rows in through `accountFooter`.
+// picker (the sheet IS one machine). EXP-862 removed its `accountFooter`: the
+// account and usage rows left the device sheet on every client.
 //
 // EXP-694 (S3/S4): everything below the device picker is ONE grouped card —
 // the agent strip is its first row (embedded, no capsule of its own), then
-// Model + Effort, then the toggles the caller bound, then the footer slot.
+// Model + Effort, then the toggles the caller bound.
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
@@ -62,17 +62,9 @@ struct LaunchOptionsSection: View {
     var ultracode: Binding<Bool>? = nil
     var planMode: Binding<Bool>? = nil
     var resumeRow: ResumeRow? = nil
-    /// EXP-694: the device variant tabs every agent the machine REPORTED on,
-    /// which can include one it has no editable defaults for — its tab shows
-    /// the account/usage rows only. Everything else always has options.
-    var showsOptions: Bool = true
     /// A sentence under the card (the device variant's offline notice). The
     /// resume note, when there is one, sits above it.
     var footerNote: String? = nil
-    /// The device variant's account + usage rows, folded into the SAME card as
-    /// the options they belong to (EXP-688 put them in this section; EXP-694
-    /// moved the section here).
-    var accountFooter: (() -> AnyView)? = nil
 
     var body: some View {
         Group {
@@ -156,8 +148,8 @@ struct LaunchOptionsSection: View {
     }
 
     /// ONE grouped card (EXP-694): the agent strip is its first row, then
-    /// Model + Effort, then whatever toggles the caller bound, then the
-    /// account/usage slot. The strip used to float above the card as an
+    /// Model + Effort, then whatever toggles the caller bound. The strip used
+    /// to float above the card as an
     /// outlined capsule in a section of its own; it is now embedded — no fill,
     /// no border, 8pt row insets all round, and the hairline separator below it
     /// is deliberately left visible so it reads as a row of the card.
@@ -184,38 +176,33 @@ struct LaunchOptionsSection: View {
                 .accessibilityIdentifier("start-coding-agent-picker")
                 .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
             }
-            if showsOptions {
-                GlassPickerRow(
-                    "Model",
-                    selection: $model,
-                    options: modelOptions,
-                    label: { LaunchVocabulary.modelLabel($0) }
-                )
-                GlassPickerRow(
-                    effortTitle,
-                    selection: $effort,
-                    options: effortOptions,
-                    label: { effortRowLabel($0) },
-                    enabled: effortEnabled
-                )
-                // EXP-208: no helper notices, like the IDE. Ultracode and
-                // plan mode are both claude-only (EXP-441/EXP-849); a binding
-                // (the automation variant) has neither.
-                if let resumeRow {
-                    Toggle("Resume previous session", isOn: resumeRow.isOn)
-                }
-                if let ultracode, agent == "claude" {
-                    Toggle("Ultracode", isOn: ultracode)
-                }
-                // A resume never re-enters plan mode (the machine clamps it
-                // too) — hide the toggle while one is active.
-                if let planMode, LaunchVocabulary.supportsPlanMode(agent),
-                   resumeRow?.active != true {
-                    Toggle("Plan mode", isOn: planMode)
-                }
+            GlassPickerRow(
+                "Model",
+                selection: $model,
+                options: modelOptions,
+                label: { LaunchVocabulary.modelLabel($0) }
+            )
+            GlassPickerRow(
+                effortTitle,
+                selection: $effort,
+                options: effortOptions,
+                label: { effortRowLabel($0) },
+                enabled: effortEnabled
+            )
+            // EXP-208: no helper notices, like the IDE. Ultracode and plan
+            // mode are both claude-only (EXP-441/EXP-849); a binding (the
+            // automation variant) has neither.
+            if let resumeRow {
+                Toggle("Resume previous session", isOn: resumeRow.isOn)
             }
-            if let accountFooter {
-                accountFooter()
+            if let ultracode, agent == "claude" {
+                Toggle("Ultracode", isOn: ultracode)
+            }
+            // A resume never re-enters plan mode (the machine clamps it too) —
+            // hide the toggle while one is active.
+            if let planMode, LaunchVocabulary.supportsPlanMode(agent),
+               resumeRow?.active != true {
+                Toggle("Plan mode", isOn: planMode)
             }
         } footer: {
             optionsFooter

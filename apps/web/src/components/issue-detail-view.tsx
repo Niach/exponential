@@ -707,7 +707,7 @@ export function IssueDetailView({
     <DropdownMenu>
       <IconTooltip label="More actions">
         <DropdownMenuTrigger asChild>
-          <Button variant="glass" size="icon-sm" aria-label="Issue actions">
+          <Button variant="ghost" size="icon-sm" aria-label="Issue actions">
             <UiMoreIcon />
           </Button>
         </DropdownMenuTrigger>

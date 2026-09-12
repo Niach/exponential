@@ -450,9 +450,11 @@ final class StyleguideScreenshots: XCTestCase {
             "No machine row menu — the stub device must be the demo user's OWN, registered machine"
         )
         machineMenu.tap()
-        let editItem = app.buttons["Edit"].firstMatch
-        XCTAssertTrue(editItem.waitForExistence(timeout: 15), "The machine menu never opened")
-        editItem.tap()
+        // EXP-862: the row menu's entry is "Device settings" with the settings
+        // gear — "Edit" and its pencil are gone on every client.
+        let settingsItem = app.buttons["Device settings"].firstMatch
+        XCTAssertTrue(settingsItem.waitForExistence(timeout: 15), "The machine menu never opened")
+        settingsItem.tap()
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
         XCTAssertTrue(deviceSheet.waitForExistence(timeout: 20), "Device settings sheet did not open")
         snapshot("sg_machine-settings", settle: 2)

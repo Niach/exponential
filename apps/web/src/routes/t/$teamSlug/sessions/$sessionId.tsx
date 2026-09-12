@@ -11,7 +11,6 @@ import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { conceptIcon } from "@/lib/icons.generated"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
@@ -113,6 +112,12 @@ function SessionPage() {
       void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
       return
     }
+    // EXP-862: an AUTOMATED run opened from the Automations list goes back to
+    // it (the mobile viewport's own route redirects to the Actions tab).
+    if (origin?.kind === `automations`) {
+      void navigate({ to: `/t/$teamSlug/automations`, params: { teamSlug } })
+      return
+    }
     // EXP-856: the board and the issue keep the `from` token, exactly like the
     // issue-scoped session route does — dropping it landed the destination on
     // the sidebar's main menu instead of the list it came out of.
@@ -209,10 +214,9 @@ function SessionPage() {
           read-only (its own tab in the strip vanishes, because `running`
           excludes ended rows). Nothing navigates away underneath the user.
           EXP-773: a finished run carries its close-out under the header — the
-          byline the Past lists used to expand, Resume on the machine that
-          still holds the worktree, and the agent's summary. The feed connects
-          to the relay exactly like a live one; the device republishes its
-          journal. */}
+          byline the Past lists used to expand, and Resume on the machine that
+          still holds the worktree. The feed connects to the relay exactly like
+          a live one; the device republishes its journal. */}
       <AgentSessionView
         key={session.id}
         session={session}
@@ -298,9 +302,11 @@ function SessionContinuationBand({ session }: { session: CodingSession }) {
 const ResumeIcon = conceptIcon(`run-resume`)
 
 /** EXP-773: the ended-run block above the transcript — the caption the Past
- * rows carry (lib/past-runs.ts `pastRunByline`), Resume when the run's machine
- * is online and advertises `resume-run`, and the agent's own close-out summary
- * as a small muted markdown block. */
+ * rows carry (lib/past-runs.ts `pastRunByline`) and Resume when the run's
+ * machine is online and advertises `resume-run`. EXP-862: the agent's
+ * close-out summary is GONE from every client — `exponential_sessions_end`
+ * still reports it to the run's parent, the server no longer keeps it and the
+ * column left the coding-sessions shape. */
 function EndedRunHeader({ session }: { session: CodingSession }) {
   const [resuming, setResuming] = useState(false)
   const device = useSessionDevice(session)
@@ -398,17 +404,6 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
           </Button>
         )}
       </div>
-      {session.summary && (
-        <div className="max-h-40 overflow-y-auto text-xs text-muted-foreground">
-          <MarkdownEditor
-            markdown={session.summary}
-            editable={false}
-            onChange={() => {}}
-            // EXP-698: the run summary is feed-sized markdown.
-            appearance="chat"
-          />
-        </div>
-      )}
     </div>
   )
 }

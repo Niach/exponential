@@ -3,31 +3,30 @@ import ExpCore
 import SwiftUI
 
 /// The Devices tab (EXP-686, formerly Agents — the type names stay):
-/// "My machines" — the caller's registered devices (EXP-403:
-/// desktops AND headless `exponential` daemon servers, online or not — since
-/// EXP-481 read from the synced `devices` shape, online-ness derived from
-/// last_seen_at freshness) with a per-machine play glyph and an Edit (device
-/// settings sheet: name, sharing, agent defaults, worktrees) / self-update /
-/// remove row menu — then "Team machines" (EXP-432: teammates' servers shared
-/// with the active team, startable but never manageable here).
+/// "My devices" — the caller's registered devices (EXP-403: desktops AND
+/// headless `exponential` daemon servers, online or not — since EXP-481 read
+/// from the synced `devices` shape, online-ness derived from last_seen_at
+/// freshness) with a per-device play glyph and a "…" menu (Device settings /
+/// self-update / remove) — then "Team devices" (EXP-432: teammates' servers
+/// shared with the active team, startable but never manageable here).
 ///
 /// EXP-825: machines ONLY (web parity, EXP-818). The Running/Past sessions
-/// moved to the Agent page, which is also the ONE launcher: a machine's play
-/// glyph pushes it with that machine preselected, and the tab bar's Chat FAB
+/// moved to the Agent page, which is also the ONE launcher: a device's play
+/// glyph pushes it with that device preselected, and the tab bar's Chat FAB
 /// pushes it with an empty seed. When the relay is off nothing here can be
-/// started, so the tab says so instead of listing machines.
+/// started, so the tab says so instead of listing devices.
 ///
-/// EXP-829: below the machines, "Accounts" (`AgentAccountsSection`) — the
-/// Usage page web and desktop folded into Devices in EXP-818: one row per
-/// agent account across the same machines, the freshest report's usage bars,
-/// per-agent tabs, and a quiet chip per machine holding the login.
+/// EXP-829: below the devices, "Accounts" (`AgentAccountsSection`) — the Usage
+/// page web and desktop folded into Devices in EXP-818: one row per agent
+/// account across the same devices, the freshest report's usage bars, per-agent
+/// tabs, and a chip per device holding the login.
 ///
 /// EXP-849 splits the two jobs this page used to mix. Accounts (below) is the
 /// DECISION surface — which login, how much is left, is it still good. The
-/// machine rows are the SETUP/REPAIR surface: each one badges the worst health
-/// of its logins ("Needs re-login" is not "Signed out") and carries its
-/// account chips, whose menu activates a login on that machine ("Use this
-/// account here") or opens its sign-in flow on that agent's tab.
+/// device rows are the SETUP/REPAIR surface: each one badges the worst health
+/// of its logins ("Needs re-login" is not "Signed out") and carries its account
+/// chips, whose menu signs a login in, makes one the device's default, or
+/// removes it from that device (EXP-862).
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -49,25 +48,25 @@ struct AgentsView: View {
     @State private var removeTarget: SteerDevice?
     @State private var updatingIds: Set<String> = []
     @State private var deviceError: String?
-    /// EXP-827: a fresh value asks the page to scroll to its Accounts section
-    /// (the device sheet's Usage button). A token rather than a Bool: a second
-    /// tap has to scroll again.
-    @State private var usageRequest: UUID?
+    /// EXP-862: the sign-in a chip (or the Accounts section) asked for, and
+    /// the removal a chip is confirming.
+    @State private var loginTarget: AgentLoginTarget?
+    @State private var removeAccountTarget: AccountRemoveTarget?
 
-    /// The scroll anchor of the Accounts section — web's `#accounts` hash.
-    private static let accountsAnchor = "accounts"
+    /// A pending "Remove account": the login the confirm names. Captured as a
+    /// value so the sentence stays put even as the rows re-sync underneath.
+    private struct AccountRemoveTarget: Identifiable {
+        let row: AgentProfileUsageRow
+        var id: String { row.key }
+    }
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
     /// sheet reads the LIVE devices-shape row itself, so a value captured here
-    /// would only go stale under it. EXP-849 adds the agent tab to open on: a
-    /// chip's "Sign in again" means THAT agent's login, and the sheet owns the
-    /// sign-in link round-trip.
+    /// would only go stale under it. EXP-862 took the agent/profile hop back
+    /// out: a sign-in is its own sheet (`AgentLoginSheet`), not a tab of the
+    /// machine's settings.
     private struct DeviceSettingsTarget: Identifiable {
         let id: String
-        var agent: String? = nil
-        /// The profile that agent's sign-in should target — the chip's own,
-        /// not whichever profile the machine happens to be using.
-        var profileId: String? = nil
     }
 
     var body: some View {
@@ -167,77 +166,63 @@ struct AgentsView: View {
         // EXP-818: the page is a TABLE now — a filled group band per group with
         // its flat rows hanging straight off it (`GlassSectionBand` +
         // `.flatRow()`), so the stack of bordered cards this used to be reads
-        // as one list. The anchor below is what the device sheet's Usage button
-        // scrolls to.
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        GlassSectionBand("My machines")
-                        if let myDevices {
-                            if myDevices.isEmpty {
-                                deviceHintRow
-                            } else {
-                                ForEach(myDevices) { deviceRow(vm, $0) }
-                            }
+        // as one list.
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
+                    GlassSectionBand("My devices")
+                    if let myDevices {
+                        if myDevices.isEmpty {
+                            deviceHintRow
                         } else {
-                            deviceLoadingRow
+                            ForEach(myDevices) { deviceRow(vm, $0) }
                         }
-                    }
-
-                    // EXP-432: teammates' shared servers, grouped below the
-                    // caller's own. Absent entirely when nothing is shared.
-                    if !teamDevices.isEmpty {
-                        VStack(alignment: .leading, spacing: 0) {
-                            GlassSectionBand("Team machines")
-                            ForEach(teamDevices) { deviceRow(vm, $0) }
-                        }
-                    }
-
-                    // EXP-829: the agent accounts across those machines (web /
-                    // desktop EXP-818 parity). EXP-849: read-only here — the
-                    // account ACTIONS live on the machine rows above, which is
-                    // the surface that can repair a login.
-                    AgentAccountsSection(viewModel: vm)
-                        .id(Self.accountsAnchor)
-                    if let deviceError {
-                        Text(deviceError)
-                            .font(.caption2)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                            .padding(.horizontal, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        deviceLoadingRow
                     }
                 }
-                .padding()
+
+                // EXP-432: teammates' shared servers, grouped below the
+                // caller's own. Absent entirely when nothing is shared.
+                if !teamDevices.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand("Team devices")
+                        ForEach(teamDevices) { deviceRow(vm, $0) }
+                    }
+                }
+
+                // EXP-829: the agent accounts across those devices (web /
+                // desktop EXP-818 parity). A login is REPAIRED on the device
+                // row that holds it; what this section owns is adding one —
+                // "+ Add account" and the per-account "+" (EXP-862).
+                AgentAccountsSection(
+                    viewModel: vm,
+                    onSignIn: { loginTarget = $0 },
+                    onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) }
+                )
+                if let deviceError {
+                    Text(deviceError)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            // EXP-827: the device sheet's round Usage button lands here — the
-            // numbers live on ONE surface (web hashes to `#accounts`; a phone
-            // scrolls to the same section).
-            .onChange(of: usageRequest) { _, request in
-                guard request != nil else { return }
-                withAnimation { proxy.scrollTo(Self.accountsAnchor, anchor: .top) }
-            }
-            // Clearance for the floating tab bar (EXP-36) — on the SCROLLER
-            // itself, so its content inset is the one that grows.
-            .tabBarBottomInset()
+            .padding()
         }
-        // EXP-481: Edit opens the device settings sheet (name, sharing, agent
-        // defaults, worktrees) — the row menu's rename alert retired into it.
-        // EXP-490: it takes the view model and the device id, not a snapshot —
-        // the sheet renders the live row and auto-saves.
+        // Clearance for the floating tab bar (EXP-36) — on the SCROLLER
+        // itself, so its content inset is the one that grows.
+        .tabBarBottomInset()
+        // EXP-481: "Device settings" opens the sheet (name, default device,
+        // sharing, launch defaults, worktrees) — the row menu's rename alert
+        // retired into it. EXP-490: it takes the view model and the device id,
+        // not a snapshot — the sheet renders the live row and auto-saves.
         .sheet(item: $settingsTarget) { target in
             if let viewModel {
                 DeviceSettingsSheet(
                     viewModel: viewModel,
                     deviceId: target.id,
-                    teams: teamState.teams,
-                    // EXP-849: a machine chip's sign-in opens the sheet with
-                    // that agent's tab already up, and signs THAT profile in.
-                    initialAgent: target.agent,
-                    initialProfileId: target.profileId,
-                    // EXP-827: the sheet closes itself, then this page scrolls
-                    // to Accounts — the one surface the usage bars live on.
-                    onOpenUsage: { usageRequest = UUID() }
+                    teams: teamState.teams
                 )
             }
         }
@@ -256,6 +241,46 @@ struct AgentsView: View {
         } message: { device in
             Text("Remove “\(deviceName(device))” from your machines? A machine with the daemon still running re-registers itself on its next heartbeat.")
         }
+        // One presentation per node is the rule, so the login sheet and the
+        // account confirm hang off a zero-size node of their own.
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .sheet(item: $loginTarget) { target in
+                    if let viewModel {
+                        AgentLoginSheet(viewModel: viewModel, target: target)
+                    }
+                }
+        )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .alert(
+                    "Remove account?",
+                    isPresented: Binding(
+                        get: { removeAccountTarget != nil },
+                        set: { if !$0 { removeAccountTarget = nil } }
+                    ),
+                    presenting: removeAccountTarget
+                ) { target in
+                    Button("Cancel", role: .cancel) { removeAccountTarget = nil }
+                    Button("Remove", role: .destructive) {
+                        removeAccountTarget = nil
+                        viewModel?.removeAccount(target.row)
+                    }
+                } message: { target in
+                    // The pinned sentence ×4: it names the login and the
+                    // machine, and says the account itself survives.
+                    Text(AgentAccountsRows.removeAccountConfirmCopy(
+                        account: target.row.email ?? target.row.profileLabel,
+                        device: target.row.deviceLabel.isEmpty
+                            ? target.row.deviceId
+                            : target.row.deviceLabel
+                    ))
+                }
+        )
     }
 
     /// One machine: kind glyph, label + version, live/last-seen state, the
@@ -336,30 +361,34 @@ struct AgentsView: View {
                     GlassMenu {
                         deviceMenu(device)
                     } label: {
-                        CircleIconLabel(AppIcons.uiMore)
+                        GhostIconLabel(AppIcons.uiMore)
                     }
                     .accessibilityLabel("Machine actions")
                     .accessibilityIdentifier("machine-menu")
                 }
             }
-            // EXP-849: the machine's logins, with the repair actions on them.
-            // A sign-in routes to the settings sheet on the chip's OWN login:
-            // the agent picks the tab, the profile is what the sign-in
-            // targets (a machine with two claude profiles would otherwise
-            // re-login the active one, not the expired one that was tapped).
-            DeviceAccountChips(viewModel: vm, device: device) { row in
-                settingsTarget = DeviceSettingsTarget(
-                    id: device.deviceId,
-                    agent: row.agent,
-                    profileId: row.profileId
-                )
-            }
+            // EXP-849/EXP-862: the machine's logins, with the repairs on
+            // them. A sign-in opens the login sheet on the chip's OWN login
+            // (a machine with two claude profiles would otherwise re-login the
+            // active one, not the expired one that was tapped); a removal
+            // confirms first.
+            DeviceAccountChips(
+                viewModel: vm,
+                device: device,
+                onSignIn: { row in
+                    loginTarget = AgentLoginTarget(
+                        deviceId: device.deviceId,
+                        deviceLabel: deviceName(device),
+                        agent: row.agent,
+                        profileId: row.profileId
+                    )
+                },
+                onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) }
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
-        // EXP-409: a machine that can run nothing reads like an offline one.
-        .opacity(device.needsAgentSignIn ? 0.6 : 1)
     }
 
     /// EXP-849: the machine's health badge — the worst of its reported logins,
@@ -379,13 +408,13 @@ struct AgentsView: View {
     /// restart, so "Online" would only read as a lie — unless the update is
     /// parked behind live coding sessions (EXP-411): then the row says
     /// "Update queued" without a spinner instead of "Updating…" forever.
-    /// EXP-409: signed-out agents replace "Online" when nothing is runnable
-    /// (amber dot, web + desktop parity) and annotate it when a runnable
-    /// sibling exists.
+    ///
+    /// EXP-862: nothing here says anything about SIGN-INS any more. A login's
+    /// state is said once, on the chip that owns it (and summarised by the
+    /// row's health badge) — the line used to repeat it as "codex not signed
+    /// in" beside a chip already wearing the badge.
     @ViewBuilder
     private func deviceStatusLine(_ device: SteerDevice) -> some View {
-        let signedOut = device.unauthedAgentIds.joined(separator: ", ")
-        let signInNeeded = device.needsAgentSignIn
         HStack(spacing: 5) {
             if isUpdateQueued(device) {
                 Text("Update queued")
@@ -394,18 +423,9 @@ struct AgentsView: View {
                 Text("Updating…")
             } else if device.isOnline {
                 Circle()
-                    .fill(signInNeeded ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green)
+                    .fill(DesignTokens.Semantic.green)
                     .frame(width: 6, height: 6)
-                if signInNeeded {
-                    Text("\(signedOut) not signed in")
-                } else {
-                    Text("Online")
-                    if !signedOut.isEmpty {
-                        Text("· \(signedOut) not signed in")
-                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                            .lineLimit(1)
-                    }
-                }
+                Text("Online")
             } else {
                 Text(lastSeenCaption(device))
             }
@@ -420,7 +440,9 @@ struct AgentsView: View {
     /// and it needs the machine online to pick the request up.
     @ViewBuilder
     private func deviceMenu(_ device: SteerDevice) -> some View {
-        GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
+        // EXP-862: "Device settings" + the settings gear ×4 — "Edit" with a
+        // pencil promised an inline rename, not the sheet it opens.
+        GlassMenuItem("Device settings", icon: AppIcons.navSettings) {
             settingsTarget = DeviceSettingsTarget(id: device.deviceId)
         }
         // EXP-420: offered only when a newer CLI version really exists.

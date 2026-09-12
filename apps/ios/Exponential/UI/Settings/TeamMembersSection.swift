@@ -138,7 +138,7 @@ struct TeamMembersSection: View {
                         }
                     }
                 } label: {
-                    CircleIconLabel(AppIcons.uiMore)
+                    GhostIconLabel(AppIcons.uiMore)
                         .accessibilityLabel("Member actions")
                 }
             }

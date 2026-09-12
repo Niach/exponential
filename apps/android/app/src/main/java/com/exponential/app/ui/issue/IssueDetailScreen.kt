@@ -331,6 +331,7 @@ fun IssueDetailScreen(
                         "Back",
                         onClick = onBack,
                         modifier = Modifier.padding(start = 8.dp),
+                        borderless = true,
                     )
                 },
                 actions = {
@@ -351,6 +352,7 @@ fun IssueDetailScreen(
                                 "Issue actions",
                                 onClick = { overflowOpen = true },
                                 modifier = Modifier.padding(end = 8.dp),
+                                borderless = true,
                             )
                             GlassDropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                 if (url != null) {

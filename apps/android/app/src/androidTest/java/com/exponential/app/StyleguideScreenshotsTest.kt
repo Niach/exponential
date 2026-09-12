@@ -410,7 +410,9 @@ class StyleguideScreenshotsTest {
         // --- Machine settings: own, registered machines only — the row menu is
         // absent otherwise, which is why the relay stub is a prerequisite.
         composeRule.onAllNodes(hasContentDescription("Machine actions")).onFirst().performClick()
-        composeRule.onAllNodes(hasText("Edit")).onFirst().performClick()
+        // EXP-862: the menu entry says what it opens ("Device settings"), and
+        // "Edit" is gone from this menu everywhere.
+        composeRule.onAllNodes(hasText("Device settings")).onFirst().performClick()
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")

@@ -40,8 +40,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use gpui::{App, Entity, SharedString};
-use gpui_component::{button::ButtonVariant, notification::Notification, WindowExt as _};
+use gpui::{
+    div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
+    Styled, Subscription, Window,
+};
+use gpui_component::{
+    button::{Button, ButtonVariants as _, ButtonVariant},
+    h_flex,
+    menu::DropdownMenu as _,
+    notification::Notification,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+};
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
 use coding::agent_login::{self, LoginProgress, LoginTarget};
@@ -631,10 +640,765 @@ fn notify(note: Notification, cx: &mut App) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// EXP-862: "+ Add account" and the sign-in dialog
+// ---------------------------------------------------------------------------
+//
+// One entry point for every sign-in a client can start: the Accounts header's
+// "+ Add account", an account row's "+" chip ("Sign in on <device>") and a
+// chip whose login is signed out all end in [`sign_in_on_device`]. On THIS
+// machine that opens the CLI's login tab; on another of mine it queues the
+// `agent_login` command and opens [`open_login_dialog`] — a title and ONE
+// status line, which closes itself once the machine reports the login.
+
+/// One machine a sign-in can be queued on right now (web `addAccountDevices`):
+/// one of MINE, online, on a build that runs `agent_login`, with at least one
+/// agent installed there.
+#[derive(Clone)]
+pub(crate) struct LoginDevice {
+    pub device_id: String,
+    pub label: SharedString,
+    /// This very install — the login runs in a terminal tab right here
+    /// instead of riding a heartbeat.
+    pub own: bool,
+    pub server: bool,
+    /// The agents installed there, runnable or signed out, in contract order.
+    pub agents: Vec<CodingAgent>,
+    /// What the machine reported about those agents — where a NEW login lands.
+    accounts: std::collections::BTreeMap<String, coding::AgentAccount>,
+}
+
+impl LoginDevice {
+    /// The device-kind glyph every picker shows beside the name (×4).
+    pub(crate) fn icon(&self) -> crate::icons::ExpIcon {
+        if self.server {
+            crate::icons::registry::UI_SERVER
+        } else {
+            crate::icons::registry::UI_DEVICE
+        }
+    }
+
+    /// Whether the machine's AMBIENT login for `agent` is already taken — a
+    /// new account then lands in a profile of its own.
+    fn ambient_signed_in(&self, agent: CodingAgent) -> bool {
+        let Some(account) = self.accounts.get(agent.id()) else {
+            return false;
+        };
+        match account
+            .profiles
+            .iter()
+            .find(|profile| profile.id == coding::SYSTEM_PROFILE)
+        {
+            Some(ambient) => ambient.signed_in,
+            None => account.signed_in,
+        }
+    }
+
+    /// `Claude Code account 2` — one past the logins the machine reports for
+    /// the agent (the ambient one counts as the first), clamped at the
+    /// server's 64 (web `nextProfileLabel`).
+    fn next_profile_label(&self, agent: CodingAgent) -> String {
+        let held = self
+            .accounts
+            .get(agent.id())
+            .map(|account| account.profiles.len())
+            .unwrap_or(0)
+            .max(1);
+        format!("{} account {}", agent.label(), held + 1)
+            .chars()
+            .take(64)
+            .collect()
+    }
+
+    /// Where a new login lands on the machine (web `addAccountLoginTarget`):
+    /// the ambient login while it is still free — nothing to keep beside it —
+    /// otherwise a new profile the machine creates.
+    pub(crate) fn add_account_target(&self, agent: CodingAgent) -> LoginTarget {
+        if self.ambient_signed_in(agent) {
+            LoginTarget::NewProfile(self.next_profile_label(agent))
+        } else {
+            LoginTarget::System
+        }
+    }
+}
+
+/// The machines a sign-in can be queued on, newest rules first: MINE, online,
+/// advertising `agent-login`, running `agent` when one is named, and not among
+/// `exclude` (the machines already holding the account — the per-account "+").
+pub(crate) fn add_account_devices(
+    agent: Option<CodingAgent>,
+    exclude: &[String],
+    cx: &mut App,
+) -> Vec<LoginDevice> {
+    // Before the store is borrowed: resolving it caches a global.
+    let own_device_id = queries::own_device_id(cx);
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let Some(me) = queries::active_account(cx) else {
+        return Vec::new();
+    };
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut out: Vec<LoginDevice> = Vec::new();
+    for row in store.collections().devices.read(cx).iter() {
+        if row.user_id.as_deref() != Some(me.user_id.as_str()) {
+            continue;
+        }
+        let device_id = row.device_id.clone().unwrap_or_default();
+        if device_id.is_empty() || exclude.iter().any(|id| id == &device_id) {
+            continue;
+        }
+        if !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms) {
+            continue;
+        }
+        if !row.cap_ids().iter().any(|cap| cap == "agent-login") {
+            continue;
+        }
+        let installed = row.agent_ids();
+        let unauthed = row.unauthed_agent_ids();
+        let agents: Vec<CodingAgent> = CodingAgent::ALL
+            .into_iter()
+            .filter(|known| {
+                installed.iter().any(|id| id == known.id())
+                    || unauthed.iter().any(|id| id == known.id())
+            })
+            .collect();
+        if agents.is_empty() || agent.is_some_and(|agent| !agents.contains(&agent)) {
+            continue;
+        }
+        let label = row.label.clone().unwrap_or_default();
+        out.push(LoginDevice {
+            own: device_id == own_device_id,
+            label: SharedString::from(if label.trim().is_empty() {
+                device_id.clone()
+            } else {
+                label
+            }),
+            server: row.is_server(),
+            agents,
+            accounts: crate::device_settings::parse_agent_map::<coding::AgentAccount>(
+                row.agent_accounts.as_ref(),
+            ),
+            device_id,
+        });
+    }
+    out.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+    out
+}
+
+/// EXP-862 — start a sign-in for `agent` on `device`, wherever it is: the CLI's
+/// own login tab on THIS machine, an `agent_login` command plus the status
+/// dialog on another of mine. The ONE entry point every chip, menu and dialog
+/// uses, so "Sign in" means the same thing everywhere.
+pub(crate) fn sign_in_on_device(
+    device_id: String,
+    device_label: SharedString,
+    own: bool,
+    agent: CodingAgent,
+    target: LoginTarget,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if own {
+        // The named helpers, so "add an account" and "repair this profile"
+        // stay one call each on this machine too.
+        match target {
+            LoginTarget::System => open_login_tab(agent, false, cx),
+            LoginTarget::Profile(profile_id) => open_profile_login_tab(agent, profile_id, cx),
+            LoginTarget::NewProfile(label) => open_add_account_tab(agent, label, cx),
+        }
+        return;
+    }
+    open_login_dialog(device_id, device_label, agent, target, window, cx);
+}
+
+/// `devices.createCommand` for an `agent_login` that names WHERE the login
+/// lands: an existing profile, or a fresh one the machine creates
+/// (`newProfileLabel`, EXP-827).
+///
+/// The payload is built here rather than in `api::devices` because that
+/// crate's `create_agent_login_command` has no `newProfileLabel` parameter
+/// yet (iOS and Android grew one in this wave); folding this into
+/// `api::devices::create_agent_login_command` is a follow-up.
+fn queue_login_command(
+    trpc: &api::TrpcClient,
+    device_id: &str,
+    agent: CodingAgent,
+    target: &LoginTarget,
+) -> Result<String, api::ApiError> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        switch: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        profile_id: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_profile_label: Option<&'a str>,
+    }
+    // The ambient login is the ABSENCE of a profile on this wire (the device's
+    // `resolve_login_profile` reads `system`/blank the same way).
+    let (profile_id, new_profile_label) = match target {
+        LoginTarget::System => (None, None),
+        LoginTarget::Profile(id) => (
+            Some(id.trim()).filter(|id| !id.is_empty() && *id != coding::SYSTEM_PROFILE),
+            None,
+        ),
+        LoginTarget::NewProfile(label) => (None, Some(label.trim()).filter(|l| !l.is_empty())),
+    };
+    let created: api::devices::CreatedCommand = trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_login",
+            agent: agent.id(),
+            switch: false,
+            profile_id,
+            new_profile_label,
+        },
+    )?;
+    Ok(created.id)
+}
+
+/// How often the sign-in dialog asks the server what the machine answered.
+const LOGIN_DIALOG_POLL: Duration = Duration::from_secs(2);
+
+/// The ONE status line the sign-in dialog shows.
+enum LoginDialogState {
+    /// The command is on its way to the server.
+    Queueing,
+    /// Queued — the machine has not handed anything back yet.
+    Waiting,
+    /// The CLI's sign-in link (plus codex's device code).
+    Link { url: String, code: Option<String> },
+    Failed(SharedString),
+}
+
+/// EXP-862 — "Sign in to <agent>" as its own dialog: a title and ONE status
+/// line (waiting → the link → an error), which CLOSES ITSELF the moment the
+/// machine reports the login on its synced row. Web parity
+/// (`agent-login-dialog.tsx`), minus the stacked pending/result/error blocks
+/// that used to say the same thing three times.
+pub(crate) fn open_login_dialog(
+    device_id: String,
+    device_label: SharedString,
+    agent: CodingAgent,
+    target: LoginTarget,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let adds_account = matches!(target, LoginTarget::NewProfile(_));
+    let title = if adds_account {
+        format!("Add a {} account", agent.label())
+    } else {
+        format!("Sign in to {}", agent.label())
+    };
+    let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(180.)));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| {
+            LoginDialogView::new(device_id, device_label, agent, target, window, cx)
+        });
+        native_dialog::DialogContent::new(view)
+    });
+}
+
+struct LoginDialogView {
+    device_id: String,
+    device_label: SharedString,
+    agent: CodingAgent,
+    state: LoginDialogState,
+    /// What the device reported about the agent's logins when the dialog
+    /// opened. The report MOVING is the success this dialog waits for — a new
+    /// profile appearing, or an expired one going healthy again.
+    baseline: Vec<(String, bool, coding::agent_accounts::Health)>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl LoginDialogView {
+    fn new(
+        device_id: String,
+        device_label: SharedString,
+        agent: CodingAgent,
+        target: LoginTarget,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let devices = sync::Store::global(cx).collections().devices.clone();
+        let baseline = login_fingerprint(&device_id, agent, cx);
+        let subscriptions = vec![cx.observe_in(&devices, window, |this: &mut Self, _, window, cx| {
+            if login_fingerprint(&this.device_id, this.agent, cx) != this.baseline {
+                // The machine reported the login: the dialog has nothing left
+                // to say, and saying it twice is what the old inline notes did.
+                let label = this.device_label.clone();
+                let agent = this.agent;
+                native_dialog::close_then(window, cx, move |window, cx| {
+                    window.push_notification(
+                        Notification::success(SharedString::from(format!(
+                            "{} signed in on {label}.",
+                            agent.label()
+                        ))),
+                        cx,
+                    );
+                });
+                return;
+            }
+            cx.notify();
+        })];
+        let view = Self {
+            device_id: device_id.clone(),
+            device_label,
+            agent,
+            state: LoginDialogState::Queueing,
+            baseline,
+            _subscriptions: subscriptions,
+        };
+        // The dialog opening IS the sign-in request (web parity): queue it now
+        // and poll the command row until the device answers.
+        if queries::trpc_client(cx).is_none() {
+            return Self {
+                state: LoginDialogState::Failed("Not signed in.".into()),
+                ..view
+            };
+        }
+        cx.spawn(async move |this, cx| {
+            // A fresh client per call: `TrpcClient` is not shareable, and
+            // building one is a token-provider lookup, not a connection.
+            let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
+                return;
+            };
+            let target = target.clone();
+            let queued = cx
+                .background_executor()
+                .spawn({
+                    let device_id = device_id.clone();
+                    async move { queue_login_command(&trpc, &device_id, agent, &target) }
+                })
+                .await;
+            let command_id = match queued {
+                Ok(id) => id,
+                Err(err) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.state = LoginDialogState::Failed(err.user_message().into());
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            if this
+                .update(cx, |this, cx| {
+                    this.state = LoginDialogState::Waiting;
+                    cx.notify();
+                })
+                .is_err()
+            {
+                return;
+            }
+            loop {
+                cx.background_executor().timer(LOGIN_DIALOG_POLL).await;
+                let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
+                    return;
+                };
+                let row = cx
+                    .background_executor()
+                    .spawn({
+                        let command_id = command_id.clone();
+                        async move { api::devices::get_command(&trpc, &command_id) }
+                    })
+                    .await;
+                let Ok(row) = row else {
+                    continue; // transient — the next tick asks again
+                };
+                if !row.is_terminal() {
+                    continue;
+                }
+                let state = login_dialog_result(&row);
+                let _ = this.update(cx, |this, cx| {
+                    this.state = state;
+                    cx.notify();
+                });
+                return;
+            }
+        })
+        .detach();
+        view
+    }
+}
+
+/// What a finished `agent_login` command says. A login completes EARLY, the
+/// moment its sign-in URL is up (that link IS the result); the signed-in flip
+/// follows on the synced row, which is what closes the dialog.
+fn login_dialog_result(row: &api::devices::CommandRow) -> LoginDialogState {
+    if row.status == "failed" {
+        return LoginDialogState::Failed(SharedString::from(
+            row.result
+                .clone()
+                .unwrap_or_else(|| "The machine reported a failure.".to_string()),
+        ));
+    }
+    match row.result.as_deref().and_then(LoginProgress::parse) {
+        Some(progress) => match progress.url {
+            Some(url) => LoginDialogState::Link {
+                url,
+                code: progress.code,
+            },
+            None => LoginDialogState::Failed(SharedString::from(
+                progress
+                    .message
+                    .unwrap_or_else(|| "The machine handed back no sign-in link.".to_string()),
+            )),
+        },
+        None => LoginDialogState::Failed(SharedString::from(
+            row.result
+                .clone()
+                .unwrap_or_else(|| "The machine handed back no sign-in link.".to_string()),
+        )),
+    }
+}
+
+/// What the device currently reports about `agent`'s logins: one entry per
+/// profile, each with its signed-in flag and its health. A device that reported
+/// no profiles (an older build) yields its single ambient account.
+///
+/// The sign-in dialog watches this: a SIGN-IN lands as a new entry (a fresh
+/// profile) or as an existing one turning healthy (a `needs_relogin` repair),
+/// and either is the moment the dialog has nothing left to say.
+fn login_fingerprint(
+    device_id: &str,
+    agent: CodingAgent,
+    cx: &App,
+) -> Vec<(String, bool, coding::agent_accounts::Health)> {
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let devices = store.collections().devices.read(cx);
+    let Some(row) = devices
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id))
+    else {
+        return Vec::new();
+    };
+    let accounts = crate::device_settings::parse_agent_map::<coding::AgentAccount>(
+        row.agent_accounts.as_ref(),
+    );
+    let Some(account) = accounts.get(agent.id()) else {
+        return Vec::new();
+    };
+    if account.profiles.is_empty() {
+        return vec![(
+            coding::SYSTEM_PROFILE.to_string(),
+            account.signed_in,
+            account.health(),
+        )];
+    }
+    account
+        .profiles
+        .iter()
+        .map(|profile| (profile.id.clone(), profile.signed_in, profile.health()))
+        .collect()
+}
+
+impl Render for LoginDialogView {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let line = match &self.state {
+            LoginDialogState::Queueing | LoginDialogState::Waiting => div()
+                .text_sm()
+                .text_color(muted)
+                .child(SharedString::from(format!(
+                    "Waiting for the sign-in link from {}. Open it on any device.",
+                    self.device_label
+                )))
+                .into_any_element(),
+            LoginDialogState::Failed(message) => div()
+                .text_sm()
+                .text_color(theme.danger)
+                .child(message.clone())
+                .into_any_element(),
+            LoginDialogState::Link { url, code } => {
+                let copy = url.clone();
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(url.clone())),
+                    )
+                    .children(code.clone().map(|code| {
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(format!("· code {code}")))
+                    }))
+                    .child(
+                        crate::controls::ghost_icon_button(
+                            "agent-login-copy",
+                            Icon::new(crate::icons::registry::UI_COPY),
+                            cx,
+                        )
+                        .tooltip("Copy link")
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                        }),
+                    )
+                    .into_any_element()
+            }
+        };
+        // EXP-862: a title and ONE status line. The dialog used to stack a
+        // pending line, the link, an error line and a caption that all said
+        // the same thing in turn; what a reader needs is the one fact that is
+        // true right now.
+        v_flex().w_full().gap_2().child(line)
+    }
+}
+
+/// EXP-862 — "+ Add account": pick one of MY machines and an agent installed
+/// there, then sign in. The desktop twin of the web `AddAccountDialog`; the
+/// per-agent context menu it replaced could only ever add an account HERE.
+pub(crate) fn open_add_account_dialog(window: &mut Window, cx: &mut App) {
+    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(300.)));
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| AddAccountDialogView::new(window, cx));
+        native_dialog::DialogContent::new(view)
+    });
+}
+
+struct AddAccountDialogView {
+    devices: Vec<LoginDevice>,
+    /// The picked machine's id (the first candidate on open).
+    device_id: String,
+    agent: Option<CodingAgent>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl AddAccountDialogView {
+    fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let devices = add_account_devices(None, &[], cx);
+        let device_id = devices.first().map(|device| device.device_id.clone()).unwrap_or_default();
+        let agent = devices.first().and_then(|device| device.agents.first().copied());
+        let collection = sync::Store::global(cx).collections().devices.clone();
+        // A machine going offline mid-dialog must not stay pickable.
+        let subscriptions = vec![cx.observe_in(&collection, window, |this: &mut Self, _, _, cx| {
+            this.devices = add_account_devices(None, &[], cx);
+            this.reconcile();
+            cx.notify();
+        })];
+        Self {
+            devices,
+            device_id,
+            agent,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// Keep the two picks on a machine that still exists and an agent it still
+    /// runs (the list is live).
+    fn reconcile(&mut self) {
+        if !self.devices.iter().any(|device| device.device_id == self.device_id) {
+            self.device_id = self
+                .devices
+                .first()
+                .map(|device| device.device_id.clone())
+                .unwrap_or_default();
+            self.agent = None;
+        }
+        let agents = self.selected().map(|device| device.agents.clone()).unwrap_or_default();
+        if !self.agent.is_some_and(|agent| agents.contains(&agent)) {
+            self.agent = agents.first().copied();
+        }
+    }
+
+    fn selected(&self) -> Option<&LoginDevice> {
+        self.devices
+            .iter()
+            .find(|device| device.device_id == self.device_id)
+    }
+
+    fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let (Some(device), Some(agent)) = (self.selected().cloned(), self.agent) else {
+            return;
+        };
+        let target = device.add_account_target(agent);
+        native_dialog::close_then(window, cx, move |window, cx| {
+            sign_in_on_device(
+                device.device_id.clone(),
+                device.label.clone(),
+                device.own,
+                agent,
+                target,
+                window,
+                cx,
+            );
+        });
+    }
+}
+
+impl AddAccountDialogView {
+    /// The machine picker (×4: the device-kind glyph plus the name, on the
+    /// trigger AND on every row).
+    fn machine_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let selected = self.selected().cloned();
+        let machines = self.devices.clone();
+        let view = cx.entity().downgrade();
+        let picked_id = self.device_id.clone();
+        crate::pickers::chip_button("add-account-device", cx)
+            .children(selected.as_ref().map(|device| {
+                Icon::new(device.icon()).with_size(px(crate::surface::PillSize::Sm.glyph()))
+            }))
+            .child(crate::pickers::chip_label(
+                selected
+                    .as_ref()
+                    .map(|device| device.label.clone())
+                    .unwrap_or_else(|| "Pick a machine".into()),
+                selected.is_none(),
+                cx,
+            ))
+            .child(
+                Icon::new(crate::icons::registry::UI_CHEVRON_DOWN)
+                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                    .text_color(muted),
+            )
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu;
+                for device in &machines {
+                    let id = device.device_id.clone();
+                    let view = view.clone();
+                    menu = menu.item(crate::pickers::option_item(
+                        device.label.clone(),
+                        Icon::new(device.icon()),
+                        id == picked_id,
+                        move |_window, cx| {
+                            let id = id.clone();
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |this, cx| {
+                                    this.device_id = id;
+                                    this.reconcile();
+                                    cx.notify();
+                                });
+                            }
+                        },
+                    ));
+                }
+                menu
+            })
+            .into_any_element()
+    }
+
+    /// The agent picker — the SHARED one (`coding_selects::agent_picker`), so
+    /// the composer, the device editor and this dialog all pick an agent the
+    /// same way.
+    fn agent_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let agents = self
+            .selected()
+            .map(|device| device.agents.clone())
+            .unwrap_or_default();
+        let Some(agent) = self.agent else {
+            return div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("No agent installed")
+                .into_any_element();
+        };
+        let view = cx.entity().downgrade();
+        crate::coding_selects::agent_picker(
+            "add-account-agent",
+            &agents,
+            agent,
+            move |picked, _window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.agent = Some(picked);
+                        cx.notify();
+                    });
+                }
+            },
+            cx,
+        )
+    }
+}
+
+impl Render for AddAccountDialogView {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        if self.devices.is_empty() {
+            // Web parity, word for word — and it keeps a way out: the window's
+            // ✕ is not the only affordance in an empty dialog.
+            return v_flex()
+                .w_full()
+                .gap_4()
+                .child(div().text_sm().text_color(muted).child(
+                    "None of your machines is online with an agent that can sign in remotely. \
+                     Open the desktop app or start the daemon there first.",
+                ))
+                .child(
+                    h_flex().w_full().justify_end().child(
+                        Button::new("add-account-close")
+                            .outline()
+                            .label("Close")
+                            .on_click(|_, window, cx| {
+                                native_dialog::close_dialog_window(window, cx)
+                            }),
+                    ),
+                );
+        }
+        let machine_picker = self.machine_picker(cx);
+        let agent_picker = self.agent_picker(cx);
+        let caption: SharedString = match self.selected() {
+            Some(device) => format!(
+                "The sign-in runs on {}. Sign in with the account you want to add.",
+                device.label
+            )
+            .into(),
+            None => "Sign in with another account on one of your machines.".into(),
+        };
+        v_flex()
+            .w_full()
+            .gap_4()
+            .child(crate::surface::glass_group_rows(vec![
+                crate::surface::glass_picker_row("Machine", None, machine_picker, cx),
+                crate::surface::glass_picker_row("Agent", None, agent_picker, cx),
+            ]))
+            .child(div().text_xs().text_color(muted).child(caption))
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        Button::new("add-account-cancel")
+                            .outline()
+                            .label("Cancel")
+                            .on_click(|_, window, cx| {
+                                native_dialog::close_dialog_window(window, cx)
+                            }),
+                    )
+                    .child(
+                        Button::new("add-account-continue")
+                            .primary()
+                            .label("Continue")
+                            .disabled(self.agent.is_none())
+                            .on_click(cx.listener(|this: &mut Self, _, window, cx| {
+                                this.submit(window, cx);
+                            })),
+                    ),
+            )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::AppContext as _;
 
     /// A stand-in for the device-settings dialog: an entity whose click
     /// handler starts a switch and, in the callback, updates ITSELF through
@@ -668,5 +1432,77 @@ mod tests {
             1,
             "the deferred callback queues exactly one login"
         );
+    }
+
+    fn device(profiles: Vec<coding::AgentProfileEntry>, ambient_signed_in: bool) -> LoginDevice {
+        let mut accounts = std::collections::BTreeMap::new();
+        accounts.insert(
+            CodingAgent::Claude.id().to_string(),
+            coding::AgentAccount {
+                signed_in: ambient_signed_in,
+                profiles,
+                ..coding::AgentAccount::default()
+            },
+        );
+        LoginDevice {
+            device_id: "dev-1".to_string(),
+            label: "Studio".into(),
+            own: false,
+            server: false,
+            agents: vec![CodingAgent::Claude],
+            accounts,
+        }
+    }
+
+    fn profile(id: &str, signed_in: bool) -> coding::AgentProfileEntry {
+        coding::AgentProfileEntry {
+            id: id.to_string(),
+            signed_in,
+            checked_at: "2026-09-12T10:00:00.000Z".to_string(),
+            ..coding::AgentProfileEntry::default()
+        }
+    }
+
+    /// EXP-862 — where a new login lands (web `addAccountLoginTarget`): the
+    /// AMBIENT login while it is still free (nothing to keep beside it),
+    /// otherwise a profile of its own, named one past the logins the device
+    /// already reports.
+    #[test]
+    fn a_new_login_takes_the_ambient_slot_only_while_it_is_free() {
+        let free = device(vec![profile(coding::SYSTEM_PROFILE, false)], false);
+        assert!(matches!(
+            free.add_account_target(CodingAgent::Claude),
+            LoginTarget::System
+        ));
+        // A device that reported no profiles at all, signed out: same thing.
+        let bare = device(Vec::new(), false);
+        assert!(matches!(
+            bare.add_account_target(CodingAgent::Claude),
+            LoginTarget::System
+        ));
+
+        let taken = device(vec![profile(coding::SYSTEM_PROFILE, true)], true);
+        match taken.add_account_target(CodingAgent::Claude) {
+            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
+            other => panic!("expected a new profile, got {other:?}"),
+        }
+        // One past the logins on record, the ambient one included.
+        let two = device(
+            vec![
+                profile(coding::SYSTEM_PROFILE, true),
+                profile("0a1b2c3d", true),
+            ],
+            true,
+        );
+        match two.add_account_target(CodingAgent::Claude) {
+            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 3"),
+            other => panic!("expected a new profile, got {other:?}"),
+        }
+
+        // An agent the device never reported has a free ambient login.
+        assert!(matches!(
+            two.add_account_target(CodingAgent::Codex),
+            LoginTarget::System
+        ));
     }
 }

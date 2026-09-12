@@ -433,9 +433,16 @@ impl ApiKeysPane {
             .map(format_created_date)
             .unwrap_or_else(|| "Never".to_string());
 
-        // EXP-698: one row of an inset-grouped stack — the caller fuses them
-        // through `glass_group_rows`, which draws the hairlines.
-        crate::surface::glass_row_shell()
+        // EXP-862: a FLAT list row (web `ListRow`) — no card, no hairline
+        // group; the rows stack straight under the section band.
+        crate::surface::flat_row()
+            .flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2p5()
             .child(
                 h_flex()
                     .flex_1()
@@ -585,14 +592,11 @@ impl Render for ApiKeysPane {
                             ),
                     );
                 } else {
-                    let list: Vec<gpui::Div> = rows
-                        .iter()
-                        .map(|row| {
-                            let this_device = device_key_id.as_deref() == Some(row.id.as_str());
-                            self.render_row(row, this_device, cx)
-                        })
-                        .collect();
-                    body = body.child(crate::surface::glass_group_rows(list));
+                    let list = rows.iter().map(|row| {
+                        let this_device = device_key_id.as_deref() == Some(row.id.as_str());
+                        self.render_row(row, this_device, cx)
+                    });
+                    body = body.child(v_flex().w_full().min_w_0().children(list));
                 }
             }
         }

@@ -42,13 +42,13 @@ struct TeamLabelsSection: View {
                     // EXP-698: the shared chromed circle, but the `ui-edit`
                     // pencil — this opens the editor straight away, so the
                     // overflow glyph would promise a menu that never appears.
-                    CircleIconButton(AppIcons.uiEdit, accessibilityLabel: "Edit label") {
+                    GhostIconButton(AppIcons.uiEdit, accessibilityLabel: "Edit label") {
                         editingLabel = label
                     }
 
                     // Delete (confirmed — labels stay member-level, so no owner
                     // gating, only a confirmation).
-                    CircleIconButton(
+                    GhostIconButton(
                         AppIcons.uiDelete,
                         accessibilityLabel: "Delete label",
                         tint: DesignTokens.Palette.destructive.opacity(0.7)

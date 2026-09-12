@@ -77,7 +77,7 @@ fun agentLoginCommandKey(agent: String): String = "login:$agent"
 fun agentLoginCodeCommandKey(agent: String): String = "login-code:$agent"
 
 /**
- * EXP-849: one agent's `agent_profile_use` key ("Use this account here") — its
+ * EXP-849: one agent's `agent_profile_use` key ("Set as default") — its
  * own slot, so the active-login pick captions under the chips instead of being
  * read as a sign-in publication.
  */
@@ -307,16 +307,28 @@ class DeviceSettingsViewModel @Inject constructor(
          * to the agent's card either way.
          */
         profileId: String? = null,
+        /**
+         * EXP-862 "Add account": the machine CREATES a profile under this
+         * label and runs the login inside it, instead of signing into one it
+         * already holds. Mutually exclusive with [profileId].
+         */
+        newProfileLabel: String? = null,
     ) {
         issueCommand(
             key = agentLoginCommandKey(agent),
-            command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
+            command = agentLoginCommand(
+                deviceId,
+                agent,
+                switchAccount,
+                profileId,
+                newProfileLabel,
+            ),
             deviceOnline = deviceOnline,
         )
     }
 
     /**
-     * EXP-849: "Use this account here" — point the machine at a login it
+     * EXP-849/EXP-862 "Set as default" — point the machine at a login it
      * ALREADY holds (`agent_profile_use`). Deliberately not a sign-in: no
      * credential is touched and nothing is signed out (a codex logout would
      * revoke the token server-side), the machine just re-points itself and

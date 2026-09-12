@@ -60,6 +60,10 @@ export function SessionsList({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   )
+  // EXP-862: Past is FOLDED by default — the page is the composer plus what
+  // is running; the history is one click away and says how much it holds
+  // (the band's trailing count). Desktop `glass_section_band_fold` twin.
+  const [pastOpen, setPastOpen] = useState(false)
   const nested = useMemo(
     () => nestSessions(running.map((row) => row.session)),
     [running]
@@ -122,21 +126,28 @@ export function SessionsList({
       )}
       {past.length > 0 && (
         <div className="mt-4">
-          <GlassSectionHeader label="Past" />
-          <div className="flex flex-col">
-            {past.map((row) => (
-              <PastRow
-                key={row.session.id}
-                session={row.session}
-                title={row.title}
-                identifier={row.identifier}
-                byline={pastRunRowByline(row)}
-                continued={continuedIds.has(row.session.id)}
-                active={row.session.id === activeSessionId}
-                onOpen={() => openSession(row.session, { origin })}
-              />
-            ))}
-          </div>
+          <GlassSectionHeader
+            label="Past"
+            count={past.length}
+            expanded={pastOpen}
+            onToggle={() => setPastOpen((open) => !open)}
+          />
+          {pastOpen && (
+            <div className="flex flex-col">
+              {past.map((row) => (
+                <PastRow
+                  key={row.session.id}
+                  session={row.session}
+                  title={row.title}
+                  identifier={row.identifier}
+                  byline={pastRunRowByline(row)}
+                  continued={continuedIds.has(row.session.id)}
+                  active={row.session.id === activeSessionId}
+                  onOpen={() => openSession(row.session, { origin })}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

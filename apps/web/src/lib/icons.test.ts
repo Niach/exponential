@@ -343,9 +343,7 @@ describe(`icon call sites`, () => {
     // EXP-792: + MCP servers (Features), web-only for now.
     expect(webNav.size).toBe(14)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
-    // EXP-500: + Archived boards, also desktop-only in the NAV — web keeps the
-    // same list as a card on its single Boards settings page, which desktop
-    // flattened into per-board panes (EXP-288), so it needs its own entry.
+    // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget and Helpdesk, now on both clients.
     // EXP-807: + MCP servers, the IDE pane the desktop sub-issue added — the
     // count the EXP-792 comment here predicted.
@@ -358,7 +356,10 @@ describe(`icon call sites`, () => {
       [`Labels`, `Labels`],
       [`Statuses`, `Statuses`],
       [`Storage`, `Storage`],
-      [`Boards`, `Board`],
+      // EXP-862: the web Boards group flattened like the desktop's, so the
+      // shared static entry is Archived boards (per-board rows are injected
+      // at render on both clients).
+      [`Archived boards`, `ArchivedBoards`],
       [`Repositories`, `Repositories`],
       [`Feedback widget`, `Widget`],
       [`Helpdesk`, `Helpdesk`],
@@ -367,7 +368,8 @@ describe(`icon call sites`, () => {
       [`MCP servers`, `McpServers`],
       [`Account`, `Account`],
       [`Notifications`, `Notifications`],
-      [`API keys`, `ApiKeys`],
+      // EXP-862: the Personal entry is labelled Security on both clients.
+      [`Security`, `ApiKeys`],
     ]
     for (const [webLabel, desktopSection] of shared) {
       const concept = webNav.get(webLabel)

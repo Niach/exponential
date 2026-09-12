@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import type { Device } from "@/db/schema"
-import { agentLabel } from "@/components/agent-usage-bar"
+import { AgentPicker, agentLabel } from "@/components/agent-picker"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -109,14 +109,20 @@ export function AddAccountDialog({
                 label: row.label || row.deviceId,
               }))}
             />
-            <GlassPickerRow
-              label="Agent"
-              value={agent}
-              onValueChange={setAgent}
-              placeholder="Pick an agent"
-              disabled={agents.length === 0}
-              options={agents.map((id) => ({ value: id, label: agentLabel(id) }))}
-            />
+            {/* EXP-862: the ONE agent picker — brand mark + chevron, the
+                label in its tooltip and its menu rows. */}
+            <div className="flex items-center gap-3 px-4 py-3">
+              <span className="text-sm text-foreground">Agent</span>
+              <span className="ml-auto">
+                <AgentPicker
+                  value={agent}
+                  agents={agents}
+                  onChange={setAgent}
+                  disabled={agents.length === 0}
+                  align="end"
+                />
+              </span>
+            </div>
           </GlassGroup>
         )}
         <DialogFooter>

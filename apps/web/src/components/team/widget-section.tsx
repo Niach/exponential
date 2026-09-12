@@ -207,7 +207,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       aria-label={`Enable ${widget.name}`}
                     />
                     <Button
-                      variant="glass"
+                      variant="ghost"
                       size="icon-sm"
                       onClick={() => setSnippetTarget(widget)}
                       aria-label={`Show snippet for ${widget.name}`}
@@ -215,7 +215,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       <CodeXml />
                     </Button>
                     <Button
-                      variant="glass"
+                      variant="ghost"
                       size="icon-sm"
                       onClick={() => openEdit(widget)}
                       aria-label={`Edit ${widget.name}`}
@@ -223,7 +223,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       <Pencil />
                     </Button>
                     <Button
-                      variant="glass"
+                      variant="ghost"
                       size="icon-sm"
                       className="text-destructive"
                       onClick={() => deleteWidget(widget)}

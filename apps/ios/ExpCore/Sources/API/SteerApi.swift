@@ -590,6 +590,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the same login, so the switch would silently do nothing.
     public var canSwitchAccount: Bool { caps?.contains("account-switch") == true }
 
+    /// EXP-862: whether this machine runs `agent_profile_remove` — deleting
+    /// its own copy of a login (the profile's config dir plus its index row;
+    /// the ACCOUNT itself is never touched). Its own cap beside `agent-login`:
+    /// an older build would leave the queued command pending forever, so the
+    /// chip menu hides the entry instead.
+    public var canRemoveAccount: Bool { caps?.contains("account-remove") == true }
+
     /// EXP-530: whether this machine runs action automations locally (watches
     /// its own sync and fires schedule/event triggers). Trigger device pickers
     /// offer only these — an offline-but-capable machine stays pickable (its

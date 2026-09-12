@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  DIFF_SCOPE_ALL_LABEL,
+  diffScopeTurnLabel,
+  fileCardDiffFiles,
   fileCardMoreLabel,
   fileCardTitle,
   sessionFileCards,
@@ -99,11 +102,23 @@ describe(`sessionFileCards`, () => {
     expect(sessionFileCards(feed)).toEqual([
       {
         afterId: 3,
-        files: [{ path: `src/a.ts`, additions: 2, deletions: 1 }],
+        files: [
+          expect.objectContaining({
+            path: `src/a.ts`,
+            additions: 2,
+            deletions: 1,
+          }),
+        ],
       },
       {
         afterId: 6,
-        files: [{ path: `src/b.ts`, additions: 4, deletions: 0 }],
+        files: [
+          expect.objectContaining({
+            path: `src/b.ts`,
+            additions: 4,
+            deletions: 0,
+          }),
+        ],
       },
     ])
   })
@@ -114,8 +129,20 @@ describe(`sessionFileCards`, () => {
       edit(2, `src/a.ts`, 3, 0),
     ])
     expect(cards).toEqual([
-      { afterId: 2, files: [{ path: `src/a.ts`, additions: 5, deletions: 1 }] },
+      {
+        afterId: 2,
+        files: [
+          expect.objectContaining({
+            path: `src/a.ts`,
+            additions: 5,
+            deletions: 1,
+          }),
+        ],
+      },
     ])
+    // EXP-862: BOTH calls' hunks ride the row, so the turn scope shows the
+    // whole turn's change to that file.
+    expect(cards[0].files[0].patch?.match(/^@@/gm)).toHaveLength(2)
   })
 
   it(`ignores unsettled edits, other kinds and subagent rows`, () => {
@@ -142,6 +169,42 @@ describe(`sessionFileCards`, () => {
 
   it(`an empty feed has no cards`, () => {
     expect(sessionFileCards([])).toEqual([])
+  })
+})
+
+describe(`the pane scope a card opens (EXP-862)`, () => {
+  it(`hands the turn's rows over as diff-view files, patches and all`, () => {
+    const cards = sessionFileCards([edit(1, `src/a.ts`, 2, 1)])
+    expect(fileCardDiffFiles(cards[0].files)).toEqual([
+      {
+        filename: `src/a.ts`,
+        status: `modified`,
+        additions: 2,
+        deletions: 1,
+        patch: expect.stringContaining(`@@`),
+      },
+    ])
+  })
+
+  it(`a created file keeps its added status`, () => {
+    const cards = sessionFileCards([
+      {
+        id: 1,
+        kind: `tool`,
+        toolKind: `edit`,
+        settled: true,
+        diff: [`--- /dev/null`, `+++ b/src/new.ts`, `@@ -0,0 +1 @@`, `+fresh`].join(
+          `\n`
+        ),
+      },
+    ])
+    expect(fileCardDiffFiles(cards[0].files)[0].status).toBe(`added`)
+  })
+
+  it(`labels the chip and its action`, () => {
+    expect(diffScopeTurnLabel(1)).toBe(`This turn: 1 file`)
+    expect(diffScopeTurnLabel(3)).toBe(`This turn: 3 files`)
+    expect(DIFF_SCOPE_ALL_LABEL).toBe(`Show all changes`)
   })
 })
 

@@ -2,23 +2,27 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-849: a machine's agent logins, as the chips on its row in "My machines"
+/// EXP-849: a machine's agent logins, as the chips on its row in "My devices"
 /// — the SETUP/REPAIR half of the accounts split.
 ///
 /// The Accounts section below decides WHICH account to use (email, plan, live
 /// usage bars, health); a machine row is where a broken or missing login gets
 /// fixed. So each chip here names the agent and the login, badges that
-/// machine's own health for it, and carries the two repair actions:
+/// machine's own health for it, and carries the repairs — three states, three
+/// menus (EXP-862, ×4):
 ///
-///   - **Use this account here** — point the machine's ACTIVE login for that
-///     agent at a profile it already holds (`agent_profile_use`: no login
-///     flow, no logout, no credential touched). Hidden on the login that is
-///     already active, and on a machine whose build has no
-///     `account-switch` cap — the server refuses the command there.
-///   - **Sign in / Sign in again** — the sign-in link round-trip, which lives
-///     in the machine's settings sheet (it has the link, the code field and
-///     the waiting state); this routes there with that agent's tab open,
-///     rather than re-implementing the flow per surface.
+///   - **signed out or expired** — "Sign in", and nothing else: a dead
+///     credential cannot be switched to, and there is nothing to remove that
+///     would help.
+///   - **healthy, not this machine's login** — "Set as default"
+///     (`agent_profile_use`: no login flow, no logout, no credential touched)
+///     plus "Remove account".
+///   - **healthy, the machine's current login** — "Remove account" alone.
+///
+/// "Remove account" deletes THIS machine's copy of the login (its config dir
+/// and index row); the account itself is untouched, which is what the confirm
+/// says. The chip's badge is the only signed-out notice on the row — the
+/// status line that used to spell it out is gone.
 ///
 /// A teammate's shared server renders the same chips READ-ONLY: seeing that a
 /// shared machine's codex login expired explains a refused start, but only its
@@ -26,12 +30,15 @@ import SwiftUI
 struct DeviceAccountChips: View {
     let viewModel: AgentsViewModel
     let device: SteerDevice
-    /// Open this machine's settings sheet on the chip's login — its agent
-    /// names the tab, its profile is the one the sign-in targets. Handing the
-    /// AGENT alone over would fall back to the machine's ACTIVE profile, so a
-    /// "Re-login" on the expired sibling of a healthy login would repair the
-    /// wrong one.
+    /// Sign this chip's login in — the host opens `AgentLoginSheet` on it. The
+    /// PROFILE rides along, not just the agent: a machine holding two claude
+    /// logins would otherwise re-login whichever one it is currently using,
+    /// which on an expired sibling repairs the wrong one.
     let onSignIn: (AgentProfileUsageRow) -> Void
+    /// EXP-862: ask to remove this login from the machine. The host owns the
+    /// confirm (`AgentAccountsRows.removeAccountConfirmCopy`) — a destructive
+    /// action never fires straight off a menu row.
+    let onRemove: (AgentProfileUsageRow) -> Void
 
     private var rows: [AgentProfileUsageRow] {
         viewModel.deviceAccountRows(device.deviceId)
@@ -67,12 +74,23 @@ struct DeviceAccountChips: View {
     }
 
     /// Actionable only on one of MY machines that is listening and advertises
-    /// the `agent-login` capability: both actions ride the owner→device queue
-    /// the server gates on that cap (`agent_profile_use` is refused without
-    /// it), and an offline machine would hold the command until it wakes,
-    /// which reads as a dead tap.
+    /// the `agent-login` capability: every action rides the owner→device queue
+    /// the server gates on that cap, and an offline machine would hold the
+    /// command until it wakes, which reads as a dead tap. A chip whose state
+    /// leaves no entry at all (a healthy login on a build with neither
+    /// `account-switch` nor `account-remove`) carries no menu rather than an
+    /// empty one.
     private func isActionable(_ row: AgentProfileUsageRow) -> Bool {
-        row.mine && device.isOnline && device.canAgentLogin
+        guard row.mine, device.isOnline, device.canAgentLogin else { return false }
+        if AgentAccountsRows.chipSignsIn(row) { return true }
+        if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
+            return true
+        }
+        return AgentAccountsRows.canRemoveAccount(
+            row,
+            canAgentLogin: device.canAgentLogin,
+            canRemoveAccount: device.canRemoveAccount
+        )
     }
 
     @ViewBuilder
@@ -93,33 +111,31 @@ struct DeviceAccountChips: View {
 
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
-        // ONE action per state, byte-identical with web `MachineAccountChip`
-        // and Android: a healthy login this machine is not using BECOMES its
-        // login, an expired one is re-signed-in (switching to a dead
-        // credential would only fail later), everything else signs in.
-        //
-        // The switch is also a CAPABILITY: `agent_profile_use` shipped in
-        // desktop/CLI 0.14.38 and the server refuses it (PRECONDITION_FAILED)
-        // for a machine below that, so a machine without the `account-switch`
-        // cap is offered the sign-in instead of an offer that can only fail.
-        let switchesTo = AgentAccountsRows.chipSwitchesTo(
-            row, canSwitchAccount: device.canSwitchAccount
-        )
-        GlassMenuItem(
-            AgentAccountsRows.chipAction(row, canSwitchAccount: device.canSwitchAccount),
-            icon: switchesTo ? AppIcons.uiSwap : AppIcons.uiSignIn
-        ) {
-            if switchesTo {
-                viewModel.useAccountHere(row)
-            } else {
+        // ONE menu per state, byte-identical with web `MachineAccountChip`,
+        // the desktop chips and Android. A signed-out or refused login can
+        // only be signed in; a healthy one is picked as the machine's default
+        // or removed from it.
+        if AgentAccountsRows.chipSignsIn(row) {
+            GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
             }
-        }
-        // A switch is the cheap repair; the sign-in stays available under it
-        // for a login that turns out to be dead after all.
-        if switchesTo {
-            GlassMenuItem("Sign in again", icon: AppIcons.uiSignIn) {
-                onSignIn(row)
+        } else {
+            if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
+                GlassMenuItem("Set as default", icon: AppIcons.uiSwap) {
+                    viewModel.useAccountHere(row)
+                }
+            }
+            // EXP-862: gated on the machine's `account-remove` cap — the server
+            // refuses the command below it, and an older build would leave the
+            // queued row pending forever.
+            if AgentAccountsRows.canRemoveAccount(
+                row,
+                canAgentLogin: device.canAgentLogin,
+                canRemoveAccount: device.canRemoveAccount
+            ) {
+                GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
+                    onRemove(row)
+                }
             }
         }
     }

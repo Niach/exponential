@@ -359,6 +359,14 @@ fun AgentScreen(
     var editActionId by remember { mutableStateOf<String?>(null) }
     var editAutomation by remember { mutableStateOf<AutomationEntity?>(null) }
     var mergeConfirmRow by remember { mutableStateOf<AgentRow?>(null) }
+    // EXP-862: the Past band is FOLDED until asked for — a finished run is
+    // history, and the composer is what the page is for. Hoisted here because
+    // the list itself is a LazyListScope extension, not a composable.
+    var pastExpanded by remember { mutableStateOf(false) }
+    // …and with nothing running and nothing past, the composer column sits in
+    // the MIDDLE of the page instead of hugging the top bar (web `justify-center`,
+    // desktop `min_h_full`, iOS the same rule).
+    val emptyRuns = sessionsState.rows.isEmpty() && pastRuns.isEmpty()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -376,7 +384,11 @@ fun AgentScreen(
                 .fillMaxSize()
                 .testTag("agent-page"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = if (emptyRuns) {
+                Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
+            } else {
+                Arrangement.spacedBy(6.dp)
+            },
         ) {
             when (steerEnabled) {
                 // Web parity: without the relay nothing here can be started —
@@ -509,6 +521,7 @@ fun AgentScreen(
                             repos = teamRepos,
                             chatRepoId = chatRepoId,
                             onChatRepoChange = viewModel::setChatRepoId,
+                            onAccountChange = viewModel::setAccount,
                             onMore = { optionsOpen = true },
                         )
                     }
@@ -553,6 +566,8 @@ fun AgentScreen(
             agentSessionsList(
                 rows = sessionsState.rows,
                 pastRuns = pastRuns,
+                pastExpanded = pastExpanded,
+                onTogglePast = { pastExpanded = !pastExpanded },
                 steerEnabled = steerEnabled == true,
                 merging = merging,
                 mergeErrors = mergeErrors,
@@ -601,10 +616,8 @@ fun AgentScreen(
     if (optionsOpen) {
         AgentOptionsSheet(
             launch = launch,
-            device = device,
             onEffortChange = viewModel::setEffort,
             onUltracodeChange = viewModel::setUltracode,
-            onAccountChange = viewModel::setAccount,
             onDismiss = { optionsOpen = false },
         )
     }

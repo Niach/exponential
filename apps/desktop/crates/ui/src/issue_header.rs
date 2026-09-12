@@ -734,7 +734,8 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let identifier = issue.identifier.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
-        crate::controls::glass_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
+        // EXP-862: the "..." is a GHOST glyph, never a circle.
+        crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
             .tooltip("Issue actions")
             .dropdown_menu(move |mut menu, window, cx| {
                 {

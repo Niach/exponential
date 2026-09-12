@@ -19,7 +19,7 @@ struct LoginView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        CircleIconButton(AppIcons.uiChevronLeft, accessibilityLabel: "Back") {
+                        GhostIconButton(AppIcons.uiChevronLeft, accessibilityLabel: "Back") {
                             viewModel?.goBack()
                         }
                         .frame(width: 44, height: 44)

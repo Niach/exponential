@@ -10,9 +10,11 @@ import {
 import { cn } from "@/lib/utils"
 
 // EXP-850 §12: the card that closes a turn segment — what the agent actually
-// changed, at the end of the turn that changed it. Clicking a row opens the
-// session's diff pane scrolled to that file. The derivation is pure
-// (`lib/session-file-cards.ts`); this only draws it.
+// changed, at the end of the turn that changed it. EXP-862: clicking a row
+// opens the session's diff pane SCOPED to this turn, scrolled to that file —
+// the card hands its whole self over, patches included, because the pane
+// draws the turn's own changes and not the whole branch's. The derivation is
+// pure (`lib/session-file-cards.ts`); this only draws it.
 const CodingDiffIcon = conceptIcon(`coding-diff`)
 
 export function SessionFileCard({
@@ -21,7 +23,8 @@ export function SessionFileCard({
   className,
 }: {
   card: SessionFileCardData
-  onOpenFile: (path: string) => void
+  /** The clicked path and the TURN it belongs to — the pane's scope. */
+  onOpenFile: (path: string, card: SessionFileCardData) => void
   className?: string
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -47,7 +50,7 @@ export function SessionFileCard({
           <button
             key={file.path}
             type="button"
-            onClick={() => onOpenFile(file.path)}
+            onClick={() => onOpenFile(file.path, card)}
             className="flex w-full min-w-0 items-center gap-2 px-3 py-0.5 text-left text-muted-foreground hover:text-foreground"
             title={file.path}
           >

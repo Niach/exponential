@@ -34,7 +34,7 @@ use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
 use crate::icons::registry;
 
-use super::{card_header, section};
+use super::section;
 
 // ---------------------------------------------------------------------------
 // Row severity (the EXP-367 red/white fix)
@@ -84,18 +84,6 @@ pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
             "Install the Codex CLI: npm install -g @openai/codex",
             "https://developers.openai.com/codex/cli",
         ),
-    }
-}
-
-/// EXP-409: guidance for an INSTALLED agent that is signed out — the fix is
-/// a login, not an install, so the install hint would mislead. EXP-484 put a
-/// Login button beside it (which runs exactly this in a terminal tab), so the
-/// hint no longer spells the command out.
-pub(crate) fn sign_in_hint(tool: Tool) -> &'static str {
-    match tool {
-        Tool::Claude => "Signed out — sign in to use Claude Code.",
-        Tool::Codex => "Signed out — sign in to use the Codex CLI.",
-        Tool::Git => "",
     }
 }
 
@@ -196,15 +184,64 @@ impl DoctorPanel {
         cx.notify();
     }
 
+    /// The severity glyph + its colour — shared by [`Self::tool_row`] and
+    /// [`Self::signed_out_row`] so a row never disagrees with itself.
+    fn severity_glyph(severity: RowSeverity, cx: &App) -> (crate::icons::ExpIcon, Hsla) {
+        match severity {
+            RowSeverity::Ok => (registry::UI_SUCCESS, theme::tokens::GREEN.to_hsla()),
+            RowSeverity::Muted => (registry::UI_ERROR, cx.theme().muted_foreground),
+            RowSeverity::Danger => (registry::UI_ERROR, cx.theme().danger),
+        }
+    }
+
+    /// The tool's name in the row's fixed leading column.
+    fn tool_name(check: &ToolCheck) -> impl IntoElement {
+        div()
+            .w_16()
+            .flex_shrink_0()
+            .text_sm()
+            .font_family(theme::terminal::FONT_FAMILY)
+            .child(SharedString::from(check.tool.label()))
+    }
+
+    /// EXP-862 — a SIGNED-OUT agent is one line: the severity glyph, the tool
+    /// name and the Login button. No sentence explains what "signed out"
+    /// means, and no install hint or path field muddies a row whose binary is
+    /// fine (×4: the chip badge is the only signed-out notice).
+    fn signed_out_row(
+        check: &ToolCheck,
+        severity: RowSeverity,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let (icon, color) = Self::severity_glyph(severity, cx);
+        let mut row = h_flex()
+            .gap_2()
+            .items_center()
+            .child(Icon::new(icon).small().text_color(color))
+            .child(Self::tool_name(check))
+            .child(div().flex_1());
+        if let Some(agent) = check.tool.agent() {
+            row = row.child(
+                crate::surface::glass_pill_button(
+                    SharedString::from(format!("doctor-login-{}", agent.id())),
+                    crate::surface::PillSize::Sm,
+                    cx,
+                )
+                .icon(registry::UI_SIGN_IN)
+                .label("Login")
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    crate::agent_login::open_login_tab(agent, false, cx);
+                })),
+            );
+        }
+        row
+    }
+
     /// One tool row: status icon + monospace tool name + detail, icon AND
     /// detail sharing the severity color (the tool name stays foreground in
     /// every state — the old mixed red-icon/white-text rows read as noise).
     fn tool_row(check: &ToolCheck, severity: RowSeverity, cx: &App) -> impl IntoElement {
-        let (icon, color): (crate::icons::ExpIcon, Hsla) = match severity {
-            RowSeverity::Ok => (registry::UI_SUCCESS, theme::tokens::GREEN.to_hsla()),
-            RowSeverity::Muted => (registry::UI_ERROR, cx.theme().muted_foreground),
-            RowSeverity::Danger => (registry::UI_ERROR, cx.theme().danger),
-        };
+        let (icon, color): (crate::icons::ExpIcon, Hsla) = Self::severity_glyph(severity, cx);
         let detail: SharedString = if check.ok {
             check.version.clone().unwrap_or_default().into()
         } else {
@@ -222,14 +259,7 @@ impl DoctorPanel {
             .gap_2()
             .items_center()
             .child(Icon::new(icon).small().text_color(color))
-            .child(
-                div()
-                    .w_16()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(check.tool.label())),
-            )
+            .child(Self::tool_name(check))
             .child(
                 div()
                     .flex_1()
@@ -242,8 +272,8 @@ impl DoctorPanel {
 
     /// The guidance block under a failing row: install hint + link, plus the
     /// inline path input for agent tools (git has no path setting — it must
-    /// be on PATH). An installed-but-signed-out agent (EXP-409) instead gets
-    /// the sign-in hint alone — its binary and path are fine.
+    /// be on PATH). An installed-but-signed-out agent never gets here —
+    /// EXP-862 renders it as [`Self::signed_out_row`] instead.
     fn guidance(
         &self,
         check: &ToolCheck,
@@ -252,33 +282,6 @@ impl DoctorPanel {
     ) -> impl IntoElement {
         let tool = check.tool;
         let muted = cx.theme().muted_foreground;
-        if check.signed_out() {
-            // EXP-484: the fix is one click — the login runs the agent's own
-            // sign-in command in a terminal tab, and the exit re-probes.
-            let mut block = v_flex().pl_7().gap_1p5().child(
-                div()
-                    .text_xs()
-                    .text_color(muted.opacity(0.9))
-                    .child(sign_in_hint(tool)),
-            );
-            if let Some(agent) = tool.agent() {
-                block = block.child(
-                    h_flex().child(
-                        crate::surface::glass_pill_button(
-                            SharedString::from(format!("doctor-login-{}", agent.id())),
-                            crate::surface::PillSize::Sm,
-                            cx,
-                        )
-                            .icon(registry::UI_SIGN_IN)
-                            .label("Login")
-                            .on_click(cx.listener(move |_, _, _, cx| {
-                                crate::agent_login::open_login_tab(agent, false, cx);
-                            })),
-                    ),
-                );
-            }
-            return block;
-        }
         let (hint, url) = install_hint(tool);
         let mut block = v_flex()
             .pl_7()
@@ -331,11 +334,14 @@ impl Render for DoctorPanel {
             (hub.doctor.report.clone(), hub.doctor.running)
         };
 
-        let mut body = section(cx).child(card_header(
-            "Tooling doctor",
-            "git is required. You cannot start coding without an agent CLI.",
-            cx,
-        ));
+        let mut body = section(cx).child(
+            v_flex()
+                .child(crate::surface::glass_section_header("Tooling doctor", None, cx))
+                .child(super::section_description(
+                    "git is required. You cannot start coding without an agent CLI.",
+                    cx,
+                )),
+        );
         match &report {
             None => {
                 body = body.child(
@@ -349,6 +355,11 @@ impl Render for DoctorPanel {
                 for agent in CodingAgent::ALL {
                     let check = report.check_for(agent).clone();
                     let severity = row_severity(&check, report);
+                    // EXP-862: signed out is ONE line (glyph + name + Login).
+                    if check.signed_out() {
+                        body = body.child(Self::signed_out_row(&check, severity, cx));
+                        continue;
+                    }
                     body = body.child(Self::tool_row(&check, severity, cx));
                     if severity != RowSeverity::Ok {
                         body = body.child(self.guidance(&check, window, cx));
@@ -460,10 +471,11 @@ mod tests {
     }
 
     /// EXP-409: a signed-out agent follows the same severity rules as a
-    /// missing one (muted while a sibling covers coding, danger when none
-    /// does), and every agent has a non-empty sign-in hint.
+    /// missing one — muted while a sibling covers coding, danger when none
+    /// does. EXP-862: the row itself is glyph + name + Login, so there is no
+    /// hint sentence left to assert.
     #[test]
-    fn signed_out_rows_share_the_severity_rules_and_have_hints() {
+    fn signed_out_rows_share_the_severity_rules() {
         let signed_out = |tool: Tool| ToolCheck {
             authed: Some(false),
             ok: false,
@@ -487,9 +499,8 @@ mod tests {
             git: green(Tool::Git),
         };
         assert_eq!(row_severity(&none_ok.claude, &none_ok), RowSeverity::Danger);
-
-        for tool in [Tool::Claude, Tool::Codex] {
-            assert!(!sign_in_hint(tool).is_empty());
-        }
+        // The signed-out branch is a row, not a guidance block: `signed_out`
+        // is what routes it there.
+        assert!(none_ok.claude.signed_out());
     }
 }

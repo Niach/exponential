@@ -1,7 +1,5 @@
 package com.exponential.app.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,7 +8,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,6 +47,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -165,13 +164,16 @@ fun BoardRepoField(
         registry?.id?.let { viewModel.load(accountId, it) }
     }
 
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Repository", style = MaterialTheme.typography.labelMedium, color = secondary)
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // EXP-862: PICKER ROWS in one glass group — label inside the row, value
+        // and chevron at its trailing edge, like every other field of the board
+        // form (web `GlassPickerRow`, desktop's board form, iOS the same).
+        Column(modifier = Modifier.fillMaxWidth().glassGroup()) {
             // FEED-32: never blank and never "No repository" for a linked
             // board — an unresolved Registry id reads "Loading repository…"
             // while a list is in flight, "Repository unavailable" after.
-            SelectField(
+            SelectRow(
+                label = "Repository",
                 value = BoardRepoLabel.trigger(
                     selectedName = selectedName,
                     repositoryId = (selection as? BoardRepositoryChoice.Registry)?.repositoryId,
@@ -184,13 +186,11 @@ fun BoardRepoField(
                 leading = if (selectedName == null) null else ExpIcons.uiRepository,
                 onClick = { repoSheet = true },
             )
-        }
-
-        if (repoDefault != null) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Branch", style = MaterialTheme.typography.labelMedium, color = secondary)
+            if (repoDefault != null) {
+                GroupDivider()
                 if (registry != null) {
-                    SelectField(
+                    SelectRow(
+                        label = "Branch",
                         value = branch ?: repoDefault,
                         monospace = true,
                         enabled = enabled,
@@ -204,14 +204,13 @@ fun BoardRepoField(
                     // Inline (not yet connected) repo: no id to list branches
                     // from, so the board's branch is typed. Empty = follow the
                     // repo's default, which is what the placeholder shows.
-                    GlassTextField(
+                    TextFieldRow(
+                        label = "Branch",
                         value = branch ?: "",
                         onValueChange = { onBranchChange(it.trim().ifEmpty { null }) },
-                        singleLine = true,
                         enabled = enabled,
                         placeholder = repoDefault,
                         textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -407,12 +406,13 @@ fun BoardRepoField(
 }
 
 /**
- * A select-shaped row: the GlassTextField chrome (same fill, hairline, 12dp
- * corner and 56dp height) with the current value and a chevron instead of a
- * cursor. Tapping opens the option sheet the caller owns.
+ * EXP-862: a picker ROW inside a glass group — the label, the current value and
+ * a chevron, with the group owning the chrome. It replaced the captioned
+ * field-shaped select this form used to stack.
  */
 @Composable
-private fun SelectField(
+private fun SelectRow(
+    label: String,
     value: String,
     onClick: () -> Unit,
     monospace: Boolean = false,
@@ -423,37 +423,45 @@ private fun SelectField(
     val alpha = when {
         !enabled -> TextEmphasis.Quaternary
         placeholder -> TextEmphasis.Tertiary
-        else -> TextEmphasis.Primary
+        else -> TextEmphasis.Secondary
     }
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .background(GlassTokens.CardFill, GlassFieldShape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, GlassFieldShape)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
+            ),
+            maxLines = 1,
+        )
         if (leading != null) {
-            Icon(leading, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
             Spacer(Modifier.width(8.dp))
+            Icon(leading, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
         }
         Text(
             value,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             fontFamily = if (monospace) FontFamily.Monospace else null,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
         )
         Icon(
-            ExpIcons.uiChevronDown,
+            ExpIcons.uiChevronRight,
             contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
+            ),
         )
     }
 }

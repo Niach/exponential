@@ -134,7 +134,7 @@ function LabelRow({
           <div className="flex items-center gap-1">
             <span className="text-xs text-muted-foreground">Delete?</span>
             <Button
-              variant="glass"
+              variant="ghost"
               size="icon-sm"
               className="text-destructive"
               onClick={handleDelete}
@@ -144,7 +144,7 @@ function LabelRow({
               <Check />
             </Button>
             <Button
-              variant="glass"
+              variant="ghost"
               size="icon-sm"
               onClick={() => setConfirmingDelete(false)}
               disabled={busy}
@@ -155,7 +155,7 @@ function LabelRow({
           </div>
         ) : (
           <Button
-            variant="glass"
+            variant="ghost"
             size="icon-sm"
             className="hover:text-destructive"
             onClick={() => setConfirmingDelete(true)}

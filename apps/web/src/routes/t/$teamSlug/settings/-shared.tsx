@@ -26,14 +26,14 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/statuses`
   | `/t/$teamSlug/settings/billing`
   | `/t/$teamSlug/settings/storage`
-  | `/t/$teamSlug/settings/boards`
+  | `/t/$teamSlug/settings/boards/archived`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
   | `/t/$teamSlug/settings/helpdesk`
   | `/t/$teamSlug/settings/mcp-servers`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
-  | `/t/$teamSlug/settings/api-keys`
+  | `/t/$teamSlug/settings/security`
 
 export interface SettingsNavItem {
   label: string
@@ -99,13 +99,17 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       },
     ],
   },
+  // EXP-862: the group FLATTENS like the desktop IDE's (EXP-288) — one
+  // entry per board, then "New board", then these two. The board rows and
+  // the create entry are injected at render (they need the live board list),
+  // so only the static tail lives here.
   {
     group: `Boards`,
     items: [
       {
-        label: `Boards`,
-        to: `/t/$teamSlug/settings/boards`,
-        icon: conceptIcon(`settings-boards`),
+        label: `Archived boards`,
+        to: `/t/$teamSlug/settings/boards/archived`,
+        icon: conceptIcon(`ui-archive`),
         visible: (permissions) => permissions.isOwner,
       },
       // EXP-557 per-user sharing: every member manages their own GitHub
@@ -164,15 +168,26 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         icon: conceptIcon(`settings-notifications`),
         visible: () => true,
       },
+      // EXP-862: "Security" — API keys AND passkeys (the latter moved off
+      // the Account page). The desktop IDE's Security pane is the twin; the
+      // `settings-api` glyph stays, so both navs still draw the same icon.
       {
-        label: `API keys`,
-        to: `/t/$teamSlug/settings/api-keys`,
+        label: `Security`,
+        to: `/t/$teamSlug/settings/security`,
         icon: conceptIcon(`settings-api`),
         visible: () => true,
       },
     ],
   },
 ]
+
+// EXP-862: the group whose rows are injected per board, and the label of
+// the muted entry that opens the create dialog. Byte-identical with the
+// desktop nav's ("New board", `settings/mod.rs`), which is why both live
+// here rather than being typed twice in the two web surfaces that render
+// them (the sidebar panel and the mobile strip).
+export const SETTINGS_BOARDS_GROUP = `Boards`
+export const NEW_BOARD_LABEL = `New board`
 
 // Everything a settings section page needs. `resolved` flips true only once
 // the current user's own member row has synced — permissions are transiently

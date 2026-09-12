@@ -95,12 +95,24 @@ public struct GlassMenuSurface<Content: View>: View {
 public struct GlassMenuItemLabel: View {
     let title: String
     var icon: String? = nil
+    /// EXP-862: a BRAND mark instead of a registry glyph — the agent picker's
+    /// rows wear the same mark their trigger does. Hand-maintained assets are
+    /// images, not concepts, so they cannot ride `icon`; when both are given
+    /// the image wins (the caller asked for a mark).
+    var image: Image? = nil
     var destructive: Bool = false
     var enabled: Bool = true
 
-    public init(_ title: String, icon: String? = nil, destructive: Bool = false, enabled: Bool = true) {
+    public init(
+        _ title: String,
+        icon: String? = nil,
+        image: Image? = nil,
+        destructive: Bool = false,
+        enabled: Bool = true
+    ) {
         self.title = title
         self.icon = icon
+        self.image = image
         self.destructive = destructive
         self.enabled = enabled
     }
@@ -117,7 +129,13 @@ public struct GlassMenuItemLabel: View {
 
     public var body: some View {
         HStack(spacing: 10) {
-            if let icon {
+            if let image {
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(iconColor)
+            } else if let icon {
                 AppIcon(icon, size: 16)
                     .foregroundStyle(iconColor)
             }
@@ -139,6 +157,8 @@ public struct GlassMenuItemLabel: View {
 public struct GlassMenuItem: View {
     let title: String
     var icon: String? = nil
+    /// EXP-862: the brand-mark slot (see `GlassMenuItemLabel`).
+    var image: Image? = nil
     var destructive: Bool = false
     var enabled: Bool = true
     let action: () -> Void
@@ -148,12 +168,14 @@ public struct GlassMenuItem: View {
     public init(
         _ title: String,
         icon: String? = nil,
+        image: Image? = nil,
         destructive: Bool = false,
         enabled: Bool = true,
         action: @escaping () -> Void
     ) {
         self.title = title
         self.icon = icon
+        self.image = image
         self.destructive = destructive
         self.enabled = enabled
         self.action = action
@@ -164,10 +186,88 @@ public struct GlassMenuItem: View {
             dismissMenu()
             action()
         } label: {
-            GlassMenuItemLabel(title, icon: icon, destructive: destructive, enabled: enabled)
+            GlassMenuItemLabel(
+                title, icon: icon, image: image, destructive: destructive, enabled: enabled
+            )
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+}
+
+// MARK: - Agent picker (EXP-862)
+
+/// The ONE agent picker (EXP-862, ×4: web `components/agent-picker.tsx`,
+/// desktop `coding_selects::agent_picker`, Android `AgentPickerPill`): an
+/// ICON-ONLY trigger — the picked agent's brand mark plus a chevron — over a
+/// menu whose rows carry that same mark beside the agent's name. The text
+/// "Claude Code" / "Codex" appears in the menu and in the accessibility label,
+/// never on the trigger: a row of pills that each spell out their agent buries
+/// the option that matters.
+///
+/// Marks and labels are resolved by the CALLER (`AgentBrandMark` and
+/// `LaunchVocabulary` live in the app target, not here), so an id with no
+/// asset falls back exactly as it does everywhere else.
+public struct AgentPickerMenu: View {
+    let agents: [String]
+    let selection: String
+    let label: (String) -> String
+    let mark: (String) -> Image?
+    let onSelect: (String) -> Void
+
+    public init(
+        agents: [String],
+        selection: String,
+        label: @escaping (String) -> String,
+        mark: @escaping (String) -> Image?,
+        onSelect: @escaping (String) -> Void
+    ) {
+        self.agents = agents
+        self.selection = selection
+        self.label = label
+        self.mark = mark
+        self.onSelect = onSelect
+    }
+
+    public var body: some View {
+        GlassMenu {
+            ForEach(agents, id: \.self) { agent in
+                GlassMenuItem(label(agent), image: mark(agent)) {
+                    onSelect(agent)
+                }
+            }
+        } label: {
+            AgentPickerTriggerLabel(mark: mark(selection))
+        }
+        .accessibilityLabel(label(selection))
+    }
+}
+
+/// The picker's trigger content — also what a LONE agent renders (no menu to
+/// open), so the two read identically.
+public struct AgentPickerTriggerLabel: View {
+    let mark: Image?
+
+    public init(mark: Image?) {
+        self.mark = mark
+    }
+
+    public var body: some View {
+        HStack(spacing: 4) {
+            if let mark {
+                mark
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+            }
+            AppIcon(AppIcons.uiChevronDown, size: 10)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(GlassTokens.fillRow, in: Capsule())
+        .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .contentShape(Capsule())
     }
 }
 

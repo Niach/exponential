@@ -8,6 +8,7 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { EndedSessionRow } from "@/components/agent-session-row"
+import type { DetailOrigin } from "@/lib/detail-origin"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { getActionIcon } from "@/lib/board-icons"
@@ -55,6 +56,11 @@ import { Switch } from "@/components/ui/switch"
 // flow — a New-automation button is the automation concept (desktop's
 // New-automation button already draws it).
 const AutomationCreateIcon = conceptIcon(`action-automation`)
+
+// EXP-862: every run opened from this list carries the automations origin —
+// on the desktop-viewport `/automations` page the URL would say so anyway,
+// but the mobile Actions tab hosts the very same list.
+const AUTOMATIONS_ORIGIN: DetailOrigin = { kind: `automations` }
 
 const SESSION_STATUS_LABELS: Record<string, string> = {
   running: `Running`,
@@ -153,7 +159,14 @@ function AutomationRow({
   }
 
   return (
-    <ListRow>
+    // EXP-862: a flat row like every other list row — the hover fill and the
+    // pointer come with the click, which is the row's editor (owner-only, the
+    // same destination its ⋯ menu has).
+    <ListRow
+      interactive={isOwner}
+      onClick={isOwner ? onEdit : undefined}
+      data-testid={`automation-${automation.id}`}
+    >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -203,7 +216,12 @@ function AutomationRow({
           row however many lines the meta above wraps to. A non-owner has no
           menu, so the slot stays as an empty spacer and the toggles still
           line up down the list. */}
-      <div className="flex shrink-0 items-center gap-1 self-center">
+      <div
+        className="flex shrink-0 items-center gap-1 self-center"
+        // The toggle and the menu are their own targets; the row's click must
+        // not fire underneath them.
+        onClick={(e) => e.stopPropagation()}
+      >
         <Switch
           checked={automation.enabled}
           disabled={!isOwner || flipping || locked}
@@ -417,6 +435,9 @@ export function AutomationsTab({
                   <EndedSessionRow
                     key={session.id}
                     row={{ session }}
+                    // EXP-862: opened from Automations, so Back returns here
+                    // and the sidebar keeps the automated-runs list.
+                    origin={AUTOMATIONS_ORIGIN}
                     title={
                       session.actionName ??
                       (session.actionId
@@ -430,7 +451,9 @@ export function AutomationsTab({
                     key={session.id}
                     interactive
                     className="gap-2 text-sm"
-                    onClick={() => openSession(session)}
+                    onClick={() =>
+                      openSession(session, { origin: AUTOMATIONS_ORIGIN })
+                    }
                     data-testid={`automated-run-${session.id}`}
                   >
                     <span className="min-w-0 flex-1 truncate">

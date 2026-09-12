@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,6 +67,9 @@ import com.exponential.app.ui.theme.flatRow
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
     pastRuns: List<PastRunRow>,
+    /** EXP-862: the Past band is folded until the header is tapped. */
+    pastExpanded: Boolean,
+    onTogglePast: () -> Unit,
     steerEnabled: Boolean,
     merging: Set<String>,
     mergeErrors: Map<String, MergeFailure>,
@@ -175,12 +179,39 @@ internal fun LazyListScope.agentSessionsList(
     }
 
     // EXP-746: the runs that finished — the caller's own person-started
-    // ones. EXP-773: a plain link; the transcript, the close-out summary and
-    // Resume live in the session view it opens. An automated run belongs to
-    // the Automations tab's "Recent automated runs" and never lists here.
-    // Nothing renders while there are none.
+    // ones. EXP-773: a plain link; the transcript and Resume live in the
+    // session view it opens. An automated run belongs to the Automations tab's
+    // "Recent automated runs" and never lists here. Nothing renders while
+    // there are none.
+    //
+    // EXP-862: FOLDED by default — the band names the count and expands in
+    // place, so a long history never pushes the composer off the page.
     if (pastRuns.isNotEmpty()) {
-        item(key = "__past_header__") { SectionHeader("Past") }
+        item(key = "__past_header__") {
+            SectionHeader(
+                "Past",
+                modifier = Modifier
+                    .clickable(onClick = onTogglePast)
+                    .testTag("past-runs-header"),
+                leading = {
+                    Icon(
+                        if (pastExpanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                },
+                trailing = {
+                    Text(
+                        pastRuns.size.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                },
+            )
+        }
+    }
+    if (pastRuns.isNotEmpty() && pastExpanded) {
         items(pastRuns, key = { "past_${it.session.id}" }) { row ->
             EndedRunRow(
                 // The ×4 rule (domain `pastRunTitle`): the issue's title, a

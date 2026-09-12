@@ -30,7 +30,7 @@ use gpui_component::{
 use crate::icons::registry;
 use crate::licenses;
 
-use super::{card_header, open_url, row_stroke, section};
+use super::{open_url, row_stroke, section};
 
 const SOURCE_URL: &str = "https://github.com/Niach/exponential";
 const LICENSE_URL: &str = "https://github.com/Niach/exponential/blob/master/LICENSE";
@@ -113,14 +113,17 @@ impl AboutPane {
 
     fn render_about(&self, cx: &App) -> impl IntoElement {
         section(cx)
-            .child(card_header(
-                "About",
-                format!(
-                    "Exponential · Version {}",
-                    domain::client_version::current_version()
-                ),
-                cx,
-            ))
+            .child(
+                v_flex()
+                    .child(crate::surface::glass_section_header("About", None, cx))
+                    .child(super::section_description(
+                        format!(
+                            "Exponential · Version {}",
+                            domain::client_version::current_version()
+                        ),
+                        cx,
+                    )),
+            )
             .child(
                 h_flex()
                     .gap_2()
@@ -143,22 +146,27 @@ impl AboutPane {
         let entity = cx.entity().clone();
         section(cx)
             .child(
-                h_flex()
-                    .w_full()
-                    .items_start()
-                    .justify_between()
-                    .gap_2()
-                    .child(card_header("Third-party licenses", LICENSES_BLURB, cx))
-                    .child(
-                        crate::surface::glass_pill_button("about-notices-copy", crate::surface::PillSize::Sm, cx)
+                v_flex()
+                    .child(crate::surface::glass_section_header(
+                        "Third-party licenses",
+                        Some(
+                            crate::surface::glass_pill_button(
+                                "about-notices-copy",
+                                crate::surface::PillSize::Sm,
+                                cx,
+                            )
                             .label("Copy")
                             .tooltip("Copy the full notice")
                             .on_click(|_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(
                                     licenses::NOTICES.to_string(),
                                 ))
-                            }),
-                    ),
+                            })
+                            .into_any_element(),
+                        ),
+                        cx,
+                    ))
+                    .child(super::section_description(LICENSES_BLURB, cx)),
             )
             .child(
                 div()

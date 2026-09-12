@@ -3,7 +3,7 @@ import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -154,11 +154,6 @@ export function PasskeysSection({
           ) : undefined
         }
       />
-      <p className="px-1 pb-2 text-xs text-foreground/50">
-        Continue without a password using Face ID, Touch ID, Windows Hello or a
-        security key. A passkey added here signs you in on the web, the desktop
-        app and the phone apps.
-      </p>
       {!passkeyEnabled ? (
         <p className="text-sm text-muted-foreground">
           Passkeys need an https instance address. Ask whoever runs this
@@ -169,13 +164,12 @@ export function PasskeysSection({
       ) : loadError ? (
         <p className="text-sm text-destructive">{loadError}</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No passkeys yet. Add one from the device you want to sign in with.
-        </p>
+        <p className="text-sm text-muted-foreground">No passkeys yet.</p>
       ) : (
-        <div className="flex flex-col gap-2">
+        // EXP-862: flat rows under the band, never one card per passkey.
+        <div className="flex flex-col">
           {rows.map((row) => (
-            <GlassRow key={row.id}>
+            <ListRow key={row.id}>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">
                   {row.name || `Passkey`}
@@ -197,7 +191,7 @@ export function PasskeysSection({
               >
                 Remove
               </Button>
-            </GlassRow>
+            </ListRow>
           ))}
         </div>
       )}

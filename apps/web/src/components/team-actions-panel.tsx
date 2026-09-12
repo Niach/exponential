@@ -101,7 +101,7 @@ export function ActionMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="glass"
+          variant="ghost"
           size="icon-sm"
           aria-label={`Action menu for ${action.name}`}
         >
@@ -154,7 +154,8 @@ function ActionRow({
 }) {
   const RowIcon = getActionIcon(action)
   return (
-    <ListRow>
+    // EXP-862: every flat row takes the hover wash and the pointer.
+    <ListRow interactive>
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">

@@ -34,7 +34,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::surface::{glass_pill_button, PillSize};
 
-use super::{card_header, error_notice, section};
+use super::{error_notice, section};
 
 enum Load {
     Idle,
@@ -209,19 +209,26 @@ impl Render for ArchivedBoardsPane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        let mut body = section(cx).child(card_header(
-            "Archived boards",
-            "Archived boards and their issues are hidden from everyone in the team. \
-             Nothing is deleted \u{2014} unarchive to bring a board back exactly as it was.",
-            cx,
-        ));
-
-        // EXP-720: the Sm pill, same as worktrees' Refresh.
+        // EXP-720: the Sm pill, same as worktrees' Refresh — EXP-862 moved it
+        // into the band's trailing slot, where every pane's header action sits.
         let refresh = glass_pill_button("archived-boards-refresh", PillSize::Sm, cx)
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
-            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
-        body = body.child(h_flex().w_full().justify_end().child(refresh));
+            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
+            .into_any_element();
+        let mut body = section(cx).child(
+            v_flex()
+                .child(crate::surface::glass_section_header(
+                    "Archived boards",
+                    Some(refresh),
+                    cx,
+                ))
+                .child(super::section_description(
+                    "Archived boards and their issues are hidden from everyone in the team. \
+                     Nothing is deleted \u{2014} unarchive to bring a board back exactly as it was.",
+                    cx,
+                )),
+        );
 
         match &self.load {
             Load::Idle | Load::Loading => {

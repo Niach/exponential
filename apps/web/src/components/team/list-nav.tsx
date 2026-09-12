@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { GitPullRequest } from "lucide-react"
-import type { Board, Team } from "@/db/schema"
+import type { Board, CodingSession, Team } from "@/db/schema"
 import {
   originLabel,
   type DetailOrigin,
@@ -10,6 +11,9 @@ import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useReviewsData } from "@/hooks/use-reviews-data"
 import { useSession } from "@/hooks/use-session"
+import { useOpenSession } from "@/hooks/use-open-session"
+import { codingSessionCollection } from "@/lib/collections"
+import { relativeTime } from "@/components/comment-rows/format"
 import { conceptIcon } from "@/lib/icons.generated"
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { InboxView } from "@/components/inbox/inbox-view"
@@ -82,6 +86,9 @@ export function TeamListNav({
         return
       case `agent`:
         void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
+        return
+      case `automations`:
+        void navigate({ to: `/t/$teamSlug/automations`, params: { teamSlug } })
     }
   }
 
@@ -105,6 +112,9 @@ export function TeamListNav({
           <ReviewsListNav teamSlug={teamSlug} team={team} />
         )}
         {origin.kind === `agent` && team && <AgentListNav teamId={team.id} />}
+        {origin.kind === `automations` && team && (
+          <AutomationsListNav teamId={team.id} />
+        )}
       </div>
     </>
   )
@@ -299,6 +309,66 @@ function AgentListNav({ teamId }: { teamId: string }) {
   )
 }
 
+/** EXP-862: the Automations page's AUTOMATED runs — the one list that shows
+ *  an unattended run. A finished automated run opened from that page keeps
+ *  this list beside it, and Back returns to Automations (never the Agent
+ *  page, whose list is the person-started one). Same rows the page's "Recent
+ *  automated runs" section draws, at the sidebar's density. */
+function AutomationsListNav({ teamId }: { teamId: string }) {
+  const { sessionId } = useActiveDetail()
+  const openSession = useOpenSession()
+  const { data: sessionRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ sessions: codingSessionCollection })
+        .where(({ sessions }) => eq(sessions.teamId, teamId)),
+    [teamId]
+  )
+  // A run is AUTOMATED exactly when it carries a `started_reason` — set only
+  // by the device-side automation hosts (the Automations page's own rule).
+  const runs = useMemo(
+    () =>
+      [...((sessionRows ?? []) as CodingSession[])]
+        .filter((session) => session.startedReason !== null)
+        .sort(
+          (left, right) =>
+            new Date(right.createdAt).getTime() -
+            new Date(left.createdAt).getTime()
+        ),
+    [sessionRows]
+  )
+  if (runs.length === 0) {
+    return (
+      <div className="px-3 py-2 text-xs text-muted-foreground">
+        Nothing has fired yet.
+      </div>
+    )
+  }
+  return (
+    <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex flex-col">
+        {runs.map((session) => (
+          <ListRow
+            key={session.id}
+            interactive
+            active={session.id === sessionId}
+            className="h-7 gap-2 px-2 py-0"
+            onClick={() => openSession(session, { origin: { kind: `automations` } })}
+            data-testid={`automations-nav-run-${session.id}`}
+          >
+            <span className="min-w-0 flex-1 truncate text-sm">
+              {session.actionName ?? `Action`}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {relativeTime(session.createdAt)}
+            </span>
+          </ListRow>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** The review queue, one row per open pull request — the board groups the big
  *  list uses, minus the merge controls (those live on the detail). */
 function ReviewsListNav({
@@ -332,7 +402,7 @@ function ReviewsListNav({
                 asChild
                 interactive
                 active={entry.issue.identifier === issueIdentifier}
-                className="gap-2"
+                className="h-7 gap-2 px-2 py-0"
               >
                 <Link
                   to="/t/$teamSlug/reviews/$issueIdentifier"

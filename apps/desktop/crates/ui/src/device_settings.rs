@@ -38,16 +38,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Div, Entity, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, Task, Window,
+    div, px, size, App, AppContext as _, Div, Entity, IntoElement, ParentElement, Render,
+    ScrollHandle, SharedString, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::ButtonVariant,
     h_flex,
     input::{InputEvent, InputState},
-    select::Select,
-    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -55,7 +52,7 @@ use sync::Store;
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::glass_input;
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     AGENT_CHOICES,
@@ -70,6 +67,12 @@ use crate::surface;
 /// resizing the dialog widens the settings column (its pickers and account
 /// line are what need the room); a mono `repo branch` path truncates.
 const WORKTREES_COLUMN_W: f32 = 320.;
+
+/// EXP-862: what the dialog's form actually needs — Name, Default device,
+/// Sharing and the agent defaults, with room for a handful of worktrees beside
+/// them. It is a CAP, not a floor: a short screen still gets the old 85% and
+/// both columns scroll inside it.
+const CONTENT_H: f32 = 560.;
 
 /// Queued-command poll cadence while the dialog is open (offline machines
 /// keep their commands queued server-side — poll slowly).
@@ -125,13 +128,15 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
     // one long column, and the shell's scroll wrapper squeezed the clipped
     // agent card until the last window was cut off (see [`Render`]).
     //
-    // EXP-827: no 560px cap. The dialog takes the window's height (less the
-    // shell's inset) and scrolls INSIDE its columns — the cap made the
-    // worktrees column two rows tall on a 1440p display while the space was
-    // right there.
-    let height = window.viewport_size().height * 0.85;
+    // EXP-862: the dialog is CONTENT-sized. Name, Default device, Sharing and
+    // the agent defaults are a short form now that the account and usage rows
+    // are gone (they live on the Devices page's Accounts section), and a
+    // window taking 85% of a 1440p display to render six rows plus a worktree
+    // list read as a page, not as a dialog. It stays resizable, and both
+    // columns still scroll inside it for a device with many worktrees.
+    let height = (window.viewport_size().height * 0.85).min(px(CONTENT_H));
     let spec = DialogSpec::new("Device settings", size(px(820.), height))
-        .resizable(size(px(680.), px(420.)));
+        .resizable(size(px(680.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| DeviceSettingsView::new(device_row_id, window, cx));
         DialogContent::new(view).self_scrolling()
@@ -146,33 +151,6 @@ struct TrackedCommand {
     key: String,
 }
 
-/// EXP-484: the key an agent's queued login is tracked under.
-fn login_key(agent: CodingAgent) -> String {
-    format!("login {}", agent.id())
-}
-
-/// EXP-765: the key an agent's handed-back authorization code is tracked
-/// under (`agent_login_code`).
-fn login_code_key(agent: CodingAgent) -> String {
-    format!("login-code {}", agent.id())
-}
-
-/// EXP-765: whether to offer the field that hands a code back to a waiting
-/// login (`agent_login_code`). Every machine runs the command; only the OWN
-/// machine has no use for it — its login tab is right there to type into.
-pub(crate) fn can_enter_login_code(own: bool) -> bool {
-    !own
-}
-
-/// EXP-484: what a finished `agent_login` command handed back — the CLI's
-/// own sign-in URL (open it anywhere) plus, for Codex's device-code flow,
-/// the code to type on the machine.
-#[derive(Clone)]
-struct LoginNote {
-    url: String,
-    code: Option<String>,
-}
-
 /// EXP-694: what a section's OPTIMISTIC dedupe advance has to be undone to
 /// when its write never lands. The autosave advances the baseline before the
 /// tRPC call resolves (so a pick made mid-flight still writes last-wins); a
@@ -182,82 +160,6 @@ struct LoginNote {
 enum SectionRollback {
     Label(String),
     Defaults(Box<coding::Settings>),
-}
-
-/// EXP-484: what a machine last reported about its agent CLIs, resolved for
-/// rendering — the accounts, the usage snapshots, when the usage was taken,
-/// and the device caps that decide whether a sign-in may be started here.
-#[derive(Default)]
-struct DeviceAgentStatus {
-    accounts: coding::agent_accounts::AgentAccounts,
-    usage: coding::agent_usage::AgentUsageMap,
-    usage_at: Option<String>,
-    caps: Vec<String>,
-}
-
-impl DeviceAgentStatus {
-    /// The agents that have something to say (an account or usage), in
-    /// `CodingAgent::ALL` order.
-    fn reporting(&self) -> Vec<CodingAgent> {
-        CodingAgent::ALL
-            .into_iter()
-            .filter(|agent| {
-                self.accounts.contains_key(agent.id()) || self.usage.contains_key(agent.id())
-            })
-            .collect()
-    }
-}
-
-/// EXP-484: the Login / Switch-account affordance for one agent row, or
-/// `None` when this client cannot start that machine's sign-in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct LoginAffordance {
-    pub label: &'static str,
-    /// Whether the run signs OUT first (an account SWITCH).
-    pub switch: bool,
-}
-
-/// Who may start a sign-in, and how it is labelled.
-///
-/// The OWN machine always can — the login runs in a terminal tab right here,
-/// online or not. A REMOTE machine needs to be online (the command rides its
-/// heartbeat) and to run a build that executes `agent_login` (the cap).
-/// Mirrors the web `canLogin` rule exactly.
-pub(crate) fn login_affordance(
-    own: bool,
-    online: bool,
-    caps: &[String],
-    signed_in: bool,
-) -> Option<LoginAffordance> {
-    let allowed = own || (online && caps.iter().any(|cap| cap == "agent-login"));
-    allowed.then_some(LoginAffordance {
-        label: if signed_in { "Switch account" } else { "Login" },
-        switch: signed_in,
-    })
-}
-
-/// EXP-484/694: what one agent's OWN tab says above the login pill, where the
-/// agent is already the heading — just the ADDRESS: no `<agent> ·` prefix, no
-/// `signed in as` and no ` · <plan>` tail (the plan is the agent app's
-/// business, not this row's). An account with no email falls back to the
-/// bare plan, and the two negative cases
-/// read as sentences. Byte-identical to the web `accountLine`
-/// (`lib/agent-usage.ts`) and its iOS/Android twins.
-pub(crate) fn account_line(account: Option<&coding::agent_accounts::AgentAccount>) -> String {
-    match account {
-        // Never probed is NOT "not signed in".
-        None => "Sign-in status unknown".to_string(),
-        Some(account) if !account.signed_in => "Not signed in".to_string(),
-        Some(account) => {
-            let email = account.email.as_deref().filter(|value| !value.is_empty());
-            let plan = account.plan.as_deref().filter(|value| !value.is_empty());
-            match (email, plan) {
-                (Some(email), _) => email.to_string(),
-                (None, Some(plan)) => plan.to_string(),
-                (None, None) => "signed in".to_string(),
-            }
-        }
-    }
 }
 
 /// EXP-484/694: what THIS install's agent CLIs last reported — the hub's live
@@ -373,126 +275,6 @@ fn dev_agent_status() -> Option<(
     Some((accounts, usage))
 }
 
-/// EXP-694: the account + usage ROWS of one agent's grouped defaults stack —
-/// the same two rows in this dialog and in Settings → Agents, so the two
-/// panes cannot drift.
-///
-/// Row 1 is the account line ([`account_line`] — the address alone) with the
-/// Login / Switch-account pill when this client may start one and the round
-/// Usage button beside it; row 2 is the report's AGE. Both are flat: the group
-/// around them draws the surface.
-///
-/// EXP-827: the usage WINDOWS are not here any more. They live in ONE place —
-/// the Devices page's Accounts section ([`crate::accounts_section`]) — and
-/// `on_open_usage` is the way there (web `device-agent-account.tsx`: a round
-/// `ui-usage` button, shown only once there is an account or a report to open).
-#[allow(clippy::too_many_arguments)] // two call sites, one row set
-pub(crate) fn agent_account_rows<V: Render>(
-    agent: CodingAgent,
-    account: Option<&coding::agent_accounts::AgentAccount>,
-    usage: Option<&coding::agent_usage::AgentUsage>,
-    usage_at: Option<&str>,
-    affordance: Option<LoginAffordance>,
-    pending: bool,
-    on_login: impl Fn(&mut V, bool, &mut gpui::Context<V>) + 'static,
-    on_open_usage: impl Fn(&mut V, &mut Window, &mut gpui::Context<V>) + 'static,
-    cx: &mut gpui::Context<V>,
-) -> Vec<Div> {
-    let muted = cx.theme().muted_foreground;
-    let foreground = cx.theme().foreground;
-    let now = chrono::Utc::now().timestamp();
-
-    let mut account_row = surface::glass_row_shell().child(
-        div()
-            .flex_1()
-            .min_w_0()
-            .truncate()
-            .text_sm()
-            .text_color(foreground)
-            .child(SharedString::from(account_line(account))),
-    );
-    // EXP-849 (interface A): the Devices surface is the REPAIR surface, so the
-    // state `account_line` cannot express gets a badge beside it — a CLI still
-    // naming an account the provider has revoked reads as signed in everywhere
-    // else, and the fix is the login pill to its right.
-    if let Some(badge) = account
-        .map(|account| account.worst_health())
-        .and_then(|health| crate::usage_bar::health_badge(health, cx))
-    {
-        account_row = account_row.child(badge);
-    }
-    if let Some(affordance) = affordance {
-        // EXP-698: ONE pill, not a ghost button inside a pill wrapper.
-        let icon = if affordance.switch {
-            registry::UI_SWAP
-        } else {
-            registry::UI_SIGN_IN
-        };
-        account_row = account_row.child(
-            surface::glass_pill(
-                SharedString::from(format!("agent-login-{}", agent.id())),
-                surface::PillSize::Sm,
-                // A pending login has nothing to click: READONLY is what
-                // takes the pointer cursor and the hover lift away, so the
-                // dimmed pill does not keep advertising a target.
-                if pending {
-                    surface::PillMode::Readonly
-                } else {
-                    surface::PillMode::Action
-                },
-                cx,
-            )
-            .when(pending, |pill| pill.opacity(0.5))
-            .child(Icon::new(icon).with_size(px(surface::PillSize::Sm.glyph())))
-            .child(SharedString::from(affordance.label))
-            .on_click(cx.listener(move |view: &mut V, _, _, cx| {
-                if !pending {
-                    on_login(view, affordance.switch, cx);
-                }
-            })),
-        );
-    }
-    // EXP-827: the round way to the numbers, beside the login pill — shown
-    // only when there is an account or a report to look at.
-    let has_report = usage.is_some_and(|usage| !usage.windows.is_empty());
-    if account.is_some() || has_report {
-        account_row = account_row.child(
-            crate::controls::glass_icon_button(
-                SharedString::from(format!("agent-usage-{}", agent.id())),
-                Icon::new(registry::UI_USAGE),
-                cx,
-            )
-            .web_icon_xs()
-            .tooltip("Usage")
-            .on_click(cx.listener(move |view: &mut V, _, window, cx| {
-                on_open_usage(view, window, cx)
-            })),
-        );
-    }
-    let mut rows = vec![account_row];
-
-    if usage.is_some() || account.is_some() {
-        // Say when the numbers were taken instead of pretending they are
-        // current (the only thing the account block says about usage now).
-        let stamp = account
-            .map(|account| account.checked_at.clone())
-            .or_else(|| usage_at.map(str::to_string))
-            .unwrap_or_default();
-        let as_of = crate::usage_bar::as_of_label(&stamp, now);
-        if !as_of.is_empty() {
-            rows.push(
-                surface::glass_row_shell().child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(as_of)),
-                ),
-            );
-        }
-    }
-    rows
-}
-
 /// EXP-484: tolerant parse of a `{ agent: T }` jsonb column. Entries that do
 /// not parse are DROPPED — a client must never brick on a newer (or a
 /// corrupt) device's payload.
@@ -562,15 +344,6 @@ pub struct DeviceSettingsView {
     section_errors: HashMap<String, SharedString>,
     tracked: Vec<TrackedCommand>,
     polling: bool,
-    /// EXP-484: the sign-in links finished logins handed back (keyed by
-    /// agent id).
-    login_notes: HashMap<String, LoginNote>,
-    /// EXP-765: the field under a claude link where the code the browser
-    /// showed is pasted, one per agent (keyed by agent id).
-    code_inputs: HashMap<String, Entity<InputState>>,
-    /// EXP-765: what the machine said once the code went in (keyed by agent
-    /// id) — shown in place of the link, which has served its purpose.
-    code_notes: HashMap<String, SharedString>,
     /// EXP-762: the two columns' scroll positions (view state, so a
     /// re-render — every autosave, every heartbeat resync — keeps them).
     settings_scroll: ScrollHandle,
@@ -622,24 +395,6 @@ impl DeviceSettingsView {
             state.set_value(row.label.clone().unwrap_or_default(), window, cx);
             state
         });
-        // EXP-765: one code field per agent, so a link on one tab keeps its
-        // draft while another tab is looked at. Enter submits, like the pill.
-        let mut code_inputs = HashMap::new();
-        let mut code_subscriptions = Vec::new();
-        for agent in CodingAgent::ALL {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Code from the browser"));
-            code_subscriptions.push(cx.subscribe_in(
-                &input,
-                window,
-                move |this: &mut Self, _, event: &InputEvent, window, cx| {
-                    if let InputEvent::PressEnter { .. } = event {
-                        this.submit_login_code(agent, window, cx);
-                    }
-                },
-            ));
-            code_inputs.insert(agent.id().to_string(), input);
-        }
-
         let agent_select = choice_select(&AGENT_CHOICES, seeded.default_agent.id(), window, cx);
         let model_select = choice_select(
             model_choices_for(CodingAgent::Claude),
@@ -721,7 +476,6 @@ impl DeviceSettingsView {
         // inside the 800ms would be dropped on the floor. Flush it as the view
         // is released (the web dialog's unmount flush / iOS's `.onDisappear`).
         cx.on_release(|this, cx| this.flush_pending_name(cx)).detach();
-        subscriptions.extend(code_subscriptions);
 
         Self {
             device_row_id,
@@ -748,9 +502,6 @@ impl DeviceSettingsView {
             section_errors: HashMap::new(),
             tracked: Vec::new(),
             polling: false,
-            login_notes: HashMap::new(),
-            code_inputs,
-            code_notes: HashMap::new(),
             settings_scroll: ScrollHandle::new(),
             worktrees_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -876,8 +627,7 @@ impl DeviceSettingsView {
         // and simply adopts it.)
         let drafted = self.drafted(cx);
         if drafted != self.seeded && drafted != baseline {
-            let status = self.agent_status(cx);
-            if !self.tab_agents(&status).contains(&self.agent_tab) {
+            if !self.editor_agents.contains(&self.agent_tab) {
                 self.agent_tab = drafted.default_agent;
             }
             cx.notify();
@@ -902,8 +652,7 @@ impl DeviceSettingsView {
         }
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
-        let status = self.agent_status(cx);
-        if !self.tab_agents(&status).contains(&self.agent_tab) {
+        if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
         }
         self.seeded = baseline;
@@ -1269,112 +1018,6 @@ impl DeviceSettingsView {
         .detach();
     }
 
-    /// EXP-484: queue a REMOTE sign-in on this machine. The device opens the
-    /// agent's own login command and completes the row the moment the
-    /// sign-in URL is up, which the poll below renders as a link.
-    fn queue_agent_login(&mut self, agent: CodingAgent, switch: bool, cx: &mut gpui::Context<Self>) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let key = login_key(agent);
-        let device_id = self.device_id.clone();
-        self.set_error(key.clone(), None);
-        self.login_notes.remove(agent.id());
-        // A fresh login supersedes whatever its code round trip last said.
-        self.set_error(login_code_key(agent), None);
-        self.code_notes.remove(agent.id());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    // The dialog's pill is the AMBIENT login (the agent's own
-                    // tab in this dialog); per-profile sign-ins ride the
-                    // Devices row's account chips.
-                    api::devices::create_agent_login_command(
-                        &trpc,
-                        &device_id,
-                        agent.id(),
-                        switch,
-                        None,
-                    )
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(created) => {
-                        this.tracked.push(TrackedCommand {
-                            id: created.id,
-                            key,
-                        });
-                        this.ensure_polling(cx);
-                    }
-                    Err(err) => this.set_error(key, Some(err.user_message().into())),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// EXP-765: hand the code claude's browser page showed back to the
-    /// machine, whose login tab is still waiting for it. Queued as an
-    /// `agent_login_code` command; the machine types it and completes at
-    /// once, and the signed-in flip follows on the synced row.
-    fn submit_login_code(
-        &mut self,
-        agent: CodingAgent,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let key = login_code_key(agent);
-        if self.command_pending(&key) {
-            return;
-        }
-        let Some(input) = self.code_inputs.get(agent.id()).cloned() else {
-            return;
-        };
-        let code = input.read(cx).value().trim().to_string();
-        if code.is_empty() {
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        input.update(cx, |state, cx| state.set_value("", window, cx));
-        let device_id = self.device_id.clone();
-        self.set_error(key.clone(), None);
-        self.code_notes.remove(agent.id());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    api::devices::create_agent_login_code_command(
-                        &trpc,
-                        &device_id,
-                        agent.id(),
-                        &code,
-                    )
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(created) => {
-                        this.tracked.push(TrackedCommand {
-                            id: created.id,
-                            key,
-                        });
-                        this.ensure_polling(cx);
-                    }
-                    Err(err) => this.set_error(key, Some(err.user_message().into())),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     /// Poll queued commands until terminal — the durable outcome (a worktree
     /// vanishing) additionally streams in via sync when the machine
     /// re-reports. Retires itself when nothing is tracked; dialog close
@@ -1433,48 +1076,6 @@ impl DeviceSettingsView {
                                             || "The machine reported a failure.".to_string(),
                                         ))),
                                     );
-                                } else if let Some(agent) = key.strip_prefix("login-code ") {
-                                    // EXP-765: the code went in — the link
-                                    // has served its purpose; what the
-                                    // machine said takes its place.
-                                    this.login_notes.remove(agent);
-                                    this.code_notes.insert(
-                                        agent.to_string(),
-                                        SharedString::from(
-                                            row.result.unwrap_or_else(|| "Done.".to_string()),
-                                        ),
-                                    );
-                                } else if let Some(agent) = key.strip_prefix("login ") {
-                                    // EXP-484: a login completes EARLY, the
-                                    // moment its sign-in URL is on the
-                                    // machine's grid — that link IS the
-                                    // result. The signed-in flip follows on
-                                    // the synced row after the re-probe.
-                                    let progress = row
-                                        .result
-                                        .as_deref()
-                                        .and_then(coding::LoginProgress::parse);
-                                    match progress {
-                                        Some(progress) => match progress.url {
-                                            Some(url) => {
-                                                this.login_notes.insert(
-                                                    agent.to_string(),
-                                                    LoginNote {
-                                                        url,
-                                                        code: progress.code,
-                                                    },
-                                                );
-                                            }
-                                            None => this.set_error(
-                                                key.clone(),
-                                                progress.message.map(SharedString::from),
-                                            ),
-                                        },
-                                        None => this.set_error(
-                                            key.clone(),
-                                            row.result.map(SharedString::from),
-                                        ),
-                                    }
                                 }
                             }
                             // Pending / transient error — keep polling.
@@ -1526,13 +1127,6 @@ impl DeviceSettingsView {
 
     // -- render pieces ---------------------------------------------------------
 
-    fn section_title(label: &'static str, cx: &App) -> gpui::Div {
-        div()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(label)
-    }
-
     fn error_line(&self, key: &str, cx: &App) -> Option<gpui::Div> {
         self.section_errors.get(key).map(|message| {
             div()
@@ -1554,7 +1148,7 @@ impl DeviceSettingsView {
         surface::glass_toggle_row(
             label,
             None,
-            Switch::new(id)
+            crate::controls::web_switch(id)
                 .checked(checked)
                 .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                     on_click(this, checked, cx);
@@ -1565,19 +1159,24 @@ impl DeviceSettingsView {
         )
     }
 
-    /// EXP-694: a [`ChoiceSelect`] as a grouped picker row — the label
-    /// leading, the value trailing behind the select's own caret, no field
-    /// chrome (the group IS the field).
-    fn picker_row(
-        label: &'static str,
-        description: Option<SharedString>,
-        select: &ChoiceSelect,
-        cx: &App,
-    ) -> Div {
-        surface::glass_picker_row(
-            label,
-            description,
-            surface::glass_picker_select(Select::new(select)).into_any_element(),
+    /// EXP-862: "Default agent" is the SHARED agent picker
+    /// ([`crate::coding_selects::agent_picker`]) — the same brand-marked
+    /// trigger the composer and Settings → Agents wear. The pick still writes
+    /// through the `agent_select` state, so the EXP-694 autosave (an observer
+    /// on that select) is unchanged.
+    fn render_agent_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let current = CodingAgent::parse(&selected(&self.agent_select, cx))
+            .unwrap_or(self.seeded.default_agent);
+        let select = self.agent_select.clone();
+        crate::coding_selects::agent_picker(
+            "device-default-agent",
+            &self.editor_agents,
+            current,
+            move |agent, window, cx| {
+                select.update(cx, |select, cx| {
+                    select.set_selected_value(&SharedString::from(agent.id()), window, cx)
+                });
+            },
             cx,
         )
     }
@@ -1591,14 +1190,12 @@ impl DeviceSettingsView {
     fn render_defaults_section(
         &mut self,
         online: bool,
-        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
-        let status = self.agent_status(cx);
-        let tab_agents = self.tab_agents(&status);
-        // The picked tab can drop out of `tab_agents` between heartbeats (a
-        // probe failed, a CLI went away): fall back to the first tab for the
-        // PILL AND THE BODY together, never one without the other.
+        let tab_agents = self.editor_agents.clone();
+        // The picked tab can drop out of the editor's set between heartbeats
+        // (a probe failed, a CLI went away): fall back to the first tab for
+        // the PILL AND THE BODY together, never one without the other.
         let agent_tab = if tab_agents.contains(&self.agent_tab) {
             self.agent_tab
         } else {
@@ -1618,9 +1215,6 @@ impl DeviceSettingsView {
                 note: None,
             })
             .collect();
-        // EXP-688: the agent's account + usage ride INSIDE the agent's own
-        // group, under its toggles.
-        let account_rows = self.render_agent_account(agent_tab, online, &status, window, cx);
         let (model, effort) = match agent_tab {
             CodingAgent::Claude => (self.model_select.clone(), self.effort_select.clone()),
             CodingAgent::Codex => (
@@ -1642,8 +1236,7 @@ impl DeviceSettingsView {
             model,
             effort,
         )
-        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .trailing(account_rows);
+        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode);
         if agent_tab == CodingAgent::Claude {
             group = group
                 .toggle(DefaultsToggle::new(
@@ -1670,10 +1263,10 @@ impl DeviceSettingsView {
         let mut body = v_flex()
             .w_full()
             .gap_2()
-            .child(surface::glass_group_rows(vec![Self::picker_row(
+            .child(surface::glass_group_rows(vec![surface::glass_picker_row(
                 "Default agent",
                 None,
-                &self.agent_select,
+                self.render_agent_picker(cx),
                 cx,
             )]))
             .child(group.render(cx));
@@ -1699,255 +1292,6 @@ impl DeviceSettingsView {
         body
     }
 
-    /// The agent tabs the dialog offers: the defaults editor's set ∪ every
-    /// agent that reported an account or usage (EXP-688 — the account block
-    /// lives in the tab now, so an agent that only has something to SAY
-    /// still needs one), in `CodingAgent::ALL` order.
-    fn tab_agents(&self, status: &DeviceAgentStatus) -> Vec<CodingAgent> {
-        let reporting = status.reporting();
-        CodingAgent::ALL
-            .into_iter()
-            .filter(|agent| self.editor_agents.contains(agent) || reporting.contains(agent))
-            .collect()
-    }
-
-    /// EXP-484: what this machine last reported about its agent CLIs.
-    ///
-    /// The OWN device reads the LIVE hub snapshot instead of the synced row:
-    /// the collector's numbers are right here and fresher, and before the
-    /// first beat the doctor probe already knows who is signed in, so a
-    /// machine with agents installed is never blank.
-    fn agent_status(&self, cx: &mut App) -> DeviceAgentStatus {
-        let row = self.row(cx);
-        let (accounts, usage) = if self.own {
-            own_agent_status(cx)
-        } else {
-            let accounts = parse_agent_map::<coding::agent_accounts::AgentAccount>(
-                row.as_ref().and_then(|row| row.agent_accounts.as_ref()),
-            );
-            let usage = row
-                .as_ref()
-                .and_then(|row| row.agent_usage.as_ref())
-                .and_then(|value| value.as_object().cloned())
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(|(agent, entry)| {
-                            crate::usage_bar::parse_agent_usage(entry)
-                                .map(|usage| (agent.clone(), usage))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            (accounts, usage)
-        };
-        DeviceAgentStatus {
-            accounts,
-            usage,
-            usage_at: row.as_ref().and_then(|row| row.agent_usage_at.clone()),
-            caps: row.as_ref().map(|row| row.cap_ids()).unwrap_or_default(),
-        }
-    }
-
-    /// EXP-688: the per-agent Account block. It lives INSIDE that agent's
-    /// defaults tab — the standalone "Agents" section is gone, because it
-    /// repeated the same three agents one screen further down.
-    ///
-    /// EXP-694: it is no longer a block but the LAST ROWS of the agent's own
-    /// group ([`agent_account_rows`], shared with Settings → Agents), plus
-    /// this dialog's remote-sign-in extras: the waiting note, whatever the
-    /// last sign-in handed back, and the inline error.
-    fn render_agent_account(
-        &mut self,
-        agent: CodingAgent,
-        online: bool,
-        status: &DeviceAgentStatus,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Vec<Div> {
-        let muted = cx.theme().muted_foreground;
-        let account = status.accounts.get(agent.id());
-        let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
-        let affordance = login_affordance(self.own, online, &status.caps, signed_in);
-        let key = login_key(agent);
-        let pending = self.command_pending(&key);
-
-        let mut rows = agent_account_rows(
-            agent,
-            account,
-            status.usage.get(agent.id()),
-            status.usage_at.as_deref(),
-            affordance,
-            pending,
-            move |this: &mut Self, switch, cx| this.start_login(agent, switch, cx),
-            // EXP-827: the Usage button closes the dialog and lands on the
-            // Devices page's Accounts section in the window that opened it
-            // (web `openUsage`).
-            |_: &mut Self, window, cx| {
-                native_dialog::close_then(window, cx, |window, cx| {
-                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
-                });
-            },
-            cx,
-        );
-
-        if pending {
-            rows.push(
-                surface::glass_row_shell().child(
-                    div().text_xs().text_color(muted).child(if online {
-                        "Waiting for the sign-in link…"
-                    } else {
-                        "This machine is offline — the sign-in runs when it comes online."
-                    }),
-                ),
-            );
-        }
-        if let Some(note) = self.login_notes.get(agent.id()).cloned() {
-            let can_enter_code = can_enter_login_code(self.own);
-            let note = self.render_login_note(agent, &note, can_enter_code, window, cx);
-            rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(note)));
-        }
-        if let Some(error) = self.error_line(&key, cx) {
-            rows.push(surface::glass_row_shell().child(error));
-        }
-        // EXP-765: the code round trip's own lines — waiting, what the
-        // machine said, or why it refused.
-        let code_key = login_code_key(agent);
-        if self.command_pending(&code_key) {
-            rows.push(
-                surface::glass_row_shell().child(
-                    div().text_xs().text_color(muted).child("Sending the code to the machine…"),
-                ),
-            );
-        }
-        if let Some(note) = self.code_notes.get(agent.id()).cloned() {
-            rows.push(
-                surface::glass_row_shell().child(div().text_xs().text_color(muted).child(note)),
-            );
-        }
-        if let Some(error) = self.error_line(&code_key, cx) {
-            rows.push(surface::glass_row_shell().child(error));
-        }
-        rows
-    }
-
-    /// The link a finished login handed back (plus Codex's device code).
-    /// EXP-765: a link WITHOUT a code is claude's — the browser hands one
-    /// back instead, and the field below returns it to the machine when its
-    /// build can take it.
-    fn render_login_note(
-        &self,
-        agent: CodingAgent,
-        note: &LoginNote,
-        can_enter_code: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let muted = cx.theme().muted_foreground;
-        let url = note.url.clone();
-        let copy = url.clone();
-        let wants_code_back = note.code.is_none() && can_enter_code;
-        let caption = if note.code.is_some() {
-            "Open the link on any device and enter the code on the machine."
-        } else if wants_code_back {
-            "Open the link on any device, then paste the code it shows here."
-        } else {
-            "Open the link on any device."
-        };
-        let mut line = h_flex().w_full().items_center().gap_2().child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_xs()
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(SharedString::from(url)),
-        );
-        if let Some(code) = note.code.clone() {
-            line = line.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(format!("· code {code}"))),
-            );
-        }
-        line = line.child(
-            surface::glass_pill_button(
-                SharedString::from(format!("device-login-copy-{}", agent.id())),
-                surface::PillSize::Sm,
-                cx,
-            )
-                .icon(registry::UI_COPY)
-                .label("Copy link")
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                }),
-        );
-        let mut body = v_flex().gap_0p5().child(line);
-        if wants_code_back {
-            if let Some(input) = self.code_inputs.get(agent.id()) {
-                let pending = self.command_pending(&login_code_key(agent));
-                let code_line = h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(glass_input(input, window, cx).appearance(false).h_auto().px_0().py_0()),
-                    )
-                    .child(
-                        surface::glass_pill(
-                            SharedString::from(format!("device-login-code-{}", agent.id())),
-                            surface::PillSize::Sm,
-                            if pending {
-                                surface::PillMode::Readonly
-                            } else {
-                                surface::PillMode::Action
-                            },
-                            cx,
-                        )
-                        .when(pending, |pill| pill.opacity(0.5))
-                        .child(
-                            Icon::new(registry::UI_SIGN_IN)
-                                .with_size(px(surface::PillSize::Sm.glyph())),
-                        )
-                        .child(SharedString::from("Enter code"))
-                        .on_click(cx.listener(move |this: &mut Self, _, window, cx| {
-                            this.submit_login_code(agent, window, cx);
-                        })),
-                    );
-                body = body.child(code_line);
-            }
-        }
-        body.child(div().text_xs().text_color(muted).child(caption))
-    }
-
-    /// Start a sign-in for `agent`: locally in a terminal tab on the OWN
-    /// machine, remotely as an `agent_login` device command otherwise. A
-    /// switch confirms first where the sign-out is destructive (codex).
-    ///
-    /// The switch callback re-enters this entity through a weak handle, so
-    /// it relies on `confirm_switch_then` running it OFF this update's stack
-    /// (FEED-39: inline, it double-leased the dialog and crashed the app).
-    fn start_login(&mut self, agent: CodingAgent, switch: bool, cx: &mut gpui::Context<Self>) {
-        if self.own {
-            crate::agent_login::open_login_tab(agent, switch, cx);
-            return;
-        }
-        if !switch {
-            self.queue_agent_login(agent, false, cx);
-            return;
-        }
-        let view = cx.entity().downgrade();
-        crate::agent_login::confirm_switch_then(agent, cx, move |cx| {
-            let _ = view.update(cx, |this, cx| this.queue_agent_login(agent, true, cx));
-        });
-    }
-
     fn render_worktrees_section(
         &mut self,
         online: bool,
@@ -1956,27 +1300,27 @@ impl DeviceSettingsView {
         let worktrees = self.worktrees(cx);
         let muted = cx.theme().muted_foreground;
         let prune_pending = self.command_pending("prune");
-        let header = h_flex()
-            .items_center()
-            .justify_between()
-            .child(Self::section_title("Worktrees", cx))
-            .child(
-                // EXP-688: icon-only — the label was the widest thing in the
-                // section header and said what the broom already says.
-                // EXP-698: the one 32px glass chrome every trailing action wears;
-                // `loading` swaps the glyph for the spinner.
-                crate::controls::glass_icon_button(
+        // EXP-862: the section BAND, with the broom in its trailing slot as
+        // GHOST chrome — the same place and the same weight every other list
+        // band's action has. `loading` swaps the glyph for the spinner.
+        let header = surface::glass_section_header(
+            "Worktrees",
+            Some(
+                crate::controls::ghost_icon_button(
                     "device-worktrees-prune",
                     Icon::new(registry::UI_CLEAN),
                     cx,
                 )
-                    .loading(prune_pending)
-                    .tooltip("Prune merged worktrees")
-                    .disabled(prune_pending || worktrees.is_empty())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.queue_command("prune".to_string(), "worktree_prune", None, None, cx);
-                    })),
-            );
+                .loading(prune_pending)
+                .tooltip("Prune merged worktrees")
+                .disabled(prune_pending || worktrees.is_empty())
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.queue_command("prune".to_string(), "worktree_prune", None, None, cx);
+                }))
+                .into_any_element(),
+            ),
+            cx,
+        );
 
         let mut body = v_flex().w_full().gap_2().child(header);
         if !online && (!worktrees.is_empty() || prune_pending) {
@@ -2069,10 +1413,12 @@ impl DeviceSettingsView {
             let remove_repo = repo.clone();
             let remove_branch = branch.clone();
             row = row.child(
-                Button::new(("device-worktree-remove", index))
-                    .ghost()
-                    .web_icon_xs()
-                    .icon(registry::UI_DELETE)
+                // EXP-862: remove is ghost chrome on a row, never a circle.
+                crate::controls::ghost_icon_button(
+                    ("device-worktree-remove", index),
+                    Icon::new(registry::UI_DELETE),
+                    cx,
+                )
                     .disabled(busy || removing)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.prompt_remove_worktree(
@@ -2125,8 +1471,11 @@ impl DeviceSettingsView {
                 surface::glass_toggle_row(
                     team.name.clone(),
                     None,
-                    Switch::new(SharedString::from(format!("device-share-{}", team.id)))
-                        .checked(checked)
+                    crate::controls::web_switch(SharedString::from(format!(
+                        "device-share-{}",
+                        team.id
+                    )))
+                    .checked(checked)
                         .disabled(busy)
                         .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                             this.save_sharing(team_id.clone(), *checked, cx);
@@ -2196,7 +1545,7 @@ impl Render for DeviceSettingsView {
 
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
         // parity look) — the worktrees section included.
-        let body = body.child(self.render_defaults_section(online, window, cx));
+        let body = body.child(self.render_defaults_section(online, cx));
         let worktrees_section = self.render_worktrees_section(online, cx);
 
         // EXP-762: two columns, each its own scroll pane. The dialog is
@@ -2267,73 +1616,6 @@ mod tests {
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own
     /// machine's login tab is right there to type into.
-    #[test]
-    fn login_code_field_is_remote_only() {
-        assert!(can_enter_login_code(false));
-        assert!(!can_enter_login_code(true));
-    }
-
-    /// EXP-484/694: the line, byte-identical to the web `accountLine` — the
-    /// address alone, with no `signed in as` prefix and no ` · <plan>` tail.
-    #[test]
-    fn account_label_variants() {
-        let account = |signed_in: bool, email: Option<&str>, plan: Option<&str>| {
-            coding::agent_accounts::AgentAccount {
-                signed_in,
-                email: email.map(str::to_string),
-                plan: plan.map(str::to_string),
-                checked_at: "2026-08-28T10:00:00.000Z".to_string(),
-                ..coding::agent_accounts::AgentAccount::default()
-            }
-        };
-        // The plan is dropped even when the machine reported one.
-        assert_eq!(
-            account_line(Some(&account(true, Some("a@b.c"), Some("max")))),
-            "a@b.c"
-        );
-        assert_eq!(
-            account_line(Some(&account(true, Some("a@b.c"), None))),
-            "a@b.c"
-        );
-        assert_eq!(
-            account_line(Some(&account(false, None, None))),
-            "Not signed in"
-        );
-        // An account naming only a plan keeps the bare plan.
-        assert_eq!(
-            account_line(Some(&account(true, None, Some("pro")))),
-            "pro"
-        );
-        // A signed-in account naming neither.
-        assert_eq!(account_line(Some(&account(true, None, None))), "signed in");
-        // Never probed is NOT signed out.
-        assert_eq!(account_line(None), "Sign-in status unknown");
-    }
-
-    /// EXP-484: who may start a sign-in. The own machine always can; a
-    /// remote one needs to be online and to run a build with the cap.
-    #[test]
-    fn login_affordance_matrix() {
-        let caps = vec!["resume".to_string(), "agent-login".to_string()];
-        let none: Vec<String> = Vec::new();
-
-        // Own device: always, offline and cap-less included — the login runs
-        // in a terminal tab right here.
-        let own = login_affordance(true, false, &none, false).unwrap();
-        assert_eq!(own.label, "Login");
-        assert!(!own.switch);
-        // Signed in → the switch wording, and the run signs out first.
-        let own = login_affordance(true, false, &none, true).unwrap();
-        assert_eq!(own.label, "Switch account");
-        assert!(own.switch);
-        // Remote: online + cap.
-        assert!(login_affordance(false, true, &caps, false).is_some());
-        assert!(login_affordance(false, false, &caps, false).is_none());
-        assert!(login_affordance(false, true, &none, false).is_none());
-    }
-
-    /// EXP-484: a newer (or corrupt) device's payload drops the bad entries,
-    /// never the row.
     #[test]
     fn parse_agent_map_tolerates_garbage() {
         let value = serde_json::json!({

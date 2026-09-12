@@ -406,13 +406,16 @@ class AgentAccountsRowsTest {
     }
 
     @Test
-    fun `a signed-out group says so in its caption, not in a badge`() {
+    fun `a signed-out group says so in its badge, never in its caption`() {
+        // EXP-862: the caption is the account's IDENTITY, never a status —
+        // "Not signed in" as a title said what the badge already says and
+        // buried the only identifying thing the row had.
         val groups = AgentAccountsRows.accountUsageGroups(
             listOf(row(deviceId = "a", agent = "claude", signedIn = false)),
         ) { false }
         assertEquals(AgentHealth.SignedOut, groups[0].health)
-        assertEquals("Not signed in", AgentAccountsRows.caption(groups[0]))
-        assertNull(AgentAccountsRows.healthBadge(groups[0]))
+        assertEquals("Default", AgentAccountsRows.caption(groups[0]))
+        assertEquals("Signed out", AgentAccountsRows.healthBadge(groups[0]))
     }
 
     @Test
@@ -502,42 +505,16 @@ class AgentAccountsRowsTest {
     }
 
     @Test
-    fun `the chip menu offers ONE repair per state`() {
-        fun chip(signedIn: Boolean, active: Boolean, health: AgentHealth) = DeviceAccountChip(
-            key = "claude:system",
+    fun `the chip menu offers the repairs that state allows`() {
+        fun chip(
+            signedIn: Boolean,
+            active: Boolean,
+            health: AgentHealth,
+            profileId: String = "work",
+        ) = DeviceAccountChip(
+            key = "claude:$profileId",
             agent = "claude",
-            profileId = "system",
-            profileLabel = "Default",
-            signedIn = signedIn,
-            active = active,
-            email = null,
-            plan = null,
-            health = health,
-        )
-        val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
-        assertEquals("Sign in", AgentAccountsRows.chipAction(signedOut, true))
-        assertFalse(AgentAccountsRows.chipSwitchesTo(signedOut, true))
-
-        val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
-        assertEquals("Re-login", AgentAccountsRows.chipAction(expired, true))
-        // An expired credential is never "switched to" — it would not work.
-        assertFalse(AgentAccountsRows.chipSwitchesTo(expired, true))
-
-        val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
-        assertEquals("Sign in again", AgentAccountsRows.chipAction(current, true))
-        assertFalse(AgentAccountsRows.chipSwitchesTo(current, true))
-
-        val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
-        assertEquals("Use this account here", AgentAccountsRows.chipAction(other, true))
-        assertTrue(AgentAccountsRows.chipSwitchesTo(other, true))
-    }
-
-    @Test
-    fun `a machine without the account-switch cap never offers the pick`() {
-        fun chip(signedIn: Boolean, active: Boolean, health: AgentHealth) = DeviceAccountChip(
-            key = "claude:work",
-            agent = "claude",
-            profileId = "work",
+            profileId = profileId,
             profileLabel = "Work",
             signedIn = signedIn,
             active = active,
@@ -545,21 +522,75 @@ class AgentAccountsRowsTest {
             plan = null,
             health = health,
         )
-        // `agent_profile_use` shipped in desktop/CLI 0.14.38 and the server
-        // refuses it without the cap, so the ONE offer an older machine makes
-        // for a healthy login it is not using is the sign-in.
-        val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
-        assertEquals("Sign in again", AgentAccountsRows.chipAction(other, false))
-        assertFalse(AgentAccountsRows.chipSwitchesTo(other, false))
-
-        // The other states are unmoved: the cap only ever gates the switch.
-        val signedOut = chip(signedIn = false, active = false, health = AgentHealth.SignedOut)
-        assertEquals("Sign in", AgentAccountsRows.chipAction(signedOut, false))
+        // EXP-862: signed out or expired = a sign-in and nothing else. A dead
+        // credential is never "set as default": it would not work.
+        val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
+        assertEquals(
+            listOf("Sign in"),
+            AgentAccountsRows.chipActions(signedOut, canSwitchAccount = true, canRemoveAccount = true),
+        )
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
-        assertEquals("Re-login", AgentAccountsRows.chipAction(expired, false))
+        assertEquals(
+            listOf("Sign in"),
+            AgentAccountsRows.chipActions(expired, canSwitchAccount = true, canRemoveAccount = true),
+        )
+        // Healthy and not the machine's login: both entries.
+        val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
+        assertEquals(
+            listOf("Set as default", "Remove account"),
+            AgentAccountsRows.chipActions(other, canSwitchAccount = true, canRemoveAccount = true),
+        )
+        // Healthy and already the default: only the removal.
         val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
-        assertEquals("Sign in again", AgentAccountsRows.chipAction(current, false))
-        assertFalse(AgentAccountsRows.chipSwitchesTo(current, false))
+        assertEquals(
+            listOf("Remove account"),
+            AgentAccountsRows.chipActions(current, canSwitchAccount = true, canRemoveAccount = true),
+        )
+    }
+
+    @Test
+    fun `the caps gate their own entries, and the ambient login is never removable`() {
+        fun chip(profileId: String, active: Boolean) = DeviceAccountChip(
+            key = "claude:$profileId",
+            agent = "claude",
+            profileId = profileId,
+            profileLabel = "Default",
+            signedIn = true,
+            active = active,
+            email = null,
+            plan = null,
+            health = AgentHealth.Ok,
+        )
+        val other = chip("work", active = false)
+        // `agent_profile_use` shipped in desktop/CLI 0.14.38 and
+        // `agent_profile_remove` in EXP-862; the server refuses either without
+        // its cap, so an older machine simply does not offer that entry.
+        assertEquals(
+            listOf("Remove account"),
+            AgentAccountsRows.chipActions(other, canSwitchAccount = false, canRemoveAccount = true),
+        )
+        assertEquals(
+            listOf("Set as default"),
+            AgentAccountsRows.chipActions(other, canSwitchAccount = true, canRemoveAccount = false),
+        )
+        // The AMBIENT login is the agent CLI's own config dir — not ours to
+        // delete, whatever the machine advertises.
+        assertTrue(
+            AgentAccountsRows.chipActions(
+                chip("system", active = true),
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `the remove confirm names the login, the machine and what survives`() {
+        assertEquals(
+            "Delete Claude Code · dev@acme.test on Studio? The login is removed from " +
+                "this device only; the account itself is untouched.",
+            AgentAccountsRows.removeAccountConfirm("Claude Code · dev@acme.test", "Studio"),
+        )
     }
 
     // ── EXP-849: a retired agent id never renders ────────────────────────────

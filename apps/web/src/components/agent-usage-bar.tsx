@@ -12,17 +12,17 @@
 import type { DeviceAgentUsage } from "@/db/schema"
 import { usageGroups, type UsageSeverity } from "@/lib/agent-usage"
 import { relativeTime } from "@/components/comment-rows/format"
-import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { cn } from "@/lib/utils"
+
+// EXP-862: ONE agent vocabulary — `components/agent-picker.tsx`. The re-export
+// keeps the surfaces that ask this module for a label compiling; new callers
+// import it from the picker directly.
+export { agentLabel } from "@/components/agent-picker"
 
 const TONE: Record<UsageSeverity, string> = {
   normal: `bg-foreground/30`,
   warning: `bg-amber-500`,
   danger: `bg-destructive`,
-}
-
-export function agentLabel(agent: string): string {
-  return AGENT_LABELS[agent] ?? agent
 }
 
 /** Every window the machine reported, grouped. `compact` is the

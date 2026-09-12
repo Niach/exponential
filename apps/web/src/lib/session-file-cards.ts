@@ -13,11 +13,16 @@ export const FILE_CARD_KINDS: readonly ToolKind[] = [`edit`, `delete`, `move`]
 /** How many paths a card lists before it folds the rest behind "N more". */
 export const FILE_CARD_PREVIEW = 5
 
-/** One row of a card. */
+/** One row of a card. EXP-862: the row carries the PER-TOOL patch text of the
+ *  call(s) that wrote it (`status` + `patch` = the diff-view file shape), so a
+ *  click can open the diff pane SCOPED to this turn without going back to the
+ *  whole-branch diff. A file written twice in the segment keeps both hunks. */
 export interface SessionFileEntry {
   path: string
+  status: string
   additions: number
   deletions: number
+  patch?: string
 }
 
 /** One card: the files a turn segment touched, anchored AFTER the feed row
@@ -141,12 +146,18 @@ export function sessionFileCards(
       if (held) {
         held.additions += file.additions
         held.deletions += file.deletions
+        // The second call's hunks follow the first's: one patch, both edits.
+        if (file.patch) {
+          held.patch = held.patch ? `${held.patch}\n${file.patch}` : file.patch
+        }
         continue
       }
       files.set(path, {
         path,
+        status: file.status,
         additions: file.additions,
         deletions: file.deletions,
+        patch: file.patch,
       })
     }
   }
@@ -158,6 +169,29 @@ export function sessionFileCards(
 export function fileCardTitle(count: number): string {
   return `${count} ${count === 1 ? `file` : `files`} edited`
 }
+
+/** EXP-862: the turn's rows as diff-view files — the scope the pane opens on
+ *  when a card row is clicked. The patches are the calls' own, so the pane
+ *  shows what THIS turn changed rather than the whole branch. */
+export function fileCardDiffFiles(
+  files: readonly SessionFileEntry[]
+): UnifiedDiffFile[] {
+  return files.map((file) => ({
+    filename: file.path,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch,
+  }))
+}
+
+/** The pane's scope chip while it shows one turn — `This turn: 3 files`, ×4. */
+export function diffScopeTurnLabel(count: number): string {
+  return `This turn: ${count} ${count === 1 ? `file` : `files`}`
+}
+
+/** What the chip DOES: back to the whole session's changes, ×4. */
+export const DIFF_SCOPE_ALL_LABEL = `Show all changes`
 
 /** The fold row under the first `FILE_CARD_PREVIEW` paths, or null. */
 export function fileCardMoreLabel(count: number): string | null {

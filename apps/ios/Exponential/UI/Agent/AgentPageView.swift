@@ -41,6 +41,13 @@ struct AgentPageView: View {
             AppBackground()
 
             if let sessions, let composer {
+                // EXP-862: with nothing running and nothing in Past, the
+                // composer column is CENTRED in the page (×4: web's
+                // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
+                // pinned under the nav bar over an empty screen read as a page
+                // that failed to load.
+                let centred = sessions.rows.isEmpty && sessions.pastRows.isEmpty
+                GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if steerEnabled == false {
@@ -80,8 +87,13 @@ struct AgentPageView: View {
                         .padding(.top, 8)
                     }
                     .padding()
+                    .frame(
+                        minHeight: centred ? proxy.size.height : nil,
+                        alignment: centred ? .center : .top
+                    )
                 }
                 .scrollDismissesKeyboard(.interactively)
+                }
             } else {
                 ProgressView().tint(.white)
             }

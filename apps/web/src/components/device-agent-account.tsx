@@ -1,43 +1,81 @@
-// EXP-484/688: the account block inside ONE agent's tab of device settings —
-// who that CLI is signed in as on this machine, how much of its rate-limit
-// windows is spent, and the Login / Switch account button that queues the
-// `agent_login` device command.
+// EXP-862: the account CHIP — the one control every agent login wears, on a
+// device row ("My devices") and on an account row (Accounts) alike — plus the
+// outcome view a finished `agent_login` command renders into.
 //
-// The machine collects all of this locally and ships it on register/heartbeat
-// (it never holds, copies or refreshes a credential); this only renders the
-// synced row. EXP-688 moved it out of a standalone "Agents" section and under
-// each agent's own defaults, so the tab you are editing is the tab that tells
-// you whose account it runs as. EXP-694 folds it INTO that tab's glass group
-// as its closing rows (the account line is the bare email now, the usage
-// windows are flat rows). Hand-mirrored on iOS (`DeviceSettingsSheet`),
-// Android (`DeviceSettingsSheet.kt`) and the desktop IDE
-// (`ui/src/device_settings.rs`) — same captions, same gating.
+// The chip menu is THREE states and nothing else, hand-mirrored ×4 (desktop
+// `accounts_section.rs` / `machines.rs`, iOS `DeviceAccountChips`, Android
+// `AgentAccountsRows.chipActions`):
+//
+//   - signed out, or a credential that expired here: "Sign in", alone. A dead
+//     login cannot be switched to, and removing it repairs nothing.
+//   - healthy, and NOT the machine's current login: "Set as default"
+//     (`agent_profile_use` — no login flow, no logout, no credential copied)
+//     and "Remove account".
+//   - healthy, and already the machine's login: "Remove account".
+//
+// "Remove account" deletes THIS machine's copy of the login (its profile dir
+// and its index row); the account itself is untouched, which is exactly what
+// the confirm says (`removeAccountConfirmCopy`). Nothing here ever runs a
+// logout: `codex logout` revokes the account server-wide.
+//
+// A chip with no entry at all (a teammate's machine, an offline one, a build
+// that takes none of the commands) is a statement, not a control — and its
+// health badge is the ONLY signed-out notice on the row.
 //
 // EXP-765: claude's sign-in link carries `code=true` — the browser page ends
 // by showing an authorization CODE the CLI on the machine is still waiting
 // for. The code field under the link hands it back as an `agent_login_code`
 // command (its own cap: a build that only runs the login would report the
 // command unsupported, so the field stays hidden without it).
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { LoaderCircle } from "lucide-react"
-import type { Device, DeviceAgentAccount } from "@/db/schema"
+import { toast } from "sonner"
+import type { DeviceAgentHealth } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
+import { parseAgentLoginResult } from "@/lib/agent-usage"
 import {
-  accountLine,
-  agentHealth,
-  healthBadgeLabel,
-  parseAgentLoginResult,
-  parseAgentUsage,
-} from "@/lib/agent-usage"
-import { relativeTime } from "@/components/comment-rows/format"
+  canRemoveAccountOn,
+  removeAccountConfirmCopy,
+} from "@/lib/agent-account-remove"
+import {
+  deviceCanAgentLogin,
+  deviceCanSwitchAccount,
+  deviceIsOnline,
+  deviceIsMine,
+  type SteerDevice,
+} from "@/lib/steer-devices"
+import { trpc } from "@/lib/trpc-client"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
 const SwapIcon = conceptIcon(`ui-swap`)
+const RemoveIcon = conceptIcon(`ui-delete`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
-const UsageIcon = conceptIcon(`ui-usage`)
+
+/** The chip menu's three entries, byte-identical ×4 (Android
+ * `AgentAccountsRows.ACTION_*`). */
+export const ACTION_SIGN_IN = `Sign in`
+export const ACTION_SET_DEFAULT = `Set as default`
+export const ACTION_REMOVE = `Remove account`
 
 /** The command key the dialog tracks a per-agent login under. */
 export function agentLoginKey(agent: string): string {
@@ -58,138 +96,206 @@ export function agentOfLoginCodeKey(key: string): string | null {
     : null
 }
 
-export function AgentAccountBlock({
-  agent,
-  row,
-  online,
-  canAgentLogin,
-  now,
-  error,
-  pending,
-  result,
-  onLogin,
-  onOpenUsage,
-  codeError,
-  codePending,
-  codeResult,
-  onEnterCode,
-}: {
+/** One login on ONE machine — a device row's `DeviceAccountChip` and the
+ * accounts page's `AgentProfileUsageRow` both satisfy it. */
+export interface AccountChipRow {
   agent: string
-  row: Device | null
-  online: boolean
-  /** The machine's build runs the `agent_login` command (caps). */
-  canAgentLogin: boolean
-  now: Date
-  error: string
-  pending: boolean
-  result: string | null
-  /** Queue a login; the dialog owns the Codex switch confirmation. */
-  onLogin: (agent: string, switchAccount: boolean) => void
-  /** EXP-827: open the Devices page's Accounts section (the usage lives
-   *  there now, not inline under the account line). Absent = no button. */
-  onOpenUsage?: () => void
-  codeError: string
-  codePending: boolean
-  codeResult: string | null
-  /** Hand the code the browser showed back to the waiting login. */
-  onEnterCode: (agent: string, code: string) => void
+  profileId: string
+  /** The profile's label (`Default` for the ambient login). */
+  profileLabel: string
+  email?: string | null
+  signedIn: boolean
+  /** The machine's ACTIVE login for that agent. */
+  active: boolean
+  health: DeviceAgentHealth
+}
+
+/** The chip's one repair is a sign-in: it has no working credential here. */
+export function chipSignsIn(row: AccountChipRow): boolean {
+  return !row.signedIn || row.health === `needs_relogin`
+}
+
+/** A healthy login this machine is not using becomes its login — one queued
+ * `agent_profile_use`, gated on the machine's `account-switch` cap (the
+ * server refuses the command without it). */
+export function chipSetsDefault(
+  row: AccountChipRow,
+  canSwitchAccount: boolean
+): boolean {
+  return !chipSignsIn(row) && !row.active && canSwitchAccount
+}
+
+/** The entries this chip's menu shows, in order. */
+export function accountChipActions(
+  device: Pick<SteerDevice, `caps`>,
+  row: AccountChipRow
+): string[] {
+  if (chipSignsIn(row)) return [ACTION_SIGN_IN]
+  const out: string[] = []
+  if (chipSetsDefault(row, deviceCanSwitchAccount(device))) {
+    out.push(ACTION_SET_DEFAULT)
+  }
+  if (canRemoveAccountOn(device, row)) out.push(ACTION_REMOVE)
+  return out
+}
+
+/** Whether the chip is a CONTROL at all: one of the caller's own machines,
+ * listening, able to take the commands — and with an entry to offer. Every
+ * action rides the owner→device queue, so an offline machine would hold it
+ * until it wakes, which reads as a dead click. */
+export function accountChipActionable(
+  device: SteerDevice,
+  row: AccountChipRow
+): boolean {
+  if (!deviceIsMine(device) || !deviceIsOnline(device)) return false
+  if (!deviceCanAgentLogin(device)) return false
+  return accountChipActions(device, row).length > 0
+}
+
+/** The login a confirm names: its address, else the profile's own label. */
+export function accountChipLabel(row: AccountChipRow): string {
+  return row.email || row.profileLabel
+}
+
+/** THE chip menu. The trigger is the caller's pill (the two surfaces draw
+ * different chips); everything behind it — the queued commands, the destructive
+ * confirm, the failure toast — lives here so the rule cannot drift between the
+ * device rows and the account rows. */
+export function AccountChipMenu({
+  device,
+  row,
+  accountLabel,
+  onSignIn,
+  trigger,
+}: {
+  /** The device that HOLDS this login (one of the caller's own). */
+  device: SteerDevice
+  row: AccountChipRow
+  /** What the remove confirm calls this login. Defaults to the login's own
+   *  address/label; a device row passes its chip's text (`Claude Code ·
+   *  dev@acme.test`), so the sentence names exactly what was clicked. */
+  accountLabel?: string
+  /** Open the sign-in for THIS login (`AgentLoginDialogHost` lives at the
+   *  route level; the caller owns the request so this module stays off the
+   *  dialog's import graph). */
+  onSignIn: () => void
+  trigger: ReactNode
 }) {
-  const account: DeviceAgentAccount | null = row?.agentAccounts?.[agent] ?? null
-  const usage = parseAgentUsage(row?.agentUsage?.[agent])
-  // EXP-849: every remaining agent has a device-code flow.
-  const canLogin = online && canAgentLogin
-  const signedIn = account?.signedIn === true
-  const asOf = account?.checkedAt ?? row?.agentUsageAt ?? null
-  // EXP-827: the usage windows moved to the Devices page's Accounts
-  // section; the block only says how old the account report is and links
-  // there. `now` still drives the caption's relative time.
-  void now
-  const hasUsage = (usage?.windows.length ?? 0) > 0
+  const [busy, setBusy] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const actions = accountChipActions(device, row)
+  const deviceLabel = device.deviceLabel || device.deviceId
+
+  const queue = async (
+    kind: `agent_profile_use` | `agent_profile_remove`,
+    failure: string
+  ) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await trpc.devices.createCommand.mutate(
+        {
+          deviceId: device.deviceId,
+          kind,
+          agent: row.agent as never,
+          profileId: row.profileId,
+        },
+        // The surface says what failed in its own words; the global link
+        // would add a second toast on top of it.
+        { context: { skipErrorToast: true } }
+      )
+    } catch (error) {
+      toast.error(failure, {
+        description: trpcErrorMessage(
+          error,
+          `The command could not be queued on the device.`
+        ),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The login dialog is hosted elsewhere in the tree — hand off a tick after
+  // the menu closes, or the close's focus return swallows it.
+  const signIn = () => setTimeout(onSignIn, 0)
 
   return (
-    // EXP-694: the FINAL ROWS of the agent's own glass group — the row rhythm
-    // (16h/12v) is ours, the divider above comes from the group.
-    <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {accountLine(account)}
-        </span>
-        {/* EXP-849: the account's HEALTH, beside the identity — an expired
-            credential still reports signed in, so the line alone never says
-            that Login is the thing to press. */}
-        {signedIn && healthBadgeLabel(agentHealth(account)) && (
-          <span
-            className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500"
-            title={`The last usage probe on this machine was refused — sign in again.`}
-          >
-            {healthBadgeLabel(agentHealth(account))}
-          </span>
-        )}
-        {canLogin && (
-          <Button
-            variant="glass"
-            size="sm"
-            className="shrink-0"
-            disabled={pending}
-            onClick={() => onLogin(agent, signedIn)}
-          >
-            {pending ? (
-              <LoaderCircle className="size-3 animate-spin" />
-            ) : signedIn ? (
-              <SwapIcon className="size-3" />
-            ) : (
-              <SignInIcon className="size-3" />
-            )}
-            {signedIn ? `Switch account` : `Login`}
-          </Button>
-        )}
-        {onOpenUsage && (account || hasUsage) && (
-          <Button
-            variant="glass"
-            size="icon-sm"
-            className="shrink-0 rounded-full"
-            aria-label="Usage"
-            title="Usage"
-            onClick={onOpenUsage}
-          >
-            <UsageIcon />
-          </Button>
-        )}
-      </div>
-      {pending && (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3 animate-spin" />
-          {online
-            ? `Waiting for the sign-in link…`
-            : `This machine is offline — the sign-in runs when it comes online.`}
-        </p>
-      )}
-      {result && (
-        <AgentLoginOutcome
-          result={result}
-          codePending={codePending}
-          onEnterCode={(code) => onEnterCode(agent, code)}
-        />
-      )}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      {codePending && (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3 animate-spin" />
-          Sending the code to the machine…
-        </p>
-      )}
-      {codeResult && (
-        <p className="text-xs text-muted-foreground">{codeResult}</p>
-      )}
-      {codeError && <p className="text-xs text-destructive">{codeError}</p>}
-      {/* EXP-827: no inline usage cards any more (the Usage button above
-          opens the Accounts section); the report age stays as a caption. */}
-      {(usage || account) && asOf && (
-        <p className="text-[11px] text-muted-foreground">
-          as of {relativeTime(asOf)}
-        </p>
-      )}
-    </div>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {actions.includes(ACTION_SIGN_IN) && (
+            <DropdownMenuItem onSelect={signIn}>
+              <SignInIcon />
+              {ACTION_SIGN_IN}
+            </DropdownMenuItem>
+          )}
+          {actions.includes(ACTION_SET_DEFAULT) && (
+            <DropdownMenuItem
+              disabled={busy}
+              onSelect={() =>
+                void queue(
+                  `agent_profile_use`,
+                  `Couldn't switch the account on that device`
+                )
+              }
+            >
+              <SwapIcon />
+              {ACTION_SET_DEFAULT}
+            </DropdownMenuItem>
+          )}
+          {actions.includes(ACTION_REMOVE) && (
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={busy}
+              onSelect={() => setConfirmRemove(true)}
+            >
+              <RemoveIcon />
+              {ACTION_REMOVE}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Destructive, so it asks — and the sentence says in the same breath
+          that only this device's copy of the login goes. */}
+      <AlertDialog
+        open={confirmRemove}
+        onOpenChange={(open) => {
+          if (!open && !busy) setConfirmRemove(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{ACTION_REMOVE}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeAccountConfirmCopy(
+                accountLabel ?? accountChipLabel(row),
+                deviceLabel
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(event) => {
+                event.preventDefault()
+                setConfirmRemove(false)
+                void queue(
+                  `agent_profile_remove`,
+                  `Couldn't remove the account on that device`
+                )
+              }}
+            >
+              {busy && <LoaderCircle className="animate-spin" />}
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

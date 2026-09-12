@@ -1,10 +1,6 @@
 package com.exponential.app.ui.session
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,62 +21,42 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.AgentAccount
-import com.exponential.app.data.api.AgentAccountProfile
 import com.exponential.app.data.api.AgentLaunchDefaults
-import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.DeviceLaunchDefaults
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceWorktreeEntity
-import com.exponential.app.domain.AgentHealth
-import com.exponential.app.domain.AgentHealthRules
-import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.parseAgentLoginResult
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
-import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.agent.AgentPickerPill
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
-import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
@@ -108,30 +83,6 @@ private const val MAX_DEVICE_LABEL = 255
 fun DeviceSettingsSheet(
     device: SteerDevice,
     onDismiss: () -> Unit,
-    /**
-     * EXP-827: where the round Usage button goes — the Devices page's Accounts
-     * section (iOS `onOpenUsage`, web `device-settings-dialog.tsx` `openUsage`).
-     * The numbers live on ONE surface; this sheet dismisses itself first. A host
-     * with nowhere to send the caller (the onboarding wizard) passes nothing and
-     * the button does not render.
-     */
-    onOpenUsage: (() -> Unit)? = null,
-    /**
-     * EXP-849: the agent tab to open on — a machine row's account chip routes
-     * its sign-in HERE (the link, the code field and the waiting state live in
-     * this sheet, and are not re-implemented per surface), so the sheet must
-     * open on the agent whose login is broken. Null = the machine's default
-     * agent, the old behaviour.
-     */
-    initialAgent: String? = null,
-    /**
-     * EXP-849: WHICH of [initialAgent]'s logins the chip named — a machine
-     * holding two claude profiles draws two chips, and opening on the agent
-     * alone would point the sheet's sign-in at the AMBIENT login instead of
-     * the one the caller tapped. `system` (or a profile this machine no longer
-     * reports) means the ambient login, the old behaviour.
-     */
-    initialProfileId: String? = null,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
 ) {
 
@@ -152,19 +103,11 @@ fun DeviceSettingsSheet(
     var nameFocused by remember { mutableStateOf(false) }
     var editableAgents by remember { mutableStateOf(editableAgents(device)) }
     var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
-    var agentTab by remember {
-        mutableStateOf(initialAgent?.takeIf { it in editableAgents } ?: defaultAgent)
-    }
+    var agentTab by remember { mutableStateOf(defaultAgent) }
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
     var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
-    // Codex's logout revokes the token server-side, so switching accounts
-    // there is confirmed first (EXP-484); claude just re-runs its login.
-    // EXP-849: only the AMBIENT login button signs out before signing in — a
-    // profile chip's sign-in lands in that profile's own config dir — so the
-    // confirm names the agent and nothing else.
-    var switchConfirm by remember { mutableStateOf<String?>(null) }
 
     // Live reseeds. The name only re-seeds while the field is idle, the
     // defaults only while nothing of theirs is queued or in flight — otherwise
@@ -315,26 +258,40 @@ fun DeviceSettingsSheet(
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                 )
             }
+            // EXP-862: the SHARED agent picker — the same icon-only trigger
+            // the composer's options row wears, so "which agent" looks the
+            // same wherever it is asked.
             OptionGroup {
-                PickerRow(
-                    label = "Default agent",
-                    value = agentLabel(defaultAgent),
-                    options = editableAgents,
-                    selected = defaultAgent,
-                    optionLabel = ::agentLabel,
-                    onSelect = {
-                        defaultAgent = it
-                        viewModel.queueDefaults(
-                            device.deviceId,
-                            buildDefaults(it, editableAgents, drafts),
-                        )
-                    },
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Default agent",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    AgentPickerPill(
+                        agent = defaultAgent,
+                        agents = editableAgents,
+                        onSelect = {
+                            defaultAgent = it
+                            viewModel.queueDefaults(
+                                device.deviceId,
+                                buildDefaults(it, editableAgents, drafts),
+                            )
+                        },
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
             // EXP-694: the SAME agent card every launch surface renders — the
-            // embedded agent tabs, model/effort, the toggles and this agent's
-            // account/usage, in one inset-grouped card.
+            // embedded agent tabs, model/effort and the toggles, in one
+            // inset-grouped card. EXP-862: NO accounts or usage in here — those
+            // belong to Devices → Accounts, the one surface that owns them.
             val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
             LaunchOptionsSection(
                 variant = LaunchOptionsVariant.Device,
@@ -356,80 +313,6 @@ fun DeviceSettingsSheet(
                 planMode = draft.planMode,
                 onPlanModeChange = { next ->
                     editDraft(agentTab) { it.copy(planMode = next) }
-                },
-                // EXP-688: the machine's sign-in and usage for THIS agent
-                // live in the agent's own card — the standalone "Agents"
-                // section repeated the agent list a second time.
-                accountSlot = {
-                    // EXP-849: the login the routing chip named, while the tab
-                    // is still the agent it belongs to and the machine still
-                    // reports it. The ambient login is the header button's own
-                    // target, so `system` is simply null here.
-                    val chipProfileId = initialProfileId
-                        ?.takeIf { agentTab == initialAgent && it != SYSTEM_PROFILE_ID }
-                        ?.takeIf { id ->
-                            device.agentAccounts?.get(agentTab)?.profiles.orEmpty()
-                                .any { it.id == id }
-                        }
-                    AgentAccountBlock(
-                        agent = agentTab,
-                        loginProfileId = chipProfileId,
-                        onOpenUsage = onOpenUsage?.let {
-                            {
-                                onDismiss()
-                                it()
-                            }
-                        },
-                        account = device.agentAccounts?.get(agentTab),
-                        usage = device.agentUsage?.get(agentTab),
-                        usageAt = device.agentUsageAt,
-                        state = commandStates[agentLoginCommandKey(agentTab)],
-                        codeState = commandStates[agentLoginCodeCommandKey(agentTab)],
-                        // The command opens a login flow ON the machine and
-                        // publishes its URL back, so it needs a machine that is
-                        // ours, online, and new enough to advertise the cap.
-                        // EXP-849: every remaining agent signs in remotely (pi,
-                        // the one exception, is gone).
-                        canLogin = device.online && device.canAgentLogin && device.isMine,
-                        onLogin = { switchAccount, profileId ->
-                            if (switchAccount && agentTab == "codex") {
-                                switchConfirm = agentTab
-                            } else {
-                                viewModel.agentLogin(
-                                    device.deviceId,
-                                    agentTab,
-                                    switchAccount,
-                                    device.online,
-                                    profileId,
-                                )
-                            }
-                        },
-                        // EXP-765: claude's login URL carries `code=true`, so
-                        // the browser hands back a code the waiting CLI still
-                        // wants. Same gate as the login itself.
-                        canEnterCode = device.online && device.isMine,
-                        onEnterCode = { code ->
-                            viewModel.agentLoginCode(
-                                device.deviceId,
-                                agentTab,
-                                code,
-                                device.online,
-                            )
-                        },
-                        // EXP-849: "Use this account here" — `agent_profile_use`,
-                        // never a sign-in: a codex logout would revoke the token
-                        // server-side, and nothing about pointing the machine at
-                        // a login it already holds needs a credential.
-                        onUseHere = { profileId ->
-                            viewModel.agentProfileUse(
-                                device.deviceId,
-                                agentTab,
-                                profileId,
-                                device.online,
-                            )
-                        },
-                        useHereState = commandStates[agentProfileUseCommandKey(agentTab)],
-                    )
                 },
             )
             ErrorCaption(defaultsError)
@@ -459,6 +342,7 @@ fun DeviceSettingsSheet(
                             onClick = {
                                 viewModel.pruneWorktrees(device.deviceId, device.online)
                             },
+                            borderless = true,
                         )
                     }
                 }
@@ -493,35 +377,6 @@ fun DeviceSettingsSheet(
             }
             Spacer(Modifier.height(24.dp))
         }
-    }
-
-    switchConfirm?.let { agent ->
-        AlertDialog(
-            onDismissRequest = { switchConfirm = null },
-            title = { Text("Switch ${agentLabel(agent)} account?") },
-            text = {
-                Text(
-                    "Codex logout revokes the token server-side. You'll sign in " +
-                        "again on that machine.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.agentLogin(
-                            device.deviceId,
-                            agent,
-                            switchAccount = true,
-                            deviceOnline = device.online,
-                        )
-                        switchConfirm = null
-                    },
-                ) { Text("Switch account") }
-            },
-            dismissButton = {
-                TextButton(onClick = { switchConfirm = null }) { Text("Cancel") }
-            },
-        )
     }
 
     removeTarget?.let { worktree ->
@@ -630,430 +485,6 @@ private fun WorktreeRow(
             }
         }
         CommandCaption(state)
-    }
-}
-
-/**
- * One agent's account + usage inside that agent's card (EXP-484/EXP-688): who
- * is signed in on that machine, the button that asks the machine to run the
- * agent's OWN sign-in flow, and its usage cards while the numbers are fresh.
- * No credential is ever carried here — the machine publishes a login URL and
- * the user finishes on whatever device they are holding.
- */
-@Composable
-private fun AgentAccountBlock(
-    agent: String,
-    /**
-     * EXP-849: a named profile the header sign-in targets instead of the
-     * machine's ambient login — set when a machine-row chip routed its repair
-     * into this sheet. Null = the ambient login, the ordinary case.
-     */
-    loginProfileId: String?,
-    /** EXP-827: opens Devices → Accounts; null = this host has no such page. */
-    onOpenUsage: (() -> Unit)?,
-    account: AgentAccount?,
-    usage: AgentUsage?,
-    usageAt: String?,
-    state: DeviceCommandUiState?,
-    /** EXP-765: the `agent_login_code` command's own state, captioned under the link. */
-    codeState: DeviceCommandUiState?,
-    canLogin: Boolean,
-    canEnterCode: Boolean,
-    onEnterCode: (String) -> Unit,
-    /** (switchAccount, profileId) — `null` profile = the machine's ambient login. */
-    onLogin: (Boolean, String?) -> Unit,
-    /** EXP-849: `agent_profile_use` — the non-destructive active-login pick. */
-    onUseHere: (String) -> Unit,
-    /** That pick's own command state, captioned under the chips. */
-    useHereState: DeviceCommandUiState?,
-) {
-    val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
-    // EXP-827: whether this machine reported any windows at all for the agent —
-    // what makes the Usage button worth offering (iOS `hasUsage`). Freshness is
-    // the Accounts section's call, not this sheet's: the button navigates.
-    val hasUsage = usage?.windows?.isNotEmpty() == true
-    Column(modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                // The card already names the agent — this line is about the
-                // account, so it drops the `claude · ` prefix the old Agents
-                // section needed.
-                when {
-                    account == null -> "Sign-in status unknown"
-                    !account.signedIn -> "Not signed in"
-                    else -> AgentUsagePresentation.accountCaption(account)
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            // EXP-849: what the machine's usage probe says about the
-            // credential — the one thing the identity line cannot express (a
-            // CLI that still claims to be signed in with a dead token).
-            AgentHealthRules.badgeLabel(AgentHealthRules.of(account))?.let { badge ->
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    badge,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = com.exponential.app.ui.issue.NeedsInputAmber,
-                    maxLines = 1,
-                )
-            }
-            // EXP-827: the numbers are not this sheet's job any more — a round
-            // Usage button lands on the ONE surface that owns them (Devices →
-            // Accounts, EXP-829). A second copy of the bars in here was the same
-            // numbers twice, and a stale set beside a live machine read as
-            // current.
-            if (onOpenUsage != null && (account != null || hasUsage)) {
-                Spacer(Modifier.width(8.dp))
-                CircleIconButton(
-                    ExpIcons.uiUsage,
-                    contentDescription = "Usage",
-                    onClick = onOpenUsage,
-                    modifier = Modifier.testTag("device-usage-button"),
-                )
-            }
-            when {
-                busy -> CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                canLogin -> {
-                    // The header button is about the machine's AMBIENT login —
-                    // unless a machine-row chip routed a repair here naming one
-                    // of the agent's other logins, which the button then
-                    // targets: a PROFILE sign-in lands in that profile's own
-                    // config dir, so it is never the logout-first switch (a
-                    // codex logout would revoke the token server-wide).
-                    val target = loginProfileId?.let { id ->
-                        account?.profiles.orEmpty().firstOrNull { it.id == id }
-                    }
-                    val switching = account?.signedIn == true && target == null
-                    Spacer(Modifier.width(8.dp))
-                    GlassPill(
-                        if (switching) "Switch account" else "Login",
-                        onClick = { onLogin(switching, target?.id) },
-                        icon = if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,
-                        contentDescription = target?.let {
-                            val label = it.label?.trim()?.takeIf { l -> l.isNotEmpty() } ?: it.id
-                            "Sign in to $label on this machine"
-                        },
-                    )
-                }
-            }
-        }
-        // EXP-849: every login this machine holds for the agent, as chips —
-        // the SETUP/REPAIR surface (the Accounts section decides, this fixes).
-        // A chip wears the active check or its health warning, and its menu is
-        // the repair: re-login a dead credential, sign a missing one in, make
-        // a healthy one the machine's login, or swap the active one out.
-        val profiles = account?.profiles.orEmpty()
-        if (profiles.size >= 2 || (profiles.size == 1 && profiles.first().id != SYSTEM_PROFILE_ID)) {
-            Spacer(Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                profiles.forEach { profile ->
-                    AgentProfileChip(
-                        profile = profile,
-                        busy = busy,
-                        canLogin = canLogin,
-                        onLogin = onLogin,
-                        onUseHere = onUseHere,
-                    )
-                }
-            }
-            // The pick's outcome belongs under the chips that triggered it —
-            // the material answer (the check moving) arrives on the heartbeat.
-            CommandCaption(useHereState)
-        }
-        LoginResultCaption(
-            agent = agent,
-            state = state,
-            codeState = codeState,
-            canEnterCode = canEnterCode,
-            onEnterCode = onEnterCode,
-        )
-        // EXP-765: outside the link block on purpose — a Done code command
-        // retires the link (the sign-in it belonged to is over), and its
-        // outcome still has to be readable after that.
-        if (codeState is DeviceCommandUiState.Sending ||
-            codeState is DeviceCommandUiState.Running
-        ) {
-            Text(
-                "Sending the code to the machine…",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        } else {
-            CommandCaption(codeState)
-        }
-        if (usage != null || account != null) {
-            // How old what this block knows is — the only honest thing to say
-            // beside a number nobody is watching refresh (EXP-827: the numbers
-            // themselves are a tap away, so the caption stands on its own).
-            (account?.checkedAt ?: usageAt)?.let { at ->
-                val relative = relativeTime(at)
-                if (relative.isNotEmpty()) {
-                    Text(
-                        "as of $relative",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Tertiary,
-                        ),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * EXP-849: one of the machine's logins for an agent, as a chip with its repair
- * menu. The chip says which login it is (its label, `Default` for the ambient
- * one), whether it is the machine's ACTIVE login, and its health; the menu is
- * the one thing this machine owes it. Disabled wholesale on a machine that
- * cannot run a sign-in (offline, or too old for the `agent-login` cap) — then
- * the chip is a read-only statement of what the machine holds.
- */
-@Composable
-private fun AgentProfileChip(
-    profile: AgentAccountProfile,
-    busy: Boolean,
-    canLogin: Boolean,
-    onLogin: (Boolean, String?) -> Unit,
-    /** EXP-849: make this already-signed-in login the machine's active one. */
-    onUseHere: (String) -> Unit,
-) {
-    val health = AgentHealthRules.of(profile)
-    val badge = AgentHealthRules.badgeLabel(health)
-    val label = profile.label?.trim()?.takeIf { it.isNotEmpty() }
-        ?: if (profile.id == SYSTEM_PROFILE_ID) "Default" else profile.id
-    val caption = buildString {
-        append(label)
-        profile.email?.trim()?.takeIf { it.isNotEmpty() }?.let { append(" · ").append(it) }
-        if (profile.active) append(", active here")
-        badge?.let { append(", ").append(it.lowercase()) }
-    }
-    var menuOpen by remember { mutableStateOf(false) }
-    val chip: @Composable () -> Unit = {
-        GlassPill(
-            label,
-            size = PillSize.Sm,
-            onClick = if (canLogin) {
-                { menuOpen = true }
-            } else {
-                null
-            },
-            trailing = when {
-                busy -> null
-                profile.active && health == AgentHealth.Ok -> {
-                    {
-                        Icon(
-                            ExpIcons.uiCheck,
-                            contentDescription = "Active on this machine",
-                            tint = com.exponential.app.ui.issue.ReviewGreen,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-                badge != null -> {
-                    {
-                        Icon(
-                            ExpIcons.uiWarning,
-                            contentDescription = badge,
-                            tint = com.exponential.app.ui.issue.NeedsInputAmber,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-                else -> null
-            },
-            enabled = !busy,
-            contentDescription = caption,
-            modifier = Modifier.testTag("agent-profile-chip"),
-        )
-    }
-    if (!canLogin) {
-        chip()
-        return
-    }
-    Box {
-        chip()
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            val usable = profile.signedIn && health != AgentHealth.SignedOut &&
-                health != AgentHealth.NeedsRelogin
-            // EXP-849: pointing the machine at a login it already holds is its
-            // OWN command (`agent_profile_use`) — no credential is touched and
-            // nothing is signed out. Only a sign-in goes through `agent_login`.
-            if (usable && !profile.active) {
-                GlassMenuItem(
-                    text = { Text("Use this account here") },
-                    leadingIcon = { Icon(ExpIcons.uiSwap, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onUseHere(profile.id)
-                    },
-                )
-            }
-            // NEVER the logout-first form: a PROFILE sign-in lands in that
-            // profile's own config dir, so there is nothing to sign out (and a
-            // codex logout would revoke the token server-wide). The logout
-            // switch belongs to the AMBIENT login button above, which confirms
-            // first. Web `MachineAccountChip` parity.
-            val entry = when {
-                health == AgentHealth.NeedsRelogin -> "Re-login"
-                !usable -> "Sign in"
-                else -> "Sign in again"
-            }
-            GlassMenuItem(
-                text = { Text(entry) },
-                leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    onLogin(false, profile.id)
-                },
-            )
-        }
-    }
-}
-
-/**
- * What a queued `agent_login` command is doing (EXP-484). A completed one
- * publishes JSON — the machine's login URL, plus codex's device code — which
- * renders as an openable link and a copyable code; anything else (queued,
- * failed, a result that isn't a login publication) falls through to the
- * ordinary command caption.
- *
- * EXP-765: a link WITHOUT a code is claude's (`code=true` — the browser shows
- * the code and the CLI on the machine is still waiting for it), so when the
- * machine can take it back the link gets a field and an "Enter code" pill; the
- * `agent_login_code` command's own progress captions right below.
- */
-@Composable
-internal fun LoginResultCaption(
-    agent: String,
-    state: DeviceCommandUiState?,
-    codeState: DeviceCommandUiState?,
-    canEnterCode: Boolean,
-    onEnterCode: (String) -> Unit,
-) {
-    val login = (state as? DeviceCommandUiState.Done)?.let { parseAgentLoginResult(it.message) }
-    when {
-        state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running ->
-            Text(
-                "Waiting for the sign-in link…",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        login != null -> {
-            val uriHandler = LocalUriHandler.current
-            val clipboard = LocalClipboardManager.current
-            Spacer(Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().clickable { uriHandler.openUri(login.url) },
-            ) {
-                Icon(
-                    ExpIcons.uiExternalLink,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    login.url,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            login.code?.let { code ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        code,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) {
-                        Icon(
-                            ExpIcons.uiCopy,
-                            contentDescription = "Copy code",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
-                            ),
-                        )
-                    }
-                }
-            }
-            // Only the codeless (claude) flow returns a code to us; codex's is
-            // typed into the browser, so nothing comes back and nothing is
-            // offered here.
-            val returnsCode = login.code == null && canEnterCode
-            Text(
-                when {
-                    login.code != null ->
-                        "Open the link on any device and enter the code on the machine."
-                    returnsCode ->
-                        "Open the link on any device, then paste the code it shows here."
-                    else -> "Open the link on any device."
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            if (returnsCode) {
-                // Per agent: switching tabs must not carry a half-typed code
-                // over to another agent's sign-in.
-                key(agent) {
-                    var draft by rememberSaveable(agent) { mutableStateOf("") }
-                    val sending = codeState is DeviceCommandUiState.Sending ||
-                        codeState is DeviceCommandUiState.Running
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        GlassTextField(
-                            value = draft,
-                            onValueChange = { draft = it },
-                            placeholder = "Code from the browser",
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                autoCorrectEnabled = false,
-                                capitalization = KeyboardCapitalization.None,
-                            ),
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        GlassPill(
-                            "Enter code",
-                            onClick = {
-                                val code = draft.trim()
-                                if (code.isNotEmpty() && !sending) {
-                                    onEnterCode(code)
-                                    draft = ""
-                                }
-                            },
-                            icon = ExpIcons.uiSignIn,
-                            enabled = draft.isNotBlank() && !sending,
-                            loading = sending,
-                        )
-                    }
-                }
-            }
-        }
-        else -> CommandCaption(state)
     }
 }
 

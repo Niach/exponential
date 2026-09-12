@@ -61,6 +61,8 @@ mod emoji;
 mod emoji_picker;
 pub mod diff;
 mod diff_pane;
+// EXP-862: the dragged-chrome prefs file ({data_dir}/ui-prefs.json).
+mod ui_prefs;
 mod file_tree;
 mod file_viewer;
 mod getting_started;

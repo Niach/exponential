@@ -298,31 +298,143 @@ object AgentAccountsRows {
         return "${agentLabel(chip.agent)} · $who"
     }
 
+    /** The cap a machine must advertise before "Remove account" is offered. */
+    const val REMOVE_CAP = "account-remove"
+
+    /** The chip menu's three entries, byte-identical ×4. */
+    const val ACTION_SIGN_IN = "Sign in"
+    const val ACTION_SET_DEFAULT = "Set as default"
+    const val ACTION_REMOVE = "Remove account"
+
     /**
-     * EXP-849: the ONE repair a machine owes a login, as the chip menu's lead
-     * entry — a healthy login the machine is not using simply BECOMES its
-     * login (`agent_profile_use`, no credential touched), everything else is a
-     * sign-in. Byte-identical with web `MachineAccountChip`.
+     * EXP-862: what a login's chip menu offers, on a machine row or on an
+     * account row — the SAME three rules on every client:
+     *  - signed out, or a credential that expired here: a sign-in, nothing else;
+     *  - healthy and not the machine's login: make it the default, or remove it;
+     *  - healthy and already the default: remove it.
      *
-     * [canSwitchAccount] is the machine's `account-switch` cap
-     * ([SteerDevice.canSwitchAccount]): the server REFUSES `agent_profile_use`
-     * without it (it shipped in desktop/CLI 0.14.38, above the fleet floor),
-     * so a machine that cannot take the pick never offers it — its logins fall
-     * through to the sign-in, which every `agent-login` build can run.
+     * An empty list means the chip is a statement, not a control (a machine
+     * that is offline, a teammate's, or too old to take any of the commands).
+     *
+     * [canSwitchAccount] is the machine's `account-switch` cap and
+     * [canRemoveAccount] its `account-remove` one: the server refuses either
+     * command without it, so an older machine simply does not offer that entry.
+     * The AMBIENT login ([SYSTEM_PROFILE_ID]) can never be removed — it is the
+     * agent CLI's own config dir, which Exponential never created.
      */
-    fun chipAction(chip: DeviceAccountChip, canSwitchAccount: Boolean): String = when {
-        !chip.signedIn -> "Sign in"
-        chip.health == AgentHealth.NeedsRelogin -> "Re-login"
-        chip.active || !canSwitchAccount -> "Sign in again"
-        else -> "Use this account here"
+    fun chipActions(
+        signedIn: Boolean,
+        health: AgentHealth,
+        active: Boolean,
+        profileId: String,
+        canSwitchAccount: Boolean,
+        canRemoveAccount: Boolean,
+    ): List<String> {
+        if (!signedIn || health == AgentHealth.NeedsRelogin) return listOf(ACTION_SIGN_IN)
+        val out = mutableListOf<String>()
+        if (!active && canSwitchAccount) out += ACTION_SET_DEFAULT
+        if (canRemoveAccount && profileId.isNotBlank() && profileId != SYSTEM_PROFILE_ID) {
+            out += ACTION_REMOVE
+        }
+        return out
     }
 
-    /** Whether [chipAction] is the non-destructive active-login pick. */
-    fun chipSwitchesTo(chip: DeviceAccountChip, canSwitchAccount: Boolean): Boolean =
-        canSwitchAccount &&
-            chip.signedIn &&
-            !chip.active &&
-            chip.health != AgentHealth.NeedsRelogin
+    /** [chipActions] for a machine row's chip. */
+    fun chipActions(
+        chip: DeviceAccountChip,
+        canSwitchAccount: Boolean,
+        canRemoveAccount: Boolean,
+    ): List<String> = chipActions(
+        signedIn = chip.signedIn,
+        health = chip.health,
+        active = chip.active,
+        profileId = chip.profileId,
+        canSwitchAccount = canSwitchAccount,
+        canRemoveAccount = canRemoveAccount,
+    )
+
+    /** [chipActions] for an account row's machine chip. */
+    fun chipActions(
+        row: AgentProfileUsageRow,
+        canSwitchAccount: Boolean,
+        canRemoveAccount: Boolean,
+    ): List<String> = chipActions(
+        signedIn = row.signedIn,
+        health = row.health,
+        active = row.active,
+        profileId = row.profileId,
+        canSwitchAccount = canSwitchAccount,
+        canRemoveAccount = canRemoveAccount,
+    )
+
+    /**
+     * The confirm "Remove account" asks, pinned ×4 (web
+     * `removeAccountConfirmCopy`): it names the login and the machine, and says
+     * in the same breath that the ACCOUNT survives — only this machine's copy
+     * of the login goes.
+     */
+    fun removeAccountConfirm(accountLabel: String, deviceLabel: String): String =
+        "Delete $accountLabel on $deviceLabel? The login is removed from this device " +
+            "only; the account itself is untouched."
+
+    /**
+     * EXP-827/EXP-862: the machines a sign-in can be queued on right now — the
+     * caller's OWN, online, advertising `agent-login`, and running [agent] when
+     * one is named. [exclude] drops the machines that already hold the account
+     * (the per-account `+` chip offers the rest). Web `addAccountDevices`.
+     */
+    fun addAccountDevices(
+        devices: List<SteerDevice>,
+        agent: String? = null,
+        exclude: Set<String> = emptySet(),
+    ): List<SteerDevice> = devices.filter { device ->
+        device.isMine &&
+            device.online &&
+            device.canAgentLogin &&
+            device.deviceId !in exclude &&
+            if (agent != null) agent in addableAgents(device) else addableAgents(device).isNotEmpty()
+    }
+
+    /**
+     * The agents an "Add account" flow may sign in on the machine: every
+     * INSTALLED one, runnable or signed out (EXP-849: all remaining agents have
+     * a device-code flow), in contract order.
+     */
+    fun addableAgents(device: SteerDevice): List<String> {
+        val installed = buildSet {
+            addAll(device.agents.orEmpty())
+            addAll(device.unauthedAgents)
+        }
+        return DomainContract.codingAgentValues.filter { it in installed }
+    }
+
+    /**
+     * Where a new login lands on a machine (web `addAccountLoginTarget`): the
+     * AMBIENT login while it is still signed out — nothing to keep beside it —
+     * otherwise a new profile carrying [label], which the machine creates.
+     * Exactly one of the two is ever set.
+     */
+    data class LoginTarget(val profileId: String?, val newProfileLabel: String?)
+
+    fun addAccountLoginTarget(device: SteerDevice, agent: String, label: String): LoginTarget {
+        val account = device.agentAccounts?.get(agent)
+        val ambient = account?.profiles.orEmpty().firstOrNull { it.id == SYSTEM_PROFILE_ID }
+        val ambientSignedIn = ambient?.signedIn ?: (account?.signedIn == true)
+        return if (ambientSignedIn) {
+            LoginTarget(profileId = null, newProfileLabel = label)
+        } else {
+            LoginTarget(profileId = SYSTEM_PROFILE_ID, newProfileLabel = null)
+        }
+    }
+
+    /**
+     * `Claude Code account 2` — one past the logins the machine reports for the
+     * agent (the ambient one counts as the first). Web `nextProfileLabel`.
+     */
+    fun nextProfileLabel(device: SteerDevice, agent: String, agentLabel: String): String {
+        val held = device.agentAccounts?.get(agent)?.profiles.orEmpty().size.coerceAtLeast(1)
+        return "$agentLabel account ${held + 1}"
+    }
 
     /** The fullest window's percent, or 0 for a row with no usage at all. */
     fun peakPercent(usage: AgentUsage?): Int =
@@ -467,22 +579,28 @@ object AgentAccountsRows {
     }
 
     /**
-     * The row's identity line: `Not signed in`, else the email, else the
-     * plan (an agent may report a provider, never an address), else `signed in`.
+     * The row's identity line: WHO the account is — the email, else the plan
+     * (an agent may report a provider, never an address), else the login's own
+     * label.
+     *
+     * EXP-862: never a STATUS. A signed-out account used to title itself "Not
+     * signed in", which said the same thing as the chip's badge one line down
+     * and buried the only identifying thing the row had; the chip badge is now
+     * the single signed-out notice ×4.
      */
-    fun caption(group: AgentAccountUsageGroup): String = when {
-        !group.signedIn -> "Not signed in"
-        else -> group.email ?: group.plan ?: "signed in"
-    }
+    fun caption(group: AgentAccountUsageGroup): String =
+        group.email
+            ?: group.plan
+            ?: group.rows.firstOrNull()?.profileLabel
+            ?: SYSTEM_PROFILE_LABEL
 
     /**
      * EXP-849: the account row's health badge, or null when there is nothing
-     * to say. A signed-OUT row already says so in its [caption], so the badge
-     * there would only repeat it — the one badge an account row wears is the
-     * expired credential the caption cannot express.
+     * to say. EXP-862: a signed-OUT row wears "Signed out" here too — the
+     * caption no longer carries any status, so the badge is the whole notice.
      */
     fun healthBadge(group: AgentAccountUsageGroup): String? =
-        if (!group.signedIn) null else AgentHealthRules.badgeLabel(group.health)
+        AgentHealthRules.badgeLabel(group.health)
 
     private fun nonEmpty(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
 

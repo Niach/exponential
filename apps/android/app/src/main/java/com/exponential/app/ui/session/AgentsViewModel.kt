@@ -10,6 +10,7 @@ import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.agentProfileRemoveCommand
 import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
@@ -260,7 +261,7 @@ class AgentsViewModel @Inject constructor(
     val accountCommandStates: StateFlow<Map<String, DeviceCommandUiState>> = _accountCommandStates
 
     /**
-     * EXP-849: "Use this account here" — make this already-signed-in login
+     * EXP-849/EXP-862 "Set as default" — make this already-signed-in login
      * [device]'s ACTIVE one (`agent_profile_use`). No credential is touched
      * and nothing is signed out; the machine re-reports `agent_accounts` on
      * its next heartbeat, which is what moves the chip's check.
@@ -270,14 +271,46 @@ class AgentsViewModel @Inject constructor(
      * server-wide.
      */
     fun useAccountHere(device: SteerDevice, chip: DeviceAccountChip) {
+        setAccountDefault(device, chip.agent, chip.profileId)
+    }
+
+    /**
+     * EXP-862 "Set as default" — the same `agent_profile_use` command, called
+     * from either surface (a machine row's chip or an account row's machine
+     * chip), so both caption in the same keyed slot.
+     */
+    fun setAccountDefault(device: SteerDevice, agent: String, profileId: String) {
         if (!device.isMine || !device.online) return
-        val key = deviceAccountCommandKey(device.deviceId, chip)
+        val key = accountCommandKey(device.deviceId, agent, profileId)
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runDeviceCommand(
                 devicesApi,
                 accountId,
-                agentProfileUseCommand(device.deviceId, chip.agent, chip.profileId),
+                agentProfileUseCommand(device.deviceId, agent, profileId),
+                device.online,
+            ) { state ->
+                _accountCommandStates.value = _accountCommandStates.value + (key to state)
+            }
+        }
+    }
+
+    /**
+     * EXP-862 "Remove account" — the machine deletes ITS copy of the login
+     * (`agent_profile_remove`): the profile's config dir and its index row. The
+     * account itself is untouched, which is what the confirm says. Owner + online
+     * + both caps, all of which the server re-checks; the ambient login is never
+     * offered, so it can never arrive here.
+     */
+    fun removeAccountHere(device: SteerDevice, agent: String, profileId: String) {
+        if (!device.isMine || !device.online) return
+        val key = accountCommandKey(device.deviceId, agent, profileId)
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runDeviceCommand(
+                devicesApi,
+                accountId,
+                agentProfileRemoveCommand(device.deviceId, agent, profileId),
                 device.online,
             ) { state ->
                 _accountCommandStates.value = _accountCommandStates.value + (key to state)
@@ -591,7 +624,15 @@ fun accountSections(
  * otherwise share one spinner and one error.
  */
 internal fun deviceAccountCommandKey(deviceId: String, chip: DeviceAccountChip): String =
-    "$deviceId:${chip.key}"
+    accountCommandKey(deviceId, chip.agent, chip.profileId)
+
+/**
+ * EXP-862: the same slot, addressed by its parts — an ACCOUNT row's machine
+ * chip names a device × agent × profile without ever building a
+ * [DeviceAccountChip], and both surfaces must caption in one place.
+ */
+internal fun accountCommandKey(deviceId: String, agent: String, profileId: String): String =
+    "$deviceId:$agent:$profileId"
 
 /** How many finished rows the DAO pulls before the pure filter narrows them. */
 const val PAST_RUN_QUERY_LIMIT = 50

@@ -69,6 +69,54 @@ describe(`SessionDiffPane`, () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  it(`the scope chip names the turn and takes the pane back to all changes`, () => {
+    const onClearScope = vi.fn()
+    const { rerender } = render(
+      <SessionDiffPane
+        sessionId="sess-1"
+        files={[file(`src/a.ts`)]}
+        selected="src/a.ts"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    // No scope: no chip at all.
+    expect(screen.queryByTestId(`session-diff-scope`)).toBeNull()
+    rerender(
+      <SessionDiffPane
+        sessionId="sess-1"
+        files={[file(`src/a.ts`)]}
+        selected="src/a.ts"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        scopeLabel={`This turn: 1 file`}
+        onClearScope={onClearScope}
+      />
+    )
+    const chip = screen.getByTestId(`session-diff-scope`)
+    expect(chip.textContent).toBe(`This turn: 1 file`)
+    expect(chip.getAttribute(`title`)).toBe(`Show all changes`)
+    fireEvent.click(chip)
+    expect(onClearScope).toHaveBeenCalledOnce()
+  })
+
+  it(`its header buttons are borderless ghosts (EXP-862)`, () => {
+    render(
+      <SessionDiffPane
+        sessionId="sess-1"
+        files={[file(`src/a.ts`), file(`src/b.ts`)]}
+        selected={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    for (const label of [`Show the file list`, `Close the changes pane`]) {
+      const button = screen.getByLabelText(label)
+      expect(button.getAttribute(`data-variant`)).toBe(`ghost`)
+      expect(button.getAttribute(`data-size`)).toBe(`icon-sm`)
+    }
+  })
+
   it(`the file list is a toggle, and only with more than one file`, () => {
     const onSelect = vi.fn()
     const { rerender } = render(

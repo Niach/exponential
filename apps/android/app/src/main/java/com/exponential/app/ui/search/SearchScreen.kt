@@ -72,7 +72,7 @@ fun SearchScreen(
                     .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
+                CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, borderless = true)
                 Spacer(Modifier.width(12.dp))
                 Text(
                     "Search",

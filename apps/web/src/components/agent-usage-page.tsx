@@ -11,24 +11,25 @@
 //
 // EXP-849: the page is the DECISION surface (which login to run on), the
 // Devices list the setup/repair one — so a card badges its login's HEALTH
-// ("Needs re-login" is not "Signed out") while the repair controls live on the
-// machine that holds it, and the cards sit behind one tab per agent rather
-// than stacking codex's rows on top of claude's.
+// ("Needs re-login" is not "Signed out"), and the cards sit behind one tab per
+// agent rather than stacking codex's rows on top of claude's.
 //
-// "Refresh" queues `agent_usage_refresh` on one of MY machines that runs it
-// (cap `agent-usage-refresh`), never more often than the device's own
-// rate-limit floor. EXP-817: while the page is open it does that BY ITSELF
-// for every account whose freshest report is past the floor, so the numbers
-// on screen are never older than ~5 minutes on a machine that answers.
+// EXP-862: the page refreshes ITSELF and says so nowhere. While it is open,
+// every account whose freshest report is past the device's own rate-limit
+// floor gets ONE `agent_usage_refresh` queued on a machine that runs it (cap
+// `agent-usage-refresh`), so the numbers on screen are never older than ~5
+// minutes on a machine that answers — no refresh button, no "Refreshes every
+// 5 minutes" caption to read past.
+//
+// The device chips carry the SAME three-state menu the device rows do
+// (Sign in / Set as default / Remove account, `AccountChipMenu`): a person
+// looking at an account here should not have to go find its device row.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
-import { toast } from "sonner"
 import { contract } from "@exp/domain-contract"
 import type { Device } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
 import { deviceCollection } from "@/lib/collections"
 import {
   accountUsageGroups,
@@ -37,6 +38,7 @@ import {
   refreshAllowedAt,
   sortAccountGroupsAttentionFirst,
   usageIsFresh,
+  usageState,
   SYSTEM_PROFILE_ID,
   type AgentAccountUsageGroup,
   type AgentProfileUsageRow,
@@ -48,6 +50,10 @@ import {
 } from "@/lib/steer-devices"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { AddAccountDialog } from "@/components/add-account-dialog"
+import {
+  AccountChipMenu,
+  accountChipActionable,
+} from "@/components/device-agent-account"
 import {
   addAccountBlockReason,
   addAccountDevices,
@@ -61,15 +67,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useNow } from "@/hooks/use-now"
-import { AgentUsageCards, agentLabel } from "@/components/agent-usage-bar"
+import { AgentUsageCards } from "@/components/agent-usage-bar"
+import { AgentPickerTabs, agentLabel } from "@/components/agent-picker"
 import { relativeTime } from "@/components/comment-rows/format"
-import { Button } from "@/components/ui/button"
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { Pill } from "@/components/ui/pill"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-const RefreshIcon = conceptIcon(`ui-refresh`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const CheckIcon = conceptIcon(`ui-check`)
 const SignInIcon = conceptIcon(`ui-sign-in`)
@@ -93,15 +97,12 @@ const OFFLINE_DOT = `color-mix(in oklab, var(--color-muted-foreground) 40%, tran
  *  check where the account is the ACTIVE login and open a sign-in / switch
  *  menu on one of the caller's own machines (`AgentLoginDialog`). */
 export function AgentAccountsSection({
-  teamSlug,
   teamId,
   currentUserId,
 }: {
-  teamSlug: string
   teamId: string
   currentUserId: string
 }) {
-  void teamSlug
   // Every synced row: own machines + the servers teammates shared with the
   // team (the shape is already server-scoped to exactly that).
   const { data: deviceRows } = useLiveQuery((query) =>
@@ -193,7 +194,11 @@ export function AgentAccountsSection({
     if (changed) setRefreshing(next)
   }, [groups, refreshing, now])
 
-  const refresh = async (group: AgentAccountUsageGroup, silent: boolean) => {
+  // EXP-862: the ONLY refresh path is the page's own — it fails QUIETLY. A
+  // command still queued from the last round answers CONFLICT, and the next
+  // tick simply looks again; the global error toast is skipped for the same
+  // reason.
+  const refresh = async (group: AgentAccountUsageGroup) => {
     const target = group.refreshTarget
     if (!target) return
     setRefreshing((current) => ({
@@ -201,26 +206,20 @@ export function AgentAccountsSection({
       [group.key]: { fetchedAt: group.usage?.fetchedAt ?? null, at: Date.now() },
     }))
     try {
-      await trpc.devices.createCommand.mutate({
-        deviceId: target.deviceId,
-        kind: `agent_usage_refresh`,
-        agent: target.agent as (typeof contract.codingAgent.values)[number],
-        profileId: target.profileId,
-      })
-    } catch (error) {
+      await trpc.devices.createCommand.mutate(
+        {
+          deviceId: target.deviceId,
+          kind: `agent_usage_refresh`,
+          agent: target.agent as (typeof contract.codingAgent.values)[number],
+          profileId: target.profileId,
+        },
+        { context: { skipErrorToast: true } }
+      )
+    } catch {
       setRefreshing((current) => {
         const next = { ...current }
         delete next[group.key]
         return next
-      })
-      // The page's own refresh fails quietly: a command still queued from
-      // the last round is a CONFLICT, and the next tick simply looks again.
-      if (silent) return
-      toast.error(`Couldn't refresh the usage`, {
-        description: trpcErrorMessage(
-          error,
-          `The refresh could not be queued on the machine.`
-        ),
       })
     }
   }
@@ -240,14 +239,12 @@ export function AgentAccountsSection({
       const last = autoAttempts.current.get(group.key) ?? 0
       if (at - last < AUTO_REFRESH_RETRY_MS) continue
       autoAttempts.current.set(group.key, at)
-      void refresh(group, true)
+      void refresh(group)
     }
     // `refreshing` is read, not a trigger: a mark appearing or clearing must
     // not start another round on its own.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, now])
-
-  const autoRefreshes = groups.some((group) => group.refreshTarget !== null)
 
   const ownDevices = useMemo(
     () => new Map(devices.filter((row) => row.userId === currentUserId).map((row) => [row.deviceId, row])),
@@ -264,29 +261,23 @@ export function AgentAccountsSection({
   )
 
   return (
-    // EXP-827: `#accounts` is where device settings' Usage button lands.
-    <div className="mb-6 scroll-mt-4" id="accounts">
+    <div className="mb-6">
       <GlassSectionHeader
         label="Accounts"
         trailing={
-          <>
-            {autoRefreshes && (
-              <span className="text-[11px] text-muted-foreground">
-                Refreshes every 5 minutes
-              </span>
-            )}
-            <span title={addBlocked ?? undefined}>
-              <Pill
-                mode="action"
-                disabled={addBlocked !== null}
-                onClick={() => setAddOpen(true)}
-                data-testid="add-account-button"
-              >
-                <AddIcon className="size-3" />
-                Add account
-              </Pill>
-            </span>
-          </>
+          /* EXP-862: the "+ Add device" twin — same pill, same glyph, same
+             place in the band. */
+          <span title={addBlocked ?? undefined}>
+            <Pill
+              mode="action"
+              disabled={addBlocked !== null}
+              onClick={() => setAddOpen(true)}
+              data-testid="add-account-button"
+            >
+              <AddIcon className="size-3" />
+              Add account
+            </Pill>
+          </span>
         }
       />
       <AddAccountDialog
@@ -306,19 +297,14 @@ export function AgentAccountsSection({
       ) : (
         <div className="mb-1">
           {sections.length > 1 && (
-            <Tabs
+            /* EXP-862: the ONE agent picker's segmented strip — brand mark +
+               label, the app's single segmented control. */
+            <AgentPickerTabs
               value={activeAgent ?? ``}
-              onValueChange={setAgentTab}
-              className="px-1 pt-2 pb-1"
-            >
-              <TabsList>
-                {sections.map((section) => (
-                  <TabsTrigger key={section.agent} value={section.agent}>
-                    {agentLabel(section.agent)}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+              onChange={setAgentTab}
+              agents={sections.map((section) => section.agent)}
+              className="pt-1 pb-1"
+            />
           )}
           <div className="flex flex-col">
             {(activeSection?.groups ?? []).map((group) => (
@@ -328,8 +314,6 @@ export function AgentAccountsSection({
                 now={now}
                 ownDevices={ownDevices}
                 currentUserId={currentUserId}
-                refreshing={group.key in refreshing}
-                onRefresh={() => void refresh(group, false)}
               />
             ))}
           </div>
@@ -371,18 +355,14 @@ function AccountCard({
   now,
   ownDevices,
   currentUserId,
-  refreshing,
-  onRefresh,
 }: {
   group: AgentAccountUsageGroup
   now: Date
   /** The caller's own synced devices rows by device id — the candidates the
-   *  "+" can sign this account in on (EXP-849: the chips themselves are quiet
-   *  presence indicators, and every repair lives on the Devices rows). */
+   *  "+" can sign this account in on, and the rows whose caps decide what a
+   *  device chip's menu may offer. */
   ownDevices: Map<string, Device>
   currentUserId: string
-  refreshing: boolean
-  onRefresh: () => void
 }) {
   const fresh = usageIsFresh(group.usage, now)
   // EXP-827: "add a machine to this account" — my online machines with the
@@ -432,19 +412,29 @@ function AccountCard({
       0
     )
   }
-  const hasWindows = (group.usage?.windows.length ?? 0) > 0
-  const nextAllowed = refreshAllowedAt(group.usage, now)
   const asOf = group.usage?.fetchedAt ?? group.checkedAt
-  const caption = !group.signedIn
-    ? `Not signed in`
-    : (group.email ?? group.plan ?? `signed in`)
+  // EXP-862: the caption is the IDENTITY, never a status — "Not signed in"
+  // as a title said the same thing the badge beside it says, twice.
+  const caption =
+    group.email ??
+    group.plan ??
+    group.rows[0]?.profileLabel ??
+    agentLabel(group.agent)
   // EXP-849: HEALTH, not just "signed in" — an expired credential reads
   // `Needs re-login` (the CLI still claims signed in, the probe came back
-  // Unauthorized), a missing one `Signed out`. The repair lives on the
-  // Devices row that holds it; this row is the decision surface.
+  // Unauthorized), a missing one `Signed out`. EXP-862: a signed-OUT account
+  // wears it too — it is the only thing that says so now.
   const health = healthBadgeLabel(group.health)
+  // EXP-862: what the card says about its numbers — cards, "Checking…" for a
+  // signed-in login nothing has read yet (every login is read now, so it is a
+  // beat or two), else the "no usage" line. ×4 with iOS/Android/desktop.
+  const state = usageState({
+    signedIn: group.signedIn,
+    unmonitored: group.rows.every((row) => row.unmonitored),
+    usage: group.usage,
+  })
   return (
-    <ListRow className="flex-col items-stretch gap-1.5 px-3 py-2.5">
+    <ListRow interactive className="flex-col items-stretch gap-1.5 px-3 py-2.5">
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <div
@@ -459,45 +449,23 @@ function AccountCard({
                 <span className="font-normal text-muted-foreground/60">{` · ${group.plan}`}</span>
               )}
             </span>
-            {health && group.signedIn && (
-              <span
-                className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500"
-                title={`This login stopped working on at least one machine — sign in again from Devices.`}
-              >
+            {health && (
+              <span className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500">
                 {health}
               </span>
             )}
           </div>
         </div>
-        {group.refreshTarget && (
-          <span
-            title={
-              refreshing
-                ? `Waiting for ${group.refreshTarget.deviceLabel || `the machine`}…`
-                : nextAllowed
-                  ? `Refreshed recently. Next refresh at ${nextAllowed.toLocaleTimeString(undefined, { hour: `2-digit`, minute: `2-digit` })}.`
-                  : `Re-read this account's usage on ${group.refreshTarget.deviceLabel || `the machine`}`
-            }
-          >
-            <Button
-              variant="glass"
-              size="icon-sm"
-              aria-label="Refresh usage"
-              disabled={refreshing || nextAllowed !== null}
-              onClick={onRefresh}
-            >
-              {refreshing ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <RefreshIcon />
-              )}
-            </Button>
-          </span>
-        )}
       </div>
       <div className="flex flex-wrap gap-1">
         {group.rows.map((row) => (
-          <DeviceChip key={row.key} row={row} now={now} />
+          <DeviceChip
+            key={row.key}
+            row={row}
+            now={now}
+            deviceRow={ownDevices.get(row.deviceId) ?? null}
+            currentUserId={currentUserId}
+          />
         ))}
         {showAdd && addBlocked !== null && (
           <span title={addBlocked}>
@@ -505,7 +473,7 @@ function AccountCard({
               size="sm"
               mode="action"
               disabled
-              aria-label="Add a machine to this account"
+              aria-label="Add a device to this account"
               className="px-1.5"
               data-testid={`account-add-device-${group.key}`}
             >
@@ -519,8 +487,8 @@ function AccountCard({
               <Pill
                 size="sm"
                 mode="action"
-                aria-label="Add a machine to this account"
-                title="Sign in to this account on another machine"
+                aria-label="Add a device to this account"
+                title="Sign in to this account on another device"
                 className="px-1.5"
                 data-testid={`account-add-device-${group.key}`}
               >
@@ -538,7 +506,7 @@ function AccountCard({
           </DropdownMenu>
         )}
       </div>
-      {hasWindows && group.usage ? (
+      {state === `ready` && group.usage ? (
         <div className={cn(`pt-0.5`, !fresh && `opacity-50`)}>
           <AgentUsageCards usage={group.usage} now={now} compact dense />
           {!fresh && !group.usage.stale && asOf && (
@@ -547,6 +515,10 @@ function AccountCard({
             </p>
           )}
         </div>
+      ) : state === `checking` && !asOf ? (
+        // A login nothing has read YET: "No usage reported" made a device that
+        // is simply still working read as broken.
+        <p className="text-[11px] text-muted-foreground">Checking…</p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
           {asOf ? `No usage reported · as of ${relativeTime(asOf)}` : `No usage reported`}
@@ -556,37 +528,78 @@ function AccountCard({
   )
 }
 
-/** EXP-849: one machine chip — a QUIET presence indicator: the online dot,
- * the machine (· profile), a CHECK when the account is that machine's ACTIVE
- * login, and the health initial when the credential there is broken. It is
- * not a control any more: Accounts decides WHICH account to use, Devices
- * repairs a machine (sign in, re-login, use this account here).
+/** EXP-849/EXP-862: one device chip — the online dot, the device (· profile),
+ * a CHECK when the account is that device's ACTIVE login, and the health badge
+ * when the credential there is broken. On one of the caller's OWN devices it
+ * carries the shared account menu (Sign in / Set as default / Remove account);
+ * a teammate's device, an offline one, or a build that takes none of the
+ * commands renders the statement it always was.
  */
 function DeviceChip({
   row,
   now,
+  deviceRow,
+  currentUserId,
 }: {
   row: AgentProfileUsageRow
   now: Date
+  /** The caller's OWN synced row for this chip's device, or null. */
+  deviceRow: Device | null
+  currentUserId: string
 }) {
   const health = healthBadgeLabel(row.health)
-  return (
-    <Pill
-      size="sm"
-      dot={row.online ? ONLINE_DOT : OFFLINE_DOT}
-      title={chipTitle(row, now)}
-      className={cn(!row.online && `text-muted-foreground`)}
-    >
+  const device = useMemo(
+    () =>
+      deviceRow ? steerDeviceFromRow(deviceRow, { now, currentUserId }) : null,
+    [deviceRow, now, currentUserId]
+  )
+  const body = (
+    <>
       {chipLabel(row)}
       {row.signedIn && row.active && (
         <CheckIcon
           className="size-3 text-emerald-400"
-          aria-label="Active on this machine"
+          aria-label="Active on this device"
         />
       )}
       {health && (
         <span className="text-[10px] font-medium text-amber-500">{health}</span>
       )}
-    </Pill>
+    </>
+  )
+  if (!device || !accountChipActionable(device, row)) {
+    return (
+      <Pill
+        size="sm"
+        dot={row.online ? ONLINE_DOT : OFFLINE_DOT}
+        title={chipTitle(row, now)}
+        className={cn(!row.online && `text-muted-foreground`)}
+      >
+        {body}
+      </Pill>
+    )
+  }
+  return (
+    <AccountChipMenu
+      device={device}
+      row={row}
+      onSignIn={() =>
+        requestAgentLogin({
+          device,
+          agent: row.agent,
+          profileId: row.profileId,
+        })
+      }
+      trigger={
+        <Pill
+          size="sm"
+          mode="action"
+          dot={row.online ? ONLINE_DOT : OFFLINE_DOT}
+          title={chipTitle(row, now)}
+        >
+          {body}
+        </Pill>
+      }
+    />
   )
 }

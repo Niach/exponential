@@ -394,13 +394,30 @@ final class AgentAccountsRowsTests: XCTestCase {
             "dev-1 · Personal"
         )
 
-        var signedOut = group("claude", "claude:a")
-        XCTAssertEqual(AgentAccountsRows.groupCaption(signedOut), "signed in")
-        signedOut = AgentAccountUsageGroup(
+        // EXP-862: the title names the ACCOUNT, never its sign-in state — a
+        // signed-out login is said once, by its chip's badge. A group with
+        // nothing to name itself by falls back to its profile's label (the
+        // ambient login's is "Default"), which is also the last resort.
+        let anonymous = group("claude", "claude:a")
+        XCTAssertEqual(AgentAccountsRows.groupCaption(anonymous), "Default")
+        let empty = AgentAccountUsageGroup(
+            key: "claude:a", agent: "claude", signedIn: true, email: nil, plan: nil,
+            rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.groupCaption(empty), AgentAccountsRows.systemProfileLabel
+        )
+        let signedOut = AgentAccountUsageGroup(
             key: "claude:a", agent: "claude", signedIn: false, email: "x@y.z", plan: "max",
             rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
         )
-        XCTAssertEqual(AgentAccountsRows.groupCaption(signedOut), "Not signed in")
+        XCTAssertEqual(AgentAccountsRows.groupCaption(signedOut), "x@y.z")
+        let labelled = AgentAccountUsageGroup(
+            key: "claude:dev-1:work", agent: "claude", signedIn: false, email: nil, plan: nil,
+            rows: [row(deviceId: "dev-1", agent: "claude", profileId: "work", profileLabel: "Work")],
+            usage: nil, checkedAt: nil, refreshTarget: nil
+        )
+        XCTAssertEqual(AgentAccountsRows.groupCaption(labelled), "Work")
         let named = AgentAccountUsageGroup(
             key: "claude:dev@acme.test", agent: "claude", signedIn: true, email: "dev@acme.test", plan: "max",
             rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
@@ -467,21 +484,29 @@ final class AgentAccountsRowsTests: XCTestCase {
         XCTAssertEqual(device.agentAccounts?.keys.sorted(), ["claude"])
         XCTAssertEqual(device.agentUsage?.keys.sorted(), [])
     }
-    // MARK: - EXP-849: the machine chip's ONE repair
+    // MARK: - EXP-862: the chip menu
 
-    // Same four states, same strings as web `MachineAccountChip` and Android
-    // `chipAction` — the Devices surface is where a login gets fixed.
-    func testTheChipMenuOffersOneRepairPerState() throws {
-        func chip(_ signedIn: Bool, _ active: Bool, _ health: AgentAccountHealth) -> AgentProfileUsageRow {
+    // Three states, three menus (web `MachineAccountChip`, Android and the
+    // desktop chips): a signed-out or expired login offers ONLY "Sign in", a
+    // healthy login the machine is not using offers "Set as default" plus
+    // "Remove account", and the machine's current login offers the removal
+    // alone.
+    func testTheChipMenuOffersOneMenuPerState() throws {
+        func chip(
+            _ signedIn: Bool,
+            _ active: Bool,
+            _ health: AgentAccountHealth,
+            profileId: String = "work"
+        ) -> AgentProfileUsageRow {
             AgentProfileUsageRow(
-                key: "dev:claude:system",
+                key: "dev:claude:\(profileId)",
                 deviceId: "dev",
                 deviceLabel: "dev",
                 mine: true,
                 online: true,
                 agent: "claude",
-                profileId: "system",
-                profileLabel: "Default",
+                profileId: profileId,
+                profileLabel: "Work",
                 active: active,
                 signedIn: signedIn,
                 email: nil,
@@ -492,27 +517,45 @@ final class AgentAccountsRowsTests: XCTestCase {
             )
         }
         let signedOut = chip(false, true, .signedOut)
-        XCTAssertEqual(AgentAccountsRows.chipAction(signedOut, canSwitchAccount: true), "Sign in")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(signedOut, canSwitchAccount: true))
+        XCTAssertTrue(AgentAccountsRows.chipSignsIn(signedOut))
+        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(signedOut, canSwitchAccount: true))
+        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+            signedOut, canAgentLogin: true, canRemoveAccount: true
+        ))
 
         let expired = chip(true, false, .needsRelogin)
-        XCTAssertEqual(AgentAccountsRows.chipAction(expired, canSwitchAccount: true), "Re-login")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(expired, canSwitchAccount: true))
+        XCTAssertTrue(AgentAccountsRows.chipSignsIn(expired))
+        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(expired, canSwitchAccount: true))
+        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+            expired, canAgentLogin: true, canRemoveAccount: true
+        ))
 
         let current = chip(true, true, .ok)
-        XCTAssertEqual(AgentAccountsRows.chipAction(current, canSwitchAccount: true), "Sign in again")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(current, canSwitchAccount: true))
+        XCTAssertFalse(AgentAccountsRows.chipSignsIn(current))
+        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(current, canSwitchAccount: true))
+        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
+            current, canAgentLogin: true, canRemoveAccount: true
+        ))
 
         let other = chip(true, false, .ok)
-        XCTAssertEqual(AgentAccountsRows.chipAction(other, canSwitchAccount: true), "Use this account here")
-        XCTAssertTrue(AgentAccountsRows.chipSwitchesTo(other, canSwitchAccount: true))
+        XCTAssertFalse(AgentAccountsRows.chipSignsIn(other))
+        XCTAssertTrue(AgentAccountsRows.chipSetsDefault(other, canSwitchAccount: true))
+        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
+            other, canAgentLogin: true, canRemoveAccount: true
+        ))
+
+        // The ambient login is the agent CLI's own: never removable.
+        let ambient = chip(true, false, .ok, profileId: AgentAccountsRows.systemProfileId)
+        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+            ambient, canAgentLogin: true, canRemoveAccount: true
+        ))
     }
 
-    // The switch is a CAPABILITY, not just a state: `agent_profile_use` shipped
-    // in desktop/CLI 0.14.38 and the server answers PRECONDITION_FAILED for a
-    // machine below it, so a machine without the `account-switch` cap is
-    // offered the sign-in instead of an offer that can only fail.
-    func testTheSwitchNeedsTheAccountSwitchCap() throws {
+    // "Set as default" is a CAPABILITY, not just a state: `agent_profile_use`
+    // shipped in desktop/CLI 0.14.38 and the server answers
+    // PRECONDITION_FAILED below it, so a machine without the `account-switch`
+    // cap is never offered it.
+    func testSetAsDefaultNeedsTheAccountSwitchCap() throws {
         let other = AgentProfileUsageRow(
             key: "dev:claude:work",
             deviceId: "dev",
@@ -530,10 +573,15 @@ final class AgentAccountsRowsTests: XCTestCase {
             checkedAt: nil,
             health: .ok
         )
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(other, canSwitchAccount: false))
-        XCTAssertEqual(AgentAccountsRows.chipAction(other, canSwitchAccount: false), "Sign in again")
-        // The states that were never a switch read the same either way.
-        let expired = AgentProfileUsageRow(
+        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(other, canSwitchAccount: false))
+        XCTAssertTrue(AgentAccountsRows.chipSetsDefault(other, canSwitchAccount: true))
+    }
+
+    // EXP-862: the removal is capped too, and refused for the same three
+    // reasons the server gives — same sentences, so a raced downgrade reads
+    // the same thing twice.
+    func testRemoveAccountIsCappedAndExplained() throws {
+        let row = AgentProfileUsageRow(
             key: "dev:claude:work",
             deviceId: "dev",
             deviceLabel: "dev",
@@ -548,10 +596,30 @@ final class AgentAccountsRowsTests: XCTestCase {
             plan: nil,
             usage: nil,
             checkedAt: nil,
-            health: .needsRelogin
+            health: .ok
         )
-        XCTAssertEqual(AgentAccountsRows.chipAction(expired, canSwitchAccount: false), "Re-login")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(expired, canSwitchAccount: false))
+        XCTAssertNil(AgentAccountsRows.removeAccountBlockReason(
+            row, canAgentLogin: true, canRemoveAccount: true
+        ))
+        XCTAssertEqual(
+            AgentAccountsRows.removeAccountBlockReason(
+                row, canAgentLogin: true, canRemoveAccount: false
+            ),
+            AgentAccountsRows.removeAccountOldApp
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.removeAccountBlockReason(
+                row, canAgentLogin: false, canRemoveAccount: true
+            ),
+            AgentAccountsRows.removeAccountOldApp
+        )
+        XCTAssertEqual(AgentAccountsRows.removeCap, "account-remove")
+        XCTAssertEqual(
+            AgentAccountsRows.removeAccountConfirmCopy(
+                account: "work@example.com", device: "Mac mini"
+            ),
+            "Delete work@example.com on Mac mini? The login is removed from this device only; the account itself is untouched."
+        )
     }
 
     // The cap the rule reads is the one `SteerDevice.canSwitchAccount` looks
@@ -565,5 +633,12 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
         XCTAssertTrue(withCap.canSwitchAccount)
         XCTAssertFalse(SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: ["agent-login"]).canSwitchAccount)
+        let remover = SteerDevice(
+            deviceId: "dev",
+            deviceLabel: "dev",
+            caps: [AgentAccountsRows.removeCap]
+        )
+        XCTAssertTrue(remover.canRemoveAccount)
+        XCTAssertFalse(withCap.canRemoveAccount)
     }
 }

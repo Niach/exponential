@@ -109,7 +109,11 @@ describe(`BoardRepoField (FEED-32)`, () => {
 
     await screen.findByText(/Couldn.t load the team.s repositories: boom/)
     expect(trigger().textContent).not.toBe(``)
-    expect(trigger().textContent).toContain(`Repository unavailable`)
+    // The one-shot re-list is still in flight for a beat ("Loading
+    // repository…"); what matters is that the trigger settles on a label.
+    await waitFor(() =>
+      expect(trigger().textContent).toContain(`Repository unavailable`)
+    )
   })
 
   it(`reads "No repository" with nothing selected`, async () => {

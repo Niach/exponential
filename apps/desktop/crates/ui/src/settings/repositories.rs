@@ -55,7 +55,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
-use super::{card_title, error_notice, open_url, section};
+use super::{error_notice, open_url, section};
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -627,36 +627,33 @@ impl Render for RepositoriesPane {
         };
         let dialog_team = team_id.clone();
 
-        let mut body = section(cx)
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(card_title("Repositories"))
-                    .children(
-                        repo_count.map(|count| {
-                            chip("repos-count", SharedString::from(count.to_string()), cx)
-                        }),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("repos-add")
-                            .primary()
-                            .web_sm()
-                            .icon(registry::UI_ADD)
-                            .label("Add repository")
-                            .on_click(cx.listener(move |_, _, window, cx| {
-                                let pane = cx.entity().downgrade();
-                                super::add_repository_dialog::open(
-                                    window,
-                                    cx,
-                                    dialog_team.clone(),
-                                    pane,
-                                );
-                            })),
-                    ),
+        // EXP-862: the count chip and the Add action ride the BAND's trailing
+        // slot — the section header is the strip, never a hand-built row.
+        let header_actions = h_flex()
+            .items_center()
+            .gap_2()
+            .children(
+                repo_count
+                    .map(|count| chip("repos-count", SharedString::from(count.to_string()), cx)),
             )
+            .child(
+                Button::new("repos-add")
+                    .primary()
+                    .web_sm()
+                    .icon(registry::UI_ADD)
+                    .label("Add repository")
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        let pane = cx.entity().downgrade();
+                        super::add_repository_dialog::open(window, cx, dialog_team.clone(), pane);
+                    })),
+            )
+            .into_any_element();
+        let mut body = section(cx)
+            .child(crate::surface::glass_section_header(
+                "Repositories",
+                Some(header_actions),
+                cx,
+            ))
             .child(
                 div()
                     .text_xs()
@@ -1170,8 +1167,8 @@ impl RepositoriesPane {
         }
 
         if can_manage {
-            // EXP-698: the one 32px glass chrome every trailing row action wears.
-            let remove = crate::controls::glass_icon_button(
+            // EXP-862: a row's remove is a GHOST glyph — no circle.
+            let remove = crate::controls::ghost_icon_button(
                 ("repo-remove", index),
                 Icon::new(registry::UI_DELETE),
                 cx,
@@ -1254,8 +1251,23 @@ impl RepositoriesPane {
                     .text_color(cx.theme().muted_foreground)
                     .child("Used by"),
             );
+            let synced = Store::global(cx).collections().boards.read(cx);
             for board in &repo.boards {
-                // EXP-698: the shared non-interactive glass chip.
+                // EXP-862 (×4): a board chip wears the BOARD's icon, tinted
+                // with the board's colour — the same glyph the nav, the
+                // pickers and the issue header draw. The server row carries
+                // only id + name, so the glyph comes from the synced board
+                // (a board this client cannot see keeps the bare name).
+                let glyph = synced.get(&board.id).map(|row| {
+                    let tint = row
+                        .color
+                        .as_deref()
+                        .and_then(super::parse_hex_color)
+                        .unwrap_or(cx.theme().muted_foreground);
+                    crate::icons::board_icon(row)
+                        .with_size(gpui::px(crate::surface::PillSize::Sm.glyph()))
+                        .text_color(tint)
+                });
                 links = links.child(
                     crate::surface::glass_pill(
                         SharedString::from(format!("repo-board-{}", board.id)),
@@ -1263,6 +1275,7 @@ impl RepositoriesPane {
                         crate::surface::PillMode::Readonly,
                         cx,
                     )
+                    .children(glyph)
                     .child(SharedString::from(board.name.clone())),
                 );
             }

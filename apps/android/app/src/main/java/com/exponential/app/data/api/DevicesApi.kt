@@ -248,6 +248,12 @@ fun agentLoginCommand(
     agent: String,
     switchAccount: Boolean,
     profileId: String? = null,
+    /**
+     * EXP-827/EXP-862: "Add account" — the machine CREATES a profile under
+     * this label and runs the login in it. Mutually exclusive with
+     * [profileId]; the server refuses both at once.
+     */
+    newProfileLabel: String? = null,
 ): JsonObject =
     buildJsonObject {
         put("deviceId", deviceId)
@@ -256,15 +262,19 @@ fun agentLoginCommand(
         put("switch", switchAccount)
         // EXP-827/EXP-849: WHICH login on the machine this lands on — one of
         // `agentAccounts[agent].profiles` (`system` = the ambient login). Absent
-        // means the ambient one, which is what the device-settings sheet's own
-        // Login / Switch account button still sends.
+        // means the ambient one.
         profileId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("profileId", it) }
+        newProfileLabel?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { put("newProfileLabel", it.take(MAX_PROFILE_LABEL)) }
     }
+
+/** The server clamps a profile label at 64 (web `MAX_PROFILE_LABEL`). */
+const val MAX_PROFILE_LABEL = 64
 
 /**
  * The `agent_profile_use` input for [DevicesApi.createCommand] (EXP-849) —
  * make the ALREADY-SIGNED-IN profile [profileId] the machine's ACTIVE login
- * for [agent] ("Use this account here"). Deliberately not a sign-in: no
+ * for [agent] ("Set as default", EXP-862). Deliberately not a sign-in: no
  * credential is touched and nothing is signed out (a `codex logout` would
  * revoke the token server-wide), the machine just points itself at that
  * profile and re-reports `agent_accounts` on its next heartbeat, which is what
@@ -275,6 +285,25 @@ fun agentProfileUseCommand(deviceId: String, agent: String, profileId: String): 
     buildJsonObject {
         put("deviceId", deviceId)
         put("kind", "agent_profile_use")
+        put("agent", agent)
+        put("profileId", profileId)
+    }
+
+/**
+ * The `agent_profile_remove` input for [DevicesApi.createCommand] (EXP-862) —
+ * the machine deletes ITS OWN copy of the login [profileId] for [agent]: the
+ * agent CLI's config dir for that profile (credentials included) and its index
+ * row. The ACCOUNT is untouched — no `codex logout` is ever run, which would
+ * revoke it server-wide, and nothing about it leaves the machine.
+ *
+ * Gated on BOTH [SteerDevice.canAgentLogin] and [SteerDevice.canRemoveAccount]:
+ * the server refuses the command without either cap, and the ambient login
+ * (`system`) is refused outright — it is the CLI's own, not ours to delete.
+ */
+fun agentProfileRemoveCommand(deviceId: String, agent: String, profileId: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_profile_remove")
         put("agent", agent)
         put("profileId", profileId)
     }

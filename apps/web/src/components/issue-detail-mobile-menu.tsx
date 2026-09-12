@@ -87,7 +87,7 @@ export function IssueDetailMobileMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="glass"
+            variant="ghost"
             size="icon-sm"
             aria-label="Issue actions"
           >

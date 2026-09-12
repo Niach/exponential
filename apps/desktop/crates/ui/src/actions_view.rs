@@ -109,16 +109,15 @@ pub(crate) fn page_scaffold_with(
 /// Getting-started page's second tab, and this is the way back to them from
 /// the list they seed.
 ///
-/// EXP-697: it wears the shared round glass affordance
-/// ([`crate::controls::glass_icon_button`]) instead of a bare ghost icon, so
-/// it reads as a control next to the outlined "New …" button.
+/// EXP-862: it is a GHOST glyph ([`crate::controls::ghost_icon_button`]) — a
+/// circle means a primary action (play, send, New issue), and this is the
+/// quiet way back to the suggestions.
 ///
 /// EXP-827: at the PILL's height (`CONTROL_SM`, 24px — `web_icon_xs`), not the
 /// 32px the shared affordance defaults to: it sits beside a `PillSize::Sm`
-/// "New …" pill and a circle a third taller than its neighbour read as the
-/// header's main control rather than the quiet way back to the suggestions.
+/// "New …" pill.
 pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement {
-    crate::controls::glass_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
+    crate::controls::ghost_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
         .web_icon_xs()
         .tooltip("Suggestions")
         .on_click(|_: &ClickEvent, window, cx| {
@@ -385,6 +384,9 @@ impl ActionsView {
             .px_3()
             .py_2p5()
             .hover(move |this| this.bg(row_hover))
+            // EXP-862 (web `ListRow interactive`): every flat row takes the
+            // hover wash AND the pointer.
+            .cursor_pointer()
             .child(
                 div().flex_shrink_0().child(
                     crate::icons::action_icon(action.icon.as_deref())
@@ -412,8 +414,8 @@ impl ActionsView {
             );
             row = row.child(
                 div().flex_shrink_0().child(
-                    // EXP-698: the one 32px glass chrome every row action wears.
-                    crate::controls::glass_icon_button(
+                    // EXP-862: a row's "..." is a GHOST glyph, never a circle.
+                    crate::controls::ghost_icon_button(
                         ("action-menu", index),
                         Icon::from(registry::UI_MORE),
                         cx,

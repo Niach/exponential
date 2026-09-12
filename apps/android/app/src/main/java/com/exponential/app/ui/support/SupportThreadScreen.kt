@@ -148,6 +148,7 @@ fun SupportThreadScreen(
                                 ExpIcons.uiMore,
                                 "Ticket actions",
                                 onClick = { menuOpen = true },
+                                borderless = true,
                             )
                             GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                 if (state.linkedIssue == null && boards.isNotEmpty()) {

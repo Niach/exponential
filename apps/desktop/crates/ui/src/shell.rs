@@ -42,7 +42,7 @@ use crate::{
     debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
     navigation::Screen,
     screens::ScreensPanel,
-    settings::{SettingsNavPanel, SETTINGS_NAV_WIDTH},
+    settings::SettingsNavPanel,
     sidebar::RailView,
     update::{self, UpdatePhase, UpdateState},
     window_size::SizeFrame,
@@ -82,15 +82,23 @@ const LAYOUT_VERSION: usize = 11;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
-/// EXP-851: the `ListNav` column's width — the left column while a detail
-/// opened from a list is up. Wider than the rail (208px) because it carries
-/// issue titles beside their identifiers, narrower than the retired tool
-/// column (520px) because it is navigation, not the list itself.
-pub(crate) const LIST_NAV_WIDTH: f32 = 320.;
+/// EXP-862: the LEFT COLUMN's width — ONE number for all three occupants
+/// (the rail, the settings nav, the `ListNav`). The column used to be three
+/// widths that animated into each other; a sidebar that changes width when
+/// you open a detail is a sidebar that never sits still, so the rail grew to
+/// the list nav's reading measure and the swap is a plain slide now.
+pub(crate) const LEFT_COLUMN_WIDTH: f32 = 264.;
+
+/// EXP-862: the width of a SCREEN's own list column — the Files tree and
+/// Source Control's history beside their viewers (`screens.rs`). It was the
+/// `ListNav`'s width until the left column settled on one number; these two
+/// are not the left column, they are a list inside a screen, and they keep
+/// the wider reading measure.
+pub(crate) const SCREEN_LIST_WIDTH: f32 = 320.;
 
 /// EXP-723 cutout: the gap between the working panel and the window edges —
 /// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
-const PANEL_MARGIN: f32 = 10.;
+pub(crate) const PANEL_MARGIN: f32 = 10.;
 
 /// The panel's TOP gap under the 34px decoration band. Tighter than
 /// [`PANEL_MARGIN`] because the band already supplies breathing room above
@@ -119,17 +127,6 @@ pub(crate) enum LeftOccupant {
     Rail,
     Settings,
     ListNav,
-}
-
-impl LeftOccupant {
-    /// The column's width for this occupant.
-    pub(crate) fn width(self) -> f32 {
-        match self {
-            LeftOccupant::Rail => crate::sidebar::RAIL_W,
-            LeftOccupant::Settings => SETTINGS_NAV_WIDTH,
-            LeftOccupant::ListNav => LIST_NAV_WIDTH,
-        }
-    }
 }
 
 /// EXP-851: the pure occupant rule — Settings wins, then a list origin, else
@@ -174,39 +171,37 @@ pub(crate) fn window_left_occupant(window: &Window, cx: &App) -> LeftOccupant {
     left_occupant_for(screen.as_ref(), origin.as_ref())
 }
 
-/// EXP-456: the left column's TARGET width — `app_title_bar`'s strip budget
-/// reads this instead of raw `RAIL_W` (during the swap animation the target
-/// is the width the strip is about to have; a ~200ms transient under-budget
-/// is invisible).
-pub(crate) fn left_column_target_width(window: &mut Window, cx: &mut App) -> f32 {
-    window_left_occupant(window, cx).width()
+/// EXP-456/EXP-862: the left column's width, for the surfaces that have to
+/// budget around it (`app_title_bar`'s strip). One number since EXP-862 —
+/// the occupant no longer changes it — but still a function, because the
+/// callers read a LAYOUT fact, not a constant they may reuse elsewhere.
+pub(crate) const fn left_column_width() -> f32 {
+    LEFT_COLUMN_WIDTH
 }
 
-/// EXP-456: duration of the left-column occupant swap and (EXP-523) of the
-/// column's own width morph. The shared `standard` motion token — every
-/// client's default duration — rather than the 200ms it was hand-set to when
-/// this was the app's only animation.
+/// EXP-456: duration of the left-column occupant swap. The shared `standard`
+/// motion token — every client's default duration — rather than the 200ms it
+/// was hand-set to when this was the app's only animation.
 const LEFT_COL_ANIM_DURATION: Duration = theme::motion::STANDARD;
 
 /// EXP-456/EXP-851: pure state machine for the left column's occupant swap —
 /// the upstream `Sidebar` recipe (`gpui_component::sidebar`'s animation
-/// state) as plain `Shell` fields: from/target width, WHICH occupants those
-/// widths belong to, whether both children stay mounted, and an epoch
-/// guarding the unmount timer against retargets.
+/// state) as plain `Shell` fields: WHICH occupants are coming and going,
+/// whether both children stay mounted, and an epoch guarding the unmount
+/// timer against retargets.
+///
+/// EXP-862 took the WIDTHS out of it. All three occupants are
+/// [`LEFT_COLUMN_WIDTH`] wide now, so there is no width to morph and no
+/// same-occupant width animation to run: the swap is one slide of a
+/// two-column strip, in either direction, and nothing else.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct LeftColumnAnim {
-    from: f32,
-    to: f32,
     /// The occupant sliding OUT (only meaningful while `swapping`).
     from_occupant: LeftOccupant,
     /// Target occupant.
     occupant: LeftOccupant,
     /// Both children stay mounted while the swap transition runs.
     swapping: bool,
-    /// EXP-523: a same-occupant WIDTH animation is in flight. Distinct from
-    /// `swapping`, which mounts BOTH children; here the single child just
-    /// rides a morphing clip.
-    width_only: bool,
     /// Guards the unmount timer against retargets (upstream `hide_request`).
     epoch: u64,
 }
@@ -214,12 +209,9 @@ struct LeftColumnAnim {
 impl LeftColumnAnim {
     fn new(occupant: LeftOccupant) -> Self {
         Self {
-            from: occupant.width(),
-            to: occupant.width(),
             from_occupant: occupant,
             occupant,
             swapping: false,
-            width_only: false,
             epoch: 0,
         }
     }
@@ -227,48 +219,24 @@ impl LeftColumnAnim {
     /// Sync with the rendered state. Returns `Some(epoch)` when a swap
     /// STARTED and the caller must spawn the settle timer.
     fn retarget(&mut self, occupant: LeftOccupant) -> Option<u64> {
-        let target = occupant.width();
         if self.occupant == occupant {
-            // Same occupant: a width change (or no change at all). EXP-523
-            // animates it — the child keeps its TARGET width and the column's
-            // `overflow_hidden` clip morphs around it, so nothing inside
-            // re-layouts mid-flight. A width change arriving while a SWAP is
-            // in flight is absorbed: retargeting there would restart the swap
-            // from the wrong geometry.
-            if self.swapping {
-                self.to = target;
-                return None;
-            }
-            if (target - self.to).abs() <= 0.5 {
-                // No actual change (this runs on every render).
-                self.from = target;
-                self.to = target;
-                return None;
-            }
-            self.from = if self.width_only { self.to } else { self.from };
-            self.to = target;
-            self.width_only = true;
-            self.epoch += 1;
-            return Some(self.epoch);
+            // No change (this runs on every render).
+            return None;
         }
-        // Mid-flight reversal jumps from the previous TARGET (upstream has
-        // the same limitation) — acceptable over 200ms.
-        self.from = self.to;
-        self.to = target;
+        // Mid-flight reversal restarts the slide from the occupant that is
+        // live right now (upstream has the same limitation) — acceptable over
+        // 200ms.
         self.from_occupant = self.occupant;
         self.occupant = occupant;
         self.swapping = true;
-        self.width_only = false;
         self.epoch += 1;
         Some(self.epoch)
     }
 
     /// Timer callback. True = the swap this epoch belongs to just settled.
     fn finish(&mut self, epoch: u64) -> bool {
-        if (self.swapping || self.width_only) && self.epoch == epoch {
+        if self.swapping && self.epoch == epoch {
             self.swapping = false;
-            self.width_only = false;
-            self.from = self.to;
             self.from_occupant = self.occupant;
             true
         } else {
@@ -277,13 +245,12 @@ impl LeftColumnAnim {
     }
 }
 
-/// EXP-456: animation id that encodes `from → to`, so a retargeted transition
-/// gets a NEW id and restarts cleanly (upstream `sidebar_animation_id`).
-fn left_anim_id(name: &'static str, from: f32, to: f32) -> gpui::ElementId {
-    gpui::ElementId::NamedInteger(
-        name.into(),
-        ((from.to_bits() as u64) << 32) | to.to_bits() as u64,
-    )
+/// EXP-456/EXP-862: the slide's animation id. It carries the EPOCH, so a
+/// retargeted swap gets a new id and restarts cleanly (upstream
+/// `sidebar_animation_id`, which encoded the from/to widths that no longer
+/// differ).
+fn left_slide_id(epoch: u64) -> gpui::ElementId {
+    gpui::ElementId::NamedInteger("shell-leftcol-slide".into(), epoch)
 }
 
 /// Debounce for persisting layout changes (`DockEvent::LayoutChanged` fires on
@@ -625,71 +592,32 @@ impl Shell {
             .overflow_hidden();
 
         let anim = self.left_anim;
+        let column = column.w(px(LEFT_COLUMN_WIDTH));
         if !anim.swapping {
-            let child = self.left_child(anim.occupant);
-            if !anim.width_only {
-                return column.w(px(anim.to)).child(child).into_any_element();
-            }
-            // EXP-523: a same-occupant width morph. The child is pinned at its
-            // TARGET width and the column's clip morphs around it — a wipe,
-            // not a reflow, so no label re-wraps mid-flight.
-            return gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
-                .ease(theme::motion::standard())
-                .width(px(anim.from), px(anim.to))
-                .apply(
-                    column
-                        .child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .bottom_0()
-                                .left_0()
-                                .w(px(anim.to))
-                                .child(child),
-                        ),
-                    left_anim_id("shell-leftcol-width-only", anim.from, anim.to),
-                )
+            return column
+                .child(self.left_child(anim.occupant))
                 .into_any_element();
         }
 
         // Swap in flight: BOTH occupants ride an absolute [outgoing |
-        // incoming] strip that slides left by the outgoing width while the
-        // clip morphs — the same wipe in every direction, which is what made
-        // a THIRD occupant (EXP-851's ListNav) a pure data change.
+        // incoming] strip that slides left by one column width — the same
+        // wipe in every direction, which is what made a THIRD occupant
+        // (EXP-851's ListNav) a pure data change. EXP-862: with one width
+        // there is no clip to morph around it either.
         let strip = h_flex()
             .absolute()
             .top_0()
             .bottom_0()
-            .w(px(anim.from + anim.to))
-            .child(
-                div()
-                    .w(px(anim.from))
-                    .h_full()
-                    .flex_shrink_0()
-                    .child(self.left_child(anim.from_occupant)),
-            )
-            .child(
-                div()
-                    .w(px(anim.to))
-                    .h_full()
-                    .flex_shrink_0()
-                    .child(self.left_child(anim.occupant)),
-            );
+            .w(px(2. * LEFT_COLUMN_WIDTH))
+            .child(self.left_child(anim.from_occupant))
+            .child(self.left_child(anim.occupant));
+        // The SLIDE rides the strip; the column stays put as its clip (a
+        // transition on the column would walk the whole sidebar off-screen).
         let strip = gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
             .ease(theme::motion::standard())
-            .slide_x(px(0.), px(-anim.from))
-            .apply(
-                strip,
-                left_anim_id("shell-leftcol-slide", 0., -anim.from),
-            );
-        gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
-            .ease(theme::motion::standard())
-            .width(px(anim.from), px(anim.to))
-            .apply(
-                column.child(strip),
-                left_anim_id("shell-leftcol-width", anim.from, anim.to),
-            )
-            .into_any_element()
+            .slide_x(px(0.), px(-LEFT_COLUMN_WIDTH))
+            .apply(strip, left_slide_id(anim.epoch));
+        column.child(strip).into_any_element()
     }
 
     /// One occupant of the left column, in a sized wrapper (load-bearing for
@@ -701,8 +629,9 @@ impl Shell {
             LeftOccupant::ListNav => self.list_nav.clone().into_any_element(),
         };
         div()
-            .w(px(occupant.width()))
+            .w(px(LEFT_COLUMN_WIDTH))
             .h_full()
+            .flex_shrink_0()
             .child(child)
             .into_any_element()
     }
@@ -958,7 +887,7 @@ impl Render for Shell {
                             // exactly such a frame.
                             let band_w = (window.viewport_size().width
                                 - crate::window_frame::frame_horizontal_chrome(window)
-                                - px(left_column_target_width(window, cx)))
+                                - px(left_column_width()))
                             .max(px(160.));
                             col.child(
                                 h_flex().flex_shrink_0().child(
@@ -1560,8 +1489,6 @@ fn log_layout(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::SETTINGS_NAV_WIDTH;
-    use crate::sidebar::RAIL_W;
 
     /// EXP-771: the session bar band's geometry, the same numbers the web
     /// shell uses. The band is the panel's twin at the bottom — the panel's
@@ -1615,13 +1542,16 @@ mod tests {
         assert_eq!(left_occupant_for(None, None), LeftOccupant::Rail);
     }
 
-    /// The three occupants have the three widths the columns are drawn at.
+    /// EXP-862: ONE width for the whole left column. The rail, the settings
+    /// nav and the `ListNav` are the same column with different contents, so
+    /// opening a detail beside its list must not move the content edge.
     #[test]
-    fn occupant_widths_are_the_column_constants() {
-        assert_eq!(LeftOccupant::Rail.width(), RAIL_W);
-        assert_eq!(LeftOccupant::Settings.width(), SETTINGS_NAV_WIDTH);
-        assert_eq!(LeftOccupant::ListNav.width(), LIST_NAV_WIDTH);
-        assert_eq!(LIST_NAV_WIDTH, 320.);
+    fn the_left_column_has_one_width() {
+        assert_eq!(LEFT_COLUMN_WIDTH, 264.);
+        assert_eq!(left_column_width(), LEFT_COLUMN_WIDTH);
+        // A screen's OWN list column (Files, Source Control) is a different
+        // measure and keeps its own constant.
+        assert_eq!(SCREEN_LIST_WIDTH, 320.);
     }
 
     #[test]
@@ -1630,30 +1560,25 @@ mod tests {
         let epoch = anim.retarget(LeftOccupant::Settings);
         assert_eq!(epoch, Some(1));
         assert!(anim.swapping);
-        assert_eq!(anim.from, RAIL_W);
-        assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
         assert_eq!(anim.from_occupant, LeftOccupant::Rail);
         assert_eq!(anim.occupant, LeftOccupant::Settings);
     }
 
-    /// EXP-851: the rail ⇄ ListNav swap — the same machine, and the one that
-    /// actually changes width (208 → 320 and back).
+    /// EXP-851: the rail ⇄ ListNav swap — the same machine in both
+    /// directions, and (EXP-862) a re-render with the same occupant is a
+    /// no-op, which is what keeps the slide off every frame.
     #[test]
     fn rail_and_list_nav_swap_in_both_directions() {
         let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
         assert_eq!(anim.retarget(LeftOccupant::ListNav), Some(1));
         assert!(anim.swapping);
-        assert_eq!(anim.from, RAIL_W);
-        assert_eq!(anim.to, LIST_NAV_WIDTH);
+        assert_eq!(anim.from_occupant, LeftOccupant::Rail);
         assert!(anim.finish(1));
         assert!(!anim.swapping);
-        assert_eq!(anim.from, LIST_NAV_WIDTH);
         assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
         // … and back out to the rail.
         assert_eq!(anim.retarget(LeftOccupant::Rail), Some(2));
         assert!(anim.swapping);
-        assert_eq!(anim.from, LIST_NAV_WIDTH);
-        assert_eq!(anim.to, RAIL_W);
         assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
         assert_eq!(anim.occupant, LeftOccupant::Rail);
         // A re-render with the SAME occupant is a no-op (this runs every frame).
@@ -1662,7 +1587,8 @@ mod tests {
 
     /// EXP-851: ListNav → Settings (the gear, clicked while a detail sits
     /// beside its list) is a swap like any other — two equal-width columns
-    /// would have looked like nothing happened without the occupant field.
+    /// would have looked like nothing happened without the occupant field,
+    /// which since EXP-862 is ALL the state there is.
     #[test]
     fn list_nav_swaps_into_settings() {
         let mut anim = LeftColumnAnim::new(LeftOccupant::ListNav);
@@ -1670,31 +1596,8 @@ mod tests {
         assert!(anim.swapping);
         assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
         assert_eq!(anim.occupant, LeftOccupant::Settings);
-        assert_eq!(anim.from, LIST_NAV_WIDTH);
-        assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
         assert!(anim.finish(epoch));
         assert_eq!(anim.from_occupant, LeftOccupant::Settings);
-    }
-
-    /// EXP-523's same-occupant WIDTH animation. Nothing in the app drives it
-    /// today (each occupant has ONE width), but the state machine still has
-    /// to handle a width change without mounting both children — hence the
-    /// hand-built state rather than a `retarget` call.
-    #[test]
-    fn same_occupant_animates_the_width_without_swapping() {
-        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
-        anim.to = 44.;
-        anim.from = 44.;
-        // Pretend the rail's width changed under it.
-        anim.from = if anim.width_only { anim.to } else { anim.from };
-        anim.to = 208.;
-        anim.width_only = true;
-        anim.epoch += 1;
-        assert!(!anim.swapping, "same occupant must not mount both children");
-        assert_eq!(anim.from, 44., "it must start where the rail actually was");
-        assert!(anim.finish(1));
-        assert!(!anim.width_only);
-        assert_eq!(anim.from, anim.to);
     }
 
     #[test]
@@ -1710,21 +1613,20 @@ mod tests {
         // The live one settles the swap.
         assert!(anim.finish(second));
         assert!(!anim.swapping);
-        assert_eq!(anim.from, anim.to);
+        assert_eq!(anim.from_occupant, anim.occupant);
     }
 
-    /// Upstream sidebar rule: a retarget restarts from the prior TARGET (the
-    /// animation ids restart the transition, so the visual jump is bounded by
-    /// one swap). EXP-851: a mid-flight reversal also swaps the OUTGOING
-    /// occupant back, or the strip would keep sliding the wrong child out.
+    /// Upstream sidebar rule: a retarget restarts the transition (the
+    /// animation id carries the epoch, so the visual jump is bounded by one
+    /// swap). EXP-851: a mid-flight reversal also swaps the OUTGOING occupant
+    /// back, or the strip would keep sliding the wrong child out.
     #[test]
-    fn midflight_reversal_jumps_from_the_previous_target() {
+    fn midflight_reversal_restarts_from_the_live_occupant() {
         let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
-        anim.retarget(LeftOccupant::ListNav).unwrap();
-        anim.retarget(LeftOccupant::Rail).unwrap();
-        assert_eq!(anim.from, LIST_NAV_WIDTH);
-        assert_eq!(anim.to, RAIL_W);
+        let first = anim.retarget(LeftOccupant::ListNav).unwrap();
+        let second = anim.retarget(LeftOccupant::Rail).unwrap();
         assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
         assert_eq!(anim.occupant, LeftOccupant::Rail);
+        assert_ne!(left_slide_id(first), left_slide_id(second));
     }
 }

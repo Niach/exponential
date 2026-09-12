@@ -721,6 +721,7 @@ fun AgentSessionScreen(
                                 ExpIcons.uiMore,
                                 "Session actions",
                                 onClick = { overflowOpen = true },
+                                borderless = true,
                             )
                             GlassDropdownMenu(
                                 expanded = overflowOpen,
@@ -4835,11 +4836,12 @@ private fun historyStatus(state: HistoryState?, device: String): String = when (
 }
 
 /**
- * EXP-773: a finished run's byline, its Resume and its close-out summary,
- * above the transcript. Every runs list dropped its expand-to-summary row for
- * this: a close-out is a paragraph, and a paragraph belongs next to the
- * transcript it summarizes, not in a list. Renders nothing while the run is
- * still going.
+ * EXP-773: a finished run's byline and its Resume, above the transcript.
+ * Renders nothing while the run is still going.
+ *
+ * EXP-862: no close-out summary anywhere — `sessions_end` still ACCEPTS one
+ * (the parent run reads it), but nothing stores it and no client renders it;
+ * the transcript right below is the run's own account of itself.
  */
 @Composable
 private fun EndedRunHeader(
@@ -4881,12 +4883,6 @@ private fun EndedRunHeader(
                     onClick = { confirmResume = true },
                     modifier = Modifier.testTag("resume-run"),
                 )
-            }
-        }
-        val summary = session.summary?.takeIf { it.isNotBlank() }
-        if (summary != null) {
-            Box(modifier = Modifier.testTag("run-summary")) {
-                MarkdownView(markdown = summary)
             }
         }
         // The shared "waiting for the desktop" / refusal caption every remote

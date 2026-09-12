@@ -29,7 +29,6 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariant,
     menu::{DropdownMenu as _, PopupMenuItem},
-    switch::Switch,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -97,7 +96,7 @@ impl AutomationsDerived {
         let (actions, _) = queries::team_actions(cx, team);
         let (automations, _) = queries::team_automations(cx, team);
         let devices = automation_devices(cx);
-        let runs = automated_runs(cx, Some(team));
+        let runs = crate::queries::automated_runs(cx, Some(team));
         let rows = automations
             .into_iter()
             .map(|automation| {
@@ -249,6 +248,9 @@ impl AutomationsView {
             .px_3()
             .py_2p5()
             .hover(move |this| this.bg(row_hover))
+            // EXP-862 (web `ListRow interactive`): every flat row takes the
+            // hover wash AND the pointer.
+            .cursor_pointer()
             .child(
                 div()
                     .flex_shrink_0()
@@ -273,7 +275,7 @@ impl AutomationsView {
             .child(
                 // Owner-only per the permissions model: members SEE the state
                 // (a disabled switch), owners flip it.
-                Switch::new(("automation-enabled", index))
+                crate::controls::web_switch(("automation-enabled", index))
                     .checked(enabled)
                     .disabled(!is_owner)
                     .on_click(cx.listener(move |_, on: &bool, _, cx| {
@@ -297,8 +299,8 @@ impl AutomationsView {
         div()
             .flex_shrink_0()
             .child(
-                // EXP-698: the one 32px glass chrome every row action wears.
-                crate::controls::glass_icon_button(
+                // EXP-862: a row's "..." is a GHOST glyph, never a circle.
+                crate::controls::ghost_icon_button(
                     ("automation-menu", index),
                     Icon::from(registry::UI_MORE),
                     cx,
@@ -434,7 +436,20 @@ impl AutomationsView {
                     // (EXP-850 §8 names the session lists); nothing to say.
                     subcaption: None,
                     on_open: Some(Box::new(move |_, window, cx| {
-                        crate::session_screen::open_session(&open_id, window, cx);
+                        // EXP-862: the run opens PINNED to this log, so its
+                        // left column lists the other automated runs and its
+                        // Back comes back here (an unattended run has no row
+                        // on the Agent page).
+                        crate::session_screen::open_session_with_origin(
+                            &open_id,
+                            Some(crate::navigation::TabOrigin {
+                                tool: crate::sidebar::ToolWindow::Automations,
+                                board_id: None,
+                                inbox_tab: None,
+                            }),
+                            window,
+                            cx,
+                        );
                     })),
                     kill: None,
                 },
@@ -588,30 +603,6 @@ fn launch_pins_label(automation: &api::automations::Automation) -> Option<String
     .map(str::to_string)
     .collect();
     (!parts.is_empty()).then(|| parts.join(" · "))
-}
-
-/// This team's AUTOMATION-started runs, newest first. `started_reason` is the
-/// discriminator the server stamps — a manually started run of the same action
-/// never appears here.
-fn automated_runs(cx: &App, team_id: Option<&str>) -> Vec<domain::rows::CodingSession> {
-    let (Some(store), Some(team_id)) = (sync::Store::try_global(cx), team_id) else {
-        return Vec::new();
-    };
-    let collection = store.collections().coding_sessions.clone();
-    let mut runs: Vec<domain::rows::CodingSession> = collection
-        .read(cx)
-        .iter()
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
-        .filter(|session| session.started_reason.is_some())
-        .cloned()
-        .collect();
-    // ISO-8601 sorts lexicographically — newest first.
-    runs.sort_by(|a, b| {
-        run_rows::run_started_at(b)
-            .cmp(&run_rows::run_started_at(a))
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    runs
 }
 
 /// "Last run ended, 2 hours ago" — the status word plus when it started.

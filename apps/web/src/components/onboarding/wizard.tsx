@@ -18,8 +18,11 @@ import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
-import { IconPicker } from "@/components/ui/icon-picker"
+import { GlassGroup } from "@/components/ui/glass-rows"
+import {
+  BoardIdentityRow,
+  BoardPrefixField,
+} from "@/components/board-form-fields"
 import {
   GithubRepoPicker,
   type PickerRepo,
@@ -390,48 +393,20 @@ function BoardStep({
       subtitle={ONBOARDING_COPY.board.subtitle}
     >
       <div className="space-y-4 p-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
-          <div className="space-y-2">
-            <Label htmlFor="onb-board-name">Board name</Label>
-            {/* EXP-584: icon picker left of the name, like every board form. */}
-            <div className="flex items-center gap-2">
-              <IconPicker
-                value={icon}
-                onChange={(next) => setIcon(next as BoardIcon)}
-                color={color}
-              />
-              <Input
-                id="onb-board-name"
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="e.g. Backend API"
-                autoFocus
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="onb-board-prefix">Prefix</Label>
-            <Input
-              id="onb-board-prefix"
-              className="sm:w-28"
-              value={prefix}
-              // Alphanumeric only — the server floor rejects symbol
-              // prefixes (EXP-46).
-              onChange={(e) =>
-                setPrefix(
-                  e.target.value.replace(/[^A-Za-z0-9]/g, ``).toUpperCase()
-                )
-              }
-              placeholder="e.g. API"
-              maxLength={4}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Color</Label>
-          <ColorSwatchGrid value={color} onChange={setColor} />
-        </div>
+        {/* EXP-862: the board form is ONE glass group on every client —
+            identity (icon, colour, name) in one row, then the prefix. */}
+        <GlassGroup>
+          <BoardIdentityRow
+            name={name}
+            onNameChange={handleNameChange}
+            autoFocus
+            icon={icon}
+            onIconChange={setIcon}
+            color={color}
+            onColorChange={setColor}
+          />
+          <BoardPrefixField value={prefix} onChange={setPrefix} />
+        </GlassGroup>
 
         <div className="space-y-2 border-t pt-4">
           <Label>Repository (optional)</Label>

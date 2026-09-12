@@ -9,8 +9,8 @@
 //! | Agents | Default agent, then one TAB per agent: CLI path + model +    |
 //! |        | effort, the agent's own toggles — Claude: ultracode, plan    |
 //! |        | mode; Codex: none (EXP-690: every run bypasses permissions,  |
-//! |        | no toggle) — and (EXP-694) this                              |
-//! |        | machine's account + usage rows for that agent                |
+//! |        | no toggle). EXP-862: accounts and usage live on the Devices  |
+//! |        | page, never here                                             |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
 //! text — the closed alias sets the CLI accepts). The per-agent toggles are
@@ -19,9 +19,10 @@
 //!
 //! EXP-694: the pane wears the SHARED grouped agent picker
 //! ([`crate::launch_options::AgentDefaultsGroup`]) — the exact component the
-//! Device settings dialog and the Start-coding dialog render — and AUTOSAVES
-//! like both of them: no Save button, pickers and switches write on change,
-//! a typed CLI path after [`PATH_SAVE_DEBOUNCE`] (or on blur).
+//! Device settings dialog and the Start-coding dialog render, with the
+//! default agent on the shared [`crate::coding_selects::agent_picker`] — and
+//! AUTOSAVES like both of them: no Save button, pickers and switches write on
+//! change, a typed CLI path after [`PATH_SAVE_DEBOUNCE`] (or on blur).
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
@@ -42,12 +43,11 @@
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext as _, Div, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Task, Window,
 };
 use gpui_component::{
     input::{InputEvent, InputState},
-    select::Select,
     v_flex,
 };
 
@@ -55,15 +55,14 @@ use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
-    AGENT_CHOICES,
+    agent_icon, agent_picker, choice_select, effort_choices_for, model_choices_for, selected,
+    ChoiceSelect,
 };
-use crate::device_settings::{agent_account_rows, login_affordance, own_agent_status};
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
 use crate::controls::glass_input;
 
-use super::{card_title, error_notice, section};
+use super::{error_notice, section};
 
 /// EXP-694: the pane AUTOSAVES like the Device settings dialog — no Save
 /// button. A typed CLI path settles for this long before it is written; a
@@ -76,8 +75,10 @@ const PATH_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 // ---------------------------------------------------------------------------
 
 pub struct AgentsPane {
-    /// The default agent the Start-coding dialog preselects (EXP-201).
-    agent_select: ChoiceSelect,
+    /// The default agent the Start-coding dialog preselects (EXP-201) —
+    /// EXP-862: picked with the SHARED [`agent_picker`], so the pane holds
+    /// the value itself instead of a one-off choice select.
+    default_agent: CodingAgent,
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
     effort_select: ChoiceSelect,
@@ -109,8 +110,6 @@ impl AgentsPane {
         let codex_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
         let defaults = Settings::default();
-        let agent_select =
-            choice_select(&AGENT_CHOICES, defaults.default_agent.id(), window, cx);
         let model_select = choice_select(
             model_choices_for(CodingAgent::Claude),
             &defaults.claude_model,
@@ -160,7 +159,6 @@ impl AgentsPane {
             }));
         }
         for select in [
-            &agent_select,
             &model_select,
             &effort_select,
             &codex_model_select,
@@ -178,7 +176,7 @@ impl AgentsPane {
         cx.on_release(|this, cx| this.flush_pending_path(cx)).detach();
 
         let mut this = Self {
-            agent_select,
+            default_agent: defaults.default_agent,
             claude_input,
             model_select,
             effort_select,
@@ -233,15 +231,9 @@ impl AgentsPane {
         self.codex_input.update(cx, |input, cx| {
             input.set_value(settings.codex_path.clone(), window, cx)
         });
+        self.default_agent = settings.default_agent;
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
-        self.agent_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &SharedString::from(settings.default_agent.id()),
-                window,
-                cx,
-            )
-        });
         for (select, value) in [
             (&self.model_select, settings.claude_model.clone()),
             (&self.effort_select, settings.claude_effort.clone()),
@@ -280,8 +272,7 @@ impl AgentsPane {
         };
         let mut drafted = self.synced.clone().unwrap_or_default();
         let owned = Settings {
-            default_agent: CodingAgent::parse(&selected(&self.agent_select, cx))
-                .unwrap_or_default(),
+            default_agent: self.default_agent,
             claude_path: value(&self.claude_input, &defaults.claude_path),
             codex_path: value(&self.codex_input, &defaults.codex_path),
             claude_model: selected(&self.model_select, cx),
@@ -361,18 +352,6 @@ impl AgentsPane {
 
     // -- render pieces --------------------------------------------------------
 
-    /// EXP-694: a [`ChoiceSelect`] as a grouped picker row — the label
-    /// leading, the value trailing behind the select's own caret, no field
-    /// chrome (the group IS the field).
-    fn picker_row(label: &'static str, select: &ChoiceSelect, cx: &App) -> Div {
-        surface::glass_picker_row(
-            label,
-            None,
-            surface::glass_picker_select(Select::new(select)).into_any_element(),
-            cx,
-        )
-    }
-
     /// The Agents card (EXP-206): one TAB per agent, each holding that
     /// agent's CLI path + model/effort selects and its OWN toggles — plan
     /// mode and ultracode exist only on the Claude tab (EXP-690 retired the
@@ -380,9 +359,9 @@ impl AgentsPane {
     ///
     /// EXP-694: it is the SHARED [`AgentDefaultsGroup`] — byte-for-byte the
     /// component the Device settings dialog and the Start-coding cluster
-    /// render, with this pane's CLI-path row spliced above Model and this
-    /// machine's own account + usage rows under the toggles. The old centered
-    /// `TabBar` pill strip and the title-above-control fields are gone.
+    /// render, with this pane's CLI-path row spliced above Model. The old
+    /// centered `TabBar` pill strip and the title-above-control fields are
+    /// gone, and EXP-862 moved accounts/usage out to the Devices page.
     fn render_agents_section(
         &mut self,
         window: &Window,
@@ -402,30 +381,6 @@ impl AgentsPane {
                 note: None,
             })
             .collect();
-
-        // EXP-484/694: this machine's own account + usage for the open tab,
-        // the same two rows the device dialog renders for a remote machine.
-        let (accounts, usage) = own_agent_status(cx);
-        let account = accounts.get(agent_tab.id());
-        let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
-        let affordance = login_affordance(true, true, &[], signed_in);
-        let account_rows = agent_account_rows(
-            agent_tab,
-            account,
-            usage.get(agent_tab.id()),
-            None,
-            affordance,
-            false,
-            move |_: &mut Self, switch, cx| {
-                crate::agent_login::open_login_tab(agent_tab, switch, cx)
-            },
-            // EXP-827: the windows themselves live on the Devices page's
-            // Accounts section — this pane only points there.
-            |_: &mut Self, window, cx| {
-                crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
-            },
-            cx,
-        );
 
         let (path, model, effort) = match agent_tab {
             CodingAgent::Claude => (
@@ -460,8 +415,7 @@ impl AgentsPane {
             effort,
         )
         .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .leading(vec![path_row])
-        .trailing(account_rows);
+        .leading(vec![path_row]);
         if agent_tab == CodingAgent::Claude {
             group = group
                 .toggle(DefaultsToggle::new(
@@ -483,18 +437,38 @@ impl AgentsPane {
                     },
                 ));
         }
-        section(cx).child(card_title("Agents")).child(
-            // 8px between the two groups (EXP-694's group rhythm).
-            v_flex()
-                .w_full()
-                .gap_2()
-                .child(surface::glass_group_rows(vec![Self::picker_row(
-                    "Default agent",
-                    &self.agent_select,
-                    cx,
-                )]))
-                .child(group.render(cx)),
-        )
+        // EXP-862: the default agent rides the ONE shared picker — the same
+        // icon-only trigger the composer and the device dialog wear.
+        let pane = cx.entity();
+        let default_agent = self.default_agent;
+        let default_row = surface::glass_picker_row(
+            "Default agent",
+            None,
+            agent_picker(
+                "settings-default-agent",
+                &CodingAgent::ALL,
+                default_agent,
+                move |agent, _window, cx| {
+                    pane.update(cx, |this, cx| {
+                        this.default_agent = agent;
+                        this.save(cx);
+                        cx.notify();
+                    });
+                },
+                cx,
+            ),
+            cx,
+        );
+        section(cx)
+            .child(crate::surface::glass_section_header("Agents", None, cx))
+            .child(
+                // 8px between the two groups (EXP-694's group rhythm).
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(surface::glass_group_rows(vec![default_row]))
+                    .child(group.render(cx)),
+            )
     }
 }
 

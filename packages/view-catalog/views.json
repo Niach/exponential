@@ -107,6 +107,18 @@
       "reason": "Cloud-only (CLOUD_INSTANCE=true). Unreachable on the local instance the capturers drive, and the nav item is hidden there."
     },
     {
+      "route": "/t/$teamSlug/settings/boards/$boardId",
+      "reason": "EXP-862: one board's settings page. Captured by settings-boards, whose /settings/boards route forwards here for the first board; the id is whatever the seed minted, so the route is not addressable by the catalog."
+    },
+    {
+      "route": "/t/$teamSlug/settings/boards/archived",
+      "reason": "EXP-862: archived boards and the 48h trash on their own page. Both cards render nothing until a board is put away, which the capture seed never does; the pane is photographed on desktop as settings-boards-archived."
+    },
+    {
+      "route": "/t/$teamSlug/settings/api-keys",
+      "reason": "Legacy redirect to /t/$teamSlug/settings/security since EXP-862, kept for older desktop builds, bookmarks and the MCP setup card."
+    },
+    {
       "route": "/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier/session",
       "reason": "EXP-851: an issue's own coding run on the issue's URL (the board's list nav stays, Back returns to the issue). Same AgentSessionView composition as steering, which photographs the seeded showcase run on /sessions/$sessionId; a second recipe would need that run re-seeded issue-first."
     },
@@ -1578,20 +1590,20 @@
     {
       "id": "settings-boards",
       "group": "settings",
-      "title": "Settings · Boards",
-      "blurb": "Every board with its prefix and repo, plus the archived and pending-deletion cards. Owner-only.",
+      "title": "Settings · Board",
+      "blurb": "One board up close: icon, colour and name in one row, then prefix, repository and default branch, with Archive and Move to trash below. Since EXP-862 the settings nav IS the board list on web as well as desktop, and the bare /settings/boards forwards to the first board. Owner-only.",
       "order": 6,
       "web": {
         "route": "/t/$teamSlug/settings/boards",
         "anchor": {
-          "text": "Boards",
+          "text": "Archive board",
           "timeoutMs": 20000
         },
         "settleMs": 600
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "Desktop flattened this into one nav entry per board (SettingsSection::Board(id)) plus a separate ArchivedBoards pane, so there is no single equivalent section to drive to.",
+        "desktop": "The same pane (SettingsSection::Board(id), EXP-288), but the drive vocabulary addresses settings sections by name and a board pane is keyed by id, so there is nothing stable to drive to.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
       }
@@ -1723,11 +1735,11 @@
     {
       "id": "settings-api-keys",
       "group": "settings",
-      "title": "Settings · API keys",
-      "blurb": "Personal expu_ keys: list, mint, revoke. The credential the MCP wiring rides on.",
+      "title": "Settings · Security",
+      "blurb": "Personal expu_ keys: list, mint, revoke, the credential the MCP wiring rides on. Passkeys moved here off the Account page in EXP-862, which is what renamed the section from API keys to Security.",
       "order": 12,
       "web": {
-        "route": "/t/$teamSlug/settings/api-keys",
+        "route": "/t/$teamSlug/settings/security",
         "anchor": {
           "text": "API keys",
           "timeoutMs": 20000
@@ -1881,7 +1893,7 @@
         }
       },
       "notes": {
-        "web": "Web folds this into settings-boards as a card below the live list, alongside the pending-deletion one.",
+        "web": "EXP-862 gave web its own page at /t/$teamSlug/settings/boards/archived, holding the archived list and the 48h pending-deletion card. Both render nothing until a board is put away, which the capture seed never does, so the desktop pane stays the reference.",
         "web-mobile": "See web.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."

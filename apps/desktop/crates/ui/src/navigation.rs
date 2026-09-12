@@ -224,6 +224,9 @@ impl Screen {
             Screen::Support => ToolWindow::Support,
             Screen::Chat => ToolWindow::Sessions,
             Screen::Reviews => ToolWindow::Reviews,
+            // EXP-862: the Automations page's run log is a list like any
+            // other — a run opened from it keeps it in the left column.
+            Screen::Automations => ToolWindow::Automations,
             _ => return None,
         };
         Some(TabOrigin {
@@ -316,6 +319,9 @@ pub(crate) fn derive_origin(
 ///
 /// * opened from the Agent page / anything context-free (`ToolWindow::Sessions`)
 ///   → the Agent page, where its row is;
+/// * opened from the Automations page's run log (`ToolWindow::Automations`,
+///   EXP-862) → that page, where its row is — an unattended run has no row on
+///   the Agent page;
 /// * opened from a LIST beside an issue the run is bound to → that issue's
 ///   detail, which offers Watch again;
 /// * anything else (a batch, an action, a chat run opened from a board) → the
@@ -323,13 +329,18 @@ pub(crate) fn derive_origin(
 ///
 /// Pure, so every combination is a unit test below.
 pub(crate) fn session_back_target(origin: Option<&TabOrigin>, issue_id: Option<&str>) -> Screen {
-    let from_sessions = origin
-        .map(|origin| origin.tool == crate::sidebar::ToolWindow::Sessions)
+    use crate::sidebar::ToolWindow;
+    // The two RUN lists: a run opened from either goes back to the list, not
+    // to the issue it happens to be bound to.
+    let from_run_list = origin
+        .map(|origin| matches!(origin.tool, ToolWindow::Sessions | ToolWindow::Automations))
         .unwrap_or(true);
+    let automations = origin.is_some_and(|origin| origin.tool == ToolWindow::Automations);
     match issue_id {
-        Some(issue_id) if !from_sessions => Screen::IssueDetail {
+        Some(issue_id) if !from_run_list => Screen::IssueDetail {
             issue_id: issue_id.to_string(),
         },
+        _ if automations => Screen::Automations,
         _ => Screen::Chat,
     }
 }
@@ -1129,6 +1140,17 @@ pub(crate) fn take_pending_chat_seed(nav: &Entity<Navigation>, cx: &mut App) -> 
     nav.update(cx, |nav, _| nav.pending_chat_seed.take())
 }
 
+/// EXP-862: PEEK at the pending seed's action — the rail's pinned action rows
+/// light up on the CLICK, and the click writes the seed a beat before the
+/// chat screen mounts and consumes it (`chat_screen::active_action_id` is the
+/// answer from then on). Never consumes.
+pub(crate) fn pending_chat_action_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
+    nav.read(cx)
+        .pending_chat_seed
+        .as_ref()
+        .and_then(|seed| seed.action_id.clone())
+}
+
 /// Consume the pending tab-origin marker (EXP-288). `None` = the screen
 /// change wasn't a real navigation (tab click / close-reactivation /
 /// go-back) — the tab keeps whatever origin it has.
@@ -1775,11 +1797,12 @@ mod tests {
         assert!(session.list_origin().is_none());
     }
 
-    /// EXP-851: exactly five screens are LISTS — a board, the Inbox, Support,
-    /// the Agent page and Reviews. Every other screen (and every detail) is
-    /// context-free: a detail opened from it keeps the rail up.
+    /// EXP-851/EXP-862: exactly six screens are LISTS — a board, the Inbox,
+    /// Support, the Agent page, Reviews and (EXP-862) the Automations page's
+    /// run log. Every other screen (and every detail) is context-free: a
+    /// detail opened from it keeps the rail up.
     #[test]
-    fn the_list_screens_are_the_five_the_left_column_can_show() {
+    fn the_list_screens_are_the_six_the_left_column_can_show() {
         use crate::sidebar::{InboxTab, ToolWindow};
         let board = Screen::BoardIssues {
             board_id: "b1".into(),
@@ -1817,6 +1840,7 @@ mod tests {
             (Screen::Support, ToolWindow::Support),
             (Screen::Chat, ToolWindow::Sessions),
             (Screen::Reviews, ToolWindow::Reviews),
+            (Screen::Automations, ToolWindow::Automations),
         ] {
             assert_eq!(screen.list_origin().map(|origin| origin.tool), Some(tool));
         }
@@ -1824,7 +1848,6 @@ mod tests {
             Screen::Settings,
             Screen::Devices,
             Screen::Actions,
-            Screen::Automations,
             Screen::Files,
             Screen::SourceControl,
             Screen::GettingStarted {
@@ -1927,7 +1950,6 @@ mod tests {
         for previous in [
             Screen::Devices,
             Screen::Actions,
-            Screen::Automations,
             Screen::Settings,
             Screen::Files,
             Screen::SourceControl,
@@ -1938,6 +1960,12 @@ mod tests {
             assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
             assert_eq!(derive_origin(Some(&previous), None, &session), None);
         }
+        // EXP-862: the Automations page IS a list (its run log), so a run
+        // opened from it comes along with it.
+        assert_eq!(
+            derive_origin(Some(&Screen::Automations), None, &session).map(|origin| origin.tool),
+            Some(ToolWindow::Automations)
+        );
         // A deep link at boot (nothing before) has no list either.
         assert_eq!(derive_origin(None, None, &issue), None);
         // A plain LIST screen never gets a left-column list of its own.
@@ -1946,7 +1974,7 @@ mod tests {
     }
 
     /// EXP-827: a session's Back follows the breadcrumb, not history — the
-    /// issue it was opened beside, or the Agent page.
+    /// issue it was opened beside, or the list its row is in.
     #[test]
     fn session_back_follows_the_tab_origin() {
         use crate::sidebar::{InboxTab, ToolWindow};
@@ -1975,6 +2003,22 @@ mod tests {
         // Opened from the Agent page: back to the Agent page, even for an
         // issue-bound run — the list the row is in is the one to return to.
         assert_eq!(session_back_target(Some(&sessions), Some("i1")), Screen::Chat);
+        // EXP-862: opened from the Automations page's run log — back THERE,
+        // issue-bound or not. An unattended run has no row on the Agent page,
+        // so sending Back to it would land on a list the run is not in.
+        let automations = TabOrigin {
+            tool: ToolWindow::Automations,
+            board_id: None,
+            inbox_tab: None,
+        };
+        assert_eq!(
+            session_back_target(Some(&automations), Some("i1")),
+            Screen::Automations
+        );
+        assert_eq!(
+            session_back_target(Some(&automations), None),
+            Screen::Automations
+        );
         // A batch / action / chat run has no issue to return to.
         assert_eq!(session_back_target(Some(&board), None), Screen::Chat);
         // No tab origin at all (a closed tab, a fresh window): the Agent page.

@@ -2,11 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { boardCollection } from "@/lib/collections"
-import {
-  StatusDropdown,
-  statusColorClass,
-  statusColorStyle,
-} from "@/components/issue-properties/status-dropdown"
+import { StatusDropdown } from "@/components/issue-properties/status-dropdown"
+import { IssueGroupHeader } from "@/components/issue-group-header"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
@@ -24,11 +21,8 @@ import {
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { type IssueStatus } from "@/lib/domain"
 import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
-import { ICON_COMPONENTS } from "@/lib/icons.generated"
-import { hexWithAlpha } from "@/lib/status-icons"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import type { IssueGroup } from "@/lib/board-view"
 
@@ -41,39 +35,6 @@ import type { IssueGroup } from "@/lib/board-view"
 const GROUP_ROW_CAP = 100
 // Every "Show more" click reveals this many additional rows.
 const GROUP_ROW_CHUNK = 400
-
-// Status-tinted washes for the sticky group headers — the Tailwind palette
-// colors the old rgba literals encoded (zinc-500/zinc-300/yellow-500/
-// green-500/blue-500), matching the status icon hues in lib/domain.ts.
-// EXP-314: BUILTIN rows keep these exact classes (keyed on the builtin key, so
-// the default team's headers are byte-identical to before); CUSTOM rows get a
-// 10%-alpha inline wash from their own hex.
-const statusHeaderBg: Record<IssueStatus, string> = {
-  backlog: `bg-zinc-500/10`,
-  in_progress: `bg-yellow-500/10`,
-  in_review: `bg-green-500/10`,
-  done: `bg-blue-500/10`,
-  cancelled: `bg-zinc-500/10`,
-  duplicate: `bg-zinc-500/10`,
-}
-
-// Mobile's un-tinted header (EXP-620).
-const EMPTY_WASH: { className: string; style?: React.CSSProperties } = {
-  className: ``,
-}
-
-function groupHeaderWash(option: StatusRowOption): {
-  className: string
-  style?: React.CSSProperties
-} {
-  if (option.builtinKey) {
-    return { className: statusHeaderBg[option.builtinKey] ?? `bg-zinc-500/10` }
-  }
-  return {
-    className: ``,
-    style: { backgroundColor: hexWithAlpha(option.colorHex, 0.1) },
-  }
-}
 
 interface IssueListProps {
   groups: IssueGroup[]
@@ -631,12 +592,7 @@ export function IssueList({
     >
       {visibleGroups.map((group) => {
         const option = group.status
-        const Icon = ICON_COMPONENTS[option.icon]
         const isOpen = !collapsedGroups.has(option.id)
-        // EXP-620: mobile headers are plain text on the app background —
-        // no tint, matching iOS/Android. `useIsMobile` shares the 768px
-        // breakpoint with `md:`, so this agrees with the classes below.
-        const wash = isMobile ? EMPTY_WASH : groupHeaderWash(option)
         const limit = renderLimit(option.id)
         const renderedIssues =
           group.issues.length > limit ? group.issues.slice(0, limit) : group.issues
@@ -652,54 +608,42 @@ export function IssueList({
             // for builtin groups, the row id otherwise. E2E selects on this.
             data-status-key={option.builtinKey ?? option.id}
           >
-            {/* Group header */}
-            {/* md+: backdrop-blur is load-bearing — the tint is translucent
-                and rows scroll under the sticky header. Below md there is no
-                band and no pinning (EXP-620), so none of it applies; the
-                content sits 24px in (16px gutter + 8px), as on native. */}
-            <div
-              className={`group md:sticky md:top-0 md:z-10 flex items-center justify-between max-md:px-2 max-md:py-2 md:pl-3 md:pr-6 md:py-1.5 md:border-b md:border-border/40 md:backdrop-blur-md ${wash.className}`}
-              style={wash.style}
-            >
-              <div className="flex items-center gap-1.5">
-                <CollapsiblePrimitive.Trigger asChild>
+            {/* EXP-862: the ONE group band (`components/issue-group-header`)
+                — the sidebar's issue lists draw the very same one. The whole
+                strip folds its group, so the Collapsible root is driven from
+                here instead of through a Trigger. EXP-620: a phone's header
+                is plain text on the app background, no tint, matching
+                iOS/Android (`useIsMobile` shares the 768px breakpoint with
+                `md:`, so it agrees with the band's own classes). */}
+            <IssueGroupHeader
+              status={option}
+              count={group.issues.length}
+              open={isOpen}
+              onToggle={() => toggleGroup(option.id)}
+              tinted={!isMobile}
+              trailing={
+                canCreate ? (
                   <Button
                     variant="ghost"
-                    className="h-8 w-8 md:h-5 md:w-5 p-0 text-muted-foreground"
+                    size="icon-sm"
+                    aria-label={`New issue in ${option.name}`}
+                    className="hidden md:inline-flex opacity-0 group-hover:opacity-100 hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      // A new issue can never be born a duplicate (no
+                      // canonical issue to pair with) — the duplicate group's
+                      // "+" seeds nothing and the dialog falls back to
+                      // Backlog.
+                      onNewIssue(
+                        option.category === `duplicate` ? undefined : option
+                      )
+                    }}
                   >
-                    <ChevronRight
-                      className={`size-3 transition-transform duration-fast ease-standard motion-reduce:transition-none ${isOpen ? `rotate-90` : ``}`}
-                    />
+                    <Plus className="size-3" />
                   </Button>
-                </CollapsiblePrimitive.Trigger>
-                <Icon
-                  className={`h-3.5 w-3.5 ${statusColorClass(option)}`}
-                  style={statusColorStyle(option)}
-                />
-                <span className="text-sm font-medium">{option.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {group.issues.length}
-                </span>
-              </div>
-              {canCreate && (
-                <Button
-                  variant="glass"
-                  size="icon-sm"
-                  className="hidden md:inline-flex opacity-0 group-hover:opacity-100 hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    // A new issue can never be born a duplicate (no canonical
-                    // issue to pair with) — the duplicate group's "+" seeds
-                    // nothing and the dialog falls back to Backlog.
-                    onNewIssue(
-                      option.category === `duplicate` ? undefined : option
-                    )
-                  }}
-                >
-                  <Plus className="size-3" />
-                </Button>
-              )}
-            </div>
+                ) : undefined
+              }
+            />
 
             {/* Issue rows */}
             {/* The 3px row gap rides margins, NOT `flex`+`gap`: Radix hides a

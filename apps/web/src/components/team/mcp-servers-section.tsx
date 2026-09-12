@@ -45,9 +45,11 @@ import {
   type McpServerDraft,
   type McpServerRow,
 } from "@/lib/mcp-servers"
+import { builtinExpTools } from "@/lib/agent-feed"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useNow } from "@/hooks/use-now"
 import { Button } from "@/components/ui/button"
+import { ExponentialLogo } from "@/components/exponential-logo"
 import { Input } from "@/components/ui/input"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -57,6 +59,7 @@ import {
   GlassRow,
   GlassSectionHeader,
   GlassToggleRow,
+  ListRow,
 } from "@/components/ui/glass-rows"
 import {
   Dialog,
@@ -328,6 +331,8 @@ export function TeamMcpServersSection({
         </div>
       )}
 
+      <BuiltinToolsGroup />
+
       <McpServerDialog
         key={editTarget === null ? `closed` : editTarget === `new` ? `new` : editTarget.id}
         open={editTarget !== null}
@@ -367,6 +372,44 @@ export function TeamMcpServersSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** EXP-862: what EVERY run already has, next to the servers a team adds —
+ * the Exponential MCP tools themselves, collapsed. One row per contract tool
+ * (`expToolDisplay`): the Exponential mark, the tool's title and its blurb,
+ * with the raw wire name only as a tooltip — the shape the session feed's
+ * `ExpToolRow` draws. Nothing here is configurable: the rows exist so the
+ * page answers "what can an agent do with Exponential?" without a doc. */
+function BuiltinToolsGroup() {
+  const [expanded, setExpanded] = useState(false)
+  const tools = useMemo(() => builtinExpTools(), [])
+  return (
+    <div className="mb-6">
+      <GlassSectionHeader
+        label="Built-in Exponential tools"
+        count={tools.length}
+        expanded={expanded}
+        onToggle={() => setExpanded((open) => !open)}
+      />
+      {expanded && (
+        <div className="flex flex-col">
+          {tools.map((tool) => (
+            <ListRow key={tool.name} className="gap-2 py-2" title={tool.name}>
+              <ExponentialLogo
+                variant="light"
+                size={12}
+                className="size-3 shrink-0 text-muted-foreground/60"
+              />
+              <span className="shrink-0 text-sm font-medium">{tool.title}</span>
+              <span className="min-w-0 truncate text-xs text-muted-foreground">
+                {tool.blurb}
+              </span>
+            </ListRow>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -422,7 +465,7 @@ function ServerRow({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="glass"
+                variant="ghost"
                 size="icon-sm"
                 aria-label={`Server menu for ${server.name}`}
               >

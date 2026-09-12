@@ -46,6 +46,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
@@ -56,7 +57,6 @@ use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
 use gpui_component::popover::Popover;
-use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _};
 use sync::Store;
 
@@ -162,6 +162,26 @@ fn device_agent_accounts(row_id: &str, cx: &App) -> coding::agent_accounts::Agen
     crate::device_settings::parse_agent_map::<coding::agent_accounts::AgentAccount>(
         row.agent_accounts.as_ref(),
     )
+}
+
+/// EXP-862 — a machine's KIND glyph for the device picker: the headless CLI
+/// daemon is a SERVER (`ui-server`), everything else a desktop (`ui-device`),
+/// the same pair the Devices list and Getting started wear. An unsynced row
+/// reads as a desktop, which is what this IDE is.
+fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
+    let server = Store::try_global(cx).is_some_and(|store| {
+        store
+            .collections()
+            .devices
+            .read(cx)
+            .iter()
+            .any(|row| row.device_id.as_deref() == Some(device_id) && row.is_server())
+    });
+    if server {
+        registry::UI_SERVER
+    } else {
+        registry::UI_DEVICE
+    }
 }
 
 /// The checked issues and everything their launch needs.
@@ -414,7 +434,10 @@ impl ChatScreenView {
             suggestions: pick_chat_suggestions(suggestion_seed()),
             spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
-            sessions_running: cx.new(crate::sessions_section::RunningSessionsSection::new),
+            // EXP-862: the Agent page's Running band is ALWAYS on screen —
+            // empty it says so ("No agents running right now."), which is the
+            // answer the page exists to give.
+            sessions_running: cx.new(crate::sessions_section::RunningSessionsSection::always),
             sessions_past: cx
                 .new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx)),
             page_scroll: gpui::ScrollHandle::new(),
@@ -719,6 +742,22 @@ impl ChatScreenView {
         }
         // A live edit to the selected action's binding may seed its repo.
         self.seed_action_repo_inputs();
+    }
+
+    /// EXP-862 — the action this composer is SEEDED with, for the lists that
+    /// mark their own row: a pinned action row highlights while its run is
+    /// being composed, and the rail's Agent entry then reads as not-active
+    /// (web does the same off `?action=`). `None` for a chat or an issue
+    /// subject.
+    ///
+    /// The pending seed counts: a play button navigates here with an action
+    /// id that is only resolved once the `actions` shape has synced, and the
+    /// row must light up on the click, not a beat later.
+    pub(crate) fn active_action_id(&self) -> Option<&str> {
+        match &self.subject {
+            Subject::Action(subject) => Some(subject.action_id.as_str()),
+            _ => self.pending_action.as_deref(),
+        }
     }
 
     /// Pick an action: the subject becomes that ONE chip (issues, if any,
@@ -1877,29 +1916,51 @@ impl ChatScreenView {
                 .into_any_element();
         }
         let bound = self.device.device_id.clone();
+        // EXP-862: the machine's KIND leads the trigger AND every row — a
+        // picker whose value wears an icon offers that icon on its items.
+        let kinds: HashMap<String, crate::icons::ExpIcon> = candidates
+            .iter()
+            .map(|device| (device.device_id.clone(), device_kind_icon(&device.device_id, cx)))
+            .collect();
+        let selected_kind = self
+            .device
+            .device_id
+            .as_deref()
+            .and_then(|id| kinds.get(id).cloned())
+            .unwrap_or(registry::UI_DEVICE);
         let view = cx.entity().downgrade();
-        inline_pin_trigger("chat-pin-device".into(), label, cx)
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                for device in &candidates {
-                    let view = view.clone();
-                    let device_id = device.device_id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(device.label.clone()))
-                            .checked(bound.as_deref() == Some(device_id.as_str()))
-                            .on_click(move |_, window, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let device_id = device_id.clone();
-                                    view.update(cx, |this, cx| {
-                                        this.set_device(device_id, window, cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                menu
-            })
-            .into_any_element()
+        crate::launch_options::inline_pin_trigger_with(
+            "chat-pin-device".into(),
+            Some(selected_kind),
+            label,
+            cx,
+        )
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            for device in &candidates {
+                let view = view.clone();
+                let device_id = device.device_id.clone();
+                let kind = kinds
+                    .get(&device_id)
+                    .cloned()
+                    .unwrap_or(registry::UI_DEVICE);
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(device.label.clone()))
+                        .icon(Icon::new(kind))
+                        .checked(bound.as_deref() == Some(device_id.as_str()))
+                        .on_click(move |_, window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                let device_id = device_id.clone();
+                                view.update(cx, |this, cx| {
+                                    this.set_device(device_id, window, cx);
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                );
+            }
+            menu
+        })
+        .into_any_element()
     }
 
     /// EXP-822: the Repository pin (no-subject chats only). "No repository"
@@ -1977,7 +2038,7 @@ impl ChatScreenView {
                 .text_color(muted)
                 .child("Resume")
                 .child(
-                    Switch::new("chat-resume")
+                    crate::controls::web_switch("chat-resume")
                         .checked(issues.resume)
                         .tooltip(hint)
                         .on_click(cx.listener(|this, on: &bool, _, cx| {
@@ -1991,8 +2052,8 @@ impl ChatScreenView {
         )
     }
 
-    /// Options row B: Device · Agent · Model · Plan (· Resume · Repository)
-    /// · ⋯, then the unfolded Effort · Ultracode · MCP · Account line.
+    /// Options row B: Device · Agent · Model (· Account) · Plan (· Resume ·
+    /// Repository) · ⋯, then the unfolded Effort · Ultracode · MCP line.
     fn render_options_row(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let has_launch = self.launch.is_some();
@@ -2010,6 +2071,11 @@ impl ChatScreenView {
             row = row
                 .child(self.launch_ref().agent_pin("chat", Self::launch_access, cx))
                 .child(self.launch_ref().model_pin("chat", Self::launch_access, cx))
+                // EXP-862: WHICH ACCOUNT a run spends is a first-row decision
+                // wherever there is a decision to make — the pin renders only
+                // when the selected machine reports two or more profiles for
+                // the selected agent, so it is never a dead row.
+                .children(self.launch_ref().account_pin("chat", Self::launch_access, cx))
                 .children(self.launch_ref().plan_toggle("chat", Self::launch_access, cx));
         }
         row = row.children(self.resume_switch(cx));
@@ -2043,8 +2109,7 @@ impl ChatScreenView {
                     .child(div().px_1().child("Effort"))
                     .child(launch.effort_pin("chat", Self::launch_access, cx))
                     .children(launch.ultracode_toggle("chat", Self::launch_access, cx))
-                    .children(launch.mcp_pin("chat", Self::launch_access, cx))
-                    .children(launch.account_pin("chat", Self::launch_access, cx)),
+                    .children(launch.mcp_pin("chat", Self::launch_access, cx)),
             );
         }
         column.into_any_element()
@@ -2183,7 +2248,13 @@ impl Render for ChatScreenView {
         if let Some(note) = request_note {
             notes = notes.child(div().text_color(cx.theme().warning).child(note));
         }
-        if let Some(reason) = blocker.filter(|_| !self.launching && !self.sending) {
+        // EXP-862: the blocker still disables the send — only the NOTE is
+        // filtered, and the one it drops is the empty composer telling the
+        // reader to type into the composer they are looking at.
+        let blocker_note = blocker
+            .filter(|_| !self.launching && !self.sending)
+            .filter(|reason| chat_launch::note_for_blocker(Some(reason.as_ref())).is_some());
+        if let Some(reason) = blocker_note {
             // EXP-849: a blocked launch whose fix is a LOGIN offers the login.
             // It used to be text only, which left the one actionable blocker
             // reading like every unactionable one.
@@ -2218,6 +2289,11 @@ impl Render for ChatScreenView {
         // ONE scroll. The composer keeps its centred max-width column; the
         // sections share it so the page reads as one stack rather than the
         // retired centre-plus-list split.
+        // EXP-862: with nothing running and nothing past, the composer is the
+        // whole page — so it sits in the MIDDLE of it (web `justify-center`),
+        // not pinned under the top edge above two empty bands.
+        let only_composer =
+            self.sessions_running.read(cx).is_empty() && self.sessions_past.read(cx).is_empty();
         v_flex()
             .size_full()
             .min_h_0()
@@ -2231,6 +2307,9 @@ impl Render for ChatScreenView {
                     .items_center()
                     .p_6()
                     .gap_6()
+                    .when(only_composer, |column| {
+                        column.min_h_full().justify_center()
+                    })
                     // Both stacks must NOT shrink: inside the scroll column a
                     // flex-shrinkable child gets squeezed to the viewport and
                     // its trailing rows (options, the blocker note) painted

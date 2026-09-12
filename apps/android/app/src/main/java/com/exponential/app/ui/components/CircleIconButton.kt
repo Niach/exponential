@@ -61,11 +61,13 @@ fun CircleIconButton(
     tint: Color? = null,
     enabled: Boolean = true,
     active: Boolean = false,
-    /** EXP-850 (S10): the GHOST variant — no fill, no hairline, just the
-     *  glyph. The pin toggle wears it everywhere it renders (issue header,
-     *  session header, action sheet): a pin is a quiet personal marker, and
-     *  the circle made it read as loud as Stop. [active] then shows as a
-     *  full-emphasis glyph instead of a fill. */
+    /** EXP-850 (S10) / EXP-862: the GHOST variant — no circle, no hairline,
+     *  just the glyph at [TextEmphasis.Secondary] (0.7) with the ripple for
+     *  feedback. Every SECONDARY icon control wears it — `⋯`, close, the
+     *  chevrons, trash/remove, the file list, the refresh class and every back
+     *  button ([TopBarBackButton]) — and the circle is left to the PRIMARY
+     *  actions alone: play/start, send, the nav Search, the FAB, `+`. [active]
+     *  then shows as a full-emphasis glyph instead of a fill. */
     borderless: Boolean = false,
     size: Dp = GlassTokens.ControlSize,
     glyphSize: Dp = 17.dp,
@@ -117,8 +119,11 @@ fun CircleIconButton(
 
 /**
  * The one back button for `TopAppBar.navigationIcon` slots: [CircleIconButton]
- * with the chevron and the 8dp leading inset that aligns the circle with the
- * screen's 16dp content gutter (the slot already contributes 8dp).
+ * with the chevron and the 8dp leading inset that aligns it with the screen's
+ * 16dp content gutter (the slot already contributes 8dp).
+ *
+ * EXP-862: GHOST on every client — a back chevron is the quietest control on
+ * a screen, and the glass circle around it read as an action.
  */
 @Composable
 fun TopBarBackButton(
@@ -132,6 +137,7 @@ fun TopBarBackButton(
         onClick = onClick,
         modifier = Modifier.padding(start = 8.dp),
         enabled = enabled,
+        borderless = true,
     )
 }
 

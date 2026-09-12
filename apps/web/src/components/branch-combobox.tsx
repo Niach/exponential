@@ -34,6 +34,7 @@ export function BranchCombobox({
   size = `default`,
   className,
   align = `start`,
+  rowLabel,
 }: {
   repositoryId: string
   value: string
@@ -44,6 +45,11 @@ export function BranchCombobox({
   size?: `sm` | `default`
   className?: string
   align?: `start` | `end`
+  /** EXP-862: render as a PICKER ROW of a glass group instead of a button —
+   *  the label leads the row, the branch sits at the trailing edge (the
+   *  board form). Unset keeps the standalone button (the repo settings
+   *  row's branch badge). */
+  rowLabel?: string
 }) {
   const [open, setOpen] = useState(false)
   const [branches, setBranches] = useState<string[] | null>(null)
@@ -77,17 +83,32 @@ export function BranchCombobox({
       }}
     >
       <MobilePopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size={size}
-          disabled={disabled}
-          className={className}
-          aria-label={ariaLabel}
-        >
-          <span className="min-w-0 truncate">{value}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-        </Button>
+        {rowLabel ? (
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={ariaLabel}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-fast hover:bg-glass-active/50 disabled:pointer-events-none disabled:opacity-50 ${className ?? ``}`}
+          >
+            <span className="shrink-0 text-sm text-foreground">{rowLabel}</span>
+            <span className="ml-auto min-w-0 truncate font-mono text-sm text-foreground/70">
+              {value}
+            </span>
+            <ChevronDown className="size-3.5 shrink-0 text-foreground/50" />
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size={size}
+            disabled={disabled}
+            className={className}
+            aria-label={ariaLabel}
+          >
+            <span className="min-w-0 truncate">{value}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          </Button>
+        )}
       </MobilePopoverTrigger>
       <MobilePopoverContent
         className="w-[16rem] p-0"

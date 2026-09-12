@@ -1,18 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { trpc } from "@/lib/trpc-client"
-import { ApiKeysSection } from "@/components/account/api-keys-section"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
+// EXP-862: "API keys" became "Security" (keys + passkeys). The old path stays
+// as a redirect — it is what older desktop builds, bookmarks and the MCP
+// setup card link to.
 export const Route = createFileRoute(`/t/$teamSlug/settings/api-keys`)({
-  loader: async () => {
-    const { keys } = await trpc.users.listPersonalApiKeys.query()
-    return { keys }
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: `/t/$teamSlug/settings/security`,
+      params: { teamSlug: params.teamSlug },
+      replace: true,
+    })
   },
-  component: SettingsApiKeys,
 })
-
-// Personal section (EXP-238): self-service expu_ API keys. Account-level —
-// the team in the URL is just the settings surface the user is on.
-function SettingsApiKeys() {
-  const { keys } = Route.useLoaderData()
-  return <ApiKeysSection initialKeys={keys} />
-}

@@ -232,11 +232,32 @@ describe(`the pill absorbed the chip and the header button`, () => {
   })
 })
 
-describe(`circle is an action, a rounded square is a picker (EXP-771)`, () => {
+describe(`a circle is the primary action, a rounded square is a picker (EXP-771/EXP-862)`, () => {
   test(`the icon button stays a circle, the picker takes the MD step`, () => {
     expect(ruleBody(`.cmp-icon-button`)).toContain(`border-radius: 50%`)
     expect(ruleBody(`.cmp-icon-picker-trigger`)).toContain(`border-radius: var(--r-md)`)
     expect(ruleBody(`.cmp-icon-grid .item`)).toContain(`border-radius: var(--r-md)`)
+  })
+
+  test(`the ghost has no circle, no fill and no stroke, only a hover wash`, () => {
+    const ghost = ruleBody(`.cmp-ghost-icon-button`)
+    expect(ghost).toContain(`border: none`)
+    expect(ghost).toContain(`background: transparent`)
+    expect(ghost).toContain(`border-radius: var(--r-md)`)
+    expect(ghost).not.toContain(`50%`)
+    expect(ghost).not.toContain(`1px solid`)
+    expect(ruleBody(`.cmp-ghost-icon-button:hover`)).toContain(`background: var(--active)`)
+  })
+
+  test(`the ghost demo is the secondary set, the circle demo the primary one`, () => {
+    const ghost = spec(`ghost-icon-button`)
+    expect(occurrences(ghost.markup, `class="cmp-ghost-icon-button"`)).toBe(3)
+    expect(ghost.markup).not.toContain(`class="cmp-icon-button"`)
+    expect(ghost.blurb).toContain(`SECONDARY`)
+    const circle = spec(`icon-button`)
+    expect(circle.markup).not.toContain(`class="cmp-ghost-icon-button"`)
+    expect(occurrences(circle.markup, `class="cmp-icon-button"`)).toBe(3)
+    expect(circle.blurb).toContain(`ghost icon button`)
   })
 
   test(`the demo shows both trigger states, the grid and a circle beside them`, () => {

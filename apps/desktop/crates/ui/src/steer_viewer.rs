@@ -275,6 +275,25 @@ impl FeedSource {
     }
 }
 
+/// EXP-862 — WHAT the diff pane is showing.
+///
+/// The pane used to be one thing (the whole published branch diff) with a
+/// file list, so a per-turn file card could only scroll it. A turn's card and
+/// an inline edit card are both claims about a SUBSET, and the pane now
+/// carries that claim: the scope chip says which subset is on screen and
+/// clicking it goes back to the branch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum DiffScope {
+    /// The whole published worktree diff — the header's Diff pill.
+    #[default]
+    Session,
+    /// ONE tool call's patch (an inline edit card's header).
+    Tool { item: FeedItemId },
+    /// Every file a TURN touched (a file card's row), keyed by the card's
+    /// anchor row the way [`crate::session_rows::file_cards`] keys them.
+    Turn { anchor: FeedItemId },
+}
+
 /// The steering view for ONE coding session — remote, local or replayed.
 pub(crate) struct SteerSessionView {
     session_id: String,
@@ -381,9 +400,22 @@ pub(crate) struct SteerSessionView {
     diff_open: bool,
     diff_list_open: bool,
     diff_selected: usize,
+    /// EXP-862: WHAT the pane shows — the whole branch, one turn's files or
+    /// one edit.
+    diff_scope: DiffScope,
+    /// EXP-862: the width the reader dragged the pane to (clamped into the
+    /// view on every read). `None` until they drag it or a previous session
+    /// persisted one ([`crate::ui_prefs`]).
+    diff_width: Option<f32>,
+    /// EXP-862: a drag is in flight — the gap between the pointer and the
+    /// pane's left edge when the handle went down, so the edge follows the
+    /// pointer without jumping to it.
+    diff_resize: Option<Pixels>,
     /// The view's own measured width — what [`crate::diff_pane::pane_width`]
-    /// splits (the composer's `composer_width` recipe).
+    /// splits (the composer's `composer_width` recipe) — and its right edge
+    /// in WINDOW coordinates, which is what a drag measures the pane from.
     view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
+    view_right: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// EXP-850 §12: the per-turn file cards, keyed by the row they hang
     /// under, rebuilt once per frame by [`Self::sync_list`].
     file_cards: HashMap<FeedItemId, crate::session_rows::FileCard>,
@@ -618,7 +650,13 @@ impl SteerSessionView {
             diff_open: false,
             diff_list_open: true,
             diff_selected: 0,
+            diff_scope: DiffScope::Session,
+            // The width is the READER's and one drag settles it for every
+            // session, so it is read back from disk, not re-learned per run.
+            diff_width: crate::ui_prefs::diff_pane_width(),
+            diff_resize: None,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
+            view_right: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             file_cards: HashMap::new(),
             expanded_cards: HashSet::new(),
             expanded_agents: HashSet::new(),
@@ -2375,16 +2413,82 @@ impl SteerSessionView {
         if self.diff_selected >= files {
             self.diff_selected = 0;
         }
-        if self.diff_open {
+        // EXP-862: only the SESSION scope follows the published diff. A pane
+        // scoped to one turn or one edit shows what that row did, and a new
+        // push must not silently swap it for something else.
+        if self.diff_open && self.diff_scope == DiffScope::Session {
             self.rebuild_changes_diff(cx);
         }
     }
 
+    /// EXP-862 — the files the pane is showing: the whole published diff in
+    /// the session scope, else the per-call patches of the rows the scope
+    /// names (the same bytes their inline cards render).
+    fn scope_files(&self) -> Vec<coding::scm::DiffFile> {
+        match &self.diff_scope {
+            DiffScope::Session => self
+                .changes
+                .as_ref()
+                .map(|state| state.files.clone())
+                .unwrap_or_default(),
+            DiffScope::Tool { item } => self.item_diff_files(*item),
+            DiffScope::Turn { anchor } => {
+                let mut files: Vec<coding::scm::DiffFile> = Vec::new();
+                for item in crate::session_rows::turn_items(self.feed.items(), *anchor) {
+                    for file in self.item_diff_files(item) {
+                        // Two writes to one file inside a turn are ONE entry,
+                        // exactly as the turn's file card counts them.
+                        match files.iter_mut().find(|held| held.path == file.path) {
+                            Some(held) => {
+                                held.additions += file.additions;
+                                held.deletions += file.deletions;
+                                held.hunks.extend(file.hunks);
+                            }
+                            None => files.push(file),
+                        }
+                    }
+                }
+                files
+            }
+        }
+    }
+
+    /// One feed row's own patch: the engine's local edit cards where this
+    /// process hosts the run, else the cut patch the publisher put on the
+    /// wire (EXP-786) — the same precedence [`Self::render_tool_item`] uses.
+    fn item_diff_files(&self, item: FeedItemId) -> Vec<coding::scm::DiffFile> {
+        if let Some(files) = self.extras.edit_files(item) {
+            return files;
+        }
+        self.feed
+            .items()
+            .iter()
+            .find(|row| row.id == item)
+            .and_then(|row| match &row.kind {
+                FeedKind::Tool { diff: Some(diff), .. } => {
+                    crate::session_extras::parse_tool_diff(diff).map(|(file, _)| vec![file])
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// EXP-862: the pane's scope chip — `None` in the session scope, where
+    /// the header's Diff pill already says what is on screen.
+    fn scope_label(&self, files: usize) -> Option<SharedString> {
+        match &self.diff_scope {
+            DiffScope::Session => None,
+            DiffScope::Tool { .. } => Some(SharedString::from("This edit")),
+            DiffScope::Turn { .. } => Some(SharedString::from(format!(
+                "This turn: {files} file{}",
+                if files == 1 { "" } else { "s" }
+            ))),
+        }
+    }
+
     fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(state) = self.changes.as_ref() else {
-            return;
-        };
-        let prepared = crate::diff::build_scm_diff(&state.files, &cx.theme().highlight_theme);
+        let files = self.scope_files();
+        let prepared = crate::diff::build_scm_diff(&files, &cx.theme().highlight_theme);
         self.changes_diff
             .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
     }
@@ -2404,26 +2508,42 @@ impl SteerSessionView {
 
     /// Open or shut the pane (the header's Diff pill). Opening builds the
     /// rows — they are only worth rendering when visible.
+    ///
+    /// The pill is the WHOLE BRANCH (EXP-862), so opening through it always
+    /// returns the pane to the session scope.
     pub(crate) fn toggle_diff(&mut self, cx: &mut gpui::Context<Self>) {
         self.diff_open = !self.diff_open;
         if self.diff_open {
+            self.diff_scope = DiffScope::Session;
+            self.diff_selected = 0;
             self.rebuild_changes_diff(cx);
         }
         cx.notify();
     }
 
-    /// EXP-850 §12 — open the pane scrolled to `path` (a file card's row).
-    /// A path the published diff does not name simply opens the pane.
-    fn open_diff_at(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
-        let index = self
-            .changes
-            .as_ref()
-            .and_then(|state| state.files.iter().position(|file| file.path == path));
-        if !self.diff_open {
-            self.diff_open = true;
-            self.rebuild_changes_diff(cx);
+    /// EXP-862 — open the pane SCOPED: a turn's file card shows that turn's
+    /// files (scrolled to the row that was clicked), an inline edit card
+    /// shows that one edit. A scope whose rows carry no patch at all opens
+    /// nothing rather than an empty pane.
+    fn open_diff_scoped(
+        &mut self,
+        scope: DiffScope,
+        path: Option<&str>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let previous = std::mem::replace(&mut self.diff_scope, scope);
+        if self.scope_files().is_empty() {
+            self.diff_scope = previous;
+            return;
         }
-        if let Some(index) = index {
+        self.diff_open = true;
+        self.diff_selected = 0;
+        self.rebuild_changes_diff(cx);
+        if let Some(index) = path.and_then(|path| {
+            self.scope_files()
+                .iter()
+                .position(|file| file.path == path)
+        }) {
             self.select_diff_file(index, cx);
         }
         cx.notify();
@@ -2444,9 +2564,11 @@ impl SteerSessionView {
         if !self.diff_open {
             return None;
         }
-        let state = self.changes.as_ref()?;
-        let files: Vec<crate::diff_pane::PaneFile> = state
-            .files
+        let scoped = self.scope_files();
+        if scoped.is_empty() {
+            return None;
+        }
+        let files: Vec<crate::diff_pane::PaneFile> = scoped
             .iter()
             .map(|file| crate::diff_pane::PaneFile {
                 path: SharedString::from(file.path.clone()),
@@ -2454,13 +2576,15 @@ impl SteerSessionView {
                 deletions: file.deletions,
             })
             .collect();
-        let width = px(crate::diff_pane::pane_width(f32::from(self.view_width.get())));
+        let scope_label = self.scope_label(files.len());
+        let width = px(self.diff_pane_width());
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
                 files,
                 selected: self.diff_selected,
                 list_open: self.diff_list_open,
                 width,
+                scope_label,
                 diff: self.changes_diff.clone(),
                 on_close: Box::new(|this: &mut Self, cx| {
                     this.diff_open = false;
@@ -2470,12 +2594,62 @@ impl SteerSessionView {
                     this.diff_list_open = !this.diff_list_open;
                     cx.notify();
                 }),
+                on_show_session: Box::new(|this: &mut Self, cx| {
+                    this.open_diff_scoped(DiffScope::Session, None, cx);
+                }),
+                on_resize: Box::new(|this: &mut Self, down_x: Pixels, cx| {
+                    this.begin_diff_resize(down_x, cx);
+                }),
                 on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
                     this.select_diff_file(index, cx);
                 }),
             },
             cx,
         ))
+    }
+
+    /// The pane's width right now: what the reader dragged it to, else §11's
+    /// opening share — always clamped into the view it splits (a width
+    /// remembered from a wider window must not eat this one's transcript).
+    fn diff_pane_width(&self) -> f32 {
+        let total = f32::from(self.view_width.get());
+        match self.diff_width {
+            Some(width) => crate::diff_pane::clamp_pane_width(width, total),
+            None => crate::diff_pane::pane_width(total),
+        }
+    }
+
+    /// EXP-862 — the left edge went down: remember how far the pointer sits
+    /// from it, so the drag moves the edge rather than teleporting it under
+    /// the cursor. The rest of the gesture is captured by the view's ROOT
+    /// (the pointer leaves an 8px strip instantly).
+    fn begin_diff_resize(&mut self, down_x: Pixels, cx: &mut gpui::Context<Self>) {
+        let left_edge = f32::from(self.view_right.get()) - self.diff_pane_width();
+        self.diff_resize = Some(px(left_edge - f32::from(down_x)));
+        cx.notify();
+    }
+
+    /// A drag frame: the edge follows the pointer, clamped.
+    fn drag_diff_resize(&mut self, position: Pixels, cx: &mut gpui::Context<Self>) {
+        let Some(offset) = self.diff_resize else {
+            return;
+        };
+        let total = f32::from(self.view_width.get());
+        let requested = f32::from(self.view_right.get()) - (f32::from(position) + f32::from(offset));
+        self.diff_width = Some(crate::diff_pane::clamp_pane_width(requested, total));
+        cx.notify();
+    }
+
+    /// The button came up: the width the reader settled on is the width every
+    /// session opens at from now on.
+    fn end_diff_resize(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.diff_resize.take().is_none() {
+            return;
+        }
+        if let Some(width) = self.diff_width {
+            crate::ui_prefs::set_diff_pane_width(width);
+        }
+        cx.notify();
     }
 
     /// The Merge target this run offers, or `None` once it is over
@@ -3566,24 +3740,41 @@ impl SteerSessionView {
         )
     }
 
+    /// EXP-862 — a thin adapter over [`crate::queries::session_dot_tone`], the
+    /// ONE dot mapping every client paints (the lists, the rail and this
+    /// header disagreed about exactly the two cases that matter: a quiet feed
+    /// and a finished run). What is local to the VIEWER is which facts it can
+    /// prove: the synced row's display, the pending-answer edge, FEED-26's
+    /// stale clock, and a socket that has not joined yet.
     fn phase_tone(&self, cx: &App, paused: bool, awaiting: bool, stale: bool) -> gpui::Hsla {
-        if paused || self.row_ended() {
-            return cx.theme().muted_foreground.opacity(0.5);
-        }
-        // FEED-26: a live run whose feed has gone quiet wears the SAME steady
-        // amber as "Needs your input" — both mean "this is not progressing on
-        // its own", and a green dot over a stalled agent is the lie the issue
-        // is about.
-        if awaiting || stale {
-            return theme::tokens::YELLOW.to_hsla();
-        }
-        match self.phase {
-            ViewerPhase::Live => theme::tokens::GREEN.to_hsla(),
-            ViewerPhase::Ended { .. } | ViewerPhase::Unauthorized { .. } => {
-                cx.theme().muted_foreground.opacity(0.5)
-            }
-            _ => theme::tokens::NEUTRAL.to_hsla(),
-        }
+        let muted = cx.theme().muted_foreground;
+        let ended = self.row_ended()
+            || matches!(
+                self.phase,
+                ViewerPhase::Ended { .. } | ViewerPhase::Unauthorized { .. }
+            );
+        let display = self.session_row().map(|row| {
+            crate::queries::coding_session_display(row, row.pr_state.as_deref())
+        });
+        let facts = match display {
+            Some(display) => crate::queries::SessionDotFacts {
+                awaiting,
+                stale,
+                ..crate::queries::SessionDotFacts::from_display(display, ended, paused)
+            },
+            // No row yet: the socket is all this view knows, and a viewer
+            // that has not joined claims nothing.
+            None => crate::queries::SessionDotFacts {
+                ended,
+                paused,
+                awaiting,
+                stale,
+                running: self.phase == ViewerPhase::Live,
+                connecting: !ended && self.phase != ViewerPhase::Live,
+                ..Default::default()
+            },
+        };
+        crate::queries::session_dot_tone(facts, muted)
     }
 
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -4205,6 +4396,7 @@ impl SteerSessionView {
                         }
                         cx.notify();
                     })),
+                    Some(self.open_edit_listener(id, cx)),
                     cx,
                 )
             })
@@ -4246,6 +4438,7 @@ impl SteerSessionView {
                 }
                 cx.notify();
             })),
+            Some(self.open_edit_listener(item, cx)),
             session.map(|session| -> Box<dyn Fn(&str, &mut Window, &mut App) + 'static> {
                 Box::new(move |terminal_id: &str, _window: &mut Window, _cx: &mut App| {
                     session.kill_terminal(terminal_id);
@@ -4253,6 +4446,17 @@ impl SteerSessionView {
             }),
             cx,
         )
+    }
+
+    /// EXP-862 — an inline edit card's header opens the pane on THAT edit.
+    fn open_edit_listener(
+        &self,
+        item: FeedItemId,
+        cx: &mut gpui::Context<Self>,
+    ) -> crate::session_extras::OpenDiff {
+        std::rc::Rc::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.open_diff_scoped(DiffScope::Tool { item }, None, cx);
+        }))
     }
 
     /// A body that never folds: the plan a reader must approve is always
@@ -4922,7 +5126,14 @@ impl SteerSessionView {
                     )
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                         cx.stop_propagation();
-                        this.open_diff_at(&path, cx);
+                        // EXP-862: a file card is one TURN's work, so the
+                        // pane opens on that turn's files, scrolled to this
+                        // one; the chip goes back to the whole branch.
+                        this.open_diff_scoped(
+                            DiffScope::Turn { anchor },
+                            Some(&path),
+                            cx,
+                        );
                     })),
             );
         }
@@ -6606,9 +6817,14 @@ impl Render for SteerSessionView {
         // width (the transcript is one toggle away).
         let pane = self.render_diff_pane(cx);
         let width = f32::from(self.view_width.get());
-        let conversation_visible =
-            pane.is_none() || crate::diff_pane::transcript_visible(width);
+        let conversation_visible = pane.is_none()
+            || crate::diff_pane::transcript_visible(self.diff_pane_width(), width);
         let width_probe = self.view_width.clone();
+        let right_probe = self.view_right.clone();
+        // EXP-862: while the pane's edge is being dragged the whole view is
+        // the capture surface — an 8px strip loses the pointer on the first
+        // frame, and a gesture that dies mid-drag is worse than no drag.
+        let resizing = self.diff_resize.is_some();
         let conversation = conversation_visible.then(|| {
             v_flex()
                 .flex_1()
@@ -6659,16 +6875,42 @@ impl Render for SteerSessionView {
                             .children(conversation)
                             .children(pane),
                     )
-                    // The view's width, read back for the next frame's split
-                    // (the canvas paints nothing).
+                    // The view's width (and its right edge in window
+                    // coordinates, which is what a drag measures the pane
+                    // from), read back for the next frame's split — the
+                    // canvas paints nothing.
                     .child(
                         gpui::canvas(
-                            move |bounds, _, _| width_probe.set(bounds.size.width),
+                            move |bounds, _, _| {
+                                width_probe.set(bounds.size.width);
+                                right_probe.set(bounds.right());
+                            },
                             |_, _, _, _| {},
                         )
                         .absolute()
                         .size_full(),
-                    ),
+                    )
+                    .when(resizing, |this| {
+                        this.on_mouse_move(cx.listener(
+                            |this, event: &gpui::MouseMoveEvent, _window, cx| {
+                                this.drag_diff_resize(event.position.x, cx);
+                            },
+                        ))
+                        .on_mouse_up(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _: &gpui::MouseUpEvent, _window, cx| {
+                                this.end_diff_resize(cx);
+                            }),
+                        )
+                        // The button may come up anywhere, including over
+                        // another window's edge — the drag ends either way.
+                        .on_mouse_up_out(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _: &gpui::MouseUpEvent, _window, cx| {
+                                this.end_diff_resize(cx);
+                            }),
+                        )
+                    }),
             )
     }
 }

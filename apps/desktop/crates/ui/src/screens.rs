@@ -79,6 +79,18 @@ pub(crate) fn screens_for_window_id(
         .and_then(|registry| registry.by_window.get(&window_id).cloned())
 }
 
+/// EXP-862: the ACTION this window's Agent-page composer is seeded with, for
+/// the lists that mark their own row — a pinned action row lights up while
+/// its run is being composed, and the rail's Agent entry then reads as NOT
+/// active (web does the same off `?action=`). `None` in a window with no
+/// screens panel, and on every other screen.
+pub(crate) fn chat_action_id(window: &Window, cx: &App) -> Option<String> {
+    let panel = screens_for_window(window, cx)?;
+    let chat = panel.read(cx).chat.clone();
+    let id = chat.read(cx).active_action_id()?;
+    Some(id.to_string())
+}
+
 /// EXP-746: every window's open screen for `session_id` (usually zero or
 /// one). The engine's exit edge is app-global — it knows the row, not the
 /// window that opened it — so it marks whatever is up.
@@ -244,8 +256,15 @@ struct TabEntry {
 /// EXP-851: which list a tab ends up carrying. `pending` is the marker the
 /// navigation left (`None` = not a navigation at all: a tab click, a go-back,
 /// a close-reactivation — the tab keeps what it has), `existing` the tab's
-/// current list, `derived` the breadcrumb rule's answer. Pure, so the three
+/// current list, `derived` the breadcrumb rule's answer. Pure, so the four
 /// cases are a unit test.
+///
+/// EXP-862: a `Derive` that derives NOTHING keeps the origin the tab already
+/// has. Deriving nothing means "this click named no list", not "this tab has
+/// no list": a row clicked in the left column while a rail-opened detail is
+/// up used to blank the column mid-click and throw the reader back to the
+/// rail. Only [`PendingOrigin::Rail`] clears an origin, because the rail
+/// really is the answer there.
 fn resolve_tab_origin(
     pending: Option<&PendingOrigin>,
     existing: Option<&TabOrigin>,
@@ -254,7 +273,7 @@ fn resolve_tab_origin(
     match pending {
         None => existing.cloned(),
         Some(PendingOrigin::Explicit(origin)) => Some(origin.clone()),
-        Some(PendingOrigin::Derive) => derived,
+        Some(PendingOrigin::Derive) => derived.or_else(|| existing.cloned()),
         Some(PendingOrigin::Rail) => None,
     }
 }
@@ -557,16 +576,13 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
             .or(row.pr_state.as_deref()),
     );
     let paused = !ended && crate::queries::session_is_paused(display, &presentation);
-    let tone = if ended || paused {
-        muted
-    } else {
-        match display {
-            crate::queries::CodingSessionDisplay::NeedsInput => theme::tokens::YELLOW.to_hsla(),
-            crate::queries::CodingSessionDisplay::Done => theme::tokens::BLUE.to_hsla(),
-            crate::queries::CodingSessionDisplay::Review
-            | crate::queries::CodingSessionDisplay::Running => theme::tokens::GREEN.to_hsla(),
-        }
-    };
+    // EXP-862: the ONE dot mapping (`queries::session_dot_tone`) — the rail
+    // rows, the session lists, the steer viewer's header and this chip all
+    // read it, so a run cannot be green here and amber two panels over.
+    let tone = crate::queries::session_dot_tone(
+        crate::queries::SessionDotFacts::from_display(display, ended, paused),
+        muted,
+    );
     ChipContent {
         lead: ChipLead::Dot(tone),
         identifier,
@@ -2110,7 +2126,7 @@ impl ScreensPanel {
             .min_h_0()
             .child(
                 v_flex()
-                    .w(px(crate::shell::LIST_NAV_WIDTH))
+                    .w(px(crate::shell::SCREEN_LIST_WIDTH))
                     .flex_shrink_0()
                     .h_full()
                     .min_h_0()
@@ -2155,7 +2171,7 @@ impl ScreensPanel {
             .min_h_0()
             .child(
                 v_flex()
-                    .w(px(crate::shell::LIST_NAV_WIDTH))
+                    .w(px(crate::shell::SCREEN_LIST_WIDTH))
                     .flex_shrink_0()
                     .h_full()
                     .min_h_0()
@@ -2723,10 +2739,13 @@ impl Render for ScreensPanel {
         let fallback_strip = (self.top_tab_count() > 0
             && !crate::app_title_bar::client_chrome(window))
         .then(|| {
-            // Conservative width budget: the strip shares the row with
-            // nothing, but the panel itself sits right of the rail + tool
-            // column (both unknown here) — assume the default split.
-            let available = (window.viewport_size().width - px(620.)).max(px(160.));
+            // Width budget: the strip shares the row with nothing, but the
+            // panel sits right of the window's left column (EXP-862: ONE
+            // width for every occupant of it) and carries its own `px_2`.
+            let available = (window.viewport_size().width
+                - px(crate::shell::left_column_width())
+                - px(2. * crate::shell::PANEL_MARGIN + 16.))
+            .max(px(160.));
             div()
                 .w_full()
                 .px_2()
@@ -2830,11 +2849,16 @@ mod tests {
             ),
             Some(inbox.clone())
         );
-        // … and a breadcrumb with no list clears the tab's.
+        // EXP-862: … and a breadcrumb with NO list keeps the tab's. Deriving
+        // nothing means the click named no list, not that this tab has none:
+        // a row clicked in the left column beside a rail-opened detail used
+        // to blank the column and throw the reader back to the rail.
         assert_eq!(
             resolve_tab_origin(Some(&PendingOrigin::Derive), Some(&board), None),
-            None
+            Some(board.clone())
         );
+        // With nothing on either side there is still nothing.
+        assert_eq!(resolve_tab_origin(Some(&PendingOrigin::Derive), None, None), None);
         // A RAIL row opens with no list, whatever is on screen.
         assert_eq!(
             resolve_tab_origin(Some(&PendingOrigin::Rail), Some(&board), Some(inbox.clone())),

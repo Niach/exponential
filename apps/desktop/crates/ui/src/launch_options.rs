@@ -34,7 +34,6 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_component::switch::Switch;
 use gpui_component::{h_flex, select::Select, v_flex, ActiveTheme as _, Disableable as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
@@ -513,6 +512,19 @@ fn pin_trigger(id: SharedString, value: impl Into<SharedString>, cx: &App) -> Bu
 /// EXP-825: the composer options row's pin — the chat page's muted `text_xs`
 /// ghost with a caret, one word on the line under the card.
 pub(crate) fn inline_pin_trigger(id: SharedString, label: String, cx: &App) -> Button {
+    inline_pin_trigger_with(id, None, label, cx)
+}
+
+/// EXP-862: the same pin with a LEADING GLYPH — the picker rule ×4 is that a
+/// value shown with an icon is picked with that icon, so the device pin leads
+/// with the machine's kind and the account pin with the account mark.
+pub(crate) fn inline_pin_trigger_with(
+    id: SharedString,
+    icon: Option<ExpIcon>,
+    label: String,
+    cx: &App,
+) -> Button {
+    use gpui::prelude::FluentBuilder as _;
     Button::new(id)
         .ghost()
         .cursor_pointer()
@@ -521,6 +533,9 @@ pub(crate) fn inline_pin_trigger(id: SharedString, label: String, cx: &App) -> B
         .py_0()
         .text_color(cx.theme().muted_foreground)
         .dropdown_caret(true)
+        .when_some(icon, |button, icon| {
+            button.child(Icon::new(icon).size(gpui::px(12.)))
+        })
         .child(div().text_xs().child(SharedString::from(label)))
 }
 
@@ -539,10 +554,14 @@ fn inline_switch<V: Render>(
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(label)
-        .child(Switch::new(id).checked(on).on_click(cx.listener(move |view, on: &bool, _, cx| {
-            write(view, *on);
-            cx.notify();
-        })))
+        .child(
+            crate::controls::web_switch(id)
+                .checked(on)
+                .on_click(cx.listener(move |view, on: &bool, _, cx| {
+                    write(view, *on);
+                    cx.notify();
+                })),
+        )
         .into_any_element()
 }
 
@@ -812,7 +831,7 @@ impl<V: Render> DefaultsToggle<V> {
         surface::glass_toggle_row(
             self.label,
             None,
-            Switch::new(self.id)
+            crate::controls::web_switch(self.id)
                 .checked(self.checked)
                 .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
                     on_click(view, *on, cx);
@@ -1267,40 +1286,33 @@ impl LaunchOptionsSection {
         };
     }
 
-    /// The Agent pin: the picked agent's label and a menu of the pickable
-    /// agents.
+    /// The Agent pin — EXP-862: the SHARED
+    /// [`crate::coding_selects::agent_picker`], one component per client. The
+    /// trigger is icon-only (the brand mark plus a caret, the label in its
+    /// tooltip) and the menu rows carry the same mark, so the composer row
+    /// keeps its width whichever agent is selected.
     pub(crate) fn agent_pin<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut LaunchOptionsSection,
         cx: &mut Context<V>,
     ) -> AnyElement {
-        let label = self.agent.label().to_string();
         let agents = self.pickable(cx);
-        let current = self.agent;
         let view = cx.entity().downgrade();
-        inline_pin_trigger(SharedString::from(format!("{prefix}-agent")), label, cx)
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                for agent in &agents {
-                    let view = view.clone();
-                    let agent = *agent;
-                    let checked = current == agent;
-                    menu = menu.item(
-                        PopupMenuItem::new(agent_label(agent.id()))
-                            .checked(checked)
-                            .on_click(move |_, window, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    view.update(cx, |view, cx| {
-                                        access(view).set_agent(agent, window, cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
+        crate::coding_selects::agent_picker(
+            SharedString::from(format!("{prefix}-agent")),
+            &agents,
+            self.agent,
+            move |agent, window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view, cx| {
+                        access(view).set_agent(agent, window, cx);
+                        cx.notify();
+                    });
                 }
-                menu
-            })
-            .into_any_element()
+            },
+            cx,
+        )
     }
 
     /// The Model pin over the picked agent's own model list.
@@ -1424,9 +1436,13 @@ impl LaunchOptionsSection {
         if options.is_empty() {
             return None;
         }
-        let trigger = inline_pin_trigger(
+        // EXP-862: the label is the PROFILE's (its name or email) behind the
+        // account mark — the row no longer spends a word saying which kind of
+        // pin it is.
+        let trigger = inline_pin_trigger_with(
             SharedString::from(format!("{prefix}-account")),
-            format!("Account: {}", account_pin_label(&options, self.account.as_deref())),
+            Some(crate::icons::registry::NAV_ACCOUNT),
+            account_pin_label(&options, self.account.as_deref()),
             cx,
         );
         Some(account_menu(trigger, &options, self.account.as_deref(), access, cx).into_any_element())

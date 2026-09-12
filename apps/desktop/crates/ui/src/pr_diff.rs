@@ -227,14 +227,14 @@ impl Render for PrDiffView {
                 });
 
             // The reject path — a quiet round `×` that only grows into a
-            // labeled danger confirm once armed (EXP-100). EXP-698: the glyph
-            // wears the ONE 32px glass icon chrome instead of a bare ghost —
-            // a chrome-less glyph on the page gradient reads as decoration.
+            // labeled danger confirm once armed (EXP-100). EXP-862: the
+            // glyph is a GHOST icon button — a circle means a primary action,
+            // and closing a PR without merging is not one.
             let close_button = is_open.then(|| {
                 let mut button = if close_armed && !closing {
                     Button::new("pr-diff-close").web_sm().label("Close PR").danger()
                 } else {
-                    crate::controls::glass_icon_button(
+                    crate::controls::ghost_icon_button(
                         "pr-diff-close",
                         Icon::new(registry::UI_CLOSE),
                         cx,
@@ -306,7 +306,7 @@ impl Render for PrDiffView {
                 merge_button.into_iter().chain(fix_button).collect();
 
             let external = issue.pr_url.clone().map(|url| {
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     "pr-diff-open-github",
                     Icon::new(registry::UI_EXTERNAL_LINK),
                     cx,
@@ -430,7 +430,7 @@ impl Render for PrDiffView {
                                 // beside an actual external link (the GitHub
                                 // button), and two identical icons in one
                                 // cluster read as a duplicate control.
-                                crate::controls::glass_icon_button(
+                                crate::controls::ghost_icon_button(
                                     "pr-diff-undock",
                                     Icon::new(registry::UI_UNDOCK),
                                     cx,

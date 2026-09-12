@@ -2,29 +2,26 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-// The device settings sheet (EXP-481) — Edit on a machines row opens it, the
-// iOS twin of the web/IDE device-settings dialog. Six sections, no Save
-// buttons (EXP-490):
+// The device settings sheet (EXP-481) — "Device settings" on a device row
+// opens it, the iOS twin of the web/IDE device-settings dialog. Five sections,
+// no Save buttons (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
-//   Default  — devices.setDefault (EXP-622), the machine every device picker
+//   Default  — devices.setDefault (EXP-622), the device every device picker
 //              prefills; a single toggle, written straight through.
-//   Sharing  — devices.setShared, SERVER machines only: one toggle per team
+//   Sharing  — devices.setShared, SERVER devices only: one toggle per team
 //              (FEED-33), each written straight through off the live row.
-//   Defaults — the machine's SERVER-AUTHORITATIVE launch defaults
-//              (devices.setLaunchDefaults), debounced per edit. Editable while
-//              the machine is OFFLINE too: the row is the truth and the
-//              machine's settings.json converges on its next heartbeat, so the
-//              only offline concession is a footer saying so.
-//              EXP-688: each agent's tab also carries that agent's account
-//              (EXP-484 read-only auth status, plus Login / Switch account,
-//              which queue an `agent_login` command the machine runs locally)
-//              and its usage cards. No credential is ever held or forwarded —
-//              the machine publishes only the sign-in link it shows on its own
-//              screen. EXP-765 closes that loop for Claude: the browser hands
-//              back an authorization code, and a field under the link sends it
-//              to the waiting login as an `agent_login_code` command. There
-//              is no separate Agents section any more.
+//   Defaults — the device's SERVER-AUTHORITATIVE launch defaults
+//              (devices.setLaunchDefaults), debounced per edit: the default
+//              agent (the shared picker) and, per agent, Model / Effort /
+//              Ultracode / Plan. Editable while the device is OFFLINE too: the
+//              row is the truth and the device's settings.json converges on its
+//              next heartbeat, so the only offline concession is a footer
+//              saying so.
+//              EXP-862 took the ACCOUNT and USAGE rows back out (×4). A login
+//              is a flow, not a setting: signing in lives on the account chips
+//              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
+//              → Accounts.
 //   Worktrees — the synced inventory (shape 18) with per-row Remove and a
 //              Prune button, queued as devices.createCommand rows the device
 //              runs on its next heartbeat (immediately when online). Progress
@@ -35,33 +32,12 @@ import SwiftUI
 // a defaults edit made on another client lands here while it is open. Every
 // field auto-saves; the live row is echoed back into the drafts only while
 // nothing is pending, in flight, or focused — a remote update must never stomp
-// an edit in progress. Owner-only: the machines list offers Edit on `isMine`
-// rows exclusively, and the sheet closes itself if the row goes away.
+// an edit in progress. Owner-only: the devices list offers the sheet on
+// `isMine` rows exclusively, and the sheet closes itself if the row goes away.
 struct DeviceSettingsSheet: View {
     let viewModel: AgentsViewModel
     let deviceId: String
     let teams: [TeamEntity]
-    /// EXP-849: the agent tab to open on — a machine chip's "Sign in again"
-    /// names the agent whose login is broken, and this sheet owns the sign-in
-    /// link round-trip. Nil (the row menu's Edit) opens on the machine's
-    /// default agent, as before. Declared BEFORE `onOpenUsage` so a call site
-    /// can pass it and still leave the closure last (the memberwise init takes
-    /// its arguments in declaration order).
-    var initialAgent: String? = nil
-    /// EXP-849: the profile `initialAgent`'s sign-in targets — the login the
-    /// chip that opened this sheet named. Without it a machine holding two
-    /// logins for the same agent would re-login whichever one it is currently
-    /// USING, which on an expired sibling repairs the wrong profile. Ignored
-    /// once the machine stops reporting that profile, and only ever applies to
-    /// `initialAgent`'s tab; nil (the row menu's Edit) keeps the active-profile
-    /// default. Declared BEFORE `onOpenUsage` so a call site can pass it and
-    /// still leave the closure last.
-    var initialProfileId: String? = nil
-    /// EXP-827: where the round Usage button goes — the Devices page's Accounts
-    /// section (web `device-settings-dialog.tsx` `openUsage`). The sheet closes
-    /// itself first; a host with nowhere to send the caller passes nothing and
-    /// the button simply does not render.
-    var onOpenUsage: (() -> Void)? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -107,19 +83,6 @@ struct DeviceSettingsSheet: View {
     @State private var removeTarget: DeviceWorktreeEntity?
     /// The device-reported prune summary ("Pruned 2 worktrees"), shown once.
     @State private var commandSummary: String?
-    /// The sign-in payload a finished `agent_login` command carried, per agent.
-    /// Cleared the moment that agent is queued again.
-    @State private var loginResults: [String: String] = [:]
-    /// EXP-765: the code typed back from the browser, per agent — the draft
-    /// behind the field a Claude sign-in link opens.
-    @State private var codeDrafts: [String: String] = [:]
-    /// EXP-765: what a finished `agent_login_code` command reported, per agent
-    /// ("Code entered — …"). Held apart from `loginResults` because a done
-    /// code command RETIRES the link it answered.
-    @State private var codeResults: [String: String] = [:]
-    /// The agent a Switch-account tap is confirming (codex only — its logout
-    /// revokes the token server-side).
-    @State private var switchConfirmAgent: String?
 
     /// The live row off the devices shape. Own machines only — the sheet is an
     /// owner surface, so a row that stops being ours reads as gone.
@@ -201,23 +164,6 @@ struct DeviceSettingsSheet: View {
         } message: { worktree in
             Text("Remove \(worktree.branch) on \(device.deviceLabel)? Uncommitted tracked changes make the machine refuse.")
         }
-        .confirmationDialog(
-            "Switch the Codex account?",
-            isPresented: Binding(
-                get: { switchConfirmAgent != nil },
-                set: { if !$0 { switchConfirmAgent = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Switch account", role: .destructive) {
-                let agent = switchConfirmAgent
-                switchConfirmAgent = nil
-                if let agent { queueLogin(agent: agent, switchAccount: true) }
-            }
-            Button("Cancel", role: .cancel) { switchConfirmAgent = nil }
-        } message: {
-            Text("Codex logout revokes the token server-side. You'll sign in again on that machine.")
-        }
     }
 
     // MARK: - Seeding
@@ -229,11 +175,6 @@ struct DeviceSettingsSheet: View {
         seeded = true
         name = device.deviceLabel
         applyDefaults(device, keepTab: false)
-        // EXP-849: a caller that named an agent wins over the machine's
-        // default — but only while the machine still reports that agent.
-        if let initialAgent, tabAgents(device).contains(initialAgent) {
-            selectedAgent = initialAgent
-        }
     }
 
     /// (Re)build the defaults drafts from the row. Callers own the guards —
@@ -244,9 +185,8 @@ struct DeviceSettingsSheet: View {
         let agents = editableAgents(device)
         let advertisedDefault = device.launchDefaults?.defaultAgent
         defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
-        // The tab may be a report-only agent (EXP-688) — a re-seed must not
-        // yank it back to an editable one.
-        selectedAgent = keepTab && tabAgents(device).contains(selectedAgent) ? selectedAgent : defaultAgent
+        // A re-seed must not yank the tab the reader is looking at.
+        selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : defaultAgent
         var next: [String: AgentDraft] = [:]
         for agent in agents {
             next[agent] = Self.draft(from: device.agentDefaults(for: agent), agent: agent)
@@ -284,14 +224,18 @@ struct DeviceSettingsSheet: View {
 
     private func nameSection(_ device: SteerDevice) -> some View {
         Section {
-            HStack(spacing: 8) {
-                TextField("Name", text: $name)
-                    .focused($nameFocused)
-                    .onSubmit { flushName() }
+            // EXP-862: the ONE glass input, borderless inside the already
+            // chromed form row — the stock `TextField` was the last system
+            // control among the glass rows.
+            GlassTextField("Name", text: $name, bordered: false) {
+                EmptyView()
+            } trailing: {
                 if savingName {
                     ProgressView().controlSize(.small)
                 }
             }
+            .focused($nameFocused)
+            .onSubmit { flushName() }
             .onChange(of: name) { _, _ in
                 scheduleNameAutosave(device)
             }
@@ -457,15 +401,6 @@ struct DeviceSettingsSheet: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
-    /// EXP-688: every agent worth a TAB — the editable ones plus any the
-    /// machine only reports an account or usage for (there is no separate
-    /// Agents section any more, so a report-only agent would otherwise have
-    /// nowhere to show).
-    private func tabAgents(_ device: SteerDevice) -> [String] {
-        let set = Set(editableAgents(device)).union(reportedAgents(device))
-        return DomainContract.codingAgentValues.filter { set.contains($0) }
-    }
-
     /// EXP-694: the agent block is the SHARED `LaunchOptionsSection` — the
     /// sheet used to hand-roll the same tabs/model/effort/toggle rows, which is
     /// how it drifted (bare tabs bleeding to the screen edge, no brand marks).
@@ -476,12 +411,21 @@ struct DeviceSettingsSheet: View {
         let agents = editableAgents(device)
         if agents.count > 1 {
             Section {
-                GlassPickerRow(
-                    "Default agent",
-                    selection: defaultAgentBinding,
-                    options: agents,
-                    label: { LaunchVocabulary.agentLabel($0) }
-                )
+                // EXP-862: the SHARED agent picker (icon-only trigger, marked
+                // menu rows) — the same control the composer's options row and
+                // the IDE's settings wear.
+                HStack(spacing: 8) {
+                    Text("Default agent")
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    Spacer(minLength: 8)
+                    AgentPickerMenu(
+                        agents: agents,
+                        selection: defaultAgentBinding.wrappedValue,
+                        label: { LaunchVocabulary.agentLabel($0) },
+                        mark: { AgentBrandMark.image($0) },
+                        onSelect: { defaultAgentBinding.wrappedValue = $0 }
+                    )
+                }
             }
             .listRowBackground(glassFormRowFill)
         }
@@ -492,27 +436,14 @@ struct DeviceSettingsSheet: View {
             noDeviceNote: "",
             // Which agent's options are on screen — a view choice, never an
             // edit, so it deliberately bypasses the autosave.
-            availableAgents: tabAgents(device),
+            availableAgents: agents,
             agent: selectedAgent,
             onAgentChange: { selectedAgent = $0 },
             model: draftBinding(\.model),
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
-            // A report-only agent (EXP-688) has no editable defaults — its tab
-            // carries the account and usage rows alone.
-            showsOptions: drafts[selectedAgent] != nil,
-            footerNote: device.isOnline ? nil : "Applies when the device comes online.",
-            accountFooter: {
-                // EXP-688: the agent's own account and limits, right under its
-                // options instead of in a section of their own.
-                AnyView(
-                    Group {
-                        accountBlock(device, agent: selectedAgent)
-                        usageBlock(device, agent: selectedAgent)
-                    }
-                )
-            }
+            footerNote: device.isOnline ? nil : "Applies when the device comes online."
         )
     }
 
@@ -615,293 +546,6 @@ struct DeviceSettingsSheet: View {
         if defaultsPending, !savingDefaults { saveDefaultsNow() }
     }
 
-    // MARK: - Agent account + usage (EXP-484, per tab since EXP-688)
-
-    /// The agents this machine actually reported on — an account, usage, or
-    /// both. Every one of them earns a tab even when the stored launch
-    /// defaults never mention it.
-    private func reportedAgents(_ device: SteerDevice) -> [String] {
-        DomainContract.codingAgentValues.filter {
-            device.agentAccounts?[$0] != nil || device.agentUsage?[$0] != nil
-        }
-    }
-
-    /// Read-only visibility plus the one action: hand the machine's own login
-    /// flow a nudge. No credential is ever held, copied or forwarded — the
-    /// device runs `claude auth login` / `codex login` locally and publishes
-    /// only the sign-in link it puts on its own screen.
-    private func accountBlock(_ device: SteerDevice, agent: String) -> some View {
-        let account = device.agentAccounts?[agent]
-        let pending = pendingCommands["login:\(agent)"] != nil
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(accountCaption(account))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                if canOfferLogin(device, agent: agent), !pending {
-                    loginButton(agent: agent, account: account)
-                }
-                // EXP-827: the round Usage button — the inline cards that used
-                // to sit under this block are gone; the numbers live on ONE
-                // surface (Devices → Accounts) on every client.
-                if let onOpenUsage, account != nil || hasUsage(device, agent: agent) {
-                    CircleIconButton(
-                        AppIcons.uiUsage,
-                        accessibilityLabel: "Usage",
-                        size: DesignTokens.Size.controlSm,
-                        glyphSize: AppIcon.Size.small
-                    ) {
-                        dismiss()
-                        onOpenUsage()
-                    }
-                    .accessibilityIdentifier("device-usage-button")
-                }
-            }
-            if pending {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Waiting for the sign-in link…")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            }
-            loginOutcome(agent: agent)
-        }
-    }
-
-    /// The machine's own words, minus the `<agent> · ` prefix `accountRow`
-    /// adds — the tab already names the agent. The two unknowns read as
-    /// sentences here rather than the wire's terse `signed out` / `unknown`.
-    private func accountCaption(_ account: AgentAccount?) -> String {
-        guard let account else { return "Sign-in status unknown" }
-        guard account.signedIn == true else { return "Not signed in" }
-        let caption = AgentUsagePresentation.accountCaption(account)
-        // EXP-849: the CLI's `auth status` is identity only — a credential the
-        // agent refused still prints its email, so the health the machine's own
-        // probe found has to ride beside it or the row reads healthy.
-        guard AgentAccountHealth.of(account) == .needsRelogin else { return caption }
-        return "\(caption) · needs re-login"
-    }
-
-    /// Whether this machine reported any usage windows for the agent — what the
-    /// Usage button needs to be worth offering.
-    private func hasUsage(_ device: SteerDevice, agent: String) -> Bool {
-        (device.agentUsage?[agent]?.windows?.isEmpty == false)
-    }
-
-    /// EXP-827: how old the machine's report is, and nothing else. The
-    /// rate-limit CARDS moved to the one surface that owns them (Devices →
-    /// Accounts, EXP-829) — a second copy of the bars inside this sheet was the
-    /// same numbers twice, and a stale set beside a live machine read as
-    /// current. The round Usage button in `accountBlock` is the way there.
-    @ViewBuilder
-    private func usageBlock(_ device: SteerDevice, agent: String) -> some View {
-        if device.agentUsage?[agent] != nil || device.agentAccounts?[agent] != nil,
-           let asOf = asOfCaption(device, account: device.agentAccounts?[agent]) {
-            Text(asOf)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
-    }
-
-    /// A remote login rides a `device_commands` row the machine picks up on
-    /// its heartbeat, so it needs a machine that is listening and a build that
-    /// advertises the capability. EXP-849 retired the one agent that had no
-    /// remote sign-in at all, so every contract agent can be offered one.
-    private func canOfferLogin(_ device: SteerDevice, agent: String) -> Bool {
-        device.isOnline && device.canAgentLogin
-    }
-
-    /// When we can't drive the machine from here, say how old what we show is.
-    private func asOfCaption(_ device: SteerDevice, account: AgentAccount?) -> String? {
-        let asOf = agentUsageRelativeDate(account?.checkedAt ?? device.agentUsageAt)
-        return asOf.isEmpty ? nil : "as of \(asOf)"
-    }
-
-    private func loginButton(agent: String, account: AgentAccount?) -> some View {
-        let signedIn = account?.signedIn == true
-        // EXP-849: a refused credential is not an account SWITCH — it is the
-        // same account, signed in again.
-        let broken = AgentAccountHealth.of(account) == .needsRelogin
-        return GlassPill(
-            broken ? "Sign in again" : (signedIn ? "Switch account" : "Login"),
-            icon: signedIn && !broken ? AppIcons.uiSwap : AppIcons.uiSignIn,
-            mode: .action {
-                if signedIn, agent == "codex" {
-                    switchConfirmAgent = agent
-                } else {
-                    queueLogin(agent: agent, switchAccount: signedIn)
-                }
-            }
-        )
-    }
-
-    /// What came back: the machine completes the command EARLY, the moment the
-    /// sign-in link is on its screen, so this is the link (and codex's device
-    /// code) — not a finished login. The row itself flips to "signed in" later,
-    /// when the machine re-probes and the devices row syncs.
-    /// EXP-765: the two agents point opposite ways. Codex's code goes INTO the
-    /// browser, so its link is the whole story. Claude's browser hands the
-    /// code back to a CLI still waiting on the machine — so when the payload
-    /// carries no code, the field below is the way back.
-    @ViewBuilder
-    private func loginOutcome(agent: String) -> some View {
-        if let message = commandErrors["login:\(agent)"] {
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        if let result = loginResults[agent] {
-            if let link = AgentUsagePresentation.parseAgentLoginResult(result),
-               let url = URL(string: link.url) {
-                let wantsCodeBack = link.code == nil
-                VStack(alignment: .leading, spacing: 6) {
-                    Link(destination: url) {
-                        Label("Open the sign-in link", appIcon: AppIcons.uiExternalLink)
-                    }
-                    if let code = link.code {
-                        HStack(spacing: 8) {
-                            Text(code)
-                                .font(.caption.monospaced())
-                            Button {
-                                Platform.copyToPasteboard(code)
-                            } label: {
-                                AppIcon(AppIcons.uiCopy, size: AppIcon.Size.small)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy code")
-                        }
-                    }
-                    if wantsCodeBack {
-                        codeEntry(agent: agent)
-                    }
-                    Text(loginLinkCaption(hasCode: link.code != nil, wantsCodeBack: wantsCodeBack))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                // Not a link payload (an older build, a plain note): verbatim.
-                Text(result)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        // EXP-765: the code round-trip reports OUTSIDE the link block on
-        // purpose — a done code command retires the link that opened it, so
-        // its own progress and outcome have to outlive it.
-        if pendingCommands["login-code:\(agent)"] != nil {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Sending the code to the machine…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        }
-        if let message = commandErrors["login-code:\(agent)"] {
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        if let done = codeResults[agent] {
-            Text(done)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// The caption under a published sign-in link, in the three shapes it
-    /// takes: codex's code goes into the browser, Claude's comes back here,
-    /// and a machine too old to take it back gets the bare instruction.
-    private func loginLinkCaption(hasCode: Bool, wantsCodeBack: Bool) -> String {
-        if hasCode {
-            return "Open the link on any device and enter the code on the machine."
-        }
-        return wantsCodeBack
-            ? "Open the link on any device, then paste the code it shows here."
-            : "Open the link on any device."
-    }
-
-    /// EXP-765: the return path. The browser shows an authorization code the
-    /// machine's login is still blocked on ("Paste code here if prompted >");
-    /// this hands it back over an `agent_login_code` command the machine types
-    /// into that waiting PTY. Nothing is stored — the code rides straight
-    /// through and the draft dies with the finished command.
-    private func codeEntry(agent: String) -> some View {
-        let pending = pendingCommands["login-code:\(agent)"] != nil
-        let typed = (codeDrafts[agent] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return HStack(spacing: 8) {
-            TextField("Code from the browser", text: Binding(
-                get: { codeDrafts[agent] ?? "" },
-                set: { codeDrafts[agent] = $0 }
-            ))
-            .font(.caption.monospaced())
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .onSubmit { submitLoginCode(agent: agent) }
-            GlassPill(
-                "Enter code",
-                icon: AppIcons.uiSignIn,
-                mode: .action { submitLoginCode(agent: agent) },
-                enabled: !typed.isEmpty && !pending
-            )
-        }
-    }
-
-    private func submitLoginCode(agent: String) {
-        let code = (codeDrafts[agent] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty, pendingCommands["login-code:\(agent)"] == nil else { return }
-        codeResults[agent] = nil
-        runCommand(
-            targetKey: "login-code:\(agent)",
-            kind: "agent_login_code",
-            agent: agent,
-            code: code
-        )
-    }
-
-    private func queueLogin(agent: String, switchAccount: Bool) {
-        runCommand(
-            targetKey: "login:\(agent)",
-            kind: "agent_login",
-            agent: agent,
-            switchAccount: switchAccount,
-            // EXP-849: name the machine's ACTIVE profile for the agent, so the
-            // sign-out half of a switch runs inside THAT login's config dir.
-            // Codex's logout revokes the token with OpenAI, so an unscoped one
-            // would take down the ambient login every other profile shares.
-            // `system` (or an absent id) IS the ambient login — the device
-            // parses both the same way.
-            profileId: loginProfileId(agent: agent)
-        )
-    }
-
-    /// EXP-849: which profile a sign-in from this sheet runs in — the one the
-    /// chip that opened it named, as long as the machine still reports it, and
-    /// otherwise the machine's active login for the agent.
-    private func loginProfileId(agent: String) -> String? {
-        if let initialProfileId, agent == initialAgent,
-           liveDevice?.agentAccounts?[agent]?.profiles?
-               .contains(where: { $0.id == initialProfileId }) == true {
-            return initialProfileId
-        }
-        return activeProfileId(agent: agent)
-    }
-
-    /// EXP-849: the profile the machine reports as its CURRENT login for the
-    /// agent, or nil when it reports none (a pre-profile build: the ambient
-    /// login is all there is).
-    private func activeProfileId(agent: String) -> String? {
-        liveDevice?.agentAccounts?[agent]?.profiles?.first { $0.active == true }?.id
-    }
-
     // MARK: - Worktrees
 
     private func deviceWorktrees(_ device: SteerDevice) -> [DeviceWorktreeEntity] {
@@ -946,7 +590,7 @@ struct DeviceSettingsSheet: View {
                     if pendingCommands["prune"] != nil {
                         ProgressView().controlSize(.small)
                     } else {
-                        CircleIconButton(
+                        GhostIconButton(
                             AppIcons.uiClean,
                             accessibilityLabel: "Prune merged worktrees"
                         ) {
@@ -999,11 +643,11 @@ struct DeviceSettingsSheet: View {
                 if pendingCommands[worktree.id] != nil {
                     ProgressView().controlSize(.small)
                 } else {
-                    // EXP-694: the same small glass circle as the header's
-                    // Prune — the bare glyph it used to be matched neither.
-                    // A live session holds the branch: the machine would
-                    // refuse anyway, so the button goes dim instead.
-                    CircleIconButton(
+                    // EXP-862: the ghost glyph every secondary row action
+                    // wears now, the same one the header's Prune is. A live
+                    // session holds the branch: the machine would refuse
+                    // anyway, so the button goes dim instead.
+                    GhostIconButton(
                         AppIcons.uiDelete,
                         accessibilityLabel: "Remove worktree",
                         enabled: !worktree.busy
@@ -1042,22 +686,9 @@ struct DeviceSettingsSheet: View {
         targetKey: String,
         kind: String,
         repoFullName: String? = nil,
-        branch: String? = nil,
-        agent: String? = nil,
-        switchAccount: Bool? = nil,
-        code: String? = nil,
-        profileId: String? = nil
+        branch: String? = nil
     ) {
         commandErrors[targetKey] = nil
-        // A re-queued LOGIN supersedes whatever link the last one published,
-        // and the code round-trip that answered it (EXP-765). A queued code
-        // command must not clear the link it is answering — only finishing
-        // does that.
-        if let agent, kind == "agent_login" {
-            loginResults[agent] = nil
-            codeResults[agent] = nil
-            codeDrafts[agent] = nil
-        }
         pendingCommands[targetKey] = ""
         Task {
             do {
@@ -1066,11 +697,7 @@ struct DeviceSettingsSheet: View {
                     deviceId: deviceId,
                     kind: kind,
                     repoFullName: repoFullName,
-                    branch: branch,
-                    agent: agent,
-                    switchAccount: switchAccount,
-                    code: code,
-                    profileId: profileId
+                    branch: branch
                 )
                 pendingCommands[targetKey] = created.id
                 // ~2 minutes of 2s polls; a queued-behind-offline command
@@ -1089,18 +716,6 @@ struct DeviceSettingsSheet: View {
                             // The prune summary is worth showing on success
                             // ("Pruned 2 worktrees").
                             commandSummary = command.result
-                        } else if let agent {
-                            if kind == "agent_login_code" {
-                                // EXP-765: the code is in. The link it
-                                // answered is spent, so it goes and the
-                                // machine's own words take its place.
-                                loginResults[agent] = nil
-                                codeDrafts[agent] = nil
-                                codeResults[agent] = command.result
-                            } else {
-                                // EXP-484: the sign-in link the machine published.
-                                loginResults[agent] = command.result
-                            }
                         }
                         return
                     }

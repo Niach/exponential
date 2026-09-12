@@ -4,6 +4,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { AgentPicker } from "@/components/agent-picker"
+import { Button } from "@/components/ui/button"
 import {
   GlassGroup,
   GlassPickerRow,
@@ -17,7 +19,6 @@ import {
 } from "@/components/mobile-popover"
 import { Switch } from "@/components/ui/switch"
 import {
-  AGENT_LABELS,
   CLI_DEFAULT_EFFORT,
   CLI_DEFAULT_MODEL,
   effortLabel,
@@ -42,12 +43,20 @@ import { conceptIcon } from "@/lib/icons.generated"
 // the Resume switch when a worktree is resumable (EXP-481), the Repository
 // picker ONLY while no subject is picked (a chat's anchor, EXP-822), and a
 // `⋯` popover with the rest: Effort, Ultracode (claude), MCP servers
-// (EXP-792), Account (the device's agent profiles, EXP-747 B7). The notes
-// the dialog's option pane used to carry (not ready / no desktop / waiting
-// / the batch guards) live on the same line.
+// (EXP-792). The notes the dialog's option pane used to carry (not ready /
+// no desktop / waiting / the batch guards) live on the same line.
+//
+// EXP-862: the Agent pick is THE shared picker (`components/agent-picker`,
+// icon-only), the Device menu rows carry the machine's kind glyph like its
+// trigger, and the Account left the overflow for the line itself as soon as
+// the machine reports two logins for the picked agent.
 
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const MoreIcon = conceptIcon(`ui-more`)
+// EXP-862: a picker whose VALUE carries a glyph carries it on the menu rows
+// too — here the machine's kind, the same pair the Devices list draws.
+const DesktopIcon = conceptIcon(`ui-device`)
+const ServerIcon = conceptIcon(`ui-server`)
 
 export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   const { launch, candidateDevices, subject } = model
@@ -97,17 +106,18 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             label: `${candidate.deviceLabel || candidate.deviceId}${
               candidate.owner ? ` — ${candidate.owner.name}` : ``
             }`,
+            icon: candidate.kind === `server` ? ServerIcon : DesktopIcon,
           }))}
           onChange={launch.setDeviceId}
         />
-        <InlinePicker
-          label="Agent"
+        {/* EXP-862: THE agent picker (`components/agent-picker`) — the brand
+            mark and a chevron, the name only in the menu and the tooltip. */}
+        <AgentPicker
+          size="sm"
           value={agent}
-          options={launch.availableAgents.map((value) => ({
-            value,
-            label: AGENT_LABELS[value] ?? value,
-          }))}
+          agents={launch.availableAgents}
           onChange={launch.switchAgent}
+          className="-my-0.5"
         />
         <InlinePicker
           label="Model"
@@ -125,8 +135,27 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             onChange={(value) => model.setRepoId(value === NO_REPO ? `` : value)}
           />
         )}
+        {showAccount && (
+          /* EXP-862: the account is a first-class pick, not an overflow row —
+             a machine with two logins for this agent says which one the run
+             lands on right here (EXP-849: a dead credential says so too). */
+          <InlinePicker
+            label="Account"
+            value={launch.account ?? ``}
+            options={launch.accountProfiles.map((profile) => ({
+              value: profile.id,
+              // EXP-849: health beats "active" in the label — an expired
+              // credential is the one thing worth knowing BEFORE the run
+              // starts on it.
+              label: healthBadgeLabel(profile.health)
+                ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
+                : profile.label,
+            }))}
+            onChange={launch.setAccount}
+          />
+        )}
         {agentSupportsPlanMode(agent) && !model.resumeActive && (
-          <label className="flex items-center gap-1.5">
+          <label className="flex cursor-pointer items-center gap-1.5">
             <span>Plan</span>
             <Switch
               size="sm"
@@ -154,14 +183,18 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         )}
         <MobilePopover>
           <MobilePopoverTrigger asChild>
-            <button
+            {/* EXP-862: a secondary icon button is GHOST — no circle, no
+                border, a hover wash and a pointer. */}
+            <Button
               type="button"
-              className="flex items-center outline-none hover:text-foreground focus-visible:text-foreground"
+              variant="ghost"
+              size="icon-xs"
+              className="-my-0.5 text-muted-foreground hover:text-foreground"
               title="More options"
               aria-label="More options"
             >
               <MoreIcon className="size-3.5" />
-            </button>
+            </Button>
           </MobilePopoverTrigger>
           <MobilePopoverContent
             className="w-[20rem] p-2"
@@ -202,25 +235,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                       now={model.mcpNow}
                     />
                   </div>
-                )}
-                {showAccount && (
-                  <GlassPickerRow
-                    label="Account"
-                    value={launch.account ?? ``}
-                    onValueChange={launch.setAccount}
-                    placeholder="Active profile"
-                    options={launch.accountProfiles.map((profile) => ({
-                      value: profile.id,
-                      // EXP-849: health beats "active" in the label — an
-                      // expired credential is the one thing worth knowing
-                      // BEFORE the run starts on it.
-                      label: healthBadgeLabel(profile.health)
-                        ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
-                        : profile.active
-                          ? `${profile.label} (active)`
-                          : profile.label,
-                    }))}
-                  />
                 )}
               </GlassGroup>
             </div>
@@ -272,33 +286,52 @@ export function InlinePicker({
 }: {
   label: string
   value: string
-  options: { value: string; label: string }[]
+  /** EXP-862: `icon` rides BOTH the trigger and the menu rows — a picker
+   *  whose value shows a glyph shows it on the items too. */
+  options: {
+    value: string
+    label: string
+    icon?: React.ComponentType<{ className?: string }>
+  }[]
   onChange: (value: string) => void
 }) {
   if (options.length === 0) return null
   const current = options.find((option) => option.value === value)
+  const only = options[0]!
   if (options.length === 1) {
-    return <span title={label}>{current?.label ?? options[0]!.label}</span>
+    const OnlyIcon = (current ?? only).icon
+    return (
+      <span className="flex items-center gap-1" title={label}>
+        {OnlyIcon && <OnlyIcon className="size-3.5 shrink-0" />}
+        {current?.label ?? only.label}
+      </span>
+    )
   }
+  const CurrentIcon = current?.icon
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="flex items-center gap-0.5 outline-none hover:text-foreground focus-visible:text-foreground"
+        className="flex items-center gap-1 outline-none hover:text-foreground focus-visible:text-foreground"
         title={label}
         aria-label={label}
       >
+        {CurrentIcon && <CurrentIcon className="size-3.5 shrink-0" />}
         {current?.label ?? label}
         <ChevronDownIcon className="size-3" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        {options.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            onSelect={() => onChange(option.value)}
-          >
-            {option.label}
-          </DropdownMenuItem>
-        ))}
+        {options.map((option) => {
+          const OptionIcon = option.icon
+          return (
+            <DropdownMenuItem
+              key={option.value}
+              onSelect={() => onChange(option.value)}
+            >
+              {OptionIcon && <OptionIcon className="size-4 shrink-0" />}
+              {option.label}
+            </DropdownMenuItem>
+          )
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -4,6 +4,8 @@ import { AddDelCounts, FileDiffList, FileNav } from "@/components/diff-view"
 import type { PullFile } from "@/components/diff-view"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
+import { DIFF_SCOPE_ALL_LABEL } from "@/lib/session-file-cards"
 import { cn } from "@/lib/utils"
 
 // EXP-850 §11: the session's changes as a PANE beside the transcript, not a
@@ -69,6 +71,8 @@ export function SessionDiffPane({
   selected,
   onSelect,
   onClose,
+  scopeLabel = null,
+  onClearScope,
   className,
 }: {
   sessionId: string
@@ -77,6 +81,11 @@ export function SessionDiffPane({
   selected: string | null
   onSelect: (filename: string) => void
   onClose: () => void
+  /** EXP-862: the pane is showing ONE turn's files, not the whole session —
+   *  the chip says which (`This turn: 3 files`), and clicking it goes back to
+   *  everything. Absent = session scope, no chip. */
+  scopeLabel?: string | null
+  onClearScope?: () => void
   className?: string
 }) {
   const isMobile = useIsMobile()
@@ -182,6 +191,21 @@ export function SessionDiffPane({
         <span className="min-w-0 flex-1 truncate font-mono" title={selected ?? undefined}>
           {selected ?? `Changes`}
         </span>
+        {/* EXP-862: the scope the pane is on. The counts beside it are the
+            SCOPE's, while the header's Diff pill keeps the whole branch. */}
+        {scopeLabel && onClearScope && (
+          <Pill
+            size="sm"
+            mode="action"
+            className="shrink-0"
+            onClick={onClearScope}
+            aria-label={DIFF_SCOPE_ALL_LABEL}
+            title={DIFF_SCOPE_ALL_LABEL}
+            data-testid="session-diff-scope"
+          >
+            {scopeLabel}
+          </Pill>
+        )}
         <AddDelCounts
           additions={counts.additions}
           deletions={counts.deletions}
