@@ -29,7 +29,7 @@
 //!   [`ViewerHandle::kick`]; see the "Wakeups" section below. Without them a
 //!   woken laptop waits out the transport's staleness window and backoff.
 //!
-//! EXP-698 closed the two biggest gaps: the pinned **Latest changes** strip
+//! EXP-698 closed the two biggest gaps: the pinned **Changes** strip
 //! and the in-session **Merge** pill render for a steered session too. The
 //! old rationale ("a remote run's diff is not on this machine") was wrong —
 //! the host publishes its worktree diff on the activity channel and
@@ -338,7 +338,7 @@ pub(crate) struct SteerSessionView {
     /// pinned plan, thoughts) a `Local`/`Replay` source produces. Empty for
     /// every remote session — the wire carries none of it.
     extras: crate::session_extras::LocalExtras,
-    /// EXP-773: the "Latest changes" bar's parse of the published worktree
+    /// EXP-773: the "Changes" bar's parse of the published worktree
     /// diff, and the per-file list its expanded half renders into. It lives
     /// HERE rather than on the hosting screen because the bar sits between the
     /// transcript and the composer (web `agent-session` parity), and both of
@@ -697,7 +697,6 @@ impl SteerSessionView {
         match self.agent() {
             SessionAgent::Claude => Some(coding::CodingAgent::Claude),
             SessionAgent::Codex => Some(coding::CodingAgent::Codex),
-            SessionAgent::Pi => Some(coding::CodingAgent::Pi),
             SessionAgent::External => None,
         }
     }
@@ -713,7 +712,7 @@ impl SteerSessionView {
     }
 
     /// The synced `coding_sessions` row behind this viewer — what the
-    /// header names the run from, and what the Latest-changes bar resolves
+    /// header names the run from, and what the Changes bar resolves
     /// its Merge target from
     /// ([`crate::changes_bar::merge_meta_for_session`]).
     pub(crate) fn session_row(&self) -> Option<&domain::rows::CodingSession> {
@@ -790,18 +789,42 @@ impl SteerSessionView {
         self.active = self.feed.active_question_ids();
     }
 
-    /// Whether the synthetic "Working…" row sits under the transcript: a
-    /// live, unended run with nothing waiting on the reader and no strip
-    /// already saying what is happening.
-    fn working_now(&self) -> bool {
-        !self.feed.is_empty()
-            && self.phase == ViewerPhase::Live
-            && !self.row_ended()
-            && self.active.is_empty()
-            && !self.feed.is_staging()
-            // EXP-724: the compaction strip already says what is happening —
-            // a second "Working…" under it is noise (web parity).
-            && self.feed.compacting().is_none()
+    /// EXP-848 — the ONE working predicate (identical on all four clients,
+    /// ONE copy per client): the synthetic "Working…" row and the composer's
+    /// Stop button both read it.
+    ///
+    /// `turn_state` is the authority — a LIVE run is working only while the
+    /// engine says a turn is in flight, and the slot defaults to `ended`, so
+    /// nothing pulses at a run that is merely connected. Everything else is a
+    /// veto: an ended row, a question waiting on the reader (the open cards
+    /// AND the row's own `needs_input`, FEED-35), a rate-limit wall (a walled
+    /// run is stalled, not working) and a compaction (whose strip already says
+    /// what is happening).
+    ///
+    /// Authoritative through the FEED SLOT, never the local engine's
+    /// `TurnSignal`: a remote viewer has no engine, and one rule that works
+    /// for every `FeedSource` beats two that disagree.
+    pub(crate) fn working_now(&self) -> bool {
+        is_working(&WorkingFacts {
+            empty_feed: self.feed.is_empty(),
+            live: self.phase == ViewerPhase::Live,
+            row_ended: self.row_ended(),
+            turn_working: self.feed.turn_state().is_working(),
+            awaiting_input: !self.active.is_empty(),
+            needs_input: self.row_needs_input(),
+            staging: self.feed.is_staging(),
+            blocked: self.rate_limit_wall_showing(chrono::Utc::now().timestamp_millis()),
+            compacting: self.feed.compacting().is_some(),
+        })
+    }
+
+    /// FEED-35: the synced attention flag the HOST wrote — a run parked on a
+    /// picker this viewer never received a card for is still waiting.
+    fn row_needs_input(&self) -> bool {
+        self.row
+            .as_ref()
+            .and_then(|row| row.needs_input)
+            .unwrap_or(false)
     }
 
     /// The view-side bits of one item that move its rendered height — see
@@ -1361,6 +1384,15 @@ impl SteerSessionView {
             return None;
         }
         if self.feed.compacting().is_some() {
+            return None;
+        }
+        // EXP-848: "No activity for N min" under a pulsing "Working…" was a
+        // contradiction — the header and the spinner disagreed because one
+        // read the clock and the other nothing at all. With the turn slot the
+        // answer is unambiguous: a run whose agent is mid-turn is thinking or
+        // inside a long tool, which is not a stall. Quiet + NO turn in flight
+        // is the real FEED-26 case, and that is what the caption now names.
+        if self.working_now() {
             return None;
         }
         let quiet = self.last_activity.elapsed();
@@ -2147,7 +2179,6 @@ impl SteerSessionView {
             return match session.agent() {
                 coding::AgentKind::Builtin(coding::CodingAgent::Claude) => SessionAgent::Claude,
                 coding::AgentKind::Builtin(coding::CodingAgent::Codex) => SessionAgent::Codex,
-                coding::AgentKind::Builtin(coding::CodingAgent::Pi) => SessionAgent::Pi,
                 coding::AgentKind::External(_) => SessionAgent::External,
             };
         }
@@ -2174,7 +2205,21 @@ impl SteerSessionView {
         self.feed.usage()
     }
 
-    // ── EXP-773: the "Latest changes" bar ─────────────────────────────────
+    /// EXP-847: the run's MODE, for the header's read-only Plan chip — the
+    /// latest `config_state` through the shared
+    /// [`crate::session_extras::mode_chip`] (the ×4 `modeChip`). `None` for a
+    /// run that advertises no modes (codex) and for one that is not in plan
+    /// mode, which is why the header shows nothing the moment an approved
+    /// `ExitPlanMode` flips the mode back.
+    ///
+    /// Never a control: EXP-790 keeps plan a LAUNCH-time choice.
+    pub(crate) fn plan_mode_label(&self) -> Option<SharedString> {
+        let chip = crate::session_extras::mode_chip(self.feed.config())?;
+        (chip.value == crate::session_extras::PLAN_MODE_ID)
+            .then(|| SharedString::from(chip.value_label))
+    }
+
+    // ── EXP-773: the "Changes" bar ────────────────────────────────────────
 
     /// Install the parse of the newly published diff, when
     /// [`crate::changes_bar::sync`] says it changed. The cache key is the raw
@@ -2218,7 +2263,7 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// EXP-773 — the collapsible "Latest changes +N −M [Merge]" row, painted
+    /// EXP-773 — the collapsible "Changes +N −M [Merge]" row, painted
     /// UNDER the transcript and above the composer (web `agent-session`). It
     /// draws for a diff OR an open PR, so the Merge pill never stands alone.
     fn render_changes_bar(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
@@ -2571,7 +2616,10 @@ impl SteerSessionView {
         } else {
             kill_description(label.as_deref())
         };
-        let spec = AlertSpec::new("Kill this coding session?", description, "Kill session")
+        // EXP-849 fix-up: ONE verb for ending a run — "Stop", the same word
+        // Android and iOS already use. "Kill" described the mechanism, not
+        // what the person is doing.
+        let spec = AlertSpec::new("Stop this coding session?", description, "Stop session")
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             if let Some(view) = view.upgrade() {
@@ -2738,6 +2786,43 @@ pub(crate) fn feed_pulse(feed: &SteerFeed) -> FeedPulse {
     (feed.len(), feed.items().last().cloned())
 }
 
+/// EXP-848 — everything the working predicate reads, gathered so the rule
+/// itself is a pure function one test can pin (the spinner, the Stop button
+/// and the FEED-26 caption all go through [`is_working`], and a second copy
+/// is how they drifted apart in the first place).
+pub(crate) struct WorkingFacts {
+    /// Nothing on screen yet — the synthetic row has nothing to sit under.
+    pub empty_feed: bool,
+    pub live: bool,
+    pub row_ended: bool,
+    /// The feed's latest-wins `turn` slot (default `ended`).
+    pub turn_working: bool,
+    /// A question card is waiting for an answer in THIS viewer.
+    pub awaiting_input: bool,
+    /// The synced row says the host parked the run (FEED-35).
+    pub needs_input: bool,
+    pub staging: bool,
+    /// A rate-limit WALL is up (EXP-804/FEED-35 — the same rule the row's
+    /// `blocked` column records).
+    pub blocked: bool,
+    pub compacting: bool,
+}
+
+/// EXP-848 — the ONE working predicate, identical on all four clients: the
+/// agent is executing a turn and nothing is waiting, walled or compacting.
+/// `turn_working` is the authority; every other field is a veto.
+pub(crate) fn is_working(facts: &WorkingFacts) -> bool {
+    !facts.empty_feed
+        && facts.live
+        && !facts.row_ended
+        && facts.turn_working
+        && !facts.awaiting_input
+        && !facts.needs_input
+        && !facts.staging
+        && !facts.blocked
+        && !facts.compacting
+}
+
 /// The header/tooltip caption for a phase, mirroring the web `phaseLabel`.
 ///
 /// FEED-26: `stale_minutes` is the whole minutes a LIVE run's feed has been
@@ -2813,15 +2898,57 @@ pub(crate) fn tool_group_caption(items: &[&FeedItem]) -> String {
     steer::tool_group_summary(&calls)
 }
 
-/// The subagent group row's status caption: `running · 1 tool call`.
-/// Note the singular IS handled here (unlike the tool-run group, which only
-/// ever forms at ≥2).
-pub(crate) fn subagent_caption(done: bool, tool_count: usize) -> String {
+/// EXP-847 — what a subagent chip is NAMED: the spawning `Agent` call's own
+/// `title` (what the model said this subagent is FOR) when it carried one,
+/// else the agent TYPE, which is all codex, an external agent and every
+/// pre-847 publisher have. Mirrored ×4.
+pub(crate) fn subagent_label(title: Option<&str>, agent_type: &str) -> String {
+    title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| agent_type.trim())
+        .to_string()
+}
+
+/// EXP-847 — the agent TYPE as a SECONDARY caption: shown only when the
+/// title took the primary line, so a type-only chip never says its type twice.
+pub(crate) fn subagent_type_caption(title: Option<&str>, agent_type: &str) -> Option<String> {
+    let title = title.map(str::trim).filter(|title| !title.is_empty())?;
+    let agent_type = agent_type.trim();
+    (!agent_type.is_empty() && agent_type != title).then(|| agent_type.to_string())
+}
+
+/// The subagent group row's status caption — EXP-847: the state word plus the
+/// SAME contract `toolGroupSummary` a collapsed tool group wears
+/// (`running · read 3 files · 1 failed`), not the bare count of calls it used to
+/// report. What the subagent DID is the interesting half, and the number alone
+/// never said it. Mirrored ×4.
+///
+/// `tool_summary` is [`tool_group_caption`] over the subagent's own tool rows,
+/// `None` when this feed holds none — a replay whose oldest subagent calls the
+/// journal evicted (EXP-748) still knows the publisher's COUNT, so that is the
+/// fallback rather than a silent "done".
+pub(crate) fn subagent_caption(done: bool, tool_count: usize, tool_summary: Option<&str>) -> String {
     let state = if done { "done" } else { "running" };
+    if let Some(summary) = tool_summary.map(str::trim).filter(|text| !text.is_empty()) {
+        // The summary capitalises its first letter for a row of its own; here
+        // it continues a sentence that starts with the state word.
+        return format!("{state} · {}", lower_first(summary));
+    }
     match tool_count {
         0 => state.to_string(),
         1 => format!("{state} · 1 tool call"),
         n => format!("{state} · {n} tool calls"),
+    }
+}
+
+/// `Read 3 files` → `read 3 files` (see [`subagent_caption`]). ASCII-only by
+/// design: every `toolGroupSummary` segment starts with an English verb.
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }
 
@@ -3691,14 +3818,29 @@ impl SteerSessionView {
             detail,
             failed,
             diff,
+            settled,
+            preview,
             ..
         } = &item.kind
         else {
             return div().into_any_element();
         };
-        let row = tool_row(name, detail.as_deref(), *failed, cx);
+        // EXP-846: one of OUR MCP calls reads as product work (the mark, the
+        // contract's caption, the answer's preview); everything else is the
+        // plain tool row.
+        let row = match steer::exp_tool_display(name, *settled) {
+            Some(display) => exp_tool_call_row(
+                item.id,
+                display,
+                detail.as_deref(),
+                *failed,
+                preview.as_ref(),
+                cx,
+            ),
+            None => tool_row(name, detail.as_deref(), *failed, cx).into_any_element(),
+        };
         if !with_extras {
-            return row.into_any_element();
+            return row;
         }
         let extras = if self.source.session().is_some() {
             self.render_extras(item.id, cx)
@@ -3726,7 +3868,7 @@ impl SteerSessionView {
                 .child(row)
                 .child(extras)
                 .into_any_element(),
-            None => row.into_any_element(),
+            None => row,
         }
     }
 
@@ -3919,6 +4061,13 @@ impl SteerSessionView {
             .collect();
         let expandable = !body.is_empty();
         let expanded = expandable && self.expanded_groups.contains(&id);
+        // EXP-847: what the subagent DID, in the collapsed group's own words.
+        // Only over rows this feed still holds — with none, the caption falls
+        // back to the publisher's count.
+        let tool_summary = items
+            .iter()
+            .any(|item| item.is_tool())
+            .then(|| tool_group_caption(items));
         let running = matches!(
             items.iter().find_map(|item| match &item.kind {
                 FeedKind::Subagent { status, .. } => Some(*status),
@@ -3949,7 +4098,21 @@ impl SteerSessionView {
                 div()
                     .flex_shrink_0()
                     .text_color(cx.theme().foreground)
-                    .child(SharedString::from(summary.agent_type.clone())),
+                    .child(SharedString::from(subagent_label(
+                        summary.title.as_deref(),
+                        &summary.agent_type,
+                    ))),
+            )
+            .when_some(
+                subagent_type_caption(summary.title.as_deref(), &summary.agent_type),
+                |this, agent_type| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_2xs()
+                            .child(SharedString::from(agent_type)),
+                    )
+                },
             )
             .when(running, |this| this.child(Spinner::new().xsmall()))
             .child(
@@ -3961,6 +4124,7 @@ impl SteerSessionView {
                     .child(SharedString::from(subagent_caption(
                         summary.done,
                         summary.tool_count,
+                        tool_summary.as_deref(),
                     ))),
             )
             .when_some(summary.detail.clone(), |this, detail| {
@@ -4770,7 +4934,10 @@ impl SteerSessionView {
                     cx,
                 )
                 .when(!agent.done, |this| this.child(Spinner::new().xsmall()))
-                .child(SharedString::from(agent.agent_type.clone()))
+                .child(SharedString::from(subagent_label(
+                    agent.title.as_deref(),
+                    &agent.agent_type,
+                )))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.focus_subagent(Some(subagent_id.clone()), cx);
                 })),
@@ -4800,7 +4967,21 @@ impl SteerSessionView {
                             div()
                                 .flex_shrink_0()
                                 .text_color(cx.theme().foreground)
-                                .child(SharedString::from(summary.agent_type.clone())),
+                                .child(SharedString::from(subagent_label(
+                                    summary.title.as_deref(),
+                                    &summary.agent_type,
+                                ))),
+                        )
+                        .when_some(
+                            subagent_type_caption(summary.title.as_deref(), &summary.agent_type),
+                            |this, agent_type| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_2xs()
+                                        .child(SharedString::from(agent_type)),
+                                )
+                            },
                         )
                         .when(!summary.done, |this| this.child(Spinner::new().xsmall()))
                         .child(
@@ -4810,6 +4991,12 @@ impl SteerSessionView {
                                 .child(SharedString::from(subagent_caption(
                                     summary.done,
                                     summary.tool_count,
+                                    // EXP-849: the projection carries the
+                                    // `toolGroupSummary` now, so the strip says
+                                    // what the subagent DID instead of how many
+                                    // calls it made — the same caption its
+                                    // inline group row wears.
+                                    summary.tool_summary.as_deref(),
                                 ))),
                         )
                         .when_some(summary.detail.clone(), |this, detail| {
@@ -4874,12 +5061,59 @@ impl SteerSessionView {
                 )
                 .child(
                     div()
+                        .flex_1()
                         .min_w_0()
                         .truncate()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(caption)),
                 )
+                // EXP-849: the wall's PRIMARY action. Waiting out a reset is
+                // the fallback, not the plan — if another account can take the
+                // work, offer it right here, and the switch clears this notice
+                // by ending the walled run (its successor has no wall).
+                .children(self.switch_account_control(cx))
+                .into_any_element(),
+        )
+    }
+
+    /// EXP-849 — "Switch account" over the rate-limit wall: the same account
+    /// rows the session's usage readout shows, in a popover off a primary
+    /// button. `None` when nothing could take the run (not claude, one login,
+    /// a remote run whose machine this client cannot resolve) — a button that
+    /// can only ever explain itself is worse than no button.
+    fn switch_account_control(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let agent = self.builtin_agent()?;
+        let context = crate::account_switch::SwitchContext {
+            session_id: self.session_id.to_string(),
+            device_id: self.session_row().and_then(|row| row.device_id.clone()),
+            local: self.is_local(),
+            agent,
+            // A walled run is stalled, not mid-turn (`working_now` vetoes on
+            // the wall), but ask anyway: the one authority stays the one
+            // authority.
+            working: self.working_now(),
+        };
+        // Ask once whether there is anything to offer, then let the popover
+        // re-render the rows itself: an `AnyElement` is consumed when it is
+        // painted, so the content closure has to build its own.
+        context.render(cx)?;
+        Some(
+            gpui_component::popover::Popover::new("steer-switch-account")
+                .p_2()
+                .trigger(
+                    Button::new("steer-switch-account-trigger")
+                        .primary()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(Icon::new(registry::UI_SWAP))
+                        .label(crate::account_switch::WALL_SWITCH_LABEL),
+                )
+                .content(move |_, _window, cx| {
+                    context
+                        .render(cx)
+                        .unwrap_or_else(|| gpui::Empty.into_any_element())
+                })
                 .into_any_element(),
         )
     }
@@ -5353,6 +5587,182 @@ fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl In
         })
 }
 
+/// EXP-846 — one of OUR MCP calls, as a row.
+///
+/// A tool whose name resolves to a contract `expToolNames` row
+/// (`steer::exp_tool_display`) is the agent working on the PRODUCT, and it reads
+/// as such: the Exponential mark instead of the generic tool glyph, the
+/// contract's own caption (progressive while it runs, past tense once it
+/// settles), the call's subject, and — once settled — a small preview of what it
+/// answered with ([`steer::frames::ToolPreview`], published by whoever hosts the
+/// run). A FAILED call keeps the generic failed styling and previews nothing:
+/// there is no subject to show.
+///
+/// Every part is optional: the mark plus the caption is a complete row, and a
+/// tool that answers `none` never gets more. Mirrored ×4.
+fn exp_tool_call_row(
+    id: FeedItemId,
+    display: steer::ExpToolDisplay,
+    detail: Option<&str>,
+    failed: bool,
+    preview: Option<&steer::frames::ToolPreview>,
+    cx: &mut App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let rose = cx.theme().danger;
+    let header = tool_text(h_flex())
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .child(
+            // The app's own mark (`assets/icons/logo.svg`), at glyph size.
+            Icon::from(crate::icons::ExpIcon::Logo)
+                .xsmall()
+                .text_color(if failed { rose.opacity(0.8) } else { muted }),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .when(failed, |this| this.text_color(rose))
+                .child(SharedString::from(display.caption)),
+        )
+        .when_some(detail, |this, detail| {
+            this.child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(detail.to_string())),
+            )
+        });
+    let body = (!failed)
+        .then(|| preview.and_then(|preview| exp_tool_preview_row(id, display.result, preview, cx)))
+        .flatten();
+    match body {
+        Some(body) => v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .child(header)
+            .child(div().pl_5().child(body))
+            .into_any_element(),
+        None => header.into_any_element(),
+    }
+}
+
+/// EXP-846 — the settled preview under an Exponential tool row, by contract
+/// result kind:
+///
+/// * `issue` — the SAME hover card an issue-ref pill shows
+///   ([`crate::issue_preview::card`]), clickable straight into the issue; an
+///   issue that has not synced here (another team's board, a trashed one)
+///   degrades to the identifier and title the tool itself reported;
+/// * `pr` — a link row opening the pull request in the browser;
+/// * `list` — "N results";
+/// * `session` / `board` / `action` / `automation` / `comment` — a name chip;
+/// * `none` — nothing: the caption said it all.
+fn exp_tool_preview_row(
+    id: FeedItemId,
+    result: &str,
+    preview: &steer::frames::ToolPreview,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    use steer::exp_tool::result as kind;
+    let muted = cx.theme().muted_foreground;
+    match result {
+        kind::ISSUE => {
+            let issue_id = preview.id.clone()?;
+            if let Some(card) = crate::issue_preview::card(&issue_id, cx) {
+                return Some(
+                    div()
+                        .id(("steer-exp-issue", id as usize))
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            crate::navigation::navigate(
+                                window,
+                                cx,
+                                crate::navigation::Screen::IssueDetail {
+                                    issue_id: issue_id.clone(),
+                                },
+                            );
+                        })
+                        .child(card)
+                        .into_any_element(),
+                );
+            }
+            // Not synced here: what the answer itself named.
+            let label = exp_preview_label(preview)?;
+            Some(exp_preview_chip(registry::NAV_ISSUES, label, cx))
+        }
+        kind::PR => {
+            let url = preview.url.clone().filter(|url| !url.is_empty())?;
+            let label = preview
+                .identifier
+                .clone()
+                .filter(|identifier| !identifier.is_empty())
+                .unwrap_or_else(|| url.clone());
+            Some(
+                tool_text(h_flex())
+                    .id(("steer-exp-pr", id as usize))
+                    .min_w_0()
+                    .gap_1p5()
+                    .items_center()
+                    .cursor_pointer()
+                    .text_color(muted)
+                    .child(Icon::new(registry::PR_OPEN).xsmall())
+                    .child(div().min_w_0().truncate().text_2xs().child(SharedString::from(label)))
+                    .child(Icon::new(registry::UI_EXTERNAL_LINK).xsmall())
+                    .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
+                    .into_any_element(),
+            )
+        }
+        kind::LIST => preview
+            .count
+            .map(|count| {
+                div()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(exp_tool_result_count(count)))
+                    .into_any_element()
+            }),
+        kind::NONE => None,
+        // session / board / action / automation / comment: a name chip.
+        _ => exp_preview_label(preview).map(|label| exp_preview_chip(registry::CODING_TOOL, label, cx)),
+    }
+}
+
+/// What a non-issue preview is CALLED: its human identifier, else its title.
+fn exp_preview_label(preview: &steer::frames::ToolPreview) -> Option<String> {
+    preview
+        .identifier
+        .clone()
+        .or_else(|| preview.title.clone())
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty())
+}
+
+/// "17 results" — a LIST answer's preview (`1 result` in the singular).
+fn exp_tool_result_count(count: u32) -> String {
+    match count {
+        1 => "1 result".to_string(),
+        n => format!("{n} results"),
+    }
+}
+
+/// The quiet chip a non-issue preview renders as.
+fn exp_preview_chip(icon: crate::icons::ExpIcon, label: String, cx: &App) -> AnyElement {
+    tool_text(h_flex())
+        .min_w_0()
+        .gap_1p5()
+        .items_center()
+        .text_color(cx.theme().muted_foreground)
+        .child(Icon::new(icon).xsmall())
+        .child(div().min_w_0().truncate().text_2xs().child(SharedString::from(label)))
+        .into_any_element()
+}
+
 impl Focusable for SteerSessionView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -5381,7 +5791,7 @@ impl Render for SteerSessionView {
             .then(|| self.render_rate_limit_banner(cx))
             .flatten();
         let composer = composer_visible.then(|| self.render_composer(cx));
-        // EXP-773: the Latest-changes bar sits between the transcript and the
+        // EXP-773: the Changes bar sits between the transcript and the
         // composer, exactly where the web view puts it — an ended run keeps
         // it (the work is what the reader came for), it only loses the Merge.
         let changes = self.render_changes_bar(cx);
@@ -5551,6 +5961,83 @@ mod tests {
         assert!(image_marker_in_range(2, 2));
         assert!(!image_marker_in_range(3, 2));
         assert!(!image_marker_in_range(1, 0));
+    }
+
+    /// EXP-847: the chip names the JOB when the spawning call said one, and
+    /// falls back to the agent type otherwise; the type then rides a secondary
+    /// caption, and never twice.
+    #[test]
+    fn a_subagent_chip_prefers_the_spawning_calls_title() {
+        assert_eq!(
+            subagent_label(Some("  Audit the shape proxies  "), "explore"),
+            "Audit the shape proxies"
+        );
+        assert_eq!(subagent_label(None, " explore "), "explore");
+        assert_eq!(subagent_label(Some("   "), "explore"), "explore");
+        // The type is a caption ONLY beside a title.
+        assert_eq!(
+            subagent_type_caption(Some("Audit the shape proxies"), "explore").as_deref(),
+            Some("explore")
+        );
+        assert_eq!(subagent_type_caption(None, "explore"), None);
+        // …and never a repeat of the title it sits beside.
+        assert_eq!(subagent_type_caption(Some("explore"), "explore"), None);
+        assert_eq!(subagent_type_caption(Some("Audit"), "  "), None);
+    }
+
+    /// EXP-848: the turn slot is the AUTHORITY and everything else is a veto
+    /// — and the default (`turn_working: false`) never pulses.
+    #[test]
+    fn the_working_predicate_needs_a_turn_in_flight_and_no_veto() {
+        let working = || WorkingFacts {
+            empty_feed: false,
+            live: true,
+            row_ended: false,
+            turn_working: true,
+            awaiting_input: false,
+            needs_input: false,
+            staging: false,
+            blocked: false,
+            compacting: false,
+        };
+        assert!(is_working(&working()));
+        // No turn in flight is the common case: a live run between turns.
+        assert!(!is_working(&WorkingFacts { turn_working: false, ..working() }));
+        // Every veto, one at a time.
+        assert!(!is_working(&WorkingFacts { empty_feed: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { live: false, ..working() }));
+        assert!(!is_working(&WorkingFacts { row_ended: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { awaiting_input: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { needs_input: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { staging: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { blocked: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { compacting: true, ..working() }));
+    }
+
+    /// FEED-26 + EXP-848: the idle caption and a pulsing "Working…" are
+    /// mutually exclusive by construction — `stale_minutes` asks the same
+    /// predicate, so a mid-turn run never reads as stalled.
+    #[test]
+    fn the_idle_caption_never_sits_under_a_working_run() {
+        let mid_turn = WorkingFacts {
+            empty_feed: false,
+            live: true,
+            row_ended: false,
+            turn_working: true,
+            awaiting_input: false,
+            needs_input: false,
+            staging: false,
+            blocked: false,
+            compacting: false,
+        };
+        assert!(is_working(&mid_turn), "the run the header must NOT call stale");
+        // Quiet with no turn in flight is the real FEED-26 case, and the
+        // caption is free to name it.
+        assert!(!is_working(&WorkingFacts { turn_working: false, ..mid_turn }));
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, Some(27)),
+            "No activity for 27 min · macbook"
+        );
     }
 
     #[test]
@@ -5758,13 +6245,57 @@ mod tests {
         assert_eq!(ask_counter(None, 0), None);
     }
 
-    /// The subagent row pluralizes; the tool-RUN group never does (it only
-    /// forms at two or more).
+    /// EXP-847: the caption says what the subagent DID (the collapsed group's
+    /// own `toolGroupSummary`, its first letter joined into the sentence). With
+    /// no rows left to summarise it falls back to the publisher's count, which
+    /// pluralizes (the tool-RUN group never has to — it only forms at two or
+    /// more).
     #[test]
-    fn the_subagent_caption_pluralizes_its_tool_count() {
-        assert_eq!(subagent_caption(false, 0), "running");
-        assert_eq!(subagent_caption(false, 1), "running · 1 tool call");
-        assert_eq!(subagent_caption(true, 7), "done · 7 tool calls");
+    fn the_subagent_caption_reads_the_tool_group_summary() {
+        assert_eq!(
+            subagent_caption(false, 3, Some("Read 3 files")),
+            "running · read 3 files"
+        );
+        assert_eq!(
+            subagent_caption(true, 4, Some("Ran 2 commands · edited 2 files · 1 failed")),
+            "done · ran 2 commands · edited 2 files · 1 failed"
+        );
+        // A blank summary is no summary at all.
+        assert_eq!(subagent_caption(true, 0, Some("  ")), "done");
+        // EXP-748: the replay whose rows were evicted keeps the count.
+        assert_eq!(subagent_caption(false, 0, None), "running");
+        assert_eq!(subagent_caption(false, 1, None), "running · 1 tool call");
+        assert_eq!(subagent_caption(true, 7, None), "done · 7 tool calls");
+    }
+
+    /// EXP-846: a LIST answer's preview counts, and pluralizes.
+    #[test]
+    fn a_list_result_preview_counts_its_rows() {
+        assert_eq!(exp_tool_result_count(0), "0 results");
+        assert_eq!(exp_tool_result_count(1), "1 result");
+        assert_eq!(exp_tool_result_count(17), "17 results");
+    }
+
+    /// EXP-846: a non-issue preview is NAMED by its identifier, its title
+    /// second, and nothing when the answer named neither (the caption then
+    /// stands alone).
+    #[test]
+    fn a_preview_is_named_by_its_identifier_then_its_title() {
+        let preview = |identifier: Option<&str>, title: Option<&str>| steer::frames::ToolPreview {
+            identifier: identifier.map(str::to_string),
+            title: title.map(str::to_string),
+            ..Default::default()
+        };
+        assert_eq!(
+            exp_preview_label(&preview(Some("EXP-42"), Some("Fix it"))).as_deref(),
+            Some("EXP-42")
+        );
+        assert_eq!(
+            exp_preview_label(&preview(None, Some("  Release train  "))).as_deref(),
+            Some("Release train")
+        );
+        assert_eq!(exp_preview_label(&preview(Some("  "), Some(" "))), None);
+        assert_eq!(exp_preview_label(&steer::frames::ToolPreview::default()), None);
     }
 
     #[test]

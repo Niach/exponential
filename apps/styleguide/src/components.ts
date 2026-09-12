@@ -396,8 +396,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`GlassSectionHeader`, WEB_GLASS_ROWS, HEADER_EXCEPTION),
       desktop: ok(`surface::glass_section_header`, DESKTOP_SURFACE, HEADER_EXCEPTION),
-      ios: ok(`GlassSectionHeader`, `apps/ios/ExpUI/Sources/GlassTheme.swift`, HEADER_EXCEPTION),
-      android: ok(`SectionHeader`, `${ANDROID_COMPONENTS}/Scaffolding.kt`, HEADER_EXCEPTION),
+      ios: ok(`GlassSectionBand`, IOS_THEME, HEADER_EXCEPTION),
+      android: ok(
+        `Modifier.glassSectionBand()`,
+        ANDROID_GLASS,
+        `SectionHeader (Scaffolding.kt) wraps it. ${HEADER_EXCEPTION}`
+      ),
     },
     render: () =>
       [
@@ -458,8 +462,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`ListRow`, WEB_GLASS_ROWS),
       desktop: ok(`surface::flat_row`, DESKTOP_SURFACE),
-      ios: ok(`GlassRow`, IOS_THEME, `The phones keep the gapped row: a thumb needs the edge.`),
-      android: ok(`Modifier.glassRow()`, ANDROID_GLASS, `See iOS.`),
+      ios: ok(`FlatRow / .flatRow()`, IOS_THEME),
+      android: ok(`Modifier.flatRow()`, ANDROID_GLASS),
     },
     render: () =>
       [

@@ -280,6 +280,15 @@ pub enum ActivityEvent {
         diff: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
+        /// EXP-846: the SUBJECT an Exponential MCP call settled on, pulled out
+        /// of the tool's JSON result — the issue it created, the PR it opened,
+        /// how many rows a list answered with. Set ONLY for our own
+        /// `exponential_*` tools (nothing else has a result shape we know), and
+        /// every field optional: a tool that named none sends no preview at
+        /// all. Clients store it on the tool row; what they DRAW from it is a
+        /// later phase.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<ToolPreview>,
     },
     /// A worktree unified diff snapshot (latest replaces prior, viewer-side).
     Diff {
@@ -375,6 +384,12 @@ pub enum ActivityEvent {
     /// subagent tool events first (they carry little for a viewer), so the
     /// count survives where the rows do not; clients render
     /// `max(visible tool rows, toolCalls)`.
+    ///
+    /// EXP-847: `title` is the spawning `Agent` tool call's own `description`
+    /// input (its `name` as a fallback) — what the model said this subagent is
+    /// FOR, which is what a reader wants on the chip. Clients show it and keep
+    /// `agentType` as a secondary caption; absent for codex, an external agent
+    /// and every pre-847 publisher, where `agentType` is all there is.
     #[serde(rename_all = "camelCase")]
     Subagent {
         id: String,
@@ -386,6 +401,8 @@ pub enum ActivityEvent {
         at: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_calls: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
     },
     /// The session is sitting on a permission prompt. INFORMATIONAL — it
     /// carries no options and is never answerable remotely (the local TUI
@@ -402,8 +419,8 @@ pub enum ActivityEvent {
     /// closes it and leaves a "Context compacted" marker in the feed. A
     /// publisher that only observes the END (codex auto-compaction) sends a
     /// bare `ended`; viewers time a lone `started` out. `trigger` is
-    /// claude's PreCompact trigger (`manual` | `auto`; pi's threshold/
-    /// overflow map to `auto`), absent on codex — kept a plain string so a
+    /// claude's PreCompact trigger (`manual` | `auto`), absent on codex —
+    /// kept a plain string so a
     /// future value never fails the parse.
     Compaction {
         phase: CompactionPhase,
@@ -466,6 +483,91 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-848: the END-OF-TURN signal — `started` while the agent is
+    /// executing a turn, `ended` the moment it is over (`end_turn`, a cancel,
+    /// a failed prompt request). LATEST-WINS state like
+    /// [`ActivityEvent::RateLimit`], the FIFTH slot in every registry
+    /// (`journal.rs`, `history.rs`, the engine's `FeedState`, `feed.rs`, the
+    /// relay's `LATEST_WINS_KINDS`) — never a feed row. Before the first one
+    /// arrives every client assumes `ended`, so a viewer never pulses
+    /// "Working…" at a run that is merely connected.
+    #[serde(rename_all = "camelCase")]
+    Turn {
+        state: TurnState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+}
+
+/// EXP-846: what an Exponential MCP call settled on, as the tool itself
+/// reported it. Every field optional and independently meaningful — a
+/// `pr_open` names `identifier`/`url`, an `issues_list` only `count` — and
+/// every string capped at [`TOOL_PREVIEW_TEXT_MAX`] so one runaway answer
+/// cannot widen a frame. The result KIND (issue, pr, list, …) is not on the
+/// wire: it is the contract's `expToolResults` entry for the tool's own name,
+/// which every client already has.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolPreview {
+    /// The row's uuid, when the tool answered with one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// A human identifier (`EXP-42`) — what a pill renders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// A PR/issue url the answer carried (`prUrl`/`url`/`htmlUrl`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// How many rows a LIST answered with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    /// The subject's status word, when the answer named one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+/// EXP-846: the cap on every [`ToolPreview`] string — generous for an issue
+/// title, far below the narration cap, and mirrored by the relay's zod.
+pub const TOOL_PREVIEW_TEXT_MAX: usize = 200;
+
+impl ToolPreview {
+    /// Nothing to show: a preview with no field set is never published.
+    pub fn is_empty(&self) -> bool {
+        self.id.is_none()
+            && self.identifier.is_none()
+            && self.title.is_none()
+            && self.url.is_none()
+            && self.count.is_none()
+            && self.status.is_none()
+    }
+
+    /// Every free-text field, mutably — the redactor walks these like any
+    /// other published string.
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        [
+            self.id.as_mut(),
+            self.identifier.as_mut(),
+            self.title.as_mut(),
+            self.url.as_mut(),
+            self.status.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] (the relay drops a frame
+    /// whose preview is wider, so the producer cuts first).
+    pub fn clamp(mut self) -> Self {
+        for field in self.text_fields_mut() {
+            if field.chars().count() > TOOL_PREVIEW_TEXT_MAX {
+                *field = crate::activity::truncate(field, TOOL_PREVIEW_TEXT_MAX);
+            }
+        }
+        self
+    }
 }
 
 /// EXP-785: ACP's tool-call kind on the wire — the contract's `toolKind`
@@ -573,6 +675,32 @@ pub enum CompactionPhase {
     Ended,
 }
 
+/// EXP-848: `started` | `ended` — the two [`ActivityEvent::Turn`] edges
+/// (contract `turnState`). Clients DEFAULT to `Ended`: before any turn event
+/// arrives a run is assumed idle, so nothing ever pulses by default.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TurnState {
+    Started,
+    #[default]
+    Ended,
+}
+
+impl TurnState {
+    /// The contract `turnState` id.
+    pub fn id(self) -> &'static str {
+        match self {
+            TurnState::Started => "started",
+            TurnState::Ended => "ended",
+        }
+    }
+
+    /// Whether the agent is executing a turn right now.
+    pub fn is_working(self) -> bool {
+        matches!(self, TurnState::Started)
+    }
+}
+
 /// `started` | `completed` — the two [`ActivityEvent::Subagent`] edges.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -623,6 +751,7 @@ impl ActivityEvent {
             status,
             diff,
             at: None,
+            preview: None,
         }
     }
 
@@ -638,6 +767,11 @@ impl ActivityEvent {
             message,
             at: None,
         }
+    }
+
+    /// EXP-848: the turn edge — the spinner's one source of truth.
+    pub fn turn(state: TurnState) -> Self {
+        ActivityEvent::Turn { state, at: None }
     }
 
     /// EXP-724 compaction edge; `trigger` is `manual`/`auto` when known.
@@ -678,7 +812,16 @@ impl ActivityEvent {
                 fields
             }
             ActivityEvent::Diff { diff, .. } => vec![diff],
-            ActivityEvent::ToolUpdate { diff, .. } => diff.as_mut().into_iter().collect(),
+            // EXP-846: the preview's strings are the tool's OWN answer (an
+            // issue title, a PR url) and pass through the redactor like any
+            // other free text.
+            ActivityEvent::ToolUpdate { diff, preview, .. } => {
+                let mut fields: Vec<&mut String> = diff.as_mut().into_iter().collect();
+                if let Some(preview) = preview {
+                    fields.extend(preview.text_fields_mut());
+                }
+                fields
+            }
             ActivityEvent::RateLimit { message, .. } => message.as_mut().into_iter().collect(),
             ActivityEvent::Question {
                 text,
@@ -699,10 +842,14 @@ impl ActivityEvent {
             }
             ActivityEvent::AnswerAck { .. } => Vec::new(),
             ActivityEvent::Subagent {
-                agent_type, detail, ..
+                agent_type,
+                detail,
+                title,
+                ..
             } => {
                 let mut fields = vec![agent_type];
                 fields.extend(detail.as_mut());
+                fields.extend(title.as_mut());
                 fields
             }
             ActivityEvent::Permission { tool, detail, .. } => {
@@ -738,7 +885,7 @@ impl ActivityEvent {
                 }
                 fields
             }
-            ActivityEvent::Usage { .. } => Vec::new(),
+            ActivityEvent::Usage { .. } | ActivityEvent::Turn { .. } => Vec::new(),
         }
     }
 
@@ -759,7 +906,8 @@ impl ActivityEvent {
             | ActivityEvent::ConfigState { at, .. }
             | ActivityEvent::Usage { at, .. }
             | ActivityEvent::ToolUpdate { at, .. }
-            | ActivityEvent::RateLimit { at, .. } => at,
+            | ActivityEvent::RateLimit { at, .. }
+            | ActivityEvent::Turn { at, .. } => at,
         }
     }
 }
@@ -1525,11 +1673,13 @@ mod tests {
                     detail: Some("Map the steer crate".into()),
                     at: None,
                     tool_calls: None,
+                    // EXP-847: the spawning Agent call's `description`.
+                    title: Some("Audit the shape proxies".into()),
                 },
                 seq: None,
             }
             .to_json(),
-            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"started","detail":"Map the steer crate"}}"#
+            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"started","detail":"Map the steer crate","title":"Audit the shape proxies"}}"#
         );
         assert_eq!(
             ClientFrame::Activity {
@@ -1540,6 +1690,7 @@ mod tests {
                     detail: None,
                     at: None,
                     tool_calls: None,
+                    title: None,
                 },
                 seq: None,
             }
@@ -1578,7 +1729,7 @@ mod tests {
     #[test]
     fn compaction_serializes_to_the_relay_schema_and_parses_back() {
         // EXP-724: `{kind, phase, trigger?, at?}` — trigger omitted when
-        // unknown (codex), present verbatim when claude/pi report it.
+        // unknown (codex), present verbatim when claude reports it.
         let started = ActivityEvent::compaction(CompactionPhase::Started, Some("manual"));
         assert_eq!(
             ClientFrame::Activity { event: started.clone(), seq: None }.to_json(),
@@ -1607,6 +1758,107 @@ mod tests {
             r#"{"kind":"compaction","phase":"paused"}"#
         )
         .is_err());
+    }
+
+    /// EXP-846: `tool_update`'s preview — `{kind, id, status?, diff?, at?,
+    /// preview?}`, the preview's own keys in the relay's zod order, and a
+    /// preview that named nothing is never published.
+    #[test]
+    fn a_tool_update_preview_serializes_to_the_relay_schema_and_parses_back() {
+        let event = ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            at: None,
+            preview: Some(ToolPreview {
+                id: Some("c0ffee".into()),
+                identifier: Some("EXP-42".into()),
+                title: Some("Fix the flicker".into()),
+                url: Some("https://github.com/a/b/pull/7".into()),
+                count: Some(3),
+                status: Some("in_progress".into()),
+            }),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: event.clone(), seq: None }.to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"id":"c0ffee","identifier":"EXP-42","title":"Fix the flicker","url":"https://github.com/a/b/pull/7","count":3,"status":"in_progress"}}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(
+                r#"{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"identifier":"EXP-42"}}"#
+            )
+            .unwrap(),
+            ActivityEvent::ToolUpdate {
+                id: "tc-1".into(),
+                status: Some(ToolUpdateStatus::Completed),
+                diff: None,
+                at: None,
+                preview: Some(ToolPreview {
+                    identifier: Some("EXP-42".into()),
+                    ..ToolPreview::default()
+                }),
+            }
+        );
+        // A pre-846 publisher sends no preview at all, and the shorthand
+        // constructor keeps that byte-identical.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None),
+                seq: None,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"failed"}}"#
+        );
+        assert!(ToolPreview::default().is_empty());
+        assert!(!ToolPreview { count: Some(0), ..ToolPreview::default() }.is_empty());
+        // Every string is clamped to the relay's own cap.
+        let clamped = ToolPreview {
+            title: Some("x".repeat(TOOL_PREVIEW_TEXT_MAX + 10)),
+            ..ToolPreview::default()
+        }
+        .clamp();
+        assert_eq!(
+            clamped.title.as_deref().map(|title| title.chars().count()),
+            Some(TOOL_PREVIEW_TEXT_MAX)
+        );
+    }
+
+    /// EXP-848: the turn slot's wire shape — `{kind, state, at?}` — and the
+    /// contract's `turnState` vocabulary, byte for byte.
+    #[test]
+    fn turn_serializes_to_the_relay_schema_and_matches_the_contract() {
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::turn(TurnState::Started),
+                seq: None,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"turn","state":"started"}}"#
+        );
+        let mut ended = ActivityEvent::turn(TurnState::Ended);
+        *ended.at_mut() = Some(7);
+        assert_eq!(
+            ClientFrame::Activity { event: ended, seq: None }.to_json(),
+            r#"{"t":"activity","event":{"kind":"turn","state":"ended","at":7}}"#
+        );
+        // The viewer role reads them back (EXP-696); an unknown state does not
+        // parse.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"turn","state":"started"}"#).unwrap(),
+            ActivityEvent::Turn { state: TurnState::Started, at: None }
+        );
+        assert!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"turn","state":"thinking"}"#).is_err()
+        );
+        // The contract owns the vocabulary, and `Ended` is the DEFAULT: a
+        // client that has seen no turn event never pulses.
+        assert_eq!(
+            [TurnState::Started.id(), TurnState::Ended.id()].as_slice(),
+            domain::contract::TURN_STATE_VALUES
+        );
+        assert_eq!(TurnState::default(), TurnState::Ended);
+        assert!(TurnState::Started.is_working());
+        assert!(!TurnState::Ended.is_working());
     }
 
     /// EXP-746: the maximal snapshot, byte-for-byte in the zod's field order
@@ -1934,6 +2186,7 @@ mod tests {
                 detail: None,
                 at: None,
                 tool_calls: None,
+                title: None,
             },
             ActivityEvent::Permission { tool: "Bash".into(), detail: None, at: None },
             ActivityEvent::compaction(CompactionPhase::Started, None),
@@ -2823,6 +3076,7 @@ mod tests {
                 detail: Some("Map the steer crate".into()),
                 at: None,
                 tool_calls: None,
+                title: None,
             },
             ActivityEvent::Permission {
                 tool: "Bash".into(),

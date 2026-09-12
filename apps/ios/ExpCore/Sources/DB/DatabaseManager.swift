@@ -405,6 +405,10 @@ public final class DatabaseManager: @unchecked Sendable {
                 // detection).
                 t.column("device_id", .text)
                 t.column("needs_input", .boolean).notNull().defaults(to: false)
+                // EXP-848: device-written on every turn edge, cleared by every
+                // server end path — what a session row's pulsing dot keys on
+                // (`status = running` only means the row is live).
+                t.column("agent_busy", .boolean).notNull().defaults(to: false)
                 // EXP-804: the agent's usage wall as row state (raw jsonb
                 // text, NULL = not blocked). A blocked run still reads
                 // `running`, so this is what tells a walled run from a
@@ -1457,6 +1461,31 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'attachments'
+                    """)
+            }
+        }
+
+        // v36 (EXP-848 turn state): `coding_sessions.agent_busy` rides along on
+        // the coding-sessions shape — the device-written "a turn is open" flag
+        // the session lists pulse on. Same additive-ALTER-then-refetch shape as
+        // v30/v31; declared `.boolean` so the partial-update wire-bool mapping
+        // engages (the v4 `needs_input` precedent).
+        migrator.registerMigration("v36_coding_session_agent_busy") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("agent_busy") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "agent_busy", .boolean).notNull().defaults(to: false)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            // The shape key is 'coding-sessions' WITH A DASH (the proxy route
+            // name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
                     """)
             }
         }

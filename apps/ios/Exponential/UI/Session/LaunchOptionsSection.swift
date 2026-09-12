@@ -171,7 +171,9 @@ struct LaunchOptionsSection: View {
                     options: availableAgents,
                     selection: agent,
                     label: { LaunchVocabulary.agentLabel($0) },
-                    icon: { Image("agent-\($0)") },
+                    // EXP-849: resolved, never interpolated — an agent id with
+                    // no brand asset draws the neutral glyph, not a blank.
+                    icon: { AgentBrandMark.image($0) },
                     style: .embedded,
                     onSelect: { onAgentChange($0) }
                 )
@@ -196,8 +198,8 @@ struct LaunchOptionsSection: View {
                     label: { effortRowLabel($0) },
                     enabled: effortEnabled
                 )
-                // EXP-208: no helper notices, like the IDE. Ultracode is
-                // claude-only, plan mode is claude+pi (EXP-441); a binding
+                // EXP-208: no helper notices, like the IDE. Ultracode and
+                // plan mode are both claude-only (EXP-441/EXP-849); a binding
                 // (the automation variant) has neither.
                 if let resumeRow {
                     Toggle("Resume previous session", isOn: resumeRow.isOn)

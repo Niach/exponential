@@ -161,7 +161,7 @@ function ownDeviceRow(over: Record<string, unknown> = {}) {
   return {
     userId: `actor`,
     deviceId: `dev-1`,
-    agents: [`claude`, `codex`, `pi`],
+    agents: [`claude`, `codex`],
     unauthedAgents: [],
     caps: [],
     lastSeenAt: new Date(),
@@ -470,17 +470,17 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
-    // Blank model is the codex/pi "CLI default" — valid. (Only this call
+    // Blank model is the codex "CLI default" — valid. (Only this call
     // reaches the device resolve; the two above fail at the input layer.)
     queueOwnDevice()
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
-      agent: `pi`,
+      agent: `codex`,
       model: ``,
-      effort: `max`,
+      effort: `high`,
     })
-    expect(lastStartBody()).toMatchObject({ agent: `pi`, model: ``, effort: `max` })
+    expect(lastStartBody()).toMatchObject({ agent: `codex`, model: ``, effort: `high` })
   })
 
   it(`rejects claude-only toggles on a non-claude start`, async () => {
@@ -494,8 +494,8 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
-    // Plan mode is claude/pi-only (EXP-441) — codex rejects it, pi carries
-    // it through to the relay.
+    // Plan mode is claude-only (EXP-849 dropped pi) — codex rejects it,
+    // claude carries it through to the relay.
     error = await rejectionOf(
       caller.startSession({
         issueId: ISSUE_A,
@@ -510,10 +510,10 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
-      agent: `pi`,
+      agent: `claude`,
       planMode: true,
     })
-    expect(lastStartBody()).toMatchObject({ agent: `pi`, planMode: true })
+    expect(lastStartBody()).toMatchObject({ agent: `claude`, planMode: true })
   })
 })
 
@@ -1044,7 +1044,7 @@ function sharedDeviceRow(overrides: Record<string, unknown> = {}) {
     deviceId: SHARED_DEVICE,
     sharedTeamIds: [`ws-1`],
     kind: `server`,
-    agents: [`claude`, `codex`, `pi`],
+    agents: [`claude`, `codex`],
     unauthedAgents: [],
     caps: [],
     lastSeenAt: new Date(),
@@ -1735,6 +1735,153 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
+
+  // EXP-849: the mid-session account switch IS a resume naming another
+  // profile — the ONE option a resume accepts (every other one contradicts
+  // the run's registry).
+  it(`forwards an account on a resume`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null, agent: `claude` })
+    queueOwnDevice({
+      caps: [`resume-run`],
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `system`, signedIn: true, active: true },
+            { id: `work`, signedIn: true },
+          ],
+        },
+      },
+    })
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `work`,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: RESUME,
+      account: `work`,
+    })
+  })
+
+  // EXP-849: the mid-session switch rides a LIVE run (between turns) — the
+  // device ends it and continues on the other account. A plain resume of a
+  // live run is still refused.
+  it(`accepts a switch on a live run and refuses a plain resume of one`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    queueOwnDevice({ caps: [`resume-run`] })
+    // The live-session probe finds THIS run — never its own blocker.
+    h.dbQueue.push([{ id: RESUME, deviceLabel: `studio` }])
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `work`,
+    })
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+
+    h.relayPostStart.mockClear()
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).message).toBe(
+      `That run is still live — stop it first, or name an account to continue it on`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // EXP-849: PRESENCE of an account is the whole gate — `system` (the ambient
+  // login) names a profile like any other, so switching a live run BACK onto
+  // it is the same accepted move. Nothing validates it against the reported
+  // profiles either: the ambient login always exists on the machine.
+  it(`accepts a switch onto the system profile on a live run`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
+    queueOwnDevice({
+      caps: [`resume-run`],
+      // Only a NAMED profile is reported — `system` is never in the list.
+      agentAccounts: {
+        claude: { signedIn: true, profiles: [{ id: `work`, signedIn: true }] },
+      },
+    })
+    // The live-session probe finds the run being switched — its own row can
+    // never block its continuation.
+    h.dbQueue.push([{ id: RESUME, deviceLabel: `studio` }])
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `system`,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: RESUME,
+      account: `system`,
+    })
+  })
+
+  // EXP-849 §E: codex keeps ONE login per session — its conversation lives
+  // inside that login's own store, so there is no transcript to move into
+  // another one. The switch is claude-only, refused with the way forward.
+  it(`refuses a live switch on a codex run`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `codex` })
+
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        account: `work`,
+      })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `Only claude runs can change account while live — stop this codex run and start a new one on the other account`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // The same codex run, once it has ENDED, resumes onto another account like
+  // any other resume: nothing is live, so nothing is abandoned.
+  it(`allows an account on an ENDED codex run's resume`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null, agent: `codex` })
+    queueOwnDevice({ caps: [`resume-run`] })
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `work`,
+    })
+
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+  })
+
+  it(`refuses an account the machine never reported for the run's agent`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null, agent: `claude` })
+    queueOwnDevice({
+      caps: [`resume-run`],
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [{ id: `system`, signedIn: true, active: true }],
+        },
+      },
+    })
+
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        account: `ghost`,
+      })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`no claude account`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
 })
 
 // EXP-792: team MCP servers + the agent account profile ride the start.
@@ -1830,20 +1977,18 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
+  // EXP-849: `account` is the exception — it rides a resume (the account
+  // switch). Every other launch option still contradicts the run's registry.
   it(`are forbidden beside resumeSessionId — a resumed run keeps its recorded options`, async () => {
     const RESUME = `77777777-7777-4777-8777-777777777777`
-    for (const extra of [{ mcpServerIds: [MCP_A] }, { account: `work` }]) {
-      const error = await rejectionOf(
-        caller.startSession({
-          resumeSessionId: RESUME,
-          deviceId: `dev-1`,
-          ...extra,
-        })
-      )
-      expect((error as TRPCError).code, JSON.stringify(extra)).toBe(
-        `BAD_REQUEST`
-      )
-    }
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        mcpServerIds: [MCP_A],
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })

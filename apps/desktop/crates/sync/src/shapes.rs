@@ -379,6 +379,11 @@ pub const SHAPES: [ShapeSpec; 21] = [
             // the usage bar with it (heals onto existing store tables).
             "agent",
             "needs_input",
+            // EXP-848: the device-written turn flag. Every session list keys
+            // its working spinner on it (a `running` row between turns is not
+            // working), so dropping it silently spins every live row again.
+            // Heals onto existing store tables like the rest.
+            "agent_busy",
             // EXP-804: the agent's usage wall as row state (jsonb, NULL =
             // not blocked). A blocked run still reads `running`, so without
             // this the IDE shows a silently stalled run as healthy. Heals
@@ -730,6 +735,13 @@ mod tests {
         // dropping it from the allowlist silently kills the badge on desktop.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"needs_input"));
+    }
+
+    /// EXP-848: the working spinner's ONE input on every list.
+    #[test]
+    fn coding_sessions_syncs_the_agent_busy_flag() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"agent_busy"));
     }
 
     #[test]

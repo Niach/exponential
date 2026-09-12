@@ -652,7 +652,8 @@ pub(crate) fn render_context_block(
 //
 // Mirrored with the web `agent-usage.ts` bottom section — same field names,
 // same fallbacks, same ordering — so a rule changed on one side is greppable
-// from the other. [`crate::usage_view`] is the only renderer.
+// from the other. [`render_usage_cards`] below is the only renderer (EXP-818
+// retired the `usage_view` page this section used to live on).
 
 /// The ambient login's profile id — the local constant the launcher already
 /// uses, byte-identical with the web's `SYSTEM_PROFILE_ID`.
@@ -691,6 +692,14 @@ pub(crate) struct AgentProfileUsageRow {
     pub usage: Option<AgentUsage>,
     /// The "as of …" fallback when the usage is stale or absent.
     pub checked_at: Option<String>,
+    /// EXP-849: the login's HEALTH as the machine derived it from its usage
+    /// probe — `needs_relogin` is the one state `signed_in` cannot express (a
+    /// CLI still naming an account the provider has revoked). A device that
+    /// sent no `health` falls back to `Health::from_signed_in`.
+    pub health: coding::agent_accounts::Health,
+    /// EXP-849: the machine holds more logins of this agent than it collects
+    /// usage for, and this is one of the extras — identity only, no numbers.
+    pub unmonitored: bool,
 }
 
 /// `Some(trimmed)` for a non-blank string — the wire uses "absent" and "empty
@@ -759,6 +768,8 @@ pub(crate) fn agent_profile_usage_rows(
                 plan: None,
                 usage: None,
                 checked_at: None,
+                health: coding::agent_accounts::Health::Unknown,
+                unmonitored: false,
             };
             let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
             if profiles.is_empty() {
@@ -772,6 +783,9 @@ pub(crate) fn agent_profile_usage_rows(
                     checked_at: account
                         .and_then(|account| non_empty(Some(&account.checked_at)))
                         .or_else(|| non_empty(device.agent_usage_at.as_deref())),
+                    health: account
+                        .map(|account| account.health())
+                        .unwrap_or(coding::agent_accounts::Health::Unknown),
                     ..base(SYSTEM_PROFILE_ID)
                 });
                 continue;
@@ -802,12 +816,146 @@ pub(crate) fn agent_profile_usage_rows(
                     usage,
                     checked_at: non_empty(Some(&profile.checked_at))
                         .or_else(|| account.and_then(|a| non_empty(Some(&a.checked_at)))),
+                    health: profile.health(),
+                    unmonitored: profile.unmonitored,
                     ..base(&profile.id)
                 });
             }
         }
     }
     out
+}
+
+/// EXP-849 — every machine × agent × profile row this client can see, off the
+/// synced `devices` shape. The one reader for surfaces that need ONE machine's
+/// accounts (the session's account switch) rather than the whole Accounts
+/// page; the page itself goes through [`agent_profile_usage_rows`] with its own
+/// grouping.
+pub(crate) fn device_profile_rows(cx: &App) -> Vec<AgentProfileUsageRow> {
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let Some(me) = crate::queries::active_account(cx) else {
+        return Vec::new();
+    };
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let devices = store.collections().devices.read(cx);
+    let rows: Vec<domain::rows::DeviceRow> = devices.iter().cloned().collect();
+    agent_profile_usage_rows(&rows, &me.user_id, |last_seen| {
+        crate::device_settings::row_is_online(last_seen, now_ms)
+    })
+}
+
+/// EXP-849 — one account a MACHINE holds, as the Devices row's chip: the
+/// repair surface's unit of work (sign in, sign in again, use this one here).
+///
+/// The twin of the web `DeviceAccountChip`/`deviceAccountChips`: it reads the
+/// machine's own `agentAccounts` map rather than the cross-device account
+/// grouping the Accounts page uses, because a chip here is about THIS machine's
+/// login, not about the account's numbers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DeviceAccountChip {
+    pub key: String,
+    pub agent: String,
+    pub profile_id: String,
+    pub profile_label: String,
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    pub signed_in: bool,
+    /// The machine's CURRENT login for the agent.
+    pub active: bool,
+    pub health: coding::agent_accounts::Health,
+}
+
+/// Every account one machine reported, agent by agent (the map is already in
+/// contract order — `AgentAccounts` is a `BTreeMap`), each agent's ACTIVE login
+/// first. A machine that reported no profiles yields its single ambient
+/// account, so a pre-profile machine still gets exactly one chip per agent.
+pub(crate) fn device_account_chips(
+    accounts: &coding::agent_accounts::AgentAccounts,
+) -> Vec<DeviceAccountChip> {
+    let mut out: Vec<DeviceAccountChip> = Vec::new();
+    for (agent, account) in accounts {
+        let profiles: Vec<&coding::AgentProfileEntry> = account
+            .profiles
+            .iter()
+            .filter(|profile| !profile.id.trim().is_empty())
+            .collect();
+        if profiles.is_empty() {
+            out.push(DeviceAccountChip {
+                key: format!("{agent}:{SYSTEM_PROFILE_ID}"),
+                agent: agent.clone(),
+                profile_id: SYSTEM_PROFILE_ID.to_string(),
+                profile_label: coding::agent_profiles::SYSTEM_LABEL.to_string(),
+                email: non_empty(account.email.as_deref()),
+                plan: non_empty(account.plan.as_deref()),
+                signed_in: account.signed_in,
+                active: true,
+                health: account.health(),
+            });
+            continue;
+        }
+        let mut chips: Vec<DeviceAccountChip> = profiles
+            .iter()
+            .map(|profile| DeviceAccountChip {
+                key: format!("{agent}:{}", profile.id),
+                agent: agent.clone(),
+                profile_id: profile.id.clone(),
+                profile_label: non_empty(profile.label.as_deref()).unwrap_or_else(|| {
+                    if profile.id == SYSTEM_PROFILE_ID {
+                        coding::agent_profiles::SYSTEM_LABEL.to_string()
+                    } else {
+                        profile.id.clone()
+                    }
+                }),
+                email: non_empty(profile.email.as_deref()),
+                plan: non_empty(profile.plan.as_deref()),
+                signed_in: profile.signed_in,
+                active: profile.active,
+                health: profile.health(),
+            })
+            .collect();
+        // The machine's own login leads; everything else keeps the index order
+        // the device sent (`system` first), so a heartbeat cannot reshuffle it.
+        chips.sort_by_key(|chip| !chip.active);
+        out.extend(chips);
+    }
+    out
+}
+
+/// EXP-849 — the HEALTH badge an account row or chip wears, or `None` when
+/// there is nothing to say (`ok`, and `unknown` = signed in, never probed).
+///
+/// The sentence is [`coding::agent_accounts::Health::badge_label`], the ONE
+/// ×4 string table; the colour is the severity: an expired credential is red
+/// (every run on it fails at the first request), a missing login amber (there
+/// is simply nothing set up yet). Web parity: `healthBadgeLabel` beside the
+/// identity, on the row AND on the machine chips.
+pub(crate) fn health_badge(
+    health: coding::agent_accounts::Health,
+    cx: &App,
+) -> Option<impl IntoElement> {
+    let label = health.badge_label()?;
+    let color = if health == coding::agent_accounts::Health::NeedsRelogin {
+        theme::tokens::RED.to_hsla()
+    } else {
+        theme::tokens::YELLOW.to_hsla()
+    };
+    let _ = cx;
+    Some(
+        gpui_component::h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap_1()
+            .text_xs()
+            .font_weight(gpui::FontWeight::NORMAL)
+            .text_color(color)
+            .child(
+                gpui_component::Icon::new(crate::icons::registry::UI_WARNING)
+                    .size(px(12.)),
+            )
+            .child(label),
+    )
 }
 
 /// The fullest window's percent, or 0 for a row with no usage at all.
@@ -824,16 +972,22 @@ pub(crate) fn peak_percent(usage: Option<&AgentUsage>) -> u8 {
         .unwrap_or(0)
 }
 
-/// Attention-first bucket: signed-out rows lead (there is something to do),
-/// then rows at or over [`DANGER_PERCENT`], then everything else. The web
-/// twin takes `Pick<…, signedIn | usage>` so it ranks account groups too;
-/// here [`attention_bucket`] is that shared core.
+/// Attention-first bucket: rows with something to DO lead (signed out, and
+/// EXP-849's expired credential — the CLI still reports signed in, but every
+/// run on it fails at the first request), then rows at or over
+/// [`DANGER_PERCENT`], then everything else. The web twin takes
+/// `Pick<…, signedIn | usage | health>` so it ranks account groups too; here
+/// [`attention_bucket`] is that shared core.
 pub(crate) fn attention_rank(row: &AgentProfileUsageRow) -> u8 {
-    attention_bucket(row.signed_in, row.usage.as_ref())
+    attention_bucket(row.signed_in, row.health, row.usage.as_ref())
 }
 
-fn attention_bucket(signed_in: bool, usage: Option<&AgentUsage>) -> u8 {
-    if !signed_in {
+fn attention_bucket(
+    signed_in: bool,
+    health: coding::agent_accounts::Health,
+    usage: Option<&AgentUsage>,
+) -> u8 {
+    if !signed_in || health == coding::agent_accounts::Health::NeedsRelogin {
         0
     } else if peak_percent(usage) >= DANGER_PERCENT {
         1
@@ -884,7 +1038,8 @@ pub(crate) fn refresh_allowed_at(usage: Option<&AgentUsage>, now_epoch: i64) -> 
 /// One account card of the usage page.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AgentAccountUsageGroup {
-    /// `<agent>:<email>` for a named login; a row with no email (pi names a
+    /// `<agent>:<email>` for a named login; a row with no email (an agent
+    /// that names a
     /// provider, a signed-out row names nobody) can never be told apart from
     /// another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
     pub key: String,
@@ -892,6 +1047,9 @@ pub(crate) struct AgentAccountUsageGroup {
     pub signed_in: bool,
     pub email: Option<String>,
     pub plan: Option<String>,
+    /// EXP-849: the WORST health among the members — one machine reporting a
+    /// revoked credential is the account's problem, not that machine's.
+    pub health: coding::agent_accounts::Health,
     /// The machines (× profile) holding this account: online first, then by
     /// label, then profile — a heartbeat cannot reshuffle the chips.
     pub rows: Vec<AgentProfileUsageRow>,
@@ -963,6 +1121,7 @@ pub(crate) fn account_usage_groups(
                     signed_in: row.signed_in,
                     email: row.email.clone(),
                     plan: row.plan.clone(),
+                    health: row.health,
                     rows: Vec::new(),
                     usage: None,
                     checked_at: None,
@@ -975,6 +1134,10 @@ pub(crate) fn account_usage_groups(
         if group.plan.is_none() && row.plan.is_some() {
             group.plan = row.plan.clone();
         }
+        // EXP-849: worst-wins. One machine answering 401 for this login is the
+        // ACCOUNT's problem — every other machine is about to hit the same
+        // wall — so it must not be averaged away by a healthier sibling.
+        group.health = group.health.worse(row.health);
         if fresher_usage(row.usage.as_ref(), group.usage.as_ref()) {
             group.usage = row.usage.clone();
         }
@@ -1008,8 +1171,8 @@ pub(crate) fn sort_account_groups_attention_first(
 ) -> Vec<AgentAccountUsageGroup> {
     let mut groups = groups;
     groups.sort_by(|a, b| {
-        attention_bucket(a.signed_in, a.usage.as_ref())
-            .cmp(&attention_bucket(b.signed_in, b.usage.as_ref()))
+        attention_bucket(a.signed_in, a.health, a.usage.as_ref())
+            .cmp(&attention_bucket(b.signed_in, b.health, b.usage.as_ref()))
             .then_with(|| peak_percent(b.usage.as_ref()).cmp(&peak_percent(a.usage.as_ref())))
             .then_with(|| a.agent.cmp(&b.agent))
             .then_with(|| a.key.cmp(&b.key))
@@ -1028,6 +1191,66 @@ mod tests {
             percent,
             resets_at: resets_at.map(str::to_string),
         }
+    }
+
+    /// EXP-849 — the Devices row's chips: one per account the machine reported,
+    /// the machine's own login first, and a pre-profile machine's single
+    /// ambient account still gets exactly one chip per agent.
+    #[test]
+    fn device_account_chips_lead_with_the_active_login() {
+        use coding::agent_accounts::{AgentAccount, AgentProfileEntry, Health};
+
+        let mut accounts = coding::agent_accounts::AgentAccounts::new();
+        accounts.insert(
+            "claude".into(),
+            AgentAccount {
+                signed_in: true,
+                email: Some("work@acme.test".into()),
+                profiles: vec![
+                    AgentProfileEntry {
+                        id: "system".into(),
+                        signed_in: true,
+                        email: Some("me@acme.test".into()),
+                        ..AgentProfileEntry::default()
+                    },
+                    AgentProfileEntry {
+                        id: "0a1b2c3d".into(),
+                        label: Some("Work".into()),
+                        signed_in: true,
+                        email: Some("work@acme.test".into()),
+                        active: true,
+                        health: Some(Health::NeedsRelogin.as_str().into()),
+                        ..AgentProfileEntry::default()
+                    },
+                ],
+                ..AgentAccount::default()
+            },
+        );
+        // A machine that reported no profiles at all: the ambient login IS the
+        // account, and it is the active one by definition.
+        accounts.insert(
+            "codex".into(),
+            AgentAccount {
+                signed_in: false,
+                ..AgentAccount::default()
+            },
+        );
+
+        let chips = device_account_chips(&accounts);
+        assert_eq!(
+            chips.iter().map(|chip| chip.key.as_str()).collect::<Vec<_>>(),
+            vec!["claude:0a1b2c3d", "claude:system", "codex:system"]
+        );
+        assert_eq!(chips[0].profile_label, "Work");
+        assert_eq!(chips[0].health, Health::NeedsRelogin);
+        // `system` with no label falls back to the ×4 "Default".
+        assert_eq!(chips[1].profile_label, "Default");
+        assert!(!chips[1].active);
+        // A signed-out, never-probed account derives `signed_out` — and so a
+        // badge, which is the whole point of the chip.
+        assert!(chips[2].active && !chips[2].signed_in);
+        assert_eq!(chips[2].health, Health::SignedOut);
+        assert_eq!(chips[2].health.badge_label(), Some("Signed out"));
     }
 
     /// The three tones cross at 75 and 95 — the same thresholds on every
@@ -1529,6 +1752,8 @@ mod tests {
                     windows: vec![window("weekly", "Week", percent, None)],
                 }),
                 checked_at: None,
+                health: coding::agent_accounts::Health::from_signed_in(signed_in),
+                unmonitored: false,
             }
         };
         let rows = sort_attention_first(vec![
@@ -1562,6 +1787,11 @@ mod tests {
             attention_rank(&row("Air", "claude", "system", true, DANGER_PERCENT - 1)),
             2
         );
+        // EXP-849: an EXPIRED credential is the same kind of "do something" as
+        // a missing one — it leads too, though the CLI still reports signed in.
+        let mut revoked = row("Air", "claude", "system", true, 0);
+        revoked.health = coding::agent_accounts::Health::NeedsRelogin;
+        assert_eq!(attention_rank(&revoked), 0);
     }
 
     /// The button greys out for the device's OWN 429 floor (5 minutes) and
@@ -1621,6 +1851,8 @@ mod tests {
             plan: None,
             usage: None,
             checked_at: None,
+            health: coding::agent_accounts::Health::Ok,
+            unmonitored: false,
         }
     }
 
@@ -1668,9 +1900,9 @@ mod tests {
 
     #[test]
     fn account_groups_keep_email_less_and_signed_out_rows_apart() {
-        let mut a = page_row("a", "pi");
+        let mut a = page_row("a", "codex");
         a.plan = Some("openai-codex (oauth)".into());
-        let mut b = page_row("b", "pi");
+        let mut b = page_row("b", "codex");
         b.plan = Some("openai-codex (oauth)".into());
         let mut out_a = page_row("a", "claude");
         out_a.signed_in = false;
@@ -1680,7 +1912,7 @@ mod tests {
         let groups = account_usage_groups(vec![a, b, out_a, out_b], |_| false);
         assert_eq!(
             groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
-            vec!["pi:a:system", "pi:b:system", "claude:a:system", "claude:b:system"]
+            vec!["codex:a:system", "codex:b:system", "claude:a:system", "claude:b:system"]
         );
         assert!(!groups[2].signed_in);
     }

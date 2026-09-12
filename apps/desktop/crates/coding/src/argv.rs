@@ -1,7 +1,7 @@
 //! Spawn argv assembly for coding sessions — the ONE place the agent CLI
-//! flags are composed (EXP-201: `claude`, `codex`, or `pi`). The model flag
+//! flags are composed (EXP-201/EXP-849: `claude` or `codex`). The model flag
 //! is explicit for Claude (never the user's CLI default — §7.7, locked
-//! 2026-07-03; codex/pi allow blank = their own default), the seed prompt
+//! 2026-07-03; codex allows blank = its own default), the seed prompt
 //! rides argv positional-last (bytes typed into the PTY before the TUI
 //! enters raw mode get swallowed, so the prompt must never ride stdin), and
 //! the permission posture is per-agent:
@@ -17,26 +17,25 @@
 //!   (EXP-389 — it parks an unattended session; the directory-trust screen is
 //!   handled separately by [`crate::codex_trust`], because
 //!   `-c projects.….trust_level` cannot express paths containing dots).
-//! - **pi** — no permission system exists; no flags either way.
 
 use crate::agent::CodingAgent;
 use crate::mcp_json::MCP_JSON_FILE;
-use crate::pi_bridge::{PI_BRIDGE_FILE, PI_PLAN_FILE};
 use crate::settings::Settings;
 use crate::skill::RUN_SKILL;
 
-/// The env var carrying the raw `expu_` key for codex + pi sessions (EXP-201)
-/// — those agents get the MCP credential via the spawn environment instead of
-/// a worktree file: codex reads it through `bearer_token_env_var`, the pi
-/// bridge reads it directly. Never on argv (ps-visible), never on disk.
+/// The env var carrying the raw `expu_` key for codex + external-agent
+/// sessions (EXP-201) — those agents get the MCP credential via the spawn
+/// environment instead of a worktree file: codex reads it through
+/// `bearer_token_env_var`, an external ACP binary reads it directly. Never on
+/// argv (ps-visible), never on disk.
 pub const MCP_TOKEN_ENV: &str = "EXP_MCP_TOKEN";
 
-/// The env var carrying the `/api/mcp` URL for the pi bridge.
+/// The env var carrying the `/api/mcp` URL for an external ACP agent.
 pub const MCP_URL_ENV: &str = "EXP_MCP_URL";
 
 /// EXP-637: the `coding_sessions` row id the spawned agent's MCP calls must
-/// identify themselves with (`X-Exp-Session-Id`). Read by the pi bridge (pi
-/// has no native MCP headers); claude gets it from `.exp-mcp.json` and codex
+/// identify themselves with (`X-Exp-Session-Id`). Read by an external ACP
+/// agent off the env; claude gets it from `.exp-mcp.json` and codex
 /// from a `-c mcp_servers.exponential.http_headers` override. NOT a secret —
 /// it only names the row the launcher just created for this run.
 pub const MCP_SESSION_ID_ENV: &str = "EXP_MCP_SESSION_ID";
@@ -52,11 +51,6 @@ pub const MCP_SESSION_ID_ENV: &str = "EXP_MCP_SESSION_ID";
 /// wins ([`crate::launcher`] only fills the gap).
 pub const CLAUDE_MCP_TOOL_TIMEOUT_ENV: &str = "MCP_TOOL_TIMEOUT";
 pub const CLAUDE_MCP_TOOL_TIMEOUT_MS: u64 = 120_000;
-
-/// Spawn-env gate for the pi plan-mode extension (EXP-441): the launcher
-/// sets it to `1` on a pi launch with plan mode on. The extension file
-/// itself rides `-e` unconditionally and is inert without this value.
-pub const PI_PLAN_MODE_ENV: &str = "EXP_PI_PLAN_MODE";
 
 /// EXP-443: codex's per-spawn originator override — the value lands verbatim
 /// in every rollout meta this spawn writes, giving the activity emitter a
@@ -161,8 +155,8 @@ pub fn toml_basic_string(text: &str) -> String {
 /// - Codex: `-c mcp_servers.*` CLI overrides pointing at `url`, with the
 ///   bearer token read from [`MCP_TOKEN_ENV`] in the spawn env — the key
 ///   never lands on disk or argv for codex.
-/// - Pi: the launcher-written [`PI_BRIDGE_FILE`] extension (rides `-e`); the
-///   bridge reads [`MCP_URL_ENV`] + [`MCP_TOKEN_ENV`] from the env.
+/// - External (EXP-758): the spawn env alone ([`MCP_URL_ENV`] +
+///   [`MCP_TOKEN_ENV`] + [`MCP_SESSION_ID_ENV`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentMcp {
     ClaudeFile,
@@ -170,7 +164,7 @@ pub enum AgentMcp {
     /// `--mcp-config` JSON whose `Authorization` header reads
     /// `Bearer ${EXP_MCP_TOKEN}` — the CLI expands env refs inside header
     /// values (measured in the phase-1 spike), so the `expu_` key rides the
-    /// child's env like codex/pi and never lands on disk. The engine renders
+    /// child's env like codex and never lands on disk. The engine renders
     /// the JSON; this carries what it needs.
     ClaudeInline {
         url: String,
@@ -184,11 +178,10 @@ pub enum AgentMcp {
         /// session (agent shells) keeps the pre-EXP-637 argv byte-identical.
         session_id: Option<String>,
     },
-    PiExtension,
     /// EXP-758: a user-declared EXTERNAL ACP agent. There is no config format
     /// of ours to write for a binary we did not ship, so the whole wiring is
     /// the spawn env ([`MCP_URL_ENV`] / [`MCP_TOKEN_ENV`] /
-    /// [`MCP_SESSION_ID_ENV`], the shape pi's bridge already reads) and the
+    /// [`MCP_SESSION_ID_ENV`]) and the
     /// agent connects to `/api/mcp` itself if it speaks MCP at all. Nothing
     /// of ours lands in the worktree.
     ExternalEnv {
@@ -202,8 +195,8 @@ pub enum AgentMcp {
 /// config from `mcpServers.listForDevice` joined with the ENV VAR NAMES the
 /// launcher minted for its device-held secrets. Every credential position is
 /// a `${VAR}` REFERENCE the agent expands from the child's own environment
-/// (claude header values, codex `bearer_token_env_var`/`env_http_headers`,
-/// the pi bridge's `process.env`), so no generated config ever carries a
+/// (claude header values, codex `bearer_token_env_var`/`env_http_headers`, an
+/// external agent's own `process.env`), so no generated config ever carries a
 /// value. `exponential` itself is NOT one of these — it keeps its dedicated
 /// [`AgentMcp`] posture (the `expu_` key + the session header); these are the
 /// user-declared servers appended beside it.
@@ -258,8 +251,8 @@ impl McpServerWire {
 }
 
 /// EXP-792: the env var carrying the launch's team MCP servers for the
-/// agents that have no config format of their own to render them into: the
-/// pi bridge and an external ACP binary read this JSON array
+/// agents that have no config format of their own to render them into: an
+/// external ACP binary reads this JSON array
 /// (`[{name, kind:"http", url, headers} | {name, kind:"stdio", command,
 /// args, env}]`) and resolve every `${VAR}` header/env reference from their
 /// OWN environment at connect time. Never set for claude/codex (their
@@ -286,7 +279,7 @@ pub fn bearer_env_reference(value: &str) -> Option<&str> {
     env_reference(rest.trim_start())
 }
 
-/// [`MCP_SERVERS_ENV`]'s value: the pi bridge / external agent wire shape,
+/// [`MCP_SERVERS_ENV`]'s value: the external agent wire shape,
 /// `${VAR}` references verbatim (the reader expands them), headers and env
 /// sorted by name so the string is stable across launches.
 pub fn mcp_servers_env_json(servers: &[McpServerWire]) -> String {
@@ -496,7 +489,7 @@ pub struct LaunchOptions {
     /// Which agent CLI to spawn (EXP-201).
     pub agent: CodingAgent,
     /// Model choice within the agent's closed set. Blank = omit the model
-    /// flag (valid for codex/pi only; claude is explicit-always).
+    /// flag (valid for codex only; claude is explicit-always).
     pub model: String,
     /// Effort/reasoning/thinking level; blank = omit the flag. Ignored while
     /// ultracode is on (ultracode IS the effort level — `--effort ultracode`).
@@ -504,9 +497,8 @@ pub struct LaunchOptions {
     /// Dynamic workflows (`--effort ultracode`, CLI ≥2.1.203 —
     /// model-independent, no opus pin). Claude-only; wins over `effort`.
     pub ultracode: bool,
-    /// Launch-into-plan mode: claude natively (`--permission-mode plan`),
-    /// pi via the injected `.exp-pi-plan.ts` extension gated on
-    /// [`PI_PLAN_MODE_ENV`] (EXP-441). Never codex.
+    /// Launch-into-plan mode: claude natively (`--permission-mode plan`).
+    /// Never codex.
     pub plan_mode: bool,
     /// EXP-746 (D13): run this launch on a user-declared external ACP agent
     /// instead of `agent`'s CLI. `None` = the builtin above, which is every
@@ -563,13 +555,16 @@ impl LaunchOptions {
     ///   agent, or an old phone's claude vocabulary could land on a codex
     ///   launch).
     /// - `effort: Some("")` is an explicit "CLI default" and beats a
-    ///   non-blank settings effort; same for a blank codex/pi model.
+    ///   non-blank settings effort; same for a blank codex model.
     /// - An absent ultracode falls to the settings default; plan mode
     ///   defaults OFF when absent (F7 — an option-less start must never park
     ///   an unattended desktop at the plan-approval TUI); a remote client
     ///   sending `plan_mode: true` opted in knowingly.
     /// - Capabilities mask everything: a non-claude agent can never carry
     ///   ultracode, codex never carries plan.
+    /// - EXP-849: `account` is the composer's account pick (a device-local
+    ///   profile id), normalized by [`Self::with_account`]. Absent/`system` =
+    ///   the ambient login, which is every pre-EXP-849 sender.
     pub fn remote(
         settings: &Settings,
         agent: Option<&str>,
@@ -577,6 +572,7 @@ impl LaunchOptions {
         effort: Option<&str>,
         ultracode: Option<bool>,
         plan_mode: Option<bool>,
+        account: Option<&str>,
     ) -> Self {
         use crate::settings::normalize_choice;
         let agent = agent
@@ -618,6 +614,7 @@ impl LaunchOptions {
             mcp_server_ids: Vec::new(),
             account: None,
         }
+        .with_account(account)
     }
 
     /// EXP-792: the remote frame's MCP server picks. Deduplicated, blanks
@@ -654,8 +651,6 @@ impl LaunchOptions {
 /// - codex: `-c check_for_update_on_startup=false [-m <m>]
 ///   [-c model_reasoning_effort=<e>] <mcp -c overrides>
 ///   -c developer_instructions=<playbook> --dangerously-bypass-…`
-/// - pi: `[--model <m>] [--thinking <t>] -e ./<bridge> -e ./<plan>
-///   --append-system-prompt <playbook>`
 ///
 /// No prompt, no session pin, no resume: a shell spawns fresh and waits for
 /// the user to type.
@@ -733,29 +728,6 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
             ));
             // EXP-690: every codex run bypasses approvals and the sandbox.
             args.push("--dangerously-bypass-approvals-and-sandbox".into());
-        }
-        CodingAgent::Pi => {
-            if !trimmed_model.is_empty() {
-                args.push("--model".into());
-                args.push(trimmed_model.to_string());
-            }
-            if !trimmed_effort.is_empty() {
-                args.push("--thinking".into());
-                args.push(trimmed_effort.to_string());
-            }
-            // The MCP bridge extension (pi has no native MCP). `-e` loads it
-            // independent of pi's project-trust prompt; never pass
-            // -a/--approve (it would auto-trust repo-carried extensions).
-            args.push("-e".into());
-            args.push(format!("./{PI_BRIDGE_FILE}"));
-            // The plan-mode extension (EXP-441): inert without
-            // [`PI_PLAN_MODE_ENV`], so it rides unconditionally.
-            args.push("-e".into());
-            args.push(format!("./{PI_PLAN_FILE}"));
-            // EXP-763: the run playbook. pi appends the argument's TEXT and
-            // rebuilds the system prompt on every launch.
-            args.push("--append-system-prompt".into());
-            args.push(RUN_SKILL.into());
         }
     }
     args
@@ -890,7 +862,7 @@ mod tests {
         assert!(!full.contains("${"), "codex gets env NAMES, never a `${{…}}` it cannot expand");
     }
 
-    /// EXP-792: the pi bridge / external agent wire keeps every `${VAR}`
+    /// EXP-792: the external agent wire keeps every `${VAR}`
     /// verbatim (they resolve it from their own env) and is byte-stable.
     #[test]
     fn mcp_servers_env_json_is_the_bridge_wire_shape() {
@@ -960,13 +932,6 @@ mod tests {
         assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(!args.iter().any(|arg| arg.contains("expu_")));
 
-        let mut pi = claude_opts();
-        pi.agent = CodingAgent::Pi;
-        pi.model = "grok-4.5".to_string();
-        let args = shell_args(&pi, &AgentMcp::PiExtension);
-        assert_eq!(args[..2], ["--model", "grok-4.5"]);
-        assert!(args.windows(2).any(|w| w == ["-e", "./.exp-pi-mcp.ts"]));
-        assert!(args.windows(2).any(|w| w == ["-e", "./.exp-pi-plan.ts"]));
         // A shell never resumes and never pins a session file.
         for args in [&claude, &args] {
             assert!(!args.iter().any(|arg| arg == "--session"
@@ -1036,13 +1001,6 @@ mod tests {
         assert_eq!(via_default.model, via_for.model);
         assert_eq!(via_default.effort, via_for.effort);
 
-        let opts = LaunchOptions::defaults_for(&settings, CodingAgent::Pi);
-        assert_eq!(opts.agent, CodingAgent::Pi);
-        assert!(opts.plan_mode, "pi seeds its OWN plan default (EXP-441)");
-
-        // The pi plan default is its own field — independent of claude's.
-        settings.pi_plan_mode = false;
-        assert!(!LaunchOptions::defaults_for(&settings, CodingAgent::Pi).plan_mode);
         assert!(LaunchOptions::defaults_for(&settings, CodingAgent::Claude).plan_mode);
     }
 
@@ -1085,13 +1043,6 @@ mod tests {
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
 
-        settings.default_agent = CodingAgent::Pi;
-        settings.pi_model = "grok-4.5".to_string();
-        settings.pi_thinking = "max".to_string();
-        let opts = LaunchOptions::defaults(&settings);
-        assert_eq!(opts.agent, CodingAgent::Pi);
-        assert_eq!(opts.model, "grok-4.5");
-        assert_eq!(opts.effort, "max");
     }
 
     #[test]
@@ -1103,12 +1054,14 @@ mod tests {
         settings.claude_effort = "high".to_string();
         settings.claude_ultracode = true;
         settings.claude_plan_mode = true; // must NOT leak into a remote start
-        let opts = LaunchOptions::remote(&settings, None, None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "opus");
         assert_eq!(opts.effort, "high");
         assert!(opts.ultracode);
         assert!(!opts.plan_mode);
+        assert_eq!(opts.account, None);
+        assert!(opts.mcp_server_ids.is_empty());
     }
 
     #[test]
@@ -1123,23 +1076,26 @@ mod tests {
             Some("max"),
             Some(false),
             Some(true),
+            Some(" 0a1b2c3d "),
         );
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "sonnet", "case-normalized");
         assert_eq!(opts.effort, "max");
         assert!(!opts.ultracode);
         assert!(opts.plan_mode, "explicit remote opt-in");
+        // EXP-849: the frame's account pick rides through, trimmed.
+        assert_eq!(opts.account.as_deref(), Some("0a1b2c3d"));
 
         // Bogus model falls back to the settings model, never to a crash or
         // a raw pass-through to the CLI argv.
-        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None, None);
         assert_eq!(opts.model, "fable");
 
         // Explicit blank effort = "CLI default" and beats the settings value.
-        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None, None);
         assert_eq!(opts.effort, "");
         // Bogus effort also degrades to blank (omit --effort).
-        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None, None);
         assert_eq!(opts.effort, "");
     }
 
@@ -1157,13 +1113,16 @@ mod tests {
             Some("gpt-5.6-luna"),
             Some("minimal"),
             Some(true), // ultracode — claude-only, must mask
-            Some(true), // plan — claude/pi-only, must mask on codex
+            Some(true), // plan — claude-only, must mask on codex
+            Some("system"),
         );
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-luna");
         assert_eq!(opts.effort, "minimal");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
+        // `system` and blank are both the ambient login, never a literal id.
+        assert_eq!(opts.account, None);
 
         // A claude model on a codex start is bogus → blank (codex default).
         let opts = LaunchOptions::remote(
@@ -1173,27 +1132,13 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert_eq!(opts.model, "");
 
-        // pi: thinking set; an explicit plan opt-in passes through
-        // (EXP-441 — pi plans via the injected extension).
-        let opts = LaunchOptions::remote(
-            &settings,
-            Some("pi"),
-            Some("grok-4.5"),
-            Some("xhigh"),
-            None,
-            Some(true),
-        );
-        assert_eq!(opts.agent, CodingAgent::Pi);
-        assert_eq!(opts.model, "grok-4.5");
-        assert_eq!(opts.effort, "xhigh");
-        assert!(opts.plan_mode, "explicit remote opt-in (EXP-441)");
-
-        // F7 holds for pi too: an option-less start must never park an
-        // unattended desktop at the plan gate.
-        let opts = LaunchOptions::remote(&settings, Some("pi"), None, None, None, None);
+        // F7: an option-less claude start must never park an unattended
+        // desktop at the plan gate.
+        let opts = LaunchOptions::remote(&settings, Some("claude"), None, None, None, None, None);
         assert!(!opts.plan_mode, "absent plan defaults OFF");
 
         // Unknown agent string → claude with claude normalization.
@@ -1201,6 +1146,7 @@ mod tests {
             &settings,
             Some("cursor"),
             Some("sonnet"),
+            None,
             None,
             None,
             None,
@@ -1216,7 +1162,7 @@ mod tests {
         let mut settings = Settings::default();
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
-        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "", "claude's opus must not leak onto codex");
         assert_eq!(opts.effort, "");
@@ -1225,7 +1171,7 @@ mod tests {
         settings.default_agent = CodingAgent::Codex;
         settings.codex_model = "gpt-5.6-sol".to_string();
         settings.codex_effort = "high".to_string();
-        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.model, "gpt-5.6-sol");
         assert_eq!(opts.effort, "high");
     }

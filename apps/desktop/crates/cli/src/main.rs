@@ -74,7 +74,7 @@ Commands:
   version                                 Print the CLI version
 
 Options for code/run:
-  --agent claude|codex|pi   --model <m>   --effort <e>
+  --agent claude|codex      --model <m>   --effort <e>
   --plan
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → API keys, or a session

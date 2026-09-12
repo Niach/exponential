@@ -236,7 +236,7 @@ function PropertyTray({
   armed: boolean
   arm: (on: boolean) => void
 }) {
-  const { interactive, coding, codingTarget, requestCoding, stopCoding } = useIde()
+  const { interactive, coding, codingTarget, openComposer, stopCoding } = useIde()
   const codingHere = isCodingHere(coding, codingTarget, issue.id)
   return (
     <div className="ide-tray">
@@ -293,9 +293,9 @@ function PropertyTray({
           <button
             className={`${review ? `ide-btn-glass` : `ide-btn-primary`}${interactive ? ` is-click` : ``}`}
             type="button"
-            onClick={
-              interactive ? () => requestCoding({ kind: `issue`, id: issue.id }) : undefined
-            }
+            /* EXP-825: a play button NAVIGATES to the Agent page with this
+               issue chipped — there is no dialog any more. */
+            onClick={interactive ? () => openComposer([issue.id]) : undefined}
           >
             <IcPlay size={11} />
             Start coding

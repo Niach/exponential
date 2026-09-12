@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { sessionDisplayState } from "./coding-session-display"
+import {
+  sessionDisplayState,
+  sessionRowIsWorking,
+} from "./coding-session-display"
 
 // Parity suite — iOS CodingSessionDisplayTests.swift and Android
 // CodingSessionDisplayTest.kt assert the same cases; move all of them in
@@ -35,5 +38,36 @@ describe(`sessionDisplayState`, () => {
     expect(
       sessionDisplayState({ status: `running`, needsInput: false }, null)
     ).toBe(`running`)
+  })
+})
+
+// EXP-848: the pulse keys on the device-written turn flag, not on `running`.
+describe(`sessionRowIsWorking`, () => {
+  it(`only a live row whose agent is busy works`, () => {
+    expect(
+      sessionRowIsWorking(
+        { status: `running`, needsInput: false, agentBusy: true },
+        null
+      )
+    ).toBe(true)
+    expect(
+      sessionRowIsWorking(
+        { status: `running`, needsInput: false, agentBusy: false },
+        null
+      )
+    ).toBe(false)
+  })
+
+  it(`a parked or ended row never works, whatever the flag says`, () => {
+    // `sessionDisplayState` maps an ended row to `running` (its callers filter
+    // those out themselves), so the ended guard is explicit here — a stale
+    // flag on a finished run must never pulse.
+    for (const session of [
+      { status: `running` as const, needsInput: true, agentBusy: true },
+      { status: `in_review` as const, needsInput: false, agentBusy: true },
+      { status: `ended` as const, needsInput: false, agentBusy: true },
+    ]) {
+      expect(sessionRowIsWorking(session, null)).toBe(false)
+    }
   })
 })

@@ -2,19 +2,19 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The live-session card on issue detail (EXP-698 r4). It used to be the first
-/// row of `AgentPrCard`, hidden under the description with the PR/branch rows;
-/// a session is the most perishable thing on the screen, so it sits directly
-/// under the property chips instead, in the SAME chrome as
-/// `IssuePropertyChipsBox` (10pt padding + `.glassCard()`) — the two cards read
-/// as one stack of issue state.
+/// The live-session slot on issue detail (EXP-698 r4, restyled EXP-818/845).
 ///
-/// One line, byte-identical to web/IDE/Android since EXP-698 r5: a readonly
-/// `.sm` pill tinted by the state's tone (a pulsing dot in its leading slot
-/// while the run is live), the "Name · Device" byline taking the rest of the
-/// width, and — for the session's OWN runner when the relay is on (EXP-312:
-/// live sessions are owner-only) — a primary `.sm` Watch pill. No chevron: the
-/// pill IS the affordance, and a teammate's session offers nothing to tap.
+/// It used to be a CARD — a tinted state pill, a byline and a Watch pill in
+/// their own glass panel under the property chips. EXP-818 collapsed it on
+/// every client (`issue-coding-rows.tsx` `variant === "start"`, the IDE's
+/// `coding_now_slot`): a run the caller OWNS is just the primary **Watch**
+/// pill, straight into its screen, and anyone else's is a MUTED caption
+/// (`● Coding now · name`) — a card said the same thing twice and made the
+/// most perishable state on the page look heavier than the issue.
+///
+/// The dot still pulses only while the agent is inside a turn (EXP-848), and
+/// the parked states keep their own word and tone (Needs input / Ready for
+/// review / Done). Renders nothing without a live session.
 struct CodingNowCard: View {
     let issue: IssueEntity
     let runningSessions: [CodingSessionEntity]
@@ -34,11 +34,11 @@ struct CodingNowCard: View {
 
     var body: some View {
         if let session {
-            card(session)
+            slot(session)
         }
     }
 
-    private func card(_ session: CodingSessionEntity) -> some View {
+    private func slot(_ session: CodingSessionEntity) -> some View {
         let ownSession = currentUserId != nil && session.userId == currentUserId
         let canWatch = ownSession && config?.enabled == true
         let owner = users.first { $0.id == session.userId }
@@ -60,68 +60,75 @@ struct CodingNowCard: View {
         case .running: "Coding now"
         }
         return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                // EXP-698 r5: the state badge is a READONLY `.sm` pill tinted
-                // by the tone — the same capsule web (`Pill size="sm"` with a
-                // 40% tone border) and the IDE draw. The pulsing dot rides its
-                // leading slot while the run is live; the parked states get
-                // the pill's own static `dot:`.
-                if state == .running {
-                    GlassPill(label, size: .sm, tint: tint) {
+            if canWatch {
+                // EXP-818: the caller's OWN run is the ONE loud thing here —
+                // tap into the run, where the header's Stop lives. The app's
+                // link-around-a-pill pattern (the duplicate banner, Support's
+                // linked issue): the pill stays a resting label and the
+                // NavigationLink owns the tap.
+                NavigationLink(value: AppRoute.agentSession(
+                    accountId: accountId, sessionId: session.id
+                )) {
+                    GlassPill("Watch", icon: AppIcons.navDevices, size: .sm, primary: true)
+                        .contentShape(Capsule())
+                }
+                // Not `.plain`: the link owns the press, so it has to be the
+                // one that dims the pill's solid fill.
+                .buttonStyle(.glassPillPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                // EXP-818: anyone else's run (and the caller's own on an
+                // instance with the relay off) is a READ-ONLY caption — the
+                // dot, the state's word, and whose run it is. EXP-848: the dot
+                // pulses only while a turn is open, so an idle live run reads
+                // as the static green it is.
+                HStack(spacing: 6) {
+                    if CodingSessionDisplayState.pulses(
+                        state: state, agentBusy: session.agentBusy
+                    ) {
                         PulsingLiveDot(size: GlassPillTokens.dotSize)
+                    } else {
+                        Circle()
+                            .fill(tint)
+                            .frame(
+                                width: GlassPillTokens.dotSize,
+                                height: GlassPillTokens.dotSize
+                            )
                     }
-                    .fixedSize(horizontal: true, vertical: false)
-                } else {
-                    GlassPill(label, size: .sm, dot: tint, tint: tint)
-                        .fixedSize(horizontal: true, vertical: false)
+                    Text(caption(label: label, owner: owner, session: session))
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                Text(sessionByline(owner: owner, session: session))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if canWatch {
-                    // The app's link-around-a-pill pattern (the duplicate
-                    // banner, Support's linked issue): the pill stays a resting
-                    // label and the NavigationLink owns the tap.
-                    NavigationLink(value: AppRoute.agentSession(
-                        accountId: accountId, sessionId: session.id
-                    )) {
-                        GlassPill("Watch", icon: AppIcons.navDevices, size: .sm, primary: true)
-                            .contentShape(Capsule())
-                    }
-                    // Not `.plain`: the link owns the press, so it has to be
-                    // the one that dims the pill's solid fill.
-                    .buttonStyle(.glassPillPrimary)
-                }
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Relay explicitly off on this instance: the badge stays, steering
-            // doesn't. (config?.enabled == false is only true once config loads.)
+            // Relay explicitly off on this instance: the caption stays,
+            // steering doesn't. (config?.enabled == false is only true once
+            // config loads.)
             if ownSession, config?.enabled == false {
                 Text("Live steering is unavailable on this instance.")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
-        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
         // EXP-642: the store slide's pop-out rect is measured off this card
         // (`PopRects`). `contain` keeps the Watch link inside it queryable.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("coding-now-row")
     }
 
-    /// "Name · Device" (EXP-698 r5). The leading "· " it used to carry was a
-    /// separator from the badge that is now the pill's own hairline — web and
-    /// the IDE never drew it.
-    private func sessionByline(owner: UserEntity?, session: CodingSessionEntity) -> String {
-        let name = memberDisplayName(owner, id: session.userId)
-        if let device = session.deviceLabel, !device.isEmpty {
-            return "\(name) · \(device)"
-        }
-        return name
+    /// EXP-818: the read-only caption — the state's word, and for a TEAMMATE's
+    /// run the person it belongs to ("Coding now · Ada"). The caller's own run
+    /// names nobody: it is the Watch pill's caption only when steering is off,
+    /// where "· you" would be noise (web `issue-coding-rows.tsx` parity).
+    private func caption(
+        label: String, owner: UserEntity?, session: CodingSessionEntity
+    ) -> String {
+        let ownSession = currentUserId != nil && session.userId == currentUserId
+        guard !ownSession else { return label }
+        return "\(label) · \(memberDisplayName(owner, id: session.userId))"
     }
 }
 

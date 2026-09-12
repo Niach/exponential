@@ -341,8 +341,8 @@ object AgentUsagePresentation {
 
     /**
      * What one agent's sign-in reads as. EXP-694 reduced it to the identity
-     * alone: the bare email, the bare plan for an account with no email (pi's
-     * `anthropic (oauth)`), `signed in`, `signed out`, or `unknown` when the
+     * alone: the bare email, the bare plan for an account with no email
+     * (`anthropic (oauth)`), `signed in`, `signed out`, or `unknown` when the
      * machine reported nothing for the agent.
      */
     fun accountCaption(account: AgentAccount?): String {

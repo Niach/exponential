@@ -7,6 +7,7 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
+import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.worktreePruneCommand
 import com.exponential.app.data.api.worktreeRemoveCommand
@@ -74,6 +75,13 @@ fun agentLoginCommandKey(agent: String): String = "login:$agent"
  * publication.
  */
 fun agentLoginCodeCommandKey(agent: String): String = "login-code:$agent"
+
+/**
+ * EXP-849: one agent's `agent_profile_use` key ("Use this account here") — its
+ * own slot, so the active-login pick captions under the chips instead of being
+ * read as a sign-in publication.
+ */
+fun agentProfileUseCommandKey(agent: String): String = "profile-use:$agent"
 
 /** The prefix [agentLoginCodeCommandKey] builds — see [DeviceSettingsViewModel.issueCommand]. */
 private const val LOGIN_CODE_KEY_PREFIX = "login-code:"
@@ -291,10 +299,39 @@ class DeviceSettingsViewModel @Inject constructor(
         agent: String,
         switchAccount: Boolean,
         deviceOnline: Boolean,
+        /**
+         * EXP-827/EXP-849: WHICH login on the machine this lands on — one of
+         * `agentAccounts[agent].profiles` (`system` = the ambient login). Null
+         * = the ambient one. The command KEY stays per agent: one sign-in at a
+         * time per agent is all a machine runs, and the published link belongs
+         * to the agent's card either way.
+         */
+        profileId: String? = null,
     ) {
         issueCommand(
             key = agentLoginCommandKey(agent),
-            command = agentLoginCommand(deviceId, agent, switchAccount),
+            command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
+            deviceOnline = deviceOnline,
+        )
+    }
+
+    /**
+     * EXP-849: "Use this account here" — point the machine at a login it
+     * ALREADY holds (`agent_profile_use`). Deliberately not a sign-in: no
+     * credential is touched and nothing is signed out (a codex logout would
+     * revoke the token server-side), the machine just re-points itself and
+     * re-reports `agent_accounts` on its next heartbeat, which is what moves
+     * the chip's check.
+     */
+    fun agentProfileUse(
+        deviceId: String,
+        agent: String,
+        profileId: String,
+        deviceOnline: Boolean,
+    ) {
+        issueCommand(
+            key = agentProfileUseCommandKey(agent),
+            command = agentProfileUseCommand(deviceId, agent, profileId),
             deviceOnline = deviceOnline,
         )
     }
@@ -327,50 +364,20 @@ class DeviceSettingsViewModel @Inject constructor(
         )
     }
 
-    // Queue the command, then poll its row until terminal (the machine also
-    // re-reports its worktrees on completion, so the list updates through
-    // sync). An OFFLINE machine's command parks server-side — the row stays
-    // pending and the UI says "runs when it comes online" instead of spinning.
+    // Queue the command and follow it to a terminal state on the shared
+    // [runDeviceCommand] rails (the machine also re-reports its worktrees on
+    // completion, so the list updates through sync). Everything this adds is
+    // the keyed slot and the Done bookkeeping.
     private fun issueCommand(key: String, command: kotlinx.serialization.json.JsonObject, deviceOnline: Boolean) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Sending)
-            val created = runCatching { devicesApi.createCommand(accountId, command) }
-                .getOrElse { t ->
-                    if (t is CancellationException) throw t
-                    _commandStates.value = _commandStates.value +
-                        (key to DeviceCommandUiState.Failed(
-                            trpcErrorMessage(t, "The command could not be queued"),
-                        ))
-                    return@launch
-                }
-            if (!deviceOnline) {
-                _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Queued)
-                return@launch
-            }
-            _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Running)
-            val deadline = System.currentTimeMillis() + COMMAND_POLL_DEADLINE_MS
-            while (System.currentTimeMillis() < deadline) {
-                delay(COMMAND_POLL_INTERVAL_MS)
-                val row = runCatching { devicesApi.getCommand(accountId, created.id) }
-                    .getOrNull() ?: continue
-                when (row.status) {
-                    DeviceCommandDto.STATUS_DONE -> {
-                        markDone(key, row.result)
-                        return@launch
-                    }
-                    DeviceCommandDto.STATUS_FAILED -> {
-                        _commandStates.value = _commandStates.value +
-                            (key to DeviceCommandUiState.Failed(
-                                row.result ?: "The machine refused the command",
-                            ))
-                        return@launch
-                    }
+            runDeviceCommand(devicesApi, accountId, command, deviceOnline) { state ->
+                if (state is DeviceCommandUiState.Done) {
+                    markDone(key, state.message)
+                } else {
+                    _commandStates.value = _commandStates.value + (key to state)
                 }
             }
-            // Still pending after the deadline — the row is durable, so the
-            // honest caption is "queued", not a failure.
-            _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Queued)
         }
     }
 
@@ -387,6 +394,61 @@ class DeviceSettingsViewModel @Inject constructor(
         }
         _commandStates.value = next
     }
+}
+
+/**
+ * EXP-849: issue ONE device command and follow it to a terminal state — the
+ * same rules [DeviceSettingsViewModel] applies to its own queue, shared so the
+ * Accounts section can run a remote sign-in without a second copy of the poll
+ * loop. [onState] receives every transition. An OFFLINE machine stops at
+ * [DeviceCommandUiState.Queued] (the row is durable, the machine runs it on
+ * return) and so does a poll that outlives the deadline — a pending row is not
+ * a failure.
+ */
+internal suspend fun runDeviceCommand(
+    devicesApi: DevicesApi,
+    accountId: String,
+    command: kotlinx.serialization.json.JsonObject,
+    deviceOnline: Boolean,
+    onState: (DeviceCommandUiState) -> Unit,
+) {
+    onState(DeviceCommandUiState.Sending)
+    val created = runCatching { devicesApi.createCommand(accountId, command) }
+        .getOrElse { t ->
+            if (t is CancellationException) throw t
+            onState(
+                DeviceCommandUiState.Failed(
+                    trpcErrorMessage(t, "The command could not be queued"),
+                ),
+            )
+            return
+        }
+    if (!deviceOnline) {
+        onState(DeviceCommandUiState.Queued)
+        return
+    }
+    onState(DeviceCommandUiState.Running)
+    val deadline = System.currentTimeMillis() + COMMAND_POLL_DEADLINE_MS
+    while (System.currentTimeMillis() < deadline) {
+        delay(COMMAND_POLL_INTERVAL_MS)
+        val row = runCatching { devicesApi.getCommand(accountId, created.id) }
+            .getOrNull() ?: continue
+        when (row.status) {
+            DeviceCommandDto.STATUS_DONE -> {
+                onState(DeviceCommandUiState.Done(row.result))
+                return
+            }
+            DeviceCommandDto.STATUS_FAILED -> {
+                onState(
+                    DeviceCommandUiState.Failed(
+                        row.result ?: "The machine refused the command",
+                    ),
+                )
+                return
+            }
+        }
+    }
+    onState(DeviceCommandUiState.Queued)
 }
 
 // Auto-saves fired while the sheet is closing must outlive the ViewModel:

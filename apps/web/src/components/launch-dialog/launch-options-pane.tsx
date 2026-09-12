@@ -7,7 +7,7 @@ import {
   type GlassPickerOption,
 } from "@/components/ui/glass-rows"
 import { TabsTrigger } from "@/components/ui/tabs"
-import { ClaudeIcon, CodexIcon, PiIcon } from "@/components/icons/brand-icons"
+import { ClaudeIcon, CodexIcon } from "@/components/icons/brand-icons"
 import {
   agentAllowsBlankModel,
   agentEffortValues,
@@ -40,7 +40,6 @@ import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
   codex: `Codex`,
-  pi: `pi`,
 }
 
 // Each agent's brand mark for the tab strip — mirrors the desktop IDE's
@@ -51,7 +50,21 @@ const AGENT_ICONS: Record<
 > = {
   claude: ClaudeIcon,
   codex: CodexIcon,
-  pi: PiIcon,
+}
+
+// EXP-849: the brand marks are hand-drawn, one per shipped agent, so an id
+// from outside that set — a retired one (the historical `pi`), a future agent,
+// an external ACP binary — has none. It gets the NEUTRAL agent concept (the
+// Lucide bot) rather than an empty tab or, worse, claude's mark: the same
+// fallback glyph the other three clients draw.
+const AgentFallbackIcon = conceptIcon(`settings-agents`)
+
+/** The glyph for an agent id — its brand mark, or the neutral agent concept
+ *  for an id this build does not ship a mark for. */
+export function agentMarkIcon(
+  agent: string
+): React.ComponentType<{ className?: string }> {
+  return AGENT_ICONS[agent] ?? AgentFallbackIcon
 }
 
 const ResumeBranchIcon = conceptIcon(`ui-branch`)
@@ -184,10 +197,10 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       {availableAgents.length > 1 && (
         <GlassTabsRow value={agent} onValueChange={onAgentChange}>
           {availableAgents.map((value) => {
-            const AgentIcon = AGENT_ICONS[value]
+            const AgentIcon = agentMarkIcon(value)
             return (
               <TabsTrigger key={value} value={value}>
-                {AgentIcon && <AgentIcon className="size-3.5" />}
+                <AgentIcon className="size-3.5" />
                 {AGENT_LABELS[value] ?? value}
               </TabsTrigger>
             )
@@ -211,13 +224,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         disabled={!pinned}
       />
       <GlassPickerRow
-        label={
-          agent === `pi`
-            ? `Thinking`
-            : agent === `codex`
-              ? `Reasoning`
-              : `Effort`
-        }
+        label={agent === `codex` ? `Reasoning` : `Effort`}
         value={effortValue === `` ? effortSentinel : effortValue}
         onValueChange={(value) =>
           onEffortChange(automation && value === effortSentinel ? `` : value)

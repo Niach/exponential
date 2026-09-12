@@ -4,7 +4,7 @@
 //! `SessionNotification` per line), so these tests also lock the DECODE side:
 //! a schema shape the engine cannot parse fails here rather than in a live
 //! session. The adapters' own recordings live under
-//! `tests/fixtures/{claude,codex,pi}/` and are owned by their lanes; these
+//! `tests/fixtures/{claude,codex}/` and are owned by their lanes; these
 //! cover the mapper's own rules.
 //!
 //! Every assertion compares parsed `serde_json::Value`s, never serialized
@@ -792,8 +792,42 @@ fn command_labels_are_redacted_and_an_unchanged_snapshot_is_not_republished() {
     );
 }
 
-/// EXP-758: two id-less chunks are two whole messages (pi's error narration,
-/// codex's `codex error:` lines), never one glued string; chunks that share a
+/// EXP-846 — the narration-split bug, off a real journal
+/// (`journal/b716f5c5…`, rows 1161-1164): the main thread was streaming one
+/// assistant message while a SUBAGENT ran tool calls, and every one of those
+/// flushed the main coalescer. The paragraph reached the wire cut mid-WORD
+/// ("…the new issues car" + "ry the same …") with a subagent's tool rows
+/// between the halves, so the clients' same-id merge (EXP-772, which joins a
+/// fragment only to the row right behind it) could not put it back together.
+///
+/// A subagent's tool row nests inside its own card and can never reorder the
+/// main transcript, so it must not flush the main lane at all: ONE narration.
+#[test]
+fn a_subagents_tool_calls_never_split_the_main_threads_message() {
+    let events = wire("split_narration.jsonl");
+    let narrations: Vec<&Value> = events
+        .iter()
+        .filter(|event| event["kind"] == "narration")
+        .collect();
+    assert_eq!(narrations.len(), 1, "{events:#?}");
+    assert_eq!(
+        narrations[0]["text"],
+        "Next I need: the team's label ids (so the new issues carry the same ui/desktop labels), then the six issue filings."
+    );
+    assert_eq!(narrations[0]["messageId"], "msg_1");
+    // The subagent's own rows still went out, in their own lane.
+    assert!(events
+        .iter()
+        .any(|event| event["kind"] == "tool" && event["subagentId"] == "tc-parent"));
+    // EXP-847: and the chip names the job the spawning call described.
+    assert!(events
+        .iter()
+        .any(|event| event["kind"] == "subagent" && event["title"] == "Map the crate"));
+}
+
+/// EXP-758: two id-less chunks are two whole messages (an agent's error
+/// narration, codex's `codex error:` lines), never one glued string; chunks
+/// that share a
 /// `message_id` still coalesce into one.
 #[test]
 fn id_less_chunks_are_separated_and_streamed_ones_still_coalesce() {
@@ -802,7 +836,7 @@ fn id_less_chunks_are_separated_and_streamed_ones_still_coalesce() {
         vec![
             json!({
                 "kind": "narration",
-                "text": "pi: Codex error: stream closed\npi: Codex error: no response"
+                "text": "error: stream closed\nerror: no response"
             }),
             json!({"kind": "narration", "text": "Looking at the repo", "messageId": "m1"}),
         ]

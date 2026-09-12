@@ -39,8 +39,8 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.ui.issue.LiveDot
 import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.PulsingDot
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.relativeTime
@@ -54,7 +54,7 @@ import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 
 /**
  * EXP-825: the caller's OWN coding sessions — Running (live rows, EXP-312:
@@ -89,7 +89,7 @@ internal fun LazyListScope.agentSessionsList(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassRow()
+                    .flatRow()
                     .padding(horizontal = 12.dp, vertical = 12.dp),
             )
         }
@@ -238,7 +238,7 @@ private fun AgentSessionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("agent-session-row")
-                .glassRow()
+                .flatRow()
                 .clickable(onClick = onClick)
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
@@ -253,7 +253,11 @@ private fun AgentSessionRow(
                         when {
                             paused -> StaticDot(LostGray)
                             else -> when (state) {
-                                CodingSessionDisplayState.Running -> PulsingDot()
+                                // EXP-848: the pulse means MID-TURN, off the
+                                // synced agent_busy flag — a live run between
+                                // turns is steady, not forever "working".
+                                CodingSessionDisplayState.Running ->
+                                    LiveDot(busy = session.agentBusy)
                                 CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
                                 CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
                                 CodingSessionDisplayState.Done -> StaticDot(DoneBlue)

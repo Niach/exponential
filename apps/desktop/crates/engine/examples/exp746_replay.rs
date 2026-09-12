@@ -3,7 +3,7 @@
 //! print every local feed event. A debugging aid for the replay path, which
 //! has no CLI surface of its own.
 //!
-//! `cargo run -p engine --example exp746_replay -- <claude|codex|pi> <acp session id> <cwd>`
+//! `cargo run -p engine --example exp746_replay -- <claude|codex> <acp session id> <cwd>`
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,25 +28,21 @@ fn main() {
     log::set_max_level(log::LevelFilter::Debug);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [agent, session_id, cwd] = args.as_slice() else {
-        eprintln!("usage: exp746_replay <claude|codex|pi> <acp session id> <cwd>");
+        eprintln!("usage: exp746_replay <claude|codex> <acp session id> <cwd>");
         std::process::exit(2);
     };
     let agent = match agent.as_str() {
         "claude" => coding::CodingAgent::Claude,
         "codex" => coding::CodingAgent::Codex,
-        "pi" => coding::CodingAgent::Pi,
         other => {
             eprintln!("unknown agent {other}");
             std::process::exit(2);
         }
     };
     let runtime = steer::SteerRuntime::new().expect("a steer runtime");
-    // What the desktop's Past row hands over: pi is file-keyed, and a claude
-    // or codex run's ACP id doubles as its native handle (D8).
-    let native = match agent {
-        coding::CodingAgent::Pi => engine::ResumeHandle::PiSessionFile(PathBuf::from(session_id)),
-        _ => engine::ResumeHandle::Acp(session_id.clone()),
-    };
+    // What the desktop's Past row hands over: a claude or codex run's ACP id
+    // doubles as its native handle (D8).
+    let native = engine::ResumeHandle::Acp(session_id.clone());
     let session = engine::EngineSession::open_transcript(engine::OpenTranscript {
         runtime,
         data_dir: std::env::temp_dir().join("exp746-replay"),

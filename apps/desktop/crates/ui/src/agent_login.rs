@@ -8,9 +8,6 @@
 //! * a switch signs OUT first (`coding::agent_login::logout`); codex's logout
 //!   revokes the token server-side, so a LOCAL switch confirms first (a
 //!   REMOTE one was already confirmed by the requester);
-//! * pi has no login command — its `/login` is a slash command inside the
-//!   running TUI, typed once its prompt shows (or at the 10s deadline
-//!   regardless, so a missed anchor never strands the tab);
 //! * a REMOTE run watches the grid and completes its device command EARLY,
 //!   the moment the sign-in URL (+ codex's device code) is up — the
 //!   requester needs the link, not the eventual outcome. The signed-in flip
@@ -54,15 +51,10 @@ use crate::coding_flow::CodingHub;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
 
-/// Grid poll cadence — pi's prompt and the sign-in URL both land within a
-/// second or two of the spawn, and a quarter-second read of a 120×36 grid is
-/// nothing next to the PTY itself.
+/// Grid poll cadence — the sign-in URL lands within a second or two of the
+/// spawn, and a quarter-second read of a 120×36 grid is nothing next to the
+/// PTY itself.
 const POLL: Duration = Duration::from_millis(250);
-
-/// Type pi's `/login` at this deadline even if its prompt never matched (a
-/// themed banner, a resized grid): a login that types one line too early is
-/// recoverable, one that never types anything is not.
-const READY_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How long a remote login may run without ever showing a URL before the
 /// command is failed back to the requester.
@@ -150,6 +142,26 @@ pub(crate) fn open_login_tab(agent: CodingAgent, switch: bool, cx: &mut App) {
     start(agent, false, LoginTarget::System, None, cx);
 }
 
+/// EXP-849 — "+ Add account": create a FRESH account profile for `agent` on
+/// this machine and sign into it, in one go.
+///
+/// No sign-OUT is involved, which is the whole point of a profile: the new
+/// login lands in its own `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, so the accounts
+/// already on this machine (and, for codex, every other machine sharing the
+/// ambient login) are untouched. The profile is created by
+/// `agent_login::resolve_login_profile` from [`LoginTarget::NewProfile`], so
+/// a login the person abandons leaves one empty directory and nothing else.
+pub(crate) fn open_add_account_tab(agent: CodingAgent, label: String, cx: &mut App) {
+    start(agent, false, LoginTarget::NewProfile(label), None, cx);
+}
+
+/// EXP-849 — sign in to an EXISTING profile (a `needs_relogin` repair, or a
+/// profile created and abandoned). Never a switch: the target profile holds
+/// its own credential, so there is nothing to sign out of.
+pub(crate) fn open_profile_login_tab(agent: CodingAgent, profile_id: String, cx: &mut App) {
+    start(agent, false, LoginTarget::Profile(profile_id), None, cx);
+}
+
 /// EXP-484 (D): run an `agent_login` device command. The payload was already
 /// validated and claimed by [`crate::device_sync`]; this opens the same tab
 /// the local button does and answers the command the moment a URL is up.
@@ -178,8 +190,8 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
 }
 
 /// Run `then` once the user has confirmed switching `agent`'s account —
-/// immediately for the agents whose sign-out is local (claude; pi has no
-/// account at all), behind a confirm for codex, whose `logout` REVOKES the
+/// immediately for the agents whose sign-out is local (claude), behind a
+/// confirm for codex, whose `logout` REVOKES the
 /// session with OpenAI so every other machine signed in with it loses
 /// access. The copy is byte-identical to the web dialog's.
 ///
@@ -266,6 +278,19 @@ fn start(
             plan.spawn.env.push((key.clone(), value.clone()));
         }
         if switch {
+            // EXP-849 (interface E): a codex switch may only sign out a
+            // PROFILE — `codex logout` on the ambient login revokes it with
+            // OpenAI for every machine sharing it. Refuse rather than do it.
+            if let Some(message) = agent_login::switch_logout_blocker(agent, &profile_id) {
+                let _ = cx.update(|cx| {
+                    notify(Notification::error(SharedString::from(message.clone())), cx);
+                    if let Some(remote) = remote.as_ref() {
+                        complete(&remote.command_id, false, message, cx);
+                        crate::device_sync::release_login(&remote.command_id, cx);
+                    }
+                });
+                return;
+            }
             let settings = settings.clone();
             let env = env.clone();
             let logout = cx
@@ -441,7 +466,7 @@ fn spawn_login_tab(
                 }
             })
             .detach();
-            watch_login(plan, manager, tab, run, cx);
+            watch_login(manager, tab, run, cx);
         }
         _ => {
             notify(
@@ -456,24 +481,20 @@ fn spawn_login_tab(
     }
 }
 
-/// The 250ms foreground grid watch: types pi's `/login` once its prompt is
-/// up (or at the deadline), and — for a remote run — publishes the sign-in
+/// The 250ms foreground grid watch: for a remote run, publishes the sign-in
 /// URL the instant the driver recognizes one.
 fn watch_login(
-    plan: coding::LoginPlan,
     manager: Entity<TerminalManager>,
     tab: TabId,
     run: Arc<LoginRun>,
     cx: &mut App,
 ) {
-    let typed = plan.typed_after_ready.clone();
-    if typed.is_none() && run.remote.is_none() {
-        return; // nothing to watch: claude/codex started locally
+    if run.remote.is_none() {
+        return; // nothing to watch: a local claude/codex login
     }
     let agent = run.agent;
     cx.spawn(async move |cx| {
         let started = std::time::Instant::now();
-        let mut typed = typed;
         // The defensive Enter is written ONCE: the picker stays on screen
         // for several polls, and one `\r` per 250ms tick would walk the CLI
         // through every prompt after it.
@@ -493,14 +514,6 @@ fn watch_login(
                 // budget on a dead grid.
                 let _ = cx.update(|cx| run.finish(cx));
                 return;
-            }
-            if let Some(text) = typed.clone() {
-                let ready = agent_login::pi_prompt_ready(&lines)
-                    || started.elapsed() >= READY_DEADLINE;
-                if ready {
-                    typed = None;
-                    let _ = cx.update(|cx| write_input(&manager, tab, text.as_bytes(), cx));
-                }
             }
             if let Some(remote) = run.remote.as_ref() {
                 if remote.published.load(Ordering::SeqCst) {
@@ -559,8 +572,6 @@ fn watch_login(
                     }
                     return;
                 }
-            } else if typed.is_none() {
-                return; // pi's line is in — nothing left to watch
             }
         }
     })

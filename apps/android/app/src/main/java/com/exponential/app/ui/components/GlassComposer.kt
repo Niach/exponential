@@ -126,8 +126,11 @@ fun ComposerSubmitButton(
     onClick: () -> Unit,
     enabled: Boolean,
     sending: Boolean = false,
+    // EXP-827: the Agent page composer tags its submit for the capture suites
+    // (byte-identical with the iOS identifier).
+    modifier: Modifier = Modifier,
 ) {
-    IconButton(onClick = onClick, enabled = enabled && !sending) {
+    IconButton(onClick = onClick, enabled = enabled && !sending, modifier = modifier) {
         if (sending) {
             CircularProgressIndicator(
                 modifier = Modifier.size(GlassComposerDefaults.SpinnerSize),

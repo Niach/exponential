@@ -60,7 +60,7 @@ object SlashCommands {
      * column — but an EXTERNAL agent syncs no agent EITHER, because
      * `coding_sessions.agent` takes contract values only and there is none for
      * one. [acp] tells them apart: only the ACP engine publishes a
-     * `config_state`, and an ACP run for claude/codex/pi always stamps its id.
+     * `config_state`, and an ACP run for claude/codex always stamps its id.
      * Without this the phone offered `/compact` and `/clear` — confirm dialog
      * and all — for a run whose desktop-side catalog is empty, and the literal
      * text reached the agent as a prompt. Mirrored ×4 (web `steerAgentId`, iOS

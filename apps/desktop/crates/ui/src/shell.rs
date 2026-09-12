@@ -833,6 +833,10 @@ impl Render for Shell {
                                         .child(self.render_update_required(cx)),
                                 ),
                         )
+                        // EXP-837: the disarm belongs to THIS root too — the
+                        // update-required surface is a window a reader can
+                        // select text in and drag by its decoration.
+                        .child(crate::text_selection_guard::selection_guard())
                         .children(sheet_layer)
                         .children(dialog_layer)
                         .children(notification_layer),
@@ -1077,6 +1081,9 @@ impl Render for Shell {
                     .bg(theme::background_gradient())
                     .text_color(cx.theme().foreground)
                     .child(body)
+                    // EXP-837: the text-selection disarm — a window move eats
+                    // the mouse-up that would have ended a selection drag.
+                    .child(crate::text_selection_guard::selection_guard())
                     .child(preview_host)
                     .children(sheet_layer)
                     .children(dialog_layer)

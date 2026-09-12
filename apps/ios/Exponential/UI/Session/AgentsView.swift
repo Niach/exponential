@@ -19,8 +19,15 @@ import SwiftUI
 ///
 /// EXP-829: below the machines, "Accounts" (`AgentAccountsSection`) — the
 /// Usage page web and desktop folded into Devices in EXP-818: one row per
-/// agent account across the same machines, the freshest report's usage
-/// bars, a chip per machine that opens the device settings sheet.
+/// agent account across the same machines, the freshest report's usage bars,
+/// per-agent tabs, and a quiet chip per machine holding the login.
+///
+/// EXP-849 splits the two jobs this page used to mix. Accounts (below) is the
+/// DECISION surface — which login, how much is left, is it still good. The
+/// machine rows are the SETUP/REPAIR surface: each one badges the worst health
+/// of its logins ("Needs re-login" is not "Signed out") and carries its
+/// account chips, whose menu activates a login on that machine ("Use this
+/// account here") or opens its sign-in flow on that agent's tab.
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -42,12 +49,22 @@ struct AgentsView: View {
     @State private var removeTarget: SteerDevice?
     @State private var updatingIds: Set<String> = []
     @State private var deviceError: String?
+    /// EXP-827: a fresh value asks the page to scroll to its Accounts section
+    /// (the device sheet's Usage button). A token rather than a Bool: a second
+    /// tap has to scroll again.
+    @State private var usageRequest: UUID?
+
+    /// The scroll anchor of the Accounts section — web's `#accounts` hash.
+    private static let accountsAnchor = "accounts"
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
     /// sheet reads the LIVE devices-shape row itself, so a value captured here
-    /// would only go stale under it.
+    /// would only go stale under it. EXP-849 adds the agent tab to open on: a
+    /// chip's "Sign in again" means THAT agent's login, and the sheet owns the
+    /// sign-in link round-trip.
     private struct DeviceSettingsTarget: Identifiable {
         let id: String
+        var agent: String? = nil
     }
 
     var body: some View {
@@ -144,44 +161,70 @@ struct AgentsView: View {
 
     @ViewBuilder
     private func machinesContent(_ vm: AgentsViewModel) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                GlassSectionHeader("My machines")
-                if let myDevices {
-                    if myDevices.isEmpty {
-                        deviceHintRow
-                    } else {
-                        ForEach(myDevices) { deviceRow($0) }
+        // EXP-818: the page is a TABLE now — a filled group band per group with
+        // its flat rows hanging straight off it (`GlassSectionBand` +
+        // `.flatRow()`), so the stack of bordered cards this used to be reads
+        // as one list. The anchor below is what the device sheet's Usage button
+        // scrolls to.
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand("My machines")
+                        if let myDevices {
+                            if myDevices.isEmpty {
+                                deviceHintRow
+                            } else {
+                                ForEach(myDevices) { deviceRow(vm, $0) }
+                            }
+                        } else {
+                            deviceLoadingRow
+                        }
                     }
-                } else {
-                    deviceLoadingRow
-                }
 
-                // EXP-432: teammates' shared servers, grouped below the
-                // caller's own. Absent entirely when nothing is shared.
-                if !teamDevices.isEmpty {
-                    GlassSectionHeader("Team machines")
-                    ForEach(teamDevices) { deviceRow($0) }
-                }
+                    // EXP-432: teammates' shared servers, grouped below the
+                    // caller's own. Absent entirely when nothing is shared.
+                    if !teamDevices.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            GlassSectionBand("Team machines")
+                            ForEach(teamDevices) { deviceRow(vm, $0) }
+                        }
+                    }
 
-                // EXP-829: the agent accounts across those machines (web /
-                // desktop EXP-818 parity). A chip opens the machine's
-                // settings sheet — the same target as the row menu's Edit.
-                AgentAccountsSection(viewModel: vm) { deviceId in
-                    settingsTarget = DeviceSettingsTarget(id: deviceId)
+                    // EXP-829: the agent accounts across those machines (web /
+                    // desktop EXP-818 parity). EXP-849: read-only here — the
+                    // account ACTIONS live on the machine rows above, which is
+                    // the surface that can repair a login.
+                    AgentAccountsSection(viewModel: vm)
+                        .id(Self.accountsAnchor)
+                    if let error = vm.accountActionError {
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                            .padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if let deviceError {
+                        Text(deviceError)
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                            .padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                if let deviceError {
-                    Text(deviceError)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                .padding()
             }
-            .padding()
+            // EXP-827: the device sheet's round Usage button lands here — the
+            // numbers live on ONE surface (web hashes to `#accounts`; a phone
+            // scrolls to the same section).
+            .onChange(of: usageRequest) { _, request in
+                guard request != nil else { return }
+                withAnimation { proxy.scrollTo(Self.accountsAnchor, anchor: .top) }
+            }
+            // Clearance for the floating tab bar (EXP-36) — on the SCROLLER
+            // itself, so its content inset is the one that grows.
+            .tabBarBottomInset()
         }
-        // Clearance for the floating tab bar (EXP-36).
-        .tabBarBottomInset()
         // EXP-481: Edit opens the device settings sheet (name, sharing, agent
         // defaults, worktrees) — the row menu's rename alert retired into it.
         // EXP-490: it takes the view model and the device id, not a snapshot —
@@ -191,7 +234,13 @@ struct AgentsView: View {
                 DeviceSettingsSheet(
                     viewModel: viewModel,
                     deviceId: target.id,
-                    teams: teamState.teams
+                    teams: teamState.teams,
+                    // EXP-849: a machine chip's sign-in opens the sheet with
+                    // that agent's tab already up.
+                    initialAgent: target.agent,
+                    // EXP-827: the sheet closes itself, then this page scrolls
+                    // to Accounts — the one surface the usage bars live on.
+                    onOpenUsage: { usageRequest = UUID() }
                 )
             }
         }
@@ -218,85 +267,107 @@ struct AgentsView: View {
     /// same reason the label rows grew one) and it only appears on registered
     /// rows — a desktop build predating the registry shows up from relay
     /// presence alone and has nothing to rename or remove.
-    private func deviceRow(_ device: SteerDevice) -> some View {
-        HStack(spacing: 12) {
-            AppIcon(
-                device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
-                size: AppIcon.Size.medium
-            )
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+    private func deviceRow(_ vm: AgentsViewModel, _ device: SteerDevice) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                AppIcon(
+                    device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                    size: AppIcon.Size.medium
+                )
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(deviceName(device))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if let version = device.version, !version.isEmpty {
-                        Text("v\(version)")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(deviceName(device))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
+                        if let version = device.version, !version.isEmpty {
+                            Text("v\(version)")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                        }
+                        // EXP-622: the machine every device picker prefills.
+                        if device.isDefaultDevice {
+                            AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
+                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                .accessibilityLabel("Default machine")
+                        }
+                        // EXP-432: a teammate's machine is attributed to its owner;
+                        // one of the caller's own that is shared with any team just
+                        // says so (the per-team toggles live in the settings sheet).
+                        if let owner = device.owner {
+                            Text("shared by \(owner.name)")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                .lineLimit(1)
+                        } else if !device.sharedTeamIds.isEmpty {
+                            Text("Shared")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                .lineLimit(1)
+                        }
+                        // EXP-849: the worst health among this machine's logins —
+                        // a refused credential is its own state, not "signed out".
+                        healthBadge(vm, device)
                     }
-                    // EXP-622: the machine every device picker prefills.
-                    if device.isDefaultDevice {
-                        AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                            .accessibilityLabel("Default machine")
-                    }
-                    // EXP-432: a teammate's machine is attributed to its owner;
-                    // one of the caller's own that is shared with any team just
-                    // says so (the per-team toggles live in the settings sheet).
-                    if let owner = device.owner {
-                        Text("shared by \(owner.name)")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                            .lineLimit(1)
-                    } else if !device.sharedTeamIds.isEmpty {
-                        Text("Shared")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                            .lineLimit(1)
+                    deviceStatusLine(device)
+                }
+
+                Spacer(minLength: 0)
+
+                // Offline machines keep their row (rename/remove still apply) but
+                // offer no launcher — a start would be rejected server-side. Same
+                // for a machine with nothing runnable (EXP-409: every installed
+                // agent signed out); its status line carries the reason.
+                if device.isOnline, device.hasRunnableAgent {
+                    // EXP-615: the play glyph, not a "Start coding" pill — the
+                    // same affordance web and desktop wear on their machine rows.
+                    // EXP-825: it pushes the Agent page with THIS machine picked.
+                    CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Start coding") {
+                        pushRoute(.agent(
+                            accountId: accountId,
+                            seed: AgentComposerSeed(deviceId: device.deviceId)
+                        ))
                     }
                 }
-                deviceStatusLine(device)
+
+                // EXP-432: rename / remove / update are OWN-machine actions —
+                // a teammate's shared server is startable but not manageable.
+                if device.isMine, device.isRegistered {
+                    GlassMenu {
+                        deviceMenu(device)
+                    } label: {
+                        CircleIconLabel(AppIcons.uiMore)
+                    }
+                    .accessibilityLabel("Machine actions")
+                    .accessibilityIdentifier("machine-menu")
+                }
             }
-
-            Spacer(minLength: 0)
-
-            // Offline machines keep their row (rename/remove still apply) but
-            // offer no launcher — a start would be rejected server-side. Same
-            // for a machine with nothing runnable (EXP-409: every installed
-            // agent signed out); its status line carries the reason.
-            if device.isOnline, device.hasRunnableAgent {
-                // EXP-615: the play glyph, not a "Start coding" pill — the
-                // same affordance web and desktop wear on their machine rows.
-                // EXP-825: it pushes the Agent page with THIS machine picked.
-                CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Start coding") {
-                    pushRoute(.agent(
-                        accountId: accountId,
-                        seed: AgentComposerSeed(deviceId: device.deviceId)
-                    ))
-                }
-            }
-
-            // EXP-432: rename / remove / update are OWN-machine actions —
-            // a teammate's shared server is startable but not manageable.
-            if device.isMine, device.isRegistered {
-                GlassMenu {
-                    deviceMenu(device)
-                } label: {
-                    CircleIconLabel(AppIcons.uiMore)
-                }
-                .accessibilityLabel("Machine actions")
-                .accessibilityIdentifier("machine-menu")
+            // EXP-849: the machine's logins, with the repair actions on them.
+            DeviceAccountChips(viewModel: vm, device: device) { agent in
+                settingsTarget = DeviceSettingsTarget(id: device.deviceId, agent: agent)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         // EXP-409: a machine that can run nothing reads like an offline one.
         .opacity(device.needsAgentSignIn ? 0.6 : 1)
+    }
+
+    /// EXP-849: the machine's health badge — the worst of its reported logins,
+    /// and nothing at all when they are fine or were never probed.
+    @ViewBuilder
+    private func healthBadge(_ vm: AgentsViewModel, _ device: SteerDevice) -> some View {
+        if let label = vm.deviceHealth(device.deviceId).badgeLabel {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
+                .lineLimit(1)
+                .accessibilityIdentifier("device-health-\(device.deviceId)")
+        }
     }
 
     /// A requested self-update REPLACES the live state: the daemon is about to
@@ -397,7 +468,7 @@ struct AgentsView: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     private var deviceLoadingRow: some View {
@@ -410,7 +481,7 @@ struct AgentsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     // MARK: - Machine actions

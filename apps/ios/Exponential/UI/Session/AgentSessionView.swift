@@ -105,6 +105,10 @@ struct AgentSessionView: View {
     /// pushes the resumed run's own screen.
     @State private var showResumeConfirm = false
     @State private var resuming = false
+    /// EXP-849: a "switch account" is on the wire. It IS a resume naming
+    /// another login, so it rides the same watcher and pushes the run it
+    /// produces — the continuation of this one.
+    @State private var switchingAccount = false
     /// EXP-696: whether THIS screen ever saw the run live — the auto-back on
     /// the ended edge only fires after that, so a finished run's feed opened
     /// from a list stays browsable.
@@ -140,8 +144,9 @@ struct AgentSessionView: View {
     private static let followSlack: CGFloat = 120
 
     /// EXP-688: one `…` (the issue-detail pattern) instead of a bare red kill
-    /// glyph. Usage opens the per-window cards; Kill (EXP-268) force-ends a
-    /// live session — owner-only, like everything about one (EXP-312).
+    /// glyph. Usage opens the per-window cards; EXP-818 moved stopping the run
+    /// out of here onto the header's own Stop pill (owner-only, like everything
+    /// about a live session — EXP-312).
     private var hasToolbarMenu: Bool {
         // EXP-778: Pin is always there, so the menu always is.
         true
@@ -151,7 +156,10 @@ struct AgentSessionView: View {
     /// (EXP-484) or this run's own context/spend off the relay. A fresh run on
     /// a machine that reported nothing used to have no usage affordance at all.
     private var hasUsage: Bool {
+        // EXP-849: the readout is also the ACCOUNT surface, so a run whose
+        // machine reported logins but no numbers still opens it.
         model?.agentUsage != nil || model?.sessionUsage != nil
+            || model?.accountOptions.isEmpty == false
     }
 
     @ViewBuilder
@@ -173,11 +181,9 @@ struct AgentSessionView: View {
                 showUsageSheet = true
             }
         }
-        if model?.canKill == true {
-            GlassMenuItem("Kill session", icon: AppIcons.codingStop, destructive: true) {
-                showKillConfirm = true
-            }
-        }
+        // EXP-818: NO Kill row — stopping a run is the header's own Stop pill
+        // now (identical whether this phone hosts the run or only watches it),
+        // not a destructive row buried in a menu.
     }
 
     // Four small chains instead of one long one. The whole modifier chain is
@@ -197,6 +203,9 @@ struct AgentSessionView: View {
 
             VStack(spacing: 0) {
                 if let model {
+                    // EXP-849: a resumed/switched run says it is a
+                    // continuation, above everything else on the screen.
+                    continuationNote(model)
                     // EXP-773: an ended run's close-out and its Resume sit
                     // ABOVE its transcript, where the list rows used to hide
                     // them behind a chevron.
@@ -210,6 +219,48 @@ struct AgentSessionView: View {
                     Spacer()
                 }
             }
+        }
+    }
+
+    /// EXP-818: the ONE Stop — a small red-tinted glass pill in the header,
+    /// IDENTICAL whether this phone hosts the run or only watches it
+    /// (`canKill` is ownership plus a live row, never socket liveness; web's
+    /// `agent-session.tsx` and the IDE's `stop_session_pill` are the twins).
+    /// The confirm is the alert the retired "Kill session" menu row used.
+    ///
+    /// Its own property, not an inline branch: this screen's modifier chains
+    /// are at the type checker's budget, and every condition spelled out inside
+    /// one of their closures has cost a wave of headroom (#644, #656).
+    @ViewBuilder
+    private var stopPill: some View {
+        if model?.canKill == true {
+            GlassPill(
+                "Stop",
+                icon: AppIcons.codingStop,
+                size: .sm,
+                mode: .action { showKillConfirm = true },
+                tint: DesignTokens.Semantic.red
+            )
+            .accessibilityLabel("Stop the agent and end the session")
+            .accessibilityIdentifier("session-stop")
+        }
+    }
+
+    /// EXP-847: the READ-ONLY Plan chip beside the phase caption — shown only
+    /// while the latest `config_state` says the run is in plan mode, so an
+    /// approved ExitPlanMode visibly clears it. NEVER a control: EXP-790 keeps
+    /// plan mode launch-time, and this is the missing half of that decision —
+    /// a plan run has to say that it is one.
+    @ViewBuilder
+    private var planChip: some View {
+        if model?.planModeActive == true {
+            Text(AgentFeed.planToggleLabel)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(DesignTokens.Semantic.blue)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(DesignTokens.Semantic.blue.opacity(0.12), in: Capsule())
+                .accessibilityIdentifier("session-plan-chip")
         }
     }
 
@@ -232,7 +283,11 @@ struct AgentSessionView: View {
                             title: headerTitle,
                             state: headerState,
                             paused: hostPaused || headerLost,
-                            live: model?.phase == .live
+                            live: model?.phase == .live,
+                            // EXP-848: this screen knows more than the row does
+                            // — its own working predicate drives the dot, and
+                            // the synced flag only covers the pre-model frame.
+                            busy: model.map { $0.agentWorking } ?? session.agentBusy
                         )
                         HStack(spacing: 6) {
                             Text(headerCaption)
@@ -244,10 +299,21 @@ struct AgentSessionView: View {
                             // still `Live`, it just cannot make progress, and
                             // that is exactly the pair a viewer needs to see.
                             SessionBlockedBadge(blocked: (model?.session ?? session).blocked)
+                            planChip
                         }
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                // EXP-818 ×4: pin · Stop · `…`, in that order — the web
+                // header's own trailing row (`agent-session.tsx`). Back is the
+                // system chevron to their left.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    // EXP-778/845: the pin sits BESIDE the `…` (the issue
+                    // detail's pattern); session LIST rows carry no pin
+                    // control at all.
+                    if let pinStore {
+                        PinToolbarButton(store: pinStore, targetId: session.id)
+                    }
+                    stopPill
                     if hasToolbarMenu {
                         GlassMenuBarButton(
                             icon: AppIcons.uiMore,
@@ -425,11 +491,22 @@ struct AgentSessionView: View {
             // EXP-688: usage lives in its own sheet now — every window the machine
             // reported, grouped, instead of one pinned hairline.
             .sheet(isPresented: $showUsageSheet) {
-                if hasUsage {
+                if hasUsage, let model {
                     AgentUsageSheet(
-                        usage: model?.agentUsage?.usage,
-                        account: model?.agentAccount,
-                        sessionUsage: model?.sessionUsage
+                        usage: model.agentUsage?.usage,
+                        account: model.agentAccount,
+                        sessionUsage: model.sessionUsage,
+                        // EXP-849: the run's accounts, and the switch — a
+                        // resume under another login, claude only, between
+                        // turns, on the run's own machine.
+                        accounts: model.accountOptions,
+                        supportsSwitch: model.supportsAccountSwitch,
+                        switchRefusal: { model.accountSwitchRefusal($0) },
+                        switching: switchingAccount,
+                        onSwitch: { option in
+                            showUsageSheet = false
+                            switchAccount(model, option)
+                        }
                     )
                 }
             }
@@ -464,6 +541,12 @@ struct AgentSessionView: View {
             sawLiveSession = true
             return
         }
+        // EXP-849: a "switch account" ENDS this run on purpose — the device
+        // relaunches it as a continuation. Dismissing on that edge would tear
+        // down the watcher waiting for the new row (`onDisappear` stops it),
+        // so the screen holds while a start of ours is in flight or pending:
+        // it pushes the continuation instead, exactly like a Resume.
+        guard startWatcher.sentCaption == nil, !switchingAccount, !resuming else { return }
         guard sawLiveSession, fixSessionTarget == nil else { return }
         dismiss()
     }
@@ -687,6 +770,83 @@ struct AgentSessionView: View {
         }
     }
 
+    /// EXP-849: change the account this run uses — a RESUME on the same
+    /// machine naming another login profile
+    /// (`steer.startSession({ resumeSessionId, deviceId, account })`). The
+    /// device relaunches the run under that profile's config dir and the agent
+    /// re-reads this run's transcript there, once, on the account moved to
+    /// (`SessionAccountSwitch.costNote`).
+    ///
+    /// Exactly the Resume path from here on: a start is a COMMAND, so the
+    /// shared watcher waits for the row the desktop inserts (linked by
+    /// `resumed_from_id`) and pushes that session, which presents itself as
+    /// this run's continuation. The wall notice that prompted the switch goes
+    /// with it.
+    private func switchAccount(_ model: AgentSessionModel, _ option: SessionAccountOption) {
+        guard model.accountSwitchRefusal(option) == nil, !switchingAccount, !resuming else {
+            return
+        }
+        guard let device = model.switchDevice else { return }
+        switchingAccount = true
+        startWatcher.sending()
+        model.clearRateLimit()
+        Task {
+            do {
+                try await deps.steerApi.resumeSession(
+                    accountId: accountId,
+                    sessionId: session.id,
+                    deviceId: device.deviceId,
+                    // The picked profile VERBATIM, `system` included: the server
+                    // reads the PRESENCE of `account` as "this resume is a
+                    // switch", which is the only thing that lets a resume ride
+                    // a LIVE run — the ×4 `wireAccount` rule.
+                    account: SessionAccountSwitch.wireAccount(option)
+                )
+                startWatcher.begin(
+                    key: .resumed(fromId: session.id),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.userFacingMessage)
+            }
+            switchingAccount = false
+        }
+    }
+
+    /// EXP-849: this run IS the continuation of an earlier one (a Resume, or a
+    /// switch to another account) — say so once, with the transcript's one-time
+    /// cost, so a second context-window charge on a new account is never a
+    /// surprise. The ×4 sentence; the run it continues is reachable from the
+    /// lists, which nest the chain.
+    @ViewBuilder
+    private func continuationNote(_ model: AgentSessionModel) -> some View {
+        if let resumedFrom = (model.session ?? session).resumedFromId, !resumedFrom.isEmpty {
+            HStack(alignment: .top, spacing: 6) {
+                AppIcon(AppIcons.runResume, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(SessionAccountSwitch.continuationNote)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    // The one-time transcript re-read, said ONCE on the run it
+                    // cost — a second context charge on a new account must
+                    // never be a surprise.
+                    Text(SessionAccountSwitch.continuationCostNote)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .accessibilityIdentifier("run-continuation")
+        }
+    }
+
     // MARK: - Feed
 
     @ViewBuilder
@@ -761,8 +921,10 @@ struct AgentSessionView: View {
                         agentTab = nil
                     }
                     ForEach(agents) { run in
+                        // EXP-847: what the spawn ASKED for, with the agent
+                        // type as the fallback.
                         agentTabChip(
-                            label: run.agentType,
+                            label: run.label,
                             running: !run.done,
                             selected: active == run.subagentId
                         ) {
@@ -828,6 +990,7 @@ struct AgentSessionView: View {
                         }) {
                             SubagentRow(
                                 agentType: focused.agentType,
+                                title: focused.title,
                                 status: focused.done ? .completed : .started,
                                 detail: focused.detail
                             )
@@ -884,9 +1047,11 @@ struct AgentSessionView: View {
                                         cur: row.rowClass
                                     )))
                             }
-                            // EXP-389: the agent-is-busy footer — live and
-                            // nothing waiting on the user (Android parity).
-                            if isWorking(model) {
+                            // EXP-389: the agent-is-busy footer. EXP-848: the
+                            // model's ONE working predicate — it used to read a
+                            // looser local copy, so this row could pulse while
+                            // the composer showed Send.
+                            if model.agentWorking {
                                 WorkingIndicatorRow()
                                     .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
                                         prev: rows.last?.rowClass, cur: .tool
@@ -998,15 +1163,6 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-389: the agent is actively working — live socket, session not
-    /// ended, no active question card, and the synced `needs_input` flag
-    /// clear (all three agents drive it: claude via hooks, codex via turn
-    /// edges, pi via agent_settled).
-    private func isWorking(_ model: AgentSessionModel) -> Bool {
-        model.phase == .live && !model.sessionEnded && !model.awaitingInput
-            && model.session?.needsInput != true
-    }
-
     /// EXP-787: the ladder's token name resolved to points. ExpCore cannot see
     /// ExpUI, so `AgentFeed.transcriptGap` names the gap and the view measures
     /// it off the shared `DesignTokens.Transcript` group.
@@ -1024,7 +1180,13 @@ struct AgentSessionView: View {
     private func feedRow(_ row: AgentFeedRow, isLast: Bool) -> some View {
         switch row {
         case let .toolRun(items):
-            ToolGroupRow(items: items, liveTail: isLast && model?.phase == .live)
+            ToolGroupRow(
+                items: items,
+                liveTail: isLast && model?.phase == .live,
+                // EXP-846: an Exponential call's issue preview resolves and
+                // navigates against the run's team.
+                refs: markdownContext.issueRefs
+            )
         case let .subagentRun(run):
             SubagentGroupRow(
                 run: run,
@@ -1037,8 +1199,12 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, _, _, _, failed, diff):
-                ToolRow(name: name, detail: detail, failed: failed, diff: diff)
+            case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview):
+                ToolRow(
+                    name: name, detail: detail, failed: failed, diff: diff,
+                    settled: settled, preview: preview,
+                    refs: markdownContext.issueRefs
+                )
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
@@ -1056,8 +1222,10 @@ struct AgentSessionView: View {
                 }
             case let .question(question):
                 questionCard(question)
-            case let .subagent(_, _, agentType, status, detail, _):
-                SubagentRow(agentType: agentType, status: status, detail: detail)
+            case let .subagent(_, _, agentType, status, detail, _, title):
+                SubagentRow(
+                    agentType: agentType, title: title, status: status, detail: detail
+                )
             case let .permission(_, tool, detail):
                 PermissionRow(tool: tool, detail: detail)
             case .compaction:
@@ -1380,6 +1548,22 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
+                // EXP-849: the wall's PRIMARY answer — the other account. It
+                // opens the readout's account rows (bars and health included),
+                // where the switch itself is confirmed per account; a run whose
+                // machine reports one login has nothing to offer and keeps the
+                // bare notice.
+                // Absent unless a switch is actually possible, so the wall
+                // never offers a dead end.
+                if model.canSwitchAnyAccount {
+                    GlassPill(
+                        SessionAccountSwitch.wallSwitchLabel,
+                        icon: AppIcons.uiSwap,
+                        mode: .action { showUsageSheet = true },
+                        primary: true
+                    )
+                    .accessibilityIdentifier("rate-limit-switch-account")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -3035,6 +3219,15 @@ private struct ToolRow: View {
     /// EXP-786: the per-call unified diff an `edit` published, already cut to
     /// the contract's caps by the publisher. Nil for every other call.
     var diff: String? = nil
+    /// EXP-846: the call SETTLED — a `tool_update` status landed. What swaps an
+    /// Exponential row's progressive caption ("Creating issue") for its done
+    /// one ("Created issue").
+    var settled: Bool = false
+    /// EXP-846: the result the publisher distilled out of an Exponential MCP
+    /// call's own answer. Nil for every other tool.
+    var preview: AgentToolPreview? = nil
+    /// EXP-846: the run's team + where a tapped issue preview goes.
+    var refs: AgentIssueRefContext? = nil
 
     /// EXP-806: COLLAPSED by default, unlike web's always-open `ToolDiff` —
     /// a phone transcript is one narrow column, and a dozen open patches
@@ -3042,6 +3235,28 @@ private struct ToolRow: View {
     @State private var showsDiff = false
 
     var body: some View {
+        // EXP-846: one of OUR OWN MCP tools gets its own row — the Exponential
+        // mark, the contract's caption and the result preview — because
+        // `mcp__exponential__exponential_issues_create` told a reader nothing.
+        // A FAILED call keeps the generic red tool row: a failure has no result
+        // to show, and the failure is the thing to see.
+        if !failed, let display = ExpToolDisplay.resolve(toolName: name) {
+            ExpToolRow(
+                display: display,
+                subject: detail,
+                settled: settled,
+                preview: preview,
+                refs: refs
+            )
+            .padding(.vertical, nested ? 2 : 0)
+        } else {
+            genericRow
+        }
+    }
+
+    /// Every other tool: the neutral glyph, the tool's name, its detail, and
+    /// the diff an `edit` published behind a disclosure.
+    private var genericRow: some View {
         VStack(alignment: .leading, spacing: 0) {
             if diff == nil {
                 headline
@@ -3095,6 +3310,192 @@ private struct ToolRow: View {
         let head = max * 2 / 3
         let tail = max - head - 1
         return String(s.prefix(head)) + "…" + String(s.suffix(tail))
+    }
+}
+
+/// EXP-846 — an **Exponential MCP call** in the transcript.
+///
+/// The agent works the tracker constantly (`exponential_issues_create`,
+/// `exponential_pr_open`, `exponential_comments_create`, …) and those rows used
+/// to read as `mcp__exponential__exponential_issues_create` beside a generic
+/// tool glyph. This row is our own: the Exponential mark, the contract's
+/// caption (progressive while the call is in flight, done once it settled), the
+/// subject the publisher named, and — on completion — a small preview of what
+/// the call actually produced, keyed on the contract's result KIND:
+///
+///   issue                         → the issue pill the `#EXP-1` refs draw,
+///                                   resolved off the store and tappable
+///   pr                            → a link row opening the pull request
+///   list                          → "N results"
+///   session/board/action/automation → a name chip
+///   none                          → the caption alone
+///
+/// Nothing is forced: a call that reported no preview is the mark plus its
+/// caption, which is already the whole story for a delete or an update.
+/// Hand-mirrored ×4 (web `agent-feed` rows, desktop `steer` feed, Android
+/// `AgentFeed`); every string comes from `ExpToolDisplay`, never from here.
+private struct ExpToolRow: View {
+    let display: ExpToolDisplay
+    /// The subject the publisher put on the call's `detail` (the contract's
+    /// `subjectKey` input — an issue title, a board name).
+    let subject: String?
+    let settled: Bool
+    let preview: AgentToolPreview?
+    let refs: AgentIssueRefContext?
+
+    @Environment(\.openURL) private var openURL
+
+    private var trimmedSubject: String? {
+        guard let subject else { return nil }
+        let text = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                ExpLogoMark(size: 11)
+                Text(display.caption(settled: settled))
+                    .transcriptToolText(.medium)
+                    .foregroundStyle(.white)
+                if let trimmedSubject {
+                    Text(trimmedSubject)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
+            }
+            // Only a SETTLED call has a result; a preview that arrived early
+            // (the publisher only sends one with a status) waits for it.
+            if settled, let preview {
+                previewRow(preview)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func previewRow(_ preview: AgentToolPreview) -> some View {
+        switch display.result {
+        case .issue:
+            ExpToolIssuePreview(
+                identifier: preview.identifier, title: preview.title, refs: refs
+            )
+        case .pr:
+            if let address = preview.url, let link = URL(string: address) {
+                prRow(link, label: address)
+            }
+        case .list:
+            if let count = preview.count {
+                Text(count == 1 ? "1 result" : "\(count) results")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        case .session, .board, .action, .automation, .comment:
+            // A name/identifier chip — never a bare uuid: an id the reader
+            // cannot place says less than the caption already did.
+            if let name = preview.title ?? preview.identifier {
+                GlassPill(name, size: .sm)
+            }
+        case ExpToolResultKind.none:
+            EmptyView()
+        }
+    }
+
+    /// The PR the call opened/merged — tapping leaves for GitHub, the one
+    /// surface that owns a pull request.
+    private func prRow(_ url: URL, label: String) -> some View {
+        Button {
+            openURL(url)
+        } label: {
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.prOpen, size: 11)
+                    .foregroundStyle(DesignTokens.Semantic.green)
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                AppIcon(AppIcons.uiExternalLink, size: 10)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .glassRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open the pull request")
+    }
+}
+
+/// EXP-846: the issue an Exponential call landed on, drawn as the SAME pill a
+/// `#EXP-1` ref wears — status glyph, mono identifier, title — and tappable
+/// into the issue when the row has synced to this phone.
+///
+/// The title comes off the STORE when the issue is there (so it is the current
+/// one, not whatever the agent saw), and falls back to the publisher's own
+/// preview otherwise: a brand-new issue on a phone that has not synced it yet
+/// still reads as `EXP-42 · Fix the merge queue` instead of vanishing.
+private struct ExpToolIssuePreview: View {
+    let identifier: String?
+    let title: String?
+    let refs: AgentIssueRefContext?
+
+    @Environment(\.accountId) private var accountId
+
+    /// The synced issue behind the identifier, resolved through the same memo
+    /// the editors' chip pass uses. `@MainActor` because that memo is — a View's
+    /// `body` already is, so only this helper needs saying so.
+    @MainActor
+    private var resolved: IssueRefLookup.Chip? {
+        guard let refs, let identifier, !identifier.isEmpty else { return nil }
+        return IssueRefChipCache.chip(
+            identifier, scope: .team(id: refs.teamId), db: refs.db, accountId: accountId
+        )
+    }
+
+    var body: some View {
+        let chip = resolved
+        let label = chip?.title ?? title
+        let row = HStack(spacing: 6) {
+            AppIcon(chip?.status.iconName ?? AppIcons.uiIssue, size: 11)
+                .foregroundStyle(chip?.status.color ?? Color.white.opacity(TextOpacity.tertiary))
+            if let identifier, !identifier.isEmpty {
+                Text(identifier)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            if let label, !label.isEmpty {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .glassRow()
+
+        if let chip, let refs {
+            Button {
+                refs.onOpen(chip.issueId)
+            } label: {
+                row.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(identifier ?? "the issue")")
+        } else {
+            // Nothing to open: an issue outside this phone's synced scope (or a
+            // call that named no identifier at all) stays a label.
+            row
+        }
     }
 }
 
@@ -3162,6 +3563,9 @@ private struct ToolDiffBlock: View {
 private struct ToolGroupRow: View {
     let items: [AgentFeedItem]
     let liveTail: Bool
+    /// EXP-846: what an Exponential call's issue preview resolves against (the
+    /// run's team) and where a tap on it goes. Nil keeps the preview textual.
+    var refs: AgentIssueRefContext? = nil
 
     @State private var expanded = false
 
@@ -3170,7 +3574,8 @@ private struct ToolGroupRow: View {
     /// contract fixture, not a bare count.
     private var caption: String {
         ToolGroupSummary.summarize(items.compactMap { item in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _) = item else { return nil }
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         })
     }
@@ -3198,19 +3603,25 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail, _, _, _, _, failed, diff) = item {
+                        if case let .tool(
+                            _, name, detail, _, _, _, settled, failed, diff, preview
+                        ) = item {
                             ToolRow(
                                 name: name, detail: detail, failed: failed,
-                                nested: true, diff: diff
+                                nested: true, diff: diff,
+                                settled: settled, preview: preview, refs: refs
                             )
                         }
                     }
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail, _, _, _, _, failed, diff) = last {
+                      case let .tool(
+                          _, name, detail, _, _, _, settled, failed, diff, preview
+                      ) = last {
                 ToolRow(
-                    name: name, detail: detail, failed: failed, nested: true, diff: diff
+                    name: name, detail: detail, failed: failed, nested: true, diff: diff,
+                    settled: settled, preview: preview, refs: refs
                 )
                     .padding(.leading, 20)
             }
@@ -3234,10 +3645,38 @@ private struct SubagentGroupRow: View {
 
     @State private var expanded = false
 
-    private var title: String {
-        let count = run.toolCount
-        let work = count == 1 ? "1 tool call" : "\(count) tool calls"
-        return count == 0 ? run.agentType : "\(run.agentType) · \(work)"
+    /// EXP-847: the spawn's description leads (`run.label`), the agent type
+    /// is its fallback; the type stays as the header's secondary caption so a
+    /// titled run still says WHICH agent is doing the work.
+    private var title: String { run.label }
+
+    /// EXP-847: what the subagent DID — the contract's `toolGroupSummary`
+    /// ("Ran 3 commands · edited 2 files"), the same sentence a collapsed tool
+    /// run wears and locked ×4 by the shared fixture. It replaced the bare "N
+    /// tool calls", which said how much happened and never what.
+    ///
+    /// A replay evicts a subagent's tool rows FIRST (EXP-748), so a run whose
+    /// rows are gone but whose publisher reported a count keeps the count
+    /// sentence — summarising zero visible rows as "No tool calls" would
+    /// contradict the row's own history. Empty = nothing to say yet.
+    private var summary: String {
+        let calls = run.items.compactMap { item -> ToolCallSummary? in
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            else { return nil }
+            return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
+        }
+        guard !calls.isEmpty else {
+            let count = run.toolCount
+            guard count > 0 else { return "" }
+            return count == 1 ? "1 tool call" : "\(count) tool calls"
+        }
+        return ToolGroupSummary.summarize(calls)
+    }
+
+    /// The muted caption beside the title — the agent type, but only when it
+    /// is not already the title.
+    private var typeCaption: String? {
+        run.title == nil ? nil : run.agentType
     }
 
     private var header: some View {
@@ -3252,6 +3691,22 @@ private struct SubagentGroupRow: View {
                 .transcriptToolText(.medium)
                 .foregroundStyle(.white)
                 .lineLimit(1)
+            // EXP-847: the agent type as a secondary caption — only where the
+            // title took its place in the lead.
+            if let typeCaption {
+                Text(typeCaption)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                    .lineLimit(1)
+            }
+            // EXP-847: the group's own work summary, where the bare count used
+            // to be part of the title.
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+            }
             Text(run.done ? "done" : "running…")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -3314,8 +3769,11 @@ private struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, _, failed, diff):
-            ToolRow(name: name, detail: detail, failed: failed, diff: diff)
+        case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview):
+            ToolRow(
+                name: name, detail: detail, failed: failed, diff: diff,
+                settled: settled, preview: preview, refs: context.issueRefs
+            )
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
         case let .userMessage(_, text, _):
@@ -3330,14 +3788,20 @@ private struct SubagentItemRow: View {
 /// the top of the feed, or a start with nothing published under it yet.
 private struct SubagentRow: View {
     let agentType: String
+    /// EXP-847: the spawn's own description, when it named one.
+    var title: String? = nil
     let status: AgentSubagentStatus
     let detail: String?
+
+    /// EXP-847: the title leads, the agent type is the fallback — mirroring
+    /// `AgentSubagentRun.label`.
+    private var label: String { title ?? agentType }
 
     var body: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.codingSubagent, size: 11)
                 .foregroundStyle(DesignTokens.Semantic.blue)
-            Text(status == .completed ? "\(agentType) finished" : "\(agentType) started")
+            Text(status == .completed ? "\(label) finished" : "\(label) started")
                 .transcriptToolText(.medium)
                 .foregroundStyle(.white)
             if let detail {

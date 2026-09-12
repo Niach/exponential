@@ -7,7 +7,7 @@
 //! output is scrubbed), `.exp-mcp.json`, the seed prompt, the tooling doctor, the
 //! coding settings (repos root / branch prefix / per-agent paths — never
 //! a manual API-key field), and the agent spawn into the embedded
-//! terminal. EXP-201: three agents — `claude`, `codex`, and `pi`
+//! terminal. EXP-201/EXP-849: two agents — `claude` and `codex`
 //! ([`agent::CodingAgent`]). (EXP-259 deleted the one-shot claude-task
 //! primitive — conflict fixing became the builtin "Fix merge conflicts"
 //! ACTION run.)
@@ -61,7 +61,6 @@ pub mod launcher;
 pub mod mcp_json;
 pub mod mcp_oauth;
 pub mod mcp_servers;
-pub mod pi_bridge;
 pub mod process;
 pub mod prompt;
 pub mod prune;
@@ -101,16 +100,17 @@ pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
-    device_caps, parse_claude_version, parse_codex_version, run_doctor, run_doctor_deep,
-    AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorDepth, DoctorReport, Tool,
-    ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, MIN_CLAUDE_VERSION,
-    MIN_CODEX_ACP_VERSION,
+    device_caps, parse_claude_version, parse_codex_version, run_doctor,
+    AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorReport, Tool,
+    ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION,
+    MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
-pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry};
+pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
 pub use agent_profiles::{AgentProfile, SYSTEM_PROFILE};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{
-    collect_if_due, force_collect, AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow,
+    collect_if_due, force_collect, use_profile, AgentStatusPayload, AgentUsage, AgentUsageMap,
+    UsageWindow,
 };
 pub use mcp_servers::{McpBlocker, McpReadinessState, ResolvedMcp};
 pub use scm::{
@@ -140,7 +140,6 @@ pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
-pub use pi_bridge::{write_pi_bridge, PI_BRIDGE_FILE};
 pub use prune::{prune_landed, PrunePolicy, PruneReport, SkipReason};
 pub use inventory::{
     inventory_fingerprint, scan_clones, scan_inventory, CloneRef, WorktreeInventoryEntry,

@@ -21,6 +21,11 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId_/issue`)({
+  // EXP-818: the run's origin rides through this hop so the session's own Back
+  // still knows where the reader came from.
+  validateSearch: (search: Record<string, unknown>): { from?: string } => ({
+    from: typeof search.from === `string` && search.from ? search.from : undefined,
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -34,6 +39,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId_/issue`)(
 
 function SessionIssuePage() {
   const { teamSlug, sessionId } = Route.useParams()
+  const { from } = Route.useSearch()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -61,8 +67,9 @@ function SessionIssuePage() {
     void navigate({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug, sessionId },
+      search: from ? { from } : {},
     })
-  }, [navigate, teamSlug, sessionId])
+  }, [navigate, teamSlug, sessionId, from])
 
   if (!team || !currentUserId || !isReady) {
     return (

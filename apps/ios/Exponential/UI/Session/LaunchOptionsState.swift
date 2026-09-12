@@ -116,7 +116,7 @@ final class LaunchOptionsState {
     }
 
     /// An advertised model, validated against the agent's contract list.
-    /// Blank is the desktop's "CLI default", which for codex/pi IS the static
+    /// Blank is the desktop's "CLI default", which for codex IS the static
     /// default and for claude (explicit-always) means its first model.
     static func seedModel(_ value: String?, for agent: String) -> String {
         guard let value, !value.isEmpty,

@@ -807,7 +807,7 @@ fn run_device_command(
     // id is dropped without a completion.
     if command.kind == "agent_login" {
         // The ONE parse the foreground login runs as well (EXP-827: agent,
-        // switch and the profile half). pi's sign-in is an interactive
+        // switch and the profile half). An unknown agent's sign-in is
         // prompt with no device-code flow to hand back, so it is refused
         // here, local only (the server refuses it too).
         if let Err(refusal) = coding::agent_login::parse_login_payload(&command.payload) {
@@ -962,6 +962,33 @@ fn run_device_command(
                 }
             }
         }
+        // EXP-849 — "use this account here": make `profileId` this machine's
+        // ACTIVE login for `agent`. Non-destructive by construction — it only
+        // moves a device-local pointer; no credential is read, written,
+        // copied or revoked, and `agent_login` stays the sign-in command.
+        //
+        // It answers by re-reporting: a forced collect re-probes the agent and
+        // the beat ships the new `active` flag, so every client's check moves
+        // without waiting for the next cadence.
+        "agent_profile_use" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(agent) => match use_agent_profile(snapshot, agent, profile) {
+                    Ok(payload) => {
+                        complete(
+                            snapshot,
+                            &command.id,
+                            true,
+                            &format!("{} now runs as this account here.", agent.id()),
+                        );
+                        return CommandDisposition::Refreshed(payload);
+                    }
+                    Err(error) => (false, error),
+                },
+            }
+        }
         other => {
             log::info!("[device-sync] command {other:?} unsupported — reported back");
             (
@@ -972,6 +999,62 @@ fn run_device_command(
     };
     complete(snapshot, &command.id, ok, &message);
     CommandDisposition::Completed
+}
+
+/// EXP-849 — the device side of `agent_profile_use`, over the ONE shared body
+/// ([`coding::use_profile`]): point this machine's default login for `agent` at
+/// `profile` and re-read that login's numbers, so the heartbeat ships the moved
+/// `active` flag right away. The CLI daemon's handler and the LOCAL "use this
+/// account here" control run the same body, so the refusals are one sentence
+/// each wherever the switch was asked for.
+fn use_agent_profile(
+    snapshot: &BeatSnapshot,
+    agent: coding::CodingAgent,
+    profile: &str,
+) -> Result<coding::agent_usage::AgentStatusPayload, String> {
+    let report = match &snapshot.doctor {
+        Some(report) => report.clone(),
+        None => coding::run_doctor(&snapshot.settings),
+    };
+    coding::use_profile(
+        &snapshot.data_dir,
+        &snapshot.settings,
+        &report,
+        agent,
+        profile,
+        now_unix_secs(),
+    )
+}
+
+/// EXP-849 — the LOCAL "use this account here" (the Devices row's own chip on
+/// THIS machine): the same body the command runs, plus the hub mirror so every
+/// surface in this process sees the moved login before the next beat.
+pub(crate) fn use_agent_profile_here(
+    agent: coding::CodingAgent,
+    profile: &str,
+    cx: &mut App,
+) -> Result<(), String> {
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let hub = crate::coding_flow::CodingHub::global(cx);
+    let (settings, report) =
+        hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
+    let report = match report {
+        Some(report) => report,
+        None => coding::run_doctor(&settings),
+    };
+    let status = coding::use_profile(
+        &data_dir,
+        &settings,
+        &report,
+        agent,
+        profile,
+        now_unix_secs(),
+    )?;
+    hub.update(cx, |hub, cx| {
+        hub.agent_status = Some(status);
+        cx.notify();
+    });
+    Ok(())
 }
 
 /// EXP-792: the MCP command bodies' view of this beat.
@@ -1114,7 +1197,7 @@ mod tests {
                 email: Some("dev@acme.test".to_string()),
                 plan: Some("max".to_string()),
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
-                profiles: Vec::new(),
+                ..coding::agent_accounts::AgentAccount::default()
             },
         );
         status.usage.insert(

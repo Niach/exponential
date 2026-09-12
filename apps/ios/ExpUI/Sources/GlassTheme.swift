@@ -68,6 +68,30 @@ public struct GlassRow: ViewModifier {
     }
 }
 
+/// EXP-818: ONE FLAT list row — the row every LIST wears now. No stroke and no
+/// fill of its own: rows stack with NO gap under a `GlassSectionBand` and read
+/// as a table instead of as a pile of cards, and the only paint is the active
+/// row's `fillActive` (a phone has no hover to wash). `GlassRow` stays for the
+/// few real CARDS — a transcript's tool output, a diff, a settings section.
+///
+/// Web `ListRow` (`components/ui/glass-rows.tsx`) / desktop
+/// `surface::flat_row` twin; padding, gap and the tap are the caller's, exactly
+/// as on the other two.
+public struct FlatRow: ViewModifier {
+    /// The selected row (a master-detail's open item).
+    public var isActive: Bool = false
+
+    public init(isActive: Bool = false) {
+        self.isActive = isActive
+    }
+
+    public func body(content: Content) -> some View {
+        content
+            .background(isActive ? GlassTokens.fillActive : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
+    }
+}
+
 /// A capsule pill — `fillCard` + `strokeCard` at rest, `fillActive` +
 /// `strokeActive` active.
 public struct GlassButton: ViewModifier {
@@ -166,6 +190,71 @@ extension GlassSectionHeader where Trailing == EmptyView {
     }
 }
 
+/// EXP-818: the GROUP BAND — the Linear group header, and what every LIST
+/// section wears now. A full-width strip filled `fillSection` carrying the
+/// group's name (an optional leading glyph, an optional trailing control),
+/// sitting 4pt over its flat rows (`.flatRow()`): the rows read as a table
+/// under a highlighted header rather than as a stack of cards.
+///
+/// Web `GlassSectionHeader` / desktop `surface::glass_section_band` twin —
+/// same fill, radius, padding and 85% label. `GlassSectionHeader` above stays
+/// the PLAIN-TEXT heading for free content (a settings section's title over a
+/// card); a list takes this one. Labels are SENTENCE CASE, never uppercase,
+/// and there is no count slot.
+///
+/// The trailing 4pt IS the gap to the rows below, so a host stacks band + rows
+/// in a `VStack(spacing: 0)`.
+public struct GlassSectionBand<Leading: View, Trailing: View>: View {
+    let title: String
+    let leading: Leading
+    let trailing: Trailing
+
+    public init(
+        _ title: String,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            leading
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                // 85% is the band's own rung — the shared one web
+                // (`text-foreground/85`) and desktop (`foreground.opacity(0.85)`)
+                // paint their band label with, brighter than a plain header's
+                // `TextOpacity.secondary` because the fill sits behind it.
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            trailing
+        }
+        .textCase(nil)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GlassTokens.fillSection)
+        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
+        .padding(.bottom, 4)
+    }
+}
+
+extension GlassSectionBand where Leading == EmptyView, Trailing == EmptyView {
+    public init(_ title: String) {
+        self.init(title) { EmptyView() } trailing: { EmptyView() }
+    }
+}
+
+extension GlassSectionBand where Leading == EmptyView {
+    public init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
+        self.init(title) { EmptyView() } trailing: trailing
+    }
+}
+
 // MARK: - Background
 
 /// The app ground: the shared `glass.background*` pair, top to bottom.
@@ -226,6 +315,12 @@ extension View {
 
     public func glassRow(isActive: Bool = false, isOpaque: Bool = false) -> some View {
         modifier(GlassRow(isActive: isActive, isOpaque: isOpaque))
+    }
+
+    /// EXP-818: the flat LIST row (`FlatRow`) — no stroke, no fill, the rows
+    /// under a `GlassSectionBand`.
+    public func flatRow(isActive: Bool = false) -> some View {
+        modifier(FlatRow(isActive: isActive))
     }
 
     public func glassButton(isActive: Bool = false, isOpaque: Bool = false) -> some View {

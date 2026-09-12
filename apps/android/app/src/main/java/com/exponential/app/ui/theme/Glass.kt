@@ -132,6 +132,40 @@ fun Modifier.glassRow(active: Boolean = false, opaque: Boolean = false): Modifie
 }
 
 /**
+ * EXP-818: the FLAT list row — no stroke, no fill of its own. Rows stack under
+ * a [glassSectionBand] and read as a TABLE instead of a stack of cards; the
+ * only paint a flat row ever takes is the [active] wash of a selected row.
+ * This is the row every LIST wears since EXP-818 (machines, actions,
+ * automations, sessions, inbox, support, the settings lists); [glassRow] stays
+ * for the few real cards, and a settings SECTION keeps its card chrome.
+ * Web `ListRow` / desktop `surface::flat_row` twin — layout (padding, click,
+ * test tag) stays the caller's job, exactly like [glassRow].
+ */
+fun Modifier.flatRow(active: Boolean = false): Modifier {
+    val shape = RoundedCornerShape(GlassTokens.RowRadius)
+    return this
+        .clip(shape)
+        .then(if (active) Modifier.background(GlassTokens.RowFillActive, shape) else Modifier)
+}
+
+/**
+ * EXP-818: the GROUP BAND — the filled strip a list's group header sits in
+ * (web `GlassSectionHeader`, desktop `surface::glass_section_band`): full
+ * width, [GlassTokens.SectionFill], radius Md, with its rows directly under it.
+ * It replaced the plain-text header above gapped card rows on every list
+ * surface. The ONE caller is `SectionHeader` (components/Scaffolding.kt) — the
+ * header composable every list, sheet and settings section already renders —
+ * so the band's paint lives here with the other glass rungs and its layout
+ * there with the rest of the header.
+ */
+fun Modifier.glassSectionBand(): Modifier {
+    val shape = RoundedCornerShape(GlassTokens.RowRadius)
+    return this
+        .clip(shape)
+        .background(GlassTokens.SectionFill, shape)
+}
+
+/**
  * Frosted grouped-row container — iOS `.glassGroup()`. BORDERLESS on purpose
  * (EXP-698): a group is a stack of rows separated by hairlines, so an outer
  * stroke around it drew a second, competing edge. A bordered panel around FREE

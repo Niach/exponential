@@ -60,6 +60,8 @@ pub mod agent_login_driver;
 pub mod codex_login_picker;
 pub mod commands;
 pub mod control_channel;
+/// EXP-846: the contract's `expToolDisplay` lookup (our MCP tools' rows).
+pub mod exp_tool;
 pub mod feed;
 pub mod frames;
 pub mod history;
@@ -87,7 +89,8 @@ pub use control_channel::{
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
-    truncate_marked, worktree_diff, AnswerLink, CommandLink, CommandSink, ConfigChange, ConfigLink,
+    truncate_marked, worktree_diff, AgentBusyForwarder, AgentBusyHook, AnswerLink, CommandLink,
+    ConfigChange, ConfigLink,
     BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
     RemoteAnswer, SessionAgent, SessionBlocked, blocked_wall_expired, iso_from_unix_millis,
     now_unix_millis,
@@ -105,10 +108,11 @@ pub use feed::{
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
-    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption,
-    ConfigValue, QuestionOption, ServerFrame, StartInput, StartRepoGroup, SteerRole,
-    SubagentStatus, ToolKind, ToolUpdateStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED,
-    CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
+    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, ClientFrame,
+    ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
+    StartRepoGroup, SteerRole, SubagentStatus, ToolKind, ToolPreview, ToolUpdateStatus, TurnState,
+    ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
+    CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
 };
 pub use tool_diff::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 pub use image_message::{
@@ -123,6 +127,7 @@ pub use history::{
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};
+pub use exp_tool::{exp_tool_display, exp_tool_row, exp_tool_subject_key, ExpToolDisplay};
 pub use publisher::{
     has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
     ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks, PublisherTickets,

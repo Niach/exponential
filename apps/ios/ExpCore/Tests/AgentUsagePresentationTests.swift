@@ -22,7 +22,7 @@ final class AgentUsagePresentationTests: XCTestCase {
         {"claude":{"signedIn":true,"email":"danny@yourev.at","plan":"max",
         "checkedAt":"2026-08-28T09:58:00Z"},
         "codex":{"signedIn":false,"checkedAt":"2026-08-28T09:58:00Z"},
-        "pi":{"signedIn":true,"plan":"anthropic (oauth)",
+        "zed":{"signedIn":true,"plan":"anthropic (oauth)",
         "checkedAt":"2026-08-28T09:58:00Z"}}
         """
 
@@ -178,8 +178,8 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.resetCountdown(resetsAt: "whenever", now: now))
     }
 
-    // claude reports email + plan, codex may be signed out, pi reports a
-    // provider and never an email. A machine that never probed is `unknown` —
+    // claude reports email + plan, codex may be signed out, an external
+    // agent may report a provider and never an email. A machine that never probed is `unknown` —
     // which is NOT "signed out". EXP-694: an email wins outright — no "signed
     // in as" prefix and no " · <plan>" suffix.
     func testAccountCaptions() throws {
@@ -193,8 +193,8 @@ final class AgentUsagePresentationTests: XCTestCase {
             "codex · signed out"
         )
         XCTAssertEqual(
-            AgentUsagePresentation.accountRow(agent: "pi", account: accounts["pi"]),
-            "pi · anthropic (oauth)"
+            AgentUsagePresentation.accountRow(agent: "zed", account: accounts["zed"]),
+            "zed · anthropic (oauth)"
         )
         XCTAssertEqual(
             AgentUsagePresentation.accountRow(agent: "codex", account: nil),

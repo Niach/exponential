@@ -103,6 +103,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -126,11 +127,15 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
+import com.exponential.app.domain.ExpToolDisplay
+import com.exponential.app.domain.ExpToolRow
+import com.exponential.app.domain.ToolResultPreview
 import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
@@ -151,10 +156,13 @@ import com.exponential.app.domain.steerMessageSegments
 import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.SessionAccountOption
+import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.activeQuestionIds
+import com.exponential.app.domain.agentWorking
 import com.exponential.app.domain.askComplete
 import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
 import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
@@ -167,13 +175,17 @@ import com.exponential.app.domain.splitTruncatedDiff
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.label
 import com.exponential.app.domain.localAnswerSummary
+import com.exponential.app.domain.planModeBadge
 import com.exponential.app.domain.rowClass
 import com.exponential.app.domain.transcriptGap
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.ComposerToolButton
+import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassComposerDefaults
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -232,6 +244,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassGroup
+import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -351,6 +364,9 @@ fun AgentSessionScreen(
     // EXP-688: who that machine is signed in as for this agent — the Usage
     // sheet's caption. Null whenever the machine never reported an account.
     val agentAccount by viewModel.agentAccount.collectAsStateWithLifecycle()
+    // EXP-849 phase 3: the logins this run could continue under, and everything
+    // the switch gates on but the turn slot (which is right here in `activity`).
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     // The run's OWN issue (EXP-688) — the header names what is being worked
     // on, exactly like the Agents list row does.
     val issue by viewModel.issue.collectAsStateWithLifecycle()
@@ -438,12 +454,21 @@ fun AgentSessionScreen(
     // LEAVES rather than doubling as the card's text path (EXP-788, retired).
     // The draft stays in the connection and comes back with the composer.
     val composerHidden = awaitingInput && !sessionEnded
-    // EXP-389: the agent is actively working — live and nothing waiting on
-    // the user (no active question card, synced needs_input clear; all three
-    // agents drive the flag). Drives the busy footer AND the composer's Stop
-    // glyph (EXP-790).
-    val agentWorking = phase == AgentPhase.Live && !sessionEnded &&
-        !awaitingInput && session?.needsInput != true
+    // EXP-389/848: the agent is actively working. ONE rule, shared ×4
+    // (`agentWorking`): a live, unended run MID-TURN with nothing parked on it —
+    // no active question card, synced needs_input clear, no usage wall, not
+    // compacting. Phase alone used to stand in for "mid-turn", which read as
+    // working for the whole time an idle agent sat there. Drives the busy
+    // footer AND the composer's Stop glyph (EXP-790).
+    val agentWorking = agentWorking(
+        live = phase == AgentPhase.Live,
+        sessionEnded = sessionEnded,
+        turnState = activity.turnState,
+        awaitingInput = awaitingInput,
+        needsInput = session?.needsInput == true,
+        blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
+        compacting = activity.compacting != null,
+    )
     // EXP-790: the composer folds to a one-line pill while it is unfocused
     // and empty (the issue's comment bar rule); a restored draft opens it.
     var composerExpanded by rememberSaveable {
@@ -606,26 +631,43 @@ fun AgentSessionScreen(
                         awaitingInput = awaitingInput,
                         paused = hostOffline && phase.isWaitingForStream,
                         staleMinutes = staleMinutes,
+                        working = agentWorking,
+                        planBadge = planModeBadge(activity.config),
                     )
                 },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },
                 actions = {
-                    // EXP-688: one "…" (the issue-detail pattern) instead of a
-                    // bare red kill glyph — Usage joined it when the usage
-                    // strip left the header.
-                    // Kill switch (EXP-268): only while the synced row is
-                    // still live, for the session owner — everything about a
-                    // live session is owner-only (EXP-312; server enforces
-                    // too).
+                    // EXP-688: one "…" (the issue-detail pattern) for Usage.
+                    // EXP-818: STOP is not in it — ending a run is the control
+                    // a session header owes the person watching, so it is a
+                    // button of its own beside the "…", with Back on its far
+                    // left. It looks the SAME wherever the viewer is: a phone
+                    // is always remote, and a run does not end differently
+                    // because you happen to be sitting at the machine.
+                    // Only while the synced row is still live, and only for
+                    // the owner — everything about a live session is
+                    // owner-only (EXP-312; the server enforces it too).
                     val row = session
                     val canKill = row != null && !sessionEnded && row.userId == currentUserId
                     val usage = agentUsage
                     // EXP-746: the sheet is reachable on this run's OWN
                     // context numbers too, not only on the machine's
                     // rate-limit windows.
-                    val hasUsage = usage != null || sessionUsage != null
+                    // EXP-849: the sheet is the account surface too — a run
+                    // whose machine reports logins can open it even before any
+                    // numbers have arrived.
+                    val hasUsage = usage != null || sessionUsage != null ||
+                        accountSwitch.options.isNotEmpty()
+                    if (canKill) {
+                        TopBarActionButton(
+                            ExpIcons.codingStop,
+                            "Stop",
+                            onClick = { killDialogOpen = true },
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     // EXP-778: the personal pin toggle, beside the "…" (or
                     // alone when the menu has nothing to offer); state comes
                     // off the synced pins table.
@@ -636,7 +678,7 @@ fun AgentSessionScreen(
                             onClick = viewModel::togglePin,
                         )
                     }
-                    if (canKill || hasUsage) {
+                    if (hasUsage) {
                         // The Box stays: it anchors the dropdown to the button.
                         Box {
                             TopBarActionButton(
@@ -648,31 +690,16 @@ fun AgentSessionScreen(
                                 expanded = overflowOpen,
                                 onDismissRequest = { overflowOpen = false },
                             ) {
-                                if (hasUsage) {
-                                    GlassMenuItem(
-                                        leadingIcon = {
-                                            Icon(ExpIcons.uiUsage, contentDescription = null)
-                                        },
-                                        text = { Text("Usage") },
-                                        onClick = {
-                                            overflowOpen = false
-                                            usageSheetOpen = true
-                                        },
-                                    )
-                                }
-                                if (canKill) {
-                                    GlassMenuItem(
-                                        leadingIcon = {
-                                            Icon(ExpIcons.codingStop, contentDescription = null)
-                                        },
-                                        text = { Text("Kill session") },
-                                        destructive = true,
-                                        onClick = {
-                                            overflowOpen = false
-                                            killDialogOpen = true
-                                        },
-                                    )
-                                }
+                                GlassMenuItem(
+                                    leadingIcon = {
+                                        Icon(ExpIcons.uiUsage, contentDescription = null)
+                                    },
+                                    text = { Text("Usage") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        usageSheetOpen = true
+                                    },
+                                )
                             }
                         }
                     }
@@ -700,6 +727,44 @@ fun AgentSessionScreen(
             // EXP-773: an ended run's close-out and its Resume sit ABOVE its
             // transcript, where the list rows used to hide them behind a
             // chevron.
+            // EXP-849 phase 3: this run CONTINUES another one (an account
+            // switch, or a plain Resume) — the chain is the synced
+            // `resumed_from_id`, so say so once at the top instead of letting a
+            // transcript that starts mid-conversation look like a lost run. The
+            // cost of that pick-up is named here and nowhere else.
+            if (session?.resumedFromId != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .testTag("session-continuation-note"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        ExpIcons.runResume,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            SessionAccountSwitch.CONTINUATION_NOTE,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            SessionAccountSwitch.CONTINUATION_COST_NOTE,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             EndedRunHeader(
                 session = session,
                 hostLabel = hostDevice.displayLabel,
@@ -1152,6 +1217,20 @@ fun AgentSessionScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
+                    // EXP-849: the PRIMARY move on a usage wall is another
+                    // account, not waiting for the reset — the button opens the
+                    // account rows (with their own numbers) and the switch
+                    // clears this notice by continuing the run over there.
+                    // Absent unless a switch is actually possible, so the wall
+                    // never offers a dead end.
+                    if (accountSwitch.canSwitchAny(activity.turnState)) {
+                        GlassPill(
+                            SessionAccountSwitch.WALL_SWITCH_LABEL,
+                            onClick = { usageSheetOpen = true },
+                            icon = ExpIcons.uiSwap,
+                            primary = true,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -1366,10 +1445,13 @@ fun AgentSessionScreen(
     // EXP-746: this run's own context/spend meter — a second, independent
     // source, so the sheet stays reachable while EITHER has something.
     val contextUsage = sessionUsage
-    LaunchedEffect(sheetUsage, contextUsage) {
-        if (sheetUsage == null && contextUsage == null) usageSheetOpen = false
+    val switchOptions = accountSwitch.options
+    LaunchedEffect(sheetUsage, contextUsage, switchOptions) {
+        if (sheetUsage == null && contextUsage == null && switchOptions.isEmpty()) {
+            usageSheetOpen = false
+        }
     }
-    if (usageSheetOpen && (sheetUsage != null || contextUsage != null)) {
+    if (usageSheetOpen && (sheetUsage != null || contextUsage != null || switchOptions.isNotEmpty())) {
         GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
             Column(
                 modifier = Modifier
@@ -1419,6 +1501,37 @@ fun AgentSessionScreen(
                     Spacer(Modifier.height(12.dp))
                 }
                 if (sheetUsage != null) AgentUsageCards(usage = sheetUsage)
+                // EXP-849 phase 3: the machine's logins for this agent, each
+                // with its own numbers — the readout IS the switch control now.
+                // Claude only, idle only, owner only; a refused row keeps the
+                // button and says why rather than hiding it mid-run.
+                if (switchOptions.isNotEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        SessionAccountSwitch.SECTION_TITLE,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    switchOptions.forEach { option ->
+                        SessionAccountRow(
+                            option = option,
+                            refusal = accountSwitch.refusal(option, activity.turnState),
+                            switching = launchRunState is ActionRunState.Sending ||
+                                launchRunState is ActionRunState.Sent,
+                            onSwitch = {
+                                usageSheetOpen = false
+                                viewModel.switchAccount(option)
+                            },
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Text(
+                        SessionAccountSwitch.COST_NOTE,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -1427,7 +1540,8 @@ fun AgentSessionScreen(
     if (killDialogOpen) {
         AlertDialog(
             onDismissRequest = { killDialogOpen = false },
-            title = { Text("Kill this coding session?") },
+            // EXP-818: ONE word for ending a run, wherever it is watched from.
+            title = { Text("Stop this coding session?") },
             text = {
                 Text(
                     "This stops the agent on the desktop " +
@@ -1439,7 +1553,7 @@ fun AgentSessionScreen(
                     killDialogOpen = false
                     viewModel.killSession()
                 }) {
-                    Text("Kill session", color = MaterialTheme.colorScheme.error)
+                    Text("Stop session", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -1530,6 +1644,13 @@ private fun SessionHeaderTitle(
     /** FEED-26: whole minutes the live feed has been quiet, once past
      *  [STALE_ACTIVITY_AFTER_MS] — null while the run reads as healthy. */
     staleMinutes: Int? = null,
+    /** EXP-848: the agent is mid-turn RIGHT NOW (`agentWorking`, the ×4 rule).
+     *  The dot's pulse is THIS, never the fact that a socket is up: a live run
+     *  sitting between turns is steady, and only real work moves. */
+    working: Boolean = false,
+    /** EXP-847: the read-only mode badge — `Plan` while the agent is in plan
+     *  mode, null otherwise ([planModeBadge]). Never a control (EXP-790). */
+    planBadge: String? = null,
 ) {
     // Auto-reconnecting after a drop reads as connecting (EXP-243) — unless
     // the machine itself is offline, which is a paused run, not a connection
@@ -1555,19 +1676,39 @@ private fun SessionHeaderTitle(
                     // FEED-26: a long-quiet live run is parked too — same
                     // steady amber, never the healthy pulse.
                     stale != null -> StaticDot(NeedsInputAmber)
-                    phase == AgentPhase.Live -> PulsingDot()
+                    // EXP-848: the pulse is WORK, not connection liveness —
+                    // the list rows' `LiveDot(busy)` rule, with the live turn
+                    // slot standing in for the synced `agent_busy` flag.
+                    phase == AgentPhase.Live ->
+                        if (working) PulsingDot() else StaticDot(LiveGreen)
                     connecting -> StaticDot(ConnectingYellow)
                     else -> StaticDot(LostGray)
                 }
             },
         )
-        Text(
-            sessionStatusLine(phase, deviceLabel, awaiting, paused, stale),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                sessionStatusLine(phase, deviceLabel, awaiting, paused, stale),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // EXP-847: "Plan" while the run is planning — the one thing a
+            // viewer could not tell before (an approved plan silently left the
+            // mode). READ-ONLY: the mode is launch-time (EXP-790).
+            if (planBadge != null) {
+                GlassPill(
+                    planBadge,
+                    size = PillSize.Sm,
+                    mode = PillMode.Readonly,
+                )
+            }
+        }
         // EXP-804: the PERSISTED usage wall off the session row, under the
         // status line and never folded into it — a walled run is still
         // running, and both facts have to survive. Deliberately not the same
@@ -1926,7 +2067,7 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
-                            is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, failed = item.failed, diff = item.diff)
+                            is AgentFeedItem.Tool -> ToolRow(item)
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
@@ -1955,6 +2096,7 @@ private fun ActivityFeed(
                                     agentType = item.agentType,
                                     completed = item.completed,
                                     detail = item.detail,
+                                    title = item.title,
                                     items = emptyList(),
                                 ),
                                 liveTail = false,
@@ -2036,8 +2178,9 @@ private fun LazyListState.isNearBottom(slackPx: Float): Boolean {
 }
 
 /** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent
- *  (ended tabs are dropped, EXP-387), labeled with the run's real agent type
- *  and a spinner while it works. */
+ *  (ended tabs are dropped, EXP-387), labeled with the run's DESCRIPTION when
+ *  the spawning call gave one and its agent type otherwise (EXP-847), and a
+ *  spinner while it works. */
 @Composable
 private fun AgentTabStrip(
     agents: List<AgentFeedRow.SubagentRun>,
@@ -2057,7 +2200,7 @@ private fun AgentTabStrip(
         }
         agents.forEach { run ->
             AgentTabChip(
-                label = run.agentType,
+                label = run.label,
                 running = !run.completed,
                 selected = selected == run.subagentId,
             ) {
@@ -3248,10 +3391,28 @@ private fun SubagentGroupRow(
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Text(
-                run.agentType,
+                // EXP-847: what the spawning Agent call called this run, with
+                // the agent type as the fallback.
+                run.label,
                 style = transcriptToolStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // A sentence-long description shrinks instead of pushing the
+                // spinner and the tool count off the row.
+                modifier = Modifier.weight(1f, fill = false),
             )
+            // EXP-847: the type stays readable as a SECONDARY caption whenever
+            // the description took the headline.
+            if (run.label != run.agentType) {
+                Text(
+                    run.agentType,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (run.completed) {
                 Icon(
                     ExpIcons.uiCheck,
@@ -3266,16 +3427,32 @@ private fun SubagentGroupRow(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            // EXP-748: the publisher's count when it reported one — replay
-            // evicts a subagent's tool events first, so the visible rows can
-            // undercount what the run actually did.
-            if (run.toolCount > 0) {
-                Text(
-                    "${run.toolCount} tool calls",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        }
+        // EXP-847: what the run DID, in the collapsed tool group's own words —
+        // `ToolGroupSummary`, the caption shared ×4 ("Ran 4 commands · edited 2
+        // files"), instead of counting calls. EXP-748's count survives as the
+        // fallback for exactly the case it was added for: replay evicts a
+        // subagent's tool events first, so when the rows are gone and the
+        // publisher's number is not, the number is all the truth there is.
+        val toolCaption = remember(run.items, run.toolCount) {
+            val calls = run.items.filterIsInstance<AgentFeedItem.Tool>()
+            when {
+                calls.isNotEmpty() -> ToolGroupSummary.summarize(
+                    calls.map { ToolCallSummary(it.toolKind ?: "other", it.detail, it.failed) },
                 )
+                run.toolCount > 0 -> "${run.toolCount} tool calls"
+                else -> null
             }
+        }
+        if (toolCaption != null) {
+            Text(
+                toolCaption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 22.dp),
+            )
         }
         if (!run.detail.isNullOrBlank()) {
             Text(
@@ -3308,11 +3485,34 @@ private fun SubagentGroupRow(
 @Composable
 private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
     when (item) {
-        is AgentFeedItem.Tool -> ToolRow(item.name, item.detail, nested = nested, failed = item.failed, diff = item.diff)
+        is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         else -> Unit
     }
+}
+
+/**
+ * One tool call. EXP-846: a call to one of OUR tools renders as itself
+ * ([ExpToolCallRow]) — the Exponential mark, the caption in the tense the call
+ * is in, and what came back; every other tool keeps the generic wrench row.
+ */
+@Composable
+private fun ToolRow(item: AgentFeedItem.Tool, nested: Boolean = false) {
+    val exp = remember(item.name, item.settled) {
+        ExpToolDisplay.forName(item.name, item.settled)
+    }
+    if (exp != null) {
+        ExpToolCallRow(item = item, display = exp, nested = nested)
+        return
+    }
+    ToolRow(
+        name = item.name,
+        detail = item.detail,
+        nested = nested,
+        failed = item.failed,
+        diff = item.diff,
+    )
 }
 
 // Tool-call headline — compact single line, consecutive rows visually tight.
@@ -3390,6 +3590,199 @@ private fun ToolRow(
         if (diff != null && diffOpen) ToolDiff(diff)
     }
 }
+
+/**
+ * EXP-846: one call to an EXPONENTIAL MCP tool. The product's own mark instead
+ * of the generic wrench, the contract caption in the tense the call is in
+ * ("Creating issue" → "Created issue"), the subject the call named, and — once
+ * it settles — a small preview of the row it touched. Nothing is forced: a call
+ * whose answer named nothing is the mark and the caption, which already says
+ * more than `mcp__exponential__exponential_issues_create` ever did.
+ *
+ * A FAILED call keeps the generic failed styling (the rose caption): what it
+ * was trying to do still reads, what came back is nothing to preview.
+ */
+@Composable
+private fun ExpToolCallRow(
+    item: AgentFeedItem.Tool,
+    display: ExpToolRow,
+    nested: Boolean,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ExponentialMark(size = 12.dp)
+            Text(
+                display.caption,
+                style = transcriptToolStyle(),
+                color = if (item.failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // The SUBJECT of the call — the input field the contract's
+            // `subjectKey` names (a title, a name, an identifier), published as
+            // the call's `detail` like every other tool's. A call with no
+            // subject (a plain list) simply has none.
+            val subject = item.detail?.takeIf { it.isNotBlank() && display.subjectKey.isNotEmpty() }
+            if (subject != null) {
+                Text(
+                    remember(subject) { middleTruncate(subject, EXP_TOOL_SUBJECT_MAX) },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        if (item.settled && !item.failed) {
+            ExpToolPreview(display = display, preview = item.preview)
+        }
+    }
+}
+
+/** How much of a subject a row shows before it middle-truncates — a title is
+ *  not a path, so it gets less room than a file does. */
+private const val EXP_TOOL_SUBJECT_MAX = 48
+
+/**
+ * EXP-846: what came back, per the contract's result kind — the issue preview
+ * an issue-ref pill opens, a PR's link, `N results` for a list, a name chip for
+ * everything else that names a row, and nothing at all for `none`.
+ */
+@Composable
+private fun ExpToolPreview(display: ExpToolRow, preview: ToolResultPreview?) {
+    val result = preview ?: return
+    when (display.result) {
+        ExpToolDisplay.RESULT_ISSUE -> ExpToolIssuePreview(result)
+        ExpToolDisplay.RESULT_PR -> {
+            val url = result.url?.takeIf { it.isNotBlank() } ?: return
+            val uriHandler = LocalUriHandler.current
+            ExpToolPreviewRow(onClick = { uriHandler.openUri(url) }) {
+                Icon(
+                    ExpIcons.prOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+                Text(
+                    remember(url) { middleTruncate(url, EXP_TOOL_SUBJECT_MAX) },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        ExpToolDisplay.RESULT_LIST -> {
+            val count = result.count ?: return
+            Text(
+                "$count " + if (count == 1) "result" else "results",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.padding(start = EXP_TOOL_PREVIEW_INSET, top = 2.dp),
+            )
+        }
+        // A row that has a NAME: the session, board, action, automation or
+        // comment the call touched. Its identifier wins when it has one.
+        ExpToolDisplay.RESULT_SESSION,
+        ExpToolDisplay.RESULT_BOARD,
+        ExpToolDisplay.RESULT_ACTION,
+        ExpToolDisplay.RESULT_AUTOMATION,
+        ExpToolDisplay.RESULT_COMMENT,
+        -> {
+            val label = result.identifier?.takeIf { it.isNotBlank() }
+                ?: result.title?.takeIf { it.isNotBlank() }
+                ?: return
+            ExpToolPreviewRow(onClick = null) {
+                Text(
+                    remember(label) { middleTruncate(label, EXP_TOOL_SUBJECT_MAX) },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // `none`, and any result kind a newer contract invents: the caption
+        // already said what happened.
+        else -> Unit
+    }
+}
+
+/**
+ * EXP-846: the issue a call answered with, as the SAME preview an issue-ref
+ * pill opens — the synced row's status glyph, its identifier and title, tapping
+ * through to the issue. A preview naming an issue this client has not synced
+ * (another team's, a board in the trash) still renders what the answer said,
+ * inert: the agent did the thing, and a blank row would deny it.
+ */
+@Composable
+private fun ExpToolIssuePreview(preview: ToolResultPreview) {
+    val identifier = preview.identifier?.takeIf { it.isNotBlank() }
+    val target = identifier?.let { LocalIssueRefs.current?.resolve(it) }
+    val title = target?.title?.takeIf { it.isNotBlank() }
+        ?: preview.title?.takeIf { it.isNotBlank() }
+    if (identifier == null && title == null) return
+    val refs = LocalIssueRefs.current
+    ExpToolPreviewRow(
+        onClick = if (target != null && refs?.canOpen == true) {
+            { refs.onOpen(target) }
+        } else {
+            null
+        },
+    ) {
+        target?.resolvedStatus?.let { StatusIcon(it, size = 12.dp) }
+        if (identifier != null) {
+            Text(
+                identifier,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
+            )
+        }
+        if (title != null) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** The shell every settled-call preview sits in: a glass row under the
+ *  caption, inset past the mark, tappable only when it has somewhere to go. */
+@Composable
+private fun ExpToolPreviewRow(
+    onClick: (() -> Unit)?,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .padding(start = EXP_TOOL_PREVIEW_INSET, top = 4.dp)
+            .glassRow()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        content = content,
+    )
+}
+
+/** Aligned under the caption, past the mark (12dp) and its 8dp gap. */
+private val EXP_TOOL_PREVIEW_INSET = 20.dp
 
 /**
  * EXP-806: one call's diff, through the same monospace renderer the "Latest
@@ -3493,11 +3886,11 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                items.forEach { ToolRow(it.name, it.detail, nested = true, failed = it.failed, diff = it.diff) }
+                items.forEach { ToolRow(it, nested = true) }
             }
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
-                ToolRow(latest.name, latest.detail, nested = true, failed = latest.failed, diff = latest.diff)
+                ToolRow(latest, nested = true)
             }
         }
     }
@@ -3829,6 +4222,86 @@ private fun ExpandedSteerComposer(
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
         )
+    }
+}
+
+/**
+ * EXP-849 phase 3: ONE login of this run's agent on its machine — the identity
+ * line, its health, its own rate-limit windows, and the switch. A refused
+ * switch keeps the button and says why underneath: the reason is nearly always
+ * something the person can change (wait for the turn, sign in on the machine),
+ * and a control that vanishes mid-run reads as a bug.
+ */
+@Composable
+private fun SessionAccountRow(
+    option: SessionAccountOption,
+    refusal: String?,
+    switching: Boolean,
+    onSwitch: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .flatRow()
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+            .testTag("session-account-row"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        option.caption,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    AgentHealthRules.badgeLabel(option.health)?.let { badge ->
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeedsInputAmber,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                val subtitle = buildList {
+                    option.plan?.takeIf { it != option.caption }?.let(::add)
+                    // The machine's CURRENT login — not a claim about which
+                    // account THIS run is on (that stays server-side).
+                    if (option.active) add("Active login")
+                }.joinToString(" · ")
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            GlassPill(
+                SessionAccountSwitch.SWITCH_LABEL,
+                onClick = onSwitch,
+                icon = ExpIcons.uiSwap,
+                enabled = refusal == null && !switching,
+                loading = switching,
+            )
+        }
+        option.usage?.let { usage ->
+            AgentUsageCards(usage = usage, compact = true)
+        }
+        if (refusal != null) {
+            Text(
+                refusal,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
     }
 }
 

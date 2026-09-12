@@ -10,8 +10,7 @@ import { z } from "zod"
 // for by trimming another. That is over. Claude Code defers MCP tools behind
 // tool search by default (only names + the server `instructions` load at
 // session start, `_meta["anthropic/alwaysLoad"]` opts a tool back in), Codex
-// does the same on gpt-5.4+, and the pi bridge mirrors the split through pi's
-// dynamic tool loading off the same flag.
+// does the same on gpt-5.4+.
 //
 // So the budget that matters is the ALWAYS-LOADED set, which is what a coding
 // run needs on its first turn, plus the instructions. The whole surface still
@@ -269,7 +268,7 @@ it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {
 })
 
 // EXP-763: the run playbook the desktop + CLI launcher appends to EVERY
-// coding session's system prompt (claude/pi `--append-system-prompt`, codex
+// coding session's system prompt (claude `--append-system-prompt`, codex
 // `developer_instructions`). It lives with the launcher
 // (`crates/coding/src/skill.md`) because that is what ships it, but it names
 // server tools by their exact names — so the server's test is what catches a

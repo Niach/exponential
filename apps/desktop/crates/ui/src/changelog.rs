@@ -46,6 +46,27 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-turn-signal-accounts-and-switching",
+    date: "2026-09-12",
+    title: "Working… that clears, accounts that tell the truth, and switching mid-run",
+    summary: "The Working indicator follows the agent's real turn, Exponential tool calls render as cards, account health comes from a live probe, a Claude run can switch accounts when it hits a limit, and the UI wave lands on all four clients.",
+    body: r#"- **Working… ends when the agent does**: the session footer, the Stop button and every session list now follow a real end-of-turn signal from the engine instead of the connection state, on web, desktop, iOS and Android. A rate-limited or compacting run no longer says Working, and a replayed transcript starts idle.
+- **Exponential tool cards**: when the agent calls Exponential, the transcript shows the Exponential mark with a plain caption (Creating issue, Opened pull request) and, once done, a preview of the result: the issue pill, the PR link or a result count.
+- **Subagents by name**: subagent chips carry the task the agent gave them, their rows summarize the tools they used, and a read-only Plan chip shows while the run is still in plan mode.
+- **Sentences no longer split**: a subagent's tool call no longer cuts the main narration mid-word.
+- **Accounts you can trust**: an account's health comes from a real usage probe, so a dead login reads Needs re-login instead of Signed in. Accounts is the decision page (per-agent tabs, live usage, health); Devices is where you sign in, re-login or pick which signed-in account a machine uses. Codex accounts stay signed in on their own, and switching a codex account never signs it out elsewhere.
+- **Switch account mid-run**: a Claude run that hits its limit can continue on another account from the usage sheet or the rate-limit notice. It carries on as a new run linked to the old one; the first message after a switch is a little slower.
+- **The machine you clicked**: a machine's play button opens the composer with that machine selected, and the composer says why when a machine cannot take the run.
+- **Sessions that remember where you came from**: Back from a session returns to the issue, board or inbox it was opened from, resume and remote start jump straight into the run, sub-sessions nest under their parent, and an issue band inside the session opens the issue.
+- **Mobile parity**: Stop in the session header, a Watch pill instead of the Coding now card, suggestion chips on a new chat, pin buttons on iOS, pin on Android action rows, a Pinned section on the phone web sidebar, and flat rows under filled group headers on every list.
+- **Desktop polish**: an icon-only send button, a device settings dialog that fits, Usage as a round button next to Switch account, action icons in the automation picker, and dragging the window no longer selects text in a session.
+- **Leaner agent context**: issue lists returned to agents default to open work with short descriptions, and batch runs are told to share exploration instead of repeating it.
+- **pi retired**: the pi agent is gone. Any ACP binary still runs through the external agent option, with two caveats: pi does not speak ACP natively, so it is not a drop-in there, and an external agent runs without the MCP bridge, plan mode, usage and account reporting, the slash-command catalog and remote start."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-pins-shared-machines-and-video",
     date: "2026-09-11",
     title: "Pins, machines shared with several teams, and video that plays inline",
@@ -61,23 +82,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Rate-limit wall that expires**: a run that keeps working after its reset time no longer wears a stale "Rate limited" banner; the wall clears on the next allowed call or once the reset passes.
 - **Faster Actions and Automations in the IDE**: hovering those rows no longer re-derives every session on each frame; the Automations render went from 744 µs to 180 µs on a large team.
 - **Resume after a merge**: resuming a chat run whose worktree was reclaimed after its PR landed re-creates the worktree from the recorded branch instead of refusing."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-one-composer",
-    date: "2026-09-11",
-    title: "One composer for chat, coding and actions",
-    summary: "The Agent page composer starts everything: pick issues or an action, type instructions, attach images, choose the machine and agent. The Start coding dialog is gone on every platform.",
-    body: r#"- **One place to start anything**: the Agent page composer is the launcher on web, desktop, iOS and Android. Pick issues with # or an action with the play button, or type to chat. The three-tab Start coding dialog and the Create action form are gone.
-- **Every play button lands here**: Start coding on an issue, the bulk bar, an action's Run, a machine's play button and Fix merge conflicts all open the composer with the right things preselected.
-- **Instructions with a start**: whatever you type beside the picked issues or action reaches the run as additional instructions. For a chat it is the prompt, for Create action it is the request.
-- **Images on a start**: attach up to four images to the composer. The machine downloads them before the first turn, the same way steering images work.
-- **Actions keep only picks**: text fields on actions are retired. An action declares repository, board, pull request or icon inputs; the free text comes from the composer. Existing text fields were removed from your actions.
-- **Options where you need them**: machine, agent, model and plan mode sit under the composer; effort, ultracode, MCP servers and the account are one click away.
-- **Answer inside the card**: a pending plan or question is answered in its own card. Free-text and reject rows open an inline field, the composer steps aside until the card is done, and an answered ask step reopens until you submit.
-- **Agent messages**: an agent can notify your team over MCP with the new notifications_send tool. It lands as a push and an Inbox row for every member; a notification preference blocks other members' agents while your own always get through."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

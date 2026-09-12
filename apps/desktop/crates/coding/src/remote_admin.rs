@@ -89,7 +89,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 let slot = match agent {
                     CodingAgent::Claude => &mut settings.claude_model,
                     CodingAgent::Codex => &mut settings.codex_model,
-                    CodingAgent::Pi => &mut settings.pi_model,
                 };
                 set_string(slot, model, &mut changed);
             }
@@ -99,7 +98,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 let slot = match agent {
                     CodingAgent::Claude => &mut settings.claude_effort,
                     CodingAgent::Codex => &mut settings.codex_effort,
-                    CodingAgent::Pi => &mut settings.pi_thinking,
                 };
                 set_string(slot, effort, &mut changed);
             }
@@ -114,7 +112,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 CodingAgent::Claude => {
                     set_bool(&mut settings.claude_plan_mode, plan_mode, &mut changed)
                 }
-                CodingAgent::Pi => set_bool(&mut settings.pi_plan_mode, plan_mode, &mut changed),
                 CodingAgent::Codex => {}
             }
         }
@@ -379,31 +376,32 @@ mod tests {
         assert!(!rendered.contains("null"), "no nulls on the wire: {rendered}");
         let codex = &wire["agents"]["codex"];
         assert!(codex.get("ultracode").is_none(), "ultracode is claude-only");
-        assert!(codex.get("planMode").is_none(), "plan mode is claude+pi");
+        assert!(codex.get("planMode").is_none(), "plan mode is claude-only");
         // EXP-690: the retired key is never advertised on any agent.
         assert!(codex.get("skipPermissions").is_none());
-        let pi = &wire["agents"]["pi"];
-        assert!(pi.get("ultracode").is_none());
-        assert!(pi.get("skipPermissions").is_none());
-        assert!(pi.get("planMode").is_some());
+        let claude = &wire["agents"]["claude"];
+        assert!(claude.get("skipPermissions").is_none());
+        assert!(claude.get("planMode").is_some());
+        // EXP-849: pi is gone from the wire entirely.
+        assert!(wire["agents"].get("pi").is_none());
     }
 
     #[test]
     fn defaults_wire_round_trips_through_apply() {
         let mut source = Settings::default();
-        source.default_agent = CodingAgent::Pi;
+        source.default_agent = CodingAgent::Codex;
         source.claude_model = "sonnet".into();
         source.claude_ultracode = true;
         source.codex_effort = "high".into();
-        source.pi_plan_mode = false;
+        source.claude_plan_mode = false;
         let wire = defaults_wire(&source);
         let mut target = Settings::default();
         assert!(apply_defaults_patch(&mut target, &wire));
-        assert_eq!(target.default_agent, CodingAgent::Pi);
+        assert_eq!(target.default_agent, CodingAgent::Codex);
         assert_eq!(target.claude_model, "sonnet");
         assert!(target.claude_ultracode);
         assert_eq!(target.codex_effort, "high");
-        assert!(!target.pi_plan_mode);
+        assert!(!target.claude_plan_mode);
     }
 
     // -- remove_worktree_remote ------------------------------------------------

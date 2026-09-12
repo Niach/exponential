@@ -619,6 +619,25 @@ pub(crate) fn resume_run(
     origin: LaunchOrigin,
     cx: &mut App,
 ) {
+    resume_run_on_account(session_id, target, activate_app, origin, None, cx)
+}
+
+/// [`resume_run`] on a DIFFERENT agent account (EXP-849, `crate::account_switch`).
+///
+/// `account` is a device-local profile id (`None` keeps the recorded login,
+/// which is every ordinary resume). Naming one makes this a CONTINUATION: the
+/// one-session-per-issue probe exempts the run's own chain
+/// (`coding_flow::resume_blocker_for`), since the live row it replaces is the
+/// same piece of work, and the launcher refuses what it cannot honor (codex,
+/// a profile this machine does not have).
+pub(crate) fn resume_run_on_account(
+    session_id: String,
+    target: Option<gpui::AnyWindowHandle>,
+    activate_app: bool,
+    origin: LaunchOrigin,
+    account: Option<String>,
+    cx: &mut App,
+) {
     // The same duplicate-frame claim the action path takes (EXP-505): a
     // retried relay resume must not relaunch the run twice.
     let Some(reservation) = crate::steer_wiring::action_start_reservations()
@@ -654,7 +673,7 @@ are purged when they end.",
     }
     // EXP-662: an issue/batch record resumes back into `exp/<ID>` — the
     // one-session-per-issue rule applies exactly as it does to a fresh start.
-    if let Some(message) = coding_flow::resume_blocker(&record, cx) {
+    if let Some(message) = coding_flow::resume_blocker_for(&record, account.is_some(), cx) {
         notify_target_error(target, &message, cx);
         return;
     }
@@ -683,6 +702,8 @@ are purged when they end.",
         // A resume carries no composer text (the relay never sends one on
         // a resume frame; the composer resumes issues through its own path).
         prompt: None,
+        // EXP-849: `None` keeps the recorded login; a switch names the target.
+        account,
     });
     // EXP-761: a resume re-enters its RECORDED transport, and `prepare`
     // binds the PTY sidecars only on its Terminal arm.

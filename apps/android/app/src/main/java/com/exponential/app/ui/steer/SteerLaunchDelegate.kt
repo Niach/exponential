@@ -68,6 +68,16 @@ class SteerLaunchDelegate @Inject constructor(
     val devices: StateFlow<List<SteerDevice>?>
         get() = _devices ?: noDevices
 
+    private var _registry: StateFlow<List<SteerDevice>?>? = null
+    /**
+     * EXP-836: the WHOLE registry behind [devices] — offline rows included, so
+     * a launcher can say why the machine a play button named is not the one its
+     * run would go to ("offline" reads differently from "gone"). null until the
+     * devices shape's first snapshot, like [devices].
+     */
+    val registry: StateFlow<List<SteerDevice>?>
+        get() = _registry ?: noDevices
+
     private val _runState = MutableStateFlow<ActionRunState>(ActionRunState.Idle)
     val runState: StateFlow<ActionRunState> = _runState
 
@@ -135,11 +145,12 @@ class SteerLaunchDelegate @Inject constructor(
         // The team-scoped registry (EXP-432) narrowed to what can take a start
         // right now — off the synced shape since EXP-485, so a team switch
         // re-scopes it without a round trip.
-        _devices = combine(
-            steerDeviceFlow(dbFlow, teamIdFlow, auth.userId),
-            _enabled,
-        ) { devices, enabled -> onlineStartTargets(devices, enabled) }
+        val registryFlow = steerDeviceFlow(dbFlow, teamIdFlow, auth.userId)
             .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+        _registry = registryFlow
+        _devices = combine(registryFlow, _enabled) { devices, enabled ->
+            onlineStartTargets(devices, enabled)
+        }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 
         // Steer availability, resolved once per account: it is env-derived and
         // static per INSTANCE, so re-running it would blank `enabled` and
@@ -252,14 +263,21 @@ class SteerLaunchDelegate @Inject constructor(
      * command the list rows used to send, moved here with the affordance: the
      * desktop relaunches the pinned agent in the run's own worktree and
      * inserts a NEW session row, which this then hands to the host screen.
+     *
+     * EXP-849 phase 3: [account] names a LOGIN to re-enter under — the
+     * mid-session switch, which is the same resume with an account on it
+     * (claude only). The machine ends the live run, re-enters the recorded one
+     * under that login and inserts the continuation row, which lands in
+     * [startedSessionId] exactly like a resume's does, so the screen follows
+     * the new run. Null = the plain Resume, on the run's own account.
      */
-    fun resumeRun(target: RunResumeTarget) {
+    fun resumeRun(target: RunResumeTarget, account: String? = null) {
         val scope = scope ?: return
         scope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _runState.value = ActionRunState.Sending
             try {
-                steerApi.resumeSession(accountId, target.sessionId, target.deviceId)
+                steerApi.resumeSession(accountId, target.sessionId, target.deviceId, account)
                 awaitStartedRun(
                     StartedRunKey.Resumed(target.sessionId),
                     target.deviceLabel,
@@ -267,7 +285,14 @@ class SteerLaunchDelegate @Inject constructor(
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
-                    trpcErrorMessage(t, "The run could not be resumed"),
+                    trpcErrorMessage(
+                        t,
+                        if (account == null) {
+                            "The run could not be resumed"
+                        } else {
+                            "The account could not be switched"
+                        },
+                    ),
                 )
             }
         }

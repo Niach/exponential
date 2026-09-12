@@ -32,11 +32,16 @@ struct TeamMembersSection: View {
     }
 
     var body: some View {
+        // EXP-818: the filled group band over flat rows (Boards/Labels
+        // parity) — one table, not a stack of cards. The error caption and the
+        // invite creator below keep their own spacing.
         VStack(alignment: .leading, spacing: 10) {
-            GlassSectionHeader("Members")
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand("Members")
 
-            ForEach(members, id: \.id) { member in
-                memberRow(member)
+                ForEach(members, id: \.id) { member in
+                    memberRow(member)
+                }
             }
 
             if let actionError {
@@ -140,7 +145,7 @@ struct TeamMembersSection: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassRow()
+        .flatRow()
     }
 
     // MARK: - Confirmation copy

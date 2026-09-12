@@ -1122,7 +1122,7 @@ mod tests {
     use super::*;
 
     /// EXP-721: the agent strip is a radio — the ladder must always name a
-    /// segment. The three-pill "no device bound yet" state (the `devices`
+    /// segment. The "no device bound yet" state (the `devices`
     /// shape still landing, so `device_agents` offers the whole contract
     /// list) used to leave `agent` NULL and every pill dark.
     #[test]
@@ -1139,12 +1139,12 @@ mod tests {
         );
         // A bound machine's own default outranks the global one.
         assert_eq!(
-            settle_seed_agent(None, Some("pi"), &all, "codex"),
-            Some("pi".to_string())
+            settle_seed_agent(None, Some("claude"), &all, "codex"),
+            Some("claude".to_string())
         );
         // A still-runnable pick is never disturbed.
         assert_eq!(
-            settle_seed_agent(Some("claude"), Some("pi"), &all, "codex"),
+            settle_seed_agent(Some("claude"), Some("codex"), &all, "codex"),
             Some("claude".to_string())
         );
         // A pick the machine cannot run falls through the ladder.

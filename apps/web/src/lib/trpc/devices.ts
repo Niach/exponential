@@ -35,6 +35,7 @@ import {
 import {
   automations,
   deviceAgentAccountsSchema,
+  deviceAgentHealthValues,
   deviceAgentUsageSchema,
   deviceCommands,
   deviceLaunchDefaultsSchema,
@@ -45,6 +46,7 @@ import {
   users,
   type DeviceAgentAccount,
   type DeviceAgentAccounts,
+  type DeviceAgentHealth,
   type DeviceAgentLaunchDefaults,
   type DeviceAgentProfileEntry,
   type DeviceAgentUsage,
@@ -179,9 +181,12 @@ export function clampAgentAccounts(
     }
     const checkedAt = isoStampOrNull(account.checkedAt)
     if (checkedAt) entry.checkedAt = checkedAt
-    // EXP-792 (EXP-747 B5): the device's profiles for this agent, ≤5. A
-    // profile without an id is dropped (nothing could address it); the
-    // top-level fields above stay the ACTIVE profile for older clients.
+    const health = clampAgentHealth(account.health)
+    if (health) entry.health = health
+    // EXP-792 (EXP-747 B5): the device's profiles for this agent,
+    // ≤`MAX_AGENT_PROFILES`. A profile without an id is dropped (nothing
+    // could address it); the top-level fields above stay the ACTIVE profile
+    // for older clients.
     const profiles: DeviceAgentProfileEntry[] = []
     for (const profile of account.profiles ?? []) {
       if (!profile || typeof profile.id !== `string` || !profile.id) continue
@@ -202,6 +207,12 @@ export function clampAgentAccounts(
       if (profile.active === true) item.active = true
       const profileCheckedAt = isoStampOrNull(profile.checkedAt)
       if (profileCheckedAt) item.checkedAt = profileCheckedAt
+      const profileHealth = clampAgentHealth(profile.health)
+      if (profileHealth) item.health = profileHealth
+      // EXP-849: the device collects no usage numbers for this login (past
+      // its own probe cap). Kept so the clients can caption the row instead
+      // of rendering its absent bars as zero; false is simply absent.
+      if (profile.unmonitored === true) item.unmonitored = true
       if (profile.usage) {
         item.usage = clampUsageEntry(profile.usage, new Date())
       }
@@ -211,6 +222,17 @@ export function clampAgentAccounts(
     out[agent] = entry
   }
   return out
+}
+
+// EXP-849: the account/profile health vocabulary — one of the four values or
+// nothing at all. A value this build has no name for is DROPPED (the clients
+// then fall back to deriving health from `signedIn`), never a rejection: the
+// whole point of the clamp is that a newer device keeps its heartbeat.
+function clampAgentHealth(value: unknown): DeviceAgentHealth | null {
+  return typeof value === `string` &&
+    (deviceAgentHealthValues as readonly string[]).includes(value)
+    ? (value as DeviceAgentHealth)
+    : null
 }
 
 // EXP-484: as above for the usage windows. `percent` rounds and clamps to
@@ -800,9 +822,11 @@ export const devicesRouter = router({
       }
 
       // Dedupe by (repo, branch) then sort — deterministic upsert/lock order.
+      // The key separator is a NUL, written as an ESCAPE: a literal control
+      // byte in the source makes the whole file binary to grep/diff.
       const byKey = new Map<string, (typeof input.worktrees)[number]>()
       for (const wt of input.worktrees) {
-        byKey.set(`${wt.repoFullName} ${wt.branch}`, wt)
+        byKey.set(`${wt.repoFullName}\u0000${wt.branch}`, wt)
       }
       const reported = [...byKey.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -892,6 +916,12 @@ export const devicesRouter = router({
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
+          // EXP-849: make an already-signed-in profile the agent's ACTIVE
+          // login on that machine. NON-DESTRUCTIVE: no logout, no login, no
+          // credential is touched — the machine just points the agent at that
+          // profile and re-heartbeats `agent_accounts`. (Never `codex
+          // logout`: that revokes the account server-wide.)
+          `agent_profile_use`,
           `update_now`,
         ]),
         repoFullName: z.string().min(1).max(255).optional(),
@@ -965,14 +995,6 @@ export const devicesRouter = router({
             message: `agent_login needs an agent`,
           })
         }
-        // pi signs in through its own interactive prompt with no device-code
-        // flow to hand back — local only, by design.
-        if (input.agent === `pi`) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `pi has no remote sign-in`,
-          })
-        }
         // The executor lives in the desktop app and the daemon, both of
         // which declare `agent-login` unconditionally (EXP-672 keeps the cap
         // as the contract): a row without it would leave the command pending
@@ -1006,12 +1028,6 @@ export const devicesRouter = router({
             message: `agent_login_code needs an agent and a code`,
           })
         }
-        if (input.agent === `pi`) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `pi has no remote sign-in`,
-          })
-        }
         // The device types this verbatim into a waiting PTY, so ANY control
         // byte is refused, not just newlines: `\x03`/`\x1b[A` would kill or
         // confuse the login while the command still reports CODE_ENTERED, and
@@ -1023,6 +1039,26 @@ export const devicesRouter = router({
           })
         }
         payload = { agent: input.agent, code: input.code }
+      }
+
+      // EXP-849: "Use this account here" — same payload shape as
+      // `agent_usage_refresh` (agent + profile), gated on the same cap as a
+      // remote sign-in: a build that cannot drive agent logins cannot switch
+      // between them either, and the command would sit pending forever.
+      if (input.kind === `agent_profile_use`) {
+        if (!input.agent || !input.profileId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_profile_use needs an agent and a profileId`,
+          })
+        }
+        if (!(row.caps ?? []).includes(`agent-login`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That device does not declare the agent-login capability`,
+          })
+        }
+        payload = { agent: input.agent, profileId: input.profileId }
       }
 
       if (input.kind === `agent_usage_refresh`) {

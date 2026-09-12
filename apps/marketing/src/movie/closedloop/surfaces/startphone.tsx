@@ -1,35 +1,33 @@
 // closedloop/surfaces/startphone.tsx — the remote-start phone (EXP-388,
 // matched to the shipping mobile UI): the REAL issue detail screen for
-// EXP-151 underneath, and the REAL StartCodingSheet over it — a full-height
-// GlassSheetChrome with NO bar buttons (EXP-687: the confirm is the ONE
-// pinned button and a swipe down cancels, so the sheet opens on its grabber),
-// the Issues|Actions|Chat glass segmented control, the "Issues" section with its inline search row and the checkbox
-// issue rows (EXP-151 checked and pinned first), the agent capsule strip
-// (Claude Code · Codex · pi), the Model + Effort picker rows and the
-// launch toggles, and the pinned full-width `GlassSubmitButton` ("Start
-// coding", primary fill #e5e5e5 on primaryForeground text). One desktop
-// online = no Device row (like the app); after the start the "Start sent to
-// MacBook Pro" capsule toast confirms.
+// EXP-151 underneath, and the REAL Agent page pushed over it — the ONE
+// launcher since EXP-825, which retired the three-tab Start-coding sheet this
+// surface used to draw (EXP-845). A pushed detail slides in from the right
+// with its inline "Agent" nav bar, the `AgentComposerCard` (ExpUI
+// `GlassComposer`: the issue chip the play button put there, the prompt
+// field, the `#`/▶/image tool row and the LABELLED primary submit pill
+// "Start coding"), the `AgentOptionsRow` pills under it (Device · Agent ·
+// Plan · ⋯ — the row scrolls, so Model sits off the right edge) and the
+// caller's Past runs. After the start the "Start
+// sent to MacBook Pro" capsule toast confirms.
 //
-// EVERY number in the sheet is authored in iOS POINTS on the 414pt canvas and
+// EVERY number in the screen is authored in iOS POINTS on the 414pt canvas and
 // scaled ONCE through `pt()` — the same measurements the marketing page's
-// sibling recreation carries (src/mobile/StartCodingSheet.tsx + the `mss-*`
-// rules in styles/mobile.css, traced off shots/start-coding/ios.webp), so the
-// film and the page never drift apart into hand-tuned marketing px.
+// sibling recreation carries (src/mobile/AgentComposer.tsx + the `mag-*`
+// rules in styles/mobile.css), so the film and the page never drift apart
+// into hand-tuned marketing px.
 // All frame props are COMPOSITION-LOCAL to the segment that renders it.
 
 import React from "react"
 import { interpolate, spring } from "remotion"
 import { C, EASE, MONO_FONT, SETTLE, UI_FONT } from "../../ships/theme"
-import { ClaudeMark, CodexMark, PiMark } from "./agentmarks"
+import { ClaudeMark } from "./agentmarks"
 import { CL_BOARD, CL_ISSUE, CL_LABELS, PHONE_START, REPORT } from "../fixtures"
 import { PHONE, PhoneChassis } from "./steerphone"
 import {
   Glyph,
   IssueScreen,
-  MPriorityIcon,
   MStatusIcon,
-  type MobilePriority,
   type MobileStatus,
 } from "./mobileui"
 
@@ -41,35 +39,27 @@ const EASED = { ...CLAMP, easing: EASE } as const
 const PT = PHONE.screenW / 414
 const pt = (v: number): number => Math.round(v * PT * 10) / 10
 
-// The sheet is a near-full-height iOS sheet: it stops just under the status
-// row and covers the issue detail behind it, exactly like the real one.
-const SHEET_TOP = pt(59)
-const SHEET_H = PHONE.screenH - SHEET_TOP
-
-// Glass tokens the sheet's own controls speak (mobile GlassTheme).
+// Glass tokens the screen's own controls speak (mobile GlassTheme).
 const G = {
-  pillBg: "rgba(255,255,255,0.07)",
-  pillStroke: "rgba(255,255,255,0.10)",
-  segBg: "rgba(255,255,255,0.10)",
-  segStroke: "rgba(255,255,255,0.10)",
-  segActive: "rgba(255,255,255,0.12)",
   card: "rgba(255,255,255,0.05)",
+  cardStroke: "rgba(255,255,255,0.10)",
+  pill: "rgba(255,255,255,0.051)",
+  pillStroke: "rgba(255,255,255,0.078)",
+  chip: "rgba(255,255,255,0.059)",
   sep: "rgba(255,255,255,0.10)",
   header: "rgba(255,255,255,0.66)",
   placeholder: "rgba(255,255,255,0.35)",
-  value: "rgba(255,255,255,0.82)",
+  value: "rgba(255,255,255,0.85)",
   chev: "rgba(255,255,255,0.50)",
   id: "rgba(255,255,255,0.62)",
-  rowChecked: "rgba(255,255,255,0.07)",
-  segLabel: "rgba(255,255,255,0.85)",
-  track: "#64636a",
+  tool: "rgba(255,255,255,0.70)",
+  caption: "rgba(255,255,255,0.50)",
 } as const
 
-// DesignTokens.Palette.primary / primaryForeground — the submit button's fill
+// DesignTokens.Palette.primary / primaryForeground — the submit pill's fill
 // and text (generated in ExpUI's DesignTokens.generated.swift).
 const PRIMARY_FILL = "#e5e5e5"
 const PRIMARY_FG = "#171717"
-
 
 const Spinner: React.FC<{ frame: number; size?: number }> = ({
   frame,
@@ -90,99 +80,26 @@ const Spinner: React.FC<{ frame: number; size?: number }> = ({
   </span>
 )
 
-// ── The issue pool the picker offers ────────────────────────────────────────
-// The sheet's own filter: repo-backed, non-terminal issues, with the checked
-// one pinned FIRST (the pin order is snapshotted at open, EXP-241).
-type SheetIssue = {
+// ── The chipped subject + the caller's past runs ─────────────────────────────
+// A play button navigates here with ITS issue chipped; the rest of the board
+// is one `#` tap away, so the composer shows exactly one chip.
+type PhoneIssue = {
   id: string
   title: string
   status: MobileStatus
-  priority: MobilePriority
 }
-const CHECKED_ID = CL_ISSUE.id
-const SHEET_ISSUES: SheetIssue[] = [
-  ...CL_BOARD.filter((row) => row.id === CHECKED_ID),
-  ...CL_BOARD.filter((row) => row.id !== CHECKED_ID && row.status !== "done"),
-].map(({ id, title, status, priority }) => ({ id, title, status, priority }))
+const CHIPPED: PhoneIssue = (() => {
+  const row = CL_BOARD.find((issue) => issue.id === CL_ISSUE.id)!
+  return { id: row.id, title: row.title, status: row.status }
+})()
+// AgentSessionsList under the composer: the finished runs, newest first.
+const PAST = CL_BOARD.filter(
+  (row) => row.status !== "backlog" && row.id !== CL_ISSUE.id
+).slice(0, 3)
 
-// ── The glass segmented control (both strips are the SAME control) ───────────
-const SEG_H = pt(38.5)
-const SEG_INSET = pt(18.5)
-
-const SegControl: React.FC<{
-  top: number
-  items: readonly {
-    id: string
-    label: string
-    Mark?: React.FC<{ size: number }>
-  }[]
-  activeId: string
-  flick?: { id: string; t: number }
-}> = ({ top, items, activeId, flick }) => (
-  <div
-    style={{
-      position: "absolute",
-      left: SEG_INSET,
-      right: SEG_INSET,
-      top,
-      height: SEG_H,
-      boxSizing: "border-box",
-      display: "flex",
-      gap: pt(4),
-      padding: pt(4),
-      borderRadius: 999,
-      backgroundColor: G.segBg,
-      border: `1px solid ${G.segStroke}`,
-    }}
-  >
-    {items.map(({ id, label, Mark }) => {
-      const active = id === activeId
-      const hot = !active && flick?.id === id ? flick.t : 0
-      return (
-        <span
-          key={id}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: pt(6),
-            borderRadius: 999,
-            backgroundColor: active
-              ? G.segActive
-              : hot > 0
-                ? `rgba(255,255,255,${(0.06 * hot).toFixed(3)})`
-                : "transparent",
-            color: active ? C.text : G.segLabel,
-            fontSize: pt(15),
-            fontWeight: active ? 600 : 400,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {Mark ? <Mark size={pt(13)} /> : null}
-          {label}
-        </span>
-      )
-    })}
-  </div>
-)
-
-const TABS = [
-  { id: "issues", label: "Issues" },
-  { id: "actions", label: "Actions" },
-  { id: "chat", label: "Chat" },
-] as const
-
-const AGENTS = [
-  { id: "claude", label: "Claude Code", Mark: ClaudeMark },
-  { id: "codex", label: "Codex", Mark: CodexMark },
-  { id: "pi", label: "pi", Mark: PiMark },
-] as const
-
-// ── Grouped-card atoms ──────────────────────────────────────────────────────
-const ROW_H = pt(49)
-const CARD_INSET = pt(18.5)
-const ROW_PAD = pt(19.5)
+// ── Layout atoms ────────────────────────────────────────────────────────────
+const INSET = pt(18.5)
+const CARD_RADIUS = pt(24.5)
 
 const Card: React.FC<{ top: number; children: React.ReactNode }> = ({
   top,
@@ -191,11 +108,12 @@ const Card: React.FC<{ top: number; children: React.ReactNode }> = ({
   <div
     style={{
       position: "absolute",
-      left: CARD_INSET,
-      right: CARD_INSET,
+      left: INSET,
+      right: INSET,
       top,
-      borderRadius: pt(22),
+      borderRadius: CARD_RADIUS,
       backgroundColor: G.card,
+      border: `1px solid ${G.cardStroke}`,
       overflow: "hidden",
     }}
   >
@@ -203,162 +121,87 @@ const Card: React.FC<{ top: number; children: React.ReactNode }> = ({
   </div>
 )
 
-const Sep: React.FC = () => (
-  <div
-    style={{ height: 1, margin: `0 ${ROW_PAD}px`, backgroundColor: G.sep }}
-  />
-)
-
-// Label left, value + a TRAILING chevron right (a picker row, not a stepper).
-const PickerRow: React.FC<{ label: string; value: string }> = ({
-  label,
-  value,
-}) => (
-  <div
+// One muted glass pill of the options row; `hot` is the hover flick.
+const OptionPill: React.FC<{
+  children: React.ReactNode
+  chevron?: boolean
+  hot?: number
+}> = ({ children, chevron = true, hot = 0 }) => (
+  <span
     style={{
-      height: ROW_H,
-      boxSizing: "border-box",
       display: "flex",
       alignItems: "center",
-      padding: `0 ${ROW_PAD}px`,
-      fontSize: pt(17),
-      color: C.text,
+      gap: pt(5),
+      height: pt(30),
+      padding: `0 ${pt(10)}px`,
+      borderRadius: 999,
+      backgroundColor:
+        hot > 0 ? `rgba(255,255,255,${(0.051 + 0.05 * hot).toFixed(3)})` : G.pill,
+      border: `1px solid ${G.pillStroke}`,
+      fontSize: pt(13),
+      color: G.value,
+      whiteSpace: "nowrap",
     }}
   >
-    <span style={{ flex: 1 }}>{label}</span>
-    <span style={{ color: G.value, whiteSpace: "nowrap" }}>{value}</span>
-    <span style={{ marginLeft: pt(8.5), color: G.chev, display: "flex" }}>
-      <Glyph size={pt(12)} sw={2}>
-        <path d="m9 18 6-6-6-6" />
-      </Glyph>
-    </span>
-  </div>
+    {children}
+    {chevron ? (
+      <span style={{ color: G.chev, display: "flex" }}>
+        <Glyph size={pt(11)} sw={2}>
+          <path d="m6 9 6 6 6-6" />
+        </Glyph>
+      </span>
+    ) : null}
+  </span>
 )
 
-// iOS 26 switch, OFF: a wide white capsule knob parked left on a light track.
-const ToggleRow: React.FC<{ label: string }> = ({ label }) => (
-  <div
+// iOS mini switch, ON: the white capsule knob parked right on a primary track.
+const PlanSwitch: React.FC = () => (
+  <span
     style={{
-      height: ROW_H,
-      boxSizing: "border-box",
-      display: "flex",
-      alignItems: "center",
-      paddingLeft: ROW_PAD,
-      paddingRight: pt(17),
-      fontSize: pt(17),
-      color: C.text,
+      position: "relative",
+      width: pt(28),
+      height: pt(17),
+      borderRadius: 999,
+      backgroundColor: PRIMARY_FILL,
+      flexShrink: 0,
     }}
   >
-    <span style={{ flex: 1 }}>{label}</span>
     <span
       style={{
-        position: "relative",
-        width: pt(60.5),
-        height: pt(27),
+        position: "absolute",
+        right: pt(2),
+        top: pt(2),
+        width: pt(13),
+        height: pt(13),
         borderRadius: 999,
-        backgroundColor: G.track,
-        flexShrink: 0,
+        backgroundColor: PRIMARY_FG,
       }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          left: pt(3),
-          top: pt(2.25),
-          width: pt(34.5),
-          height: pt(22.5),
-          borderRadius: 999,
-          backgroundColor: "#fff",
-        }}
-      />
-    </span>
-  </div>
+    />
+  </span>
 )
 
-// ── Issue picker row: radio · priority · identifier · status · title ─────────
-const IssueRow: React.FC<{ issue: SheetIssue; checked: boolean }> = ({
-  issue,
-  checked,
-}) => (
-  <div
-    style={{
-      height: pt(28),
-      boxSizing: "border-box",
-      margin: `0 ${pt(18.5)}px`,
-      display: "flex",
-      alignItems: "center",
-      borderRadius: pt(8),
-      backgroundColor: checked ? G.rowChecked : "transparent",
-      fontSize: pt(15),
-    }}
-  >
-    <span
-      style={{
-        color: checked ? "#ffffff" : "rgba(255,255,255,0.6)",
-        display: "flex",
-        flexShrink: 0,
-      }}
-    >
-      <Glyph size={pt(17)} sw={2}>
-        <circle cx="12" cy="12" r="10" />
-        {checked ? <path d="m9 12 2 2 4-4" /> : null}
-      </Glyph>
-    </span>
-    <span style={{ marginLeft: pt(9), display: "flex" }}>
-      <MPriorityIcon priority={issue.priority} size={pt(13)} />
-    </span>
-    <span
-      style={{
-        width: pt(60),
-        marginLeft: pt(12),
-        fontFamily: MONO_FONT,
-        fontSize: pt(12),
-        color: G.id,
-        flexShrink: 0,
-      }}
-    >
-      {issue.id}
-    </span>
-    <span style={{ marginLeft: pt(4.5), display: "flex" }}>
-      <MStatusIcon status={issue.status} size={pt(15)} />
-    </span>
-    <span
-      style={{
-        marginLeft: pt(9),
-        paddingRight: pt(2),
-        color: C.text,
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-      }}
-    >
-      {issue.title}
-    </span>
-  </div>
-)
-
-// ── Sheet layout (sheet-local Ys, all derived — nothing hand-placed) ─────────
-// EXP-687 killed the bar buttons, so the sheet starts on its grabber and the
-// segmented control is the first content row (shots/start-coding/ios.webp).
-const Y_GRABBER = pt(6)
-const Y_TABS = pt(43)
-const Y_HEADER = Y_TABS + SEG_H + pt(24.5)
-const HEADER_H = pt(22)
-const Y_PICKER = Y_HEADER + HEADER_H + pt(10)
-const LIST_PAD = pt(12.5)
-const PICKER_H = ROW_H + 1 + LIST_PAD * 2 + SHEET_ISSUES.length * pt(28)
-const Y_AGENTS = Y_PICKER + PICKER_H + pt(16.5)
-const Y_OPTIONS = Y_AGENTS + SEG_H + pt(16.5)
-const OPTIONS_H = ROW_H * 2 + 1
-const Y_TOGGLES = Y_OPTIONS + OPTIONS_H + pt(11)
+// ── Screen layout (screen-local Ys, all derived — nothing hand-placed) ───────
+// The status row the chassis paints stays clear: content starts under the
+// 47pt safe area, like every pushed iOS detail.
+const SAFE_TOP = pt(47)
+const NAV_H = pt(44)
+const Y_CARD = SAFE_TOP + NAV_H + pt(12)
+const CHIP_BAND = pt(12) + pt(30)
+const FIELD_H = pt(14) + pt(44)
+const TOOLS_H = pt(10) + pt(34) + pt(12)
+const CARD_H = CHIP_BAND + FIELD_H + TOOLS_H
+const Y_OPTIONS = Y_CARD + CARD_H + pt(12)
+const Y_PAST_LABEL = Y_OPTIONS + pt(30) + pt(20)
+const Y_PAST = Y_PAST_LABEL + pt(15) + pt(8.5)
+const ROW_H = pt(56)
 
 export type StartPhoneProps = {
   frame: number
   tapAt: number // play-circle press on the issue view
-  sheetAt: number // the start sheet slides up
-  flickAt?: { at: number; out: number } // hover flick across the Codex pill
-  startAt: number // toolbar Start-coding press → spinner
-  collapseAt: number // sheet slides away (start sent)
+  sheetAt: number // the Agent page pushes in
+  flickAt?: { at: number; out: number } // hover flick across the Agent pill
+  startAt: number // submit press → spinner
+  collapseAt: number // the screen pops back (start sent)
   glass?: { x: number; y: number }
 }
 
@@ -371,20 +214,14 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
   collapseAt,
   glass,
 }) => {
-  const sheetIn =
+  // A pushed detail slides in from the RIGHT and pops back the same way.
+  const pushIn =
     frame < sheetAt
       ? 0
       : spring({ frame: frame - sheetAt, fps: 30, config: SETTLE })
-  const sheetOut = interpolate(
-    frame,
-    [collapseAt, collapseAt + 8],
-    [0, 1],
-    EASED
-  )
-  // The spring's overshoot is clamped away: a full-height sheet that sails
-  // past its rest position would ride over the status row.
-  const sheetY =
-    Math.max(0, SHEET_H * (1 - sheetIn)) + SHEET_H * sheetOut
+  const pushOut = interpolate(frame, [collapseAt, collapseAt + 8], [0, 1], EASED)
+  const pushX =
+    Math.max(0, PHONE.screenW * (1 - pushIn)) + PHONE.screenW * pushOut
   const flickT = flickAt
     ? interpolate(frame, [flickAt.at, flickAt.at + 4], [0, 1], CLAMP) *
       interpolate(frame, [flickAt.out, flickAt.out + 4], [1, 0], CLAMP)
@@ -396,7 +233,6 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
     [0, 1, 0],
     CLAMP
   )
-  const scrimO = Math.min(1 - sheetOut, sheetIn) * 0.45
   const toastAt = collapseAt + 6
   const toastT =
     frame < toastAt
@@ -425,62 +261,198 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
         playPressAt={tapAt}
       />
 
-      {/* scrim under the sheet */}
-      {scrimO > 0.01 ? (
+      {/* the pushed Agent page (real AgentPageView form) */}
+      {frame >= sheetAt && pushOut < 1 ? (
         <div
           style={{
             position: "absolute",
             inset: 0,
-            backgroundColor: `rgba(0,0,0,${scrimO.toFixed(3)})`,
-          }}
-        />
-      ) : null}
-
-      {/* the start sheet (real StartCodingSheet form) */}
-      {frame >= sheetAt && sheetOut < 1 ? (
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: SHEET_TOP,
-            height: SHEET_H,
             boxSizing: "border-box",
-            borderRadius: `${pt(38)}px ${pt(38)}px 36px 36px`,
-            // The sheet is OPAQUE (it carries its own AppBackground ramp) —
+            // The screen is OPAQUE (it carries its own AppBackground ramp) —
             // a translucent panel let the issue detail behind it read through.
             background: `linear-gradient(180deg, #131316, #1b1b1e)`,
-            borderTop: `1px solid ${C.strokeCard}`,
-            translate: `0px ${sheetY.toFixed(1)}px`,
+            translate: `${pushX.toFixed(1)}px 0px`,
             fontFamily: UI_FONT,
             letterSpacing: "-0.02em",
             overflow: "hidden",
           }}
         >
-          {/* the sheet grabber — the only chrome above the content */}
+          {/* the inline nav bar — native back, no tab bar on a detail */}
           <div
             style={{
               position: "absolute",
-              left: "50%",
-              top: Y_GRABBER,
-              width: pt(36),
-              height: pt(5),
-              borderRadius: 999,
-              translate: "-50% 0px",
-              backgroundColor: "rgba(255,255,255,0.22)",
+              left: pt(12),
+              right: pt(12),
+              top: SAFE_TOP,
+              height: NAV_H,
+              display: "flex",
+              alignItems: "center",
+              gap: pt(6),
+              color: C.text,
             }}
-          />
+          >
+            <span style={{ display: "flex", rotate: "180deg" }}>
+              <Glyph size={pt(17)} sw={2.2}>
+                <path d="m9 18 6-6-6-6" />
+              </Glyph>
+            </span>
+            <span style={{ fontSize: pt(17), fontWeight: 600 }}>
+              {PHONE_START.navTitle}
+            </span>
+          </div>
 
-          {/* subject: Issues | Actions | Chat */}
-          <SegControl top={Y_TABS} items={TABS} activeId="issues" />
+          {/* AgentComposerCard: chip · field · tools + the labelled submit */}
+          <Card top={Y_CARD}>
+            <div style={{ display: "flex", padding: `${pt(12)}px ${pt(12)}px 0` }}>
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: pt(5),
+                  maxWidth: "100%",
+                  height: pt(30),
+                  padding: `0 ${pt(6)}px 0 ${pt(10)}px`,
+                  borderRadius: 999,
+                  backgroundColor: G.chip,
+                  border: `1px solid ${G.cardStroke}`,
+                  fontSize: pt(15),
+                  color: C.text,
+                }}
+              >
+                <MStatusIcon status={CHIPPED.status} size={pt(15)} />
+                <span
+                  style={{
+                    fontFamily: MONO_FONT,
+                    fontSize: pt(12),
+                    color: G.id,
+                    flexShrink: 0,
+                  }}
+                >
+                  {CHIPPED.id}
+                </span>
+                <span
+                  style={{
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {CHIPPED.title}
+                </span>
+                <span style={{ color: G.chev, display: "flex" }}>
+                  <Glyph size={pt(11)} sw={2}>
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </Glyph>
+                </span>
+              </span>
+            </div>
+            <div
+              style={{
+                minHeight: pt(44),
+                padding: `${pt(14)}px ${pt(12)}px 0`,
+                fontSize: pt(17),
+                color: G.placeholder,
+              }}
+            >
+              {PHONE_START.placeholder}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: pt(18),
+                padding: `${pt(10)}px ${pt(12)}px ${pt(12)}px`,
+                color: G.tool,
+              }}
+            >
+              {/* `#` issues · ▶ actions · the image glyph, every client */}
+              <Glyph size={pt(17)} sw={2}>
+                <path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" />
+              </Glyph>
+              <Glyph size={pt(17)} sw={2}>
+                <path d="m6 3 14 9-14 9V3z" />
+              </Glyph>
+              <Glyph size={pt(17)} sw={2}>
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="9" cy="9" r="2" />
+                <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+              </Glyph>
+              <span style={{ flex: 1 }} />
+              {/* ExpUI GlassPill, primary: the submit is LABELLED on mobile */}
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: pt(6),
+                  height: pt(34),
+                  padding: `0 ${pt(14)}px`,
+                  borderRadius: 999,
+                  backgroundColor: PRIMARY_FILL,
+                  color: PRIMARY_FG,
+                  fontSize: pt(15),
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  scale: String(1 - 0.02 * startPress),
+                }}
+              >
+                {starting ? <Spinner frame={frame} /> : null}
+                {PHONE_START.confirm}
+              </span>
+            </div>
+          </Card>
 
-          {/* Issues section header + the grouped picker card */}
+          {/* AgentOptionsRow: one muted line of glass pills — the phone's
+              row SCROLLS, so Model and the rest sit off its right edge */}
           <div
             style={{
               position: "absolute",
-              left: pt(39),
-              top: Y_HEADER,
-              height: HEADER_H,
+              left: INSET,
+              right: INSET,
+              top: Y_OPTIONS,
+              display: "flex",
+              alignItems: "center",
+              gap: pt(8),
+            }}
+          >
+            <OptionPill>{PHONE_START.device}</OptionPill>
+            <OptionPill hot={flickT}>
+              <ClaudeMark size={pt(13)} />
+              {PHONE_START.agent}
+            </OptionPill>
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: pt(5),
+                height: pt(30),
+                padding: `0 ${pt(10)}px`,
+                borderRadius: 999,
+                backgroundColor: G.pill,
+                border: `1px solid ${G.pillStroke}`,
+                fontSize: pt(13),
+                color: G.value,
+              }}
+            >
+              {PHONE_START.planLabel}
+              <PlanSwitch />
+            </span>
+            {/* `⋯` unfolds Effort, Ultracode, MCP servers and Account. */}
+            <OptionPill chevron={false}>
+              <Glyph size={pt(14)} sw={2.2}>
+                <circle cx="5" cy="12" r="0.8" fill="currentColor" />
+                <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+                <circle cx="19" cy="12" r="0.8" fill="currentColor" />
+              </Glyph>
+            </OptionPill>
+          </div>
+
+          {/* AgentSessionsList: the caller's finished runs */}
+          <div
+            style={{
+              position: "absolute",
+              left: INSET,
+              top: Y_PAST_LABEL,
+              height: pt(15),
               display: "flex",
               alignItems: "center",
               fontSize: pt(15),
@@ -488,94 +460,62 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
               color: G.header,
             }}
           >
-            {PHONE_START.issuesLabel}
+            {PHONE_START.pastLabel}
           </div>
-          <Card top={Y_PICKER}>
-            <div
-              style={{
-                height: ROW_H,
-                boxSizing: "border-box",
-                display: "flex",
-                alignItems: "center",
-                gap: pt(8.5),
-                padding: `0 ${pt(18.5)}px`,
-                fontSize: pt(17),
-                color: G.placeholder,
-              }}
-            >
-              <Glyph size={pt(13)} sw={2}>
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </Glyph>
-              {PHONE_START.searchPlaceholder}
-            </div>
-            <Sep />
-            <div style={{ padding: `${LIST_PAD}px 0` }}>
-              {SHEET_ISSUES.map((issue) => (
-                <IssueRow
-                  key={issue.id}
-                  issue={issue}
-                  checked={issue.id === CHECKED_ID}
-                />
-              ))}
-            </div>
+          <Card top={Y_PAST}>
+            {PAST.map((row, i) => (
+              <React.Fragment key={row.id}>
+                {i > 0 ? (
+                  <div style={{ height: 1, backgroundColor: G.sep }} />
+                ) : null}
+                <div
+                  style={{
+                    height: ROW_H,
+                    boxSizing: "border-box",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: pt(10),
+                    padding: `0 ${pt(18.5)}px`,
+                    color: C.text,
+                  }}
+                >
+                  <ClaudeMark size={pt(15)} />
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: pt(5),
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: pt(15),
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {row.title}
+                    </span>
+                    <span style={{ fontSize: pt(12), color: G.caption }}>
+                      {PHONE_START.pastCaption}
+                    </span>
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: MONO_FONT,
+                      fontSize: pt(12),
+                      color: G.id,
+                    }}
+                  >
+                    {row.id}
+                  </span>
+                </div>
+              </React.Fragment>
+            ))}
           </Card>
-
-          {/* agent strip, then Model + Effort, then the launch toggles */}
-          <SegControl
-            top={Y_AGENTS}
-            items={AGENTS}
-            activeId="claude"
-            flick={{ id: "codex", t: flickT }}
-          />
-          <Card top={Y_OPTIONS}>
-            <PickerRow
-              label={PHONE_START.modelLabel}
-              value={PHONE_START.model}
-            />
-            <Sep />
-            <PickerRow
-              label={PHONE_START.effortLabel}
-              value={PHONE_START.effort}
-            />
-          </Card>
-          <Card top={Y_TOGGLES}>
-            {(["Ultracode", "Plan mode"] as const).map(
-              (label, i) => (
-                <React.Fragment key={label}>
-                  {i > 0 ? <Sep /> : null}
-                  <ToggleRow label={label} />
-                </React.Fragment>
-              )
-            )}
-          </Card>
-
-          {/* the ONE pinned action (ExpUI GlassSubmitButton): full width at
-              the sheet's floor, `primary` fill with `primaryForeground` text
-              and no hairline — never a toolbar button (EXP-687). */}
-          <div
-            style={{
-              position: "absolute",
-              left: pt(16),
-              right: pt(16),
-              bottom: pt(30),
-              height: pt(48),
-              boxSizing: "border-box",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: pt(8),
-              borderRadius: pt(10),
-              backgroundColor: PRIMARY_FILL,
-              color: PRIMARY_FG,
-              fontSize: pt(17),
-              fontWeight: 500,
-              scale: String(1 - 0.02 * startPress),
-            }}
-          >
-            {starting ? <Spinner frame={frame} /> : null}
-            {PHONE_START.confirm}
-          </div>
         </div>
       ) : null}
 

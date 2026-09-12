@@ -124,7 +124,12 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
     // own. The portrait stack put the agent's usage windows at the bottom of
     // one long column, and the shell's scroll wrapper squeezed the clipped
     // agent card until the last window was cut off (see [`Render`]).
-    let height = (window.viewport_size().height * 0.85).min(px(560.));
+    //
+    // EXP-827: no 560px cap. The dialog takes the window's height (less the
+    // shell's inset) and scrolls INSIDE its columns — the cap made the
+    // worktrees column two rows tall on a 1440p display while the space was
+    // right there.
+    let height = window.viewport_size().height * 0.85;
     let spec = DialogSpec::new("Device settings", size(px(820.), height))
         .resizable(size(px(680.), px(420.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
@@ -216,21 +221,15 @@ pub(crate) struct LoginAffordance {
 ///
 /// The OWN machine always can — the login runs in a terminal tab right here,
 /// online or not. A REMOTE machine needs to be online (the command rides its
-/// heartbeat), to run a build that executes `agent_login` (the cap), and not
-/// to be pi: pi's sign-in is an interactive prompt inside its TUI with no
-/// device-code flow to hand back, so remote sign-in refuses it outright (the
-/// server does too). Mirrors the web `canLogin` rule exactly.
+/// heartbeat) and to run a build that executes `agent_login` (the cap).
+/// Mirrors the web `canLogin` rule exactly.
 pub(crate) fn login_affordance(
-    agent: CodingAgent,
     own: bool,
     online: bool,
     caps: &[String],
     signed_in: bool,
 ) -> Option<LoginAffordance> {
-    let allowed = own
-        || (online
-            && agent != CodingAgent::Pi
-            && caps.iter().any(|cap| cap == "agent-login"));
+    let allowed = own || (online && caps.iter().any(|cap| cap == "agent-login"));
     allowed.then_some(LoginAffordance {
         label: if signed_in { "Switch account" } else { "Login" },
         switch: signed_in,
@@ -240,8 +239,8 @@ pub(crate) fn login_affordance(
 /// EXP-484/694: what one agent's OWN tab says above the login pill, where the
 /// agent is already the heading — just the ADDRESS: no `<agent> ·` prefix, no
 /// `signed in as` and no ` · <plan>` tail (the plan is the agent app's
-/// business, not this row's). An account with no email (pi reports a provider,
-/// never an address) falls back to the bare plan, and the two negative cases
+/// business, not this row's). An account with no email falls back to the
+/// bare plan, and the two negative cases
 /// read as sentences. Byte-identical to the web `accountLine`
 /// (`lib/agent-usage.ts`) and its iOS/Android twins.
 pub(crate) fn account_line(account: Option<&coding::agent_accounts::AgentAccount>) -> String {
@@ -254,7 +253,6 @@ pub(crate) fn account_line(account: Option<&coding::agent_accounts::AgentAccount
             let plan = account.plan.as_deref().filter(|value| !value.is_empty());
             match (email, plan) {
                 (Some(email), _) => email.to_string(),
-                // pi reports a provider, never an address.
                 (None, Some(plan)) => plan.to_string(),
                 (None, None) => "signed in".to_string(),
             }
@@ -300,7 +298,7 @@ pub(crate) fn own_agent_status(
 /// EXP-733: the numbers are the SAME ones the stand-in desktop of the shots
 /// pipeline reports for the demo machine's synced row
 /// (`apps/web/scripts/screenshot-demo.ts` `DEMO_AGENT_STATUS`) — all three
-/// agents, so the pane's Codex and pi tabs photograph the same machine the
+/// agents, so the pane's Codex tab photographs the same machine the
 /// web/mobile machine-settings shots do. Each reset carries a few seconds of
 /// pad past the label it is meant to print, so the shutter (which fires some
 /// seconds after launch) still reads `3h 32m` rather than the minute below.
@@ -331,9 +329,7 @@ fn dev_agent_status() -> Option<(
         resets_at: resets_in(resets),
     };
     // The three windows the pane groups: the 5h session, the weekly
-    // all-models bucket and one per-model bucket under it. pi has no usage
-    // surface of its own — its Anthropic OAuth provider answers the same
-    // endpoint — so it reports the same windows under its provider caption.
+    // all-models bucket and one per-model bucket under it.
     let claude_windows = || {
         vec![
             window("session", "5h", 73, 3 * 3_600 + 32 * 60),
@@ -352,7 +348,7 @@ fn dev_agent_status() -> Option<(
                 email: account_email,
                 plan: Some(plan.to_string()),
                 checked_at: stamp.clone(),
-                profiles: Vec::new(),
+                ..AgentAccount::default()
             },
         );
         usage.insert(
@@ -374,7 +370,6 @@ fn dev_agent_status() -> Option<(
             window("weekly", "Week", 57, 4 * 86_400 + 9 * 3_600),
         ],
     );
-    report(CodingAgent::Pi, None, "anthropic (oauth)", claude_windows());
     Some((accounts, usage))
 }
 
@@ -383,10 +378,14 @@ fn dev_agent_status() -> Option<(
 /// panes cannot drift.
 ///
 /// Row 1 is the account line ([`account_line`] — the address alone) with the
-/// Login / Switch-account pill when this client may start one; row 2 is the
-/// usage windows while the numbers are FRESH — stale limits beside a live
-/// machine read as current ones, so they degrade to an "as of …" line
-/// instead. Both are flat: the group around them draws the surface.
+/// Login / Switch-account pill when this client may start one and the round
+/// Usage button beside it; row 2 is the report's AGE. Both are flat: the group
+/// around them draws the surface.
+///
+/// EXP-827: the usage WINDOWS are not here any more. They live in ONE place —
+/// the Devices page's Accounts section ([`crate::accounts_section`]) — and
+/// `on_open_usage` is the way there (web `device-agent-account.tsx`: a round
+/// `ui-usage` button, shown only once there is an account or a report to open).
 #[allow(clippy::too_many_arguments)] // two call sites, one row set
 pub(crate) fn agent_account_rows<V: Render>(
     agent: CodingAgent,
@@ -396,6 +395,7 @@ pub(crate) fn agent_account_rows<V: Render>(
     affordance: Option<LoginAffordance>,
     pending: bool,
     on_login: impl Fn(&mut V, bool, &mut gpui::Context<V>) + 'static,
+    on_open_usage: impl Fn(&mut V, &mut Window, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> Vec<Div> {
     let muted = cx.theme().muted_foreground;
@@ -411,6 +411,16 @@ pub(crate) fn agent_account_rows<V: Render>(
             .text_color(foreground)
             .child(SharedString::from(account_line(account))),
     );
+    // EXP-849 (interface A): the Devices surface is the REPAIR surface, so the
+    // state `account_line` cannot express gets a badge beside it — a CLI still
+    // naming an account the provider has revoked reads as signed in everywhere
+    // else, and the fix is the login pill to its right.
+    if let Some(badge) = account
+        .map(|account| account.worst_health())
+        .and_then(|health| crate::usage_bar::health_badge(health, cx))
+    {
+        account_row = account_row.child(badge);
+    }
     if let Some(affordance) = affordance {
         // EXP-698: ONE pill, not a ghost button inside a pill wrapper.
         let icon = if affordance.switch {
@@ -442,19 +452,28 @@ pub(crate) fn agent_account_rows<V: Render>(
             })),
         );
     }
+    // EXP-827: the round way to the numbers, beside the login pill — shown
+    // only when there is an account or a report to look at.
+    let has_report = usage.is_some_and(|usage| !usage.windows.is_empty());
+    if account.is_some() || has_report {
+        account_row = account_row.child(
+            crate::controls::glass_icon_button(
+                SharedString::from(format!("agent-usage-{}", agent.id())),
+                Icon::new(registry::UI_USAGE),
+                cx,
+            )
+            .web_icon_xs()
+            .tooltip("Usage")
+            .on_click(cx.listener(move |view: &mut V, _, window, cx| {
+                on_open_usage(view, window, cx)
+            })),
+        );
+    }
     let mut rows = vec![account_row];
 
-    let fresh = usage.filter(|usage| {
-        !usage.windows.is_empty() && crate::usage_bar::is_fresh(&usage.fetched_at, now)
-    });
-    if let Some(usage) = fresh {
-        // EXP-694: inside the agent's own group the windows are plain rows —
-        // the group already draws the surface.
-        let cards = crate::usage_bar::render_usage_cards(agent, usage, now, true, cx);
-        rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(cards)));
-    } else if usage.is_some() || account.is_some() {
+    if usage.is_some() || account.is_some() {
         // Say when the numbers were taken instead of pretending they are
-        // current.
+        // current (the only thing the account block says about usage now).
         let stamp = account
             .map(|account| account.checked_at.clone())
             .or_else(|| usage_at.map(str::to_string))
@@ -505,11 +524,8 @@ pub struct DeviceSettingsView {
     effort_select: ChoiceSelect,
     codex_model_select: ChoiceSelect,
     codex_effort_select: ChoiceSelect,
-    pi_model_select: ChoiceSelect,
-    pi_thinking_select: ChoiceSelect,
     claude_ultracode: bool,
     claude_plan_mode: bool,
-    pi_plan_mode: bool,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -649,18 +665,6 @@ impl DeviceSettingsView {
             window,
             cx,
         );
-        let pi_model_select = choice_select(
-            model_choices_for(CodingAgent::Pi),
-            &seeded.pi_model,
-            window,
-            cx,
-        );
-        let pi_thinking_select = choice_select(
-            effort_choices_for(CodingAgent::Pi),
-            &seeded.pi_thinking,
-            window,
-            cx,
-        );
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -691,8 +695,6 @@ impl DeviceSettingsView {
             &effort_select,
             &codex_model_select,
             &codex_effort_select,
-            &pi_model_select,
-            &pi_thinking_select,
         ] {
             // EXP-694 autosave: a picked value IS the save (the guard in
             // `save_defaults` swallows the programmatic rewrites).
@@ -731,11 +733,8 @@ impl DeviceSettingsView {
             effort_select,
             codex_model_select,
             codex_effort_select,
-            pi_model_select,
-            pi_thinking_select,
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
-            pi_plan_mode: seeded.pi_plan_mode,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -896,8 +895,6 @@ impl DeviceSettingsView {
             (&self.effort_select, baseline.claude_effort.clone()),
             (&self.codex_model_select, baseline.codex_model.clone()),
             (&self.codex_effort_select, baseline.codex_effort.clone()),
-            (&self.pi_model_select, baseline.pi_model.clone()),
-            (&self.pi_thinking_select, baseline.pi_thinking.clone()),
         ] {
             select.update(cx, |select, cx| {
                 select.set_selected_value(&SharedString::from(value), window, cx)
@@ -905,7 +902,6 @@ impl DeviceSettingsView {
         }
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
-        self.pi_plan_mode = baseline.pi_plan_mode;
         let status = self.agent_status(cx);
         if !self.tab_agents(&status).contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
@@ -924,11 +920,8 @@ impl DeviceSettingsView {
         drafted.claude_effort = selected(&self.effort_select, cx);
         drafted.codex_model = selected(&self.codex_model_select, cx);
         drafted.codex_effort = selected(&self.codex_effort_select, cx);
-        drafted.pi_model = selected(&self.pi_model_select, cx);
-        drafted.pi_thinking = selected(&self.pi_thinking_select, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
-        drafted.pi_plan_mode = self.pi_plan_mode;
         drafted
     }
 
@@ -1141,14 +1134,11 @@ impl DeviceSettingsView {
             settings.claude_effort = drafted.claude_effort.clone();
             settings.codex_model = drafted.codex_model.clone();
             settings.codex_effort = drafted.codex_effort.clone();
-            settings.pi_model = drafted.pi_model.clone();
-            settings.pi_thinking = drafted.pi_thinking.clone();
-            settings.claude_ultracode = drafted.claude_ultracode;
-            settings.claude_plan_mode = drafted.claude_plan_mode;
             // EXP-746: the overlay is field-by-field, not a struct
             // assignment — a new launch default that misses a line here is
             // saved everywhere EXCEPT on this machine's own row.
-            settings.pi_plan_mode = drafted.pi_plan_mode;
+            settings.claude_ultracode = drafted.claude_ultracode;
+            settings.claude_plan_mode = drafted.claude_plan_mode;
             self.set_error(
                 "defaults",
                 CodingHub::save_settings(&hub, settings, cx)
@@ -1298,7 +1288,16 @@ impl DeviceSettingsView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), switch)
+                    // The dialog's pill is the AMBIENT login (the agent's own
+                    // tab in this dialog); per-profile sign-ins ride the
+                    // Devices row's account chips.
+                    api::devices::create_agent_login_command(
+                        &trpc,
+                        &device_id,
+                        agent.id(),
+                        switch,
+                        None,
+                    )
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1628,10 +1627,6 @@ impl DeviceSettingsView {
                 self.codex_model_select.clone(),
                 self.codex_effort_select.clone(),
             ),
-            CodingAgent::Pi => (
-                self.pi_model_select.clone(),
-                self.pi_thinking_select.clone(),
-            ),
         };
         let mut group = AgentDefaultsGroup::new(
             "device-defaults",
@@ -1670,18 +1665,6 @@ impl DeviceSettingsView {
                     },
                 ));
         }
-        if agent_tab == CodingAgent::Pi {
-            group = group.toggle(DefaultsToggle::new(
-                "device-pi-plan",
-                "Plan mode",
-                self.pi_plan_mode,
-                |this: &mut Self, on, cx| {
-                    this.pi_plan_mode = on;
-                    this.save_defaults(cx);
-                },
-            ));
-        }
-
         // EXP-686: no section title — the "Default agent" row already names
         // what the block is.
         let mut body = v_flex()
@@ -1785,7 +1768,7 @@ impl DeviceSettingsView {
         let muted = cx.theme().muted_foreground;
         let account = status.accounts.get(agent.id());
         let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
-        let affordance = login_affordance(agent, self.own, online, &status.caps, signed_in);
+        let affordance = login_affordance(self.own, online, &status.caps, signed_in);
         let key = login_key(agent);
         let pending = self.command_pending(&key);
 
@@ -1797,6 +1780,14 @@ impl DeviceSettingsView {
             affordance,
             pending,
             move |this: &mut Self, switch, cx| this.start_login(agent, switch, cx),
+            // EXP-827: the Usage button closes the dialog and lands on the
+            // Devices page's Accounts section in the window that opened it
+            // (web `openUsage`).
+            |_: &mut Self, window, cx| {
+                native_dialog::close_then(window, cx, |window, cx| {
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
+                });
+            },
             cx,
         );
 
@@ -2292,7 +2283,7 @@ mod tests {
                 email: email.map(str::to_string),
                 plan: plan.map(str::to_string),
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
-                profiles: Vec::new(),
+                ..coding::agent_accounts::AgentAccount::default()
             }
         };
         // The plan is dropped even when the machine reported one.
@@ -2308,10 +2299,10 @@ mod tests {
             account_line(Some(&account(false, None, None))),
             "Not signed in"
         );
-        // pi names a provider, never an address — it keeps the bare plan.
+        // An account naming only a plan keeps the bare plan.
         assert_eq!(
-            account_line(Some(&account(true, None, Some("anthropic (oauth)")))),
-            "anthropic (oauth)"
+            account_line(Some(&account(true, None, Some("pro")))),
+            "pro"
         );
         // A signed-in account naming neither.
         assert_eq!(account_line(Some(&account(true, None, None))), "signed in");
@@ -2320,8 +2311,7 @@ mod tests {
     }
 
     /// EXP-484: who may start a sign-in. The own machine always can; a
-    /// remote one needs to be online, to run a build with the cap, and not
-    /// to be pi.
+    /// remote one needs to be online and to run a build with the cap.
     #[test]
     fn login_affordance_matrix() {
         let caps = vec!["resume".to_string(), "agent-login".to_string()];
@@ -2329,21 +2319,17 @@ mod tests {
 
         // Own device: always, offline and cap-less included — the login runs
         // in a terminal tab right here.
-        let own = login_affordance(CodingAgent::Claude, true, false, &none, false).unwrap();
+        let own = login_affordance(true, false, &none, false).unwrap();
         assert_eq!(own.label, "Login");
         assert!(!own.switch);
         // Signed in → the switch wording, and the run signs out first.
-        let own = login_affordance(CodingAgent::Codex, true, false, &none, true).unwrap();
+        let own = login_affordance(true, false, &none, true).unwrap();
         assert_eq!(own.label, "Switch account");
         assert!(own.switch);
-        // pi is fine locally.
-        assert!(login_affordance(CodingAgent::Pi, true, true, &caps, false).is_some());
-
-        // Remote: online + cap + not pi.
-        assert!(login_affordance(CodingAgent::Claude, false, true, &caps, false).is_some());
-        assert!(login_affordance(CodingAgent::Claude, false, false, &caps, false).is_none());
-        assert!(login_affordance(CodingAgent::Claude, false, true, &none, false).is_none());
-        assert!(login_affordance(CodingAgent::Pi, false, true, &caps, false).is_none());
+        // Remote: online + cap.
+        assert!(login_affordance(false, true, &caps, false).is_some());
+        assert!(login_affordance(false, false, &caps, false).is_none());
+        assert!(login_affordance(false, true, &none, false).is_none());
     }
 
     /// EXP-484: a newer (or corrupt) device's payload drops the bad entries,
@@ -2360,14 +2346,14 @@ mod tests {
             // Unknown fields ride along unread.
             "codex": { "signedIn": false, "checkedAt": "x", "future": 1 },
             // Wrong shape entirely — dropped, not fatal.
-            "pi": "signed in",
+            "gemini": "signed in",
         });
         let accounts =
             parse_agent_map::<coding::agent_accounts::AgentAccount>(Some(&value));
         assert_eq!(accounts.len(), 2);
         assert_eq!(accounts["claude"].email.as_deref(), Some("dev@acme.test"));
         assert!(!accounts["codex"].signed_in);
-        assert!(!accounts.contains_key("pi"));
+        assert!(!accounts.contains_key("gemini"));
         // A missing / non-object column is simply nothing to render.
         assert!(parse_agent_map::<coding::agent_accounts::AgentAccount>(None).is_empty());
         assert!(parse_agent_map::<coding::agent_accounts::AgentAccount>(Some(

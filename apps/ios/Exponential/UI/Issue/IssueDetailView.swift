@@ -180,8 +180,10 @@ struct IssueDetailView: View {
 
                         // Coding now (EXP-698 r4): a live session is the most
                         // perishable state on the page, so it rides directly
-                        // under the chips in the same card chrome instead of
-                        // below the description. Renders nothing without one.
+                        // under the chips instead of below the description.
+                        // EXP-818 stripped its card: the caller's own run is
+                        // the Watch pill, a teammate's a muted caption.
+                        // Renders nothing without a live session.
                         CodingNowCard(
                             issue: issue,
                             runningSessions: vm.runningSessions,
@@ -362,7 +364,13 @@ struct IssueDetailView: View {
                 // is available to everyone; only the mutating items are
                 // moderator-gated (parity with Android).
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    // EXP-845: the pin BUTTON sits beside the `…` (the session
+                    // header's pattern) — the menu keeps its Pin/Unpin row, and
+                    // list rows carry no pin control at all.
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        if let pinStore {
+                            PinToolbarButton(store: pinStore, targetId: issue.id)
+                        }
                         GlassMenuBarButton(
                             icon: AppIcons.uiMore,
                             accessibilityLabel: "More",
@@ -730,7 +738,9 @@ struct IssueDetailView: View {
         if let session = ownSessions.max(by: { $0.startedAt < $1.startedAt }) {
             return .session(
                 CodingSessionDisplayState.of(session: session, prState: issue.prState),
-                sessionId: session.id
+                sessionId: session.id,
+                // EXP-848: the dot pulses on the device-written turn flag.
+                busy: session.agentBusy
             )
         }
         guard let devices = vm.steerDevices else { return .hidden }

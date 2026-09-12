@@ -15,9 +15,6 @@
 //!   that TUI around it.
 //! * **codex** — [`crate::codex_login_picker::detect`]: URL plus device
 //!   code, the only pair a remote requester can finish.
-//! * **pi** — nothing. pi's `/login` opens a provider flow inside its TUI
-//!   with no remote-finishable handle, so remote sign-in refuses pi outright
-//!   and this returns [`LoginObservation::Nothing`] for it.
 //!
 //! [`LoginObservation::MethodPicker`] exists for the defensive `\r` the
 //! executors write once: `--claudeai` should never render a method picker,
@@ -40,7 +37,7 @@ pub enum LoginObservation {
 }
 
 /// Read one login screen for `agent` (a [`coding::CodingAgent::id`] string:
-/// `claude` / `codex` / `pi`; anything else observes nothing).
+/// `claude` / `codex`; anything else observes nothing).
 ///
 /// `steer` does not depend on `coding` (§3.1 keeps that direction free), so
 /// the agent arrives as its wire id — callers pass `agent.id()`.
@@ -48,7 +45,6 @@ pub fn observe_login_screen(agent: &str, lines: &[String]) -> LoginObservation {
     match agent {
         "claude" => observe_claude(lines),
         "codex" => observe_codex(lines),
-        // pi: no remote sign-in (see the module docs).
         _ => LoginObservation::Nothing,
     }
 }
@@ -192,7 +188,6 @@ mod tests {
             "  https://auth.openai.com/codex/device",
             "  and enter the code: WDJB-MJHT",
         ]);
-        assert_eq!(observe_login_screen("pi", &device), LoginObservation::Nothing);
         assert_eq!(
             observe_login_screen("something-else", &device),
             LoginObservation::Nothing

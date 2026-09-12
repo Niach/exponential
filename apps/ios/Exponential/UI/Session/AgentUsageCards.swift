@@ -144,6 +144,13 @@ struct AgentUsageTrack: View {
 /// own "Context" block — deliberately NOT folded into `usageGroups`, whose
 /// percent cards are fixture-locked ×4 and would draw an empty rail for a
 /// token count.
+///
+/// EXP-849 makes it the run's ACCOUNT surface too: under the numbers sit the
+/// logins the host machine reports for this run's agent, each with its own
+/// bars, and — claude only, between turns, on the run's own machine — a
+/// "Switch to this account" that resumes the run under that login. That is why
+/// the usage/context readout is a CONTROL on every client now: "I am out of
+/// limit" and "use my other account" are one thought.
 struct AgentUsageSheet: View {
     let usage: AgentUsage?
     /// The host machine's sign-in status for THIS session's agent, when it
@@ -152,7 +159,23 @@ struct AgentUsageSheet: View {
     let account: AgentAccount?
     /// EXP-746: this run's own context window and spend off the relay's
     /// latest-wins `usage` event.
-    var sessionUsage: AgentSessionUsage?
+    var sessionUsage: AgentSessionUsage? = nil
+    /// EXP-849: the host machine's logins for this run's agent
+    /// (`AgentSessionModel.accountOptions`). Empty = the machine said nothing
+    /// about the agent, so there is nothing to switch between and the block is
+    /// absent.
+    var accounts: [SessionAccountOption] = []
+    /// EXP-849: whether this run's agent can change login at all (claude). A
+    /// codex run still lists its accounts — read-only, because switching there
+    /// means starting the next run on the other one.
+    var supportsSwitch: Bool = false
+    /// EXP-849: why switching onto a given login would be refused right now
+    /// (`AgentSessionModel.accountSwitchRefusal`, the ×4 rule). The control
+    /// stays and says so — nil for the rows a switch would take.
+    var switchRefusal: ((SessionAccountOption) -> String?)? = nil
+    /// A switch is on the wire — every row's control waits.
+    var switching: Bool = false
+    var onSwitch: ((SessionAccountOption) -> Void)? = nil
 
     var body: some View {
         GlassSheetChrome(title: "Usage") {
@@ -174,11 +197,44 @@ struct AgentUsageSheet: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
+                accountsBlock
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// EXP-849: the run's accounts — one row per login the host machine
+    /// reports for its agent, the machine's current one marked, each with its
+    /// own bars, and the switch where one is allowed.
+    @ViewBuilder
+    private var accountsBlock: some View {
+        if !accounts.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(SessionAccountSwitch.sectionTitle)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                ForEach(accounts) { option in
+                    SessionAccountRow(
+                        option: option,
+                        showsSwitch: supportsSwitch && onSwitch != nil,
+                        refusal: switchRefusal?(option),
+                        switching: switching,
+                        onSwitch: { onSwitch?(option) }
+                    )
+                }
+                // The one-time cost, stated BEFORE the tap — the relaunch
+                // re-reads the transcript on the account moved to.
+                if supportsSwitch, accounts.count > 1 {
+                    Text(SessionAccountSwitch.costNote)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityIdentifier("session-accounts")
         }
     }
 
@@ -188,6 +244,100 @@ struct AgentUsageSheet: View {
         guard usage?.stale == true else { return nil }
         let asOf = agentUsageRelativeDate(usage?.fetchedAt)
         return asOf.isEmpty ? nil : "as of \(asOf)"
+    }
+}
+
+/// EXP-849: one login of the run's host machine inside the Usage sheet — who it
+/// is, its health, whether it is that machine's CURRENT login, its own bars,
+/// and the switch. The control STAYS when a switch would be refused and the
+/// reason sits under the row: a vanished button teaches nothing. Mirrors
+/// Android's `SessionAccountRow` field for field.
+struct SessionAccountRow: View {
+    let option: SessionAccountOption
+    /// Whether this run's agent supports switching at all (claude). A codex run
+    /// lists its accounts without controls.
+    let showsSwitch: Bool
+    /// Why a switch onto this login is refused right now, nil when it is not.
+    let refusal: String?
+    let switching: Bool
+    let onSwitch: () -> Void
+
+    /// `max · Active login` — the plan (when it is not already the title) and
+    /// the machine's CURRENT login. Never a claim about which account THIS run
+    /// is on: that stays server-side.
+    private var subtitle: String {
+        var parts: [String] = []
+        if let plan = option.plan, plan != option.caption { parts.append(plan) }
+        if option.active { parts.append("Active login") }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(option.caption)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(
+                                option.signedIn ? Color.white : DesignTokens.Semantic.yellow
+                            )
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let badge = option.health.badgeLabel {
+                            Text(badge)
+                                .font(.caption2)
+                                .foregroundStyle(DesignTokens.Semantic.yellow)
+                                .lineLimit(1)
+                        }
+                    }
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                if showsSwitch {
+                    switchControl
+                }
+            }
+            if let usage = option.usage, !(usage.windows ?? []).isEmpty {
+                AgentUsageCards(usage: usage, compact: true)
+            }
+            // The refusal rides the ROW the control is on, so it is read where
+            // the tap was meant to happen.
+            if let refusal {
+                Text(refusal)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassRow()
+        .accessibilityIdentifier("session-account-\(option.profileId)")
+    }
+
+    @ViewBuilder
+    private var switchControl: some View {
+        if switching {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+                .accessibilityLabel("Switching account")
+        } else {
+            GlassPill(
+                SessionAccountSwitch.switchLabel,
+                icon: AppIcons.uiSwap,
+                mode: .action(onSwitch),
+                enabled: refusal == nil
+            )
+            .accessibilityIdentifier("switch-account-\(option.profileId)")
+        }
     }
 }
 

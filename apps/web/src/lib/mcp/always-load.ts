@@ -4,7 +4,7 @@
 // default — only tool NAMES and the server `instructions` land in the context
 // window at session start, and a tool's full definition is fetched when the
 // model searches for it. `_meta["anthropic/alwaysLoad"]` opts a tool back into
-// the always-present set. The pi bridge mirrors the same split through pi's
+// the always-present set. Other agents mirror the same split through their
 // dynamic tool loading, reading this very flag off `tools/list`.
 //
 // So the old "every tool must fit one shared byte ceiling" rule is gone; what

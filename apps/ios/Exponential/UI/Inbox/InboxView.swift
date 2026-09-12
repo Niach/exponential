@@ -25,7 +25,9 @@ struct InboxListContent: View {
             emptyState("You're all caught up.")
         } else {
             ScrollView {
-                LazyVStack(spacing: 8) {
+                // EXP-818: the inbox is a TABLE — flat rows with no gap
+                // (`.flatRow()`), the way web's and the IDE's inbox read.
+                LazyVStack(spacing: 0) {
                     ForEach(viewModel.entries) { entry in
                         switch entry {
                         case .issue(let group):
@@ -124,7 +126,9 @@ struct InboxListContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        // EXP-818: the flat list row — the material card these three rows used
+        // to wear is gone (glass is tokens, never a system material).
+        .flatRow()
         .opacity(unread ? 1 : 0.6)
     }
 
@@ -179,7 +183,9 @@ struct InboxListContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        // EXP-818: the flat list row — the material card these three rows used
+        // to wear is gone (glass is tokens, never a system material).
+        .flatRow()
         .opacity(unread ? 1 : 0.6)
     }
 
@@ -232,7 +238,9 @@ struct InboxListContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        // EXP-818: the flat list row — the material card these three rows used
+        // to wear is gone (glass is tokens, never a system material).
+        .flatRow()
         .opacity(unread ? 1 : 0.6)
     }
 

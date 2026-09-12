@@ -32,25 +32,6 @@ export function CodexIcon(props: React.SVGProps<SVGSVGElement>) {
   )
 }
 
-export function PiIcon(props: React.SVGProps<SVGSVGElement>) {
-  // pi.dev's blocky "P + i-dot" mark (the desktop's pi.svg, currentColor) —
-  // agent tab strips (EXP-213).
-  return (
-    <svg
-      viewBox="0 0 800 800"
-      fill="currentColor"
-      aria-hidden="true"
-      {...props}
-    >
-      <path
-        fillRule="evenodd"
-        d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"
-      />
-      <path d="M517.36 400 H634.72 V634.72 H517.36 Z" />
-    </svg>
-  )
-}
-
 export function CursorIcon(props: React.SVGProps<SVGSVGElement>) {
   // The angular 3D cube: an isometric hexagon split into three faces.
   return (

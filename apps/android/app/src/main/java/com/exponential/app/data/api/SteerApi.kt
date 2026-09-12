@@ -39,7 +39,7 @@ data class DeviceOwner(
  * [model]/[effort] are contract values where an EMPTY string is the explicit
  * "CLI default" (omit the flag) — the same convention the start options use.
  * The booleans ride only when true, so an absent one IS false; capability
- * clamping (ultracode is claude-only, plan mode is claude/pi-only (EXP-441))
+ * clamping (ultracode and plan mode are claude-only since EXP-849)
  * stays the reader's job.
  */
 @Serializable
@@ -72,8 +72,8 @@ data class DeviceLaunchDefaults(
 /**
  * EXP-484: what a machine knows about ONE agent CLI's local sign-in. Read-only
  * status — no credential is ever carried, copied or refreshed. [plan] is the
- * subscription tier for claude/codex (`api key` for a codex API-key account)
- * and `"<provider> (oauth|api key)"` for pi, which has no email at all.
+ * subscription tier for claude/codex (`api key` for a codex API-key account);
+ * an account with no email at all reports `"<provider> (oauth|api key)"`.
  * [checkedAt] is when the machine last probed.
  */
 @Serializable
@@ -82,6 +82,14 @@ data class AgentAccount(
     @SerialName("email") val email: String? = null,
     @SerialName("plan") val plan: String? = null,
     @SerialName("checkedAt") val checkedAt: String? = null,
+    /**
+     * EXP-849: how USABLE the login is, as the machine's USAGE PROBE saw it
+     * (`auth status` is identity only, never health) — one of
+     * [AgentHealth]'s wire tokens. Absent on a pre-EXP-849 device: derive it
+     * from [signedIn] (`AgentHealthRules.of`). A value this build has no name
+     * for reads as `unknown`, never blanks the row.
+     */
+    @SerialName("health") val health: String? = null,
     /**
      * EXP-825: the agent's login PROFILES on the machine (web
      * `agentAccounts[agent].profiles`) — the composer's Account picker offers
@@ -112,6 +120,8 @@ data class AgentAccountProfile(
     @SerialName("signedIn") val signedIn: Boolean = false,
     @SerialName("plan") val plan: String? = null,
     @SerialName("checkedAt") val checkedAt: String? = null,
+    /** EXP-849: this profile's own health — see [AgentAccount.health]. */
+    @SerialName("health") val health: String? = null,
     @SerialName("usage") val usage: AgentUsage? = null,
 )
 
@@ -468,6 +478,13 @@ internal data class StartActionSessionInput(
 private data class ResumeSessionInput(
     @SerialName("resumeSessionId") val resumeSessionId: String,
     @SerialName("deviceId") val deviceId: String,
+    /**
+     * EXP-849 phase 3: the login the resumed run re-enters under — a remote
+     * "switch account" IS a resume that names an account. Null = the run's own
+     * recorded account (the plain Resume), and the ambient login is never named
+     * (`system` is the absence of the field).
+     */
+    @SerialName("account") val account: String? = null,
 )
 
 @Singleton
@@ -575,12 +592,26 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
      * on [SteerDevice.canResumeRun]; the resumed run keeps its recorded agent
      * and options, so nothing else rides along. Same error mapping as the
      * other forms.
+     *
+     * EXP-849 phase 3: [account] makes this a mid-session ACCOUNT SWITCH — the
+     * machine re-enters the recorded run under that login (claude only), in the
+     * same worktree, and links the new row by `resumed_from_id` so it presents
+     * as a continuation.
      */
-    suspend fun resumeSession(accountId: String, sessionId: String, deviceId: String) {
+    suspend fun resumeSession(
+        accountId: String,
+        sessionId: String,
+        deviceId: String,
+        account: String? = null,
+    ) {
         trpc.mutationUnit(
             accountId,
             path = "steer.startSession",
-            input = ResumeSessionInput(resumeSessionId = sessionId, deviceId = deviceId),
+            input = ResumeSessionInput(
+                resumeSessionId = sessionId,
+                deviceId = deviceId,
+                account = account,
+            ),
             inputSerializer = ResumeSessionInput.serializer(),
         )
     }

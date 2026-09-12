@@ -39,6 +39,10 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
     public let usage: AgentUsage?
     /// The "as of …" fallback when the usage is stale or absent.
     public let checkedAt: String?
+    /// EXP-849: how the machine's last probe of THIS login went, already
+    /// derived (`AgentAccountHealth.resolve`) — a row never carries the raw
+    /// wire token.
+    public let health: AgentAccountHealth
 
     public var id: String { key }
 
@@ -56,7 +60,8 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
         email: String?,
         plan: String?,
         usage: AgentUsage?,
-        checkedAt: String?
+        checkedAt: String?,
+        health: AgentAccountHealth = .unknown
     ) {
         self.key = key
         self.deviceId = deviceId
@@ -72,14 +77,16 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
         self.plan = plan
         self.usage = usage
         self.checkedAt = checkedAt
+        self.health = health
     }
 }
 
 /// One ACCOUNT: the rows above folded by login. EXP-817's rule ×4.
 public struct AgentAccountUsageGroup: Equatable, Sendable, Identifiable {
-    /// `<agent>:<email>` for a named login; a row with no email (pi names a
-    /// provider, a signed-out row names nobody) can never be told apart from
-    /// another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
+    /// `<agent>:<email>` for a named login; a row with no email (an agent that
+    /// names a provider, a signed-out row that names nobody) can never be told
+    /// apart from another machine's, so it keeps its own
+    /// `<agent>:<deviceId>:<profileId>`.
     public let key: String
     public let agent: String
     public let signedIn: Bool
@@ -96,6 +103,10 @@ public struct AgentAccountUsageGroup: Equatable, Sendable, Identifiable {
     /// Where a refresh is queued: the eligible member (`canRefresh`) that
     /// reported the freshest numbers, or nil when no member may run one.
     public var refreshTarget: AgentProfileUsageRow?
+    /// EXP-849: the WORST health among the machines holding this account — a
+    /// login that works on one machine and is expired on another reads as
+    /// needing a re-login, because it does.
+    public var health: AgentAccountHealth
 
     public var id: String { key }
 
@@ -108,7 +119,8 @@ public struct AgentAccountUsageGroup: Equatable, Sendable, Identifiable {
         rows: [AgentProfileUsageRow],
         usage: AgentUsage?,
         checkedAt: String?,
-        refreshTarget: AgentProfileUsageRow?
+        refreshTarget: AgentProfileUsageRow?,
+        health: AgentAccountHealth = .unknown
     ) {
         self.key = key
         self.agent = agent
@@ -119,6 +131,7 @@ public struct AgentAccountUsageGroup: Equatable, Sendable, Identifiable {
         self.usage = usage
         self.checkedAt = checkedAt
         self.refreshTarget = refreshTarget
+        self.health = health
     }
 }
 
@@ -189,7 +202,11 @@ public enum AgentAccountsRows {
                         email: nonEmpty(account?.email),
                         plan: nonEmpty(account?.plan),
                         usage: usageMap[agent],
-                        checkedAt: nonEmpty(account?.checkedAt) ?? nonEmpty(device.agentUsageAt)
+                        checkedAt: nonEmpty(account?.checkedAt) ?? nonEmpty(device.agentUsageAt),
+                        // EXP-849: an agent the machine reported ONLY usage
+                        // for has no account entry at all, which is `unknown`
+                        // — `AgentAccountHealth.of(nil)` says exactly that.
+                        health: AgentAccountHealth.of(account)
                     ))
                     continue
                 }
@@ -215,7 +232,10 @@ public enum AgentAccountsRows {
                         email: nonEmpty(profile.email),
                         plan: nonEmpty(profile.plan),
                         usage: usage,
-                        checkedAt: nonEmpty(profile.checkedAt) ?? nonEmpty(account?.checkedAt)
+                        checkedAt: nonEmpty(profile.checkedAt) ?? nonEmpty(account?.checkedAt),
+                        // EXP-849: the profile's own probe outcome; a profile
+                        // entry that reports none derives from its `signedIn`.
+                        health: AgentAccountHealth.of(profile)
                     ))
                 }
             }
@@ -228,10 +248,17 @@ public enum AgentAccountsRows {
         (usage?.windows ?? []).reduce(0) { max($0, $1.percent ?? 0) }
     }
 
-    /// Attention-first ordering: signed-out rows lead (there is something to
-    /// do), then rows at or over the danger threshold, then everything else.
-    public static func attentionRank(signedIn: Bool, usage: AgentUsage?) -> Int {
-        if !signedIn { return 0 }
+    /// Attention-first ordering: rows with something to DO lead (EXP-849: a
+    /// signed-out login, or one the agent refused — `needs_relogin`), then
+    /// rows at or over the danger threshold, then everything else. `health`
+    /// defaults to `unknown` so a caller that has none keeps the pre-EXP-849
+    /// ordering exactly.
+    public static func attentionRank(
+        signedIn: Bool,
+        usage: AgentUsage?,
+        health: AgentAccountHealth = .unknown
+    ) -> Int {
+        if !signedIn || health.needsAttention { return 0 }
         if AgentUsagePresentation.severity(peakPercent(usage)) == .danger { return 1 }
         return 2
     }
@@ -240,8 +267,8 @@ public enum AgentAccountsRows {
     /// profile — so a heartbeat cannot shuffle equal rows.
     public static func sortAttentionFirst(_ rows: [AgentProfileUsageRow]) -> [AgentProfileUsageRow] {
         rows.sorted { a, b in
-            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage)
-            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage)
+            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
+            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
             if rankA != rankB { return rankA < rankB }
             let peakA = peakPercent(a.usage)
             let peakB = peakPercent(b.usage)
@@ -300,11 +327,14 @@ public enum AgentAccountsRows {
                     rows: [],
                     usage: nil,
                     checkedAt: nil,
-                    refreshTarget: nil
+                    refreshTarget: nil,
+                    // Folded below as every member joins: the worst wins.
+                    health: row.health
                 )
             }
             group.rows.append(row)
             if group.plan == nil, let plan = row.plan { group.plan = plan }
+            group.health = AgentAccountHealth.worst([group.health, row.health]) ?? group.health
             if fresherUsage(row.usage, than: group.usage) { group.usage = row.usage }
             if stamp(row.checkedAt) > stamp(group.checkedAt) { group.checkedAt = row.checkedAt }
             if canRefresh(row),
@@ -328,8 +358,8 @@ public enum AgentAccountsRows {
     /// the key (email or device) — the section order.
     public static func sortGroupsAttentionFirst(_ groups: [AgentAccountUsageGroup]) -> [AgentAccountUsageGroup] {
         groups.sorted { a, b in
-            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage)
-            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage)
+            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
+            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
             if rankA != rankB { return rankA < rankB }
             let peakA = peakPercent(a.usage)
             let peakB = peakPercent(b.usage)
@@ -355,6 +385,39 @@ public enum AgentAccountsRows {
         }
     }
 
+    // MARK: - Per-device health (EXP-849)
+
+    /// The badge a MACHINE row wears: the worst health among the logins that
+    /// machine reported (web `deviceWorstHealth`, Android `deviceWorst`).
+    /// `unknown` when it reported none — web's nil, and the same outcome: a
+    /// device row badges only `needsAttention` states, so an unprobed machine
+    /// stays quiet either way.
+    public static func deviceHealth(
+        _ rows: [AgentProfileUsageRow],
+        deviceId: String
+    ) -> AgentAccountHealth {
+        AgentAccountHealth.worst(rows.filter { $0.deviceId == deviceId }.map(\.health))
+            ?? .unknown
+    }
+
+    /// The machine's logins, as the chips a Devices row draws: attention
+    /// first, then the same order the account rows use for their chips
+    /// (online, label, profile — and here agent before profile, since one
+    /// machine holds several agents).
+    public static func deviceRows(
+        _ rows: [AgentProfileUsageRow],
+        deviceId: String
+    ) -> [AgentProfileUsageRow] {
+        rows.filter { $0.deviceId == deviceId }.sorted { a, b in
+            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
+            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
+            if rankA != rankB { return rankA < rankB }
+            if let ordered = before(a.agent, b.agent) { return ordered }
+            if a.active != b.active { return a.active }
+            return before(a.profileLabel, b.profileLabel) ?? false
+        }
+    }
+
     // MARK: - Row copy
 
     /// The `Studio · Personal` chip text: the machine, plus the profile when
@@ -365,10 +428,20 @@ public enum AgentAccountsRows {
     }
 
     /// The row's title: `Not signed in`, else the email, else the bare plan
-    /// (pi reports a provider, never an address), else `signed in`.
+    /// (an agent that reports a provider, never an address), else `signed in`.
     public static func groupCaption(_ group: AgentAccountUsageGroup) -> String {
         guard group.signedIn else { return "Not signed in" }
         return group.email ?? group.plan ?? "signed in"
+    }
+
+    /// EXP-849: the account row's health badge, or nil when there is nothing to
+    /// say. A signed-OUT row already says so in its `groupCaption`, so a badge
+    /// there would only repeat it — what a row wears is the expired credential
+    /// the caption cannot express (Android `healthBadge`, web
+    /// `accountHealthBadge`).
+    public static func healthBadge(_ group: AgentAccountUsageGroup) -> String? {
+        guard group.signedIn else { return nil }
+        return group.health.badgeLabel
     }
 
     // MARK: - Internals

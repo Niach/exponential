@@ -12,6 +12,7 @@ import {
   sessionDisplayState,
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
+import { sessionRowIsWorking } from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { useNow } from "@/hooks/use-now"
@@ -37,7 +38,7 @@ const ActionAutomationIcon = conceptIcon(`action-automation`)
 
 // Steady dot per parked display state (EXP-194/EXP-214): review green,
 // done blue (both matching the issue-status palette), needs-input amber;
-// running keeps the emerald ping.
+// a live row is emerald and pings only while the agent is WORKING (EXP-848).
 const STATE_DOT: Record<Exclude<SessionDisplayState, `running`>, string> = {
   needs_input: `bg-amber-500`,
   review: `bg-emerald-500`,
@@ -56,10 +57,14 @@ const STATE_LABEL: Record<
 export function RunningIndicator({
   state,
   paused = false,
+  working = false,
 }: {
   state: SessionDisplayState
   /** EXP-550: the host machine is offline — a steady grey dot, no ping. */
   paused?: boolean
+  /** EXP-848: the agent is executing a turn (`sessionRowIsWorking`) — the ONLY
+   * thing that pings. A live-but-idle run draws the steady emerald dot. */
+  working?: boolean
 }) {
   if (paused) {
     return (
@@ -72,6 +77,9 @@ export function RunningIndicator({
         className={`inline-flex size-2 rounded-full ${STATE_DOT[state]}`}
       />
     )
+  }
+  if (!working) {
+    return <span className="inline-flex size-2 rounded-full bg-emerald-500" />
   }
   return (
     <span className="relative flex size-2">
@@ -123,7 +131,10 @@ export function SessionRow({
   // representative issue, an issue-less run through its own chore PR row
   // (use-agents-data) — same button either way.
   const mergeTarget = row.mergeTarget
-  const displayState = sessionDisplayState(session, rowPrState(session, issue))
+  const prStateForRow = rowPrState(session, issue)
+  const displayState = sessionDisplayState(session, prStateForRow)
+  // EXP-848: the ping keys on the device-written turn flag, never on `running`.
+  const working = sessionRowIsWorking(session, prStateForRow)
   // EXP-804: null unless the device reported the agent's usage wall on this
   // row. Orthogonal to `displayState`, so it renders alongside it.
   const blockedLabel = blockedBadgeLabel(session.blocked, useNow(30_000))
@@ -161,7 +172,11 @@ export function SessionRow({
       title={paused ? `${device.label ?? `The device`} is offline` : undefined}
     >
       <span className="flex w-3 shrink-0 items-center justify-center">
-        <RunningIndicator state={displayState} paused={paused} />
+        <RunningIndicator
+          state={displayState}
+          paused={paused}
+          working={working}
+        />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">

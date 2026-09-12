@@ -48,11 +48,13 @@ final class SlashCommandsTests: XCTestCase {
     // MARK: - Per-agent catalog
 
     func testCatalogIsFilteredByAgentInContractOrder() {
-        // The same two rows for every agent — the desktop maps `/clear` per
-        // agent (pi has no `/clear`; it runs `ctx.newSession()`).
-        for agent in ["claude", "codex", "pi"] {
+        // The same two rows for every CONTRACT agent — the desktop maps
+        // `/clear` per agent. An id outside the contract (EXP-849: a row whose
+        // agent was retired, an external ACP binary) gets no curated rows.
+        for agent in DomainContract.codingAgentValues {
             XCTAssertEqual(SlashCommands.catalog(for: agent).map(\.name), ["compact", "clear"])
         }
+        XCTAssertTrue(SlashCommands.catalog(for: "zed").isEmpty)
     }
 
     func testAnAbsentAgentFallsBackToClaude() {
@@ -179,7 +181,7 @@ final class SlashCommandsTests: XCTestCase {
     func testTheSendRuleIsAgentScopedToo() {
         XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "claude")?.name, "clear")
         XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "codex")?.name, "clear")
-        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "pi")?.name, "clear")
+        XCTAssertNil(SlashCommands.command(for: "/clear", agent: "zed"))
         // Outside the catalog, whatever the CLI itself ships.
         XCTAssertNil(SlashCommands.command(for: "/new", agent: "codex"))
         XCTAssertNil(SlashCommands.command(for: "/model opus", agent: "claude"))

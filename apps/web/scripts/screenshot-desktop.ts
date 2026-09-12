@@ -61,7 +61,7 @@ import {
 // real desktop advertises (see crates/ui/src/steer_wiring.rs). Since EXP-485
 // the agents advertisement rides the registered devices ROW, not the relay
 // online frame.
-const AGENTS = [`claude`, `codex`, `pi`]
+const AGENTS = [`claude`, `codex`]
 // `resume-run` (EXP-637) is advertised by every real desktop and is what makes
 // the seed's ended runs resumable — without it "Recent automated runs"
 // renders, but the Resume button never does (EXP-663). `agent-login`

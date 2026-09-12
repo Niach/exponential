@@ -13,7 +13,7 @@
 //! - `DiffSnapshots::next_diff` every `steer::DIFF_INTERVAL` (the wire `diff`
 //!   stays the debounced WHOLE-worktree patch on both transports; per-edit ACP
 //!   diffs are local-only);
-//! - `NeedsInputForwarder` (EXP-214);
+//! - `NeedsInputForwarder` (EXP-214) and its `agent_busy` twin (EXP-848);
 //! - the FEED-25 stall watchdog ([`crate::stall`]): a live turn silent for
 //!   `STALL_AFTER` gets `Cancel`, one that ignores it for `STALL_KILL_GRACE`
 //!   gets `Shutdown` with a `Failed` reason;
@@ -256,7 +256,7 @@ fn attach_publisher(
     active: Arc<AtomicBool>,
 ) -> steer::PublisherHandle {
     let (answer_link, answers) = steer::AnswerLink::new();
-    let command_link = steer::CommandLink::new(None);
+    let command_link = steer::CommandLink::new();
     let config_link = steer::ConfigLink::new();
 
     let hooks = steer::PublisherHooks {
@@ -476,6 +476,9 @@ fn spawn_tickers(
         .spawn(move || {
             let mut diffs = steer::DiffSnapshots::new();
             let mut needs_input = steer::NeedsInputForwarder::new();
+            // EXP-848: the turn mirror — same forwarder, same retry, same
+            // clear-on-teardown as `needs_input`.
+            let mut agent_busy = steer::AgentBusyForwarder::new();
             let mut blocked = steer::BlockedForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
             let hook: Option<steer::NeedsInputHook> = {
@@ -483,6 +486,18 @@ fn spawn_tickers(
                 let session_id = ctx.session_id.clone();
                 Some(Arc::new(move |pending| {
                     api::coding_sessions::set_needs_input(&trpc, &session_id, pending).is_ok()
+                }))
+            };
+            // EXP-848: the synced `agent_busy` column — the ONE input every
+            // other client's session list spins its working dot on. The turn
+            // signal is already exactly this bool (set false at `start_turn`,
+            // true at `on_stop` and at the session's first moment), so the
+            // mirror reads it rather than tracking the edges twice.
+            let busy_hook: Option<steer::AgentBusyHook> = {
+                let trpc = Arc::clone(&ctx.trpc);
+                let session_id = ctx.session_id.clone();
+                Some(Arc::new(move |busy| {
+                    api::coding_sessions::set_agent_busy(&trpc, &session_id, busy).is_ok()
                 }))
             };
             // EXP-804: the same shape as the needs-input hook — a failed
@@ -511,6 +526,7 @@ fn spawn_tickers(
                     break;
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
+                agent_busy.tick(!ctx.turn_signal.is_idle(), &busy_hook);
                 {
                     // EXP-831 follow-up: a wall whose own reset stamp has
                     // passed is dropped here, so the synced row agrees with
@@ -549,6 +565,8 @@ fn spawn_tickers(
             // Teardown tidiness: never leave the synced attention flag stuck
             // on a session whose engine is gone.
             needs_input.clear_on_teardown(&hook);
+            // EXP-848: a run whose engine is gone is never working.
+            agent_busy.clear_on_teardown(&busy_hook);
             blocked.clear_on_teardown(&blocked_hook);
         });
 }
@@ -683,7 +701,7 @@ mod tests {
     }
 
     /// EXP-758: a host that dies without its end sequence (Cmd-Q, a crash)
-    /// leaves a codex/pi child with no `claude-hooks` anchor on it, so the
+    /// leaves a codex/external child with no `claude-hooks` anchor on it, so the
     /// record has to name the pid while the run is live, and stop naming it
     /// the moment the run ends, or the next start's reaper hunts a pid the OS
     /// has since handed to somebody else.

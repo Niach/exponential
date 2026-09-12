@@ -119,10 +119,8 @@ pub fn run(
     codes: CodeInbox,
     doctor_soon: Arc<AtomicBool>,
 ) {
-    // pi's `/login` is a slash command inside its TUI that opens a provider
-    // flow with no remote-finishable handle (the server refuses it too —
-    // this is the belt to that suspenders); the parser refuses it with the
-    // sentence the clients show verbatim.
+    // An unknown agent or a malformed payload is refused with the sentence
+    // the clients show verbatim.
     let request = match agent_login::parse_login_payload(&command.payload) {
         Ok(request) => request,
         Err(message) => {
@@ -156,10 +154,14 @@ pub fn run(
         .spawn(move || {
             // EXP-827: the profile this login lands on, created here when
             // the payload asked for a new one. A refused target (unknown
-            // id, pi) is the completion; nothing is spawned.
+            // id) is the completion; nothing is spawned.
+            // The login this run landed on, for the cache drop below (a
+            // refused target never reached one).
+            let mut login_profile: Option<String> = None;
             let outcome = match agent_login::resolve_login_profile(&data_dir, agent, &target) {
                 Err(message) => Some((false, message)),
                 Ok(profile_id) => {
+                    login_profile = Some(profile_id.clone());
                     let env = agent_login::login_env(&data_dir, agent, &profile_id);
                     // EXP-765: the slot the requester's code lands in while
                     // this login runs. Keyed by agent — one login per agent
@@ -197,9 +199,16 @@ pub fn run(
             }
             // A switch leaves the OLD account cached (email, plan, numbers)
             // behind its poll backoff — up to 10 minutes of naming the
-            // person who just signed out. Drop this agent's entry so the
-            // next collect asks afresh.
-            coding::usage_cache::forget(&data_dir, agent.id());
+            // person who just signed out. Drop the LOGIN's entry so the next
+            // collect asks afresh. EXP-849: the login's, not the agent's —
+            // dropping every profile would blank its siblings' health and
+            // numbers for a sign-in that never touched them.
+            match &login_profile {
+                Some(profile) => {
+                    coding::usage_cache::forget_profile(&data_dir, agent.id(), profile)
+                }
+                None => coding::usage_cache::forget(&data_dir, agent.id()),
+            }
             // Whatever happened, what the machine's agents look like just
             // changed (or was meant to) — re-probe on the next tick.
             doctor_soon.store(true, Ordering::SeqCst);
@@ -233,7 +242,15 @@ fn drive(
 ) -> Option<(bool, String)> {
     // A switch signs OUT first — otherwise every agent CLI here would just
     // report the account already signed in and exit.
+    //
+    // EXP-849 (interface E): except when signing out would revoke a login
+    // this machine only SHARES — `codex logout` on the ambient login kills it
+    // with OpenAI for every machine using it. That switch is refused here
+    // rather than performed; the fix is a profile.
     if switch {
+        if let Some(message) = agent_login::switch_logout_blocker(agent, profile_id) {
+            return Some((false, message));
+        }
         if let Err(err) = agent_login::logout_in(settings, agent, env) {
             // Not fatal: the login below may still prompt.
             log::info!("agent_login: sign-out before the switch failed: {err}");
@@ -399,16 +416,17 @@ mod tests {
         assert!(tx.send("late".to_string()).is_err());
     }
 
-    /// pi is refused with the sentence the clients show verbatim, and an
-    /// unknown agent never reaches a PTY either. EXP-827: the same parse
+    /// An unknown agent never reaches a PTY, with the sentence the clients
+    /// show verbatim. EXP-827: the same parse
     /// reads the profile half of the payload: an existing id, a new
     /// label, or neither (the ambient login).
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
         use coding::agent_login::{parse_login_payload, LoginTarget};
+        // EXP-849: a retired agent id is simply unknown now.
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "pi", "switch": "false"})),
-            Err("pi has no remote sign-in".to_string())
+            Err("This machine does not know that agent.".to_string())
         );
         assert!(parse_login_payload(&serde_json::json!({"switch": "false"})).is_err());
         let claude = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
@@ -427,9 +445,9 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(fresh.target, LoginTarget::NewProfile("Work".to_string()));
-        // pi is refused before its profile half is even looked at.
+        // An unknown agent is refused before its profile half is looked at.
         assert!(parse_login_payload(&serde_json::json!({
-            "agent": "pi", "newProfileLabel": "Work"
+            "agent": "gemini", "newProfileLabel": "Work"
         }))
         .is_err());
     }

@@ -232,8 +232,6 @@ pub struct RunRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pi_session_file: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_originator: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<RunInput>,
@@ -264,8 +262,8 @@ pub struct RunRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp_session_id: Option<String>,
     /// EXP-746: what the ADAPTER reports underneath (claude's stream-json
-    /// session id, codex's thread id, pi's session file). The three EXP-443
-    /// pins above stay the PTY-side truth; this is the ACP-side one.
+    /// session id, codex's thread id). The EXP-443 pins above stay the
+    /// PTY-side truth; this is the ACP-side one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_native_session_id: Option<String>,
     /// EXP-758: the ACP child's pid and the pid of the host process that
@@ -841,7 +839,6 @@ pub(crate) fn sample_record(session_id: &str) -> RunRecord {
             branch: Some("exp/code-review-1a2b3c4d".to_string()),
             base_branch: Some("main".to_string()),
             claude_session_id: Some("cs-1".to_string()),
-            pi_session_file: None,
             codex_originator: None,
             inputs: vec![RunInput {
                 key: "scope".to_string(),

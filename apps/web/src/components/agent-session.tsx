@@ -31,6 +31,11 @@ import { useKillSession } from "@/hooks/use-kill-session"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
+  SessionAccountRows,
+  useSessionAccountSwitch,
+  WALL_SWITCH_LABEL,
+} from "@/components/session-account-switch"
+import {
   accountCaption,
   blockedBadgeLabel,
   contextPercent,
@@ -51,6 +56,8 @@ import {
   askStepperView,
   collectSubagents,
   diffTruncationNote,
+  expToolCaption,
+  expToolDisplay,
   freeAnswerFor,
   BACK_TO_CURRENT_STEP,
   FREE_TEXT_PLACEHOLDER,
@@ -64,8 +71,11 @@ import {
   optionHotkey,
   pendingAnswerable,
   opensInlineField,
+  planModeChipLabel,
   rateLimitBanner,
   rowClass,
+  sessionIsWorking,
+  subagentLabel,
   splitTruncatedDiff,
   subagentIdOf,
   summarizeSubagentRow,
@@ -74,6 +84,8 @@ import {
   visibleSubagentTabs,
   type AnswerState,
   type AnswerStates,
+  type ExpToolDisplay,
+  type ExpToolPreview,
   type RowClass,
   type SessionConfigState,
   type SessionRateLimitState,
@@ -153,6 +165,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
+import { ExponentialLogo } from "@/components/exponential-logo"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
@@ -174,6 +187,7 @@ const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
+const UiSwapIcon = conceptIcon(`ui-swap`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
@@ -328,6 +342,7 @@ export function AgentSessionView({
     config,
     usage: sessionUsage,
     rateLimit,
+    turnState,
     answerStates,
     connected,
     canLoadEarlier: snapshotCanLoadEarlier,
@@ -573,22 +588,30 @@ export function AgentSessionView({
       ),
     [catalogAgent, config?.commands]
   )
-  /** EXP-389: the agent is actively working — live and nothing waiting on
-   *  the user (no active question card, synced needs_input clear; all three
-   *  agents drive the flag). Mobile parity. EXP-724: a compaction has its own
-   *  strip, so the generic footer stands down while one runs. */
-  const working =
-    live &&
-    !sessionEnded &&
-    !awaitingInput &&
-    !session.needsInput &&
-    !compactingNow
+  /** EXP-389/EXP-848: the agent is actively EXECUTING a turn — the shared
+   *  predicate (`sessionIsWorking`), keyed on the turn slot rather than on
+   *  "live", so an idle run between turns no longer pulses. Mobile parity. */
+  const working = sessionIsWorking({
+    live,
+    sessionEnded,
+    turnState,
+    awaitingInput,
+    needsInput: session.needsInput,
+    blocked: session.blocked != null,
+    compacting: compactingNow,
+  })
   /** EXP-549/550: the host machine per the synced devices row — its RENAMED
    *  label, and whether it is offline right now. */
   const device = useSessionDevice(session)
   /** EXP-484: the host machine's fresh rate-limit report for THIS run's
    *  agent, or null (finished run, other agent, stale or absent numbers). */
   const agentUsage = useSessionAgentUsage(session)
+  /** EXP-849 (phase 3): the accounts this run's machine holds, and the
+   *  between-turns switch onto one of them (claude only, own machine, idle).
+   *  The Usage sheet and the rate-limit notice both open these rows. */
+  const accountSwitch = useSessionAccountSwitch(session, currentUserId, {
+    turnEnded: turnState === `ended`,
+  })
   const usageNow = useNow(30_000)
   const isMobile = useIsMobile()
   /** EXP-550: no live stream AND the host machine is offline (lid closed,
@@ -623,6 +646,8 @@ export function AgentSessionView({
   // run's device reported one. `usageNow` already ticks for the stale check,
   // so the countdown rides it rather than opening a second timer.
   const blockedLabel = blockedBadgeLabel(session.blocked, usageNow)
+  /** EXP-847: "Plan" while the live config says plan mode is in force. */
+  const planChip = planModeChipLabel(config)
   /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
    *  implies ownership (EXP-312), and only a live stream can be killed. */
   const {
@@ -631,6 +656,11 @@ export function AgentSessionView({
     dialog: killDialog,
   } = useKillSession(session, currentUserId, device.label, paused)
   const canKill = live && ownsLiveRow
+  /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
+   *  (with their bars) and switches between them — so it exists whenever the
+   *  machine reported an account for this run, not only when numbers are
+   *  fresh. */
+  const hasAccountRows = accountSwitch.options.length > 0
   /** EXP-724: "Compact context" in the mobile "…" menu — a live, connected
    *  session whose agent has the command and is not already folding. */
   const canCompact =
@@ -785,6 +815,19 @@ export function AgentSessionView({
             )}
           </div>
         </div>
+        {/* EXP-847: plan mode, VISIBLE. Read-only by design — EXP-790 made
+            mode a launch-time choice, so this says what the run is doing and
+            clears itself the moment an approved ExitPlanMode changes
+            `currentMode`. */}
+        {planChip && (
+          <span
+            className="shrink-0 rounded-sm border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            title="This run is in plan mode — it proposes a plan before it edits anything. Mode is chosen at launch."
+            data-testid="session-plan-chip"
+          >
+            {planChip}
+          </span>
+        )}
         {/* EXP-778: pin the run to the sidebar's Pinned group. */}
         <PinToggleButton
           teamId={session.teamId ?? undefined}
@@ -826,10 +869,10 @@ export function AgentSessionView({
         {/* A finished run with no fresh numbers has nothing to offer, so the
             trigger goes away rather than opening an empty menu (its width
             stays, so the title does not jump). */}
-        {!agentUsage && !sessionUsage && !canCompact && (
+        {!agentUsage && !sessionUsage && !hasAccountRows && !canCompact && (
           <span className="size-8 shrink-0" />
         )}
-        {(agentUsage || sessionUsage || canCompact) && (
+        {(agentUsage || sessionUsage || hasAccountRows || canCompact) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -841,7 +884,7 @@ export function AgentSessionView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {(agentUsage || sessionUsage) && (
+              {(agentUsage || sessionUsage || hasAccountRows) && (
                 <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
                   <UiUsageIcon className="size-4" />
                   Usage
@@ -881,7 +924,7 @@ export function AgentSessionView({
               {visibleTabs.map((agent) => (
                 <AgentTab
                   key={agent.subagentId}
-                  label={agent.agentType}
+                  label={subagentLabel(agent)}
                   running={!agent.done}
                   active={activeAgent === agent.subagentId}
                   onClick={() => setAgentTab(agent.subagentId)}
@@ -1149,7 +1192,19 @@ export function AgentSessionView({
           )}
           {/* EXP-784: the agent's rate-limit window, while it reports one —
               the slot clears on an empty/`ok` status and the banner goes. */}
-          {rateLimit && <RateLimitBanner state={rateLimit} />}
+          {rateLimit && (
+            <RateLimitBanner
+              state={rateLimit}
+              // EXP-849: a spent window is a WALL, and the one thing that
+              // clears it right now is another account — so that is the
+              // notice's PRIMARY button (it opens the account rows; the
+              // continuation's own slot is empty, so the notice goes with the
+              // old run). Hidden only when this run could never switch.
+              onSwitchAccount={
+                hasAccountRows ? () => setUsageOpen(true) : undefined
+              }
+            />
+          )}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3 animate-spin" />
@@ -1194,7 +1249,7 @@ export function AgentSessionView({
       {/* EXP-688: usage is a SHEET on mobile, not a hairline under the header
           — every window the machine reports, grouped the way the agent's own
           app groups them. */}
-      {(agentUsage || sessionUsage) && (
+      {(agentUsage || sessionUsage || hasAccountRows) && (
         <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
           <DialogContent
             className="sm:max-w-sm"
@@ -1236,6 +1291,13 @@ export function AgentSessionView({
               )}
               {agentUsage && (
                 <AgentUsageCards usage={agentUsage.usage} now={usageNow} />
+              )}
+              {/* EXP-849: the accounts on this run's machine — their own bars
+                  and "Switch to this account" (claude, own machine, between
+                  turns; disabled with the reason otherwise). A switch opens
+                  the continuation run's page by itself. */}
+              {hasAccountRows && (
+                <SessionAccountRows state={accountSwitch} now={usageNow} />
               )}
             </div>
           </DialogContent>
@@ -2067,7 +2129,15 @@ function InlineAnswerField({
  *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`).
  *  EXP-831: ticks so the countdown moves and the banner drops itself once
  *  the reset is behind us, without waiting on a slot update. */
-function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
+function RateLimitBanner({
+  state,
+  onSwitchAccount,
+}: {
+  state: SessionRateLimitState
+  /** EXP-849: open the account rows — the PRIMARY way out of a wall. Absent
+   *  when this run has no other account to move to. */
+  onSwitchAccount?: () => void
+}) {
   const now = useNow(30_000)
   const banner = rateLimitBanner(state, now)
   if (!banner) return null
@@ -2077,7 +2147,18 @@ function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
       <UiUsageIcon className="size-3 shrink-0" />
       <span className="min-w-0 truncate">{text}</span>
       {resets && (
-        <span className="ml-auto shrink-0 text-muted-foreground">{resets}</span>
+        <span className="shrink-0 text-muted-foreground">{resets}</span>
+      )}
+      {onSwitchAccount && (
+        <Pill
+          size="sm"
+          mode="action"
+          className="ml-auto shrink-0"
+          onClick={onSwitchAccount}
+        >
+          <UiSwapIcon className="size-3" />
+          {WALL_SWITCH_LABEL}
+        </Pill>
       )}
     </div>
   )
@@ -2481,17 +2562,39 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   const tools = items.filter(
     (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
   )
-  const { agentType, done, detail, toolCount } = summarizeSubagentRow(items)
+  const summary = summarizeSubagentRow(items)
+  const { done, detail, toolCount } = summary
+  // EXP-847: the same contract caption a collapsed tool group carries
+  // ("Ran 4 commands · edited 2 files"), not a bare "N tool calls". When the
+  // publisher counted more calls than survived the replay buffer, the extras
+  // count as `other` — the caption then reads "Used 12 tools", never a lie
+  // about what they were.
+  const caption = useMemo(
+    () =>
+      toolGroupCaption(
+        tools.length >= toolCount
+          ? tools
+          : [
+              ...tools,
+              ...Array.from({ length: toolCount - tools.length }, () => ({})),
+            ]
+      ),
+    [tools, toolCount]
+  )
   const expandable = tools.length > 0
   const header = (
     <>
       <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="shrink-0 font-medium">{agentType}</span>
+      {/* EXP-847: the spawning call's description names the subagent; the
+          agent type stays a secondary caption beside it. */}
+      <span className="shrink-0 font-medium">{subagentLabel(summary)}</span>
+      {summary.title && (
+        <span className="shrink-0 text-[0.6875rem]">{summary.agentType}</span>
+      )}
       {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
       <span className="shrink-0 text-[0.6875rem]">
         {done ? `done` : `running`}
-        {toolCount > 0 &&
-          ` · ${toolCount} tool call${toolCount === 1 ? `` : `s`}`}
+        {toolCount > 0 && ` · ${caption}`}
       </span>
       {detail && (
         <span className="truncate text-[0.6875rem]" title={detail}>
@@ -2603,8 +2706,11 @@ function AgentConversation({
         >
           <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
           <span className="shrink-0 font-medium">
-            {summary.agentType}
+            {subagentLabel(summary)}
           </span>
+          {summary.title && (
+            <span className="shrink-0 text-[0.6875rem]">{summary.agentType}</span>
+          )}
           {!summary.done && (
             <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
           )}
@@ -2660,6 +2766,11 @@ function AgentConversation({
  *  worktree, this is the one call. */
 function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
   const failed = item.failed === true
+  // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
+  // "Created issue · <title>" plus the preview its answer carried — instead of
+  // the raw `mcp__exponential__exponential_issues_create`.
+  const exp = expToolDisplay(item.name)
+  if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
       <div
@@ -2692,6 +2803,155 @@ function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
       {item.diff && <ToolDiff diff={item.diff} />}
     </div>
   )
+}
+
+/** EXP-846: an Exponential MCP call. The brand mark leads (the same asset the
+ *  auth shell and the About card draw), then the contract caption —
+ *  progressive while the call runs ("Creating issue"), done once it settled
+ *  ("Created issue") — then the call's subject, then the preview the engine
+ *  distilled from the answer. A FAILED call keeps the generic failed styling
+ *  and shows no preview: there is no result to preview. Nothing is forced —
+ *  mark plus caption is a complete row when the answer named nothing. */
+function ExpToolRow({
+  item,
+  display,
+  flush = false,
+}: {
+  item: ToolItem
+  display: ExpToolDisplay
+  flush?: boolean
+}) {
+  const failed = item.failed === true
+  const caption = expToolCaption(display, item.settled === true)
+  // The subject is the input field the contract names (`subjectKey`), which
+  // the publisher sends as the call's `detail`. Once the call SETTLED the
+  // answer's own title/identifier is the better word for the same thing (and
+  // the honest one while a publisher derives `detail` generically), so it
+  // wins there.
+  const subject =
+    (item.settled
+      ? (item.preview?.title ?? item.preview?.identifier ?? item.detail)
+      : item.detail) ?? null
+  return (
+    <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
+      <div
+        className={cn(
+          `flex min-w-0 items-center gap-2`,
+          TRANSCRIPT_TOOL_TEXT,
+          failed && `text-rose-400`
+        )}
+      >
+        <ExponentialLogo
+          variant="light"
+          size={12}
+          className={cn(
+            `size-3 shrink-0`,
+            failed ? `text-rose-400/70` : `text-muted-foreground/60`
+          )}
+        />
+        <span className="shrink-0 font-medium">{caption}</span>
+        {subject && (
+          <span
+            className={cn(
+              `truncate text-[0.6875rem]`,
+              failed ? `text-rose-400/80` : `text-muted-foreground`
+            )}
+            title={subject}
+          >
+            {subject}
+          </span>
+        )}
+        {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
+      </div>
+      {!failed && item.preview && (
+        <ExpToolResult kind={display.result} preview={item.preview} />
+      )}
+    </div>
+  )
+}
+
+/** EXP-846: the settled call's result, by contract `result` kind. An issue
+ *  gets the very chip an `#IDENT` reference renders (preview on hover, tap
+ *  opens the issue) when the row is synced here, and its identifier + title as
+ *  plain text when it is not; a PR gets its link; a list its row count; the
+ *  named things a small chip. `none` renders nothing at all. */
+function ExpToolResult({
+  kind,
+  preview,
+}: {
+  kind: string
+  preview: ExpToolPreview
+}) {
+  const issueRefs = useIssueRefs()
+  const label = preview.title ?? preview.identifier ?? preview.id ?? null
+  if (kind === `issue`) {
+    const resolved = preview.id
+      ? (issueRefs?.resolveById(preview.id) ??
+        (preview.identifier
+          ? issueRefs?.resolve(preview.identifier)
+          : null) ??
+        null)
+      : preview.identifier
+        ? (issueRefs?.resolve(preview.identifier) ?? null)
+        : null
+    if (resolved) {
+      return (
+        <div className="ml-5 pt-0.5">
+          <IssueRefPill issue={resolved} />
+        </div>
+      )
+    }
+    if (!preview.identifier && !preview.title) return null
+    return (
+      <div className="ml-5 flex min-w-0 items-center gap-1.5 pt-0.5 text-[0.6875rem] text-muted-foreground">
+        {preview.identifier && (
+          <span className="shrink-0 font-mono">{preview.identifier}</span>
+        )}
+        {preview.title && <span className="truncate">{preview.title}</span>}
+      </div>
+    )
+  }
+  if (kind === `pr`) {
+    if (!preview.url) return null
+    return (
+      <div className="ml-5 min-w-0 pt-0.5 text-[0.6875rem]">
+        <a
+          href={preview.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block truncate text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          title={preview.url}
+        >
+          {preview.url}
+        </a>
+      </div>
+    )
+  }
+  if (kind === `list`) {
+    if (preview.count === undefined) return null
+    return (
+      <div className="ml-5 pt-0.5 text-[0.6875rem] text-muted-foreground">
+        {`${preview.count} result${preview.count === 1 ? `` : `s`}`}
+      </div>
+    )
+  }
+  if (
+    kind === `session` ||
+    kind === `board` ||
+    kind === `action` ||
+    kind === `automation` ||
+    kind === `comment`
+  ) {
+    if (!label) return null
+    return (
+      <div className="ml-5 pt-0.5">
+        <Pill size="sm" className="max-w-[18rem]" title={label}>
+          <span className="min-w-0 truncate">{label}</span>
+        </Pill>
+      </div>
+    )
+  }
+  return null
 }
 
 /** EXP-786: one call's diff, through the same file renderer the "Latest

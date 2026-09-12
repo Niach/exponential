@@ -1,21 +1,21 @@
 /* ─── Agents — merged "Bring your own agents" + Mobile section (EXP-176) ───
-   One scripted, looping scene: the REAL mobile Start-coding sheet (the
-   faithful phone recreation of the iOS StartCodingSheet, EXP-207) hands
-   off to an infographic that is deliberately NOT product UI — your agent
-   running on a MacBook with a phone connected for live watch + steer.
-   Stage is decorative (aria-hidden + inert); reduced motion renders the
-   sheet and the finished infographic statically, side by side. */
+   One scripted, looping scene: the REAL mobile Agent page (the faithful
+   phone recreation of the iOS composer that launches every run since
+   EXP-825) hands off to an infographic that is deliberately NOT product UI
+   — your agent running on a MacBook with a phone connected for live watch +
+   steer. Stage is decorative (aria-hidden + inert); reduced motion renders
+   the composer and the finished infographic statically, side by side. */
 import { AnimatePresence, motion } from "motion/react"
 import { EASE_EXPO, sectionReveal } from "../lib/animations"
 import { useScenePlayer } from "../lib/use-scene-player"
 import { LINKS } from "../lib/links"
 import { IcArrow } from "./icons"
-import { MobileStartCodingSheet } from "../mobile/StartCodingSheet"
+import { MobileAgentComposer } from "../mobile/AgentComposer"
 
 /* Beat script (~15.5s loop). Beat 0 is the SSR resting state — held long
-   so the phone's Start-coding sheet actually registers (EXP-217). */
+   so the phone's composer actually registers (EXP-217). */
 const B = {
-  dialog: 0,
+  composer: 0,
   armed: 1,
   handoff: 2,
   running: 3,
@@ -79,7 +79,7 @@ function DeviceLink() {
 export function AgentsSection() {
   const { ref, beat, reduced } = useScenePlayer(BEATS)
 
-  const showDialog = reduced || beat <= B.armed
+  const showComposer = reduced || beat <= B.armed
   const showInfo = reduced || beat >= B.handoff
 
   const stageClass = [
@@ -111,7 +111,7 @@ export function AgentsSection() {
 
           <div className={stageClass} ref={ref} aria-hidden inert>
             <AnimatePresence initial={false}>
-              {showDialog && (
+              {showComposer && (
                 <motion.div
                   key={`sheet`}
                   className={`aw-sheet`}
@@ -123,7 +123,7 @@ export function AgentsSection() {
                   transition={{ duration: 0.5, ease: EASE_EXPO }}
                 >
                   <div className={`aw-sheetcol`}>
-                    <MobileStartCodingSheet />
+                    <MobileAgentComposer />
                     <span className={`aw-device-caption`}>
                       Start coding from your phone
                     </span>

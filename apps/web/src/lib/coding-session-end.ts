@@ -85,6 +85,8 @@ export async function endSessionByAgent(
       endedBy: `agent`,
       summary: close.summary,
       needsInput: false,
+      // EXP-848: an ended run is never busy.
+      agentBusy: false,
       updatedAt: new Date(),
     })
     .where(

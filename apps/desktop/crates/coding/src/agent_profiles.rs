@@ -11,8 +11,8 @@
 //!
 //! `system` is the reserved id of the ambient login (the CLI's own default
 //! dir, whatever the user's shell has it at): it is never a directory here,
-//! never removable, and always listed first. pi has no config-dir variable
-//! and no login of its own, so it has no profiles at all.
+//! never removable, and always listed first. An agent with no config-dir
+//! variable has no profiles at all.
 //!
 //! The index also carries the device's per-agent DEFAULT account
 //! ([`active_profile`]) — the profile the local Start-coding dialog and the
@@ -78,13 +78,12 @@ pub fn is_system(account: Option<&str>) -> bool {
         .is_none_or(|id| id.is_empty() || id == SYSTEM_PROFILE)
 }
 
-/// The env var that relocates `agent`'s config dir; `None` for pi (no
-/// profiles).
+/// The env var that relocates `agent`'s config dir; `None` for an agent with
+/// no profiles.
 pub fn config_env_var(agent: CodingAgent) -> Option<&'static str> {
     match agent {
         CodingAgent::Claude => Some("CLAUDE_CONFIG_DIR"),
         CodingAgent::Codex => Some("CODEX_HOME"),
-        CodingAgent::Pi => None,
     }
 }
 
@@ -135,7 +134,7 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Every profile of `agent` on this machine — `system` first, then the
-/// custom ones in creation order. pi lists only `system`.
+/// custom ones in creation order. A profile-less agent lists only `system`.
 pub fn list(data_dir: &Path, agent: CodingAgent) -> Vec<AgentProfile> {
     let mut out = vec![AgentProfile::system()];
     if config_env_var(agent).is_some() {
@@ -225,7 +224,7 @@ pub fn remove(data_dir: &Path, agent: CodingAgent, id: &str) -> io::Result<()> {
 }
 
 /// The config dir behind `id` — `None` for `system` (the CLI's own default
-/// dir, wherever the shell has it), for an unknown id, and for pi.
+/// dir, wherever the shell has it) and for an unknown id.
 pub fn profile_dir(data_dir: &Path, agent: CodingAgent, id: &str) -> Option<PathBuf> {
     if id == SYSTEM_PROFILE || config_env_var(agent).is_none() || !valid_id(id) {
         return None;
@@ -245,7 +244,7 @@ pub fn account_dir(data_dir: &Path, agent: Option<CodingAgent>, account: Option<
 }
 
 /// The one env pair a profile run carries — `(CLAUDE_CONFIG_DIR|CODEX_HOME,
-/// dir)` — or nothing for the ambient login / an unknown profile / pi.
+/// dir)` — or nothing for the ambient login / an unknown profile.
 pub fn config_env(data_dir: &Path, agent: CodingAgent, account: Option<&str>) -> Option<(String, String)> {
     let var = config_env_var(agent)?;
     let dir = account_dir(data_dir, Some(agent), account)?;
@@ -336,13 +335,11 @@ mod tests {
     }
 
     #[test]
-    fn system_is_reserved_and_pi_has_no_profiles() {
+    fn system_is_reserved_and_blank_labels_are_refused() {
         let dir = temp_dir("reserved");
         assert!(remove(&dir, CodingAgent::Claude, SYSTEM_PROFILE).is_err());
         assert!(rename(&dir, CodingAgent::Claude, SYSTEM_PROFILE, "x").is_err());
         assert!(create(&dir, CodingAgent::Claude, "   ").is_err(), "blank label");
-        assert!(create(&dir, CodingAgent::Pi, "Work").is_err());
-        assert_eq!(config_env_var(CodingAgent::Pi), None);
         assert_eq!(config_env_var(CodingAgent::Claude), Some("CLAUDE_CONFIG_DIR"));
         assert_eq!(config_env_var(CodingAgent::Codex), Some("CODEX_HOME"));
         assert!(is_system(None));

@@ -162,6 +162,7 @@ import {
   devicesRouter,
   nextSharedTeamIds,
 } from "@/lib/trpc/devices"
+import { MAX_AGENT_PROFILES } from "@/db/schema"
 
 const caller = devicesRouter.createCaller({
   session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
@@ -259,6 +260,7 @@ describe(`devices.register`, () => {
           ultracode: null,
           planMode: null,
         },
+        // EXP-849: a retired agent id — the clamp drops it whole.
         pi: {
           model: ``,
           effort: ``,
@@ -288,7 +290,6 @@ describe(`devices.register`, () => {
           planMode: true,
         },
         codex: { model: ``, effort: `` },
-        pi: { model: ``, effort: ``, planMode: true },
       },
     })
   })
@@ -300,7 +301,7 @@ describe(`devices.register`, () => {
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
-      agents: [`claude`, `codex`, `pi`],
+      agents: [`claude`, `codex`],
       acpAgents: [`claude`, `codex`],
     })
     expect(h.state.inserted[0]).toMatchObject({
@@ -876,7 +877,7 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `pi` },
+      launchDefaults: { defaultAgent: `codex` },
       expectedUpdatedAt: null,
     })
     expect(result).toMatchObject({
@@ -896,19 +897,19 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `pi` },
+      launchDefaults: { defaultAgent: `codex` },
       expectedUpdatedAt: `2026-08-10T10:00:00.000Z`,
     })
     expect(result.ok).toBe(true)
-    expect(result.launchDefaults).toEqual({ defaultAgent: `pi` })
+    expect(result.launchDefaults).toEqual({ defaultAgent: `codex` })
   })
 
   it(`tolerates 0.14.10's explicit-null toggles on a device push (EXP-495)`, async () => {
     h.state.selectQueue = deviceRow()
     const wire = {
-      defaultAgent: `pi`,
+      defaultAgent: `codex`,
       agents: {
-        pi: { model: ``, effort: ``, ultracode: null, planMode: false },
+        codex: { model: ``, effort: ``, ultracode: null, planMode: false },
       },
     }
     const result = await caller.setLaunchDefaults({
@@ -919,8 +920,8 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.ok).toBe(true)
     expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
     expect(result.launchDefaults).toEqual({
-      defaultAgent: `pi`,
-      agents: { pi: { model: ``, effort: ``, planMode: false } },
+      defaultAgent: `codex`,
+      agents: { codex: { model: ``, effort: `` } },
     })
   })
 
@@ -1205,8 +1206,14 @@ describe(`agent status clamps (EXP-484)`, () => {
 
   it(`drops an unparsable checkedAt instead of failing the write`, () => {
     expect(
-      clampAgentAccounts({ pi: { signedIn: true, checkedAt: `yesterday` } })
-    ).toEqual({ pi: { signedIn: true } })
+      clampAgentAccounts({ codex: { signedIn: true, checkedAt: `yesterday` } })
+    ).toEqual({ codex: { signedIn: true } })
+  })
+
+  // EXP-849: an agent outside contract `codingAgent` (a retired `pi` report
+  // from an old build) is dropped, never stored.
+  it(`drops an unknown agent`, () => {
+    expect(clampAgentAccounts({ pi: { signedIn: true } })).toEqual({})
   })
 
   it(`rounds and clamps percent, caps windows, truncates key and label`, () => {
@@ -1375,20 +1382,6 @@ describe(`devices.createCommand — agent_login`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`refuses pi — its sign-in has no device-code flow`, async () => {
-    h.state.selectQueue = capableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login`,
-        agent: `pi`,
-      })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `pi has no remote sign-in`,
-    })
-  })
-
   it(`refuses a machine that does not advertise the cap`, async () => {
     h.state.selectQueue = [[{ id: `row-1`, caps: [`worktrees`] }]]
     await expect(
@@ -1425,6 +1418,26 @@ describe(`devices.createCommand — agent_login`, () => {
     })
     expect(h.state.inserted[0]).toMatchObject({
       payload: { agent: `claude`, switch: `false`, profileId: `p-work` },
+    })
+  })
+
+  // EXP-849: the per-profile "Sign in again" a Devices account chip issues —
+  // the SWITCH flag (sign the ambient account out first) and the profile ride
+  // the same row, so the device re-logs into THAT profile rather than the
+  // machine's active one.
+  it(`carries profileId together with the switch flag`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-2` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: true,
+      profileId: `p-work`,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      kind: `agent_login`,
+      payload: { agent: `claude`, switch: `true`, profileId: `p-work` },
     })
   })
 
@@ -1559,17 +1572,6 @@ describe(`devices.createCommand — agent_login_code`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  it(`refuses pi`, async () => {
-    h.state.selectQueue = codeCapableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login_code`,
-        agent: `pi`,
-        code: `abc`,
-      })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-  })
 })
 
 // EXP-792: MCP server support on the devices router — the two new caps, the
@@ -1661,6 +1663,47 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
         kind: `agent_usage_refresh`,
         agent: `claude`,
         profileId: `system`,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  // EXP-849: "Use this account here" — the non-destructive active-profile
+  // switch. Same payload as a refresh, gated on `agent-login` (a build that
+  // cannot drive logins cannot switch between them either).
+  it(`queues agent_profile_use with the agent and the profile id`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-9` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_profile_use`,
+      agent: `claude`,
+      profileId: `work`,
+    })
+    expect(result).toEqual({ id: `cmd-9` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_profile_use`,
+      payload: { agent: `claude`, profileId: `work` },
+    })
+  })
+
+  it(`refuses agent_profile_use without an agent, a profile or the cap`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_use`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.selectQueue = [[{ id: `row-1`, caps: [] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_use`,
+        agent: `claude`,
+        profileId: `work`,
       })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
     expect(h.state.inserted).toHaveLength(0)
@@ -1791,7 +1834,7 @@ describe(`devices.heartbeat — mcpReadiness (EXP-792)`, () => {
 })
 
 describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
-  it(`keeps at most 5 profiles, clamps every field and stays null-free`, () => {
+  it(`keeps at most MAX_AGENT_PROFILES profiles, clamps every field and stays null-free`, () => {
     const out = clampAgentAccounts({
       claude: {
         signedIn: true,
@@ -1819,16 +1862,18 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
           // No id: nothing could address it — dropped.
           { label: `ghost`, signedIn: true } as never,
           null,
-          { id: `p3`, signedIn: false },
-          { id: `p4`, signedIn: false },
-          { id: `p5`, signedIn: false },
-          { id: `p6-over-the-cap`, signedIn: false },
+          // Fills the cap to its edge and one past it — `system` + `work`
+          // already took two slots, so the last two of these are dropped.
+          ...Array.from({ length: MAX_AGENT_PROFILES }, (_, index) => ({
+            id: `p${index + 3}`,
+            signedIn: false,
+          })),
           { id: `x`.repeat(80), signedIn: false },
         ],
       },
     })
     expect(out.claude).toMatchObject({ signedIn: true, email: `danny@example.com` })
-    expect(out.claude!.profiles).toHaveLength(5)
+    expect(out.claude!.profiles).toHaveLength(MAX_AGENT_PROFILES)
     expect(out.claude!.profiles![0]).toEqual({
       id: `system`,
       label: `Default`,
@@ -1847,9 +1892,7 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     expect(out.claude!.profiles!.map((p) => p.id)).toEqual([
       `system`,
       `work`,
-      `p3`,
-      `p4`,
-      `p5`,
+      ...Array.from({ length: MAX_AGENT_PROFILES - 2 }, (_, i) => `p${i + 3}`),
     ])
     // Null-free apart from the usage windows' `resetsAt`, which the EXP-484
     // window shape carries as an explicit null on every client.
@@ -1862,5 +1905,57 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     expect(clampAgentAccounts({ codex: { signedIn: true, profiles: [] } })).toEqual(
       { codex: { signedIn: true } }
     )
+  })
+
+  // EXP-849: `health` is the device's probe verdict. The clamp keeps the four
+  // contract values on the account AND on every profile, and DROPS anything
+  // else — a machine reporting a health word this build has no name for keeps
+  // its heartbeat (the clients then derive health from `signedIn`).
+  it(`keeps the four health values and drops any other`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        health: `needs_relogin`,
+        profiles: [
+          { id: `system`, signedIn: true, health: `ok`, active: true },
+          { id: `work`, signedIn: true, health: `needs_relogin` },
+          { id: `old`, signedIn: false, health: `signed_out` },
+          { id: `probe`, signedIn: true, health: `unknown` },
+          { id: `future`, signedIn: true, health: `revoked_upstream` },
+        ],
+      },
+      codex: { signedIn: true, health: null },
+    })
+    expect(out.claude!.health).toBe(`needs_relogin`)
+    expect(out.claude!.profiles!.map((p) => p.health)).toEqual([
+      `ok`,
+      `needs_relogin`,
+      `signed_out`,
+      `unknown`,
+      undefined,
+    ])
+    expect(out.codex).toEqual({ signedIn: true })
+  })
+
+  // EXP-849: a login past the device's usage-probe cap ships its identity with
+  // `unmonitored: true` and no usage. The clamp keeps the flag (the clients
+  // caption the row instead of drawing absent bars as 0%) and, like every
+  // other boolean here, stores `false` as absence.
+  it(`keeps unmonitored profiles and drops the false flag`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        profiles: [
+          { id: `system`, signedIn: true, active: true, unmonitored: false },
+          { id: `spare`, signedIn: true, unmonitored: true },
+          { id: `nothing-said`, signedIn: true, unmonitored: null },
+        ],
+      },
+    })
+    expect(out.claude!.profiles!.map((p) => p.unmonitored)).toEqual([
+      undefined,
+      true,
+      undefined,
+    ])
   })
 })

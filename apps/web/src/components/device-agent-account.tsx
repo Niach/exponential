@@ -24,6 +24,8 @@ import type { Device, DeviceAgentAccount } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import {
   accountLine,
+  agentHealth,
+  healthBadgeLabel,
   parseAgentLoginResult,
   parseAgentUsage,
 } from "@/lib/agent-usage"
@@ -94,9 +96,8 @@ export function AgentAccountBlock({
 }) {
   const account: DeviceAgentAccount | null = row?.agentAccounts?.[agent] ?? null
   const usage = parseAgentUsage(row?.agentUsage?.[agent])
-  // pi's sign-in is an interactive prompt with no device-code flow to hand
-  // back — local only, and the server refuses the command outright.
-  const canLogin = online && canAgentLogin && agent !== `pi`
+  // EXP-849: every remaining agent has a device-code flow.
+  const canLogin = online && canAgentLogin
   const signedIn = account?.signedIn === true
   const asOf = account?.checkedAt ?? row?.agentUsageAt ?? null
   // EXP-827: the usage windows moved to the Devices page's Accounts
@@ -113,6 +114,17 @@ export function AgentAccountBlock({
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {accountLine(account)}
         </span>
+        {/* EXP-849: the account's HEALTH, beside the identity — an expired
+            credential still reports signed in, so the line alone never says
+            that Login is the thing to press. */}
+        {signedIn && healthBadgeLabel(agentHealth(account)) && (
+          <span
+            className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500"
+            title={`The last usage probe on this machine was refused — sign in again.`}
+          >
+            {healthBadgeLabel(agentHealth(account))}
+          </span>
+        )}
         {canLogin && (
           <Button
             variant="glass"

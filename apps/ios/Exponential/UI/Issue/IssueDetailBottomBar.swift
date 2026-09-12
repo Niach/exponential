@@ -11,7 +11,9 @@ import UniformTypeIdentifiers
 enum StartCircleUi: Equatable {
     case hidden
     /// A live session on this issue — state dot, tap navigates to the viewer.
-    case session(CodingSessionDisplayState, sessionId: String)
+    /// EXP-848: `busy` is the synced `agent_busy` — the dot only pulses while
+    /// the agent is inside a turn.
+    case session(CodingSessionDisplayState, sessionId: String, busy: Bool)
     /// Startable: relay on, member, repo-backed board, a desktop online.
     case start
     /// Same gates but no desktop online — dimmed, tap explains.
@@ -202,10 +204,10 @@ struct IssueDetailBottomBar: View {
         switch startUi {
         case .hidden:
             EmptyView()
-        case let .session(state, sessionId):
+        case let .session(state, sessionId, busy):
             NavigationLink(value: AppRoute.agentSession(accountId: accountId, sessionId: sessionId)) {
                 circleChrome {
-                    sessionGlyph(state)
+                    sessionGlyph(state, busy: busy)
                 }
             }
             .buttonStyle(.plain)
@@ -228,11 +230,11 @@ struct IssueDetailBottomBar: View {
     /// in a glass circle said nothing about where the tap went, and read as a
     /// decoration next to the two labelled controls beside it.
     @ViewBuilder
-    private func sessionGlyph(_ state: CodingSessionDisplayState) -> some View {
+    private func sessionGlyph(_ state: CodingSessionDisplayState, busy: Bool) -> some View {
         AppIcon(AppIcons.navDevices, size: AppIcon.Size.medium, weight: .medium)
             .foregroundStyle(.white)
             .overlay(alignment: .topTrailing) {
-                sessionDot(state)
+                sessionDot(state, busy: busy)
                     // Clear of the glyph's own bounds, like a notification
                     // badge — the dot is state, not part of the mark.
                     .offset(x: 6, y: -5)
@@ -240,10 +242,16 @@ struct IssueDetailBottomBar: View {
     }
 
     @ViewBuilder
-    private func sessionDot(_ state: CodingSessionDisplayState) -> some View {
+    private func sessionDot(_ state: CodingSessionDisplayState, busy: Bool) -> some View {
         switch state {
         case .running:
-            PulsingLiveDot()
+            // EXP-848: a live row that is between turns gets the static green
+            // dot — only an open turn pulses.
+            if CodingSessionDisplayState.pulses(state: state, agentBusy: busy) {
+                PulsingLiveDot()
+            } else {
+                Circle().fill(DesignTokens.Semantic.green).frame(width: 9, height: 9)
+            }
         case .needsInput:
             Circle().fill(DesignTokens.Semantic.yellow).frame(width: 9, height: 9)
         case .review:

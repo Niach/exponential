@@ -51,6 +51,7 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
@@ -75,7 +76,7 @@ use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
 use crate::mention_input::MentionInput;
 use crate::navigation::{self, ChatSeed, Navigation};
 use crate::queries;
-use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
+use crate::surface::{glass_pill, PillMode, PillSize};
 
 /// The page's one field: wide, rounded, Enter sends and Shift+Enter breaks a
 /// line — the steer composer's rhythm, on a page with nothing else on it.
@@ -88,8 +89,9 @@ const NO_REPO_LABEL: &str = "No repository";
 /// EXP-790/EXP-820: the suggestion POOL over an empty prompt — the desktop
 /// twin of the web page's `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`,
 /// rendered by `routes/t/$teamSlug/agent.tsx`), byte-identical and in the
-/// same order. A suggestion ending in `#` opens the issue picker the moment it
-/// lands; the others are plain text. The page shows [`CHAT_SUGGESTION_COUNT`]
+/// same order. A suggestion carrying a `#` opens the issue picker the moment
+/// it lands (the caret parks right after that `#`); the others are plain text.
+/// The page shows [`CHAT_SUGGESTION_COUNT`]
 /// of them, picked once per page ([`pick_chat_suggestions`]).
 pub(crate) const CHAT_SUGGESTIONS: [&str; 16] = [
     "Fix #",
@@ -197,16 +199,19 @@ struct DevicePick {
     /// `is_own` flag: this machine takes the LOCAL launch paths, anything
     /// else goes out as one `steer.startSession`.
     device_id: Option<String>,
-    /// Whether the pick is one the USER made (the row, or a seed's ▶) rather
-    /// than a settle's fallback. An explicit pick is STICKY.
-    explicit: bool,
-    /// Whether the pick currently resolves to a candidate. `false` = its
-    /// machine dropped out: the launch is blocked instead of re-pointing.
+    /// EXP-836: the machine a ▶ REQUESTED (`?device=`, `ChatSeed.device_id`).
+    /// It outranks everything the moment it is a candidate — and keeps
+    /// outranking the already-settled default until then. One-shot: a person's
+    /// pick drops it, and it is never persisted as a default.
+    requested: Option<String>,
+    /// The machine the PERSON picked in the Device pin. STICKY: it survives its
+    /// machine dropping out of the candidate list.
+    picked: Option<String>,
+    /// Whether the settled pick currently resolves to a candidate. `false` =
+    /// its machine dropped out: the launch is blocked instead of re-pointing.
     resolved: bool,
     /// The pick's last known label — the blocker names an offline machine.
     label: Option<String>,
-    /// A seed's preselect, adopted by the next settle.
-    pending_preselect: Option<String>,
     /// The candidate list the picker last settled against.
     devices: Vec<queries::LaunchDevice>,
 }
@@ -487,7 +492,10 @@ impl ChatScreenView {
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
         if let Some(device_id) = seed.device_id {
-            self.device.pending_preselect = Some(device_id);
+            // EXP-836: a REQUEST, not a settle input — this screen is
+            // long-lived, so the default machine has already settled by now and
+            // the request has to outrank it.
+            self.device.requested = Some(device_id);
             self.settle_device(window, cx);
         }
         if let Some(text) = seed.text {
@@ -917,15 +925,10 @@ impl ChatScreenView {
         } else {
             Vec::new()
         };
-        let preselect = self.device.pending_preselect.take();
-        if preselect.is_some() {
-            self.device.explicit = true;
-        }
         let next = queries::settled_device(
             &self.device.devices,
-            self.device.device_id.as_deref(),
-            self.device.explicit,
-            preselect.as_deref(),
+            self.device.requested.as_deref(),
+            self.device.picked.as_deref(),
         );
         let label = next.as_deref().and_then(|id| {
             self.device
@@ -947,10 +950,11 @@ impl ChatScreenView {
         }
     }
 
-    /// Explicit pick from the Device pin.
+    /// The PERSON's pick from the Device pin. It drops any pending ▶ request
+    /// (EXP-836: a request is one-shot and never fights a human choice).
     fn set_device(&mut self, device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.device.explicit = true;
-        self.device.pending_preselect = None;
+        self.device.picked = Some(device_id.clone());
+        self.device.requested = None;
         if self.device.device_id.as_deref() == Some(device_id.as_str()) && self.device.resolved {
             return;
         }
@@ -993,6 +997,23 @@ impl ChatScreenView {
         // A reseed off a machine's defaults must not re-enter plan mode
         // for a chat (EXP-772).
         launch.reseed_plan_for_subject(has_subject, cx);
+    }
+
+    /// EXP-836: why the machine a ▶ REQUESTED cannot take this run, for the
+    /// options line — the run goes to the fallback machine, so saying which and
+    /// why beats silently starting somewhere else
+    /// ([`queries::requested_device_note`], web `deviceRequestNote`).
+    fn device_request_note(&self, cx: &App) -> Option<SharedString> {
+        let collections = Store::try_global(cx)?.collections().clone();
+        let rows = collections.devices.read(cx);
+        queries::requested_device_note(
+            &self.device.devices,
+            self.device.requested.as_deref(),
+            rows.iter(),
+            navigation::shapes_ready(cx),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .map(SharedString::from)
     }
 
     /// EXP-696: the sticky pick whose machine has left the candidate list.
@@ -1042,6 +1063,31 @@ impl ChatScreenView {
             self.input
                 .update(cx, |state, cx| state.set_placeholder(next, window, cx));
         }
+    }
+
+    /// EXP-849 — the agent a LOGIN would unblock, for the one blocker that has
+    /// a one-click fix: a LOCAL run whose agent is installed on this machine
+    /// but signed out (`ToolCheck::signed_out`). `None` for every other
+    /// blocker, including a remote machine's sign-out — that login belongs to
+    /// that machine (its Devices row offers it).
+    fn sign_in_nudge(&self, cx: &mut App) -> Option<coding::CodingAgent> {
+        if self.remote_device().is_some() {
+            return None;
+        }
+        let launch = self.launch.as_ref()?;
+        // An external agent has no account of ours to sign into.
+        if launch.external_spec().is_some() {
+            return None;
+        }
+        let agent = match self.resume_active(cx) {
+            true => self
+                .resume_candidate()
+                .map(|(_, record)| record.agent)
+                .unwrap_or(launch.agent),
+            false => launch.agent,
+        };
+        let report = CodingHub::global_ref(cx).and_then(|hub| hub.read(cx).doctor.report.clone())?;
+        report.check_for(agent).signed_out().then_some(agent)
     }
 
     fn subject_kind(&self) -> SubjectKind {
@@ -1377,6 +1423,10 @@ impl ChatScreenView {
                             model: same_agent.then(|| options.model.clone()),
                             effort: same_agent.then(|| options.effort.clone()),
                             prompt,
+                            // EXP-849: the composer's account pick reaches a
+                            // resume too — picking another account on a
+                            // resumable issue continues it there.
+                            account: same_agent.then(|| options.account.clone()).flatten(),
                         };
                         return self.run_prepare(
                             PrepareRequest::ResumeRun(request),
@@ -1435,6 +1485,12 @@ impl ChatScreenView {
 
     /// EXP-696: hand the run to another machine. Success clears the composer
     /// and says where the run went; a refusal renders in the error slot.
+    ///
+    /// EXP-818: it then FOLLOWS the run in — a remote start lands in the
+    /// session screen exactly as a local one does
+    /// ([`coding_flow::follow_remote_start`], which waits for the row the
+    /// other machine writes). The toast stays: it names the machine, which is
+    /// the one thing the screen itself does not announce.
     fn launch_remote(
         &mut self,
         input: api::steer::StartSessionInput,
@@ -1447,6 +1503,8 @@ impl ChatScreenView {
             cx.notify();
             return;
         };
+        let device_id = input.device_id.clone();
+        let subject = coding_flow::RemoteRunSubject::of(&input);
         self.launching = true;
         self.error = None;
         cx.notify();
@@ -1465,6 +1523,7 @@ impl ChatScreenView {
                             ))),
                             cx,
                         );
+                        coding_flow::follow_remote_start(device_id, subject, window, cx);
                         this.after_started(window, cx);
                     }
                     Err(err) => this.error = Some(err.user_message().into()),
@@ -1514,8 +1573,11 @@ impl ChatScreenView {
         .detach();
     }
 
-    /// The run is on its way: clear the draft, the images and the subject
-    /// (the launcher navigates to the session itself).
+    /// The run is on its way: clear the draft, the images and the subject.
+    /// Navigating into the run is NOT this function's job — a local launch
+    /// lands there from `coding_flow::spawn_into_window`, a remote one from
+    /// `coding_flow::follow_remote_start` once the other machine's row syncs
+    /// (EXP-818: both paths open the session screen).
     fn after_started(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.input
             .update(cx, |input, cx| input.set_value("", window, cx));
@@ -1995,8 +2057,10 @@ impl ChatScreenView {
     }
 
     /// EXP-790: the suggestion chips, shown over the EMPTY, subject-less
-    /// field only. A click inserts the text through the mention widget so a
-    /// trailing `#` opens the issue picker, exactly as typing it would.
+    /// field only. A click inserts the text through the mention widget and
+    /// parks the caret after the suggestion's first `#`
+    /// ([`MentionInput::insert_suggestion`]), so the issue picker opens
+    /// exactly as typing the token would — wherever in the sentence it sits.
     fn render_suggestions(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if !matches!(self.subject, Subject::None) || !self.input.read(cx).value().trim().is_empty() {
             return None;
@@ -2007,7 +2071,8 @@ impl ChatScreenView {
                 .cursor_pointer()
                 .child(div().text_xs().child(text))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.mention.update(cx, |mention, cx| mention.insert_text(text, window, cx));
+                    this.mention
+                        .update(cx, |mention, cx| mention.insert_suggestion(text, window, cx));
                     cx.notify();
                 }))
         });
@@ -2051,13 +2116,22 @@ impl Render for ChatScreenView {
 
         let blocker = self.launch_blocker(cx);
         let no_session_note = self.no_session_note();
+        let request_note = self.device_request_note(cx);
+        // EXP-827: ICON-ONLY — the ONE round send of `composer::glass_composer`
+        // (the steer composer's button, same ring, same 32px hit box). The
+        // label the web `submitLabel` mirrors is the TOOLTIP now: the composer
+        // card is the page's only control, so a word beside the arrow only
+        // repeated what the chips above it already say.
         let label = chat_launch::submit_label(&self.subject_kind());
-        let submit = glass_pill_button("chat-send", PillSize::Md, cx)
-            .icon(Icon::new(registry::UI_SUBMIT))
-            .label(SharedString::from(label))
-            .disabled(blocker.is_some())
-            .loading(self.launching || self.sending)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
+        let submit = crate::composer::composer_submit(
+            "chat-send",
+            registry::UI_SUBMIT,
+            blocker.is_some(),
+            cx,
+        )
+        .tooltip(SharedString::from(label))
+        .loading(self.launching || self.sending)
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
         let chips = self.render_chips(cx);
         let fields = self.render_action_fields(cx);
         let leading = match (chips, fields) {
@@ -2108,8 +2182,35 @@ impl Render for ChatScreenView {
         if let Some(notice) = &self.notice {
             notes = notes.child(div().text_color(muted).child(notice.clone()));
         }
+        // EXP-836: the ▶ named a machine this run cannot go to. It is a WARNING,
+        // not a blocker — the fallback machine takes the run (web parity).
+        if let Some(note) = request_note {
+            notes = notes.child(div().text_color(cx.theme().warning).child(note));
+        }
         if let Some(reason) = blocker.filter(|_| !self.launching && !self.sending) {
-            notes = notes.child(div().text_color(muted).child(reason));
+            // EXP-849: a blocked launch whose fix is a LOGIN offers the login.
+            // It used to be text only, which left the one actionable blocker
+            // reading like every unactionable one.
+            let sign_in = self.sign_in_nudge(cx);
+            notes = notes.child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1p5()
+                    .child(div().min_w_0().text_color(muted).child(reason))
+                    .children(sign_in.map(|agent| {
+                        Button::new("chat-sign-in")
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(registry::UI_SIGN_IN)
+                            .label(SharedString::from(format!("Sign in to {}", agent.label())))
+                            .on_click(move |_, _window, cx| {
+                                crate::agent_login::open_login_tab(agent, false, cx);
+                            })
+                    })),
+            );
         }
         if let Some(note) = no_session_note {
             notes = notes.child(div().text_color(muted).child(note));

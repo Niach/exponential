@@ -43,7 +43,7 @@ export const EXTERNAL_STEER_AGENT = `external`
  *  `coding_sessions.agent` takes contract values only and there is none for
  *  one. The two are told apart by `config_state`: only the ACP engine
  *  publishes it (every PTY run publishes none), and an ACP run for
- *  claude/codex/pi always stamps its id — so an agent-less run that published
+ *  claude/codex always stamps its id — so an agent-less run that published
  *  one is external, and it gets the contract-less id above.
  *
  *  Without this, a phone offered `/compact` and `/clear` (confirm dialog and

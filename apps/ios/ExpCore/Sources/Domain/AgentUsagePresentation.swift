@@ -317,7 +317,8 @@ public enum AgentUsagePresentation {
     /// The caption after the agent name. Locked ×4 and, since EXP-694, as
     /// short as it can be: the bare `<email>` (no "signed in as" prefix, no
     /// " · <plan>" suffix — the row's context already says both) / the bare
-    /// plan (pi, which reports a provider instead of an email) / `signed in` /
+    /// plan (an agent that reports a provider instead of an email) /
+    /// `signed in` /
     /// `signed out`. A missing report is `unknown` — the device never probed,
     /// which is not "signed out".
     public static func accountCaption(_ account: AgentAccount?) -> String {

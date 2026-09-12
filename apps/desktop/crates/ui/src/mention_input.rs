@@ -140,6 +140,31 @@ impl MentionInput {
         cx.notify();
     }
 
+    /// EXP-827: [`Self::insert_text`] with the caret parked right AFTER the
+    /// text's first `#`, so a suggestion that names an issue opens the
+    /// `#` autocomplete wherever the token sits — "Start a session for # on my
+    /// other machine" used to insert fine and leave the caret at the END of
+    /// the sentence, where nothing is a token, while "Fix #" only worked
+    /// because its `#` happened to be last. No `#` at all: plain insert.
+    pub fn insert_suggestion(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(after_hash) = text.find('#').map(|at| at + 1) else {
+            return self.insert_text(text, window, cx);
+        };
+        self.input.update(cx, |state, cx| {
+            let before = state.cursor();
+            state.insert(text.to_string(), window, cx);
+            let value = state.value().to_string();
+            let caret = crate::markdown::byte_offset_to_position(&value, before + after_hash);
+            state.set_cursor_position(caret, window, cx);
+        });
+        cx.notify();
+    }
+
     fn refresh_completion(&mut self, input: &Entity<TextareaState>, cx: &mut gpui::Context<Self>) {
         let Some(source) = self.source.clone() else {
             self.completion = None;

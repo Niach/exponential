@@ -782,7 +782,7 @@ impl SessionBar {
     }
 
     /// EXP-484 (C1): open one agent-LOGIN tab — `claude auth login
-    /// --claudeai`, `codex login --device-auth`, or pi's bare TUI with
+    /// --claudeai` or `codex login --device-auth`, with
     /// `/login` typed at its prompt.
     ///
     /// A plain [`TerminalManager::open_tab`], deliberately NOT the
@@ -790,7 +790,7 @@ impl SessionBar {
     /// refuses a signed-out agent, which is exactly who needs to sign in.
     /// No `coding_sessions` row, no token hold, no MCP wiring — just the
     /// CLI's own login command in a visible tab. The caller (
-    /// [`crate::agent_login`]) owns the logout-first switch, the pi typing
+    /// [`crate::agent_login`]) owns the logout-first switch, the
     /// and the exit hook.
     pub(crate) fn launch_agent_login(
         &mut self,
@@ -1116,9 +1116,11 @@ pub(crate) fn prompt_kill_session(
             )
         }
         None => AlertSpec::new(
-            "Kill this coding session?",
+            // EXP-849 fix-up: "Stop" here too — a run on another machine ends
+            // the same way, and the copy already says what it does.
+            "Stop this coding session?",
             crate::steer_viewer::kill_description(device_label.as_deref()),
-            "Kill session",
+            "Stop session",
         )
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {

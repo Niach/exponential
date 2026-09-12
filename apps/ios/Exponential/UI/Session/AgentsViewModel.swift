@@ -67,6 +67,11 @@ final class AgentsViewModel {
     /// `accountsLoaded` for "loading" vs "no machine reported an account".
     private(set) var accountSections: [AgentAccountSection] = []
     private(set) var accountGroups: [AgentAccountUsageGroup] = []
+    /// EXP-849: the FLAT machine × agent × profile rows behind both surfaces —
+    /// the Accounts rows fold them by login, the machines list draws each
+    /// machine's own as chips (health badge, re-login, "use this account
+    /// here"). Derived in the same pass, so the two can never disagree.
+    private(set) var accountRows: [AgentProfileUsageRow] = []
     var accountsLoaded: Bool { deviceEntities != nil }
     /// EXP-829: the accounts a usage refresh is in flight for (keyed like
     /// `accountGroups`) — the row shows a spinner in place of its refresh
@@ -75,6 +80,13 @@ final class AgentsViewModel {
     private(set) var refreshingAccounts: Set<String> = []
     /// EXP-829: the last refresh that could not be queued, for the row.
     var accountError: String?
+    /// EXP-849: the account ACTIONS a machine chip offers (re-login, "use this
+    /// account here") — the rows a command is in flight for, keyed by
+    /// `AgentProfileUsageRow.key`, and the last refusal. The outcome itself
+    /// lands via sync: the machine re-probes and its `agent_accounts` report
+    /// moves.
+    private(set) var accountActions: Set<String> = []
+    var accountActionError: String?
     /// EXP-829: the command queue the refreshes ride — set by the Devices
     /// page only. Nil (the Agent page, the onboarding step) = the accounts
     /// are still derived but nothing is ever queued from there.
@@ -435,6 +447,7 @@ final class AgentsViewModel {
                     && (capsByDevice[row.deviceId] ?? []).contains(AgentAccountsRows.refreshCap)
             }
         )
+        accountRows = rows
         accountGroups = groups
         accountSections = AgentAccountsRows.sections(groups)
         pruneRefreshing(groups, now: now)
@@ -507,6 +520,106 @@ final class AgentsViewModel {
                 self.refreshingAccounts = Set(self.refreshMarks.keys)
                 if !silent { self.accountError = error.userFacingMessage }
             }
+        }
+    }
+
+    // MARK: - Accounts: the two surfaces (EXP-849)
+
+    /// EXP-849: the agents the Accounts section offers a TAB for, in contract
+    /// order. One agent = no tabs (a single band of rows reads fine); two or
+    /// more and codex stops crowding claude.
+    var accountAgents: [String] {
+        accountSections.map(\.agent)
+    }
+
+    /// The account rows under one agent tab — already attention-first
+    /// (`sortGroupsAttentionFirst` ran over the whole set). Deliberately NOT
+    /// named `accountGroups(agent:)`: a method may not share its base name
+    /// with the stored property above.
+    func groupsForAgent(_ agent: String) -> [AgentAccountUsageGroup] {
+        accountSections.first { $0.agent == agent }?.groups ?? []
+    }
+
+    /// EXP-849: one machine's logins, as its row draws them (attention first).
+    func deviceAccountRows(_ deviceId: String) -> [AgentProfileUsageRow] {
+        AgentAccountsRows.deviceRows(accountRows, deviceId: deviceId)
+    }
+
+    /// EXP-849: the health badge a machine row wears — the worst of its
+    /// logins.
+    func deviceHealth(_ deviceId: String) -> AgentAccountHealth {
+        AgentAccountsRows.deviceHealth(accountRows, deviceId: deviceId)
+    }
+
+    /// Whether a command is in flight for this login.
+    func isAccountActionPending(_ row: AgentProfileUsageRow) -> Bool {
+        accountActions.contains(row.key)
+    }
+
+    /// EXP-849: make this login the machine's ACTIVE one for its agent — the
+    /// Devices surface's "Use this account here".
+    ///
+    /// Its own command kind (`agent_profile_use`, payload `{agent,
+    /// profileId}`): the machine points its active-profile pointer at a login
+    /// it ALREADY holds and re-reports `agent_accounts`. Deliberately not
+    /// `agent_login` — that one drives a sign-in flow (and a switch's logout
+    /// revokes a codex token server-side), neither of which this needs. No
+    /// credential is read, copied or moved.
+    ///
+    /// Offered only on one of MY machines that is online; the server re-checks
+    /// ownership and an unknown profile is refused there too. The outcome
+    /// arrives via sync, when the machine's next report moves `active`.
+    func useAccountHere(_ row: AgentProfileUsageRow) {
+        queueAccountCommand(row, kind: Self.useAccountCommandKind)
+    }
+
+    /// EXP-849: the command kind that activates an EXISTING login on a
+    /// machine. Accepted by `devices.createCommand` and handled by the desktop
+    /// and the headless daemon (`agent_profiles::set_active_profile`).
+    private static let useAccountCommandKind = "agent_profile_use"
+
+    private func queueAccountCommand(
+        _ row: AgentProfileUsageRow,
+        kind: String
+    ) {
+        guard let devicesApi, row.mine, row.online else { return }
+        guard !accountActions.contains(row.key) else { return }
+        accountActionError = nil
+        accountActions.insert(row.key)
+        let accountId = accountId
+        let key = row.key
+        Task { [weak self] in
+            do {
+                let created = try await devicesApi.createCommand(
+                    accountId: accountId,
+                    deviceId: row.deviceId,
+                    kind: kind,
+                    agent: row.agent,
+                    profileId: row.profileId
+                )
+                // The MATERIAL outcome lands via sync (the machine re-reports
+                // `agent_accounts`), but a refusal would otherwise be silent —
+                // including the honest one a machine too old to know the kind
+                // answers with. Bounded 2s polls, like the device-settings
+                // sheet's: an offline machine keeps the command queued
+                // server-side and the poll simply stops watching.
+                for _ in 0..<30 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard let self, !Task.isCancelled else { return }
+                    guard let command = try? await devicesApi.getCommand(
+                        accountId: accountId, commandId: created.id
+                    ) else { continue }
+                    guard !command.isPending else { continue }
+                    if command.isFailed {
+                        self.accountActionError =
+                            command.result ?? "The machine refused the command."
+                    }
+                    break
+                }
+            } catch {
+                self?.accountActionError = error.userFacingMessage
+            }
+            self?.accountActions.remove(key)
         }
     }
 

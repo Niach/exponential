@@ -4,23 +4,28 @@
 //!
 //! One ROW per ACCOUNT (an agent plus the login the machines named) off the
 //! synced `devices` rows (own machines plus the servers teammates shared
-//! with the active team), grouped by agent in contract order, ATTENTION
-//! FIRST: signed-out accounts lead, then anything at or over the danger
-//! threshold, then the rest. The machines holding the account are chips on
-//! the row — a chip wears a CHECK when the account is the ACTIVE login on
-//! that machine (`AgentProfileUsageRow::active`), and clicking a chip of one
-//! of MY machines offers "Switch account" / "Sign in" on that machine
-//! (`device_settings::login_affordance`, the ONE rule): the "Default" /
-//! "active" chips the old page wore said nothing about where the account
-//! was live. The numbers are the FRESHEST machine's report (they are the
-//! account's limits, so every machine reads the same ones), rendered as
+//! with the active team), under one TAB per agent (EXP-849 — codex's rows used
+//! to push claude's numbers below the fold), ATTENTION FIRST: signed-out and
+//! revoked accounts lead, then anything at or over the danger threshold, then
+//! the rest. The machines holding the account are QUIET chips on the row — a
+//! chip wears a CHECK where the account is that machine's ACTIVE login
+//! (`AgentProfileUsageRow::active`) and the health badge where the credential
+//! there is broken, and nothing else: EXP-849 split the two surfaces, so
+//! Accounts DECIDES which login to use and Devices REPAIRS a machine (sign in,
+//! sign in again, use this account here — `machines::render_account_chips`).
+//! The numbers are the FRESHEST machine's report (they are the account's
+//! limits, so every machine reads the same ones), rendered as
 //! [`crate::usage_bar::render_usage_cards_dense`]; stale numbers keep the
 //! dimmed "as of …" treatment.
+//!
+//! "+ Add account" is the page's one write: a name, then the agent's own
+//! sign-in into a FRESH profile on THIS machine (`agent_profiles::create` plus
+//! a login in its own config dir — no account here is signed out).
 //!
 //! The section owns no model of its own: rows, groups, ordering and the
 //! refresh floor live in [`crate::usage_bar`] beside the ×4 card rules (the
 //! twin of the web `agent-usage.ts`), so this file is layout, the refresh
-//! round-trip and the login menu.
+//! round-trip and the two account writes.
 //!
 //! "Refresh" queues an `agent_usage_refresh` command on one of MY machines
 //! that runs it (cap `agent-usage-refresh`), never more often than the
@@ -32,8 +37,9 @@ use std::collections::HashMap;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, App, AppContext as _, ClickEvent, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window,
 };
 use gpui_component::{
     h_flex, menu::DropdownMenu as _, menu::PopupMenuItem, notification::Notification, v_flex,
@@ -94,6 +100,11 @@ pub struct AccountsSection {
     /// The last failed MANUAL queue attempt, rendered under the header.
     /// tRPC-only: nothing about a refused command reaches the synced row.
     error: Option<SharedString>,
+    /// EXP-849: the agent TAB on screen (`None` = the first section this
+    /// machine reports). Tabs, not stacked headings: the two agents' accounts
+    /// have nothing to say to each other, and codex's rows pushed claude's
+    /// numbers — the ones a reader opens this page for — below the fold.
+    agent_tab: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -129,6 +140,7 @@ impl AccountsSection {
             refreshing: HashMap::new(),
             auto_attempts: HashMap::new(),
             error: None,
+            agent_tab: None,
             _subscriptions: subscriptions,
         }
     }
@@ -350,11 +362,22 @@ impl AccountsSection {
     /// What hovering a chip says: this machine's OWN report age and state,
     /// and (EXP-818) whether the account is the ACTIVE login there.
     fn chip_tooltip(row: &AgentProfileUsageRow, now_epoch: i64) -> String {
+        use coding::agent_accounts::Health;
         let mut parts = vec![if row.online { "online" } else { "offline" }.to_string()];
         if !row.signed_in {
             parts.push("not signed in".to_string());
-        } else if row.active {
-            parts.push("active here".to_string());
+        } else {
+            // EXP-849: a revoked credential is the loudest thing a chip can
+            // say — it looks signed in everywhere else.
+            if row.health == Health::NeedsRelogin {
+                parts.push("needs re-login".to_string());
+            }
+            if row.active {
+                parts.push("active here".to_string());
+            }
+        }
+        if row.unmonitored {
+            parts.push("usage not tracked here".to_string());
         }
         let stamp = row
             .usage
@@ -382,17 +405,17 @@ impl AccountsSection {
         parts.join(" · ")
     }
 
-    /// EXP-818: one machine chip — the online dot, the machine (· profile),
-    /// and a CHECK when the account is the active login on that machine.
-    /// A chip of one of MY machines that can run a sign-in opens a menu:
-    /// "Switch account on X" (signed in) or "Sign in on X"; every other chip
-    /// is read-only with the tooltip.
+    /// EXP-849: one machine chip — a QUIET presence indicator: the online dot,
+    /// the machine (· profile), a CHECK where the account is that machine's
+    /// ACTIVE login, and the health badge when the credential there is broken.
+    ///
+    /// It is not a control: Accounts decides WHICH account a run should use,
+    /// Devices repairs a machine (sign in, sign in again, use this account
+    /// here — `machines::render_account_chips`). Web parity (`DeviceChip`).
     fn render_chip(
         index: usize,
         chip: usize,
         row: &AgentProfileUsageRow,
-        own_device_id: &str,
-        caps: &[String],
         now_epoch: i64,
         cx: &App,
     ) -> gpui::AnyElement {
@@ -413,82 +436,30 @@ impl AccountsSection {
                 .with_size(px(crate::surface::PillSize::Sm.glyph()))
                 .text_color(theme::tokens::GREEN.to_hsla())
         });
-        let agent = CodingAgent::parse(&row.agent);
-        let own = row.device_id == own_device_id;
-        let affordance = agent.filter(|_| row.mine).and_then(|agent| {
-            crate::device_settings::login_affordance(agent, own, row.online, caps, row.signed_in)
-        });
-        match (agent, affordance) {
-            (Some(agent), Some(affordance)) => {
-                let device_id = row.device_id.clone();
-                let device_label = Self::chip_label(row);
-                let switch = affordance.switch;
-                let item_label = SharedString::from(format!(
-                    "{} on {device_label}",
-                    affordance.label
-                ));
-                crate::surface::glass_pill_button(
-                    ("accounts-chip", index * 64 + chip),
-                    crate::surface::PillSize::Sm,
-                    cx,
-                )
-                .when(!row.online, |this| this.text_color(muted))
-                .tooltip(tooltip)
-                .child(dot)
-                .child(label)
-                .children(check)
-                .dropdown_menu(move |menu, _window, _cx| {
-                    let device_id = device_id.clone();
-                    let device_label = device_label.clone();
-                    menu.item(
-                        PopupMenuItem::new(item_label.clone())
-                            .icon(Icon::new(if switch {
-                                registry::UI_SWAP
-                            } else {
-                                registry::UI_SIGN_IN
-                            }))
-                            .on_click(move |_, window, cx| {
-                                start_login(
-                                    device_id.clone(),
-                                    device_label.clone(),
-                                    own,
-                                    agent,
-                                    switch,
-                                    window,
-                                    cx,
-                                );
-                            }),
-                    )
-                })
-                .into_any_element()
-            }
-            _ => crate::surface::glass_pill(
-                ("accounts-chip", index * 64 + chip),
-                crate::surface::PillSize::Sm,
-                crate::surface::PillMode::Readonly,
-                cx,
-            )
-            .when(!row.online, |this| this.text_color(muted))
-            .tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
-            })
-            .child(dot)
-            .child(label)
-            .children(check)
-            .into_any_element(),
-        }
+        crate::surface::glass_pill(
+            ("accounts-chip", index * 64 + chip),
+            crate::surface::PillSize::Sm,
+            crate::surface::PillMode::Readonly,
+            cx,
+        )
+        .when(!row.online, |this| this.text_color(muted))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+        })
+        .child(dot)
+        .child(label)
+        .children(check)
+        .children(crate::usage_bar::health_badge(row.health, cx))
+        .into_any_element()
     }
 
     /// One account ROW (EXP-818: a flat row under the Accounts band, not a
-    /// card in a grid): the identity line with the refresh button, the
-    /// machine chips, the dense usage windows.
-    #[allow(clippy::too_many_arguments)] // one call site; render facts
+    /// card in a grid): the identity line with its health badge and the refresh
+    /// button, the machine chips, the dense usage windows.
     fn render_row(
         &self,
         index: usize,
         group: &AgentAccountUsageGroup,
-        own_device_id: &str,
-        caps: &HashMap<String, Vec<String>>,
         now_epoch: i64,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -533,6 +504,13 @@ impl AccountsSection {
                 _ => None,
             })
             .flatten();
+        // EXP-849 (interface A): HEALTH, the one thing the identity line cannot
+        // say — "Needs re-login" for a credential the provider revoked (the CLI
+        // still reports signed in), "Signed out" for a login nobody made. The
+        // ×4 strings and the one colour rule live in
+        // [`crate::usage_bar::health_badge`]; the repair is on the Devices row
+        // that holds the account, since this page decides WHICH account to use.
+        let health_badge = crate::usage_bar::health_badge(group.health, cx);
 
         let refresh_button = group.refresh_target.as_ref().map(|target| {
             let machine = if target.device_label.trim().is_empty() {
@@ -563,16 +541,7 @@ impl AccountsSection {
 
         let mut chips = h_flex().w_full().min_w_0().flex_wrap().gap_1();
         for (chip, row) in group.rows.iter().enumerate() {
-            let device_caps = caps.get(&row.device_id).map(Vec::as_slice).unwrap_or(&[]);
-            chips = chips.child(Self::render_chip(
-                index,
-                chip,
-                row,
-                own_device_id,
-                device_caps,
-                now_epoch,
-                cx,
-            ));
+            chips = chips.child(Self::render_chip(index, chip, row, now_epoch, cx));
         }
 
         crate::surface::flat_row()
@@ -611,6 +580,7 @@ impl AccountsSection {
                                     .child(tail)
                             })),
                     )
+                    .children(health_badge)
                     .children(refresh_button),
             )
             .child(chips)
@@ -654,7 +624,7 @@ impl AccountsSection {
 /// finished from that machine's Device settings (the code hand-back lives
 /// there). Mirrors `device_settings::start_login` for the own/remote fork.
 #[allow(clippy::too_many_arguments)]
-fn start_login(
+pub(crate) fn start_login(
     device_id: String,
     device_label: String,
     own: bool,
@@ -663,8 +633,54 @@ fn start_login(
     window: &mut Window,
     cx: &mut App,
 ) {
+    start_login_in(device_id, device_label, own, agent, switch, None, window, cx)
+}
+
+/// EXP-849 — sign in to ONE account profile on a machine: a chip's "Sign in"
+/// (a profile nobody ever logged into) and "Sign in again" (a `needs_relogin`
+/// repair, or the machine's own active login).
+///
+/// Never a SWITCH: a profile holds its own credential in its own config dir, so
+/// there is nothing to sign out of first — which is what keeps a codex repair
+/// from revoking the login every other machine shares (interface E).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sign_in_to_profile(
+    device_id: String,
+    device_label: String,
+    own: bool,
+    agent: CodingAgent,
+    profile_id: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    start_login_in(
+        device_id,
+        device_label,
+        own,
+        agent,
+        false,
+        Some(profile_id),
+        window,
+        cx,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_login_in(
+    device_id: String,
+    device_label: String,
+    own: bool,
+    agent: CodingAgent,
+    switch: bool,
+    profile_id: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     if own {
-        crate::agent_login::open_login_tab(agent, switch, cx);
+        match profile_id.filter(|id| !coding::agent_profiles::is_system(Some(id))) {
+            Some(profile_id) => crate::agent_login::open_profile_login_tab(agent, profile_id, cx),
+            None => crate::agent_login::open_login_tab(agent, switch, cx),
+        }
         return;
     }
     let handle = window.window_handle();
@@ -674,11 +690,18 @@ fn start_login(
         };
         let device_id = device_id.clone();
         let device_label = device_label.clone();
+        let profile = profile_id.clone();
         cx.spawn(async move |cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), switch)
+                    api::devices::create_agent_login_command(
+                        &trpc,
+                        &device_id,
+                        agent.id(),
+                        switch,
+                        profile.as_deref(),
+                    )
                 })
                 .await;
             let _ = handle.update(cx, |_, window, cx| {
@@ -705,6 +728,111 @@ fn start_login(
     }
 }
 
+/// EXP-849 — "+ Add account": name the account, then sign in to a FRESH
+/// profile on THIS machine.
+///
+/// This machine only, by construction: a profile is a directory plus a login,
+/// and both happen where the CLI runs. Another machine's accounts are added
+/// from that machine (its chips' "Sign in on X" repairs the ones it has).
+fn open_add_account(agent: CodingAgent, window: &mut Window, cx: &mut App) {
+    let input = cx.new(|cx| {
+        gpui_component::input::InputState::new(window, cx).placeholder("Work, Client, …")
+    });
+    let field = input.clone();
+    let value = input.clone();
+    let spec = crate::native_dialog::AlertSpec::new(
+        format!("Add a {} account", agent.label()),
+        "A name for this login on this machine. The agent's own sign-in opens next; \
+         the accounts already here are not signed out.",
+        "Sign in",
+    )
+    .height(px(280.))
+    .content(move |window, cx| {
+        crate::controls::glass_input(&field, window, cx)
+            .into_any_element()
+    })
+    .on_ok(move |_, cx| {
+        let label = value.read(cx).value().trim().to_string();
+        if label.is_empty() {
+            // Keep the dialog open: an unnamed profile is indistinguishable
+            // from every other one in a picker.
+            return false;
+        }
+        crate::agent_login::open_add_account_tab(agent, label, cx);
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
+/// EXP-849 — "use this account here": make this login the machine's DEFAULT
+/// for its agent. Non-destructive — it moves a device-local pointer and signs
+/// nobody out, which is why it is offered beside (never instead of) the
+/// sign-in.
+///
+/// This machine writes the pointer directly; another of mine gets the
+/// `agent_profile_use` command on its heartbeat and answers by re-reporting,
+/// so the CHECK moves on the next beat either way.
+pub(crate) fn use_account_here(
+    device_id: String,
+    device_label: String,
+    own: bool,
+    agent: CodingAgent,
+    profile_id: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if own {
+        // The SAME body the `agent_profile_use` command runs
+        // (`coding::use_profile`): same signed-in check, same sentences, same
+        // re-probe — so "use this account here" means one thing whether it was
+        // asked for on this machine or from another client.
+        match crate::device_sync::use_agent_profile_here(agent, &profile_id, cx) {
+            Ok(()) => window.push_notification(
+                Notification::success(SharedString::from(format!(
+                    "{} now runs as this account here.",
+                    agent.label()
+                ))),
+                cx,
+            ),
+            Err(err) => {
+                window.push_notification(Notification::error(SharedString::from(err)), cx)
+            }
+        }
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                api::devices::create_agent_profile_use_command(
+                    &trpc,
+                    &device_id,
+                    agent.id(),
+                    &profile_id,
+                )
+            })
+            .await;
+        let _ = handle.update(cx, |_, window, cx| match result {
+            Ok(_) => window.push_notification(
+                Notification::success(SharedString::from(format!(
+                    "{device_label} will run {} as this account.",
+                    agent.label()
+                ))),
+                cx,
+            ),
+            Err(err) => window.push_notification(
+                Notification::error(SharedString::from(err.user_message())),
+                cx,
+            ),
+        });
+    })
+    .detach();
+}
+
 impl Render for AccountsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let now_epoch = chrono::Utc::now().timestamp();
@@ -716,23 +844,39 @@ impl Render for AccountsSection {
         let auto_refreshes = loaded
             .as_ref()
             .is_some_and(|groups| groups.iter().any(|group| group.refresh_target.is_some()));
-        let own_device_id = queries::own_device_id(cx);
-        // The machines' caps, for the chips' sign-in gate.
-        let caps: HashMap<String, Vec<String>> = sync::Store::global(cx)
-            .collections()
-            .devices
-            .read(cx)
-            .iter()
-            .map(|row| (row.device_id.clone().unwrap_or_default(), row.cap_ids()))
-            .collect();
 
-        let note = auto_refreshes.then(|| {
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("Refreshes every 5 minutes")
-                .into_any_element()
-        });
+        // EXP-849: "+ Add account" — a SECOND login of an agent on THIS
+        // machine (a profile plus its own sign-in). One entry per agent, since
+        // a profile belongs to exactly one CLI.
+        let add_account = crate::controls::glass_icon_button(
+            "accounts-add",
+            Icon::new(registry::UI_ADD),
+            cx,
+        )
+        .tooltip("Add another agent account on this machine")
+        .dropdown_menu(|menu, _window, _cx| {
+            let mut menu = menu;
+            for agent in CodingAgent::ALL {
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(format!("Add {} account…", agent.label())))
+                        .on_click(move |_, window, cx| open_add_account(agent, window, cx)),
+                );
+            }
+            menu
+        })
+        .into_any_element();
+        let note = h_flex()
+            .items_center()
+            .gap_1p5()
+            .children(auto_refreshes.then(|| {
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("Refreshes every 5 minutes")
+            }))
+            .child(add_account)
+            .into_any_element();
+        let note = Some(note);
         // The section carries its OWN top spacing (the page column has no
         // `gap`), like the run sections it sits where.
         let mut column = v_flex()
@@ -772,31 +916,53 @@ impl Render for AccountsSection {
                 );
             }
             Some(groups) => {
+                let sections = Self::sections(groups);
+                // EXP-849: one TAB per agent — and only when there is more
+                // than one, so a machine running a single agent sees no chrome
+                // it cannot act on.
+                let active = self
+                    .agent_tab
+                    .clone()
+                    .filter(|agent| sections.iter().any(|(id, _)| id == agent))
+                    .or_else(|| sections.first().map(|(agent, _)| agent.clone()));
+                if sections.len() > 1 {
+                    let mut tabs = h_flex().min_w_0().gap_1().px_1().pt_2().pb_1();
+                    for (tab, (agent, section)) in sections.iter().enumerate() {
+                        let selected = Some(agent) == active.as_ref();
+                        let id = agent.clone();
+                        let label = CodingAgent::parse(agent)
+                            .map(|agent| agent.label().to_string())
+                            .unwrap_or_else(|| agent.clone());
+                        tabs = tabs.child(
+                            crate::surface::glass_pill(
+                                ("accounts-agent-tab", tab),
+                                crate::surface::PillSize::Sm,
+                                crate::surface::PillMode::Select { selected },
+                                cx,
+                            )
+                            .child(SharedString::from(format!(
+                                "{label} · {}",
+                                section.len()
+                            )))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.agent_tab = Some(id.clone());
+                                cx.notify();
+                            })),
+                        );
+                    }
+                    column = column.child(tabs);
+                }
                 let mut index = 0;
-                for (agent, section) in Self::sections(groups) {
-                    let label = CodingAgent::parse(&agent)
-                        .map(|agent| agent.label().to_string())
-                        .unwrap_or(agent);
-                    // The agent name as a muted sub-label over its rows.
-                    let mut block = v_flex().min_w_0().pb_1().child(
-                        div()
-                            .px_3()
-                            .pt_2()
-                            .pb_1()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(muted)
-                            .child(SharedString::from(label)),
-                    );
-                    for group in &section {
-                        block = block.child(self.render_row(
-                            index,
-                            group,
-                            &own_device_id,
-                            &caps,
-                            now_epoch,
-                            cx,
-                        ));
+                for (agent, section) in &sections {
+                    if Some(agent) != active.as_ref() {
+                        // The index still advances: element ids must not move
+                        // between tabs (a reused id carries stale state).
+                        index += section.len();
+                        continue;
+                    }
+                    let mut block = v_flex().min_w_0().pb_1();
+                    for group in section {
+                        block = block.child(self.render_row(index, group, now_epoch, cx));
                         index += 1;
                     }
                     column = column.child(block);
@@ -827,6 +993,8 @@ mod tests {
             plan: None,
             usage: None,
             checked_at: None,
+            health: coding::agent_accounts::Health::Ok,
+            unmonitored: false,
         }
     }
 
@@ -837,6 +1005,7 @@ mod tests {
             signed_in: true,
             email: None,
             plan: None,
+            health: coding::agent_accounts::Health::Ok,
             rows: vec![row(agent)],
             usage: None,
             checked_at: None,
@@ -850,7 +1019,7 @@ mod tests {
     #[test]
     fn sections_follow_the_contract_agent_order() {
         let sections = AccountsSection::sections(vec![
-            group("pi", "pi:a"),
+            group("zed", "zed:a"),
             group("zed", "zed:a"),
             group("codex", "codex:a"),
             group("claude", "claude:a"),
@@ -861,7 +1030,7 @@ mod tests {
                 .iter()
                 .map(|(agent, groups)| (agent.as_str(), groups.len()))
                 .collect::<Vec<_>>(),
-            vec![("claude", 1), ("codex", 2), ("pi", 1), ("zed", 1)]
+            vec![("claude", 1), ("codex", 2), ("zed", 2)]
         );
     }
 

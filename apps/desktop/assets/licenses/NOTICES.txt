@@ -18915,9 +18915,6 @@ affiliated with, endorsed by, or sponsored by any of the owners named below.
   Google "G" logo
     Owner: Google LLC
     Used to label the "Sign in with Google" button.
-  Pi logo
-    Owner: the Pi project
-    Used to label the Pi coding agent in agent pickers and session views.
 
 
 ==============================================================================

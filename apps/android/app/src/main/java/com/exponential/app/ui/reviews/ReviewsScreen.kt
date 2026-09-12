@@ -49,12 +49,13 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.theme.glassRow
 
 /**
  * "Reviews" (EXP-131): the open pull requests in the current team, grouped
@@ -117,11 +118,13 @@ private fun ReviewsListContent(
         else -> LazyColumn(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            // EXP-818: flat rows under a band — the 6dp every converted list
+            // uses, not the 3dp gap the carded rows needed.
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             state.groups.forEach { group ->
                 item(key = "header-${group.board.id}") {
-                    BoardHeader(board = group.board, count = group.entries.size)
+                    BoardHeader(board = group.board)
                 }
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
@@ -148,7 +151,7 @@ private fun ReviewsListContent(
             // action or chat run whose PR links no issue, so no board group
             // can hold it. Listed last, under one header.
             if (state.runs.isNotEmpty()) {
-                item(key = "header-runs") { RunsHeader(count = state.runs.size) }
+                item(key = "header-runs") { RunsHeader() }
                 items(state.runs, key = { it.groupKey }) { entry ->
                     RunReviewRow(
                         entry = entry,
@@ -200,65 +203,34 @@ private fun ReviewsListContent(
 
 }
 
+// EXP-698/EXP-818: the board band over its PR rows — THE section header every
+// list renders, with the board icon as its leading glyph and no count (the
+// header counts are gone on every client).
 @Composable
-private fun BoardHeader(board: BoardEntity, count: Int) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BoardIcon(board, size = 14.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            board.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
+private fun BoardHeader(board: BoardEntity) {
+    SectionHeader(
+        board.name,
+        leading = { BoardIcon(board, size = 14.dp) },
+    )
 }
 
 /**
- * EXP-734: the header over the issueless runs' pull requests. Deliberately
- * plain (no board icon) — these PRs belong to a RUN, not to a board.
+ * EXP-734: the band over the issueless runs' pull requests. Its glyph is the
+ * actions one, not a board icon — these PRs belong to a RUN, not to a board.
  */
 @Composable
-private fun RunsHeader(count: Int) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            ExpIcons.navActions,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            "Agent runs",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
+private fun RunsHeader() {
+    SectionHeader(
+        "Agent runs",
+        leading = {
+            Icon(
+                ExpIcons.navActions,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        },
+    )
 }
 
 /**
@@ -279,7 +251,7 @@ private fun RunReviewRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassRow()
+                .flatRow()
                 .clickable(enabled = entry.prUrl != null) {
                     entry.prUrl?.let {
                         CustomTabsIntent.Builder().build()
@@ -379,7 +351,7 @@ private fun ReviewRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassRow()
+                .flatRow()
                 .combinedClickable(onClick = onClick, onLongClick = { showActions = true })
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,

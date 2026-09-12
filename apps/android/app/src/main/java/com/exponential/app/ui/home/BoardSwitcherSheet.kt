@@ -34,8 +34,8 @@ import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.ui.issue.LiveDot
 import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.PulsingDot
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.session.SessionRowTitle
@@ -319,7 +319,9 @@ private fun PinnedRowView(row: PinnedRow, onClick: () -> Unit) {
                     modifier = Modifier.weight(1f),
                     dot = {
                         when (state) {
-                            CodingSessionDisplayState.Running -> PulsingDot()
+                            // EXP-848: pulses only mid-turn (agent_busy).
+                            CodingSessionDisplayState.Running ->
+                                LiveDot(busy = row.session.agentBusy)
                             CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
                             CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
                             CodingSessionDisplayState.Done -> StaticDot(DoneBlue)

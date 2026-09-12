@@ -27,6 +27,7 @@ import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.agent.AgentLaunchDataViewModel
@@ -153,6 +154,10 @@ fun AutomationFormSheet(
                         options = targets.map { it.id },
                         selected = actionId,
                         optionLabel = { id -> targets.firstOrNull { it.id == id }?.name ?: id },
+                        // EXP-827: an action IS its curated glyph everywhere
+                        // else it appears — the picker says which one it is the
+                        // same way its row does.
+                        optionIcon = { id -> actionGlyph(targets.firstOrNull { it.id == id }) },
                         onSelect = { actionId = it },
                     )
                 }

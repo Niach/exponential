@@ -13,7 +13,7 @@ description: >
 
 Exponential is an open-source (Apache-2.0) realtime tracker for issues,
 customer support, and coding agents. Teams file issues on boards, hand them
-to AI coding agents (Claude Code, Codex, or pi) that run locally on the
+to AI coding agents (Claude Code or Codex) that run locally on the
 user's own machines, and review the pull requests the agents open. Native
 clients exist for web, iOS, Android, macOS, Windows, and Linux; everything
 syncs in realtime.
@@ -151,11 +151,9 @@ user's membership.
   **automation** is a separate row binding one action to one device and a
   schedule-or-event trigger; the bound machine starts the run itself, so
   nothing fires while it is off.
-- **Coding agents**: sessions run Claude Code, Codex, or pi locally with
-  the Exponential MCP server wired in automatically. pi has no native MCP
-  support, so the launcher injects a small pi extension that bridges every
-  `exponential_*` tool over HTTP; from the agent's point of view the tools
-  look the same in all three.
+- **Coding agents**: sessions run Claude Code or Codex locally with the
+  Exponential MCP server wired in automatically; from the agent's point of
+  view the tools look the same on both.
 - **Feedback and support**: the embeddable widget files issues from any
   website; in support mode it opens email-conversation tickets in the
   team's Support inbox (helpdesk).
@@ -181,7 +179,7 @@ CLIs), `code <ISSUE>` (start a coding session for an issue, e.g.
 `exponential code EXP-42 --agent claude`), `run <action>`, `daemon
 install` (register a Linux or macOS machine as an always-on agent box,
 visible under Devices -> My machines in the web app), `update`.
-`code` and `run` share `--agent claude|codex|pi`, `--model`, `--effort`,
+`code` and `run` share `--agent claude|codex`, `--model`, `--effort`,
 `--plan`, and `--detach` (run headless but still steerable from the web);
 `run` also takes `--team <id>` and repeated `--input k=v`. Full
 reference: https://exponential.at/docs/cli/

@@ -573,6 +573,7 @@ describe(`shape column + trash contracts`, () => {
       `resumed_from_id`,
       `parent_session_id`,
       `needs_input`,
+      `agent_busy`,
       `blocked`,
       `started_at`,
       `ended_at`,

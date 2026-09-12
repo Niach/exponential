@@ -1278,6 +1278,8 @@ describe(`activity event kinds`, () => {
         agentType: `code-reviewer`,
         status: `started`,
         detail: `reviewing diff`,
+        // EXP-847: the spawning Agent call's own description.
+        title: `Review the shape proxies`,
       },
       { kind: `subagent`, id: `sub-1`, agentType: `code-reviewer`, status: `completed` },
       { kind: `tool`, name: `Grep`, detail: `foo`, subagentId: `sub-1` },
@@ -1429,6 +1431,40 @@ describe(`activity event kinds`, () => {
     expect(slot(hub, `rate_limit`)?.status).toBe(`rejected`)
   })
 
+  // EXP-848: `turn` is the fifth latest-wins slot, replayed between
+  // rate_limit and the diff. The relay just keeps the newest edge — "before
+  // the first one, assume ended" is the clients' rule.
+  test(`turn is latest-wins, replayed after rate_limit and before the diff`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, { kind: `turn`, state: `started` })
+    activity(hub, pub, { kind: `rate_limit`, status: `rejected` })
+    activity(hub, pub, usage)
+    activity(hub, pub, configState)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `config_state`,
+      `usage`,
+      `rate_limit`,
+      `turn`,
+      `diff`,
+    ])
+    expect(member.events()[4]).toEqual({ kind: `turn`, state: `started` } as never)
+    expect(room(hub).activityLog.length).toBe(1)
+    expect(room(hub).lastByKind.size).toBe(5)
+    // The newest edge wins, `at` survives the re-serialize.
+    activity(hub, pub, { kind: `turn`, state: `ended`, at: 5 })
+    expect(slot(hub, `turn`)).toEqual({ kind: `turn`, state: `ended`, at: 5 })
+    // An unknown state is dropped whole; the slot keeps the last good edge.
+    activity(hub, pub, { kind: `turn`, state: `thinking` })
+    activity(hub, pub, { kind: `turn` })
+    expect(slot(hub, `turn`)?.state).toBe(`ended`)
+  })
+
   // EXP-785/786: `tool` carries its ACP id + kind bucket, and `tool_update`
   // is a plain LOG row (never a slot) — appended and budgeted like `tool`.
   test(`tool carries id and toolKind, and tool_update is a log row`, () => {
@@ -1480,6 +1516,59 @@ describe(`activity event kinds`, () => {
     expect(member.events().at(-1)).toEqual({ kind: `tool`, name: `Grep` } as never)
   })
 
+  // EXP-846: an `exponential_*` call's settle carries the SUBJECT it landed on.
+  // Non-strict zod would strip the nested object, so the whole thing is
+  // asserted back out of the fan-out.
+  test(`tool_update carries an MCP preview and bounds every field`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    const settled = {
+      kind: `tool_update`,
+      id: `tc-1`,
+      status: `completed`,
+      preview: {
+        id: `c0ffee`,
+        identifier: `EXP-42`,
+        title: `Fix the flicker`,
+        url: `https://github.com/a/b/pull/7`,
+        count: 3,
+        status: `in_progress`,
+      },
+    }
+    activity(hub, pub, settled)
+    expect(member.events()[0]).toEqual(settled as never)
+
+    // An over-cap string or a negative count drops the WHOLE frame — the
+    // producer clamps first.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { title: `x`.repeat(201) },
+    })
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, preview: { count: -1 } })
+    expect(room(hub).activityLog.length).toBe(1)
+    // A field a NEWER device added rides through stripped, never dropping the
+    // frame: the preview is additive state, and the relay is not the gate.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { id: `x`, invented: true },
+    })
+    expect(member.events().at(-1)).toEqual({
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { id: `x` },
+    } as never)
+    // An EMPTY preview object is legal and says nothing.
+    activity(hub, pub, { kind: `tool_update`, id: `tc-1`, preview: {} })
+    expect(member.events().at(-1)).toEqual({
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: {},
+    } as never)
+  })
+
   test(`the latest config_state and usage are exempt from the log budget`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -1513,12 +1602,14 @@ describe(`activity event kinds`, () => {
     activity(hub, pub, configState)
     activity(hub, pub, usage)
     activity(hub, pub, { kind: `rate_limit`, status: `rejected` })
+    activity(hub, pub, { kind: `turn`, state: `started` })
     activity(hub, pub, { kind: `diff`, diff: `+ line` })
 
     hub.onMessage(pub, JSON.stringify({ t: `activity_reset` }))
     expect(room(hub).lastByKind.size).toBe(0)
     expect(slot(hub, `config_state`)).toBeUndefined()
     expect(slot(hub, `rate_limit`)).toBeUndefined()
+    expect(slot(hub, `turn`)).toBeUndefined()
 
     const late = connectMember(hub)
     expect(late.events()).toEqual([])

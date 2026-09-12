@@ -9,6 +9,8 @@ import {
   Ellipsis,
   ExternalLink,
   GitBranch,
+  Hash,
+  Image as ImageGlyph,
   LifeBuoy,
   MessageSquareHeart,
   SquareKanban,
@@ -230,3 +232,5 @@ export const IcWrench = wrap(Wrench) // coding-tool
 export const IcCircleQuestion = wrap(CircleQuestionMark) // ui-help
 export const IcCircleArrowUp = wrap(CircleArrowUp) // ui-submit
 export const IcCircleStop = wrap(CircleStop) // coding-stop
+export const IcHash = wrap(Hash) // editor-issue-ref (the composer's issue picker)
+export const IcImageConcept = wrap(ImageGlyph) // editor-image

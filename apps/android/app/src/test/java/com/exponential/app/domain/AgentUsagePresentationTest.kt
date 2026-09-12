@@ -53,7 +53,7 @@ class AgentUsagePresentationTest {
         {
           "claude": {"signedIn": true, "email": "danny@yourev.at", "plan": "max", "checkedAt": "2026-08-28T09:58:00Z"},
           "codex": {"signedIn": false, "checkedAt": "2026-08-28T09:58:00Z"},
-          "pi": {"signedIn": true, "plan": "anthropic (oauth)", "checkedAt": "2026-08-28T09:58:00Z"}
+          "external": {"signedIn": true, "plan": "anthropic (oauth)", "checkedAt": "2026-08-28T09:58:00Z"}
         }
     """.trimIndent()
 
@@ -224,7 +224,7 @@ class AgentUsagePresentationTest {
     @Test
     fun `account captions`() {
         val accounts = AgentUsagePresentation.parseAccounts(accountsJson)!!
-        assertEquals(setOf("claude", "codex", "pi"), accounts.keys)
+        assertEquals(setOf("claude", "codex", "external"), accounts.keys)
 
         // EXP-694: the caption is the identity alone — no `signed in as`
         // prefix, no ` · <plan>` suffix.
@@ -233,8 +233,8 @@ class AgentUsagePresentationTest {
             AgentUsagePresentation.accountCaption(accounts["claude"]),
         )
         assertEquals("signed out", AgentUsagePresentation.accountCaption(accounts["codex"]))
-        // pi has no email — its provider line IS the caption.
-        assertEquals("anthropic (oauth)", AgentUsagePresentation.accountCaption(accounts["pi"]))
+        // An account with no email — its provider line IS the caption.
+        assertEquals("anthropic (oauth)", AgentUsagePresentation.accountCaption(accounts["external"]))
         assertEquals(
             "danny@yourev.at",
             AgentUsagePresentation.accountCaption(
@@ -249,7 +249,10 @@ class AgentUsagePresentationTest {
             AgentUsagePresentation.accountRow("claude", accounts["claude"]),
         )
         assertEquals("codex · signed out", AgentUsagePresentation.accountRow("codex", accounts["codex"]))
-        assertEquals("pi · anthropic (oauth)", AgentUsagePresentation.accountRow("pi", accounts["pi"]))
+        assertEquals(
+            "external · anthropic (oauth)",
+            AgentUsagePresentation.accountRow("external", accounts["external"]),
+        )
         assertEquals("claude · unknown", AgentUsagePresentation.accountRow("claude", null))
 
         assertNull(AgentUsagePresentation.parseAccounts(null))

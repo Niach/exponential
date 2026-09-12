@@ -253,6 +253,7 @@ import {
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import type { McpUser } from "@/lib/mcp/server"
+import { contract } from "@exp/domain-contract"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -1567,6 +1568,58 @@ describe(`exponential_issues_list filters (EXP-684)`, () => {
     ])
   })
 
+  // EXP-847: a listing is about OPEN work, and its rows are a SUMMARY.
+  it(`hides closed issues unless asked, and says so on the way out`, async () => {
+    await list({ boardId: PROJ })
+    let q = whereSql()
+    // The status ROW's category decides (customs included), with the
+    // dual-written anchor covering a NULL status_id.
+    expect(q.sql).toMatch(
+      /"issues"\."status_id" not in \(select "issue_statuses"\."id" from "issue_statuses" where "issue_statuses"\."category" in \(\$\d+, \$\d+, \$\d+\)\)/
+    )
+    expect(q.params).toEqual(
+      expect.arrayContaining([`completed`, `cancelled`, `duplicate`])
+    )
+    expect(q.sql).toContain(`"status" not in (`)
+    expect(q.params).toEqual(expect.arrayContaining([`done`, `duplicate`]))
+
+    // includeClosed asks for them back…
+    await list({ boardId: PROJ, includeClosed: true })
+    q = whereSql()
+    expect(q.params).not.toContain(`completed`)
+    // …and so does ANY explicit status filter.
+    await list({ boardId: PROJ, status: [`done`] })
+    q = whereSql()
+    expect(q.sql).not.toContain(`not in (select "issue_statuses"."id"`)
+    await list({ boardId: PROJ, statusCategory: [`completed`] })
+    expect(whereSql().sql).not.toContain(`"status" not in (`)
+    await list({ boardId: PROJ, statusId: [STATUS] })
+    expect(whereSql().sql).not.toContain(`"status" not in (`)
+  })
+
+  it(`cuts list descriptions to 200 chars (issues_get keeps the full text)`, async () => {
+    const long = `x`.repeat(250)
+    dbRows.current = [
+      { id: UUID, identifier: `MET-1`, description: long },
+      { id: PROJ, identifier: `MET-2`, description: `short` },
+      { id: STATUS, identifier: `MET-3`, description: null },
+    ]
+    const rows = parseOk(await list({ boardId: PROJ })) as Array<{
+      description: string | null
+    }>
+    expect(rows[0].description).toBe(`${`x`.repeat(200)}…`)
+    expect(rows[1].description).toBe(`short`)
+    expect(rows[2].description).toBeNull()
+  })
+
+  it(`pages up to 1000 rows`, () => {
+    const schema = collectToolDefs().get(`exponential_issues_list`)!
+      .inputSchema! as z.ZodType<{ limit?: number }>
+    expect(schema.parse({}).limit).toBe(50)
+    expect(schema.parse({ limit: 1000 }).limit).toBe(1000)
+    expect(schema.safeParse({ limit: 1001 }).success).toBe(false)
+  })
+
   it(`validates the budget-trimmed (enum-free) inputs at runtime`, () => {
     const def = collectToolDefs().get(`exponential_issues_list`)!
     const schema = def.inputSchema! as z.ZodType<
@@ -1583,6 +1636,14 @@ describe(`exponential_issues_list filters (EXP-684)`, () => {
     expect(parsed.sort).toBe(`-updatedAt`)
     expect(schema.parse({}).sort).toBe(`-createdAt`)
     expect(schema.safeParse({ excludeStatus: [`nope`] }).success).toBe(false)
+    // EXP-847: status/statusCategory lost their inline enums for the budget —
+    // they still refuse an invented value.
+    expect(schema.safeParse({ status: [`done`] }).success).toBe(true)
+    expect(schema.safeParse({ status: [`nope`] }).success).toBe(false)
+    expect(schema.safeParse({ statusCategory: [`completed`] }).success).toBe(
+      true
+    )
+    expect(schema.safeParse({ statusCategory: [`done`] }).success).toBe(false)
     expect(schema.safeParse({ excludeStatusCategory: [`done`] }).success).toBe(
       false
     )
@@ -3490,5 +3551,37 @@ describe(`exponential_helpdesk_* gating`, () => {
     )!({ threadId: THREAD })
     expect(result.isError).toBe(true)
     expect(caller.helpdesk.getThread).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-846: the drift gate between the REGISTERED tool surface and the
+// contract's display rows. A feed row captions an Exponential tool call from
+// `expToolDisplay` (`lib/agent-feed.ts` + the three native mirrors), so a tool
+// the contract does not know renders as its RAW wire name
+// (`mcp__exponential__exponential_whatever`) on all four clients at once.
+// Equality BOTH ways: a new tool has to land in the contract, and a row whose
+// tool was renamed or retired has to go with it.
+describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
+  it(`matches the registered exponential_* tools name for name`, () => {
+    const prefix = contract.expToolDisplay.prefix
+    // The WIDEST surface: every gate open plus the cloud-only
+    // `exponential_report_bug` — a row the contract must describe too, since
+    // cloud agents call it.
+    vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+    const names = (() => {
+      try {
+        return [...collectToolDefs().keys()]
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })()
+    // Every tool this server registers is `exponential_*` — the prefix IS the
+    // match rule the clients apply, so a bare name could never be captioned.
+    expect(names.filter((name) => !name.startsWith(prefix))).toEqual([])
+    const registered = names.map((name) => name.slice(prefix.length)).sort()
+    const described = contract.expToolDisplay.tools
+      .map((row) => row.name)
+      .sort()
+    expect(registered).toEqual(described)
   })
 })

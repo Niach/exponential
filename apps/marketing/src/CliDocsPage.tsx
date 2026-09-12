@@ -23,8 +23,8 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential logout`, desc: `Sign out and drop the local credentials.` },
   { name: `exponential whoami`, desc: `Show the signed-in account and its instance.` },
   { name: `exponential status`, desc: `Account, device id, daemon state, installed agents, and git in one summary.` },
-  { name: `exponential doctor`, desc: `Check git and the three agent CLIs, and say what's missing.` },
-  { name: `exponential code <ISSUE> [--agent claude|codex|pi] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
+  { name: `exponential doctor`, desc: `Check git and the agent CLIs, and say what's missing.` },
+  { name: `exponential code <ISSUE> [--agent claude|codex] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
   { name: `exponential run <action> [--team <id>] [--input k=v ...] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run a team action by name or id — the same agent flags apply.` },
   { name: `exponential mcp list | login <server> [--paste] | set-secret <server> <NAME> | status`, desc: `The team's MCP servers and the credentials THIS machine holds for them. Values never travel through argv: login runs the OAuth flow locally (or --paste for a machine with no browser), set-secret reads from a no-echo prompt.` },
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
@@ -74,8 +74,8 @@ curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=https://issues.examp
             </p>
             <p>
               You also need <code>git</code>, plus at least one agent CLI —{` `}
-              <strong>Claude Code</strong>, <strong>Codex</strong>, or{` `}
-              <strong>pi</strong> — for coding sessions. See{` `}
+              <strong>Claude Code</strong> or <strong>Codex</strong> — for
+              coding sessions. See{` `}
               <a href="/docs/coding/">Coding agents</a> for what each one
               supports. The installer only warns about missing tools;{` `}
               <code>exponential doctor</code> is the one that checks them
@@ -131,10 +131,10 @@ EXP_INSTANCE=https://issues.example.com EXP_TOKEN=expu_... exponential login
             </ul>
             <p>
               <code>code</code> and <code>run</code> take the same agent
-              options as the desktop&apos;s start-coding dialog, and fall
-              back to your saved per-agent defaults when you omit them.{` `}
-              <code>--plan</code> works on all three agents; every run
-              bypasses the agent&apos;s permission prompts. See{` `}
+              options as the Agent page composer, and fall back to your saved
+              per-agent defaults when you omit them. <code>--plan</code> works
+              on both agents; every run bypasses the agent&apos;s permission
+              prompts. See{` `}
               <a href="/docs/coding/">Coding agents</a>.
             </p>
             <p>

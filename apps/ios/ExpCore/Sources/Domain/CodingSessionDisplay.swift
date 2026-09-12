@@ -34,4 +34,25 @@ public enum CodingSessionDisplayState {
         if session.needsInput && !merged { return .needsInput }
         return .running
     }
+
+    /// EXP-848: whether the dot PULSES — the row-level mirror of the
+    /// in-session working predicate (`AgentFeed.working`), and the ONE rule
+    /// every list, badge and header shares.
+    ///
+    /// `status = running` only ever meant "this row is live", so a run sitting
+    /// idle between turns, parked on a question or walled by a rate limit drew
+    /// a pulsing "coding now" it had no business drawing. The device-written
+    /// `agent_busy` is the input instead; a row from before the column (or a
+    /// machine too old to write it) simply never pulses, which is the honest
+    /// degradation. `paused`/`live` are the callers' own narrowings — an
+    /// offline host or a dead socket is never "coding now" whatever the row
+    /// says. Mirrored ×4.
+    public static func pulses(
+        state: CodingSessionDisplayState,
+        agentBusy: Bool,
+        paused: Bool = false,
+        live: Bool = true
+    ) -> Bool {
+        state == .running && agentBusy && !paused && live
+    }
 }

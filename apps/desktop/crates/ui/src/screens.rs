@@ -264,7 +264,7 @@ impl DockClose {
     fn label(&self) -> &'static str {
         match self {
             DockClose::CloseTerminal(_) => "Close terminal",
-            DockClose::Kill(_) => "Kill session",
+            DockClose::Kill(_) => "Stop session",
             DockClose::CloseTab(_) => "Close",
         }
     }

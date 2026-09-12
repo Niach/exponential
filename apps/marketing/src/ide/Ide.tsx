@@ -4,6 +4,7 @@ import {
   CHANGES,
   COMMITS,
   INBOX_ITEMS,
+  ISSUES,
   batchCodingScriptFor,
   codingScriptFor,
   getIssue,
@@ -31,7 +32,7 @@ import { IssueDetail } from "./IssueDetail"
 import { FileTab } from "./Files"
 import { ScTab } from "./SourceControl"
 import { SessionScreen } from "./Session"
-import { StartCodingDialog } from "./StartCodingDialog"
+import { ChatScreen } from "./Chat"
 import { IcInbox } from "./icons"
 import { useDemoScale } from "../lib/use-demo-scale"
 
@@ -138,7 +139,9 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [commits] = useState<Commit[]>(COMMITS)
   const [coding, setCoding] = useState<CodingState>(`idle`)
   const [codingTarget, setCodingTarget] = useState<CodingTarget | null>(null)
-  const [pendingCoding, setPendingCoding] = useState<CodingTarget | null>(null)
+  /* EXP-825: the Agent page composer, open with its chipped issues. */
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [chips, setChips] = useState<string[]>([])
   const [runId, setRunId] = useState(0)
   const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
   const [sessionOpen, setSessionOpen] = useState(false)
@@ -261,12 +264,28 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     coding,
     codingTarget,
     codingScript,
-    pendingCoding,
-    requestCoding: (target) => setPendingCoding(target),
-    cancelStartCoding: () => setPendingCoding(null),
-    confirmStartCoding: (target) => {
-      setCodingTarget(target)
-      setPendingCoding(null)
+    composerOpen,
+    chips,
+    openComposer: (issueIds) => {
+      setChips(issueIds)
+      setComposerOpen(true)
+      setSessionOpen(false)
+    },
+    closeComposer: () => setComposerOpen(false),
+    toggleChip: (issueId) =>
+      setChips((prev) =>
+        prev.includes(issueId)
+          ? prev.filter((id) => id !== issueId)
+          : [...prev, issueId],
+      ),
+    submitComposer: () => {
+      /* Stable board order, like the real launcher's prompt sections. */
+      const ids = ISSUES.filter((issue) => chips.includes(issue.id)).map((i) => i.id)
+      if (ids.length === 0) return
+      setCodingTarget(
+        ids.length === 1 ? { kind: `issue`, id: ids[0] } : { kind: `batch`, issueIds: ids },
+      )
+      setComposerOpen(false)
       setCoding(`running`)
       setRunId((n) => n + 1)
       /* A start opens the run's screen, the way a launch navigates to it. */
@@ -275,7 +294,10 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     stopCoding: () => setCoding(`ended`),
     scriptPos,
     sessionOpen,
-    openSession: () => setSessionOpen(true),
+    openSession: () => {
+      setSessionOpen(true)
+      setComposerOpen(false)
+    },
     closeSession: () => setSessionOpen(false),
   }
 
@@ -303,7 +325,11 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
             <Topbar />
             <div className="ide-panel">
               <div className="ide-main-top">
-                {sessionOpen ? (
+                {composerOpen ? (
+                  /* EXP-825: the Agent page is a rail destination of its own
+                     — the composer owns the center, no tool window beside. */
+                  <ChatScreen />
+                ) : sessionOpen ? (
                   /* EXP-791: a session fills the center — no tool window
                      beside it, exactly like Reviews. */
                   <SessionScreen />
@@ -316,7 +342,6 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
               </div>
             </div>
           </div>
-          {pendingCoding && <StartCodingDialog />}
         </div>
       </IdeContext.Provider>
     </div>

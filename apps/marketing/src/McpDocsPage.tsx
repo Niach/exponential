@@ -476,8 +476,8 @@ npx mcp-remote ${LINKS.app.mcp}
             </p>
             <p>
               Pick the servers a run gets in the{` `}
-              <a href="/docs/coding/#start-coding">Start-coding dialog</a> and
-              on the <a href="/docs/coding/#watch-steer">chat page</a>. Runs
+              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
+              and on the <a href="/docs/coding/#watch-steer">session page</a>. Runs
               are strict about it: an agent started by Exponential connects to
               the servers Exponential wired in and nothing else, whatever the
               CLI has configured globally.

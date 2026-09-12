@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.AppConstants
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
@@ -213,15 +214,19 @@ private fun InstallCard(
 }
 
 /**
- * One of the caller's machines: kind glyph, label, and the Agents-tab presence
- * caption (green dot Online / amber "<agents> not signed in" / "Last seen …" /
- * Offline). Tapping opens the device settings sheet.
+ * One of the caller's machines: kind glyph, label, and the Devices-tab presence
+ * caption (green dot Online / an amber reason / "Last seen …" / Offline).
+ * Tapping opens the device settings sheet.
+ *
+ * EXP-836: the reason comes from [LaunchDeviceRules.blockedCaption], the same
+ * rule the machines list gates its play button on — a machine that reported no
+ * runnable agent at all used to read a bare "Online" here while nothing could
+ * start on it, which is exactly what this step exists to get fixed.
  */
 @Composable
 private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
     val online = device.online
-    val unauthed = device.unauthedAgentIds
-    val signInNeeded = online && !device.hasRunnableAgent && unauthed.isNotEmpty()
+    val blockedCaption = LaunchDeviceRules.blockedCaption(device)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -235,7 +240,11 @@ private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (online && !signInNeeded) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+                alpha = if (online && blockedCaption == null) {
+                    TextEmphasis.Secondary
+                } else {
+                    TextEmphasis.Tertiary
+                },
             ),
         )
         Spacer(Modifier.width(12.dp))
@@ -251,16 +260,21 @@ private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (online) StaticDot(if (signInNeeded) NeedsInputAmber else ReviewGreen, size = 6.dp)
+                if (online) {
+                    StaticDot(
+                        if (blockedCaption != null) NeedsInputAmber else ReviewGreen,
+                        size = 6.dp,
+                    )
+                }
                 Text(
                     when {
-                        signInNeeded -> "${unauthed.joinToString(", ")} not signed in"
+                        blockedCaption != null -> blockedCaption
                         online -> "Online"
                         device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
                         else -> "Offline"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (signInNeeded) {
+                    color = if (blockedCaption != null) {
                         NeedsInputAmber
                     } else {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)

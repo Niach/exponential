@@ -122,9 +122,9 @@ export function ActionsDocsPage() {
             <p>
               On the desktop, actions live in their own rail entry, and the
               {` `}
-              <a href="/docs/coding/#start-coding">Start coding</a> dialog has
-              an <strong>Actions</strong> tab, with the same agent, model and
-              effort pickers as an issue run.
+              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
+              takes one as a chip (the ▶ button), with the same agent, model
+              and effort pickers as an issue run.
             </p>
             <p>
               From the web (<strong>Actions</strong> in the sidebar) or the{` `}
@@ -208,8 +208,8 @@ export function ActionsDocsPage() {
               </li>
               <li>
                 <strong>Agent</strong>, <strong>Model</strong> and{` `}
-                <strong>Effort</strong>, exactly as in the start-coding
-                dialog. Leave them on <em>CLI default</em> and the run takes
+                <strong>Effort</strong>, exactly as on the composer&apos;s
+                options line. Leave them on <em>CLI default</em> and the run takes
                 the device&apos;s own launch defaults.
               </li>
             </ul>

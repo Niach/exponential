@@ -938,6 +938,52 @@ export const codingSessionsRouter = router({
       return { updated: updated.length > 0 }
     }),
 
+  // EXP-848: device-written TURN state — `true` on the turn's first edge,
+  // `false` when it ends (end_turn, a cancel, a prompt error) and on teardown.
+  // Rides the same forwarder as setNeedsInput and follows its rules exactly:
+  // owner-or-host only, status-conditioned (an `ended` row stays final), and a
+  // refused write is a silent `updated: false`, never an error the device
+  // retries. Why a column and not `status`: every client's session list keys
+  // its working spinner on this, because `running` says the run is LIVE, not
+  // that the agent is thinking — an idle run between turns pulsed forever.
+  setAgentBusy: authedProcedure
+    .input(z.object({ id: z.string().uuid(), agentBusy: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
+          status: codingSessions.status,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.id))
+        .limit(1)
+
+      if (!existing) return { updated: false }
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can update it`,
+        })
+      }
+
+      const updated = await ctx.db
+        .update(codingSessions)
+        .set({ agentBusy: input.agentBusy })
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            inArray(codingSessions.status, [`running`, `in_review`])
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      return { updated: updated.length > 0 }
+    }),
+
   // EXP-804: the agent's usage wall as ROW STATE. A walled run keeps status
   // `running` and a moving `updated_at` — it is still live, steerable and
   // killable — so without this column a rate-limited run is indistinguishable
@@ -1085,6 +1131,8 @@ export const codingSessionsRouter = router({
           endedAt: new Date(),
           endedBy: `client`,
           needsInput: false,
+          // EXP-848: an ended run is never busy.
+          agentBusy: false,
         })
         .where(
           and(eq(codingSessions.id, input.id), ne(codingSessions.status, `ended`))

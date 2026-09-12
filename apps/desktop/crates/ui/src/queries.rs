@@ -971,16 +971,98 @@ pub(crate) fn live_session_device_for_issue(
     issue_id: &str,
     now_epoch: i64,
 ) -> Option<String> {
+    live_session_device_for_issue_except(cx, issue_id, now_epoch, None)
+}
+
+/// [`live_session_device_for_issue`] with the CONTINUATION of one run exempt
+/// (EXP-849).
+///
+/// A run being resumed onto another account is the same piece of work, not a
+/// second session on the issue: its own live row (and any row already chained
+/// off it) must not block it, or a switch could never start while the thing it
+/// continues is still on screen. Every OTHER machine's live row still does.
+pub(crate) fn live_session_device_for_issue_except(
+    cx: &App,
+    issue_id: &str,
+    now_epoch: i64,
+    except: Option<&str>,
+) -> Option<String> {
     let collections = Store::global(cx).collections();
     let sessions = collections.coding_sessions.read(cx);
     let devices = collections.devices.read(cx);
+    let chain = match except {
+        Some(session_id) => resume_chain(sessions.iter(), session_id),
+        None => std::collections::HashSet::new(),
+    };
     live_session_device(
-        sessions.iter(),
+        sessions.iter().filter(|session| !chain.contains(&session.id)),
         devices.iter(),
         issue_id,
         now_epoch,
         now_epoch * 1_000,
     )
+}
+
+/// EXP-849 — one machine's CURRENT name off the synced `devices` rows, for a
+/// message about it ("Studio will run claude as this account"). `None` when
+/// this client holds no row for the id.
+pub(crate) fn device_label_for_id(cx: &App, device_id: &str) -> Option<String> {
+    Store::global(cx)
+        .collections()
+        .devices
+        .read(cx)
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id))
+        .and_then(|row| row.label.clone())
+        .filter(|label| !label.trim().is_empty())
+}
+
+/// EXP-849 — one machine's advertised capabilities off the synced `devices`
+/// rows, for a control that is only offered on a build that runs it (the
+/// account switch asks for `resume-run`). An unknown id has none.
+pub(crate) fn device_caps(cx: &App, device_id: &str) -> Vec<String> {
+    Store::global(cx)
+        .collections()
+        .devices
+        .read(cx)
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id))
+        .map(|row| row.cap_ids())
+        .unwrap_or_default()
+}
+
+/// EXP-849 — `session_id` plus every row that CONTINUES it, transitively
+/// (`resumed_from_id`). The resume chain is one run's history, so a guard that
+/// asks "is something else already working on this?" has to treat the whole
+/// chain as the asker.
+///
+/// Bounded: a `resumed_from_id` cycle (which no writer can produce, but a
+/// hand-edited row could) terminates instead of spinning.
+pub(crate) fn resume_chain<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    session_id: &str,
+) -> std::collections::HashSet<String> {
+    let links: Vec<(&str, Option<&str>)> = sessions
+        .map(|session| (session.id.as_str(), session.resumed_from_id.as_deref()))
+        .collect();
+    let mut chain = std::collections::HashSet::new();
+    chain.insert(session_id.to_string());
+    // Each pass adds the rows whose parent is already in the chain; at most
+    // one row joins per pass, so the row count bounds the passes.
+    for _ in 0..links.len() {
+        let mut grew = false;
+        for (id, parent) in &links {
+            if let Some(parent) = parent {
+                if chain.contains(*parent) && chain.insert((*id).to_string()) {
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    chain
 }
 
 /// Pure core of [`live_session_device_for_issue`]. A live row with no
@@ -1129,6 +1211,29 @@ pub(crate) fn coding_session_display(
         return CodingSessionDisplay::NeedsInput;
     }
     CodingSessionDisplay::Running
+}
+
+/// EXP-848: is the agent executing a turn RIGHT NOW? The ONE input every
+/// desktop session list spins its working indicator on — `status = running`
+/// never was one: a run between turns, parked on a question or walled by a
+/// rate limit is running and NOT working.
+///
+/// `local` is the in-process engine's turn signal when THIS machine hosts the
+/// run (a fact this process reads directly, with no round trip); every other
+/// row falls back to the device-written `agent_busy` column. A row that is not
+/// live is never working, whatever either source says.
+pub(crate) fn session_agent_busy(
+    session: &domain::rows::CodingSession,
+    local: Option<bool>,
+    now_epoch: i64,
+) -> bool {
+    if !coding_session_is_live(session, now_epoch) {
+        return false;
+    }
+    match local {
+        Some(busy) => busy,
+        None => session.agent_busy.unwrap_or(false),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1563,34 +1668,45 @@ pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
     devices
 }
 
-/// EXP-696: which machine a device settle lands on, returning its
-/// `device_id`.
+/// EXP-696/EXP-836: which machine a device settle lands on, returning its
+/// `device_id`. One PURE precedence rule, derived on every settle — web
+/// `lib/launch-device.ts` `resolveLaunchDeviceId`, with the desktop's own
+/// machine folded into the fallback chain:
 ///
-/// The chain mirrors web `use-launch-options.ts` (`defaultDeviceId(devices)
-/// ?? devices[0]`) with the desktop's own machine folded in: a still-valid
-/// current pick, else the caller's preselect, else the user's DEFAULT
-/// machine (EXP-622 — uniform across platforms), else this machine, else the
-/// first candidate.
+///   1. an explicit REQUEST (a play button's `?device=`, `ChatSeed.device_id`)
+///      the moment that machine is a candidate — it outranks everything,
+///      including a settle that already happened: the composer screen is
+///      LONG-LIVED here, so a seed always arrives at an already-settled
+///      screen, and reading the settled value first (what this did before)
+///      made the default machine win every ▶;
+///   2. the PERSON's pick from the Device pin;
+///   3. their DEFAULT machine (EXP-622 — uniform across platforms);
+///   4. this machine;
+///   5. the first candidate.
 ///
-/// `current_is_explicit` makes a pick the USER (or a caller's ▶) made
-/// STICKY: it survives its machine dropping out of the candidate list — one
-/// lapsed heartbeat must never silently retarget the run at this machine
-/// with this machine's defaults. The dialog blocks the launch and names the
-/// offline machine instead, and the pick resumes when it comes back.
+/// A request is ONE-SHOT: a person's pick clears it (`set_device`), and it is
+/// never persisted as a default either — only `devices.setDefault` writes that
+/// flag. While the requested machine is NOT a candidate (still syncing, went
+/// offline, every agent signed out there) the chain falls through to the
+/// fallback and [`requested_device_note`] says why, which is also what lets a
+/// late-hydrating row still win.
+///
+/// `picked` is STICKY by definition: it survives its machine dropping out of
+/// the candidate list — one lapsed heartbeat must never silently retarget the
+/// run at this machine with this machine's defaults. The composer blocks the
+/// launch and names the offline machine instead (`offline_pick`), and the pick
+/// resumes when it comes back.
 pub(crate) fn settled_device(
     devices: &[LaunchDevice],
-    current: Option<&str>,
-    current_is_explicit: bool,
-    preselect: Option<&str>,
+    requested: Option<&str>,
+    picked: Option<&str>,
 ) -> Option<String> {
     let known = |id: &str| devices.iter().any(|device| device.device_id == id);
-    if let Some(current) = current.filter(|id| known(id) || current_is_explicit) {
-        return Some(current.to_string());
+    if let Some(requested) = requested.filter(|id| known(id)) {
+        return Some(requested.to_string());
     }
-    // A preselect is explicit too, so it is adopted even before (or after)
-    // its row is a candidate — the blocker then says why it cannot start.
-    if let Some(preselect) = preselect {
-        return Some(preselect.to_string());
+    if let Some(picked) = picked {
+        return Some(picked.to_string());
     }
     devices
         .iter()
@@ -1598,6 +1714,47 @@ pub(crate) fn settled_device(
         .or_else(|| devices.iter().find(|device| device.is_own))
         .or_else(|| devices.first())
         .map(|device| device.device_id.clone())
+}
+
+/// EXP-836: why the machine a ▶ REQUESTED cannot take the run, for the options
+/// line under the composer — the run goes to the fallback machine, and saying
+/// so beats silently starting somewhere else. Byte-identical to web
+/// `use-launch-composer.ts` `deviceRequestNote`.
+///
+/// `None` when there is no request, when the requested machine IS a candidate,
+/// or while its row has not synced yet (a machine that has not arrived is not a
+/// missing one — and the request keeps outranking the default until it does).
+pub(crate) fn requested_device_note<'a>(
+    devices: &[LaunchDevice],
+    requested: Option<&str>,
+    mut rows: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    rows_synced: bool,
+    now_ms: i64,
+) -> Option<String> {
+    let requested = requested?;
+    if devices.iter().any(|device| device.device_id == requested) {
+        return None;
+    }
+    if !rows_synced {
+        return None;
+    }
+    let Some(row) = rows.find(|row| row.device_id.as_deref() == Some(requested)) else {
+        return Some("That machine is no longer in your registry.".to_string());
+    };
+    let label = match row.label.as_deref().map(str::trim).filter(|label| !label.is_empty()) {
+        Some(label) => label.to_string(),
+        None => requested.to_string(),
+    };
+    if !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms) {
+        return Some(format!("{label} is offline."));
+    }
+    if row.agent_ids().is_empty() {
+        return Some(format!("No agent is signed in on {label}."));
+    }
+    // Online, signed in, still not a candidate: remote start is off on this
+    // install (`STEER_RELAY_URL` unset), which is a machine-wide setting, not
+    // something about the requested machine.
+    None
 }
 
 /// EXP-696/EXP-481 (web `resumeWorktree`): the synced worktree row that makes
@@ -2376,7 +2533,7 @@ mod tests {
     /// the transport, it never filters the strip.
     #[test]
     fn remote_launch_devices_carry_acp_agents_and_null_means_unknown() {
-        let mut ready = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude", "pi"], -30);
+        let mut ready = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude", "codex"], -30);
         ready.acp_agents = Some(json!(["claude"]));
         let mut none_ready = launch_device_row("r-2", "dev-2", "Beta", "me", &["claude"], -30);
         none_ready.acp_agents = Some(json!([]));
@@ -2391,11 +2548,11 @@ mod tests {
             devices[0].acp_agents,
             Some(vec![coding::CodingAgent::Claude])
         );
-        // Never a filter: pi is still offered, the pill just says it cannot
-        // run a session there.
+        // Never a filter: codex is still offered, the pill just says it
+        // cannot run a session there.
         assert_eq!(
             devices[0].agents,
-            vec![coding::CodingAgent::Claude, coding::CodingAgent::Pi]
+            vec![coding::CodingAgent::Claude, coding::CodingAgent::Codex]
         );
         // An EMPTY list is a real answer.
         assert_eq!(devices[1].device_id, "dev-2");
@@ -2430,10 +2587,10 @@ mod tests {
     #[test]
     fn launch_defaults_parse_through_a_json_string_column() {
         // §5.5: a jsonb column can arrive as a JSON STRING.
-        let raw = json!(r#"{"defaultAgent":"pi"}"#);
+        let raw = json!(r#"{"defaultAgent":"codex"}"#);
         assert_eq!(
             device_launch_settings(Some(&raw)).default_agent,
-            coding::CodingAgent::Pi
+            coding::CodingAgent::Codex
         );
         // Absent / unparsable degrades to the static defaults, never panics.
         assert_eq!(
@@ -2477,7 +2634,7 @@ mod tests {
         assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "claude").is_none());
         assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "codex").is_some());
         // …and no marker means any agent.
-        assert!(resume_worktree(rows.iter(), "r-1", "EXP-3", "pi").is_some());
+        assert!(resume_worktree(rows.iter(), "r-1", "EXP-3", "codex").is_some());
         // A device whose row has not synced has no join key at all.
         assert!(resume_worktree(rows.iter(), "", "EXP-1", "claude").is_none());
     }
@@ -2495,9 +2652,10 @@ mod tests {
         }
     }
 
-    /// EXP-622 parity: an IMPLICIT settle prefers the user's DEFAULT machine
-    /// over this one, exactly like web's `defaultDeviceId(devices) ??
-    /// devices[0]` — then this machine, then the first candidate.
+    /// EXP-622 parity: a settle with NO request and NO pick prefers the user's
+    /// DEFAULT machine over this one, exactly like web's
+    /// `defaultCandidateId(devices) ?? devices[0]` — then this machine, then the
+    /// first candidate.
     #[test]
     fn device_settle_prefers_the_users_default_machine() {
         let with_default = vec![
@@ -2505,58 +2663,133 @@ mod tests {
             candidate("dev-build", false, true),
         ];
         assert_eq!(
-            settled_device(&with_default, None, false, None).as_deref(),
+            settled_device(&with_default, None, None).as_deref(),
             Some("dev-build")
         );
         // No default flagged anywhere: this machine.
         let no_default = vec![candidate("dev-mate", false, false), candidate("dev-own", true, false)];
-        assert_eq!(
-            settled_device(&no_default, None, false, None).as_deref(),
-            Some("dev-own")
-        );
+        assert_eq!(settled_device(&no_default, None, None).as_deref(), Some("dev-own"));
         // Neither (this machine's entry has not been built): the first row.
         let foreign = vec![candidate("dev-mate", false, false)];
-        assert_eq!(
-            settled_device(&foreign, None, false, None).as_deref(),
-            Some("dev-mate")
-        );
-        assert_eq!(settled_device(&[], None, false, None), None);
+        assert_eq!(settled_device(&foreign, None, None).as_deref(), Some("dev-mate"));
+        assert_eq!(settled_device(&[], None, None), None);
     }
 
-    /// An EXPLICIT pick is sticky: it survives its machine leaving the
-    /// candidate list (a lapsed heartbeat), while an implicit one re-settles.
-    /// A caller's preselect counts as explicit and is adopted whether or not
-    /// its row is a candidate yet.
+    /// EXP-836: the whole precedence, as the web rule — a ▶'s REQUEST beats the
+    /// person's pick beats the default beats this machine beats the first row.
     #[test]
-    fn device_settle_keeps_an_explicit_pick_when_its_machine_drops_out() {
+    fn a_requested_machine_outranks_the_pick_and_the_default() {
+        let devices = vec![
+            candidate("dev-own", true, false),
+            candidate("dev-build", false, true),
+            candidate("dev-mate", false, false),
+        ];
+        // Request alone, and request over a pick.
+        assert_eq!(
+            settled_device(&devices, Some("dev-mate"), None).as_deref(),
+            Some("dev-mate")
+        );
+        assert_eq!(
+            settled_device(&devices, Some("dev-mate"), Some("dev-own")).as_deref(),
+            Some("dev-mate")
+        );
+        // A pick beats the default…
+        assert_eq!(
+            settled_device(&devices, None, Some("dev-own")).as_deref(),
+            Some("dev-own")
+        );
+        // …and the default beats this machine.
+        assert_eq!(settled_device(&devices, None, None).as_deref(), Some("dev-build"));
+        // A request for a machine that is not a candidate (still syncing, gone
+        // offline) falls through to the rest of the chain — the request is KEPT
+        // by the caller, so it wins the moment the row arrives, and
+        // `requested_device_note` explains the gap meanwhile.
+        assert_eq!(
+            settled_device(&devices, Some("dev-syncing"), None).as_deref(),
+            Some("dev-build")
+        );
+        assert_eq!(
+            settled_device(&devices, Some("dev-syncing"), Some("dev-own")).as_deref(),
+            Some("dev-own")
+        );
+        assert_eq!(settled_device(&[], Some("dev-syncing"), None), None);
+    }
+
+    /// EXP-836 regression: the composer screen is LONG-LIVED, so every seed
+    /// lands on an already-settled screen. The settle is derived from the
+    /// request and the pick ALONE — never from what it settled on last time —
+    /// or the default machine the first settle landed on would win every ▶.
+    #[test]
+    fn a_seed_still_wins_on_an_already_settled_screen() {
+        let devices = vec![
+            candidate("dev-own", true, false),
+            candidate("dev-build", false, true),
+            candidate("dev-mate", false, false),
+        ];
+        // First settle (screen opened): the default machine.
+        let settled = settled_device(&devices, None, None);
+        assert_eq!(settled.as_deref(), Some("dev-build"));
+        // The ▶ arrives afterwards: its machine takes the run.
+        assert_eq!(
+            settled_device(&devices, Some("dev-mate"), None).as_deref(),
+            Some("dev-mate")
+        );
+        // The person then picks another one (which drops the request).
+        assert_eq!(
+            settled_device(&devices, None, Some("dev-own")).as_deref(),
+            Some("dev-own")
+        );
+    }
+
+    /// EXP-696: the PERSON's pick is sticky — it survives its machine leaving
+    /// the candidate list (a lapsed heartbeat), and the composer blocks the
+    /// launch naming that machine instead of silently retargeting this one.
+    #[test]
+    fn device_settle_keeps_the_persons_pick_when_its_machine_drops_out() {
         let devices = vec![
             candidate("dev-own", true, false),
             candidate("dev-build", false, true),
         ];
-        // Still a candidate: kept either way.
         assert_eq!(
-            settled_device(&devices, Some("dev-build"), false, None).as_deref(),
+            settled_device(&devices, None, Some("dev-build")).as_deref(),
             Some("dev-build")
         );
-        // Gone from the list: an explicit pick stands, an implicit one
-        // re-settles onto the default machine.
         assert_eq!(
-            settled_device(&devices, Some("dev-gone"), true, None).as_deref(),
+            settled_device(&devices, None, Some("dev-gone")).as_deref(),
             Some("dev-gone")
         );
+    }
+
+    /// EXP-836: what the options line says while the requested machine is not a
+    /// candidate — byte-identical to web `deviceRequestNote`.
+    #[test]
+    fn the_request_note_names_why_that_machine_cannot_take_the_run() {
+        let devices = vec![candidate("dev-own", true, false)];
+        let rows = vec![
+            launch_device_row("r-1", "dev-offline", "Mint", "me", &["claude"], -600),
+            launch_device_row("r-2", "dev-signed-out", "Air", "me", &[], -30),
+            launch_device_row("r-3", "dev-ready", "Zeta", "me", &["claude"], -30),
+        ];
+        let note = |requested: Option<&str>, synced: bool| {
+            requested_device_note(&devices, requested, rows.iter(), synced, NOW_MS)
+        };
+        assert_eq!(note(Some("dev-offline"), true).as_deref(), Some("Mint is offline."));
         assert_eq!(
-            settled_device(&devices, Some("dev-gone"), false, None).as_deref(),
-            Some("dev-build")
-        );
-        // A preselect beats the fallback chain, candidate or not.
-        assert_eq!(
-            settled_device(&devices, None, false, Some("dev-own")).as_deref(),
-            Some("dev-own")
+            note(Some("dev-signed-out"), true).as_deref(),
+            Some("No agent is signed in on Air.")
         );
         assert_eq!(
-            settled_device(&devices, None, false, Some("dev-syncing")).as_deref(),
-            Some("dev-syncing")
+            note(Some("dev-unknown"), true).as_deref(),
+            Some("That machine is no longer in your registry.")
         );
+        // No request, or a request that IS a candidate: nothing to say.
+        assert_eq!(note(None, true), None);
+        assert_eq!(note(Some("dev-own"), true), None);
+        // Still syncing: a machine that has not arrived is not a missing one.
+        assert_eq!(note(Some("dev-unknown"), false), None);
+        // Online and signed in but not a candidate (remote start off here) —
+        // that is about this install, not about that machine.
+        assert_eq!(note(Some("dev-ready"), true), None);
     }
 
     /// A FAILED `steer.config` fetch re-arms only after its cooldown — the

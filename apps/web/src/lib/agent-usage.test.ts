@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest"
 import {
   accountCaption,
   accountUsageGroups,
+  agentHealth,
   agentProfileUsageRows,
+  attentionRank,
+  deviceWorstHealth,
+  healthBadgeLabel,
+  worstHealth,
   sortAccountGroupsAttentionFirst,
   type AgentProfileUsageRow,
   accountLine,
@@ -341,7 +346,7 @@ describe(`accountCaption`, () => {
     expect(accountCaption({ signedIn: false })).toBe(`signed out`)
   })
 
-  it(`renders a plan-only account (pi reports a provider, no email)`, () => {
+  it(`renders a plan-only account (a provider, no email)`, () => {
     expect(accountCaption({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
       `anthropic (oauth)`
     )
@@ -363,7 +368,7 @@ describe(`accountLine`, () => {
     )
   })
 
-  it(`falls back to the bare plan without an email (pi)`, () => {
+  it(`falls back to the bare plan without an email`, () => {
     expect(accountLine({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
       `anthropic (oauth)`
     )
@@ -386,7 +391,7 @@ describe(`accountRow`, () => {
       })
     ).toBe(`claude · danny@example.com`)
     expect(accountRow(`codex`, { signedIn: false })).toBe(`codex · signed out`)
-    expect(accountRow(`pi`, null)).toBe(`pi · unknown`)
+    expect(accountRow(`claude`, null)).toBe(`claude · unknown`)
   })
 })
 
@@ -585,6 +590,7 @@ describe(`accountUsageGroups`, () => {
     profileLabel: `Default`,
     active: true,
     signedIn: true,
+    health: overrides.signedIn === false ? `signed_out` : `ok`,
     email: null,
     plan: null,
     usage: null,
@@ -649,16 +655,16 @@ describe(`accountUsageGroups`, () => {
   it(`keeps email-less and signed-out rows apart — nothing to merge on`, () => {
     const groups = accountUsageGroups(
       [
-        row({ deviceId: `a`, agent: `pi`, plan: `openai-codex (oauth)` }),
-        row({ deviceId: `b`, agent: `pi`, plan: `openai-codex (oauth)` }),
+        row({ deviceId: `a`, agent: `codex`, plan: `openai-codex (oauth)` }),
+        row({ deviceId: `b`, agent: `codex`, plan: `openai-codex (oauth)` }),
         row({ deviceId: `a`, agent: `claude`, signedIn: false, email: `x@y.z` }),
         row({ deviceId: `b`, agent: `claude`, signedIn: false }),
       ],
       () => false
     )
     expect(groups.map((group) => group.key)).toEqual([
-      `pi:a:system`,
-      `pi:b:system`,
+      `codex:a:system`,
+      `codex:b:system`,
       `claude:a:system`,
       `claude:b:system`,
     ])
@@ -761,5 +767,70 @@ describe(`accountUsageGroups`, () => {
     expect(groups).toHaveLength(1)
     expect(groups[0]!.rows).toHaveLength(2)
     expect(groups[0]!.refreshTarget?.deviceId).toBe(`macbook`)
+  })
+})
+
+// EXP-849: account health — the device's probe verdict, its fallback and the
+// two badge strings. Hand-mirrored with the desktop's `usage_bar.rs` and the
+// natives' account rows.
+describe(`account health (EXP-849)`, () => {
+  it(`derives health from signedIn when the device sent none`, () => {
+    expect(agentHealth({ signedIn: true })).toBe(`ok`)
+    expect(agentHealth({ signedIn: false })).toBe(`signed_out`)
+    expect(agentHealth(null)).toBe(`unknown`)
+  })
+
+  it(`prefers the device's own verdict over the derivation`, () => {
+    expect(agentHealth({ signedIn: true, health: `needs_relogin` })).toBe(
+      `needs_relogin`
+    )
+    // A signed-in CLI that was never probed is UNKNOWN, not ok.
+    expect(agentHealth({ signedIn: true, health: `unknown` })).toBe(`unknown`)
+  })
+
+  it(`badges only the two negatives, and keeps them distinct`, () => {
+    expect(healthBadgeLabel(`needs_relogin`)).toBe(`Needs re-login`)
+    expect(healthBadgeLabel(`signed_out`)).toBe(`Signed out`)
+    expect(healthBadgeLabel(`ok`)).toBeNull()
+    expect(healthBadgeLabel(`unknown`)).toBeNull()
+  })
+
+  it(`folds a set to its worst value`, () => {
+    expect(worstHealth([`ok`, `unknown`, `needs_relogin`, `signed_out`])).toBe(
+      `needs_relogin`
+    )
+    expect(worstHealth([`ok`, `unknown`])).toBe(`unknown`)
+    expect(worstHealth([])).toBeNull()
+  })
+
+  it(`badges a device row with the worst health of its accounts`, () => {
+    expect(
+      deviceWorstHealth({
+        agentAccounts: {
+          claude: {
+            signedIn: true,
+            profiles: [
+              { id: `system`, signedIn: true, health: `ok`, active: true },
+              { id: `work`, signedIn: true, health: `needs_relogin` },
+            ],
+          },
+          codex: { signedIn: true, health: `ok` },
+        },
+      })
+    ).toBe(`needs_relogin`)
+    // A pre-profile machine falls back to the top-level account…
+    expect(
+      deviceWorstHealth({ agentAccounts: { claude: { signedIn: false } } })
+    ).toBe(`signed_out`)
+    // …and a machine that reported nothing claims nothing.
+    expect(deviceWorstHealth({ agentAccounts: {} })).toBeNull()
+  })
+
+  it(`ranks an expired credential with the signed-out rows`, () => {
+    expect(attentionRank({ signedIn: true, usage: null, health: `ok` })).toBe(2)
+    expect(
+      attentionRank({ signedIn: true, usage: null, health: `needs_relogin` })
+    ).toBe(0)
+    expect(attentionRank({ signedIn: false, usage: null })).toBe(0)
   })
 })

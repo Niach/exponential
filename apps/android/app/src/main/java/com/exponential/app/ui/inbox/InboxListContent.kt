@@ -40,7 +40,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 
 // Linear-style single activity stream: one row per issue, showing the latest
 // notification's sentence. Notification titles are already full human
@@ -110,7 +110,7 @@ private fun InboxRow(group: InboxGroup, onClick: () -> Unit) {
             // row (`PopRects`), iOS parity.
             .testTag("notification-row")
             .alpha(if (read) 0.6f else 1f)
-            .glassRow()
+            .flatRow()
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
@@ -164,7 +164,7 @@ private fun SupportInboxRow(group: SupportGroup, onClick: () -> Unit) {
             .fillMaxWidth()
             .testTag("notification-row")
             .alpha(if (read) 0.6f else 1f)
-            .glassRow()
+            .flatRow()
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
@@ -217,7 +217,7 @@ private fun MessageInboxRow(entry: InboxEntry.Message, onClick: () -> Unit) {
             .fillMaxWidth()
             .testTag("notification-row")
             .alpha(if (read) 0.6f else 1f)
-            .glassRow()
+            .flatRow()
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,

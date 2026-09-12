@@ -2,63 +2,62 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-829: the Devices page's **Accounts** section — web/desktop EXP-818's
-/// Usage page folded into Devices, so ONE page says which machines exist and
-/// which agent accounts are live on them.
+/// EXP-829/EXP-849: the Devices page's **Accounts** section — the DECISION
+/// surface for agent logins.
 ///
-/// One row per agent ACCOUNT (an agent plus the login the machines named)
-/// under an agent band, attention first: signed-out accounts lead, then
-/// anything at or over the danger threshold, then the rest. The machines
-/// holding the account are chips on the row — a chip wears a CHECK where the
-/// account is the ACTIVE login on that machine, and tapping a chip of one of
-/// MY machines opens that machine's settings sheet (where agent sign-in
-/// lives — the same destination the machine row's Edit offers). The numbers
-/// are the FRESHEST machine's report (they are the account's limits, so every
-/// machine reads the same ones), drawn by the same `AgentUsageCards` the
-/// Usage sheet and Device settings render; stale numbers keep the dimmed
-/// "as of …" treatment.
+/// One row per agent ACCOUNT (an agent plus the login the machines named):
+/// who it is, what it may spend, how much of that is left, and whether it
+/// still works (EXP-849 `health`). Attention first — a signed-out or refused
+/// login leads, then anything at or over the danger threshold, then the rest.
 ///
-/// The section owns no model of its own: rows, groups, ordering and the
-/// refresh floor are `AgentAccountsRows` (ExpCore, the ×4 rule), the refresh
-/// round-trip is `AgentsViewModel` — this file is layout.
+/// EXP-849 split the two surfaces that used to be one list:
+///   - HERE (Accounts) you decide WHICH account to use: the numbers are the
+///     freshest machine's (they are the account's limits, so every machine
+///     reads the same ones) and the machines holding it are QUIET chips — a
+///     presence indicator with a check where the account is that machine's
+///     ACTIVE login, not a control.
+///   - Repair lives on the machine rows above ("My machines"): re-login, "use
+///     this account here", the per-machine health badge. A chip here used to
+///     be the only way into that, which made Accounts a settings menu in
+///     disguise.
+///
+/// With two or more agents reporting, the rows sit under per-agent TABS
+/// (claude | codex) instead of stacked bands: codex's two windows used to push
+/// claude's five off the screen.
+///
+/// The section owns no model of its own: rows, groups, ordering, health and
+/// the refresh floor are `AgentAccountsRows` / `AgentAccountHealth` (ExpCore,
+/// the ×4 rules), the refresh round-trip is `AgentsViewModel` — this file is
+/// layout.
 struct AgentAccountsSection: View {
     let viewModel: AgentsViewModel
-    /// A chip of one of the caller's own machines was tapped: open that
-    /// machine's device settings sheet.
-    let onOpenDevice: (String) -> Void
+
+    /// The picked agent tab, or nil while it follows the first reported agent.
+    /// View state: a fresh page opens on the leading agent.
+    @State private var agentTab: String?
 
     var body: some View {
         let now = Date()
-        Group {
-            GlassSectionHeader("Accounts") {
-                if viewModel.accountsAutoRefresh {
-                    Text("Refreshes every 5 minutes")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            }
-            .accessibilityIdentifier("accounts-header")
-
-            if !viewModel.accountsLoaded {
-                loadingRow
-            } else if viewModel.accountSections.isEmpty {
-                emptyRow
-            } else {
-                ForEach(viewModel.accountSections) { section in
-                    // Contract agent order — a band only renders when a
-                    // machine reported the agent.
-                    Text(LaunchVocabulary.agentLabel(section.agent))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.horizontal, 4)
-                        .padding(.top, 4)
-                    ForEach(section.groups) { group in
+        let agents = viewModel.accountAgents
+        let tab = resolvedTab(agents)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
+                accountsBand
+                if !viewModel.accountsLoaded {
+                    loadingRow
+                } else if agents.isEmpty {
+                    emptyRow
+                } else {
+                    // EXP-849: tabs, not bands — a lone agent is not a choice.
+                    if agents.count > 1 {
+                        agentTabs(agents, selection: tab)
+                    }
+                    ForEach(viewModel.groupsForAgent(tab)) { group in
                         AgentAccountRow(
                             group: group,
                             now: now,
                             refreshing: viewModel.refreshingAccounts.contains(group.key),
-                            onRefresh: { viewModel.refreshAccount(group) },
-                            onOpenDevice: onOpenDevice
+                            onRefresh: { viewModel.refreshAccount(group) }
                         )
                     }
                 }
@@ -73,6 +72,45 @@ struct AgentAccountsSection: View {
         }
     }
 
+    /// The tab the rows follow: the pick while the agent still reports, else
+    /// the leading (contract-ordered) one.
+    private func resolvedTab(_ agents: [String]) -> String {
+        if let agentTab, agents.contains(agentTab) { return agentTab }
+        return agents.first ?? "claude"
+    }
+
+    /// EXP-849: the per-agent tabs, as the section's first row — the same
+    /// brand-marked strip the launch options wear, so "claude" looks the same
+    /// everywhere.
+    private func agentTabs(_ agents: [String], selection: String) -> some View {
+        GlassSegmentedControl(
+            options: agents,
+            selection: selection,
+            label: { LaunchVocabulary.agentLabel($0) },
+            icon: { AgentBrandMark.image($0) },
+            style: .embedded,
+            onSelect: { agentTab = $0 }
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .flatRow()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("accounts-agent-tabs")
+    }
+
+    /// The section's own heading — plain text, because the per-agent tabs
+    /// below it already carry the filled strip.
+    private var accountsBand: some View {
+        GlassSectionHeader("Accounts") {
+            if viewModel.accountsAutoRefresh {
+                Text("Refreshes every 5 minutes")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        .accessibilityIdentifier("accounts-header")
+    }
+
     private var loadingRow: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(.white)
@@ -83,7 +121,7 @@ struct AgentAccountsSection: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 
     /// Web parity, word for word: the same glyph and sentence the web section
@@ -98,19 +136,19 @@ struct AgentAccountsSection: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
     }
 }
 
-/// One account: the login (amber "Not signed in" when there is none), the
-/// refresh glyph when one of MY machines may run it, the machine chips, and
-/// the freshest report's cards.
+/// One account: the login (amber "Not signed in" when there is none), its
+/// health when there is something to say about it, the refresh glyph when one
+/// of MY machines may run it, the quiet machine chips, and the freshest
+/// report's cards.
 private struct AgentAccountRow: View {
     let group: AgentAccountUsageGroup
     let now: Date
     let refreshing: Bool
     let onRefresh: () -> Void
-    let onOpenDevice: (String) -> Void
 
     private var fresh: Bool {
         AgentUsagePresentation.isFresh(fetchedAt: group.usage?.fetchedAt, now: now)
@@ -131,6 +169,7 @@ private struct AgentAccountRow: View {
                 title
                     .lineLimit(1)
                     .truncationMode(.middle)
+                healthBadge
                 Spacer(minLength: 0)
                 if group.refreshTarget != nil {
                     refreshControl
@@ -138,7 +177,7 @@ private struct AgentAccountRow: View {
             }
             FlowLayout(spacing: 6) {
                 ForEach(group.rows) { row in
-                    AgentAccountDeviceChip(row: row, onOpenDevice: onOpenDevice)
+                    AgentAccountDeviceChip(row: row)
                 }
             }
             if hasWindows, let usage = group.usage {
@@ -162,7 +201,7 @@ private struct AgentAccountRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .glassRow()
+        .flatRow()
         .accessibilityIdentifier("account-row-\(group.key)")
     }
 
@@ -177,6 +216,22 @@ private struct AgentAccountRow: View {
         return lead + Text(" · \(plan)")
             .font(.subheadline)
             .foregroundStyle(Color.white.opacity(TextOpacity.quaternary))
+    }
+
+    /// EXP-849: the health badge the ×4 rule produces — a signed-out login
+    /// already SAYS so in the title (a badge beside it would be the same word
+    /// twice), and the two quiet states have nothing to report, so in practice
+    /// this is the expired credential the caption cannot express.
+    @ViewBuilder
+    private var healthBadge: some View {
+        if let label = AgentAccountsRows.healthBadge(group) {
+            GlassPill(
+                label,
+                icon: AppIcons.uiWarning,
+                tint: DesignTokens.Semantic.yellow
+            )
+            .accessibilityIdentifier("account-health-\(group.key)")
+        }
     }
 
     /// The refresh glyph — a spinner while a queued refresh waits for the
@@ -202,29 +257,29 @@ private struct AgentAccountRow: View {
     }
 }
 
-/// EXP-818's machine chip: the online dot, the machine (· profile), and a
-/// CHECK when the account is the ACTIVE login on that machine. A chip of one
-/// of MY machines opens its settings sheet — sign-in and account switching
-/// live there; a teammate's shared server is read-only here.
+/// EXP-818's machine chip, EXP-849's quiet indicator: the online dot, the
+/// machine (· profile), a CHECK where the account is that machine's ACTIVE
+/// login, and an amber warning glyph where THAT machine's copy of the login is
+/// broken. Not a control — every account ACTION lives on the machine's own row
+/// ("My machines"), which is the surface that can repair one.
 private struct AgentAccountDeviceChip: View {
     let row: AgentProfileUsageRow
-    let onOpenDevice: (String) -> Void
-
-    private var mode: GlassPillMode {
-        row.mine ? .action { onOpenDevice(row.deviceId) } : .readonly
-    }
 
     var body: some View {
         GlassPill(
             AgentAccountsRows.chipLabel(row),
-            mode: mode,
+            mode: .readonly,
             dot: row.online
                 ? DesignTokens.Semantic.green
                 : Color.white.opacity(TextOpacity.quaternary)
         ) {
             EmptyView()
         } trailing: {
-            if row.signedIn, row.active {
+            if let badge = row.health.badgeLabel {
+                AppIcon(AppIcons.uiWarning, size: GlassPillSize.sm.glyphSize)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .accessibilityLabel("\(badge) on this machine")
+            } else if row.signedIn, row.active {
                 AppIcon(AppIcons.uiCheck, size: GlassPillSize.sm.glyphSize)
                     .foregroundStyle(DesignTokens.Semantic.green)
                     .accessibilityLabel("Active on this machine")

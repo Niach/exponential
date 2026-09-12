@@ -1,7 +1,9 @@
-//! The batch-run seed prompt — ONE Claude session implementing SEVERAL
+//! The batch-run seed prompt — ONE agent session implementing SEVERAL
 //! issues directly on the batch branch. Deliberately loose (no dependency
 //! waves, no per-issue worktrees, no pre-defined subagents): the issues may
-//! overlap, so Claude organizes the work itself and lands everything on one
+//! overlap, so the agent splits the work itself — told to share ONE pass of
+//! exploration rather than re-reading the same code per issue (EXP-846) —
+//! and lands everything on one
 //! branch, then opens ONE combined PR via `exponential_pr_open` with
 //! `issueIds` (the server links every issue to it; merging the PR later
 //! completes them all).
@@ -60,8 +62,10 @@ working directly on the current branch `{branch}`.
 - The issues may overlap (shared files, related behavior). Handle overlap sensibly: \
 implement shared changes once and keep the combined result coherent — you own the \
 full set, not one issue at a time.
-- Organize the work however you see fit — your own subagents, parallel exploration, \
-any order. All changes land on `{branch}`.
+- Split the work up however you think appropriate — your own subagents are fine \
+wherever they help. Because the issues overlap, do not explore the same code \
+several times: share one pass of exploration across every issue it touches, and \
+write a change that several issues need once. All changes land on `{branch}`.
 - Never force-push. Do not use `gh` — GitHub writes go through the `exponential_*` \
 MCP tools.
 
@@ -161,6 +165,10 @@ mod tests {
         assert!(!prompt.contains("`in_progress` when you start"));
         assert!(prompt.contains("Do not use `gh`"));
         assert!(prompt.contains("Never force-push"));
+        // EXP-846: splitting the work is the agent's call, but the overlap
+        // rule is explicit — one pass of exploration, shared.
+        assert!(prompt.contains("Split the work up however you think appropriate"));
+        assert!(prompt.contains("do not explore the same code"));
         // The old orchestrator contract must be GONE: no release PR tool, no
         // pre-defined subagents, no wave plan, no per-issue worktrees.
         assert!(!prompt.contains("exponential_release_pr_open"));

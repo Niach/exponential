@@ -1,4 +1,5 @@
-//! The ONE "Latest changes" surface (EXP-678/688/698, extracted by EXP-746).
+//! The ONE "Changes" surface (EXP-678/688/698, extracted by EXP-746; EXP-818
+//! shortened the band's label from "Latest changes" to "Changes" ×4).
 //!
 //! A session's branch diff plus its Merge affordance, in one collapsible row.
 //! It was born inside `terminal_dock.rs` as a `&self` method on the panel with
@@ -24,7 +25,7 @@ use gpui_component::{
 
 use crate::icons::{registry, ExpIcon};
 
-/// The Latest-changes bar's own height, and the expanded diff's (the web's
+/// The Changes bar's own height, and the expanded diff's (the web's
 /// `max-h-72`).
 pub(crate) const CHANGES_BAR_H: f32 = 28.;
 pub(crate) const CHANGES_DIFF_H: f32 = 288.;
@@ -43,7 +44,7 @@ pub(crate) struct ChangesSpec<V: Render> {
     pub(crate) on_toggle: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
 }
 
-/// EXP-698 — the ONE Latest-changes row: the collapsible `+N −M` summary on
+/// EXP-698 — the ONE Changes row: the collapsible `+N −M` summary on
 /// the left, the Merge capsule on the right, and (expanded) the side-by-side
 /// diff underneath. Every session surface renders through this, so the bar is
 /// one design with one set of metrics.
@@ -238,7 +239,7 @@ pub(crate) fn sync(
     }))
 }
 
-/// A relay-delivered Latest-changes snapshot. Nothing is polled for it — the
+/// A relay-delivered Changes snapshot. Nothing is polled for it — the
 /// host publishes the worktree diff on the activity channel and the viewer's
 /// feed keeps the latest one, so this is only the PARSE of that string plus
 /// the bar's expanded flag.

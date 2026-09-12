@@ -203,20 +203,20 @@ export const CL_ISSUE = {
 } as const
 
 // ── The phone start flow (remote start over the steer rails, EXP-385) ────────
-// Strings mirror the real StartCodingSheet (EXP-687 chrome: grabber on top, no
-// toolbar buttons, one pinned full-width Start coding button at the floor), an
-// Issues section with a search row, the agent pill strip, and Model + Effort
-// picker rows. One desktop online = no Device row at all;
-// after submit the caller shows the "Start sent" capsule toast.
+// Strings mirror the real Agent page — the ONE launcher since EXP-825 (the
+// three-tab Start-coding sheet is gone, EXP-845): a pushed "Agent" detail with
+// the composer card (the chipped issue, the optional-instructions field, the
+// labelled submit pill), the options pills under it and the caller's Past
+// runs. One desktop online = the Device pill is a plain label; after submit
+// the caller shows the "Start sent" capsule toast.
 export const PHONE_START = {
-  cancel: "Cancel",
+  navTitle: "Agent",
   confirm: "Start coding",
-  issuesLabel: "Issues",
-  searchPlaceholder: "Search issues",
-  modelLabel: "Model",
-  model: "Fable",
-  effortLabel: "Effort",
-  effort: "CLI default",
+  placeholder: "Additional instructions (optional)…",
+  agent: "Claude Code",
+  planLabel: "Plan",
+  pastLabel: "Past",
+  pastCaption: "Merged · Claude Code · yesterday",
   device: "MacBook Pro",
   toast: "Start sent to MacBook Pro. Watch it in the Agents tab.",
 } as const

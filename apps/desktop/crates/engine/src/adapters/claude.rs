@@ -649,6 +649,11 @@ struct StreamedBlock {
 struct TaskEntry {
     tool_use_id: Option<String>,
     subagent_type: Option<String>,
+    /// EXP-847: the spawning `Agent` call's own `description` (its `name` as a
+    /// fallback) — read off the tool table at `task_started` and kept HERE,
+    /// because the tool RESULT takes the table entry away and the completed
+    /// edge must still name the subagent.
+    title: Option<String>,
     live: bool,
     /// `task_started.is_backgrounded`: the model did NOT stop for this one, so
     /// the main thread keeps running (and asking) beside it.
@@ -908,7 +913,7 @@ impl ClaudeSession {
             Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => {
                 Some(native.clone().unwrap_or_else(|| id.clone()))
             }
-            Some(ResumeHandle::PiSessionFile(_)) | None => None,
+            None => None,
         };
         let resume = resume.map(str::to_string).or(recorded);
         // The pin: claude's own uuid, minted in `new` and NEVER the ACP id.
@@ -1203,6 +1208,7 @@ impl ClaudeSession {
             task.last_status = Some("failed".to_string());
             let tool_use_id = task.tool_use_id.clone();
             let subagent_type = task.subagent_type.clone();
+            let title = task.title.clone();
             log::warn!("engine: claude task {task_id} never reported back; retiring it");
             self.publish_subagent(
                 cx,
@@ -1210,6 +1216,7 @@ impl ClaudeSession {
                 tool_use_id.as_deref(),
                 subagent_type.as_deref(),
                 "failed",
+                title.as_deref(),
             );
         }
     }
@@ -1415,15 +1422,21 @@ impl ClaudeSession {
         tool_use_id: Option<&str>,
         agent_type: Option<&str>,
         status: &str,
+        title: Option<&str>,
     ) {
         // The edge rides a no-op patch of the tool call that spawned the
         // subagent, so a client that ignores the meta sees nothing at all.
         let id = tool_use_id.unwrap_or(task_id);
         let mut meta = Map::new();
-        meta.insert(
-            SUBAGENT_META_KEY.to_string(),
-            json!({ "id": id, "agentType": agent_type, "status": status }),
-        );
+        let mut edge = Map::new();
+        edge.insert("id".to_string(), json!(id));
+        edge.insert("agentType".to_string(), json!(agent_type));
+        edge.insert("status".to_string(), json!(status));
+        // EXP-847: omitted rather than null when the call named nothing.
+        if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
+            edge.insert("title".to_string(), json!(title));
+        }
+        meta.insert(SUBAGENT_META_KEY.to_string(), Value::Object(edge));
         self.notify_meta(
             cx,
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
@@ -1790,11 +1803,21 @@ impl ClaudeSession {
                     .unwrap_or(false);
                 let mut state = self.lock();
                 let turn_seq = state.turn_seq;
+                // EXP-847: the `Agent` call's own words for the job, off the
+                // tool table the `content_block_start` filled. Read ONCE here:
+                // the tool result takes the entry away.
+                let spawn_input = tool_use_id
+                    .as_deref()
+                    .and_then(|id| state.tools.get(id))
+                    .map(|entry| entry.input.clone());
+                let title = spawn_input.as_ref().and_then(task_title);
+                let subagent_type = task_agent_type(subagent_type.as_deref(), spawn_input.as_ref());
                 state.tasks.insert(
                     task_id.clone(),
                     TaskEntry {
                         tool_use_id: tool_use_id.clone(),
                         subagent_type: subagent_type.clone(),
+                        title: title.clone(),
                         live: true,
                         backgrounded,
                         turn_seq,
@@ -1809,6 +1832,7 @@ impl ClaudeSession {
                     tool_use_id.as_deref(),
                     subagent_type.as_deref(),
                     "started",
+                    title.as_deref(),
                 );
             }
             SystemSubtype::TaskNotification | SystemSubtype::TaskUpdated => {
@@ -1838,15 +1862,21 @@ impl ClaudeSession {
                 // the CLI sends both for one edge often enough to matter
                 // (7 duplicate `completed`s in 54, measured), which drew the
                 // subagent twice. Only a CHANGE is republished.
-                let (tool_use_id, subagent_type, repeat) = match state.tasks.get_mut(&task_id) {
-                    Some(task) => {
-                        let repeat = task.last_status.as_deref() == Some(status.as_str());
-                        task.live = !terminal;
-                        task.last_status = Some(status.clone());
-                        (task.tool_use_id.clone(), task.subagent_type.clone(), repeat)
-                    }
-                    None => (None, None, false),
-                };
+                let (tool_use_id, subagent_type, title, repeat) =
+                    match state.tasks.get_mut(&task_id) {
+                        Some(task) => {
+                            let repeat = task.last_status.as_deref() == Some(status.as_str());
+                            task.live = !terminal;
+                            task.last_status = Some(status.clone());
+                            (
+                                task.tool_use_id.clone(),
+                                task.subagent_type.clone(),
+                                task.title.clone(),
+                                repeat,
+                            )
+                        }
+                        None => (None, None, None, false),
+                    };
                 drop(state);
                 // The edge goes out BEFORE the settle it unblocks: settling
                 // first ends the `session/prompt`, and a client that renders
@@ -1859,6 +1889,7 @@ impl ClaudeSession {
                         tool_use_id.as_deref(),
                         subagent_type.as_deref(),
                         &status,
+                        title.as_deref(),
                     );
                 }
                 if terminal {
@@ -2895,6 +2926,45 @@ fn plan_status(status: &str) -> PlanEntryStatus {
         _ => PlanEntryStatus::Pending,
     }
 }
+
+/// EXP-847: what the spawning `Agent`/`Task` call said the subagent is FOR —
+/// its `description` input, its `name` as a fallback, `None` when it named
+/// neither (the chip then falls back to the agent TYPE). The same input
+/// [`tool_info`] titles the card from, so the chip and the card agree.
+fn task_title(input: &Value) -> Option<String> {
+    ["description", "name"]
+        .into_iter()
+        .filter_map(|key| input.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// EXP-847: the subagent TYPE the chip's secondary caption reads. The CLI
+/// reports `agentType: "agent"` for a teammate spawn — a word that says
+/// nothing about the job — so a GENERIC or empty report defers to what the
+/// spawning `Agent` call itself named (`subagent_type`, then `name`). `None`
+/// when neither side named anything.
+fn task_agent_type(reported: Option<&str>, input: Option<&Value>) -> Option<String> {
+    let specific = |value: &str| {
+        let value = value.trim();
+        (!value.is_empty() && value != GENERIC_AGENT_TYPE).then(|| value.to_string())
+    };
+    if let Some(reported) = reported.and_then(specific) {
+        return Some(reported);
+    }
+    let named = input.and_then(|input| {
+        ["subagent_type", "agentType", "agent_type", "name"]
+            .into_iter()
+            .filter_map(|key| input.get(key).and_then(Value::as_str))
+            .find_map(specific)
+    });
+    named.or_else(|| reported.map(str::trim).filter(|r| !r.is_empty()).map(str::to_string))
+}
+
+/// The CLI's placeholder subagent type for a teammate spawn (see
+/// [`task_agent_type`]).
+const GENERIC_AGENT_TYPE: &str = "agent";
 
 fn is_task_tool(name: &str) -> bool {
     matches!(name, "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet")
@@ -3999,12 +4069,57 @@ mod tests {
         TaskEntry {
             tool_use_id: Some("toolu_1".to_string()),
             subagent_type: Some("explore".to_string()),
+            title: Some("Audit the shape proxies".to_string()),
             live,
             backgrounded: true,
             turn_seq,
             started_at: Instant::now() - age,
             last_status: None,
         }
+    }
+
+    /// EXP-847: the subagent chip's title is the spawning call's own
+    /// `description`, its `name` second, nothing when it named neither.
+    #[test]
+    fn a_task_title_prefers_the_description() {
+        assert_eq!(
+            task_title(&json!({ "description": "  Audit the shape proxies  ", "name": "explore" })),
+            Some("Audit the shape proxies".to_string())
+        );
+        assert_eq!(
+            task_title(&json!({ "description": "   ", "name": "explore" })),
+            Some("explore".to_string())
+        );
+        assert_eq!(task_title(&json!({ "prompt": "do it" })), None);
+        assert_eq!(task_title(&Value::Null), None);
+    }
+
+    /// EXP-847: `agentType: "agent"` (what the CLI reports for a teammate
+    /// spawn) says nothing — the spawning call's own `subagent_type`/`name`
+    /// takes over, and only a call that named nothing either keeps the
+    /// generic word.
+    #[test]
+    fn a_generic_agent_type_defers_to_the_spawning_call() {
+        let input = json!({ "subagent_type": "explore", "name": "scout" });
+        assert_eq!(
+            task_agent_type(Some("agent"), Some(&input)),
+            Some("explore".to_string())
+        );
+        assert_eq!(
+            task_agent_type(Some("  "), Some(&json!({ "name": "scout" }))),
+            Some("scout".to_string())
+        );
+        // A SPECIFIC report always wins — the CLI knows the type best.
+        assert_eq!(
+            task_agent_type(Some("general-purpose"), Some(&input)),
+            Some("general-purpose".to_string())
+        );
+        // Nothing named anywhere: the generic word is all there is.
+        assert_eq!(
+            task_agent_type(Some("agent"), Some(&json!({ "prompt": "do it" }))),
+            Some("agent".to_string())
+        );
+        assert_eq!(task_agent_type(None, None), None);
     }
 
     /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on

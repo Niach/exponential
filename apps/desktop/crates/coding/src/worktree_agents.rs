@@ -1,6 +1,6 @@
 //! Which agents have coded in a worktree (EXP-210).
 //!
-//! Resume is per-AGENT: claude/pi `--continue` is cwd-scoped and errors with
+//! Resume is per-AGENT: claude's `--continue` is cwd-scoped and errors with
 //! "no conversation found to continue" when THAT agent never ran in the
 //! worktree (a codex-built worktree, say). The launcher records every agent
 //! it spawns into a worktree in a tiny marker file so (a) the Start-coding
@@ -21,7 +21,7 @@ use std::path::Path;
 
 use crate::agent::CodingAgent;
 
-/// Marker file in the worktree root: one agent id (`claude`/`codex`/`pi`)
+/// Marker file in the worktree root: one agent id (`claude`/`codex`)
 /// per line, in first-recorded order.
 pub const AGENTS_FILE: &str = ".exp-agents";
 
@@ -126,13 +126,13 @@ mod tests {
         );
         assert_eq!(worktree_agents(&dir), Some(Vec::new()));
         // A builtin afterwards still appends, and only it reads back.
-        record_worktree_agent(&dir, CodingAgent::Pi).unwrap();
-        assert_eq!(worktree_agents(&dir), Some(vec![CodingAgent::Pi]));
+        record_worktree_agent(&dir, CodingAgent::Codex).unwrap();
+        assert_eq!(worktree_agents(&dir), Some(vec![CodingAgent::Codex]));
         // A blank id is a caller bug, not a marker line.
         record_worktree_agent_id(&dir, "  ").unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.join(AGENTS_FILE)).unwrap(),
-            "acme\npi\n"
+            "acme\ncodex\n"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

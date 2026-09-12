@@ -3,8 +3,8 @@
 //!
 //! The product never holds, copies, refreshes or uploads a credential: this
 //! module reports the *identity* an already-signed-in CLI advertises about
-//! itself (claude's `auth status` JSON, codex's app-server account, pi's
-//! provider files) and nothing else. No token ever enters an [`AgentAccount`],
+//! itself (claude's `auth status` JSON, codex's app-server account) and
+//! nothing else. No token ever enters an [`AgentAccount`],
 //! and nothing here writes to an agent's credential store.
 //!
 //! The vocabulary is locked across all four clients (web, iOS, Android,
@@ -16,31 +16,131 @@
 //!               "checkedAt": "2026-08-28T10:00:00.000Z" } }
 //! ```
 //!
-//! pi names no account (it has no login at all — only provider credentials),
-//! so its caption is the PROVIDER it would run against:
-//! `plan: "anthropic (oauth)"`. Codex's API-key logins report
-//! `plan: "api key"` with no email.
+//! Codex's API-key logins report `plan: "api key"` with no email.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+
+/// EXP-849 — one login's HEALTH, the four-value vocabulary every client
+/// badges (`health` on both the account and each `profiles[]` row; the server
+/// clamp keeps nothing else).
+///
+/// It is NOT the same question as `signed_in`: `auth status` is identity only
+/// (the CLI reports an email for a login whose refresh token the provider has
+/// since revoked), so health is derived from the USAGE PROBE — the one call
+/// that actually spends the credential:
+///
+/// * [`Health::Ok`] — the last probe answered.
+/// * [`Health::NeedsRelogin`] — the last probe came back 401/403: the CLI
+///   still names an account, but it can no longer act as it. The fix is a
+///   login, not a wait.
+/// * [`Health::SignedOut`] — the CLI names nobody.
+/// * [`Health::Unknown`] — signed in, never probed (or only ever failed for
+///   transport reasons), and what an unreadable token degrades to. A row with
+///   no `health` at all derives one from `signedIn` instead
+///   ([`Health::from_signed_in`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Health {
+    Ok,
+    NeedsRelogin,
+    SignedOut,
+    Unknown,
+}
+
+impl Health {
+    /// The wire token — snake_case, byte-identical on all four clients.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Health::Ok => "ok",
+            Health::NeedsRelogin => "needs_relogin",
+            Health::SignedOut => "signed_out",
+            Health::Unknown => "unknown",
+        }
+    }
+
+    /// A wire token back into the enum; anything else (a newer build's value,
+    /// junk) is [`Health::Unknown`].
+    pub fn parse(raw: &str) -> Health {
+        match raw.trim() {
+            "ok" => Health::Ok,
+            "needs_relogin" => Health::NeedsRelogin,
+            "signed_out" => Health::SignedOut,
+            _ => Health::Unknown,
+        }
+    }
+
+    /// The fallback every reader takes when `health` is absent (an older
+    /// device, a row written before EXP-849): the only thing such a payload
+    /// says is whether the CLI was signed in, and a signed-in CLI reads as
+    /// healthy — ×4 (`AgentHealthRules.derived`, web `agentHealth`). Claiming
+    /// `Unknown` here would badge every pre-EXP-849 machine as unverified.
+    pub fn from_signed_in(signed_in: bool) -> Health {
+        if signed_in {
+            Health::Ok
+        } else {
+            Health::SignedOut
+        }
+    }
+
+    /// Worst-first rank — a device row badges the WORST health among its
+    /// accounts, and "needs re-login" must outrank "signed out" (one is a
+    /// broken machine, the other a machine nobody set up).
+    pub fn severity(self) -> u8 {
+        match self {
+            Health::NeedsRelogin => 3,
+            Health::SignedOut => 2,
+            Health::Unknown => 1,
+            Health::Ok => 0,
+        }
+    }
+
+    /// The worse of two healths.
+    pub fn worse(self, other: Health) -> Health {
+        if other.severity() > self.severity() {
+            other
+        } else {
+            self
+        }
+    }
+
+    /// The badge an account row or chip carries, or `None` when there is
+    /// nothing to say: `ok` needs no badge, and `unknown` ("signed in, never
+    /// probed") is not a problem. The two negatives are DISTINCT on purpose
+    /// and byte-identical ×4 (`AgentHealthRules.badgeLabel`, web
+    /// `healthBadgeLabel`, iOS `badgeLabel`): "Signed out" is a login nobody
+    /// made, "Needs re-login" one that expired under you.
+    pub fn badge_label(self) -> Option<&'static str> {
+        match self {
+            Health::NeedsRelogin => Some("Needs re-login"),
+            Health::SignedOut => Some("Signed out"),
+            Health::Ok | Health::Unknown => None,
+        }
+    }
+}
 
 /// One agent's signed-in identity. `Default` is the signed-out row.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentAccount {
     pub signed_in: bool,
-    /// Absent (never null) when the agent names no address — pi always, and
-    /// codex's API-key logins.
+    /// Absent (never null) when the agent names no address — codex's
+    /// API-key logins.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     /// The plan/provider half of the caption: claude's `subscriptionType`,
-    /// codex's `planType` (or `api key`), pi's `<provider> (oauth|api key)`.
+    /// codex's `planType` (or `api key`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
     /// When this row was probed — the "as of …" fallback when a device is
     /// offline.
     pub checked_at: String,
+    /// EXP-849: this login's [`Health`], as its wire token. Absent = derive
+    /// from `signed_in` ([`Health::from_signed_in`]), which is what every
+    /// pre-EXP-849 device's row means. Mirrors the ACTIVE profile's, like
+    /// every other top-level field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<String>,
     /// EXP-792 (EXP-747 B5): every account PROFILE of this agent on the
     /// machine, `system` first, when there is more than the ambient login.
     /// Absent (never `[]`) on a single-login machine, so the pre-profile
@@ -68,8 +168,17 @@ pub struct AgentProfileEntry {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub active: bool,
     pub checked_at: String,
+    /// EXP-849: see [`AgentAccount::health`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<crate::agent_usage::AgentUsage>,
+    /// EXP-849: this login is past [`crate::agent_usage::MAX_USAGE_PROFILES`]
+    /// — its identity ships, its usage numbers are NOT collected (the cap
+    /// exists so one beat cannot fan out into a probe per login). Absent =
+    /// monitored, so the common payload is unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unmonitored: bool,
 }
 
 impl AgentProfileEntry {
@@ -80,9 +189,54 @@ impl AgentProfileEntry {
             email: self.email.clone(),
             plan: self.plan.clone(),
             checked_at: self.checked_at.clone(),
+            health: self.health.clone(),
             profiles: Vec::new(),
         }
     }
+
+    /// This row's [`Health`], with the absent-field fallback.
+    pub fn health(&self) -> Health {
+        match &self.health {
+            Some(raw) => Health::parse(raw),
+            None => Health::from_signed_in(self.signed_in),
+        }
+    }
+}
+
+impl AgentAccount {
+    /// This account's [`Health`], with the absent-field fallback.
+    pub fn health(&self) -> Health {
+        match &self.health {
+            Some(raw) => Health::parse(raw),
+            None => Health::from_signed_in(self.signed_in),
+        }
+    }
+
+    /// The WORST health this account reports — its own, folded with every
+    /// profile row's. The device row's badge (interface A) is this, folded
+    /// across agents.
+    pub fn worst_health(&self) -> Health {
+        self.profiles
+            .iter()
+            .fold(self.health(), |worst, row| worst.worse(row.health()))
+    }
+}
+
+/// The worst health across a whole [`AgentAccounts`] map — what a DEVICE row
+/// badges. An empty map (a device that reported no agents at all) is
+/// [`Health::Unknown`], never `Ok`.
+pub fn worst_health(accounts: &AgentAccounts) -> Health {
+    let mut worst: Option<Health> = None;
+    for account in accounts.values() {
+        let health = account.worst_health();
+        worst = Some(match worst {
+            Some(seen) => seen.worse(health),
+            // Never fold over a seeded `Unknown`: it outranks `Ok`, so a
+            // machine whose single login is healthy would badge "unknown".
+            None => health,
+        });
+    }
+    worst.unwrap_or(Health::Unknown)
 }
 
 /// `{ agent: account }`, keyed by the contract `codingAgent` id. `BTreeMap`
@@ -113,61 +267,6 @@ pub fn unix_millis_from_iso(iso: &str) -> Option<i64> {
         .map(|at| at.timestamp_millis())
 }
 
-/// pi's account row. pi has NO login and no notion of a user: its credential
-/// store (`~/.pi/agent/auth.json`) is a provider map, and
-/// `~/.pi/agent/settings.json`'s `defaultProvider` names the one a run would
-/// actually use. The caption is therefore the provider plus how it
-/// authenticates — `anthropic (oauth)` / `openai (api key)`.
-///
-/// `env_credential` = any provider API key exported into the environment
-/// (the doctor's [`crate::doctor::pi_auth_state`] rule); with no auth.json
-/// entry to classify, that reads as an API key.
-pub fn pi_account(
-    auth_json: Option<&str>,
-    settings_json: Option<&str>,
-    env_credential: bool,
-    now: &str,
-) -> AgentAccount {
-    let auth = auth_json
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-        .and_then(|value| value.as_object().cloned());
-    let default_provider = settings_json
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-        .and_then(|value| {
-            value
-                .get("defaultProvider")
-                .and_then(|found| found.as_str())
-                .map(str::trim)
-                .filter(|found| !found.is_empty())
-                .map(str::to_string)
-        });
-    let provider = default_provider.or_else(|| auth.as_ref().and_then(|map| map.keys().next().cloned()));
-    let signed_in = auth.as_ref().is_some_and(|map| !map.is_empty()) || env_credential;
-    let plan = provider.filter(|_| signed_in).map(|name| {
-        let kind = auth
-            .as_ref()
-            .and_then(|map| map.get(&name))
-            .and_then(|entry| entry.get("type"))
-            .and_then(|kind| kind.as_str())
-            .map(|kind| {
-                if kind.eq_ignore_ascii_case("oauth") {
-                    "oauth"
-                } else {
-                    "api key"
-                }
-            })
-            .unwrap_or("api key");
-        format!("{name} ({kind})")
-    });
-    AgentAccount {
-        signed_in,
-        email: None,
-        plan,
-        checked_at: now.to_string(),
-        profiles: Vec::new(),
-    }
-}
-
 /// The map's IDENTITY, `checked_at` excluded — a probe that finds the same
 /// accounts must not look like a change to the hosts' last-sent compare (the
 /// stamp moves every single probe).
@@ -189,22 +288,28 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
                 .iter()
                 .map(|profile| {
                     format!(
-                        "{}={}:{}:{}:{}:{}",
+                        "{}={}:{}:{}:{}:{}:{}:{}",
                         profile.id,
                         profile.signed_in,
                         profile.email.as_deref().unwrap_or_default(),
                         profile.plan.as_deref().unwrap_or_default(),
                         profile.active,
+                        // EXP-849: a login going `ok` → `needs_relogin` is
+                        // the one change a reader most needs shipped, and it
+                        // moves no other field.
+                        profile.health().as_str(),
+                        profile.unmonitored,
                         usage_fingerprint(profile.usage.as_ref())
                     )
                 })
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "{agent}:{}:{}:{}:{profiles}",
+                "{agent}:{}:{}:{}:{}:{profiles}",
                 account.signed_in,
                 account.email.as_deref().unwrap_or_default(),
-                account.plan.as_deref().unwrap_or_default()
+                account.plan.as_deref().unwrap_or_default(),
+                account.health().as_str()
             )
         })
         .collect::<Vec<_>>()
@@ -245,7 +350,7 @@ mod tests {
             email: Some("dev@acme.test".into()),
             plan: Some("max".into()),
             checked_at: "2026-08-28T10:00:00.000Z".into(),
-            profiles: Vec::new(),
+            ..AgentAccount::default()
         };
         assert_eq!(
             serde_json::to_string(&account).unwrap(),
@@ -266,39 +371,6 @@ mod tests {
         assert_eq!(decoded.checked_at, "");
     }
 
-    #[test]
-    fn pi_account_captions_the_provider_and_its_kind() {
-        let auth = r#"{"anthropic":{"type":"oauth","access":"secret"},"openai":{"type":"api"}}"#;
-        let settings = r#"{"defaultProvider":"anthropic","model":"fable"}"#;
-        let account = pi_account(Some(auth), Some(settings), false, "NOW");
-        assert!(account.signed_in);
-        assert_eq!(account.email, None, "pi never names a user");
-        assert_eq!(account.plan.as_deref(), Some("anthropic (oauth)"));
-        assert_eq!(account.checked_at, "NOW");
-
-        // defaultProvider WINS over the first credential in the file.
-        let account = pi_account(Some(auth), Some(r#"{"defaultProvider":"openai"}"#), false, "NOW");
-        assert_eq!(account.plan.as_deref(), Some("openai (api key)"));
-
-        // No settings file: the credential map alone names the provider.
-        let account = pi_account(Some(r#"{"anthropic":{"type":"oauth"}}"#), None, false, "NOW");
-        assert_eq!(account.plan.as_deref(), Some("anthropic (oauth)"));
-
-        // An env key alone is a signed-in API-key run with no named
-        // provider (nothing on disk to classify).
-        let account = pi_account(None, None, true, "NOW");
-        assert!(account.signed_in);
-        assert_eq!(account.plan, None);
-
-        // Nothing anywhere = signed out, and never a stale caption.
-        let account = pi_account(Some("{}"), Some(r#"{"defaultProvider":"anthropic"}"#), false, "NOW");
-        assert!(!account.signed_in);
-        assert_eq!(account.plan, None);
-
-        // Unparseable files degrade instead of panicking.
-        let account = pi_account(Some("not json"), Some("also not json"), false, "NOW");
-        assert!(!account.signed_in);
-    }
 
     #[test]
     fn accounts_key_ignores_the_probe_stamp() {
@@ -310,7 +382,7 @@ mod tests {
                 email: Some("dev@acme.test".into()),
                 plan: Some("max".into()),
                 checked_at: "2026-08-28T10:00:00.000Z".into(),
-                profiles: Vec::new(),
+                ..AgentAccount::default()
             },
         );
         let mut second = first.clone();
@@ -334,7 +406,7 @@ mod tests {
                 email: Some("dev@acme.test".into()),
                 plan: Some("max".into()),
                 checked_at: "T0".into(),
-                profiles: Vec::new(),
+                ..AgentAccount::default()
             },
         );
         let mut with_profile = base.clone();
@@ -413,7 +485,7 @@ mod tests {
             plan: None,
             active: true,
             checked_at: "2026-08-28T10:00:00.000Z".into(),
-            usage: None,
+            ..AgentProfileEntry::default()
         };
         assert_eq!(
             serde_json::to_string(&entry).unwrap(),
@@ -435,6 +507,93 @@ mod tests {
         assert!(serde_json::to_string(&account).unwrap().contains(r#""profiles":[{"id":"system""#));
         let decoded: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
         assert!(decoded.profiles.is_empty());
+    }
+
+    /// EXP-849 — the four-value health vocabulary: the wire tokens, the
+    /// absent-field fallback, the worst-wins fold a device row badges, and
+    /// the fact that it moves `accounts_key` (a revoked login must not wait
+    /// for an identity change to reach the clients).
+    #[test]
+    fn health_tokens_fall_back_and_fold_worst_first() {
+        assert_eq!(Health::Ok.as_str(), "ok");
+        assert_eq!(Health::NeedsRelogin.as_str(), "needs_relogin");
+        assert_eq!(Health::SignedOut.as_str(), "signed_out");
+        assert_eq!(Health::Unknown.as_str(), "unknown");
+        for health in [
+            Health::Ok,
+            Health::NeedsRelogin,
+            Health::SignedOut,
+            Health::Unknown,
+        ] {
+            assert_eq!(Health::parse(health.as_str()), health);
+        }
+        // A newer build's value, or junk, degrades — never panics.
+        assert_eq!(Health::parse("on_fire"), Health::Unknown);
+        assert_eq!(Health::parse(""), Health::Unknown);
+        // Absent = derived from `signedIn`: signed in reads HEALTHY (×4), so
+        // a pre-EXP-849 machine is never badged as unverified.
+        assert_eq!(Health::from_signed_in(true), Health::Ok);
+        assert_eq!(Health::from_signed_in(false), Health::SignedOut);
+        let legacy: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
+        assert_eq!(legacy.health(), Health::Ok);
+        let legacy_out: AgentAccount = serde_json::from_str(r#"{"signedIn":false}"#).unwrap();
+        assert_eq!(legacy_out.health(), Health::SignedOut);
+        // "needs re-login" is the loudest: a broken machine outranks an
+        // unconfigured one.
+        assert_eq!(
+            Health::SignedOut.worse(Health::NeedsRelogin),
+            Health::NeedsRelogin
+        );
+        assert_eq!(Health::Ok.worse(Health::SignedOut), Health::SignedOut);
+        assert_eq!(Health::NeedsRelogin.worse(Health::Ok), Health::NeedsRelogin);
+        assert_eq!(Health::Ok.worse(Health::Ok), Health::Ok);
+        // Only the two negatives badge; `ok`/`unknown` say nothing.
+        assert_eq!(Health::NeedsRelogin.badge_label(), Some("Needs re-login"));
+        assert_eq!(Health::SignedOut.badge_label(), Some("Signed out"));
+        assert_eq!(Health::Ok.badge_label(), None);
+        assert_eq!(Health::Unknown.badge_label(), None);
+
+        // Absent on the wire when unset; present as its token when set.
+        let mut account = AgentAccount {
+            signed_in: true,
+            checked_at: "T".into(),
+            ..AgentAccount::default()
+        };
+        assert!(!serde_json::to_string(&account).unwrap().contains("health"));
+        account.health = Some(Health::Ok.as_str().to_string());
+        assert!(serde_json::to_string(&account).unwrap().contains(r#""health":"ok""#));
+
+        // A device with one healthy login badges `ok`, not the seeded
+        // `unknown`; one broken profile makes the whole device loud.
+        let mut map = AgentAccounts::new();
+        map.insert("claude".into(), account.clone());
+        assert_eq!(worst_health(&map), Health::Ok);
+        map.get_mut("claude").unwrap().profiles = vec![
+            AgentProfileEntry {
+                id: "system".into(),
+                signed_in: true,
+                active: true,
+                health: Some(Health::Ok.as_str().into()),
+                ..AgentProfileEntry::default()
+            },
+            AgentProfileEntry {
+                id: "0a1b2c3d".into(),
+                signed_in: true,
+                health: Some(Health::NeedsRelogin.as_str().into()),
+                ..AgentProfileEntry::default()
+            },
+        ];
+        assert_eq!(worst_health(&map), Health::NeedsRelogin);
+        assert_eq!(worst_health(&AgentAccounts::new()), Health::Unknown);
+
+        // And the heartbeat ships it: health alone moves the key.
+        let healthy = map.clone();
+        let mut broken = map.clone();
+        broken.get_mut("claude").unwrap().health = Some(Health::NeedsRelogin.as_str().into());
+        assert_ne!(accounts_key(&healthy), accounts_key(&broken));
+        let mut unmonitored = map.clone();
+        unmonitored.get_mut("claude").unwrap().profiles[1].unmonitored = true;
+        assert_ne!(accounts_key(&map), accounts_key(&unmonitored));
     }
 
     #[test]

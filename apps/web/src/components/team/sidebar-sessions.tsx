@@ -1,8 +1,12 @@
+import { useMemo, useState } from "react"
 import { useParams } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
-import { nestSessions } from "@/lib/session-tree"
+import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
-import { sessionDisplayState } from "@/lib/coding-session-display"
+import {
+  sessionDisplayState,
+  sessionRowIsWorking,
+} from "@/lib/coding-session-display"
 import { cn } from "@/lib/utils"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { rowPrState, useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
@@ -28,6 +32,8 @@ import {
 // sidebar is a Sheet there), so it cannot own the sockets' lifetime.
 
 const ActionChatIcon = conceptIcon(`action-chat`)
+const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 
 export function SidebarSessions({
   teamId,
@@ -39,22 +45,42 @@ export function SidebarSessions({
   const { running } = useAgentsData(teamId, currentUserId)
   const { sessionId: routeSessionId } = useParams({ strict: false })
   const openSession = useOpenSession()
+  // EXP-818: a parent run's subtree folds away — an orchestrator with six
+  // children used to push every other group out of the sidebar. Expanded by
+  // default (a child run is the interesting part of a tree), per-parent, for
+  // as long as the sidebar is mounted.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set<string>()
+  )
+  const tree = useMemo(
+    () => nestSessions(running.map((row) => row.session)),
+    [running]
+  )
+  const rows = useMemo(() => visibleTreeRows(tree, collapsed), [tree, collapsed])
+  const toggle = (sessionId: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current)
+      if (!next.delete(sessionId)) next.add(sessionId)
+      return next
+    })
 
   if (running.length === 0) return null
   const byId = new Map(running.map((row) => [row.session.id, row]))
-  const tree = nestSessions(running.map((row) => row.session))
 
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Sessions</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {tree.map(({ session, depth }) => (
+          {rows.map(({ session, depth, hasChildren }) => (
             <SessionItem
               key={session.id}
               row={byId.get(session.id)!}
               depth={depth}
               active={routeSessionId === session.id}
+              expandable={hasChildren}
+              expanded={!collapsed.has(session.id)}
+              onToggle={() => toggle(session.id)}
               onOpen={() => openSession(session)}
             />
           ))}
@@ -68,16 +94,25 @@ function SessionItem({
   row,
   depth,
   active,
+  expandable,
+  expanded,
+  onToggle,
   onOpen,
 }: {
   row: AgentSessionRow
   depth: number
   active: boolean
+  /** EXP-818: this run started others — the row carries the fold twisty. */
+  expandable: boolean
+  expanded: boolean
+  onToggle: () => void
   onOpen: () => void
 }) {
   const { session, issue, device, paused } = row
   const identity = sessionIdentity(row)
-  const state = sessionDisplayState(session, rowPrState(session, issue))
+  const prState = rowPrState(session, issue)
+  const state = sessionDisplayState(session, prState)
+  const working = sessionRowIsWorking(session, prState)
   const isChat = identity.identifier === null && session.actionName === `Chat`
   const title = identity.identifier
     ? identity.subject
@@ -91,11 +126,33 @@ function SessionItem({
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         title={paused ? `${device.label ?? `The device`} is offline` : undefined}
       >
+        {expandable ? (
+          /* The twisty is its own target inside the row button — a click
+             folds the subtree instead of opening the run. */
+          <span
+            role="button"
+            tabIndex={-1}
+            aria-label={expanded ? `Collapse child runs` : `Expand child runs`}
+            className="flex w-3 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggle()
+            }}
+          >
+            {expanded ? (
+              <ChevronDownIcon className="size-3" />
+            ) : (
+              <ChevronRightIcon className="size-3" />
+            )}
+          </span>
+        ) : (
+          <span aria-hidden className="w-3 shrink-0" />
+        )}
         <span className="flex w-4 shrink-0 items-center justify-center">
           {isChat ? (
             <ActionChatIcon className="size-3.5 text-muted-foreground" />
           ) : (
-            <RunningIndicator state={state} paused={paused} />
+            <RunningIndicator state={state} paused={paused} working={working} />
           )}
         </span>
         {identity.identifier && (

@@ -111,7 +111,7 @@ struct AgentOptionsRow: View {
         .accessibilityLabel("Model")
     }
 
-    /// Plan mode is claude + pi (EXP-441); a resume never re-enters plan
+    /// Plan mode is claude's (EXP-441/EXP-849); a resume never re-enters plan
     /// mode (the machine clamps it too), so the switch hides while one is on.
     /// EXP-827: a slide switch on every platform (web and desktop use one),
     /// not a lit select pill. The app-wide glass toggle is UISwitch-sized, so
@@ -206,8 +206,10 @@ struct OptionPillLabel: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            if let brand {
-                Image("agent-\(brand)")
+            // EXP-849: the mark is resolved, never interpolated — an agent id
+            // with no brand asset draws the neutral glyph instead of blank.
+            if let brand, let mark = AgentBrandMark.image(brand) {
+                mark
                     .resizable()
                     .scaledToFit()
                     .frame(width: 13, height: 13)
@@ -277,8 +279,17 @@ struct AgentOptionsSheet: View {
                         options: [""] + profiles.map(\.id),
                         label: { id in
                             guard !id.isEmpty else { return "Active login" }
-                            let profile = profiles.first { $0.id == id }
-                            return profile?.email ?? id
+                            guard let profile = profiles.first(where: { $0.id == id }) else {
+                                return id
+                            }
+                            let name = profile.email ?? profile.label ?? id
+                            // EXP-849: a login the agent REFUSED is still a
+                            // login the machine holds, so it stays on offer —
+                            // but it has to say so, or the run starts and dies
+                            // on an expired credential.
+                            let health = AgentAccountHealth.of(profile)
+                            guard let badge = health.badgeLabel else { return name }
+                            return "\(name) · \(badge.lowercased())"
                         }
                     )
                     .padding(.horizontal, 12)

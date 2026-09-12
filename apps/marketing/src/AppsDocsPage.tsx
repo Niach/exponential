@@ -153,8 +153,9 @@ export function AppsDocsPage() {
             <p>
               The round button beside the tab pill is{` `}
               <strong>New issue</strong> — or <strong>Start chat</strong>{` `}
-              on the Devices and Actions surfaces, which opens the launcher on
-              its <a href="/docs/coding/#start-coding">Chat</a> tab. Search
+              on the Devices and Actions surfaces, which opens the{` `}
+              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
+              with nothing chipped. Search
               sits in the board header next to <strong>Filter</strong>. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
               status, priority, assignee, labels and delete on it. Full
@@ -212,7 +213,7 @@ export function AppsDocsPage() {
               on the desktop. The session&apos;s{` `}
               <strong>…</strong> menu holds <strong>Usage</strong> (how much
               of the agent&apos;s limits this run and this week have spent)
-              and <strong>Kill session</strong>, and an open PR the run
+              and <strong>Stop session</strong>, and an open PR the run
               opened, on an issue or from an action or chat, puts a{` `}
               <strong>Merge</strong> pill next to{` `}
               <strong>Latest changes</strong> — replaced by{` `}

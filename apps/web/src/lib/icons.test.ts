@@ -257,7 +257,8 @@ describe(`icon registry`, () => {
   it(`leaves the hand-maintained desktop brand marks alone`, () => {
     // The generator shares apps/desktop/assets/icons with brand art it must
     // never own (the icon_named! macro turns every file there into a variant).
-    const brand = [`claude`, `codex`, `pi`, `logo`, `apple`, `google`]
+    // EXP-849 dropped pi.svg with the agent.
+    const brand = [`claude`, `codex`, `logo`, `apple`, `google`]
     for (const name of brand) {
       expect(
         existsSync(join(repoRoot, `apps/desktop/assets/icons/${name}.svg`)),

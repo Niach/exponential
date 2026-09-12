@@ -55,8 +55,8 @@ export type StartCodingOptions = CodingLaunchPrefs
  * refusal is one a remote sign-in can fix — the agent signed out on the
  * machine, not installed there, or any other precondition the desktop
  * refuses on — and the machine can run `agent_login` for the caller: one of
- * their OWN devices with the cap, and an agent with a device-code flow (pi
- * has none). Everything else stays a plain toast. */
+ * their OWN devices with the cap (EXP-849: every agent has a device-code
+ * flow). Everything else stays a plain toast. */
 function startFailureToast(
   title: string,
   error: unknown,
@@ -71,8 +71,7 @@ function startFailureToast(
   const canSignIn =
     precondition &&
     deviceIsMine(device) &&
-    deviceCanAgentLogin(device) &&
-    agent !== `pi`
+    deviceCanAgentLogin(device)
   if (!canSignIn) {
     toast.error(title, { description })
     return

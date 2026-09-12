@@ -97,12 +97,13 @@ export const setModeFrame = z.object({
 // audience, never interpreting a field.
 //   narration:         assistant prose        { kind, text, beforeQuestionId?, messageId?, subagentId? }
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
+//   tool_update:       a settle / diff / MCP preview, folded into its tool row
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
 //   user_message:      a human turn           { kind, text, subagentId? }
 //   question:          interactive question   { kind, text, options[], id, askId?, … }
 //   question_resolved: retire a question card { kind, id?, askId?, answers?, dismissed? }
 //   answer_ack:        injection confirmed    { kind, id, askId? }
-//   subagent:          subagent lifecycle     { kind, id, agentType, status }
+//   subagent:          subagent lifecycle     { kind, id, agentType, status, title? }
 //   permission:        informational prompt   { kind, tool, detail? }  (NOT answerable)
 //   compaction:        context compaction     { kind, phase, trigger? }  (started|ended)
 //   config_state:      live agent config      { kind, options[], currentMode?, modes[]?, commands[]? }  (latest replaces prior)
@@ -137,6 +138,21 @@ export const TOOL_KINDS = contract.toolKind.values as [string, ...string[]]
  *  for its one `\ N more lines truncated` marker line. Counted in UTF-16
  *  units by zod, which never exceeds the publisher's UTF-8 byte count. */
 export const TOOL_DIFF_MAX_WIRE_BYTES = contract.steerFeed.toolDiffMaxBytes + 128
+
+/** EXP-846: what an Exponential MCP call settled on, as the tool's own answer
+ *  named it — the issue it created, the PR it opened, how many rows a list
+ *  returned. Published ONLY for `exponential_*` tools (nothing else has a
+ *  result shape the engine knows) and every field optional: a tool that named
+ *  none sends no preview at all. The result KIND is not on the wire — it is the
+ *  contract's `expToolResults` entry for the tool's own name. */
+export const toolPreviewSchema = z.object({
+  id: z.string().max(200).optional(),
+  identifier: z.string().max(200).optional(),
+  title: z.string().max(200).optional(),
+  url: z.string().max(200).optional(),
+  count: z.number().int().nonnegative().max(4294967295).optional(),
+  status: z.string().max(200).optional(),
+})
 
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
@@ -185,6 +201,8 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     status: z.enum([`completed`, `failed`]).optional(),
     diff: z.string().max(TOOL_DIFF_MAX_WIRE_BYTES).optional(),
     at: z.number().optional(),
+    // EXP-846: the subject an `exponential_*` call settled on.
+    preview: toolPreviewSchema.optional(),
   }),
   z.object({
     kind: z.literal(`diff`),
@@ -257,6 +275,11 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     // Bounded by u32: the desktop wire type is `Option<u32>`, and a larger
     // value makes `ViewerFrame::parse` drop the WHOLE activity frame.
     toolCalls: z.number().int().nonnegative().max(4294967295).optional(),
+    // EXP-847: the spawning `Agent` call's own `description` — what the model
+    // said this subagent is FOR. Clients show it on the chip and keep
+    // `agentType` as a secondary caption; absent for codex, an external agent
+    // and every pre-847 publisher.
+    title: z.string().max(128).optional(),
   }),
   z.object({
     kind: z.literal(`permission`),
@@ -269,7 +292,7 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
   // closes it (and leaves a "Context compacted" marker in the feed). A
   // publisher that can only observe the END (codex auto-compaction) sends a
   // bare `ended`; clients time a lone `started` out. `trigger` is claude's
-  // PreCompact trigger (pi maps threshold/overflow → auto); absent on codex.
+  // PreCompact trigger; absent on codex.
   z.object({
     kind: z.literal(`compaction`),
     phase: z.enum([`started`, `ended`]),
@@ -356,6 +379,16 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     status: z.string().max(64),
     resetsAt: z.number().int().min(0).optional(),
     message: z.string().max(1024).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-848: the END-OF-TURN signal — `started` while the agent is executing a
+  // turn, `ended` the moment it is over (end_turn, a cancel, a failed prompt).
+  // LATEST-WINS state (the fifth slot: LATEST_WINS_KINDS/LATEST_REPLAY_ORDER in
+  // hub.ts), never a transcript row. Before the first one arrives every client
+  // assumes `ended`, so nothing ever pulses by default.
+  z.object({
+    kind: z.literal(`turn`),
+    state: z.enum([`started`, `ended`]),
     at: z.number().optional(),
   }),
 ])

@@ -1,6 +1,6 @@
-/* ─── Agents section (aw-*) — mobile Start-coding sheet → agent↔phone infographic ───
-   The sheet beat is the faithful phone recreation (mss-* atoms, mirroring
-   the iOS StartCodingSheet post-EXP-687/EXP-694); the infographic is deliberately
+/* ─── Agents section (aw-*) — the mobile Agent page → agent↔phone infographic ───
+   The composer beat is the faithful phone recreation (mag-* atoms, mirroring
+   the iOS Agent page post-EXP-825); the infographic is deliberately
    NOT product UI: stylized CSS devices with fixed-px HTML labels so text
    stays readable at every viewport width. */
 
@@ -51,8 +51,8 @@
   position: static;
 }
 
-/* ── The mobile Start-coding sheet wrappers ──
-   The sheet itself (mss-*, a 414pt iOS canvas scaled by one transform)
+/* ── The mobile Agent page wrappers ──
+   The phone itself (mag-*, a 414pt iOS canvas scaled by one transform)
    lives in styles/mobile.css. */
 .aw-sheet {
   font-family: var(--font-ui);
@@ -66,14 +66,13 @@
   gap: 12px;
 }
 
-/* Armed beat: pulse ring on the sheet's ONE pinned confirm (EXP-687 retired
-   the bar buttons). The button lives on the sheet's scaled-down 414pt
-   canvas, so these lengths are iOS points too. */
-.aw-stage.is-armed .mss-submit::after {
+/* Armed beat: pulse ring on the composer's labelled submit pill. It lives on
+   the phone's scaled-down 414pt canvas, so these lengths are iOS points. */
+.aw-stage.is-armed .mag-submit::after {
   content: "";
   position: absolute;
   inset: -6px;
-  border-radius: 16px;
+  border-radius: 999px;
   border: 2px solid var(--fg);
   opacity: 0;
   animation: aw-pulse 0.9s ease-out 2;
@@ -513,7 +512,7 @@
   .aw-stage .aw-live-dot,
   .aw-stage .aw-link-dot,
   .aw-stage .aw-steer-chip,
-  .aw-stage.is-armed .mss-submit::after {
+  .aw-stage.is-armed .mag-submit::after {
     animation: none;
   }
 

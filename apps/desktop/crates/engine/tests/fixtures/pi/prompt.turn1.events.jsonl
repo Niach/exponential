@@ -1,6 +1,0 @@
-{"type":"agent_start"}
-{"type":"turn_start"}
-{"type":"message_update","message":{"role":"assistant","responseId":"resp-cost-1","timestamp":1788687314849},"assistantMessageEvent":{"type":"text_delta","delta":"first turn"}}
-{"type":"turn_end","message":{"role":"assistant","stopReason":"stop","usage":{"input":900,"output":334,"totalTokens":1234,"cost":{"input":0.024,"output":0.006,"total":0.03}}},"toolResults":[]}
-{"type":"agent_end","messages":[],"willRetry":false}
-{"type":"agent_settled"}

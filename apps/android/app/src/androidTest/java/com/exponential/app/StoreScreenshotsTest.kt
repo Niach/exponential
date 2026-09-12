@@ -140,12 +140,17 @@ class StoreScreenshotsTest {
         // unavailable on this instance".
         composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
-        flow.waitFor(hasText("Coding now", substring = true), SYNC_TIMEOUT)
+        // EXP-818: the run is ONE line under the property chips now — the
+        // reader's own run is the Watch pill, so the pill (not a "Coding now"
+        // caption, which only a teammate's run shows) is what proves the
+        // session synced in.
+        flow.waitFor(hasTestTag("coding-now-row"), SYNC_TIMEOUT)
+        flow.waitFor(hasText("Watch"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("2_issue-detail", popRects = true)
 
-        // --- Live steering: the card's Watch pill (EXP-698 r4 — it replaced
-        // the chevron) renders only for the session's own owner (EXP-312).
+        // --- Live steering: the Watch pill (EXP-698 r4 — it replaced the
+        // chevron) renders only for the session's own owner (EXP-312).
         // Gate on the FEED tag, not the screen: it shows "Connecting…" /
         // "Waiting for activity…" placeholders until the first relay frame
         // lands.

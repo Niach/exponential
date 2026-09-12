@@ -200,6 +200,9 @@ pub struct Mapper {
     last_usage: Option<ActivityEvent>,
     /// EXP-784: the rate-limit slot's last published snapshot.
     last_rate_limit: Option<ActivityEvent>,
+    /// EXP-848: the turn slot as last published. Deduped like the others — a
+    /// second `ended` for the same turn says nothing.
+    turn_state: steer::TurnState,
     compacting_since: Option<Instant>,
     /// Disambiguates two synthetic ids whose text is identical.
     ordinal: u32,
@@ -294,11 +297,11 @@ impl Coalescer {
     /// new `message_id` starts a new message).
     ///
     /// EXP-758: an ID-LESS chunk is a WHOLE message everywhere the adapters
-    /// produce one (pi's error narration and its extension notices, codex's
+    /// produce one (an agent's error narration and notices, codex's
     /// `codex error:` lines, claude's usage markdown): every streamed delta
-    /// carries an id, pi's falling back to the message timestamp. Two of them
+    /// carries an id. Two of them
     /// in one flush window used to glue into
-    /// `pi: Codex error: …pi: Codex error: …`, so they are SEPARATED by a
+    /// `error: …error: …`, so they are SEPARATED by a
     /// newline instead. Deliberately not a hard boundary: an external ACP
     /// agent that streams id-less deltas would then publish one feed row per
     /// delta, which is the far worse failure.
@@ -328,6 +331,13 @@ impl Coalescer {
         self.buf.push_str(text);
         self.since = Some(Instant::now());
         flushed
+    }
+
+    /// EXP-846: does this buffer belong to `subagent_id`'s lane? An EMPTY
+    /// buffer belongs to every lane (flushing it emits nothing), so callers
+    /// can ask without a second is-empty check.
+    fn is_scope(&self, subagent_id: Option<&str>) -> bool {
+        self.buf.is_empty() || self.subagent_id.as_deref() == subagent_id
     }
 
     fn take(&mut self) -> Option<Flushed> {
@@ -382,6 +392,7 @@ impl Mapper {
             last_config_state: None,
             last_usage: None,
             last_rate_limit: None,
+            turn_state: steer::TurnState::default(),
             compacting_since: None,
             ordinal: 0,
         }
@@ -759,16 +770,31 @@ impl Mapper {
         // interrupt is still settling.
     }
 
-    /// A turn ended. No wire event: the stop reason only moves `out.idle`.
+    /// A turn ended. EXP-848: publishes the `turn` slot's `ended` edge (the
+    /// spinner's one source of truth) beside moving `out.idle`; the stop
+    /// reason itself never reaches the wire.
     pub fn on_stop(&mut self, stop: StopReason, out: &mut MapOut) {
         self.flush_all(out);
         if matches!(stop, StopReason::Cancelled) {
             self.on_cancel(out);
         }
         out.idle = Some(true);
+        self.set_turn(steer::TurnState::Ended, false, out);
         if out.needs_input.is_none() && self.pending_asks() == 0 {
             out.needs_input = Some(false);
         }
+    }
+
+    /// EXP-848: move the latest-wins `turn` slot. Deduped (a repeat edge says
+    /// nothing), except for `seed`, which publishes unconditionally — the
+    /// session start plants `ended` so a viewer that joins before the first
+    /// prompt reads the slot instead of assuming.
+    pub fn set_turn(&mut self, state: steer::TurnState, seed: bool, out: &mut MapOut) {
+        if !seed && self.turn_state == state {
+            return;
+        }
+        self.turn_state = state;
+        emit(out, ActivityEvent::turn(state), None);
     }
 
     /// The full config snapshot from `session/new`, `session/load`,
@@ -876,6 +902,14 @@ impl Mapper {
                     .map(|detail| self.clean(detail, TOOL_DETAIL_MAX)),
                 at: None,
                 tool_calls,
+                // EXP-847: passed through, not remembered — the claude adapter
+                // stamps it on EVERY edge of a task (it is held on the task
+                // entry), so a completed edge names itself too.
+                title: edge
+                    .title
+                    .as_ref()
+                    .map(|title| self.clean(title, TOOL_NAME_MAX))
+                    .filter(|title| !title.is_empty()),
             },
             None,
         );
@@ -899,7 +933,7 @@ impl Mapper {
     }
 
     /// A compaction edge an adapter synthesized (claude hooks, codex
-    /// `context_compacted`, pi `session_compact`) rather than sending as a
+    /// `context_compacted`) rather than sending as a
     /// `CompactionUpdate`.
     pub fn on_compaction(&mut self, phase: CompactionPhase, trigger: Option<&str>, out: &mut MapOut) {
         match phase {
@@ -977,6 +1011,28 @@ impl Mapper {
         self.flush_user(out);
     }
 
+    /// EXP-846 — flush only the buffers in `subagent_id`'s OWN lane.
+    ///
+    /// The bug this fixes: a tool call flushes the coalescers so its row lands
+    /// after the prose that introduced it. But a SUBAGENT's tool row never
+    /// renders in the main transcript (it nests inside that subagent's card),
+    /// so flushing the MAIN message for it cannot fix any ordering — and it
+    /// shredded a streaming paragraph mid-word ("…so the new issues car" /
+    /// "ry the same labels"), because the client's same-id merge
+    /// ([`steer::SteerFeed`], EXP-772) only joins a fragment to the row right
+    /// behind it and the subagent's rows sat in between.
+    fn flush_scope(&mut self, subagent_id: Option<&str>, out: &mut MapOut) {
+        if self.message.is_scope(subagent_id) {
+            self.flush_message(out);
+        }
+        if self.thought.is_scope(subagent_id) {
+            self.flush_thought(out);
+        }
+        if self.user.is_scope(subagent_id) {
+            self.flush_user(out);
+        }
+    }
+
     fn flush_message(&mut self, out: &mut MapOut) {
         if let Some(flushed) = self.message.take() {
             self.emit_narration(&flushed, out);
@@ -1020,7 +1076,7 @@ impl Mapper {
     /// command): publish it as the user's message NOW, the way the PTY path
     /// echoed typed input, and remember it so the agent's own replay of the
     /// same message (claude) does not land twice. An agent that never echoes
-    /// (codex, pi) gets its `user_message` from here alone.
+    /// (codex) gets its `user_message` from here alone.
     pub fn on_prompt(&mut self, text: &str, out: &mut MapOut) {
         if text.trim().is_empty() {
             return;
@@ -1119,7 +1175,6 @@ impl Mapper {
         notification_meta: Option<&BTreeMapLike>,
         out: &mut MapOut,
     ) {
-        self.flush_all(out);
         let id = steer::truncate(&call.tool_call_id.0, ID_MAX);
         let subagent_id = call
             .meta
@@ -1127,6 +1182,9 @@ impl Mapper {
             .and_then(subagent_id_from_meta)
             .or_else(|| notification_meta.and_then(subagent_id_from_meta))
             .map(|id| steer::truncate(&id, ID_MAX));
+        // EXP-846: only this call's OWN lane — a subagent's tool row must not
+        // cut the main thread's streaming paragraph in half.
+        self.flush_scope(subagent_id.as_deref(), out);
         // EXP-748: count it for the subagent's completed edge — the rows
         // themselves are the first thing a replay drops.
         if let Some(subagent_id) = subagent_id.clone() {
@@ -1170,7 +1228,13 @@ impl Mapper {
         let diff = self.tool_content(&id, call.kind, &call.content, call.raw_output.as_ref(), out);
         // A call that arrives already settled (an adapter that reports the
         // whole call at once) never gets an update: settle it from here.
-        self.emit_tool_update(&id, settle_status(call.status), diff, out);
+        self.emit_tool_update(
+            &id,
+            settle_status(call.status),
+            diff,
+            call.raw_output.as_ref(),
+            out,
+        );
     }
 
     fn on_tool_call_update(&mut self, update: &ToolCallUpdate, out: &mut MapOut) {
@@ -1217,7 +1281,13 @@ impl Mapper {
         // this mapper announced (the clients hold exactly the rows it did,
         // so an update for a call they never saw would only be dropped).
         if known_before {
-            self.emit_tool_update(&id, status.and_then(settle_status), diff, out);
+            self.emit_tool_update(
+                &id,
+                status.and_then(settle_status),
+                diff,
+                raw_output.as_ref(),
+                out,
+            );
         }
         // A settled call still gets trailing content-only updates (codex
         // streams `outputDelta` past the completed status), and dropping the
@@ -1231,21 +1301,46 @@ impl Mapper {
 
     /// EXP-785/786: the `tool_update` row for `id`, when there is anything
     /// to say — a settle, a diff, or both in ONE event.
+    ///
+    /// EXP-846: plus the SUBJECT an Exponential MCP call settled on, read off
+    /// its own JSON answer. Only our tools have a result shape we know, so
+    /// `preview` is `None` for everything else — including a settle with no
+    /// output at all.
     fn emit_tool_update(
         &mut self,
         id: &str,
         status: Option<ToolUpdateStatus>,
         diff: Option<String>,
+        result: Option<&Value>,
         out: &mut MapOut,
     ) {
-        if status.is_none() && diff.is_none() {
+        // Only a SETTLE has a final answer to preview.
+        let preview = match (status, result) {
+            (Some(_), Some(result)) => self.exp_tool_preview(id, result),
+            _ => None,
+        };
+        if status.is_none() && diff.is_none() && preview.is_none() {
             return;
         }
-        emit(
-            out,
-            ActivityEvent::tool_update(id, status, diff),
-            Some(id.to_string()),
-        );
+        let event = match ActivityEvent::tool_update(id, status, diff) {
+            ActivityEvent::ToolUpdate { id, status, diff, at, .. } => {
+                ActivityEvent::ToolUpdate { id, status, diff, at, preview }
+            }
+            other => other,
+        };
+        emit(out, event, Some(id.to_string()));
+    }
+
+    /// EXP-846: the preview for a SETTLED call, when it is one of ours and its
+    /// answer names a subject. The tool's name is its ACP title (every adapter
+    /// titles an MCP call with the raw `mcp__exponential__exponential_*`), and
+    /// the strings are redacted-on-publish like any other free text, clamped
+    /// here to the wire cap.
+    fn exp_tool_preview(&self, id: &str, result: &Value) -> Option<steer::ToolPreview> {
+        let title = self.tools.get(id).map(|state| state.title.as_str())?;
+        steer::exp_tool_row(title)?;
+        let preview = exp_tool_preview(result)?;
+        Some(preview.clamp())
     }
 
     /// Queue a settled tool call for eviction. Re-settling one (a `failed`
@@ -1353,7 +1448,7 @@ impl Mapper {
     /// token, or the agent's own one-line description.
     /// The wire `tool.name`: the PTY path's bare vocabulary, never a title
     /// that quotes the command. An `Execute` card's title IS the command on
-    /// every adapter (claude `Bash`, codex `commandExecution`, pi `bash`), so
+    /// every adapter (claude `Bash`, codex `commandExecution`), so
     /// it maps to the name the PTY path published for that agent; any other
     /// title drops the detail it embeds (`Write smoke.txt` → `Write`).
     fn wire_tool_name(&self, kind: ToolKind, title: &str, detail: Option<&str>) -> String {
@@ -1361,7 +1456,6 @@ impl Mapper {
             return match self.config.agent {
                 steer::SessionAgent::Claude => "Bash",
                 steer::SessionAgent::Codex => "exec_command",
-                steer::SessionAgent::Pi => "bash",
                 _ => "Execute",
             }
             .to_string();
@@ -1404,6 +1498,15 @@ impl Mapper {
                 return Some(self.clean(description, TOOL_DETAIL_MAX));
             }
         }
+        // EXP-846: one of OUR MCP calls names its subject in a field the
+        // contract knows (`expToolSubjectKeys`: an issue's `title`, a comment's
+        // `issueId`), which is the only thing worth showing beside "Creating
+        // issue". Ahead of the generic keys below — `exponential_issues_update`
+        // carries an `id`, not a path or a pattern, and the generic pass would
+        // have found nothing at all.
+        if let Some(subject) = steer::exp_tool_subject_key(title).and_then(string) {
+            return Some(self.clean(subject, TOOL_DETAIL_MAX));
+        }
         if let Some(path) = string("file_path").or_else(|| string("path")).or_else(|| string("filePath")) {
             return Some(self.clean(&self.display_path(&PathBuf::from(path)), TOOL_DETAIL_MAX));
         }
@@ -1439,7 +1542,7 @@ impl Mapper {
     /// The agent's own `/` commands. EXP-758: their three labels go through
     /// [`Mapper::clean`] like every other published string: an agent's
     /// command catalog is built from files in the REPO (claude's
-    /// `.claude/commands`, pi's extensions), so a description is exactly as
+    /// `.claude/commands`), so a description is exactly as
     /// likely to quote a token as any other text the run produces.
     fn map_commands(&self, commands: &[AvailableCommand]) -> Vec<steer::ConfigCommand> {
         commands
@@ -2384,6 +2487,92 @@ fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
     }
 }
 
+/// EXP-846: the JSON an MCP answer actually carries. MCP returns a
+/// `{content:[{type:"text",text:"…"}]}` envelope and the text is usually the
+/// JSON itself, so both shapes (and a bare object) resolve to one value here;
+/// anything unparseable is simply no preview.
+fn json_payload(result: &Value) -> Option<Value> {
+    match result {
+        Value::String(text) => serde_json::from_str(text).ok(),
+        Value::Object(map) => {
+            if let Some(content) = map.get("content").and_then(Value::as_array) {
+                // The first text block that parses as JSON is the payload.
+                return content
+                    .iter()
+                    .filter_map(|block| block.get("text").and_then(Value::as_str))
+                    .find_map(|text| serde_json::from_str::<Value>(text).ok());
+            }
+            Some(Value::Object(map.clone()))
+        }
+        Value::Array(_) => Some(result.clone()),
+        _ => None,
+    }
+}
+
+/// EXP-846: `{id, identifier, title, url, count, status}` out of one of our
+/// tools' answers. The fields are looked for on the payload itself and ONE
+/// hop into a named wrapper (`{"issue": {...}}` is what most of our tools
+/// answer with); `count` is a list answer's length, or its own `total`/`count`.
+/// `None` when nothing was named — an empty preview is never published.
+fn exp_tool_preview(result: &Value) -> Option<steer::ToolPreview> {
+    let payload = json_payload(result)?;
+    let count = list_count(&payload);
+    let subject = subject_object(&payload);
+    let string = |keys: &[&str]| -> Option<String> {
+        let map = subject?;
+        keys.iter()
+            .filter_map(|key| map.get(*key).and_then(Value::as_str))
+            .map(str::trim)
+            .find(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let preview = steer::ToolPreview {
+        id: string(&["id"]),
+        identifier: string(&["identifier"]),
+        title: string(&["title", "name"]),
+        url: string(&["prUrl", "url", "htmlUrl"]),
+        count,
+        status: string(&["status"]),
+    };
+    (!preview.is_empty()).then_some(preview)
+}
+
+/// EXP-846: how many rows a LIST answer carried — the array itself, its own
+/// `total`/`count`, or the single array a wrapper object holds.
+fn list_count(payload: &Value) -> Option<u32> {
+    let len = |len: usize| u32::try_from(len).ok();
+    match payload {
+        Value::Array(rows) => len(rows.len()),
+        Value::Object(map) => {
+            if let Some(total) = map
+                .get("total")
+                .or_else(|| map.get("count"))
+                .and_then(Value::as_u64)
+            {
+                return u32::try_from(total).ok();
+            }
+            let mut arrays = map.values().filter_map(Value::as_array);
+            let first = arrays.next()?;
+            arrays.next().is_none().then(|| len(first.len()))?
+        }
+        _ => None,
+    }
+}
+
+/// EXP-846: the object the preview's named fields live on — the payload, or
+/// the single object a one-key wrapper holds (`{"issue": {...}}`). One hop
+/// only: deeper guessing would put a nested row's id on the card.
+fn subject_object(payload: &Value) -> Option<&Map<String, Value>> {
+    let map = payload.as_object()?;
+    const NAMED: [&str; 6] = ["id", "identifier", "title", "name", "prUrl", "url"];
+    if NAMED.iter().any(|key| map.contains_key(*key)) {
+        return Some(map);
+    }
+    let mut objects = map.values().filter_map(Value::as_object);
+    let first = objects.next()?;
+    objects.next().is_none().then_some(first)
+}
+
 /// EXP-785: the two ACP statuses that SETTLE a call; anything else is churn.
 fn settle_status(status: ToolCallStatus) -> Option<ToolUpdateStatus> {
     match status {
@@ -2652,6 +2841,43 @@ mod tests {
                 assert_eq!(name, "mcp.exponential.issues_get");
                 assert_eq!(detail, &None);
             }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    /// EXP-846: one of OUR calls publishes the SUBJECT its contract entry names
+    /// (`expToolSubjectKeys`) as the row's detail, so the transcript reads
+    /// "Creating issue · Fix the sync loop" instead of a bare caption. A tool
+    /// whose entry names no subject (a list) publishes none.
+    #[test]
+    fn an_exponential_call_publishes_its_contract_subject() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(
+            ToolCallId::new("tc-mcp-1"),
+            "mcp__exponential__exponential_issues_create",
+        )
+        .kind(ToolKind::Other)
+        .raw_input(json!({"boardId": "b-1", "title": "Fix the sync loop"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                // The NAME stays the raw tool name — the caption is the
+                // client's, off the contract tables.
+                assert_eq!(name, "mcp__exponential__exponential_issues_create");
+                assert_eq!(detail.as_deref(), Some("Fix the sync loop"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+
+        // A list names no subject: nothing is invented for it.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-mcp-2"), "exponential_issues_list")
+            .kind(ToolKind::Other)
+            .raw_input(json!({"boardId": "b-1"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { detail, .. } => assert_eq!(detail, &None),
             other => panic!("expected a tool event, got {other:?}"),
         }
     }
@@ -3001,6 +3227,112 @@ mod tests {
         assert_eq!(stopped.idle, Some(true));
     }
 
+    /// EXP-846: the subject out of one of our answers — through the MCP text
+    /// envelope, through a named wrapper, and `count` for a list. Nothing named
+    /// means NO preview at all.
+    #[test]
+    fn exp_tool_preview_reads_the_subject_out_of_the_answer() {
+        // The MCP envelope: a text block whose text IS the JSON.
+        let envelope = json!({
+            "content": [{
+                "type": "text",
+                "text": "{\"issue\":{\"id\":\"i1\",\"identifier\":\"EXP-42\",\"title\":\"Fix it\",\"status\":\"in_progress\"}}"
+            }]
+        });
+        let preview = exp_tool_preview(&envelope).expect("a preview");
+        assert_eq!(preview.id.as_deref(), Some("i1"));
+        assert_eq!(preview.identifier.as_deref(), Some("EXP-42"));
+        assert_eq!(preview.title.as_deref(), Some("Fix it"));
+        assert_eq!(preview.status.as_deref(), Some("in_progress"));
+        assert_eq!(preview.count, None);
+
+        // A PR answer: `prUrl` before `url`.
+        let pr = json!({ "prUrl": "https://github.com/a/b/pull/7", "prNumber": 7 });
+        assert_eq!(
+            exp_tool_preview(&pr).and_then(|preview| preview.url),
+            Some("https://github.com/a/b/pull/7".to_string())
+        );
+
+        // A list: the array's own length, and a stated total wins over it.
+        assert_eq!(
+            exp_tool_preview(&json!({ "issues": [{ "id": "a" }, { "id": "b" }] }))
+                .and_then(|preview| preview.count),
+            Some(2)
+        );
+        assert_eq!(
+            exp_tool_preview(&json!({ "issues": [{ "id": "a" }], "total": 17 }))
+                .and_then(|preview| preview.count),
+            Some(17)
+        );
+        assert_eq!(
+            exp_tool_preview(&json!([{ "id": "a" }, { "id": "b" }, { "id": "c" }]))
+                .and_then(|preview| preview.count),
+            Some(3)
+        );
+
+        // Nothing we can name: no preview rather than an empty one.
+        assert!(exp_tool_preview(&json!({ "ok": true })).is_none());
+        assert!(exp_tool_preview(&json!("not json at all")).is_none());
+        assert!(exp_tool_preview(&Value::Null).is_none());
+    }
+
+    /// EXP-846: the cap is the producer's job — the relay drops a frame whose
+    /// preview is wider than the schema allows.
+    #[test]
+    fn a_preview_is_clamped_to_the_wire_cap() {
+        let long = "x".repeat(steer::TOOL_PREVIEW_TEXT_MAX + 50);
+        let preview = exp_tool_preview(&json!({ "title": long, "id": "i1" }))
+            .expect("a preview")
+            .clamp();
+        assert_eq!(
+            preview.title.as_deref().map(str::chars).map(Iterator::count),
+            Some(steer::TOOL_PREVIEW_TEXT_MAX)
+        );
+        assert_eq!(preview.id.as_deref(), Some("i1"));
+    }
+
+    /// EXP-848: the turn slot's edges — one `started` when the host opens a
+    /// turn, one `ended` when it settles, nothing for a repeat, and the
+    /// session-start SEED publishes `ended` even though that is already the
+    /// default (a late joiner must READ the slot, not infer it).
+    #[test]
+    fn the_turn_slot_publishes_one_edge_per_transition() {
+        let mut mapper = mapper();
+        let turns = |out: &MapOut| -> Vec<steer::TurnState> {
+            out.wire
+                .iter()
+                .filter_map(|event| match event {
+                    ActivityEvent::Turn { state, .. } => Some(*state),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        // The seed: forced, even though `ended` is the default.
+        let mut seeded = MapOut::default();
+        mapper.set_turn(steer::TurnState::Ended, true, &mut seeded);
+        assert_eq!(turns(&seeded), vec![steer::TurnState::Ended]);
+        // A non-seed repeat of the state in force says nothing.
+        let mut repeat = MapOut::default();
+        mapper.set_turn(steer::TurnState::Ended, false, &mut repeat);
+        assert!(turns(&repeat).is_empty(), "{:?}", repeat.wire);
+
+        // A turn opens, then ends through `on_stop` — and the local feed gets
+        // the same event the wire did (one slot, both sides).
+        let mut started = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut started);
+        assert_eq!(turns(&started), vec![steer::TurnState::Started]);
+        assert_eq!(started.local.len(), 1);
+        let mut ended = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut ended);
+        assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+        // And a SECOND stop for the same idle run is silent.
+        let mut again = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut again);
+        assert!(turns(&again).is_empty(), "{:?}", again.wire);
+    }
+
     #[test]
     fn config_state_is_one_clamped_whole_snapshot_without_options() {
         // EXP-772: the agent may advertise a whole option vocabulary; the
@@ -3070,6 +3402,7 @@ mod tests {
             status: SubagentEdgeStatus::Started,
             detail: None,
             tool_calls: None,
+            title: None,
         };
         let notification = notify(SessionUpdate::AgentMessageChunk(chunk("", None)))
             .meta(edge.to_meta().clone());
@@ -3093,6 +3426,7 @@ mod tests {
             status: SubagentEdgeStatus::Started,
             detail: None,
             tool_calls: None,
+            title: None,
         };
         mapper.on_update(
             &notify(SessionUpdate::AgentMessageChunk(chunk("", None))).meta(start.to_meta()),
@@ -3148,6 +3482,7 @@ mod tests {
                 status: SubagentEdgeStatus::Completed,
                 detail: None,
                 tool_calls: None,
+                title: None,
             },
             &mut out,
         );

@@ -20,6 +20,7 @@
 //! login whenever the session is not `Synced`). The Phase-2 [`debug_board`]
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
+mod account_switch;
 mod action_editor_dialog;
 mod action_inputs;
 mod agent_login;
@@ -37,7 +38,7 @@ mod automation_editor;
 mod board;
 mod board_form;
 mod changelog;
-// EXP-746: the ONE "Latest changes" surface — every session surface renders
+// EXP-746: the ONE "Changes" surface — every session surface renders
 // through it.
 mod changes_bar;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
@@ -127,6 +128,8 @@ mod steer_viewer;
 mod transcript_rows;
 pub mod steer_wiring;
 mod support_thread;
+// EXP-837: the window-level disarm for a stuck text-selection drag.
+mod text_selection_guard;
 mod worktree_prune;
 mod trunk_sync;
 mod timeline;

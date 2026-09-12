@@ -100,6 +100,60 @@ public enum AgentSubagentStatus: String, Sendable {
     case completed
 }
 
+/// EXP-848: whether the agent is inside a TURN right now — the engine's own
+/// edges (`turn` activity events), not a guess off the feed's shape.
+///
+/// A latest-wins slot like `config_state`/`usage`/`rate_limit`, never a feed
+/// row: the relay replays the newest one after its log, so a join and a
+/// reconnect both land on the truth. Before any `turn` event arrives a client
+/// assumes `.ended` — an idle run must never pulse by default. Raw values are
+/// the contract's `turnState` list.
+public enum AgentTurnState: String, Sendable, CaseIterable {
+    case started
+    case ended
+}
+
+/// EXP-846: the result preview a `tool_update` carries for an Exponential MCP
+/// tool call — the engine reads it off the tool's JSON result and publishes
+/// only for `exponential_*` calls. Every field is optional (a tool reports
+/// what it has) and the publisher caps every string at 200 chars.
+///
+/// Phase 1 only PLUMBS this: the reducer stores it on the tool row so the
+/// custom rendering (an issue pill, a PR link, `N results`) can land later
+/// without a protocol change.
+public struct AgentToolPreview: Equatable, Sendable {
+    public let id: String?
+    /// The subject's human identifier (`EXP-849`) when it has one.
+    public let identifier: String?
+    public let title: String?
+    public let url: String?
+    /// A list tool's row count.
+    public let count: Int?
+    public let status: String?
+
+    public init(
+        id: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        url: String? = nil,
+        count: Int? = nil,
+        status: String? = nil
+    ) {
+        self.id = id
+        self.identifier = identifier
+        self.title = title
+        self.url = url
+        self.count = count
+        self.status = status
+    }
+
+    /// Nothing to draw — every field came back empty.
+    public var isEmpty: Bool {
+        id == nil && identifier == nil && title == nil && url == nil
+            && count == nil && status == nil
+    }
+}
+
 /// EXP-724: a context compaction is in flight on the host agent. Opened by a
 /// `compaction` activity event with `phase: "started"`, closed by `"ended"`.
 /// The viewer draws an indeterminate strip while this is non-nil — there is no
@@ -304,11 +358,14 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// value); `settled` = a status landed (the call ENDED), `failed` = that
     /// status was `failed` (a later `completed` clears it). EXP-786: `diff`
     /// is the per-call unified diff an `edit` published, already cut to the
-    /// contract's caps by the publisher.
+    /// contract's caps by the publisher. EXP-846: `preview` is the tool's own
+    /// result, folded in by a later `tool_update` and only ever present on an
+    /// Exponential MCP call.
     case tool(
         id: Int, name: String, detail: String?, subagentId: String?,
         callId: String? = nil, toolKind: String? = nil,
-        settled: Bool = false, failed: Bool = false, diff: String? = nil
+        settled: Bool = false, failed: Bool = false, diff: String? = nil,
+        preview: AgentToolPreview? = nil
     )
     /// A human turn: the initial prompt or a steered message. `subagentId`
     /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
@@ -321,9 +378,15 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// tool calls, stamped on the completed edge. The replay log evicts
     /// subagent tool events first, so the visible rows can undercount — the
     /// run renders `max(visible rows, toolCalls)`.
+    ///
+    /// EXP-847: `title` is the spawning Agent tool call's own `description`
+    /// (its `name` input as a fallback) — what the person asked this subagent
+    /// for, which reads far better than the bare `agentType`. Absent on older
+    /// publishers and on a spawn that named neither.
     case subagent(
         id: Int, subagentId: String, agentType: String,
-        status: AgentSubagentStatus, detail: String?, toolCalls: Int? = nil
+        status: AgentSubagentStatus, detail: String?, toolCalls: Int? = nil,
+        title: String? = nil
     )
     /// A permission prompt the agent hit (protocol v2) — INFORMATIONAL: the
     /// desktop's own TUI owns the approval, there is nothing to answer here.
@@ -336,10 +399,10 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var id: Int {
         switch self {
         case let .narration(id, _, _, _): id
-        case let .tool(id, _, _, _, _, _, _, _, _): id
+        case let .tool(id, _, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
-        case let .subagent(id, _, _, _, _, _): id
+        case let .subagent(id, _, _, _, _, _, _): id
         case let .permission(id, _, _): id
         case let .compaction(id): id
         }
@@ -353,10 +416,13 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         switch self {
         case let .narration(_, text, messageId, subagentId):
             .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
-        case let .tool(_, name, detail, subagentId, callId, toolKind, settled, failed, diff):
+        case let .tool(
+            _, name, detail, subagentId, callId, toolKind, settled, failed, diff, preview
+        ):
             .tool(
                 id: id, name: name, detail: detail, subagentId: subagentId,
-                callId: callId, toolKind: toolKind, settled: settled, failed: failed, diff: diff
+                callId: callId, toolKind: toolKind, settled: settled, failed: failed,
+                diff: diff, preview: preview
             )
         case let .userMessage(_, text, subagentId):
             .userMessage(id: id, text: text, subagentId: subagentId)
@@ -366,10 +432,10 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
                 next.id = id
                 return .question(next)
             }()
-        case let .subagent(_, subagentId, agentType, status, detail, toolCalls):
+        case let .subagent(_, subagentId, agentType, status, detail, toolCalls, title):
             .subagent(
                 id: id, subagentId: subagentId, agentType: agentType,
-                status: status, detail: detail, toolCalls: toolCalls
+                status: status, detail: detail, toolCalls: toolCalls, title: title
             )
         case let .permission(_, tool, detail):
             .permission(id: id, tool: tool, detail: detail)
@@ -399,8 +465,8 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// interleaving into the main thread.
     public var subagentKey: String? {
         switch self {
-        case let .tool(_, _, _, subagentId, _, _, _, _, _): return subagentId
-        case let .subagent(_, subagentId, _, _, _, _): return subagentId
+        case let .tool(_, _, _, subagentId, _, _, _, _, _, _): return subagentId
+        case let .subagent(_, subagentId, _, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
         default: return nil
@@ -415,6 +481,9 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
     public let anchorId: Int
     public let subagentId: String
     public let agentType: String
+    /// EXP-847: what the spawn ASKED for (the Agent call's `description`), when
+    /// a marker named one — the label every surface prefers over `agentType`.
+    public let title: String?
     public let detail: String?
     /// A `completed` marker arrived.
     public let done: Bool
@@ -428,6 +497,10 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
     public let reportedToolCalls: Int?
 
     public var id: Int { anchorId }
+    /// EXP-847: the label every surface draws — what the spawn asked for, with
+    /// the agent's TYPE as the fallback (older publishers send no title, and a
+    /// spawn may name neither). Mirrored ×4.
+    public var label: String { title ?? agentType }
     /// The reported count wins whenever it is higher than what is visible.
     public var toolCount: Int {
         max(items.filter(\.isTool).count, reportedToolCalls ?? 0)
@@ -444,11 +517,13 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
         detail: String?,
         done: Bool,
         items: [AgentFeedItem],
-        reportedToolCalls: Int? = nil
+        reportedToolCalls: Int? = nil,
+        title: String? = nil
     ) {
         self.anchorId = anchorId
         self.subagentId = subagentId
         self.agentType = agentType
+        self.title = title
         self.detail = detail
         self.done = done
         self.items = items
@@ -673,14 +748,14 @@ public enum AgentFeed {
         switch item {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
         case let .userMessage(_, text, _): return overhead + text.utf8.count
-        case let .tool(_, name, detail, _, _, _, _, _, diff):
+        case let .tool(_, name, detail, _, _, _, _, _, diff, _):
             // EXP-786: a folded per-call diff weighs too.
             return overhead + name.utf8.count + (detail?.utf8.count ?? 0) + (diff?.utf8.count ?? 0)
         case let .permission(_, tool, detail):
             return overhead + tool.utf8.count + (detail?.utf8.count ?? 0)
-        case let .subagent(_, subagentId, agentType, _, detail, _):
+        case let .subagent(_, subagentId, agentType, _, detail, _, title):
             return overhead + subagentId.utf8.count + agentType.utf8.count
-                + (detail?.utf8.count ?? 0)
+                + (detail?.utf8.count ?? 0) + (title?.utf8.count ?? 0)
         case let .question(question):
             return overhead + question.text.utf8.count
                 + question.answers.reduce(0) { $0 + $1.utf8.count }
@@ -850,22 +925,43 @@ public enum AgentFeed {
         return value
     }
 
+    /// EXP-846: the Exponential-tool result preview a `tool_update` carries,
+    /// or nil for every other call (and for a preview whose every field came
+    /// back empty). A blank string counts as absent; the publisher already
+    /// capped every one of them at 200 chars.
+    public static func toolPreview(_ raw: Any?) -> AgentToolPreview? {
+        guard let row = raw as? [String: Any] else { return nil }
+        let preview = AgentToolPreview(
+            id: string(row["id"]),
+            identifier: string(row["identifier"]),
+            title: string(row["title"]),
+            url: string(row["url"]),
+            count: (row["count"] as? NSNumber)?.intValue,
+            status: string(row["status"])
+        )
+        return preview.isEmpty ? nil : preview
+    }
+
     /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose
-    /// `callId` matches — a settle (`status`), a per-call `diff`, or both.
-    /// Never a row of its own. Nil = no row holds that id (evicted, or below
-    /// the window, or a pre-EXP-785 row), and the caller keeps the feed as
-    /// is. A `failed` after a `completed` wins; a status-less update carrying
-    /// only a diff never settles the call.
+    /// `callId` matches — a settle (`status`), a per-call `diff`, an EXP-846
+    /// result `preview`, or any mix. Never a row of its own. Nil = no row
+    /// holds that id (evicted, or below the window, or a pre-EXP-785 row), and
+    /// the caller keeps the feed as is. A `failed` after a `completed` wins; a
+    /// status-less update carrying only a diff never settles the call.
     public static func applyToolUpdate(
         feed: [AgentFeedItem], event: [String: Any]
     ) -> [AgentFeedItem]? {
         guard let id = string(event["id"]),
               let at = feed.lastIndex(where: { item in
-                  if case let .tool(_, _, _, _, callId, _, _, _, _) = item { return callId == id }
+                  if case let .tool(_, _, _, _, callId, _, _, _, _, _) = item {
+                      return callId == id
+                  }
                   return false
               }),
-              case let .tool(rowId, name, detail, subagentId, callId, toolKind, settled, failed, diff)
-                = feed[at]
+              case let .tool(
+                  rowId, name, detail, subagentId, callId, toolKind,
+                  settled, failed, diff, preview
+              ) = feed[at]
         else { return nil }
         var nextSettled = settled
         var nextFailed = failed
@@ -874,13 +970,51 @@ public enum AgentFeed {
             nextFailed = status == "failed"
         }
         let nextDiff = string(event["diff"]) ?? diff
+        // EXP-846: latest preview wins; an update without one keeps what the
+        // row already shows (a settle and the result can arrive apart).
+        let nextPreview = toolPreview(event["preview"]) ?? preview
         var next = feed
         next[at] = .tool(
             id: rowId, name: name, detail: detail, subagentId: subagentId,
             callId: callId, toolKind: toolKind,
-            settled: nextSettled, failed: nextFailed, diff: nextDiff
+            settled: nextSettled, failed: nextFailed, diff: nextDiff,
+            preview: nextPreview
         )
         return next
+    }
+
+    // MARK: - Turn edges (EXP-848)
+
+    /// Fold a `turn` activity event into the latest-wins slot. An unknown (or
+    /// missing) `state` leaves it exactly as it was — the `applyCompaction`
+    /// contract: a malformed frame must never flip the working indicator.
+    public static func applyTurn(
+        _ current: AgentTurnState, event: [String: Any]
+    ) -> AgentTurnState {
+        guard let raw = event["state"] as? String,
+              let next = AgentTurnState(rawValue: raw) else { return current }
+        return next
+    }
+
+    /// EXP-848 — the ONE working predicate, mirrored ×4 (web `working`,
+    /// Android `agentWorking`, desktop `steer::working`).
+    ///
+    /// `turnState` is the engine's own edge, so nothing here infers activity
+    /// from the feed's shape; everything else is a reason the run is NOT
+    /// working even mid-turn: it is over, it is waiting on a human (a card, or
+    /// the device-written `needs_input`), it is walled (`blocked`), or it is
+    /// folding its context away (which has its own strip).
+    public static func working(
+        live: Bool,
+        sessionEnded: Bool,
+        turnState: AgentTurnState,
+        awaitingInput: Bool,
+        needsInput: Bool,
+        blocked: Bool,
+        compacting: Bool
+    ) -> Bool {
+        live && !sessionEnded && turnState == .started
+            && !awaitingInput && !needsInput && !blocked && !compacting
     }
 
     // MARK: - The per-call diff (EXP-786)
@@ -1122,17 +1256,25 @@ public enum AgentFeed {
         return text
     }
 
-    /// EXP-772: fold a narration event into the row above it when both came
-    /// out of the SAME assistant message.
+    /// EXP-772: fold a narration event into the row it continues when both
+    /// came out of the SAME assistant message.
     ///
     /// The engine's coalescer flushes one message in several `narration`
     /// events, which used to draw one bubble per flush and shred a paragraph
     /// into a column of fragments. Every event now carries the ACP `messageId`
-    /// of its message, so a flush whose message is the one directly above
-    /// APPENDS to that row (raw concatenation — the flushes are chunks of one
-    /// string, not sentences). Anything in between (a tool call, a question,
-    /// another subagent's prose) ends the run: the message really did resume
-    /// after something happened, and that is worth its own bubble.
+    /// of its message, so a flush APPENDS to the most recent row of its own
+    /// lane when that row is the same message (raw concatenation — the flushes
+    /// are chunks of one string, not sentences). Anything else in that LANE
+    /// (a tool call, a question, a human turn, another message's prose) ends
+    /// the run: the message really did resume after something happened, and
+    /// that is worth its own bubble.
+    ///
+    /// EXP-846: the look-back is lane-scoped, not tail-only. A subagent's
+    /// rows (its edges, its tool calls and their updates) interleave into the
+    /// flat feed between two fragments of ONE main-lane message, and a
+    /// tail-only check shredded that paragraph in exactly the common case —
+    /// so rows of a DIFFERENT lane (`subagentKey`, nil = the main lane) are
+    /// looked past, symmetrically for both directions.
     ///
     /// nil = nothing to merge into, and the caller appends a fresh row.
     /// Mirrored ×4 (web `agent-feed.ts`, Android `AgentFeed.kt`, desktop
@@ -1141,14 +1283,28 @@ public enum AgentFeed {
         _ feed: [AgentFeedItem], text: String, messageId: String?, subagentId: String?
     ) -> [AgentFeedItem]? {
         guard let messageId, !messageId.isEmpty else { return nil }
-        guard case let .narration(id, existing, previousMessage, previousSubagent) = feed.last,
-              previousMessage == messageId, previousSubagent == subagentId
-        else { return nil }
-        var out = feed
-        out[out.count - 1] = .narration(
-            id: id, text: existing + text, messageId: messageId, subagentId: subagentId
-        )
-        return out
+        var index = feed.count - 1
+        while index >= 0 {
+            let item = feed[index]
+            if case let .narration(id, existing, previousMessage, previousSubagent) = item,
+               previousSubagent == subagentId {
+                // The lane's latest prose: the same message grows, another one
+                // opens a new bubble.
+                guard previousMessage == messageId else { return nil }
+                var out = feed
+                out[index] = .narration(
+                    id: id, text: existing + text, messageId: messageId, subagentId: subagentId
+                )
+                return out
+            }
+            // Another lane's row is invisible to this one — look past it.
+            guard item.subagentKey == subagentId else {
+                index -= 1
+                continue
+            }
+            return nil
+        }
+        return nil
     }
 
     /// Ids of the question items still answerable: every card the desktop has
@@ -1399,13 +1555,18 @@ public enum AgentFeed {
             // EXP-748: the highest count any marker reported — a re-emitted
             // edge must never shrink the row's "N tool calls".
             var reported: Int?
+            // EXP-847: the FIRST marker that named a title wins — the spawn's
+            // own `description` rides the `started` edge, and a completed edge
+            // that carries none must not blank the row's label.
+            var title: String?
             for item in builder.items {
-                guard case let .subagent(_, _, type, status, markerDetail, toolCalls) = item
+                guard case let .subagent(_, _, type, status, mark, calls, named) = item
                 else { continue }
                 if !type.isEmpty { types.append(type) }
                 if status == .completed { done = true }
-                if let markerDetail { detail = markerDetail }
-                if let toolCalls { reported = max(reported ?? 0, toolCalls) }
+                if let mark { detail = mark }
+                if let calls { reported = max(reported ?? 0, calls) }
+                if title == nil, let named, !named.isEmpty { title = named }
             }
             // First marker with a REAL type wins — "agent" is the desktop's
             // fallback sentinel, and old builds stamp it onto the completed
@@ -1421,7 +1582,8 @@ public enum AgentFeed {
                 done: done,
                 // EXP-773: everything but the lifecycle markers, in order.
                 items: builder.items.filter { if case .subagent = $0 { false } else { true } },
-                reportedToolCalls: reported
+                reportedToolCalls: reported,
+                title: title
             ))
         }
     }

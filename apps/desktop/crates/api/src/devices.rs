@@ -268,6 +268,14 @@ pub struct DeviceEntry {
     /// EXP-432: set only on teammates' shared rows — the device owner.
     #[serde(default)]
     pub owner: Option<DeviceOwner>,
+    /// EXP-849: the machine's `agentAccounts` map, verbatim — the Devices row
+    /// badges the WORST health in it (`coding::agent_accounts::worst_health`),
+    /// which is the one thing `agents`/`unauthed_agents` cannot express: a CLI
+    /// that still names an account the provider has revoked is in neither
+    /// list. Absent from `devices.list` (which never sent it); the desktop
+    /// fills it from the SYNCED row it builds these entries from.
+    #[serde(default)]
+    pub agent_accounts: Option<serde_json::Value>,
 }
 
 /// The owning user of a teammate's shared row (EXP-432).
@@ -544,13 +552,16 @@ pub fn create_command(
 /// so callers confirm first). Serialized as a JSON boolean: the server owns
 /// the `Record<string,string>` payload's `"true"`/`"false"` encoding.
 ///
-/// `pi` is refused server-side — it has no remote sign-in (its `/login` is a
-/// slash command inside a running TUI).
+/// EXP-827/EXP-849: `profile_id` names the account PROFILE to sign into —
+/// which is what a chip's "Sign in" / "Sign in again" on a multi-login machine
+/// means. It rides LAST and is omitted for the ambient login, so a
+/// profile-less sign-in keeps the byte-identical pre-EXP-827 wire.
 pub fn create_agent_login_command(
     trpc: &TrpcClient,
     device_id: &str,
     agent: &str,
     switch: bool,
+    profile_id: Option<&str>,
 ) -> Result<CreatedCommand, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -559,6 +570,8 @@ pub fn create_agent_login_command(
         kind: &'a str,
         agent: &'a str,
         switch: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        profile_id: Option<&'a str>,
     }
     trpc.mutation(
         "devices.createCommand",
@@ -567,6 +580,12 @@ pub fn create_agent_login_command(
             kind: "agent_login",
             agent,
             switch,
+            // The ambient login is the ABSENCE of a profile on this wire (the
+            // device's `resolve_login_profile` reads `system`/blank the same
+            // way), so it is never named.
+            profile_id: profile_id
+                .map(str::trim)
+                .filter(|id| !id.is_empty() && *id != "system"),
         },
     )
 }
@@ -626,6 +645,42 @@ pub fn create_agent_usage_refresh_command(
         &Input {
             device_id,
             kind: "agent_usage_refresh",
+            agent,
+            profile_id,
+        },
+    )
+}
+
+/// `devices.createCommand` for an `agent_profile_use` (EXP-849) — ask one of
+/// the CALLER's own machines to make `profile_id` its DEFAULT login for
+/// `agent` ("use this account here").
+///
+/// Deliberately its OWN command kind, not `agent_login`: it signs nobody in and
+/// touches no credential, it only moves a device-local pointer — so a client can
+/// offer it where a sign-in makes no sense. It rides the `agent-login` CAP all
+/// the same (what the server gates it on: a build that can drive a machine's
+/// logins can point it at one of them). The device refuses a profile that is not
+/// signed in there, and answers by re-reporting its accounts, so every client's
+/// ACTIVE check moves on that beat.
+pub fn create_agent_profile_use_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    profile_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        profile_id: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_profile_use",
             agent,
             profile_id,
         },
@@ -892,7 +947,7 @@ mod tests {
     /// the pickers read the two differently.
     #[test]
     fn register_posts_the_acp_ready_subset() {
-        let agents = vec!["claude".to_string(), "pi".to_string()];
+        let agents = vec!["claude".to_string(), "codex".to_string()];
         let acp = vec!["claude".to_string()];
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
         register(
@@ -914,7 +969,7 @@ mod tests {
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"deviceId":"dev-1","label":"buildbox","kind":"server","agents":["claude","pi"],"acpAgents":["claude"],"caps":[]}"#
+            r#"{"deviceId":"dev-1","label":"buildbox","kind":"server","agents":["claude","codex"],"acpAgents":["claude"],"caps":[]}"#
         ), "{request}");
 
         // Empty is sent; absent is omitted entirely.
@@ -946,7 +1001,8 @@ mod tests {
     #[test]
     fn agent_login_command_posts_agent_and_switch() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-7"}}}"#);
-        let created = create_agent_login_command(&client(&base), "dev-1", "codex", true).unwrap();
+        let created =
+            create_agent_login_command(&client(&base), "dev-1", "codex", true, None).unwrap();
         assert_eq!(created.id, "cmd-7");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.createCommand HTTP/1.1"));
@@ -955,7 +1011,24 @@ mod tests {
         ));
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-8"}}}"#);
-        create_agent_login_command(&client(&base), "dev-1", "claude", false).unwrap();
+        create_agent_login_command(&client(&base), "dev-1", "claude", false, None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}"#
+        ));
+
+        // EXP-827/EXP-849: a named PROFILE rides last; the ambient login is
+        // never named, so the wire above is what a profile-less sign-in sends.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-8b"}}}"#);
+        create_agent_login_command(&client(&base), "dev-1", "claude", false, Some("0a1b2c3d"))
+            .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"profileId":"0a1b2c3d"}"#
+        ));
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-8c"}}}"#);
+        create_agent_login_command(&client(&base), "dev-1", "claude", false, Some("system"))
+            .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}"#
@@ -995,11 +1068,11 @@ mod tests {
 
     #[test]
     fn set_launch_defaults_carries_the_cas_arm() {
-        let defaults = serde_json::json!({"defaultAgent": "pi"});
+        let defaults = serde_json::json!({"defaultAgent": "codex"});
         // Unconditional (UI edit): the CAS key is omitted entirely.
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"ok":true,"launchDefaults":{"defaultAgent":"pi"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
+            r#"{"result":{"data":{"ok":true,"launchDefaults":{"defaultAgent":"codex"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
         );
         let result = set_launch_defaults(
             &client(&base),

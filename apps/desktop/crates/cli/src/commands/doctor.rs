@@ -1,5 +1,5 @@
 //! `exponential doctor` — the desktop onboarding checks as a checklist:
-//! git + the three agent CLIs, probed with the login-shell PATH. Exit code
+//! git + the agent CLIs, probed with the login-shell PATH. Exit code
 //! is non-zero when git or the SELECTED default agent fails (the other
 //! agents are informational — the doctor never falsely blocks).
 //!
@@ -8,9 +8,8 @@
 //! ACP-ready cannot start a session on this device at all — the launch is
 //! refused with the row's note; there is no terminal fallback.
 //!
-//! EXP-755: this command is the ONE deep pass (`coding::run_doctor_deep` plus
-//! the codex handshake below). Every other caller runs the quick doctor, which
-//! reuses pi's last rpc verdict for an unchanged binary.
+//! EXP-755/EXP-849: this command is the ONE deep pass (the codex handshake
+//! below). Every other caller runs the plain doctor.
 
 use std::process::ExitCode;
 
@@ -24,9 +23,7 @@ pub fn run(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
     let data_dir = context::data_dir();
     let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
-    // EXP-755: the DEEP pass — pi's `--mode rpc` handshake runs for real here
-    // instead of reusing the cached verdict every hot caller reads.
-    let mut report = coding::run_doctor_deep(&settings);
+    let mut report = coding::run_doctor(&settings);
     // EXP-746: `run_doctor` also runs on the launch path and inline in the
     // daemon every 5 minutes, so it takes codex's readiness on presence. A
     // hand-typed `exponential doctor` can afford the real handshake, and it
@@ -36,7 +33,6 @@ pub fn run(args: &[String]) -> CommandResult {
     print_check("git", &report.git);
     print_check("claude", &report.claude);
     print_check("codex", &report.codex);
-    print_check("pi", &report.pi);
 
     if report.check_for(settings.default_agent).acp != Some(true) {
         println!();

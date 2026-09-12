@@ -174,6 +174,8 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .update(codingSessions)
     .set({
       status: `ended`,
+      // EXP-848: an ended run is never busy.
+      agentBusy: false,
       endedAt: new Date(),
       endedBy: `system`,
       updatedAt: new Date(),
@@ -197,6 +199,8 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .update(codingSessions)
     .set({
       status: `ended`,
+      // EXP-848: an ended run is never busy.
+      agentBusy: false,
       endedAt: new Date(),
       endedBy: `system`,
       updatedAt: new Date(),

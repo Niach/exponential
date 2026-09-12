@@ -364,9 +364,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     public let deviceId: String?
     public let status: String
     // EXP-484: the coding agent the run was launched with (contract
-    // `codingAgent`: claude/codex/pi). NULL on rows started before the column
-    // existed and on any start that didn't name one — the usage bar simply
-    // doesn't render then.
+    // `codingAgent`: claude/codex). A row may still carry an id the contract
+    // has since dropped (EXP-849), so nothing keys display on the set. NULL on
+    // rows started before the column existed and on any start that didn't name
+    // one — the usage bar simply doesn't render then.
     public let agent: String?
     // EXP-545: the batch↔PR linkage — the PR's head branch
     // (`exp/batch-<id8>`), stamped by the server's pr_open batch flip
@@ -377,6 +378,12 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     public let needsInput: Bool
+    // EXP-848: the agent is inside a TURN right now — device-written on every
+    // turn edge exactly like `needsInput`, and cleared to false by every
+    // server-side end path. `status = running` only ever meant "the row is
+    // live", so THIS is what a session row's pulsing dot keys on; false on
+    // every row written before the column existed.
+    public let agentBusy: Bool
     // EXP-804: the agent's usage wall, stored as the raw jsonb TEXT off the
     // wire (`{kind, agent, window, resetsAt, since}`) exactly like the device
     // row's `agentUsage`; nil = not blocked. Orthogonal to `status` the way
@@ -445,6 +452,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         agent: String? = nil,
         branch: String? = nil,
         needsInput: Bool = false,
+        agentBusy: Bool = false,
         blocked: String? = nil,
         actionId: String? = nil,
         actionName: String? = nil,
@@ -473,6 +481,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.agent = agent
         self.branch = branch
         self.needsInput = needsInput
+        self.agentBusy = agentBusy
         self.blocked = blocked
         self.actionId = actionId
         self.actionName = actionName
@@ -500,6 +509,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case deviceLabel = "device_label"
         case deviceId = "device_id"
         case needsInput = "needs_input"
+        case agentBusy = "agent_busy"
         case blocked
         case actionId = "action_id"
         case actionName = "action_name"
@@ -539,6 +549,9 @@ extension CodingSessionEntity: Codable {
         // Pre-EXP-545 snapshots omit the key — decode permissively.
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
+        // EXP-848: same wire-bool tolerance as `needs_input`; pre-EXP-848
+        // snapshots omit the key entirely.
+        agentBusy = c.decodeWireBool(forKey: .agentBusy, default: false)
         // EXP-804: jsonb — raw text off the wire, a native object from
         // fixtures; pre-EXP-804 snapshots omit the key entirely.
         blocked = c.decodeWireJsonString(forKey: .blocked)

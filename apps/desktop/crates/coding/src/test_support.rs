@@ -152,7 +152,7 @@ pub(crate) fn acp_ready_stub(data_dir: &Path, name: &str, version: &str) -> Stri
     let stub = data_dir.join("bin").join(name);
     fs::create_dir_all(stub.parent().unwrap()).unwrap();
     // `--version` answers the doctor's version gate; anything else reads one
-    // line and answers pi's `get_state` rpc handshake (harmless for the
+    // line and answers a line-delimited JSON handshake (harmless for the
     // claude/codex stubs, which are never probed that way).
     fs::write(
         &stub,
@@ -222,7 +222,6 @@ pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktree
             // an agent the doctor cannot vouch for cannot start at all.
             claude_path: acp_ready_stub(data_dir, "claude", "9.9.9 (Claude Code)"),
             codex_path: acp_ready_stub(data_dir, "codex", "9.9.9"),
-            pi_path: acp_ready_stub(data_dir, "pi", "9.9.9"),
             repos_root: data_dir.join("repos").to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
             ..Settings::default()

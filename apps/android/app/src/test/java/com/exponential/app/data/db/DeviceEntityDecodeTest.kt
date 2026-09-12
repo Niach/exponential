@@ -37,7 +37,7 @@ class DeviceEntityDecodeTest {
               "version": "0.9.0",
               "agents": ["claude", "codex"],
               "caps": ["actions", "resume", "worktrees", "launch-defaults"],
-              "unauthed_agents": ["pi"],
+              "unauthed_agents": ["codex"],
               "launch_defaults": {"defaultAgent": "claude", "agents": {"claude": {"model": "fable"}}},
               "launch_defaults_updated_at": "2026-08-10 10:00:00+00",
               "active_sessions": 2,

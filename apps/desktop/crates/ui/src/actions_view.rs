@@ -46,6 +46,7 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{
     active_team_id, nav_for_window, navigate, GettingStartedTab, Navigation, Screen,
@@ -111,8 +112,14 @@ pub(crate) fn page_scaffold_with(
 /// EXP-697: it wears the shared round glass affordance
 /// ([`crate::controls::glass_icon_button`]) instead of a bare ghost icon, so
 /// it reads as a control next to the outlined "New …" button.
+///
+/// EXP-827: at the PILL's height (`CONTROL_SM`, 24px — `web_icon_xs`), not the
+/// 32px the shared affordance defaults to: it sits beside a `PillSize::Sm`
+/// "New …" pill and a circle a third taller than its neighbour read as the
+/// header's main control rather than the quiet way back to the suggestions.
 pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement {
     crate::controls::glass_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
+        .web_icon_xs()
         .tooltip("Suggestions")
         .on_click(|_: &ClickEvent, window, cx| {
             navigate(

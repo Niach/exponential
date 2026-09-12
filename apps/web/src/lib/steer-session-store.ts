@@ -7,6 +7,8 @@ import {
   parseRateLimit,
   parseSessionUsage,
   parseToolKind,
+  parseToolPreview,
+  parseTurnState,
   applyQuestionResolved,
   beginAnswer,
   clearAnswer,
@@ -29,7 +31,9 @@ import {
   type SessionConfigState,
   type SessionRateLimitState,
   type SessionUsageState,
+  type ExpToolPreview,
   type ToolKind,
+  type TurnState,
 } from "@/lib/agent-feed"
 import {
   isAcceptedImageContentType,
@@ -167,6 +171,9 @@ export type ActivityEvent =
       id: string
       status?: `completed` | `failed`
       diff?: string
+      /** EXP-846: the Exponential MCP tool result the engine distilled — only
+       *  ever present for an `exponential_*` call. */
+      preview?: ExpToolPreview
       at?: number
     }
   | { kind: `diff`; diff: string; at?: number }
@@ -211,6 +218,10 @@ export type ActivityEvent =
       kind: `subagent`
       id: string
       agentType: string
+      /** EXP-847: the spawning Agent tool call's `description` (else its
+       *  `name`) — what the chips and the top bar say; `agentType` stays the
+       *  secondary caption. Absent on older publishers. */
+      title?: string
       status: `started` | `completed`
       detail?: string
       // EXP-748: the tool calls the publisher attributed to the subagent,
@@ -258,6 +269,14 @@ export type ActivityEvent =
       status: string
       resetsAt?: number
       message?: string
+      at?: number
+    }
+  // EXP-848: the agent's turn edges — the FIFTH latest-wins slot, never a feed
+  // row. Replayed (journal + history_chunk) so a late joiner learns the state;
+  // absent means idle, which is what every client assumes by default.
+  | {
+      kind: `turn`
+      state: TurnState
       at?: number
     }
 
@@ -377,6 +396,9 @@ export type FeedItem = FeedSeq &
       /** EXP-786: the per-call unified diff an `edit` published, already cut
        *  to the contract's caps by the publisher. */
       diff?: string
+      /** EXP-846: the Exponential MCP result preview a `tool_update` folded
+       *  in (issue/PR/list…). Plumbed now, rendered in a later phase. */
+      preview?: ExpToolPreview
     }
   | { id: number; kind: `user_message`; text: string; subagentId?: string }
   | { id: number; kind: `permission`; tool: string; detail?: string }
@@ -385,6 +407,9 @@ export type FeedItem = FeedSeq &
       kind: `subagent`
       subagentId: string
       agentType: string
+      /** EXP-847: the spawning call's description — shown instead of
+       *  `agentType` wherever a subagent is named. */
+      title?: string
       status: `started` | `completed`
       detail?: string
       /** EXP-748: the publisher's own tool-call count for the subagent (the
@@ -460,6 +485,10 @@ export interface SteerSessionSnapshot {
   /** EXP-784: the agent's rate-limit window, the fourth slot. Null = not
    *  limited (or cleared by an empty/`ok` status). */
   rateLimit: SessionRateLimitState | null
+  /** EXP-848: the agent's turn state, the fifth slot — `ended` (idle) until a
+   *  `turn` event says otherwise, so nothing pulses by default. THE input to
+   *  `sessionIsWorking`. */
+  turnState: TurnState
   answerStates: AnswerStates
   /** The socket is actually open. Distinct from the phase: a silent
    *  slow-consumer redial keeps `phase: live` while the socket is briefly
@@ -597,6 +626,8 @@ export function createSteerSessionStore(
   let config: SessionConfigState | null = null
   let usage: SessionUsageState | null = null
   let rateLimit: SessionRateLimitState | null = null
+  // EXP-848: idle until the publisher says otherwise.
+  let turnState: TurnState = `ended`
   let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
   let connected = false
@@ -650,6 +681,7 @@ export function createSteerSessionStore(
     config,
     usage,
     rateLimit,
+    turnState,
     answerStates,
     connected,
     canLoadEarlier: false,
@@ -668,6 +700,7 @@ export function createSteerSessionStore(
       config,
       usage,
       rateLimit,
+      turnState,
       answerStates,
       connected,
       // EXP-796: a page can only be asked for over an OPEN socket — once the
@@ -866,6 +899,9 @@ export function createSteerSessionStore(
           next.failed = event.status === `failed`
         }
         if (typeof event.diff === `string` && event.diff.trim()) next.diff = event.diff
+        // EXP-846: the Exponential-tool result preview, stored on the row.
+        const preview = parseToolPreview(event.preview)
+        if (preview) next.preview = preview
         feedBytes += feedItemBytes(next) - feedItemBytes(current)
         const updated = feed.slice()
         updated[at] = next
@@ -932,6 +968,7 @@ export function createSteerSessionStore(
           kind: `subagent`,
           subagentId: event.id,
           agentType: event.agentType,
+          title: event.title?.trim() ? event.title.trim() : undefined,
           status: event.status === `completed` ? `completed` : `started`,
           detail: event.detail?.trim() ? event.detail : undefined,
           toolCalls:
@@ -995,6 +1032,14 @@ export function createSteerSessionStore(
         // the window lifted, and an unreadable payload must not leave a
         // stale "rate limited" banner beside a live run.
         rateLimit = parseRateLimit(event)
+        return
+      }
+      case `turn`: {
+        // EXP-848: the fifth slot — never a feed row. An unreadable payload
+        // keeps the current state (the `config_state` rule): guessing `ended`
+        // mid-turn would stop the working indicator over a thinking agent.
+        const next = parseTurnState(event)
+        if (next) turnState = next
         return
       }
       default:
@@ -1140,6 +1185,9 @@ export function createSteerSessionStore(
     config = null
     usage = null
     rateLimit = null
+    // EXP-848: the replay carries the device's latest `turn` — until it lands,
+    // idle (the same rule as a fresh store).
+    turnState = `ended`
     clearCompaction()
     // Seeded BEFORE the fold so a replayed `answer_ack`/`question_resolved`
     // for a carried lock lands on it; locks whose card the replay did not
@@ -1207,6 +1255,11 @@ export function createSteerSessionStore(
     const savedBytes = feedBytes
     const savedNextId = nextId
     const savedFolding = foldingReplay
+    // EXP-848: the latest-wins slots belong to the NEWEST frames — an older
+    // page folding its own `turn`/`config_state`/`usage`/`rate_limit` through
+    // the reducer would repaint them with history (a stale `turn started` made
+    // a finished run pulse). Saved here, restored below.
+    const savedSlots = { config, usage, rateLimit, turnState }
     feed = []
     feedBytes = 0
     nextId = 0
@@ -1226,6 +1279,10 @@ export function createSteerSessionStore(
     feed = savedFeed
     feedBytes = savedBytes
     nextId = savedNextId
+    config = savedSlots.config
+    usage = savedSlots.usage
+    rateLimit = savedSlots.rateLimit
+    turnState = savedSlots.turnState
     if (page.length === 0) {
       historyExhausted = true
       return

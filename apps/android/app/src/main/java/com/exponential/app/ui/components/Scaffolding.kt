@@ -18,8 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassSectionBand
 
 /**
  * THE section header (EXP-698) — every list, sheet and settings section in the
@@ -33,33 +35,53 @@ import com.exponential.app.ui.theme.TextEmphasis
  * picker's uppercase category headers are the one documented exception (a
  * cross-client convention, not this app's section language).
  *
- * The 4dp gutter aligns the title with a list's own 16dp content padding; a
- * caller INSIDE a sheet adds the remaining 12dp itself so the label sits 4dp
- * inside `OptionGroup`'s 16dp edge.
+ * EXP-818: it is a filled BAND now (`Modifier.glassSectionBand`, the web
+ * `GlassSectionHeader` / desktop `glass_section_band` twin) rather than a bare
+ * label in a 4dp gutter: a group reads as a highlighted strip with its flat
+ * rows ([com.exponential.app.ui.theme.flatRow]) under it, which is what turned
+ * every list from a stack of cards into a table. A caller INSIDE a sheet insets
+ * the band itself (the 16dp it passes) so it lines up with `OptionGroup`'s edge.
+ *
+ * An optional [leading] glyph sits before the title (the board icon on
+ * Reviews); [trailing] is pushed to the far edge.
  */
 @Composable
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp)
-            .padding(top = 4.dp, bottom = 8.dp),
+            // The band's 4dp breathing room over its rows (web `mb-1`) — OUTSIDE
+            // the fill, so the strip itself stays tight around its title.
+            .padding(bottom = 4.dp)
+            .glassSectionBand()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        leading?.invoke()
         Text(
             title,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            // The band's own fill carries the emphasis, so the title reads at
+            // the web band's 85% rather than the old bare label's 70%.
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = SectionBandTitleAlpha),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         Spacer(Modifier.weight(1f))
         trailing?.invoke()
     }
 }
+
+/** The band title's emphasis — web `text-foreground/85`, desktop
+ *  `foreground.opacity(0.85)`. */
+private const val SectionBandTitleAlpha = 0.85f
 
 /** Centered empty-state with optional icon + message + detail line (replaces 4 ad-hoc copies). */
 @Composable

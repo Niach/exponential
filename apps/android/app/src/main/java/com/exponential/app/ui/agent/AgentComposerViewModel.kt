@@ -26,6 +26,7 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
@@ -95,12 +96,22 @@ sealed interface ComposerSubject {
 }
 
 /**
- * The launch options as picked (EXP-437 seeding rules): [deviceId] is a
- * PREFERENCE resolved against the startable pool (null = the default machine),
- * [account] is a login profile id or "" for the machine's active login.
+ * The launch options as picked (EXP-437 seeding rules): the machine is a
+ * PREFERENCE resolved against the startable pool (nothing set = the default
+ * machine), [account] is a login profile id or "" for the machine's active
+ * login.
+ *
+ * EXP-836: a play button's REQUEST and a person's PICK are separate fields, not
+ * one `deviceId`. The request outranks the pick while its machine is startable
+ * — including while the devices shape is still hydrating, so a late-arriving
+ * row still wins over the default — and a pick CLEARS it, which is what makes a
+ * request one-shot. Keeping them apart is also what lets the composer SAY that
+ * a requested machine cannot take the run ([LaunchDeviceRules.requestNote])
+ * instead of silently falling back to the default one.
  */
 data class LaunchDraft(
-    val deviceId: String? = null,
+    val requestedDeviceId: String? = null,
+    val pickedDeviceId: String? = null,
     val agent: String = DEFAULT_AGENT,
     val model: String = "",
     val effort: String = "",
@@ -213,11 +224,19 @@ class AgentComposerViewModel @Inject constructor(
      * pool is unresolved or empty.
      */
     val device: StateFlow<SteerDevice?> = combine(candidateDevices, _launch) { devices, draft ->
-        val pool = devices.orEmpty()
-        pool.firstOrNull { it.deviceId == draft.deviceId }
-            ?: pool.firstOrNull { it.isDefault }
-            ?: pool.firstOrNull()
+        LaunchDeviceRules.resolve(devices.orEmpty(), draft.requestedDeviceId, draft.pickedDeviceId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-836: why the machine a play button NAMED is not the one this run
+     * would go to (offline by now, every agent signed out there, removed from
+     * the registry) — the amber note on the options line, web strings verbatim.
+     * Null while there is nothing to say.
+     */
+    val deviceRequestNote: StateFlow<String?> =
+        combine(_launch, device, steerLaunch.registry) { draft, settled, registry ->
+            LaunchDeviceRules.requestNote(draft.requestedDeviceId, settled?.deviceId, registry)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // The machine whose defaults currently seed the options — a re-poll that
     // re-emits the SAME device must not stomp the user's edits (EXP-437).
@@ -317,7 +336,7 @@ class AgentComposerViewModel @Inject constructor(
             _subject.value = ComposerSubject.Issues(seed.effectiveIssueIds.distinct())
             _pendingPrIssueId.value = null
         }
-        seed.deviceId?.let { id -> _launch.value = _launch.value.copy(deviceId = id) }
+        seed.deviceId?.let { id -> _launch.value = _launch.value.copy(requestedDeviceId = id) }
         val text = seed.text
         if (!text.isNullOrEmpty() && _draft.value.isBlank()) _draft.value = text
         reseedPlanMode()
@@ -441,8 +460,9 @@ class AgentComposerViewModel @Inject constructor(
 
     // ── Options ─────────────────────────────────────────────────────────────
 
+    /** A person's pick — it replaces the seed's request for good (EXP-836). */
     fun setDevice(deviceId: String) {
-        _launch.value = _launch.value.copy(deviceId = deviceId)
+        _launch.value = _launch.value.copy(pickedDeviceId = deviceId, requestedDeviceId = null)
     }
 
     /** Every option follows the agent: the vocabularies differ per agent and

@@ -152,7 +152,7 @@ pub struct RemoteStart {
     /// server registers `exponential_sessions_end` for it and that call ends
     /// it. Absent = a person asked for the start.
     pub started_reason: Option<String>,
-    /// EXP-201: the agent the remote client picked (`claude`/`codex`/`pi`).
+    /// EXP-201: the agent the remote client picked (`claude`/`codex`).
     /// Absent/unknown = claude (the pre-EXP-201 behavior).
     pub agent: Option<String>,
     pub model: Option<String>,
@@ -221,7 +221,11 @@ pub(crate) fn remote_start_from_frame(
             ultracode: None,
             plan_mode: None,
             mcp_server_ids: None,
-            account: None,
+            // EXP-849: …except the ACCOUNT. A resume that NAMES one is a
+            // mid-run "switch account" — the whole point of the frame — and the
+            // server only lets such a resume ride a LIVE run. Dropping it here
+            // would silently re-enter the run on the login it already used.
+            account,
             resume: false,
             prompt: None,
         });
@@ -766,6 +770,39 @@ mod tests {
         assert_eq!(start.model, None);
         assert_eq!(start.ultracode, None);
         assert!(!start.resume);
+
+        // EXP-849: the ACCOUNT is the one option a resume frame carries — it IS
+        // the mid-run "switch account", and the ambient login rides by name
+        // (`system`), since the server reads the field's PRESENCE as the switch.
+        let switched = remote_start_from_frame(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            Some("sess-old".into()),
+            None,
+            Some("0a1b2c3d".into()),
+            None,
+        )
+        .expect("switch frame");
+        assert_eq!(switched.account.as_deref(), Some("0a1b2c3d"));
+        assert_eq!(
+            switched.subject,
+            RemoteStartSubject::Resume {
+                session_id: "sess-old".into()
+            }
+        );
 
         // The web server rides `issueId` / `actionId` (+ `actionName`) along
         // as hints for a machine without a local record: they never make

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   createFileRoute,
   Link,
@@ -10,13 +10,31 @@ import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
 import { AgentShell } from "@/components/agent-shell"
+import { InboxView } from "@/components/inbox/inbox-view"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { conceptIcon } from "@/lib/icons.generated"
-import { deviceCollection } from "@/lib/collections"
+import {
+  codingSessionCollection,
+  deviceCollection,
+} from "@/lib/collections"
+import { BoardIssueListPane } from "@/components/board-issue-list-pane"
+import {
+  CONTINUATION_COST_NOTE,
+  CONTINUATION_NOTE,
+} from "@/components/session-account-switch"
+import { parseOrigin } from "@/lib/detail-origin"
+import { emptyFilters } from "@/lib/filters"
+import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
+import {
+  findStartedRun,
+  STARTED_RUN_DEADLINE_MS,
+  STARTED_RUN_SKEW_MS,
+} from "@/lib/started-run-match"
+import { useOpenSession } from "@/hooks/use-open-session"
 import {
   deviceCanResumeRun,
   deviceRowIsOnline,
@@ -43,6 +61,12 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
+  // EXP-818: `?from=` is WHERE this run was opened from (`lib/detail-origin.ts`
+  // — the desktop's `derive_origin`), so Back returns to that list instead of
+  // always landing on the Agent page. Absent = the Agent page's own list.
+  validateSearch: (search: Record<string, unknown>): { from?: string } => ({
+    from: typeof search.from === `string` && search.from ? search.from : undefined,
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -56,6 +80,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
+  const { from } = Route.useSearch()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -67,20 +92,62 @@ function SessionPage() {
     sessionId
   )
 
-  // EXP-827: Back is ALWAYS the Agent page — the shell's list is where a run
-  // is opened from, and popping browser history landed on whatever issue
-  // happened to be open before (the sidebar's Sessions rows navigate from
-  // anywhere). The browser's own back is untouched.
+  // EXP-818: Back returns to the ORIGIN the run was opened from — the inbox,
+  // a board, the issue whose Watch started this (where the Watch button is
+  // waiting again) — and to the Agent page when there was no list context
+  // (a deep link, a full-page screen). Still a deliberate navigation, not the
+  // browser's history: EXP-827 removed that for good reason (the sidebar's
+  // Sessions rows navigate from anywhere), the destination is just no longer
+  // hard-coded. The browser's own back is untouched.
+  const origin = useMemo(() => parseOrigin(from), [from])
+  // EXP-818 (finished in EXP-849): a run opened from a BOARD — or from an
+  // issue on one — keeps that board's list beside it, the same master-detail
+  // the issue page has. The hook is UNCONDITIONAL (hooks cannot be skipped on
+  // a render): with no board origin it runs against an empty slug, whose
+  // queries disable themselves and return nothing.
+  const originBoardSlug =
+    origin?.kind === `board` || origin?.kind === `issue` ? origin.boardSlug : ``
+  const boardView = useBoardViewData({
+    filters: emptyFilters,
+    boardSlug: originBoardSlug,
+    teamSlug,
+  })
   const goBack = useCallback(() => {
+    if (origin?.kind === `inbox`) {
+      void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug }, search: {} })
+      return
+    }
+    if (origin?.kind === `board`) {
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug`,
+        params: { teamSlug, boardSlug: origin.boardSlug },
+        search: {},
+      })
+      return
+    }
+    if (origin?.kind === `issue`) {
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: {
+          teamSlug,
+          boardSlug: origin.boardSlug,
+          issueIdentifier: origin.identifier,
+        },
+        search: {},
+      })
+      return
+    }
     void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
-  }, [navigate, teamSlug])
+  }, [navigate, teamSlug, origin])
   // EXP-827: the linked issue opens IN the shell, beside the sessions list.
+  // The origin rides along so the issue's own Back still knows it.
   const openIssue = useCallback(() => {
     void navigate({
       to: `/t/$teamSlug/sessions/$sessionId/issue`,
       params: { teamSlug, sessionId },
+      search: from ? { from } : {},
     })
-  }, [navigate, teamSlug, sessionId])
+  }, [navigate, teamSlug, sessionId, from])
 
   if (!team || !currentUserId || !isReady) {
     return (
@@ -90,13 +157,62 @@ function SessionPage() {
     )
   }
 
-  // EXP-818: every state renders INSIDE the Agent shell — the sessions list
-  // stays on the left whatever the right pane says.
-  const shell = (content: React.ReactNode) => (
-    <AgentShell teamId={team.id} currentUserId={currentUserId} activeSessionId={sessionId}>
-      {content}
-    </AgentShell>
-  )
+  // EXP-818: every state renders beside a LIST — which one is the origin's
+  // call (`lib/detail-origin.ts`, the desktop's tool-column rule): a run
+  // opened off the inbox keeps the inbox stream on the left, everything else
+  // gets the Agent shell's sessions list. Below md the session is the whole
+  // screen either way.
+  const shell = (content: React.ReactNode) =>
+    originBoardSlug ? (
+      <div className="flex h-full min-h-0">
+        <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
+          {boardView.board ? (
+            <BoardIssueListPane
+              groups={boardView.visibleGroups}
+              teamSlug={teamSlug}
+              boardSlug={originBoardSlug}
+              // The run's own issue is the highlighted row when it has one; a
+              // batch or action run simply highlights nothing.
+              activeIssueId={row?.issue?.id ?? ``}
+              filterSearch={{}}
+            />
+          ) : (
+            <div className="flex-1 overflow-y-auto p-2">
+              <div className="px-3 py-2 text-xs text-muted-foreground">
+                {boardView.boardReady ? `Board not found.` : `Loading…`}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
+      </div>
+    ) : origin?.kind === `inbox` ? (
+      <div className="flex h-full min-h-0">
+        <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
+          <InboxView
+            teamSlug={teamSlug}
+            compact
+            activeIssueId={null}
+            onOpenIssue={(openedIssue) => {
+              void navigate({
+                to: `/t/$teamSlug/inbox`,
+                params: { teamSlug },
+                search: { issue: openedIssue.id },
+              })
+            }}
+          />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
+      </div>
+    ) : (
+      <AgentShell
+        teamId={team.id}
+        currentUserId={currentUserId}
+        activeSessionId={sessionId}
+      >
+        {content}
+      </AgentShell>
+    )
 
   if (!session || !row) {
     return shell(
@@ -162,9 +278,13 @@ function SessionPage() {
         identity={identity}
         mergeTarget={row.mergeTarget}
         banner={
-          session.status === `ended` ? (
-            <EndedRunHeader session={session} />
-          ) : undefined
+          <>
+            {/* EXP-849: a run that was CONTINUED (an account switch, a
+                resume) names the run before and after it, so the chain reads
+                as one conversation instead of three orphans. */}
+            <SessionContinuationBand session={session} />
+            {session.status === `ended` && <EndedRunHeader session={session} />}
+          </>
         }
         issue={row.issue ?? null}
         onOpenIssue={row.issue ? openIssue : undefined}
@@ -202,6 +322,53 @@ function SessionStubHeader({
   )
 }
 
+/** EXP-849: the continuation chain — `resumed_from_id` links the run a
+ * switch or resume came out of to the one that took over. One quiet line with
+ * both ends, each opening that run. Absent when this run is neither.
+ *
+ * The backward link carries the ×4 sentence (`CONTINUATION_NOTE`) plus the
+ * one-time transcript re-read it cost, said ONCE on the run that paid it — a
+ * second context charge on a new account must never be a surprise. */
+function SessionContinuationBand({ session }: { session: CodingSession }) {
+  const openSession = useOpenSession()
+  const { data: sessionRows } = useLiveQuery((query) =>
+    query.from({ s: codingSessionCollection })
+  )
+  const rows = (sessionRows ?? []) as CodingSession[]
+  const from = session.resumedFromId
+    ? (rows.find((row) => row.id === session.resumedFromId) ?? null)
+    : null
+  const next = rows.find((row) => row.resumedFromId === session.id) ?? null
+  if (!from && !next) return null
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+      {from && (
+        <div className="flex min-w-0 flex-col items-start">
+          <button
+            type="button"
+            className="underline-offset-2 hover:underline"
+            onClick={() => openSession(from)}
+          >
+            {`${CONTINUATION_NOTE} · started ${relativeTime(from.startedAt)}`}
+          </button>
+          <span className="text-muted-foreground/70">
+            {CONTINUATION_COST_NOTE}
+          </span>
+        </div>
+      )}
+      {next && (
+        <button
+          type="button"
+          className="underline-offset-2 hover:underline"
+          onClick={() => openSession(next)}
+        >
+          {`Continues in a newer run · started ${relativeTime(next.startedAt)}`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 const ResumeIcon = conceptIcon(`run-resume`)
 
 /** EXP-773: the ended-run block above the transcript — the caption the Past
@@ -212,6 +379,40 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
   const [resuming, setResuming] = useState(false)
   const device = useSessionDevice(session)
   const canResume = useCanResumeOn(session)
+  // EXP-818: a resume OPENS the run it started, exactly like a remote start
+  // does (`use-remote-start.ts`): the relaunched run arrives as a NEW row over
+  // Electric, and leaving the reader on the dead one (with a spinner that
+  // never settles) was the whole complaint. `resumedFromId` names it.
+  const openSession = useOpenSession()
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  const { data: sessionRows } = useLiveQuery(
+    (query) =>
+      sentAt !== null
+        ? query.from({ s: codingSessionCollection })
+        : undefined,
+    [sentAt !== null]
+  )
+  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (deadlineRef.current) clearTimeout(deadlineRef.current)
+    },
+    []
+  )
+  useEffect(() => {
+    if (sentAt === null) return
+    const match = findStartedRun(
+      (sessionRows ?? []) as CodingSession[],
+      { kind: `resumed`, fromId: session.id },
+      session.userId,
+      sentAt - STARTED_RUN_SKEW_MS
+    )
+    if (!match) return
+    if (deadlineRef.current) clearTimeout(deadlineRef.current)
+    setSentAt(null)
+    setResuming(false)
+    openSession(match)
+  }, [sessionRows, sentAt, session.id, session.userId, openSession])
 
   const byline = pastRunByline({
     deviceLabel: device.label ?? session.deviceLabel,
@@ -221,8 +422,9 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
         : ``,
   })
 
-  // The resumed run arrives as a NEW row over Electric; the button only has to
-  // send the command, so it settles as soon as the relay accepted it.
+  // The command is only half of it: the button stays busy until the new row
+  // syncs in and its page opens, and says so if the machine never starts it
+  // (the desktop holds the reason — a conflicted worktree, a failed doctor).
   const resume = async () => {
     if (!session.deviceId) return
     setResuming(true)
@@ -231,10 +433,19 @@ function EndedRunHeader({ session }: { session: CodingSession }) {
         resumeSessionId: session.id,
         deviceId: session.deviceId,
       })
+      setSentAt(Date.now())
+      if (deadlineRef.current) clearTimeout(deadlineRef.current)
+      deadlineRef.current = setTimeout(() => {
+        setSentAt(null)
+        setResuming(false)
+        toast.error(
+          `${device.label ?? `That machine`} never started this run`,
+          { description: `Open the Exponential desktop app there to see why.` }
+        )
+      }, STARTED_RUN_DEADLINE_MS)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
-    } finally {
       setResuming(false)
+      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
     }
   }
 

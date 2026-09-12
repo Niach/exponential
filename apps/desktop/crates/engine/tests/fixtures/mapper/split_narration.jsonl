@@ -1,0 +1,6 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-parent","title":"Map the crate","kind":"think","status":"in_progress","content":[],"locations":[],"rawInput":{"subagent_type":"explore","description":"Map the crate"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-parent"},"_meta":{"exponentialSubagent":{"id":"tc-parent","agentType":"explore","status":"started","title":"Map the crate"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Next I need: the team's label ids (so the new issues car"},"messageId":"msg_1"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-child","title":"Run the tests","kind":"execute","status":"in_progress","content":[],"locations":[],"rawInput":{"command":"bun run test"}},"_meta":{"subagentId":"tc-parent"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-child","status":"completed"},"_meta":{"subagentId":"tc-parent"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ry the same ui/desktop labels), then the six issue filings."},"messageId":"msg_1"}}

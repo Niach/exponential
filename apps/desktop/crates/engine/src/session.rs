@@ -42,7 +42,7 @@ pub struct EngineStart {
     /// The signed-in user's id — the kill-watch owner pin (EXP-105).
     pub own_user_id: Option<String>,
     /// The `expu_` personal key: the redactor's exact-match secret (REV2-17)
-    /// AND the codex/pi MCP bearer that rides the spawn env.
+    /// AND the codex/external MCP bearer that rides the spawn env.
     pub personal_key: Option<String>,
     /// The relay room's subject; `None` for batch and action rooms.
     pub issue_id: Option<String>,
@@ -91,8 +91,7 @@ pub struct HistoryHandle {
     /// The recorded ACP session id (`session/load`), when the run took the
     /// ACP path at all.
     pub acp_session_id: Option<String>,
-    /// The agent-native handle — claude's transcript uuid, codex's thread id,
-    /// pi's session FILE (pi is path-keyed, not id-keyed).
+    /// The agent-native handle — claude's transcript uuid, codex's thread id.
     pub native: ResumeHandle,
 }
 
@@ -134,8 +133,7 @@ impl EngineSession {
         let kind = AdapterKind::from_agent(&agent);
         let builtin = agent.builtin();
         let child_exit = ChildExitLink::new();
-        // The recorded ACP id is what `session/load` takes (for pi it is the
-        // session file, which doubles as its ACP id); a run recorded without
+        // The recorded ACP id is what `session/load` takes; a run recorded without
         // one falls back to the agent-native handle the adapter knows how to
         // reopen.
         let resume = match acp_session_id {
@@ -244,7 +242,7 @@ impl EngineSession {
     }
 
     /// What the adapter reports underneath: claude's stream-json `session_id`,
-    /// codex's `thread.id`, pi's session file path (D8).
+    /// codex's `thread.id` (D8).
     pub fn agent_native_session_id(&self) -> Option<String> {
         self.0.ctx.ids().native
     }
@@ -728,17 +726,14 @@ impl From<ConfigValue> for agent_client_protocol::schema::v1::SessionConfigOptio
     }
 }
 
-/// How a resumed (or replayed) run is re-entered. Three shapes because the
-/// three agents have three identity models: ACP ids, agent-native ids, and
-/// pi's session FILE.
+/// How a resumed (or replayed) run is re-entered: the recorded ACP id, or the
+/// agent's own native id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ResumeHandle {
     /// The recorded ACP `sessionId` — `session/load` or `session/resume`.
     Acp(String),
     /// claude's transcript uuid (`--resume=<id>`), codex's thread id.
     Native(String),
-    /// pi is FILE-PATH keyed (`--session <file>` / `switch_session`).
-    PiSessionFile(PathBuf),
 }
 
 impl From<coding::ResumeSeed> for ResumeHandle {
@@ -746,7 +741,6 @@ impl From<coding::ResumeSeed> for ResumeHandle {
         match seed {
             coding::ResumeSeed::Acp(id) => ResumeHandle::Acp(id),
             coding::ResumeSeed::Native(id) => ResumeHandle::Native(id),
-            coding::ResumeSeed::PiSessionFile(path) => ResumeHandle::PiSessionFile(path),
         }
     }
 }
@@ -857,10 +851,6 @@ mod tests {
         assert_eq!(
             ResumeHandle::from(coding::ResumeSeed::Native("uuid-1".into())),
             ResumeHandle::Native("uuid-1".into())
-        );
-        assert_eq!(
-            ResumeHandle::from(coding::ResumeSeed::PiSessionFile(PathBuf::from("/tmp/s.json"))),
-            ResumeHandle::PiSessionFile(PathBuf::from("/tmp/s.json"))
         );
     }
 

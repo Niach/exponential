@@ -36,12 +36,10 @@ const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 const agentModelValues: Record<string, readonly string[]> = {
   claude: contract.codingModel.values,
   codex: contract.codexModel.values,
-  pi: contract.piModel.values,
 }
 const agentEffortValues: Record<string, readonly string[]> = {
   claude: contract.codingEffort.values,
   codex: contract.codexEffort.values,
-  pi: contract.piThinking.values,
 }
 
 const wireColumns = {

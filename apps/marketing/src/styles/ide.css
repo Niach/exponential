@@ -2095,194 +2095,142 @@
   font-family: var(--ide-mono);
 }
 
-/* ─────────────────────────── Start-coding dialog ─────────────────────────── */
+/* ──────────────── The Agent page composer (chat_screen.rs, EXP-825) ────────────────
+   The ONE launcher: a wide rounded composer card vertically centred in the
+   center screen — subject chips, the prompt field, the tool row with the
+   labelled submit pill — over the muted options line (Device · Agent · Model
+   · Plan · ⋯). It replaced the three-tab Start-coding dialog (EXP-845). */
 
-.ide-dlg-backdrop {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 5;
-}
-/* start_coding_dialog::open — its own 760×540 native window. */
-.ide-dlg {
-  width: 760px;
-  height: 540px;
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  border: 1px solid var(--g-stroke-active);
-  background: linear-gradient(180deg, #131316 0%, #1a1a1d 100%);
-  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.6);
-  overflow: hidden;
-}
-.ide-dlg-titlebar {
-  height: 34px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 0 10px;
-}
-.ide-lights.is-dialog {
-  padding-left: 0;
-}
-.ide-dlg-title {
-  font-size: var(--f-md);
-  font-weight: 500;
-}
-.ide-dlg-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 13px;
-  padding: 7px 20px 0;
-}
-/* controls::segmented — full-width capsule, h36, 3px inset. */
-.ide-segmented {
-  height: 36px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid var(--g-stroke-section);
-  background: var(--g-fill-section);
-  color: var(--ide-muted);
-}
-.ide-segment {
-  flex: 1;
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: var(--f-sm);
-  font-weight: 500;
-}
-.ide-segment.is-active {
-  background: var(--g-fill-active);
-  border-color: var(--g-stroke-active);
-  color: var(--ide-fg);
-}
-.ide-dlg-cols {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  gap: 16px;
-}
-.ide-dlg-left,
-.ide-dlg-right {
+.ide-chat {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
-/* EXP-768: ONE glass group per picker — its FIRST row is the search field,
-   hairline-divided rows under it (the Android sheet's layout, everywhere). */
-.ide-dlg-picker {
-  flex: 1;
-  min-height: 0;
+.ide-chat-col {
+  width: 100%;
+  max-width: 660px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  border-radius: 12px;
+  gap: 8px;
+}
+/* EXP-820: a few suggestion chips over the EMPTY, subject-less field. */
+.ide-cmp-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+.ide-cmp-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
   border: 1px solid var(--g-stroke-card);
   background: var(--g-fill-section);
-}
-.ide-dlg-search {
-  height: 36px;
-  flex: none;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--g-stroke-row);
-  font-size: var(--f-sm);
-}
-.ide-dlg-search::placeholder {
-  color: var(--ide-muted);
-}
-.ide-dlg-issues {
-  flex: 1;
-  min-height: 0;
   overflow: hidden;
 }
-.ide-dlg-issue {
+.ide-cmp-chips {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 12px 0;
+}
+/* An issue chip IS the issue-ref pill (status glyph · mono identifier ·
+   muted title) with a SEPARATE trailing ✕ (EXP-827). */
+.ide-cmp-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 8.75px;
-  padding: 7px 14px;
-  border-bottom: 1px solid var(--g-stroke-row);
-  font-size: var(--f-sm);
-}
-.ide-dlg-issue.is-checked {
-  background: rgba(255, 255, 255, 0.045);
-}
-.ide-dlg-issue.is-click:hover {
-  background: var(--g-fill-row);
-}
-.ide-dlg-issue-id {
-  font-family: var(--ide-mono);
+  gap: 5px;
+  height: 22px;
+  max-width: 320px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
   font-size: var(--f-xs);
-  color: var(--ide-muted);
-  min-width: 60px;
-  flex: none;
 }
-.ide-dlg-issue-title {
-  flex: 1;
+.ide-cmp-chip.is-suggestion {
+  padding: 0 10px;
+  color: var(--ide-muted);
+}
+.ide-cmp-chip-id {
+  font-family: var(--ide-mono);
+}
+.ide-cmp-chip-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--ide-muted);
 }
-.ide-dlg-issue-note {
+.ide-cmp-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 999px;
+  color: var(--ide-muted);
+}
+.ide-cmp-chip-x:hover {
+  background: var(--g-fill-active);
+  color: var(--ide-fg);
+}
+.ide-cmp-field {
+  height: 76px;
+  resize: none;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--f-md);
+  color: var(--ide-fg);
+}
+.ide-cmp-field::placeholder {
+  color: var(--ide-muted);
+}
+.ide-cmp-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.ide-cmp-tool {
+  display: inline-flex;
+  color: var(--ide-muted);
+}
+.ide-cmp-submit {
+  border-radius: 999px;
+}
+/* Options row B: pickers as plain muted words with a chevron, nothing boxed. */
+.ide-cmp-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 0 6px;
   font-size: var(--f-xs);
   color: var(--ide-muted);
 }
-.ide-dlg-noresults {
-  padding: 10px;
-  font-size: var(--f-sm);
-  color: var(--ide-dim);
-}
-/* launch_options::AgentDefaultsGroup (EXP-694/698) — ONE hairline-divided
-   glass group: the agent tabs row, Model, the agent's effort concept, then
-   the capability-gated switches. No loose controls, no checkboxes. */
-.ide-group-card {
-  flex: none;
-  border-radius: 12px;
-  border: 1px solid var(--g-stroke-section);
-  background: var(--g-fill-section);
-  overflow: hidden;
-}
-.ide-grouprow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 12px;
-  font-size: var(--f-sm);
-}
-.ide-grouprow + .ide-grouprow,
-.ide-agentstrip + .ide-grouprow {
-  border-top: 1px solid var(--g-stroke-row);
-}
-.ide-grouprow-label {
-  flex: none;
-}
-.ide-grouprow-select {
+.ide-cmp-pick,
+.ide-cmp-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--f-sm);
+  gap: 4px;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-cmp-pick:hover {
   color: var(--ide-fg);
 }
-.ide-grouprow-select.is-disabled {
-  color: var(--ide-dim);
+.ide-cmp-more {
+  display: inline-flex;
+  color: var(--ide-muted);
 }
-/* gpui_component Switch — 28×16 track, 12px knob. */
+/* gpui_component Switch — 28×16 track, 12px knob (the options line's Plan). */
 .ide-switch {
   width: 28px;
   height: 16px;
@@ -2307,128 +2255,4 @@
 .ide-switch.is-on .ide-switch-knob {
   transform: translateX(12px);
   background: #fff;
-}
-/* The agent tabs are the group's FIRST row — pills on the row rhythm, not a
-   free-floating capsule. */
-.ide-agentstrip {
-  height: 36px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 3.5px;
-  padding: 0 4px;
-  color: var(--ide-muted);
-}
-.ide-agenttab {
-  flex: 1;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5.25px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: var(--f-sm);
-  font-weight: 500;
-}
-.ide-agenttab.is-active {
-  background: var(--g-fill-active);
-  border-color: var(--g-stroke-active);
-  color: var(--ide-fg);
-}
-/* launch_options::labeled_field — caption over the control. */
-.ide-dlg-labeled {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.ide-dlg-fieldlabel {
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-}
-.ide-dlg-bigselect {
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-section);
-  font-size: var(--f-sm);
-  text-align: center;
-}
-.ide-dlg-textarea {
-  height: 132px;
-  resize: none;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-section);
-  font: inherit;
-  font-size: var(--f-sm);
-  color: var(--ide-fg);
-}
-.ide-dlg-textarea::placeholder {
-  color: var(--ide-muted);
-}
-/* The Actions tab's picked-one-of-many list (EXP-721: the selection marker
-   LEADS the row, then the action's curated glyph, then name over description). */
-.ide-dlg-actionlist {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-.ide-dlg-action {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  padding: 7px 14px;
-  border-bottom: 1px solid var(--g-stroke-row);
-}
-.ide-dlg-action.is-click:hover {
-  background: var(--g-fill-row);
-}
-.ide-radio {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  margin-top: 2px;
-  border-radius: 999px;
-  border: 1px solid var(--g-stroke-active);
-}
-.ide-radio.is-on {
-  border-width: 4px;
-  border-color: var(--ide-primary);
-}
-.ide-dlg-action-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.ide-dlg-action-name {
-  font-size: var(--f-sm);
-  font-weight: 500;
-}
-.ide-dlg-action-desc {
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* The action bar's left slot: the ONE blocker message. */
-.ide-dlg-blocker {
-  font-size: var(--f-sm);
-  color: var(--ide-muted);
-}
-.ide-dlg-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 13px 20px;
-  border-top: 1px solid var(--g-stroke-row);
 }

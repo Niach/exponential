@@ -27,14 +27,15 @@ class SlashCommandsTest {
 
         val claude = SlashCommands.catalogFor("claude").map { it.name }
         val codex = SlashCommands.catalogFor("codex").map { it.name }
-        val pi = SlashCommands.catalogFor("pi").map { it.name }
         // /compact is the one every agent has.
-        assertTrue("compact" in claude && "compact" in codex && "compact" in pi)
-        // /clear is every agent's (the desktop maps it — pi runs
-        // ctx.newSession()); it discards the conversation, so it confirms.
+        assertTrue("compact" in claude && "compact" in codex)
+        // /clear is every agent's (the desktop maps it); it discards the
+        // conversation, so it confirms.
         assertEquals(listOf("compact", "clear"), claude)
         assertEquals(claude, codex)
-        assertEquals(claude, pi)
+        // EXP-849: pi is gone from contract `codingAgent`, so its catalog — and
+        // any unknown agent id's — is EMPTY rather than claude's.
+        assertTrue(SlashCommands.catalogFor("pi").isEmpty())
         assertTrue(SlashCommands.all.single { it.name == "clear" }.confirm)
         assertFalse(SlashCommands.all.single { it.name == "compact" }.confirm)
         // Contract order is menu order.
@@ -78,7 +79,7 @@ class SlashCommandsTest {
     fun `a message is a command iff its first token is a name for the agent`() {
         assertEquals("compact", SlashCommands.commandFor("/compact", "claude")?.name)
         assertEquals("compact", SlashCommands.commandFor("/compact keep the diff", "claude")?.name)
-        assertEquals("compact", SlashCommands.commandFor("  /Compact  ", "pi")?.name)
+        assertEquals("compact", SlashCommands.commandFor("  /Compact  ", "codex")?.name)
         // A run with no recorded agent is claude's.
         assertEquals("clear", SlashCommands.commandFor("/clear", null)?.name)
         // Not in the catalog, whatever the CLI ships.
@@ -86,7 +87,8 @@ class SlashCommandsTest {
         assertNull(SlashCommands.commandFor("/new", "codex"))
         assertNull(SlashCommands.commandFor("/model opus", "claude"))
         assertEquals("clear", SlashCommands.commandFor("/clear", "codex")?.name)
-        assertEquals("clear", SlashCommands.commandFor("/clear", "pi")?.name)
+        // EXP-849: a retired agent id names no command at all.
+        assertNull(SlashCommands.commandFor("/clear", "pi"))
         // Prose, paths and a bare slash are never commands.
         assertNull(SlashCommands.commandFor("fix /compact later", "claude"))
         assertNull(SlashCommands.commandFor("/api/foo", "claude"))

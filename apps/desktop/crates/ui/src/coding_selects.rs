@@ -55,8 +55,7 @@ pub const EFFORT_CHOICES: [(&str, &str); 6] = [
 ];
 
 /// The agent tabs/select rows (EXP-201) — mirrors `CodingAgent::ALL` order.
-pub const AGENT_CHOICES: [(&str, &str); 3] =
-    [("Claude Code", "claude"), ("Codex", "codex"), ("pi", "pi")];
+pub const AGENT_CHOICES: [(&str, &str); 2] = [("Claude Code", "claude"), ("Codex", "codex")];
 
 /// Codex `-m` slugs (the GPT-5.6 tiers); blank = codex's own default model.
 pub const CODEX_MODEL_CHOICES: [(&str, &str); 4] = [
@@ -76,39 +75,12 @@ pub const CODEX_EFFORT_CHOICES: [(&str, &str); 6] = [
     ("XHigh", "xhigh"),
 ];
 
-/// pi `--model` patterns (fuzzy-resolved by pi, see `coding::agent::PI_MODELS`);
-/// blank = pi's own default. Family labels, no version numbers (web/iOS/Android
-/// derive the same "Fable" from the value).
-pub const PI_MODEL_CHOICES: [(&str, &str); 8] = [
-    ("CLI default", ""),
-    ("Fable", "fable"),
-    ("Opus", "opus"),
-    ("Sonnet", "sonnet"),
-    ("GPT-5.6 Sol", "gpt-5.6-sol"),
-    ("GPT-5.6 Terra", "gpt-5.6-terra"),
-    ("GPT-5.6 Luna", "gpt-5.6-luna"),
-    ("Grok 4.5", "grok-4.5"),
-];
-
-/// pi `--thinking` levels; blank = omit.
-pub const PI_THINKING_CHOICES: [(&str, &str); 8] = [
-    ("CLI default", ""),
-    ("Off", "off"),
-    ("Minimal", "minimal"),
-    ("Low", "low"),
-    ("Medium", "medium"),
-    ("High", "high"),
-    ("XHigh", "xhigh"),
-    ("Max", "max"),
-];
-
 /// The model choice list for `agent` (EXP-201 — the dialog + settings pane
 /// swap their selects from these).
 pub fn model_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str, &'static str)] {
     match agent {
         coding::CodingAgent::Claude => &MODEL_CHOICES,
         coding::CodingAgent::Codex => &CODEX_MODEL_CHOICES,
-        coding::CodingAgent::Pi => &PI_MODEL_CHOICES,
     }
 }
 
@@ -117,17 +89,15 @@ pub fn effort_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str
     match agent {
         coding::CodingAgent::Claude => &EFFORT_CHOICES,
         coding::CodingAgent::Codex => &CODEX_EFFORT_CHOICES,
-        coding::CodingAgent::Pi => &PI_THINKING_CHOICES,
     }
 }
 
-/// The agent's brand mark (EXP-206 — `assets/icons/{claude,codex,pi}.svg`,
+/// The agent's brand mark (EXP-206 — `assets/icons/{claude,codex}.svg`,
 /// rendered theme-tinted like every bundled icon) for the agent tab strips.
 pub fn agent_icon(agent: coding::CodingAgent) -> crate::icons::ExpIcon {
     match agent {
         coding::CodingAgent::Claude => crate::icons::ExpIcon::Claude,
         coding::CodingAgent::Codex => crate::icons::ExpIcon::Codex,
-        coding::CodingAgent::Pi => crate::icons::ExpIcon::Pi,
     }
 }
 
@@ -187,7 +157,7 @@ mod tests {
         assert_eq!(efforts, coding::settings::EFFORT_LEVELS);
     }
 
-    /// EXP-201: the agent list and the codex/pi choice sets stay in lockstep
+    /// EXP-201: the agent list and the codex choice sets stay in lockstep
     /// with the domain contract AND the coding crate's closed sets (remote
     /// clients build their pickers from the same contract lists, and the
     /// options they send must be values these desktop sets accept).
@@ -198,7 +168,7 @@ mod tests {
         let ids: Vec<&str> = coding::CodingAgent::ALL.iter().map(|a| a.id()).collect();
         assert_eq!(agents, ids);
 
-        // Every codex/pi list leads with the local-only blank "CLI default"
+        // Every codex list leads with the local-only blank "CLI default"
         // row; the contract carries only the real values.
         for (choices, contract_values, agent_values) in [
             (
@@ -210,16 +180,6 @@ mod tests {
                 &CODEX_EFFORT_CHOICES[..],
                 domain::contract::CODEX_EFFORT_VALUES,
                 &coding::agent::CODEX_EFFORTS[..],
-            ),
-            (
-                &PI_MODEL_CHOICES[..],
-                domain::contract::PI_MODEL_VALUES,
-                &coding::agent::PI_MODELS[..],
-            ),
-            (
-                &PI_THINKING_CHOICES[..],
-                domain::contract::PI_THINKING_VALUES,
-                &coding::agent::PI_THINKING[..],
             ),
         ] {
             assert_eq!(choices[0].1, "");
@@ -234,8 +194,8 @@ mod tests {
             &CODEX_MODEL_CHOICES
         );
         assert_eq!(
-            effort_choices_for(coding::CodingAgent::Pi),
-            &PI_THINKING_CHOICES
+            effort_choices_for(coding::CodingAgent::Codex),
+            &CODEX_EFFORT_CHOICES
         );
         assert_eq!(
             model_choices_for(coding::CodingAgent::Claude),

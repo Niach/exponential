@@ -165,6 +165,10 @@ pub enum FeedKind {
         /// EXP-786: the per-call unified diff an `edit` published, already
         /// cut to the contract's caps on the publisher.
         diff: Option<String>,
+        /// EXP-846: what an Exponential MCP call settled on (the issue it
+        /// created, the PR it opened, `N results`). Plumbed and stored in
+        /// phase 1; the custom rendering is a later one.
+        preview: Option<crate::frames::ToolPreview>,
     },
     UserMessage {
         text: String,
@@ -186,6 +190,10 @@ pub enum FeedKind {
         /// transcript, so the marker's own number is what the caption falls
         /// back on when the rows themselves were evicted.
         tool_calls: Option<u32>,
+        /// EXP-847: what the spawning `Agent` call said this subagent is FOR
+        /// (its `description` input). Clients render it and keep `agent_type`
+        /// as a secondary caption; `None` for publishers that name neither.
+        title: Option<String>,
     },
     Question(QuestionCard),
     /// EXP-724: the quiet "Context compacted" divider `compaction ended`
@@ -375,6 +383,9 @@ pub struct SteerFeed {
     usage: Option<SessionUsage>,
     /// EXP-784: the rate-limit banner's state, same slot rule.
     rate_limit: Option<SessionRateLimit>,
+    /// EXP-848: the turn slot — `Ended` until a `turn` event says otherwise,
+    /// so a feed that has never seen one never reads as working.
+    turn_state: crate::frames::TurnState,
     answers: HashMap<String, AnswerState>,
     next_id: FeedItemId,
     /// Locally-echoed sent messages awaiting their transcript-derived twin.
@@ -446,6 +457,13 @@ impl SteerFeed {
     /// EXP-784: the rate-limit slot; `None` = not limited (or cleared).
     pub fn rate_limit(&self) -> Option<&SessionRateLimit> {
         self.rate_limit.as_ref()
+    }
+
+    /// EXP-848: whether the agent is executing a turn right now — the ONE
+    /// input to every client's `working` predicate. `Ended` until a `turn`
+    /// event arrives, so an idle-looking run never pulses.
+    pub fn turn_state(&self) -> crate::frames::TurnState {
+        self.turn_state
     }
 
     pub fn usage(&self) -> Option<SessionUsage> {
@@ -536,11 +554,23 @@ impl SteerFeed {
     ///
     /// Ignored while a replay is staging: the replay is authoritative and is
     /// about to decide what the prefix even is.
+    ///
+    /// EXP-846/848 — the LATEST-WINS SLOTS (`config_state`, `usage`,
+    /// `rate_limit`, `turn`, the in-flight compaction) belong to the NEWEST
+    /// frames, and a page is the oldest transcript there is. The scratch feed
+    /// below is what guards them: the page's own slot events land in ITS slots
+    /// and only its `items` are ever taken, so history can never repaint the
+    /// header's mode chip, the usage meter or the working spinner (a stale
+    /// `turn started` folded into the live feed made a finished run pulse).
+    /// Web `steer-session-store.ts` `prependPage` saves and restores the same
+    /// set; here the scratch makes the same guarantee structurally, and
+    /// `an_older_page_never_touches_the_latest_wins_slots` locks it.
     pub fn prepend_page(&mut self, page: Vec<(Option<u64>, ActivityEvent)>) -> usize {
         if self.staged.is_some() || page.is_empty() {
             return 0;
         }
         let oldest = self.items.iter().find_map(|item| item.seq);
+        // The fold target: a FRESH feed, never `self` (see above).
         let mut scratch = SteerFeed::new();
         for (seq, event) in page {
             if oldest.is_some_and(|oldest| seq.is_some_and(|seq| seq >= oldest)) {
@@ -791,6 +821,7 @@ impl SteerFeed {
                     settled: false,
                     failed: false,
                     diff: None,
+                    preview: None,
                 });
             }
             // EXP-785/786: folded INTO the tool row with that call id — the
@@ -801,6 +832,7 @@ impl SteerFeed {
                 id,
                 status,
                 diff: patch,
+                preview: settled_preview,
                 ..
             } => {
                 let Some(item) = self.items.iter_mut().rev().find(|item| {
@@ -813,6 +845,7 @@ impl SteerFeed {
                     settled,
                     failed,
                     diff,
+                    preview,
                     ..
                 } = &mut item.kind
                 {
@@ -822,6 +855,13 @@ impl SteerFeed {
                     }
                     if let Some(patch) = non_blank(patch) {
                         *diff = Some(patch);
+                    }
+                    // EXP-846: an empty preview says nothing and never
+                    // replaces one a previous update carried.
+                    if let Some(settled_preview) =
+                        settled_preview.filter(|preview| !preview.is_empty())
+                    {
+                        *preview = Some(settled_preview);
                     }
                 }
                 let after = item_bytes(&item.kind);
@@ -922,6 +962,7 @@ impl SteerFeed {
                 status,
                 detail,
                 tool_calls,
+                title,
                 ..
             } => {
                 if id.is_empty() {
@@ -933,6 +974,7 @@ impl SteerFeed {
                     status,
                     detail: non_blank(detail),
                     tool_calls,
+                    title: non_blank(title),
                 });
             }
             ActivityEvent::Permission { tool, detail, .. } => {
@@ -1015,6 +1057,8 @@ impl SteerFeed {
                     message: non_blank(message),
                 });
             }
+            // EXP-848: the fifth slot — latest-wins, never a row.
+            ActivityEvent::Turn { state, .. } => self.turn_state = state,
         }
     }
 
@@ -1128,6 +1172,9 @@ impl SteerFeed {
         self.config = None;
         self.usage = None;
         self.rate_limit = None;
+        // EXP-848: a swap with no `turn` in its replay means nobody has said
+        // the agent is working, which is exactly `Ended`.
+        self.turn_state = crate::frames::TurnState::default();
         self.answers.clear();
         self.echoes.clear();
         if let Some(anchor) = anchor_id {
@@ -1231,14 +1278,24 @@ impl SteerFeed {
     }
 }
 
-/// EXP-772 — append a narration fragment onto the feed's LAST row when both
-/// carry the same `message_id`: the ACP coalescer flushes one assistant
-/// message in several events, and a row per flush shredded a paragraph into
-/// bubbles. `true` = the fragment was merged and must not be pushed.
+/// EXP-772 — append a narration fragment onto the newest row of its OWN lane
+/// when both carry the same `message_id`: the ACP coalescer flushes one
+/// assistant message in several events, and a row per flush shredded a
+/// paragraph into bubbles. `true` = the fragment was merged and must not be
+/// pushed.
 ///
-/// Nothing merges without an id, across a row that is not narration, or across
-/// a scope change (a fragment stamped with a subagent id is a different
-/// bubble). Web `mergeNarrationFragment`, mirrored ×4.
+/// EXP-846 — the merge LOOKS BACK past every row that belongs to a different
+/// LANE (a row whose subagent scope differs from the fragment's): a subagent's
+/// edges, its tool rows and the `tool_update`s patching them flush between two
+/// fragments of one main-lane message all the time, and a merge that only
+/// looked at the row immediately behind broke on them — the message arrived as
+/// two bubbles. Latest-wins state (`config_state`, `usage`, `rate_limit`, the
+/// compaction strip) is no row at all, so it never sat in the way either.
+///
+/// The first row in the fragment's own lane still decides: a MAIN-lane tool
+/// row, a user message or a question behind a main-lane fragment breaks the
+/// merge, exactly as before. Nothing merges without an id. Web
+/// `mergeNarrationFragment`, mirrored ×4.
 fn merge_narration_fragment(
     items: &mut [FeedItem],
     message_id: Option<&str>,
@@ -1248,22 +1305,27 @@ fn merge_narration_fragment(
     let Some(message_id) = message_id.filter(|id| !id.is_empty()) else {
         return false;
     };
-    let Some(last) = items.last_mut() else {
-        return false;
-    };
-    let FeedKind::Narration {
-        text,
-        message_id: last_id,
-        subagent_id: last_subagent,
-    } = &mut last.kind
-    else {
-        return false;
-    };
-    if last_id.as_deref() != Some(message_id) || last_subagent.as_deref() != subagent_id {
-        return false;
+    for item in items.iter_mut().rev() {
+        // Another lane's row — invisible to this merge (it renders inside that
+        // subagent's card, never between these two fragments).
+        if item.subagent_id() != subagent_id {
+            continue;
+        }
+        let FeedKind::Narration {
+            text,
+            message_id: last_id,
+            ..
+        } = &mut item.kind
+        else {
+            return false;
+        };
+        if last_id.as_deref() != Some(message_id) {
+            return false;
+        }
+        text.push_str(fragment);
+        return true;
     }
-    text.push_str(fragment);
-    true
+    false
 }
 
 fn non_blank(value: Option<String>) -> Option<String> {
@@ -1730,6 +1792,19 @@ pub struct SubagentSummary {
     pub done: bool,
     pub detail: Option<String>,
     pub tool_count: usize,
+    /// EXP-847: what the spawning call said this subagent is FOR. The chip
+    /// shows it and keeps [`Self::agent_type`] as a secondary caption; `None`
+    /// for a publisher that named only a type.
+    pub title: Option<String>,
+    /// EXP-849 — what the subagent DID, as the contract `toolGroupSummary`
+    /// over its OWN tool rows ("read 3 files · 1 failed").
+    ///
+    /// It rides the PROJECTION so the focused-subagent strip says the same
+    /// thing the inline group row does: the strip used to caption the bare
+    /// count ("done · 14 tool calls") because it had no access to the rows.
+    /// `None` when this feed holds no tool row for the subagent (an evicted
+    /// replay, EXP-748) — the caption falls back to the publisher's count.
+    pub tool_summary: Option<String>,
 }
 
 /// Every subagent seen in the feed, in first-appearance order, each summarized
@@ -1758,9 +1833,34 @@ pub fn collect_subagents(items: &[FeedItem]) -> Vec<SubagentSummary> {
                 done: summary.done,
                 detail: summary.detail,
                 tool_count: summary.tool_count,
+                title: summary.title,
+                tool_summary: subagent_tool_summary(rows),
             }
         })
         .collect()
+}
+
+/// EXP-849 — the contract `toolGroupSummary` over ONE subagent's tool rows,
+/// `None` when it has none. The ONE derivation behind both the inline group
+/// row's caption and the focused-subagent strip's.
+pub fn subagent_tool_summary(items: &[&FeedItem]) -> Option<String> {
+    let calls: Vec<crate::ToolCallSummary<'_>> = items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            FeedKind::Tool {
+                detail,
+                tool_kind,
+                failed,
+                ..
+            } => Some(crate::ToolCallSummary {
+                kind: tool_kind.map_or("other", crate::ToolKind::as_str),
+                detail: detail.as_deref(),
+                failed: *failed,
+            }),
+            _ => None,
+        })
+        .collect();
+    (!calls.is_empty()).then(|| crate::tool_group_summary(&calls))
 }
 
 /// EXP-789 — the tabs the subagent strip actually shows (web
@@ -1789,17 +1889,28 @@ pub fn visible_subagent_tabs(
 /// - `tool_count`: the tool calls attributed to the subagent — the VISIBLE
 ///   rows, or the highest count a marker reported when that is larger
 ///   (EXP-748: the journal drops a subagent's oldest calls first, so a replay
-///   carries the number even once the rows are gone).
+///   carries the number even once the rows are gone);
+/// - `title` (EXP-847): the FIRST non-empty one any marker carried — the
+///   started edge names the job, and a completed edge that dropped it must not
+///   blank the chip.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SubagentRowSummary {
     pub agent_type: String,
     pub done: bool,
     pub detail: Option<String>,
     pub tool_count: usize,
+    pub title: Option<String>,
 }
 
 pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
-    let markers: Vec<(&str, SubagentStatus, Option<&str>, Option<u32>)> = items
+    type Marker<'a> = (
+        &'a str,
+        SubagentStatus,
+        Option<&'a str>,
+        Option<u32>,
+        Option<&'a str>,
+    );
+    let markers: Vec<Marker<'_>> = items
         .iter()
         .filter_map(|item| match &item.kind {
             FeedKind::Subagent {
@@ -1807,14 +1918,21 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
                 status,
                 detail,
                 tool_calls,
+                title,
                 ..
-            } => Some((agent_type.trim(), *status, detail.as_deref(), *tool_calls)),
+            } => Some((
+                agent_type.trim(),
+                *status,
+                detail.as_deref(),
+                *tool_calls,
+                title.as_deref(),
+            )),
             _ => None,
         })
         .collect();
     let types: Vec<&str> = markers
         .iter()
-        .map(|(agent_type, _, _, _)| *agent_type)
+        .map(|(agent_type, ..)| *agent_type)
         .filter(|agent_type| !agent_type.is_empty())
         .collect();
     // EXP-748: the rows this feed still holds, or the publisher's own count
@@ -1822,7 +1940,7 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
     // still captions "done · 240 tool calls".
     let reported = markers
         .iter()
-        .filter_map(|(_, _, _, tool_calls)| *tool_calls)
+        .filter_map(|(_, _, _, tool_calls, _)| *tool_calls)
         .max()
         .unwrap_or(0) as usize;
     SubagentRowSummary {
@@ -1834,17 +1952,23 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
             .unwrap_or_else(|| SUBAGENT_FALLBACK_TYPE.to_string()),
         done: markers
             .iter()
-            .any(|(_, status, _, _)| *status == SubagentStatus::Completed),
+            .any(|(_, status, ..)| *status == SubagentStatus::Completed),
         detail: markers
             .iter()
             .rev()
-            .find_map(|(_, _, detail, _)| detail.filter(|d| !d.trim().is_empty()))
+            .find_map(|(_, _, detail, _, _)| detail.filter(|d| !d.trim().is_empty()))
             .map(str::to_string),
         tool_count: items
             .iter()
             .filter(|item| item.is_tool())
             .count()
             .max(reported),
+        // EXP-847: the FIRST one named — the started edge carries it, and a
+        // later edge without it must not blank the chip.
+        title: markers
+            .iter()
+            .find_map(|(_, _, _, _, title)| title.filter(|t| !t.trim().is_empty()))
+            .map(|title| title.trim().to_string()),
     }
 }
 
@@ -2033,6 +2157,72 @@ mod tests {
         );
     }
 
+    /// EXP-846/848: an older page carries its own `config_state`, `usage`,
+    /// `rate_limit`, `turn` and compaction edges — history, all of it. Folding
+    /// it must leave the LIVE latest-wins slots exactly as the newest frames
+    /// set them (the scratch feed in `prepend_page` is that guard), while its
+    /// ROWS still land in front.
+    #[test]
+    fn an_older_page_never_touches_the_latest_wins_slots() {
+        use crate::frames::{CompactionPhase, ConfigMode, TurnState};
+
+        let mut feed = SteerFeed::new();
+        // The live tail: a settled run, configured in build mode, metered.
+        feed.apply_seq(
+            Some(10),
+            ActivityEvent::ConfigState {
+                options: Vec::new(),
+                current_mode: Some("bypassPermissions".to_string()),
+                modes: Some(vec![
+                    ConfigMode::new("plan", "Plan"),
+                    ConfigMode::new("bypassPermissions", "Build"),
+                ]),
+                commands: None,
+                at: None,
+            },
+        );
+        feed.apply_seq(Some(11), ActivityEvent::usage(1_000, 200_000, Some(0.5)));
+        feed.apply_seq(Some(12), ActivityEvent::turn(TurnState::Ended));
+        feed.apply_seq(Some(13), ActivityEvent::narration("the newest line"));
+
+        let page: Vec<(Option<u64>, ActivityEvent)> = vec![
+            (
+                Some(1),
+                ActivityEvent::ConfigState {
+                    options: Vec::new(),
+                    current_mode: Some("plan".to_string()),
+                    modes: Some(vec![ConfigMode::new("plan", "Plan")]),
+                    commands: None,
+                    at: None,
+                },
+            ),
+            (Some(2), ActivityEvent::usage(180_000, 200_000, Some(9.0))),
+            (Some(3), ActivityEvent::turn(TurnState::Started)),
+            (
+                Some(4),
+                ActivityEvent::rate_limit("rejected", Some(1), Some("walled".to_string())),
+            ),
+            (Some(5), ActivityEvent::compaction(CompactionPhase::Started, None)),
+            (Some(6), ActivityEvent::narration("an old line")),
+        ];
+        assert!(feed.prepend_page(page) > 0);
+
+        // The rows arrived…
+        assert_eq!(texts(&feed), vec!["an old line", "the newest line"]);
+        // …and NOT one slot moved.
+        assert_eq!(
+            feed.config().and_then(|config| config.current_mode.clone()),
+            Some("bypassPermissions".to_string())
+        );
+        assert_eq!(
+            feed.usage().map(|usage| usage.context_used),
+            Some(1_000)
+        );
+        assert_eq!(feed.turn_state(), TurnState::Ended);
+        assert!(feed.rate_limit().is_none(), "history cannot wall a live run");
+        assert!(feed.compacting().is_none(), "history cannot start a compaction");
+    }
+
     #[test]
     fn blank_events_never_enter_the_feed() {
         let mut feed = SteerFeed::new();
@@ -2070,6 +2260,7 @@ mod tests {
                 settled: false,
                 failed: false,
                 diff: None,
+                preview: None,
             }
         );
     }
@@ -2162,6 +2353,65 @@ mod tests {
         feed.apply(ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Completed), None));
         assert_eq!(tool_state(&feed, 0), (false, false, None));
         assert_eq!(tool_state(&feed, 1), (true, false, None));
+    }
+
+    /// EXP-846: a settle's MCP preview lands ON the tool row and an empty one
+    /// never replaces what a previous update carried.
+    #[test]
+    fn a_tool_update_preview_lands_on_the_tool_row() {
+        let mut feed = SteerFeed::new();
+        feed.apply(tool_with_id("tc-1", ToolKind::Other));
+        let preview = crate::frames::ToolPreview {
+            identifier: Some("EXP-42".into()),
+            title: Some("Fix the flicker".into()),
+            ..crate::frames::ToolPreview::default()
+        };
+        feed.apply(ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            at: None,
+            preview: Some(preview.clone()),
+        });
+        let row_preview = |feed: &SteerFeed| match &feed.items()[0].kind {
+            FeedKind::Tool { preview, .. } => preview.clone(),
+            other => panic!("expected a tool row, got {other:?}"),
+        };
+        assert_eq!(row_preview(&feed), Some(preview.clone()));
+        // An EMPTY preview says nothing, so the row keeps the one it has.
+        feed.apply(ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: None,
+            diff: Some("+x\n".into()),
+            at: None,
+            preview: Some(crate::frames::ToolPreview::default()),
+        });
+        assert_eq!(row_preview(&feed), Some(preview));
+        // …and an update for a row nobody holds is still dropped whole.
+        feed.apply(ActivityEvent::ToolUpdate {
+            id: "tc-9".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            at: None,
+            preview: None,
+        });
+        assert_eq!(feed.len(), 1);
+    }
+
+    // ── EXP-848: the turn slot ─────────────────────────────────────────────
+
+    #[test]
+    fn turn_is_a_slot_that_defaults_to_ended() {
+        let mut feed = SteerFeed::new();
+        // Before anything says otherwise a feed is IDLE — this is what keeps
+        // every client from pulsing "Working…" at a run it just connected to.
+        assert_eq!(feed.turn_state(), crate::frames::TurnState::Ended);
+        feed.apply(ActivityEvent::turn(crate::frames::TurnState::Started));
+        assert_eq!(feed.turn_state(), crate::frames::TurnState::Started);
+        assert!(feed.is_empty(), "never a row");
+        feed.apply(ActivityEvent::turn(crate::frames::TurnState::Ended));
+        assert_eq!(feed.turn_state(), crate::frames::TurnState::Ended);
+        assert!(feed.is_empty());
     }
 
     // ── EXP-784: the rate-limit slot ───────────────────────────────────────
@@ -2865,6 +3115,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -2923,6 +3174,7 @@ mod tests {
             detail: Some("Map the crate".into()),
             at: None,
             tool_calls: None,
+            title: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -2988,6 +3240,7 @@ mod tests {
             detail: Some("first".into()),
             at: None,
             tool_calls: None,
+            title: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -3004,6 +3257,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         });
         // EXP-350: an old desktop stamps the FALLBACK type on the completed
         // edge — it must never degrade the label, and its detail wins.
@@ -3014,18 +3268,57 @@ mod tests {
             detail: Some("done exploring".into()),
             at: None,
             tool_calls: None,
+            title: None,
         });
 
         let agents = feed.subagents();
         assert_eq!(agents.len(), 2);
         assert_eq!(agents[0].subagent_id, "a1");
         assert_eq!(agents[0].agent_type, "explore");
+        // EXP-847: no publisher named a title, so the chip falls back to the
+        // agent type.
+        assert_eq!(agents[0].title, None);
         assert!(agents[0].done);
         assert_eq!(agents[0].detail.as_deref(), Some("done exploring"));
         assert_eq!(agents[0].tool_count, 1);
         assert_eq!(agents[1].subagent_id, "a2");
         assert_eq!(agents[1].agent_type, "plan");
         assert!(!agents[1].done);
+    }
+
+    /// EXP-847: the spawning call's title rides the STARTED edge; a later
+    /// edge that dropped it must not blank the chip.
+    #[test]
+    fn a_subagent_title_is_the_first_one_any_edge_named() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::Subagent {
+            id: "a1".into(),
+            agent_type: "explore".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+            title: Some("  Audit the shape proxies  ".into()),
+        });
+        feed.apply(ActivityEvent::Subagent {
+            id: "a1".into(),
+            agent_type: SUBAGENT_FALLBACK_TYPE.into(),
+            status: SubagentStatus::Completed,
+            detail: None,
+            at: None,
+            tool_calls: None,
+            title: None,
+        });
+        let agents = feed.subagents();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].title.as_deref(), Some("Audit the shape proxies"));
+        // …and the TYPE survives beside it, for the secondary caption.
+        assert_eq!(agents[0].agent_type, "explore");
+        assert!(agents[0].done);
+        // EXP-849: the projection carries what the subagent DID, so the strip
+        // captions the same thing the inline group row does. No tool rows in
+        // this fixture, so there is nothing to summarize.
+        assert_eq!(agents[0].tool_summary, None);
     }
 
     // ── EXP-789: the subagent strip (web `visibleSubagentTabs`) ────────────
@@ -3037,6 +3330,8 @@ mod tests {
             done,
             detail: None,
             tool_count: 0,
+            title: None,
+            tool_summary: None,
         }
     }
 
@@ -3081,6 +3376,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         }); // 1
         let scoped_tool = |name: &str, agent: &str| ActivityEvent::Tool {
             name: name.into(),
@@ -3109,6 +3405,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         }); // 8
 
         let items = feed.items();
@@ -3140,6 +3437,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -3156,6 +3454,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: Some(240),
+            title: None,
         });
         assert_eq!(feed.subagents()[0].tool_count, 240);
 
@@ -3168,6 +3467,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         });
         for name in ["Read", "Edit"] {
             feed.apply(ActivityEvent::Tool {
@@ -3186,6 +3486,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: Some(1),
+            title: None,
         });
         assert_eq!(feed.subagents()[1].tool_count, 2);
     }
@@ -3294,6 +3595,79 @@ mod tests {
         scoped.apply(fragment("main", Some("msg_1"), None));
         scoped.apply(fragment("nested", Some("msg_1"), Some("toolu_task")));
         assert_eq!(texts(&scoped), vec!["main", "nested"]);
+
+        // EXP-846: a latest-wins SLOT between two fragments is not a row, so
+        // the idle-flush case off a real journal (`Now fil` + `ing the …`,
+        // journal/e2a0382f rows 184-185) still merges into one paragraph.
+        let mut slotted = SteerFeed::new();
+        slotted.apply(fragment("Now fil", Some("msg_5"), None));
+        slotted.apply(ActivityEvent::usage(10, 200, None));
+        slotted.apply(ActivityEvent::turn(crate::frames::TurnState::Started));
+        slotted.apply(fragment("ing the follow-up issue.", Some("msg_5"), None));
+        assert_eq!(texts(&slotted), vec!["Now filing the follow-up issue."]);
+    }
+
+    /// EXP-846 (residual) — a SUBAGENT's rows between two fragments of one
+    /// main-lane message are not rows of that message's lane, so the merge
+    /// looks back past them. The real shape off a journal: the agent starts a
+    /// sentence, a subagent it spawned flushes a tool call and that call's
+    /// `tool_update` lands, then the idle flush delivers the rest of the
+    /// sentence — ONE paragraph, not two bubbles around a nested card.
+    #[test]
+    fn a_subagents_rows_do_not_break_a_main_lane_fragment_merge() {
+        let mut feed = SteerFeed::new();
+        feed.apply(fragment("Opening the ", Some("msg_7"), None));
+        feed.apply(ActivityEvent::Tool {
+            name: "Grep".into(),
+            detail: None,
+            id: Some("tc-sub".into()),
+            tool_kind: None,
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        });
+        feed.apply(ActivityEvent::tool_update(
+            "tc-sub",
+            Some(crate::frames::ToolUpdateStatus::Completed),
+            None,
+        ));
+        feed.apply(fragment("pull request now.", Some("msg_7"), None));
+        assert_eq!(
+            texts(&feed),
+            vec!["Opening the pull request now.", "Grep"],
+            "the fragment merged into its own lane's row; the subagent's call keeps its place"
+        );
+        assert_eq!(feed.len(), 2);
+
+        // A subagent EDGE in between is just as invisible.
+        let mut edged = SteerFeed::new();
+        edged.apply(fragment("Spawning a ", Some("msg_8"), None));
+        edged.apply(ActivityEvent::Subagent {
+            id: "toolu_task".into(),
+            agent_type: "explorer".into(),
+            status: SubagentStatus::Started,
+            detail: None,
+            tool_calls: None,
+            at: None,
+            title: None,
+        });
+        edged.apply(fragment("helper.", Some("msg_8"), None));
+        assert_eq!(texts(&edged), vec!["Spawning a helper.", "toolu_task"]);
+
+        // A MAIN-lane row still breaks it — the look-back changes which rows
+        // are in the way, never the rule.
+        let mut broken = SteerFeed::new();
+        broken.apply(fragment("Reading ", Some("msg_7"), None));
+        broken.apply(ActivityEvent::tool("Read", None));
+        broken.apply(fragment("the file.", Some("msg_7"), None));
+        assert_eq!(texts(&broken), vec!["Reading ", "Read", "the file."]);
+
+        // And a subagent's own fragments merge across MAIN-lane rows the same
+        // way — the lanes are independent.
+        let mut nested = SteerFeed::new();
+        nested.apply(fragment("looking ", Some("msg_9"), Some("toolu_task")));
+        nested.apply(ActivityEvent::narration("main line"));
+        nested.apply(fragment("around.", Some("msg_9"), Some("toolu_task")));
+        assert_eq!(texts(&nested), vec!["looking around.", "main line"]);
     }
 
     /// EXP-773: prose and user turns the mapper stamped with a subagent id
@@ -3310,6 +3684,7 @@ mod tests {
             detail: None,
             tool_calls: None,
             at: None,
+            title: None,
         });
         feed.apply(fragment("looking around", Some("msg_9"), Some("toolu_task")));
         feed.apply(ActivityEvent::Tool {
@@ -3413,6 +3788,7 @@ mod tests {
             detail: None,
             tool_calls: None,
             at: None,
+            title: None,
         });
         feed.apply(ActivityEvent::compaction(CompactionPhase::Ended, None));
         feed.apply(ActivityEvent::Question {

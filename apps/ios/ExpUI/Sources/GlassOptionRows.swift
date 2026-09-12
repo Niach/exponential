@@ -20,11 +20,18 @@ public let glassFormRowFill = GlassTokens.fillRow
 /// One `Form` row that picks a value from a list. `label` renders both the
 /// trailing summary and each sheet row, so a call site names its vocabulary
 /// once. Disabled dims the whole row and drops the tap.
+///
+/// EXP-827: `icon` gives an option its own registry glyph, leading the value in
+/// the row AND every row of the sheet — what the automation form's Action pick
+/// needs so an action is recognised by its curated icon, exactly as web draws it
+/// (`automation-dialog.tsx`: `getActionIcon` inline with the name). Returning
+/// nil for an option simply draws no glyph.
 public struct GlassPickerRow<SelectionValue: Hashable>: View {
     let title: String
     @Binding var selection: SelectionValue
     let options: [SelectionValue]
     let label: (SelectionValue) -> String
+    var icon: ((SelectionValue) -> String?)? = nil
     var enabled: Bool = true
 
     @State private var showsOptions = false
@@ -34,12 +41,14 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
         selection: Binding<SelectionValue>,
         options: [SelectionValue],
         label: @escaping (SelectionValue) -> String,
+        icon: ((SelectionValue) -> String?)? = nil,
         enabled: Bool = true
     ) {
         self.title = title
         self._selection = selection
         self.options = options
         self.label = label
+        self.icon = icon
         self.enabled = enabled
     }
 
@@ -48,6 +57,12 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
             Text(title)
                 .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
             Spacer(minLength: 8)
+            if let glyph = icon?(selection) {
+                AppIcon(glyph, size: 14)
+                    .foregroundStyle(
+                        .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
+                    )
+            }
             Text(label(selection))
                 .foregroundStyle(.white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary))
                 .lineLimit(1)
@@ -67,10 +82,16 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
                 idFor: { $0 },
                 onSelect: { selection = $0 }
             ) { option in
-                Text(label(option))
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    if let glyph = icon?(option) {
+                        AppIcon(glyph, size: 14)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    Text(label(option))
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
             }
         }
     }

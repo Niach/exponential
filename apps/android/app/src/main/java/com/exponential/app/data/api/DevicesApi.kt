@@ -241,22 +241,49 @@ fun worktreePruneCommand(deviceId: String): JsonObject = buildJsonObject {
  * The `agent_login` input for [DevicesApi.createCommand] (EXP-484) — ask the
  * machine to run [agent]'s OWN sign-in flow and publish the login URL (plus
  * the codex device code) back as the command result. [switchAccount] signs the
- * current account out first; the server refuses the whole command for `pi`,
- * which has no remote sign-in. Gated on [SteerDevice.canAgentLogin].
+ * current account out first. Gated on [SteerDevice.canAgentLogin].
  */
-fun agentLoginCommand(deviceId: String, agent: String, switchAccount: Boolean): JsonObject =
+fun agentLoginCommand(
+    deviceId: String,
+    agent: String,
+    switchAccount: Boolean,
+    profileId: String? = null,
+): JsonObject =
     buildJsonObject {
         put("deviceId", deviceId)
         put("kind", "agent_login")
         put("agent", agent)
         put("switch", switchAccount)
+        // EXP-827/EXP-849: WHICH login on the machine this lands on — one of
+        // `agentAccounts[agent].profiles` (`system` = the ambient login). Absent
+        // means the ambient one, which is what the device-settings sheet's own
+        // Login / Switch account button still sends.
+        profileId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("profileId", it) }
+    }
+
+/**
+ * The `agent_profile_use` input for [DevicesApi.createCommand] (EXP-849) —
+ * make the ALREADY-SIGNED-IN profile [profileId] the machine's ACTIVE login
+ * for [agent] ("Use this account here"). Deliberately not a sign-in: no
+ * credential is touched and nothing is signed out (a `codex logout` would
+ * revoke the token server-wide), the machine just points itself at that
+ * profile and re-reports `agent_accounts` on its next heartbeat, which is what
+ * moves the chip's check. Gated on [SteerDevice.canAgentLogin] like the
+ * sign-in, since it is the same machine capability.
+ */
+fun agentProfileUseCommand(deviceId: String, agent: String, profileId: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_profile_use")
+        put("agent", agent)
+        put("profileId", profileId)
     }
 
 /**
  * The `agent_login_code` input for [DevicesApi.createCommand] (EXP-765) — hand
  * the authorization code the browser showed back to the sign-in still waiting
  * on the machine, which types it into that login's prompt. The server trims
- * [code] and refuses an empty one and `pi`.
+ * [code] and refuses an empty one.
  */
 fun agentLoginCodeCommand(deviceId: String, agent: String, code: String): JsonObject =
     buildJsonObject {

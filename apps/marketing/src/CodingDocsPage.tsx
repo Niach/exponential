@@ -31,8 +31,8 @@ export function CodingDocsPage() {
           <div className="shell docs-hero-content">
             <h1>Coding agents</h1>
             <p>
-              Hand issues to a coding agent from the desktop IDE: Claude Code,
-              Codex, or pi. It plans, implements, and opens the pull request.
+              Hand issues to a coding agent from the desktop IDE: Claude Code
+              or Codex. It plans, implements, and opens the pull request.
               On your machine, on your own agent subscription.
             </p>
             <div className="docs-hero-cta">
@@ -51,8 +51,8 @@ export function CodingDocsPage() {
               The <a href="/docs/apps/">desktop app</a> is the client that
               runs coding sessions. When you start one, it hands the issue to
               {` `}
-              <strong>your agent running locally</strong>: Claude Code, Codex
-              or pi, on your machine, your checkout, your own agent
+              <strong>your agent running locally</strong>: Claude Code or
+              Codex, on your machine, your checkout, your own agent
               subscription. Nothing executes in a cloud sandbox, and your code
               never routes through Exponential&apos;s servers.
             </p>
@@ -89,10 +89,10 @@ export function CodingDocsPage() {
                 <strong>Have <code>git</code> plus whichever agent CLIs you
                 use on your <code>PATH</code></strong> (<code>claude</code>,
                 {` `}
-                <code>codex</code>, <code>pi</code>), each signed in to its own
-                account. The app checks all three but only requires the one
-                you pick for the run. That&apos;s the entire dependency list:
-                no <code>gh</code>, no tokens to paste.
+                <code>codex</code>), each signed in to its own account. The
+                app checks both but only requires the one you pick for the
+                run. That&apos;s the entire dependency list: no{` `}
+                <code>gh</code>, no tokens to paste.
               </li>
               <li>
                 <strong>Sign in</strong> to{` `}
@@ -153,16 +153,17 @@ export function CodingDocsPage() {
           <DocsSection id="start-coding" num="03" label="Start coding">
             <h2>Start coding</h2>
             <p>
-              Hit <strong>Start coding</strong> on any issue, or check
-              several on the board and start them together. One dialog covers
-              both:
+              Hit <strong>Start coding</strong> on any issue, or check several
+              on the board and start them together. Every play button lands on
+              the same place — the <strong>Agent page composer</strong>, with
+              what you picked already chipped above the prompt:
             </p>
 
             <div className="docs-embed">
               <IdeDemo view="issue" />
             </div>
             <p className="docs-embed-caption">
-              Live demo: click Start coding on the issue to open the dialog.
+              Live demo: click Start coding on the issue to open the composer.
             </p>
 
             <DocShot
@@ -173,25 +174,29 @@ export function CodingDocsPage() {
 
             <ul>
               <li>
-                Three tabs — <strong>Issues</strong>,{` `}
-                <strong>Actions</strong> and <strong>Chat</strong> — on every
-                client. Issues codes an issue, Actions runs one of the{` `}
-                <a href="/docs/actions/">team&apos;s saved prompts</a>, and
-                Chat takes a free <strong>Prompt</strong> and starts an agent
-                session with no issue attached. A <strong>Repository</strong>
-                is optional: pick one and the chat gets its own worktree,
-                leave it out and it runs in a scratch directory with the
-                Exponential MCP tools wired up either way.
+                One <strong>subject</strong>, as chips over the prompt:{` `}
+                <strong>issue chips</strong> (one issue codes that issue, two
+                or more make a batch) <em>or</em> one{` `}
+                <strong>action chip</strong> that runs one of the{` `}
+                <a href="/docs/actions/">team&apos;s saved prompts</a>. Picking
+                the other kind swaps it — nothing is ever disabled. The{` `}
+                <strong>#</strong> button opens the issue picker,{` `}
+                <strong>▶</strong> the action picker.
               </li>
               <li>
-                An <strong>agent picker</strong>:{` `}
-                <strong>Claude Code</strong>, <strong>Codex</strong> or{` `}
-                <strong>pi</strong>. An agent you are not signed in to is
-                dimmed.
+                <strong>Free text</strong> in the box. With no subject it is
+                the prompt of a plain chat session; beside a subject it is
+                additional instructions. A <strong>Repository</strong> pick
+                appears for a subject-less chat: pick one and it gets its own
+                worktree, leave it out and it runs in a scratch directory with
+                the Exponential MCP tools wired up either way. Images can be
+                dropped or pasted in.
               </li>
               <li>
-                A <strong>searchable multi-issue picker</strong>. Check one
-                issue for a single run, two or more for a batch.
+                An <strong>agent picker</strong> on the muted options line
+                under the box: <strong>Claude Code</strong> or{` `}
+                <strong>Codex</strong>. Only the agents the chosen machine
+                reports are offered.
               </li>
               <li>
                 A <strong>Device</strong> picker when you have more than one
@@ -203,16 +208,16 @@ export function CodingDocsPage() {
               <li>
                 <strong>Model</strong> and <strong>Effort</strong> pickers, per
                 agent. Each agent offers its own models and its own effort
-                vocabulary (Codex calls it Reasoning, pi calls it Thinking).
-                They are launch-time settings: a running session is steered
-                with words, not with switches.
+                vocabulary (Codex calls it Reasoning). They are launch-time
+                settings: a running session is steered with words, not with
+                switches.
               </li>
               <li>
                 <strong>Ultracode</strong>, Claude only. Lets the run organize
                 its own workflow; it takes over the effort setting.
               </li>
               <li>
-                <strong>Plan mode</strong>, Claude, Codex and pi. It proposes
+                <strong>Plan mode</strong>, Claude and Codex. It proposes
                 a plan you approve before it touches code, as a card in the
                 session view — on every client, including your phone.
               </li>
@@ -292,8 +297,8 @@ export function CodingDocsPage() {
           <DocsSection id="batch-runs" num="05" label="Batch runs">
             <h2>Batch runs</h2>
             <p>
-              Check <strong>two or more issues</strong> in the dialog (or use
-              the board&apos;s bulk-select bar) and you get a batch run:{` `}
+              Chip <strong>two or more issues</strong> in the composer (or
+              use the board&apos;s bulk-select bar) and you get a batch run:{` `}
               <strong>one agent session</strong> given all the issues at
               once, working on <strong>one shared branch</strong> (
               <code>exp/batch-&lt;id&gt;</code>), ending in{` `}
@@ -414,8 +419,8 @@ export function CodingDocsPage() {
               A run you started makes no report. When the agent finishes its
               turn it waits for your next reply, in the desktop app and on a
               daemon alike, with no idle timeout. End it yourself with{` `}
-              <strong>Kill session</strong> — the stop glyph in the session
-              header on the desktop, the <strong>…</strong> menu on web and
+              <strong>Stop session</strong> — the stop pill in the session
+              header on the desktop and on web, the <strong>…</strong> menu on
               mobile — or, once a run has ended, relaunch it with{` `}
               <strong>Resume</strong> in that same header.
             </p>

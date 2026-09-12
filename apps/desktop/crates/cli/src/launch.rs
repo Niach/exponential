@@ -40,7 +40,7 @@ pub fn agent_options(
     let agent = match flags.agent.as_deref() {
         None => settings.default_agent,
         Some(raw) => coding::CodingAgent::parse(raw)
-            .ok_or_else(|| anyhow!("unknown agent `{raw}` (claude, codex or pi)"))?,
+            .ok_or_else(|| anyhow!("unknown agent `{raw}` (claude or codex)"))?,
     };
     let mut options = LaunchOptions::defaults_for(settings, agent);
     if let Some(model) = &flags.model {

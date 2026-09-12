@@ -311,7 +311,7 @@ fn looks_like_agent(command: &str, record: &crate::run_registry::RunRecord) -> b
     // binary is spelled (a wrapper script, an npm shim), so the subcommand is
     // a second, equally exclusive marker. Deliberately not generalized: a
     // bare-substring rule on the binary name would match `python3
-    // pipeline.py` for pi.
+    // pipeline.py`.
     record.agent == crate::agent::CodingAgent::Codex
         && record.external_agent.is_none()
         && command.contains("app-server")
@@ -332,8 +332,8 @@ fn basename(path: &str) -> &str {
 /// command no longer looks like the recorded agent (a recycled pid).
 ///
 /// [`reap`] cannot see these: it anchors on the `claude-hooks/<pid>/` segment
-/// in the command line, and only claude ever carries one — codex, pi and
-/// every external binary are invisible to it.
+/// in the command line, and only claude ever carries one — codex and every
+/// external binary are invisible to it.
 #[cfg(unix)]
 pub fn reap_recorded(data_dir: &Path) -> usize {
     let records = crate::run_registry::all(data_dir);
@@ -581,7 +581,7 @@ mod tests {
                 ppid: 1,
                 command: "/opt/homebrew/bin/codex app-server --listen stdio://".into(),
             },
-            Proc { pid: 4002, ppid: 1, command: "/usr/local/bin/pi --mode rpc".into() },
+            Proc { pid: 4002, ppid: 1, command: "/usr/local/bin/claude --resume".into() },
         ]
     }
 
@@ -626,9 +626,9 @@ mod tests {
         ];
         let records = vec![
             acp_record("sess-codex", CodingAgent::Codex, 4001, 3000),
-            // pi vs `pipeline.py`: the guard matches the PROGRAM, never a
-            // bare substring of the command line.
-            acp_record("sess-pi", CodingAgent::Pi, 4002, 3000),
+            // `claude` vs `pipeline.py`: the guard matches the PROGRAM,
+            // never a bare substring of the command line.
+            acp_record("sess-claude", CodingAgent::Claude, 4002, 3000),
             // Nothing in the table under this pid at all.
             acp_record("sess-gone", CodingAgent::Claude, 4777, 3000),
         ];
@@ -662,11 +662,11 @@ mod tests {
         );
     }
 
-    /// pi and an external agent are named by their own program; a record
+    /// claude and an external agent are named by their own program; a record
     /// without both pids (a PTY run, or one the engine's end sequence already
     /// cleared) is never a candidate.
     #[test]
-    fn matches_pi_and_external_programs_and_ignores_half_records() {
+    fn matches_claude_and_external_programs_and_ignores_half_records() {
         let external_spec = crate::settings::ExternalAgentSpec {
             id: "acme".to_string(),
             command: "/opt/acme/bin/acme-acp".to_string(),
@@ -677,7 +677,7 @@ mod tests {
         let mut half = acp_record("sess-half", CodingAgent::Codex, 4001, 3000);
         half.host_pid = None;
         let mut pty = sample_record("sess-pty");
-        pty.agent = CodingAgent::Pi;
+        pty.agent = CodingAgent::Claude;
 
         let mut procs = codex_procs();
         procs.push(Proc {
@@ -686,7 +686,7 @@ mod tests {
             command: "acme-acp --stdio".into(),
         });
         let records = vec![
-            acp_record("sess-pi", CodingAgent::Pi, 4002, 3000),
+            acp_record("sess-claude", CodingAgent::Claude, 4002, 3000),
             external,
             half,
             pty,
@@ -694,7 +694,7 @@ mod tests {
         assert_eq!(
             select_recorded(&records, &procs, 9999),
             vec![
-                ("sess-pi".to_string(), 4002),
+                ("sess-claude".to_string(), 4002),
                 ("sess-ext".to_string(), 4003)
             ]
         );

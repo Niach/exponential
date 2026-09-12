@@ -469,7 +469,6 @@ mod tests {
             branch: (!repo_less).then(|| "exp/chat-1a2b3c4d".to_string()),
             base_branch: (!repo_less).then(|| "main".to_string()),
             claude_session_id: None,
-            pi_session_file: None,
             codex_originator: None,
             inputs: Vec::new(),
             model: String::new(),

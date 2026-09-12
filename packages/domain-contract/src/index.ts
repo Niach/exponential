@@ -139,10 +139,6 @@ export interface DomainContract {
   codexModel: { values: readonly string[] }
   /** Codex reasoning-effort levels (`model_reasoning_effort`); blank is per-client. */
   codexEffort: { values: readonly string[] }
-  /** pi model patterns; blank ("CLI default") is a per-client extra row, not a contract value. */
-  piModel: { values: readonly string[] }
-  /** pi `--thinking` levels; blank is per-client. */
-  piThinking: { values: readonly string[] }
   /** Typed action-input kinds (EXP-257/EXP-259/EXP-273): repo | board | pr | icon — every one a PICK. EXP-825 retired the free-text kinds: a run's free text is the start's `prompt`. */
   actionInputType: { values: readonly string[] }
   /** EXP-792: how a team MCP server is reached — a remote `http` endpoint or a local `stdio` command. */
@@ -188,7 +184,7 @@ export interface DomainContract {
    * TUI-local printers (/cost, /status, /help), /model, /init, /review, the
    * login flow (EXP-430/444) and the kill path (/exit) stay out. A name is
    * the CATALOG's, not necessarily the CLI's: the desktop maps it per agent
-   * (pi has no `/clear`; it runs `ctx.newSession()`). `agents` ⊆
+   * (codex has no native `/clear`; the engine rotates the thread). `agents` ⊆
    * codingAgent.values; `argHint` empty = the command takes no argument;
    * `confirm` = the client asks before sending (context is discarded).
    * Generated into all four clients as parallel arrays; the desktop's
@@ -203,6 +199,32 @@ export interface DomainContract {
       confirm: boolean
     }[]
   }
+  /**
+   * EXP-846: the Exponential MCP tool display table, one row per tool the
+   * server registers. A client strips `prefix` (after any `mcp__…__` MCP
+   * namespace) off a tool call's name, finds the row and renders the brand
+   * mark + `progressive` while the call runs, `done` once it settles, the
+   * input field named by `subjectKey` as the subject (empty = none) and a
+   * result preview keyed by `result` (one of `resultKinds`). Unknown tools
+   * fall back to the raw name; generated ×4 as parallel arrays.
+   */
+  expToolDisplay: {
+    prefix: string
+    resultKinds: readonly string[]
+    tools: readonly {
+      name: string
+      progressive: string
+      done: string
+      subjectKey: string
+      result: string
+    }[]
+  }
+  /**
+   * EXP-848: the `turn` activity event's `state` — `started` when the agent
+   * begins a turn, `ended` when it stops (end of turn, cancel, error). A
+   * latest-wins slot on every client; the "Working…" predicate reads it.
+   */
+  turnState: { values: readonly string[] }
 }
 
 export const contract = contractJson as unknown as DomainContract

@@ -109,10 +109,20 @@ export function Rail() {
     sessionOpen,
     openSession,
     closeSession,
+    composerOpen,
+    openComposer,
+    closeComposer,
   } = useIde()
-  /* Leaving for another destination takes the center off the session screen,
-     the way a rail navigation does. */
-  const on = (fn: () => void) => (interactive ? () => { closeSession(); fn() } : undefined)
+  /* Leaving for another destination takes the center off the session screen
+     and off the Agent page, the way a rail navigation does. */
+  const on = (fn: () => void) =>
+    interactive
+      ? () => {
+          closeSession()
+          closeComposer()
+          fn()
+        }
+      : undefined
   const openReviews = REVIEWS.filter((r) => !goneReviews.has(r.issueId)).length
   const unreadInbox = INBOX_ITEMS.some((n) => n.unread && !inboxRead.has(n.id))
   return (
@@ -144,7 +154,7 @@ export function Rail() {
       <RailRow
         Icon={IcInbox}
         label="Inbox"
-        active={tool === `inbox`}
+        active={tool === `inbox` && !composerOpen}
         /* `inbox_badge` is a PRIMARY dot, not the review green. */
         badge={unreadInbox ? <span className="ide-rail-dot is-primary" /> : undefined}
         onClick={on(() => setTool(`inbox`))}
@@ -158,13 +168,19 @@ export function Rail() {
       <RailRow
         Icon={IcGitPullRequest}
         label="Reviews"
-        active={tool === `reviews` && !sessionOpen}
+        active={tool === `reviews` && !sessionOpen && !composerOpen}
         badge={openReviews > 0 ? <span className="ide-rail-dot" /> : undefined}
         onClick={on(() => setTool(`reviews`))}
       />
-      {/* EXP-791: the Chat page is a rail destination — "Agent", the web
-          sidebar's word for it. */}
-      <RailRow Icon={IcMessageCircle} label="Agent" />
+      {/* EXP-791/825: the Agent page is a rail destination — and since
+          EXP-825 its composer IS the launcher, so this row opens it empty
+          (a chat) while a play button opens it pre-chipped. */}
+      <RailRow
+        Icon={IcMessageCircle}
+        label="Agent"
+        active={composerOpen}
+        onClick={interactive ? () => { closeSession(); openComposer([]) } : undefined}
+      />
       <div className="ide-rail-div" />
       <div className="ide-rail-grouphead">
         <span>Boards</span>
@@ -178,7 +194,7 @@ export function Rail() {
           Icon={board.Icon}
           label={board.name}
           tint={board.color}
-          active={i === 0 && tool === `issues` && !sessionOpen}
+          active={i === 0 && tool === `issues` && !sessionOpen && !composerOpen}
           onClick={i === 0 ? on(() => setTool(`issues`)) : undefined}
         />
       ))}
@@ -212,13 +228,13 @@ export function Rail() {
       <RailRow
         Icon={IcFolder}
         label="Files"
-        active={tool === `files` && !sessionOpen}
+        active={tool === `files` && !sessionOpen && !composerOpen}
         onClick={on(() => setTool(`files`))}
       />
       <RailRow
         Icon={IcGitMerge}
         label="Source Control"
-        active={tool === `source-control` && !sessionOpen}
+        active={tool === `source-control` && !sessionOpen && !composerOpen}
         badge={<IcAlert size={10.5} className="ide-c-yellow" />}
         onClick={on(openSourceControl)}
       />

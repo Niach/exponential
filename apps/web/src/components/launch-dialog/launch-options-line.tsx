@@ -33,6 +33,7 @@ import {
   agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
+import { healthBadgeLabel } from "@/lib/agent-usage"
 import { NO_REPO } from "@/lib/chat-repo"
 import { conceptIcon } from "@/lib/icons.generated"
 
@@ -170,13 +171,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             <div data-testid="agent-options-sheet">
               <GlassGroup>
                 <GlassPickerRow
-                  label={
-                    agent === `pi`
-                      ? `Thinking`
-                      : agent === `codex`
-                        ? `Reasoning`
-                        : `Effort`
-                  }
+                  label={agent === `codex` ? `Reasoning` : `Effort`}
                   value={
                     launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
                   }
@@ -216,9 +211,14 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                     placeholder="Active profile"
                     options={launch.accountProfiles.map((profile) => ({
                       value: profile.id,
-                      label: profile.active
-                        ? `${profile.label} (active)`
-                        : profile.label,
+                      // EXP-849: health beats "active" in the label — an
+                      // expired credential is the one thing worth knowing
+                      // BEFORE the run starts on it.
+                      label: healthBadgeLabel(profile.health)
+                        ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
+                        : profile.active
+                          ? `${profile.label} (active)`
+                          : profile.label,
                     }))}
                   />
                 )}
@@ -232,6 +232,11 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           <span>
             {`Not ready on ${device.deviceLabel || device.deviceId}. Run the doctor there.`}
           </span>
+        )}
+        {/* EXP-836: a play button named a machine this composer cannot start
+            on — say which and why, instead of quietly using the default. */}
+        {model.deviceRequestNote && (
+          <span className="text-amber-500">{model.deviceRequestNote}</span>
         )}
         {/* The desktop inserts the row when the launcher spins up; the page
             flips to the live view the moment it syncs. */}

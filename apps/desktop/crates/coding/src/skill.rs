@@ -1,6 +1,6 @@
 //! EXP-763 — the run playbook: how Exponential works, loaded into EVERY
 //! coding session's system prompt at start (issue, batch, action, chat,
-//! resume, agent shell; PTY and ACP; claude, codex and pi).
+//! resume, agent shell; PTY and ACP; claude and codex).
 //!
 //! Why a system-prompt append and not a bigger launch prompt or a skill file:
 //! the seed prompts stay lean (and a resume gets none), a skill directory
@@ -10,7 +10,7 @@
 //! included: claude `--append-system-prompt`, codex `developer_instructions`
 //! (its own developer message, additive to AGENTS.md; `-c` on the PTY,
 //! `developerInstructions` on `thread/start`/`thread/resume` in the
-//! app-server), pi `--append-system-prompt`. All three take TEXT, so nothing
+//! app-server). Both take TEXT, so nothing
 //! new is written into the user's repo, scratch dir or agent home.
 //!
 //! The document is markdown without front matter and names tools by their

@@ -312,7 +312,7 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 
 // Lifecycle of a live desktop coding session (coding_sessions.status). A row
 // is one interactive terminal session (one embedded terminal + one agent CLI
-// child — claude/codex/pi — in one worktree); `running` drives the "coding
+// child — claude/codex — in one worktree); `running` drives the "coding
 // now" badge + Watch/Steer button.
 // `in_review` = the agent's PR is open and the terminal is still alive
 // awaiting review (EXP-194). The server writes running→in_review on PR open

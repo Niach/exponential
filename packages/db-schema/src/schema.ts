@@ -707,7 +707,7 @@ export const comments = pgTable(
 
 // The live "coding now" record — one row per interactive desktop coding
 // session (one session tab + one agent CLI child driven over ACP —
-// claude/codex/pi, EXP-201). SYNCED as an Electric shape
+// claude/codex, EXP-201). SYNCED as an Electric shape
 // so every coordination client shows the badge + Watch/Steer button. No
 // plan/approval state, no run history, no slot pool — PR outcome lives on
 // `issues` (prUrl/prNumber/prState/branch). Three session subjects: issue-
@@ -866,6 +866,12 @@ export const codingSessions = pgTable(
     // with running/in_review (which stay server-owned) instead of being a
     // status of its own; cleared by the desktop when the picker resolves.
     needsInput: boolean(`needs_input`).notNull().default(false),
+    // EXP-848: device-written turn state — the agent is EXECUTING a turn right
+    // now. Like `needs_input` it composes with the server-owned status instead
+    // of being one (a busy run is `running`; every server end path clears it),
+    // and it is what the session lists key their working spinner on: `running`
+    // alone only says the run is live, not that the agent is thinking.
+    agentBusy: boolean(`agent_busy`).notNull().default(false),
     // EXP-804: the agent's usage wall as row state. NULL = not blocked. The
     // run stays `running` — a blocked run is still live, steerable and
     // killable; this is orthogonal to status, like `needs_input` above.
@@ -1093,8 +1099,16 @@ export interface DeviceAgentAccount {
   email?: string
   plan?: string
   checkedAt?: string
-  /** EXP-792 (EXP-747 B5): every profile on the device, ≤5; absent on
-   * pre-profile clients. The top-level fields stay the ACTIVE profile. */
+  /** EXP-849: how USABLE the login is, as the device's usage probe saw it
+   * (`auth status` is identity only, never health) — a probe that came back
+   * Unauthorized is `needs_relogin`, a successful one `ok`, a profile that is
+   * not signed in `signed_out`, and one signed in but never probed
+   * `unknown`. Absent on pre-EXP-849 devices: derive it from `signedIn`
+   * (true → `ok`, false → `signed_out`). */
+  health?: DeviceAgentHealth
+  /** EXP-792 (EXP-747 B5): every profile on the device, ≤`MAX_AGENT_PROFILES`;
+   * absent on pre-profile clients. The top-level fields stay the ACTIVE
+   * profile. */
   profiles?: DeviceAgentProfileEntry[]
 }
 export interface DeviceAgentProfileEntry {
@@ -1105,8 +1119,28 @@ export interface DeviceAgentProfileEntry {
   plan?: string
   active?: boolean
   checkedAt?: string
+  /** EXP-849: this profile's own health, same vocabulary + same fallback as
+   * the account's. */
+  health?: DeviceAgentHealth
+  /** EXP-849: this login's IDENTITY ships but its usage numbers are not
+   * collected — it sits past the device's usage-probe cap
+   * (`coding::agent_usage::MAX_USAGE_PROFILES`), so one heartbeat cannot fan
+   * out into a probe per login. Absent = monitored. */
+  unmonitored?: boolean
   usage?: DeviceAgentUsage
 }
+
+/** EXP-849: the four health values, byte-identical with the desktop's
+ * `coding::agent_accounts::AgentHealth` wire strings. The server clamp keeps
+ * ONLY these (an unknown value is dropped, never a 400 — a newer device must
+ * lose a field, not its whole heartbeat). */
+export const deviceAgentHealthValues = [
+  `ok`,
+  `needs_relogin`,
+  `signed_out`,
+  `unknown`,
+] as const
+export type DeviceAgentHealth = (typeof deviceAgentHealthValues)[number]
 export type DeviceAgentAccounts = Record<string, DeviceAgentAccount>
 
 export interface DeviceUsageWindow {
@@ -1131,8 +1165,8 @@ export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
 // EXP-792 (EXP-747 B5): N accounts per agent ride the SAME jsonb value —
 // `signedIn`/`email`/`plan`/`checkedAt` stay the ACTIVE profile (old clients
 // see exactly the pre-profile payload), `profiles` lists every profile the
-// device holds (≤5, `system` = the ambient login). No new column: an unknown
-// devices column bricks older native sync.
+// device holds (≤`MAX_AGENT_PROFILES`, `system` = the ambient login). No new
+// column: an unknown devices column bricks older native sync.
 export const deviceAgentProfileSchema = z.object({
   id: z.string().max(64),
   label: z.string().max(64).nullish(),
@@ -1141,6 +1175,14 @@ export const deviceAgentProfileSchema = z.object({
   plan: z.string().max(64).nullish(),
   active: z.boolean().nullish(),
   checkedAt: z.string().max(64).nullish(),
+  // EXP-849: a STRING, not a z.enum — a device reporting a health value this
+  // build has no name for must lose the field in the clamp, not 400 the
+  // whole register (`clampAgentAccounts` owns the vocabulary).
+  health: z.string().max(32).nullish(),
+  // EXP-849: the device collects no usage for this login (it sits past its
+  // own probe cap) — the row is identity-only, and the clients say so rather
+  // than rendering an empty bar as "0%".
+  unmonitored: z.boolean().nullish(),
   usage: z
     .object({
       fetchedAt: z.string().max(64).nullish(),
@@ -1160,7 +1202,12 @@ export const deviceAgentProfileSchema = z.object({
     })
     .nullish(),
 })
-export const MAX_AGENT_PROFILES = 5
+/** EXP-849: how many profiles per agent one device may report. At least the
+ * desktop's usage-probe cap (`coding::agent_usage::MAX_USAGE_PROFILES` = 12),
+ * because a machine reports every login it holds — the ones past that cap ride
+ * along `unmonitored`, and silently dropping them here would hide logins the
+ * account pickers are supposed to offer. */
+export const MAX_AGENT_PROFILES = 12
 
 export const deviceAgentAccountsSchema = z.record(
   z.string(),
@@ -1170,6 +1217,8 @@ export const deviceAgentAccountsSchema = z.record(
       email: z.string().max(320).nullish(),
       plan: z.string().max(64).nullish(),
       checkedAt: z.string().max(64).nullish(),
+      // EXP-849: see `deviceAgentProfileSchema.health`.
+      health: z.string().max(32).nullish(),
       profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
     })
     .nullish()
@@ -1374,8 +1423,8 @@ export const deviceWorktrees = pgTable(
 // (EXP-484, payload {agent, switch: "true"|"false", profileId?,
 // newProfileLabel?}: the device runs the agent CLI's own login flow inside
 // the named account profile (EXP-827: `profileId` = an existing profile,
-// `newProfileLabel` = create one first, neither = the ambient login; pi has
-// none) and completes the command EARLY, as soon as the sign-in URL is on
+// `newProfileLabel` = create one first, neither = the ambient login) and
+// completes the command EARLY, as soon as the sign-in URL is on
 // screen, with the JSON progress in `result` ({agent, phase, url?, code?,
 // message?, profileId}, `profileId` = the id it signed into, `system` when
 // none was named)) |
@@ -1386,6 +1435,11 @@ export const deviceWorktrees = pgTable(
 // code} — the callback-relayed authorization code the device exchanges) |
 // `agent_usage_refresh` (EXP-747 C4, payload {agent, profileId} — force a
 // usage collection past the shared TTL, never past the rate-limit floor) |
+// `agent_profile_use` (EXP-849, payload {agent, profileId} — make an
+// already-signed-in profile the agent's ACTIVE login on that machine:
+// NON-DESTRUCTIVE, no logout, no login, no credential touched, the device
+// just re-heartbeats `agent_accounts`; gated on the `agent-login` cap like a
+// remote sign-in) |
 // `update_now` (FEED-36, payload {} — end every live session on the machine
 // and restart on the queued self-update; cap-gated on `update-now`).
 export const deviceCommands = pgTable(

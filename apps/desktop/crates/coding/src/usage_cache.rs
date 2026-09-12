@@ -58,6 +58,16 @@ pub const RESET_MARGIN_SECS: u64 = 60;
 /// headless daemon) stops the asking for an hour.
 pub const CREDENTIAL_DENIED_BACKOFF_SECS: u64 = 3600;
 
+/// EXP-849 — how often ONE codex login's keep-alive runs (`account/read`
+/// with `refreshToken: true`).
+///
+/// Deliberately far above every poll floor: the keep-alive is a flag on a
+/// request the poll already makes, so the cadence costs nothing but it does
+/// spend a token ROTATION, and rotating on every poll would churn the
+/// credential store several times an hour for no gain. Six hours is well
+/// inside any refresh-token lifetime while staying ~1/40th of the poll rate.
+pub const CODEX_REFRESH_INTERVAL_SECS: u64 = 6 * 3600;
+
 /// EXP-792 (EXP-747 B3): entries are keyed `agent:profileId` — one poll
 /// policy per LOGIN, so a 429 on one profile never backs off its siblings.
 /// A pre-profile file's bare `agent` key is the ambient login's
@@ -106,6 +116,22 @@ pub struct AgentCacheEntry {
     /// (`agent_usage_refresh`) must still honor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limited_until_secs: Option<u64>,
+    /// EXP-849 — this login's HEALTH, as the
+    /// [`crate::agent_accounts::Health`] wire token, derived from the PROBE:
+    /// a 401/403 is `needs_relogin`, an answer is `ok`. `None` = never
+    /// probed, which the wire reports as `unknown`.
+    ///
+    /// Deliberately NOT touched by a transport failure: an offline laptop's
+    /// login is not broken, and a dimmed bar already says the numbers are
+    /// old. Only the two outcomes that are the credential's own answer move
+    /// it, so the badge never flickers on a flaky network.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<String>,
+    /// EXP-849 — when this login's codex keep-alive last ran
+    /// (`account/read` with `refreshToken: true`). Unix seconds; `None` =
+    /// never. Claude has no keep-alive here (deferred to EXP-852).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refreshed_at_secs: Option<u64>,
     /// Fields a newer build wrote that this one does not know — carried
     /// verbatim through every rewrite (the [`crate::run_registry`] promise).
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -248,6 +274,133 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
         && now.saturating_sub(entry.fetched_at_secs) >= SHARED_TTL_SECS
 }
 
+/// EXP-849 — is this login's codex keep-alive due? (Never a reason to poll on
+/// its own: it only ever rides a probe the poll policy already decided to
+/// make.)
+pub fn refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
+    entry
+        .refreshed_at_secs
+        .is_none_or(|at| now.saturating_sub(at) >= CODEX_REFRESH_INTERVAL_SECS)
+}
+
+// ---------------------------------------------------------------------------
+// EXP-849: the keep-alive claim (ONE refresh actor per login, machine-wide)
+// ---------------------------------------------------------------------------
+
+/// How long a keep-alive claim is honored before another process may take it
+/// over. A holder that was SIGKILLed mid-probe (or a laptop that slept through
+/// one) leaves its file behind, and a claim nobody releases would park the
+/// login's keep-alive forever — far longer than the probe itself can take
+/// ([`crate::codex_app_server::PROBE_TIMEOUT`] is seconds).
+pub const REFRESH_CLAIM_STALE_SECS: u64 = 600;
+
+/// EXP-849 — a held claim on ONE login's keep-alive refresh. Dropping it
+/// releases the claim.
+///
+/// The poll floors live in `agent-usage.json` and are shared, so two processes
+/// never spend two REQUESTS on one login. A `refreshToken: true` read is
+/// different: it ROTATES the credential the store holds, so the IDE and the
+/// daemon both running the keep-alive on the same profile would rotate it
+/// twice, and the loser would be writing a token the winner has already
+/// replaced. The claim file is the cross-process lock that keeps the rotation
+/// to one actor; a process that cannot take it probes WITHOUT the keep-alive
+/// (the numbers it wanted are unaffected).
+#[derive(Debug)]
+pub struct RefreshClaim {
+    path: PathBuf,
+}
+
+impl RefreshClaim {
+    /// The claim file, for tests and diagnostics.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for RefreshClaim {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// One file per LOGIN beside the cache it guards. The id is slugged: a profile
+/// id is an opaque string, and one carrying a path separator must not escape
+/// the data dir.
+fn refresh_claim_path(data_dir: &Path, agent: &str, profile: &str) -> PathBuf {
+    let slug = |value: &str| {
+        value
+            .chars()
+            .map(|c| match c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                true => c,
+                false => '-',
+            })
+            .collect::<String>()
+    };
+    data_dir.join(format!("{}-{}.refresh.claim", slug(agent), slug(profile)))
+}
+
+/// Whether an EXISTING claim's contents may be taken over: it is older than
+/// [`REFRESH_CLAIM_STALE_SECS`], or it names no time at all (a truncated or
+/// hand-edited file is nobody's claim — the alternative is a file that parks
+/// the keep-alive until someone deletes it).
+pub fn refresh_claim_is_stale(contents: &str, now: u64) -> bool {
+    match contents
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        Some(taken_at) => now.saturating_sub(taken_at) >= REFRESH_CLAIM_STALE_SECS,
+        None => true,
+    }
+}
+
+/// Take the keep-alive claim for `(agent, profile)`, machine-wide. `None` =
+/// another live process holds it, so this pass must probe without the
+/// keep-alive. The claim is released when the returned guard drops.
+pub fn claim_refresh(
+    data_dir: &Path,
+    agent: &str,
+    profile: &str,
+    now: u64,
+) -> Option<RefreshClaim> {
+    let path = refresh_claim_path(data_dir, agent, profile);
+    // Serialized against the cache's own load-modify-save, so two threads of
+    // THIS process cannot both win the stale takeover below.
+    let _guard = locked();
+    if let Some(claim) = create_claim(&path, now) {
+        return Some(claim);
+    }
+    let stale = match std::fs::read_to_string(&path) {
+        Ok(contents) => refresh_claim_is_stale(&contents, now),
+        // Unreadable, or released between the two calls: either way nobody is
+        // provably holding it.
+        Err(_) => true,
+    };
+    if !stale {
+        return None;
+    }
+    let _ = std::fs::remove_file(&path);
+    create_claim(&path, now)
+}
+
+/// `create_new` is the atomic step: exactly one process can create the file.
+fn create_claim(path: &Path, now: u64) -> Option<RefreshClaim> {
+    use std::io::Write as _;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .ok()?;
+    // pid + when, so a human reading the file can tell who parked it.
+    let _ = write!(file, "{} {now}", std::process::id());
+    Some(RefreshClaim {
+        path: path.to_path_buf(),
+    })
+}
+
 /// When this agent may be polled again, given what the last attempt did.
 /// Every window sitting at 100 % pins the answer to just past the earliest
 /// reset — the numbers physically cannot move before then. One maxed window
@@ -298,6 +451,9 @@ pub fn apply_outcome(
             // A successful read proves the credential store answers again.
             entry.credential_denied_until_secs = None;
             entry.rate_limited_until_secs = None;
+            // EXP-849: …and proves the credential itself still works, which
+            // is exactly what `health: ok` claims.
+            entry.health = Some(crate::agent_accounts::Health::Ok.as_str().to_string());
             if unchanged {
                 PollOutcome::Unchanged
             } else {
@@ -311,6 +467,15 @@ pub fn apply_outcome(
             }
             if outcome == PollOutcome::RateLimited {
                 entry.rate_limited_until_secs = Some(now + RATE_LIMITED_FLOOR_SECS);
+            }
+            // EXP-849: a 401/403 is the provider saying this credential is no
+            // longer good for anything — the one failure whose fix is a
+            // login. Every other failure (transport, an unparseable body, a
+            // 429, a refused keychain) leaves the badge where it was: those
+            // are this machine's problems, not the account's.
+            if outcome == PollOutcome::Unauthorized {
+                entry.health =
+                    Some(crate::agent_accounts::Health::NeedsRelogin.as_str().to_string());
             }
             outcome
         }
@@ -441,6 +606,68 @@ mod tests {
         assert_eq!(force_due(&mut sibling.clone(), now + 10), Ok(()));
     }
 
+    /// EXP-849: the keep-alive claim is the cross-process lock that keeps ONE
+    /// refresh actor per login — a second claimant is refused and probes
+    /// without the keep-alive, and releasing the claim hands it on.
+    #[test]
+    fn only_one_process_holds_a_logins_refresh_claim() {
+        let dir = temp_dir("refresh-claim");
+        let now = 1_700_000_000;
+        let first = claim_refresh(&dir, "codex", "0a1b2c3d", now)
+            .expect("the first claimant takes it");
+        assert!(first.path().exists());
+        // The sibling process (same login) is refused…
+        assert!(claim_refresh(&dir, "codex", "0a1b2c3d", now).is_none());
+        // …but ANOTHER login's keep-alive is independent.
+        let sibling = claim_refresh(&dir, "codex", "system", now)
+            .expect("one claim per login, not per agent");
+        assert_ne!(first.path(), sibling.path());
+        // Releasing hands it on, and leaves no file behind.
+        let path = first.path().to_path_buf();
+        drop(first);
+        assert!(!path.exists());
+        let again = claim_refresh(&dir, "codex", "0a1b2c3d", now).expect("released");
+        assert_eq!(again.path(), path);
+        drop(again);
+        drop(sibling);
+
+        // A holder that died mid-probe leaves its file behind: the claim is
+        // taken over once it goes stale, never before.
+        std::fs::write(&path, format!("4242 {}", now - 10)).unwrap();
+        assert!(claim_refresh(&dir, "codex", "0a1b2c3d", now).is_none());
+        let reclaimed = claim_refresh(&dir, "codex", "0a1b2c3d", now + REFRESH_CLAIM_STALE_SECS)
+            .expect("a stale claim is taken over");
+        assert_eq!(reclaimed.path(), path);
+        drop(reclaimed);
+
+        // A truncated/hand-edited file names nobody.
+        std::fs::write(&path, "garbage").unwrap();
+        assert!(claim_refresh(&dir, "codex", "0a1b2c3d", now).is_some());
+
+        // A profile id can never escape the data dir.
+        let nasty = claim_refresh(&dir, "codex", "../../etc/passwd", now).unwrap();
+        assert_eq!(nasty.path().parent(), Some(dir.as_path()));
+    }
+
+    #[test]
+    fn a_claim_is_stale_when_it_is_old_or_names_no_time() {
+        let now = 1_700_000_000;
+        assert!(!refresh_claim_is_stale(&format!("17 {now}"), now));
+        assert!(!refresh_claim_is_stale(
+            &format!("17 {}", now - REFRESH_CLAIM_STALE_SECS + 1),
+            now
+        ));
+        assert!(refresh_claim_is_stale(
+            &format!("17 {}", now - REFRESH_CLAIM_STALE_SECS),
+            now
+        ));
+        assert!(refresh_claim_is_stale("", now));
+        assert!(refresh_claim_is_stale("17", now));
+        assert!(refresh_claim_is_stale("17 later", now));
+        // Clock skew (a stamp from the future) is not stale.
+        assert!(!refresh_claim_is_stale(&format!("17 {}", now + 90), now));
+    }
+
     fn window(key: &str, percent: u8, resets_at: Option<&str>) -> UsageWindow {
         UsageWindow {
             key: key.to_string(),
@@ -546,6 +773,59 @@ mod tests {
         };
         assert!(!poll_due(&denied, now));
         assert!(poll_due(&denied, now + 10));
+    }
+
+    /// EXP-849 — health tracks the CREDENTIAL's own answer and nothing else:
+    /// a read proves it works, a 401 proves it does not, and a flaky network
+    /// (or a 429, or a refused keychain) leaves the badge where it was.
+    #[test]
+    fn health_follows_the_probe_and_the_keep_alive_has_its_own_cadence() {
+        use crate::agent_accounts::Health;
+        let now = 1_000_000;
+        let mut entry = AgentCacheEntry::default();
+        assert_eq!(entry.health, None, "never probed");
+
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window("session", 10, None)]),
+            now,
+            "T0",
+        );
+        assert_eq!(entry.health.as_deref(), Some(Health::Ok.as_str()));
+
+        // Transport failures say nothing about the account.
+        for outcome in [
+            PollOutcome::Failed,
+            PollOutcome::RateLimited,
+            PollOutcome::Unchanged,
+        ] {
+            apply_outcome(&mut entry, outcome, None, now + 1, "T1");
+            assert_eq!(
+                entry.health.as_deref(),
+                Some(Health::Ok.as_str()),
+                "{outcome:?} must not flip the badge"
+            );
+        }
+
+        // A 401 does — and a later good read clears it again.
+        apply_outcome(&mut entry, PollOutcome::Unauthorized, None, now + 2, "T2");
+        assert_eq!(entry.health.as_deref(), Some(Health::NeedsRelogin.as_str()));
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window("session", 20, None)]),
+            now + 3,
+            "T3",
+        );
+        assert_eq!(entry.health.as_deref(), Some(Health::Ok.as_str()));
+
+        // The keep-alive's cadence is its own — never probed is due, and one
+        // run parks it for six hours.
+        assert!(refresh_due(&entry, now));
+        entry.refreshed_at_secs = Some(now);
+        assert!(!refresh_due(&entry, now + CODEX_REFRESH_INTERVAL_SECS - 1));
+        assert!(refresh_due(&entry, now + CODEX_REFRESH_INTERVAL_SECS));
     }
 
     #[test]

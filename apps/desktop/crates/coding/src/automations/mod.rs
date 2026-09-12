@@ -447,7 +447,7 @@ mod tests {
         let settings = crate::Settings::default();
         assert!(
             settings.plan_mode_for(settings.default_agent),
-            "the shipped default parks claude/pi in plan mode"
+            "the shipped default parks claude in plan mode"
         );
 
         // Nothing pinned = the device's own defaults, plan mode off.

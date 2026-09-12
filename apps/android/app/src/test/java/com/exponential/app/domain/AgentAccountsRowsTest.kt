@@ -33,6 +33,7 @@ class AgentAccountsRowsTest {
         plan: String? = null,
         usage: AgentUsage? = null,
         checkedAt: String? = null,
+        health: AgentHealth = AgentHealthRules.derived(signedIn),
     ) = AgentProfileUsageRow(
         key = "$deviceId:$agent:$profileId",
         deviceId = deviceId,
@@ -44,6 +45,7 @@ class AgentAccountsRowsTest {
         profileLabel = "Default",
         active = true,
         signedIn = signedIn,
+        health = health,
         email = email,
         plan = plan,
         usage = usage,
@@ -226,14 +228,14 @@ class AgentAccountsRowsTest {
     fun `keeps email-less and signed-out rows apart — nothing to merge on`() {
         val groups = AgentAccountsRows.accountUsageGroups(
             listOf(
-                row(deviceId = "a", agent = "pi", plan = "openai-codex (oauth)"),
-                row(deviceId = "b", agent = "pi", plan = "openai-codex (oauth)"),
+                row(deviceId = "a", agent = "codex", plan = "openai-codex (oauth)"),
+                row(deviceId = "b", agent = "codex", plan = "openai-codex (oauth)"),
                 row(deviceId = "a", agent = "claude", signedIn = false, email = "x@y.z"),
                 row(deviceId = "b", agent = "claude", signedIn = false),
             ),
         ) { false }
         assertEquals(
-            listOf("pi:a:system", "pi:b:system", "claude:a:system", "claude:b:system"),
+            listOf("codex:a:system", "codex:b:system", "claude:a:system", "claude:b:system"),
             groups.map { it.key },
         )
         assertFalse(groups[2].signedIn)
@@ -333,11 +335,11 @@ class AgentAccountsRowsTest {
 
     @Test
     fun `sections follow the contract agent order`() {
-        val groups = listOf("pi", "zeta", "claude", "codex", "alpha").map { agent ->
+        val groups = listOf("zeta", "claude", "codex", "alpha").map { agent ->
             AgentAccountsRows.accountUsageGroups(listOf(row(deviceId = "a", agent = agent))) { false }.single()
         }
         val sections = AgentAccountsRows.sections(groups)
-        assertEquals(listOf("claude", "codex", "pi", "alpha", "zeta"), sections.map { it.agent })
+        assertEquals(listOf("claude", "codex", "alpha", "zeta"), sections.map { it.agent })
     }
 
     @Test
@@ -386,5 +388,65 @@ class AgentAccountsRowsTest {
         )
         assertEquals(listOf("mine"), AgentAccountsRows.sectionDevices(rows, "me", null).map { it.deviceId })
         assertTrue(AgentAccountsRows.sectionDevices(rows, null, "team-1").isEmpty())
+    }
+
+    // ── EXP-849: health ──────────────────────────────────────────────────────
+
+    @Test
+    fun `a group carries the worst health of its machines`() {
+        val groups = AgentAccountsRows.accountUsageGroups(
+            listOf(
+                row(deviceId = "a", agent = "claude", email = "me@acme.test", health = AgentHealth.Ok),
+                row(deviceId = "b", agent = "claude", email = "me@acme.test", health = AgentHealth.NeedsRelogin),
+            ),
+        ) { false }
+        assertEquals(1, groups.size)
+        assertEquals(AgentHealth.NeedsRelogin, groups[0].health)
+        assertEquals("Needs re-login", AgentAccountsRows.healthBadge(groups[0]))
+    }
+
+    @Test
+    fun `a signed-out group says so in its caption, not in a badge`() {
+        val groups = AgentAccountsRows.accountUsageGroups(
+            listOf(row(deviceId = "a", agent = "claude", signedIn = false)),
+        ) { false }
+        assertEquals(AgentHealth.SignedOut, groups[0].health)
+        assertEquals("Not signed in", AgentAccountsRows.caption(groups[0]))
+        assertNull(AgentAccountsRows.healthBadge(groups[0]))
+    }
+
+    @Test
+    fun `an expired credential leads like a signed-out one`() {
+        val groups = AgentAccountsRows.sortAccountGroupsAttentionFirst(
+            AgentAccountsRows.accountUsageGroups(
+                listOf(
+                    row(deviceId = "a", agent = "claude", email = "hot@acme.test", usage = usage("2026-08-28T11:00:00.000Z", 96)),
+                    row(
+                        deviceId = "b",
+                        agent = "claude",
+                        email = "dead@acme.test",
+                        health = AgentHealth.NeedsRelogin,
+                        usage = usage("2026-08-28T11:00:00.000Z", 2),
+                    ),
+                ),
+            ) { false },
+        )
+        assertEquals(
+            listOf("claude:dead@acme.test", "claude:hot@acme.test"),
+            groups.map { it.key },
+        )
+    }
+
+    @Test
+    fun `profile health rides the synced rows`() {
+        val accounts = """{"claude":{"signedIn":true,"email":"a@acme.test","health":"ok","profiles":[""" +
+            """{"id":"system","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"},""" +
+            """{"id":"work","signedIn":true,"email":"b@acme.test","health":"needs_relogin"}]}}"""
+        val rows = AgentAccountsRows.agentProfileUsageRows(
+            listOf(device(deviceId = "macbook", agentAccounts = accounts)),
+            "me",
+        ) { true }
+        assertEquals(AgentHealth.Ok, rows.first { it.profileId == "system" }.health)
+        assertEquals(AgentHealth.NeedsRelogin, rows.first { it.profileId == "work" }.health)
     }
 }

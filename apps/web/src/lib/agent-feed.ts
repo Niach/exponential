@@ -640,11 +640,22 @@ export function isSubagentScoped(item: {
   )
 }
 
-/** EXP-772: append a narration fragment onto the feed's LAST row when both
- *  carry the same `messageId` — the ACP coalescer flushes one assistant
- *  message in several events, and a row per flush shredded a paragraph into
- *  bubbles. Returns the new feed, or `null` when there is nothing to merge
- *  into (a different message, a row in between, no id at all). */
+/** EXP-772: append a narration fragment onto the narration row that carries
+ *  the same `messageId` — the ACP coalescer flushes one assistant message in
+ *  several events, and a row per flush shredded a paragraph into bubbles.
+ *  Returns the new feed, or `null` when there is nothing to merge into (a
+ *  different message, a row in between, no id at all).
+ *
+ *  EXP-846 makes the search a LOOK-BACK rather than a peek at the last row:
+ *  the target is the most recent narration in the fragment's OWN lane
+ *  (`subagentId`, `undefined` = the main lane), and rows of ANOTHER lane —
+ *  a subagent's edges, its tool rows — never break it, because a subagent
+ *  running inside the main agent's message interleaves its rows into one
+ *  paragraph's flushes. (Latest-wins state — config/usage/rate limits, the
+ *  diff bar, the compaction strip — is no feed row at all, so it cannot
+ *  break a merge either.) A row in the fragment's own lane still does: a
+ *  tool call, a user turn or a question means the bubble is finished.
+ *  Mirrored ×4 (desktop `merge_narration_fragment`, ExpCore, Android). */
 export function mergeNarrationFragment<
   T extends { kind: string; messageId?: string; text?: string; subagentId?: string },
 >(
@@ -653,15 +664,26 @@ export function mergeNarrationFragment<
 ): T[] | null {
   const id = fragment.messageId
   if (id === undefined || id === ``) return null
-  const last = feed[feed.length - 1]
-  if (!last || last.kind !== `narration`) return null
-  if (last.messageId !== id) return null
-  // A fragment that landed in a different scope is a different bubble.
-  if (last.subagentId !== fragment.subagentId) return null
-  return [
-    ...feed.slice(0, -1),
-    { ...last, text: `${last.text ?? ``}${fragment.text}` },
-  ]
+  const lane = fragment.subagentId ?? null
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const row = feed[i]
+    const rowLane = subagentIdOf(row)
+    // A row of another lane (a sibling subagent's, or the main feed under a
+    // subagent's fragment): skipped, the look-back continues behind it. The
+    // lanes are independent — a subagent's rows render inside its own card,
+    // so nothing of another lane ever sits "between" two fragments. ×4.
+    if (rowLane !== lane) continue
+    // The fragment's own lane: this row either IS the bubble to extend, or
+    // it closed it.
+    if (row.kind !== `narration`) return null
+    if (row.messageId !== id) return null
+    return [
+      ...feed.slice(0, i),
+      { ...row, text: `${row.text ?? ``}${fragment.text}` },
+      ...feed.slice(i + 1),
+    ]
+  }
+  return null
 }
 
 /** Group the flat feed into render rows — a pure projection: the feed (and
@@ -810,9 +832,23 @@ export const SUBAGENT_FALLBACK_TYPE = `agent`
 export interface SubagentSummary {
   subagentId: string
   agentType: string
+  /** EXP-847: the spawning Agent call's description, when the publisher sent
+   *  one — `subagentLabel` prefers it over `agentType`. */
+  title?: string
   done: boolean
   detail?: string
   toolCount: number
+}
+
+/** EXP-847: what a subagent is CALLED on screen — the spawning call's
+ *  description, falling back to the agent type (all a pre-EXP-847 publisher
+ *  sends). Mirrored ×4 so the chips read the same everywhere. */
+export function subagentLabel(summary: {
+  agentType: string
+  title?: string
+}): string {
+  const title = summary.title?.trim()
+  return title ? title : summary.agentType
 }
 
 /** Every subagent seen in the feed, in first-appearance order, each summarized
@@ -823,6 +859,7 @@ export function collectSubagents<
     kind: string
     subagentId?: string
     agentType?: string
+    title?: string
     status?: string
     detail?: string
   },
@@ -861,6 +898,8 @@ export function visibleSubagentTabs(
  *  status / detail selection so all clients can mirror it:
  *  - `agentType`: the first marker's real type — a later marker carrying the
  *    fallback (an old desktop's completed edge) can never degrade the label;
+ *  - `title` (EXP-847): the first marker's non-empty description, what
+ *    `subagentLabel` shows instead of the type;
  *  - `done`: any marker completed;
  *  - `detail`: the LATEST non-empty detail (the completed edge restates the
  *    freshest);
@@ -872,13 +911,20 @@ export function summarizeSubagentRow<
   T extends {
     kind: string
     agentType?: string
+    title?: string
     status?: string
     detail?: string
     toolCalls?: number
   },
 >(
   items: readonly T[]
-): { agentType: string; done: boolean; detail?: string; toolCount: number } {
+): {
+  agentType: string
+  title?: string
+  done: boolean
+  detail?: string
+  toolCount: number
+} {
   const markers = items.filter((i) => i.kind === `subagent`)
   const types = markers
     .map((m) => m.agentType?.trim() ?? ``)
@@ -892,6 +938,7 @@ export function summarizeSubagentRow<
       types.find((t) => t !== SUBAGENT_FALLBACK_TYPE) ??
       types[0] ??
       SUBAGENT_FALLBACK_TYPE,
+    title: markers.map((m) => m.title?.trim()).find((t) => t),
     done: markers.some((m) => m.status === `completed`),
     detail: [...markers].reverse().find((m) => m.detail?.trim())?.detail,
     toolCount: Math.max(items.filter((i) => i.kind === `tool`).length, reported),
@@ -1102,10 +1149,21 @@ export function modeChip(
   }
 }
 
+/** EXP-847: the session header's READ-ONLY plan chip — the mode chip's label
+ *  while the run is in PLAN mode, null otherwise. Never a control: EXP-790
+ *  keeps mode a launch-time choice, so this only makes the state visible, and
+ *  an approved `ExitPlanMode` clears `currentMode` and the chip with it. */
+export function planModeChipLabel(
+  config: SessionConfigState | null | undefined
+): string | null {
+  const chip = modeChip(config)
+  return chip && chip.value === `plan` ? chip.valueLabel : null
+}
+
 /** EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
- *  That shape (claude, and pi when it launched with the plan extension) draws
- *  a "Plan" switch instead of a two-value chip; anything else falls back to
- *  the chip. `null` when the run is not that shape. */
+ *  That shape (claude) draws a "Plan" switch instead of a two-value chip;
+ *  anything else falls back to the chip. `null` when the run is not that
+ *  shape. */
 export interface PlanModeToggle {
   /** The mode to switch to when turning plan ON. */
   planId: string
@@ -1270,6 +1328,49 @@ export function opensInlineField(
   )
 }
 
+// ── EXP-846: the Exponential MCP tool row ───────────────────────────────────
+
+/** One `expToolDisplay` row off the contract. */
+export interface ExpToolDisplay {
+  name: string
+  progressive: string
+  done: string
+  subjectKey: string
+  result: string
+}
+
+/** EXP-846: the Exponential MCP tool a call NAMES, or null for anything else.
+ *  Mirrors the engine's `exp_tool_row` (`crates/engine/src/mapper.rs`): the
+ *  contract PREFIX has to sit right in front of a known row name, whatever
+ *  namespace an adapter put in front of THAT
+ *  (`mcp__exponential__exponential_issues_create` on claude, the bare
+ *  `exponential_issues_create` elsewhere) — which is what keeps another MCP
+ *  server's `issues_create` out. */
+export function expToolDisplay(
+  name: string | null | undefined
+): ExpToolDisplay | null {
+  if (!name) return null
+  const trimmed = name.trim()
+  const prefix = contract.expToolDisplay.prefix
+  for (const row of contract.expToolDisplay.tools) {
+    if (trimmed.length <= row.name.length) continue
+    if (!trimmed.endsWith(row.name)) continue
+    if (trimmed.slice(0, trimmed.length - row.name.length).endsWith(prefix)) {
+      return row as ExpToolDisplay
+    }
+  }
+  return null
+}
+
+/** EXP-846: what an Exponential tool row READS — the contract's progressive
+ *  caption while the call is in flight, its done caption once it settled. */
+export function expToolCaption(
+  display: ExpToolDisplay,
+  settled: boolean
+): string {
+  return settled ? display.done : display.progressive
+}
+
 // ── EXP-785: the collapsed tool group's caption ─────────────────────────────
 
 /** The `toolGroupSummary` input for a run of tool rows: a row from a
@@ -1364,4 +1465,87 @@ export function rateLimitBanner(
       ? null
       : formatResetCountdown(new Date(rateLimitResetsAtMs(state.resetsAt)).toISOString(), now)
   return { text, resets }
+}
+
+
+/** EXP-848: the agent's TURN state — the fifth latest-wins slot (`journal.rs`,
+ *  `hub.ts` LATEST_WINS_KINDS, iOS/Android `AgentFeed`, desktop `feed.rs`).
+ *  `started` = the agent is executing a turn; `ended` = the turn is over
+ *  (end_turn, a cancel, a prompt error). Every client DEFAULTS to `ended`
+ *  before any event arrives, so a run never pulses on arrival. */
+export type TurnState = (typeof contract.turnState.values)[number]
+
+/** Fold a `turn` event. An unreadable payload keeps the previous slot (the
+ *  `config_state` rule): blanking to idle mid-turn would stop the working
+ *  indicator over an agent that is still thinking. */
+export function parseTurnState(event: unknown): TurnState | null {
+  if (!isEventRecord(event)) return null
+  const state = event.state
+  if (typeof state !== `string`) return null
+  const trimmed = state.trim()
+  return (contract.turnState.values as readonly string[]).includes(trimmed)
+    ? (trimmed as TurnState)
+    : null
+}
+
+/** EXP-846: the preview the engine distils from an Exponential MCP tool's JSON
+ *  result (`expToolDisplay`), folded onto the `tool` row by `tool_update`.
+ *  Every field is optional — a result that carried none yields null. Phase 1
+ *  PLUMBS it (wire → reducer → row); the custom rendering is a later phase. */
+export interface ExpToolPreview {
+  id?: string
+  identifier?: string
+  title?: string
+  url?: string
+  count?: number
+  status?: string
+}
+
+/** The engine caps every preview string; the client re-clamps because the
+ *  wire is a device's word, not ours. */
+const PREVIEW_FIELD_MAX = 200
+
+export function parseToolPreview(value: unknown): ExpToolPreview | null {
+  if (!isEventRecord(value)) return null
+  const out: ExpToolPreview = {}
+  for (const key of [`id`, `identifier`, `title`, `url`, `status`] as const) {
+    const raw = value[key]
+    if (typeof raw !== `string`) continue
+    const trimmed = raw.trim()
+    if (trimmed) out[key] = trimmed.slice(0, PREVIEW_FIELD_MAX)
+  }
+  const count = value.count
+  if (typeof count === `number` && Number.isFinite(count) && count >= 0) {
+    out.count = Math.round(count)
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/** EXP-848: THE "the agent is working right now" predicate — one copy per
+ *  client (desktop `feed.rs`, iOS + Android `AgentFeed`), driving both the
+ *  "Working…" footer and the composer's Stop glyph.
+ *
+ *  `running` alone is NOT it: a live run between turns is idle, which is why
+ *  the turn slot exists (default `ended`, so nothing pulses before the first
+ *  edge). The negatives are the four states that each own their own UI:
+ *  a trailing question/plan, the synced `needs_input` flag, the usage wall
+ *  (`blocked`) and a compaction strip. */
+export function sessionIsWorking(input: {
+  live: boolean
+  sessionEnded: boolean
+  turnState: TurnState
+  awaitingInput: boolean
+  needsInput: boolean
+  blocked: boolean
+  compacting: boolean
+}): boolean {
+  return (
+    input.live &&
+    !input.sessionEnded &&
+    input.turnState === `started` &&
+    !input.awaitingInput &&
+    !input.needsInput &&
+    !input.blocked &&
+    !input.compacting
+  )
 }

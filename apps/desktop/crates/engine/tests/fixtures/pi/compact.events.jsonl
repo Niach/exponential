@@ -1,2 +1,0 @@
-{"type":"compaction_start","reason":"threshold"}
-{"type":"compaction_end","reason":"threshold","aborted":false,"willRetry":false}

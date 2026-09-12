@@ -821,7 +821,7 @@ async fn run_publisher_loop(
 
 // EXP-383: composer-message chunk tracking. A message arrives as ≤4 KiB
 // text chunks closed by a bare `\r`; the FIRST chunk is where codex's
-// leading-sigil guard applies and where pi's sink buffer opens. A chunk
+// leading-sigil guard applies and where the text sink's buffer opens. A chunk
 // this stale without its `\r` is a dead message (client gone mid-send) —
 // the next text chunk counts as a fresh composer open again.
 const MESSAGE_STALENESS: Duration = Duration::from_secs(5);
@@ -1657,7 +1657,7 @@ mod tests {
         let runtime = SteerRuntime::new().unwrap();
         let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
-        let link = CommandLink::new(None);
+        let link = CommandLink::new();
         let mut hooks = recording_hooks(recorded.clone());
         hooks.commands = Some(link.clone());
         let handle = publish(
@@ -1724,24 +1724,24 @@ mod tests {
         handle.shutdown(None);
     }
 
-    /// Pi's messages route to the observer extension; its COMMANDS must not
-    /// — `pi.sendUserMessage("/compact")` is literal text to the model.
+    /// A sunk session's messages route to the engine's text sink; its
+    /// COMMANDS must not — a `/compact` sent as text is prose to the model.
     #[test]
-    fn a_pi_catalog_command_bypasses_the_text_sink() {
+    fn a_catalog_command_bypasses_the_text_sink() {
         let runtime = SteerRuntime::new().unwrap();
         let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let link = CommandLink::new(None);
+        let link = CommandLink::new();
         let mut hooks = recording_hooks(recorded.clone());
-        hooks.agent = SessionAgent::Pi;
+        hooks.agent = SessionAgent::Claude;
         hooks.commands = Some(link.clone());
         let sink = sunk.clone();
         hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
         let handle = publish(
             &runtime,
             PublishSpec {
-                session_id: "sess-cmd-pi".to_string(),
+                session_id: "sess-cmd-sink".to_string(),
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
@@ -2013,24 +2013,24 @@ mod tests {
     }
 
     #[test]
-    fn a_pi_text_sink_receives_the_localized_message() {
-        // The rewrite happens BEFORE the sink buffer opens, so pi's observer
-        // extension injects paths too.
+    fn a_text_sink_receives_the_localized_message() {
+        // The rewrite happens BEFORE the sink buffer opens, so a sunk session
+        // gets the injected paths too.
         let runtime = SteerRuntime::new().unwrap();
         let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let local = image_dir("pi").join("11111111-2222-3333-4444-555555555555.png");
+        let local = image_dir("sink").join("11111111-2222-3333-4444-555555555555.png");
         let localized = local.clone();
         let mut hooks = recording_hooks(recorded);
-        hooks.agent = SessionAgent::Pi;
+        hooks.agent = SessionAgent::Claude;
         let sink = sunk.clone();
         hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
         hooks.attachments = Some(Arc::new(move |_id| Ok(localized.clone())));
         let handle = publish(
             &runtime,
             PublishSpec {
-                session_id: "sess-img-pi".to_string(),
+                session_id: "sess-img-sink".to_string(),
                 issue_id: None,
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),

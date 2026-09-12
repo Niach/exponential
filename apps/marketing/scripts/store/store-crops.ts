@@ -67,7 +67,7 @@ export const HAND_RECTS: Record<string, Rect> = {
   "board:android-phone": { x: 0.024, y: 0.33, w: 0.951, h: 0.0735 },
   "board:ios-tablet": { x: 0.007, y: 0.226, w: 0.986, h: 0.157 },
 
-  // The Claude Code / Codex / pi agent picker, plus the Model + Effort rows
+  // The Claude Code / Codex agent picker, plus the Model + Effort rows
   // right under it — the picker alone is a ~12:1 sliver.
   "start-coding:ios-phone": { x: 0.0315, y: 0.578, w: 0.937, h: 0.177 },
   "start-coding:android-phone": { x: 0.0289, y: 0.5165, w: 0.942, h: 0.156 },

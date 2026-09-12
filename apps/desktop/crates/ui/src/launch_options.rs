@@ -270,7 +270,7 @@ pub(crate) fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<Codi
 
 /// The `(ultracode, plan_mode)` settings defaults for `agent`,
 /// capability-masked (EXP-201: ultracode is Claude-only, plan mode is
-/// claude+pi since EXP-441). EXP-206: ONE set of defaults — a single-issue
+/// claude-only). EXP-206: ONE set of defaults — a single-issue
 /// run and a multi-issue batch run seed identically, and plan mode is a
 /// per-AGENT setting. EXP-690 retired the skip-permissions toggle (every
 /// run bypasses).
@@ -1021,7 +1021,7 @@ pub(crate) struct LaunchOptionsSection {
     effort: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     pub(crate) ultracode: bool,
-    /// Native plan mode (`--permission-mode plan`; pi via its extension).
+    /// Native plan mode (`--permission-mode plan`).
     pub(crate) plan_mode: bool,
     /// EXP-696: `Some` while the run targets another machine — its agents
     /// and its published defaults replace the local doctor + hub everywhere.
@@ -1864,27 +1864,27 @@ mod tests {
     #[test]
     fn launch_pills_note_agents_that_cannot_run_a_session() {
         let all = CodingAgent::ALL.to_vec();
-        let pills = launch_pills(&all, &[], &[CodingAgent::Pi]);
+        let pills = launch_pills(&all, &[], &[CodingAgent::Codex]);
         assert_eq!(pills.len(), all.len(), "a note never removes a pill");
         assert_eq!(pills[0].note, None);
         assert_eq!(
-            pills[2].note.as_deref(),
+            pills[1].note.as_deref(),
             Some(NO_SESSION_NOTE),
-            "pi cannot run a session there"
+            "codex cannot run a session there"
         );
         // Not signed in beats it: that agent cannot run at all yet.
-        let pills = launch_pills(&all, &[CodingAgent::Pi], &[CodingAgent::Pi]);
-        assert_eq!(pills[2].note.as_deref(), Some("not signed in"));
-        assert!(pills[2].dimmed, "the sign-in note is what dims a pill");
+        let pills = launch_pills(&all, &[CodingAgent::Codex], &[CodingAgent::Codex]);
+        assert_eq!(pills[1].note.as_deref(), Some("not signed in"));
+        assert!(pills[1].dimmed, "the sign-in note is what dims a pill");
         let pills = launch_pills(&all, &[], &[CodingAgent::Claude]);
         assert!(!pills[0].dimmed);
 
         // The unknown/ready cases the notes derive from.
-        assert!(!cannot_run_session(None, CodingAgent::Pi));
-        assert!(cannot_run_session(Some(&[]), CodingAgent::Pi));
+        assert!(!cannot_run_session(None, CodingAgent::Codex));
+        assert!(cannot_run_session(Some(&[]), CodingAgent::Codex));
         assert!(!cannot_run_session(
-            Some(&[CodingAgent::Claude, CodingAgent::Pi]),
-            CodingAgent::Pi
+            Some(&[CodingAgent::Claude, CodingAgent::Codex]),
+            CodingAgent::Codex
         ));
     }
 
@@ -1901,17 +1901,13 @@ mod tests {
         );
         // A default the machine cannot run keeps a still-runnable pick.
         assert_eq!(
-            settled_agent(
-                &[CodingAgent::Claude, CodingAgent::Codex],
-                CodingAgent::Pi,
-                CodingAgent::Codex
-            ),
+            settled_agent(&[CodingAgent::Codex], CodingAgent::Claude, CodingAgent::Codex),
             CodingAgent::Codex
         );
         // Neither runnable → the machine's first agent.
         assert_eq!(
-            settled_agent(&[CodingAgent::Pi], CodingAgent::Claude, CodingAgent::Codex),
-            CodingAgent::Pi
+            settled_agent(&[CodingAgent::Codex], CodingAgent::Claude, CodingAgent::Claude),
+            CodingAgent::Codex
         );
         // Nothing advertised at all → the standing pick stands (the launch
         // blocker names the reason instead of the picker going blank).

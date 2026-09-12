@@ -3,13 +3,20 @@ import {
   ackAnswer,
   activeQuestionIds,
   mergeNarrationFragment,
+  expToolCaption,
+  expToolDisplay,
   modeChip,
   parseConfigState,
+  planModeChipLabel,
   planModeToggle,
   parseRateLimit,
   parseSessionUsage,
   parseToolKind,
+  parseToolPreview,
+  parseTurnState,
   rateLimitClears,
+  sessionIsWorking,
+  subagentLabel,
   feedItemBytes,
   TOOL_KINDS,
   answerKey,
@@ -1112,8 +1119,27 @@ describe(`config state`, () => {
     expect(modeChip(blank)?.valueLabel).toBe(CONFIG_DEFAULT_VALUE_LABEL)
   })
 
-  // EXP-772: the claude/pi pair draws a Plan SWITCH; anything else keeps the
-  // two-value chip.
+  // EXP-847: the session header's read-only chip — plan mode only.
+  it(`the plan chip shows only while plan mode is in force`, () => {
+    const modes = [
+      { id: `default`, label: `Default` },
+      { id: `plan`, label: `Plan` },
+    ]
+    expect(
+      planModeChipLabel(parseConfigState(state({ modes, currentMode: `plan` })))
+    ).toBe(`Plan`)
+    // An approved ExitPlanMode switches the mode — the chip goes with it.
+    expect(
+      planModeChipLabel(
+        parseConfigState(state({ modes, currentMode: `default` }))
+      )
+    ).toBeNull()
+    expect(planModeChipLabel(parseConfigState(state({ modes: [] })))).toBeNull()
+    expect(planModeChipLabel(null)).toBeNull()
+  })
+
+  // EXP-772: the plan + one-other pair draws a Plan SWITCH; anything else
+  // keeps the two-value chip.
   it(`planModeToggle recognizes the plan + one other pair`, () => {
     expect(planModeToggle(parseConfigState(state()))).toEqual({
       planId: `plan`,
@@ -1239,6 +1265,83 @@ describe(`narration fragments`, () => {
         subagentId: `sub-1`,
       })
     ).toBeNull()
+  })
+
+  // EXP-846: the LOOK-BACK. A subagent spawned inside one assistant message
+  // pushes its own rows between that message's flushes — the real shape is
+  // fragment A, the subagent's tool call, its update, fragment B. Those rows
+  // belong to ANOTHER lane, so the second fragment still lands in the first
+  // bubble instead of opening a second one.
+  it(`merges across a different subagent's rows`, () => {
+    const feed = [
+      row({ id: 1, messageId: `m1`, text: `A` }),
+      // The subagent's tool row — and its `tool_update`, which the store
+      // folds INTO that row rather than appending one.
+      { id: 2, kind: `tool`, name: `Grep`, subagentId: `sub-1`, settled: true },
+      { id: 3, kind: `subagent`, subagentId: `sub-1`, status: `completed` },
+    ]
+    expect(
+      mergeNarrationFragment(feed, { messageId: `m1`, text: `B` })
+    ).toEqual([
+      { id: 1, kind: `narration`, text: `AB`, messageId: `m1` },
+      feed[1],
+      feed[2],
+    ])
+  })
+
+  // What the look-back does NOT loosen: a row in the fragment's OWN lane
+  // still closes the bubble, so the merge is skipping scopes, not rows.
+  it(`still breaks on a row in the fragment's own lane`, () => {
+    const subFeed = [
+      row({ id: 1, messageId: `m1`, subagentId: `sub-1` }),
+      { id: 2, kind: `tool`, name: `Read`, subagentId: `sub-1` },
+    ]
+    expect(
+      mergeNarrationFragment(subFeed, {
+        messageId: `m1`,
+        text: `x`,
+        subagentId: `sub-1`,
+      })
+    ).toBeNull()
+    // A main-lane tool call, a user turn or a question finishes a main bubble
+    // exactly as before the look-back.
+    for (const between of [
+      { id: 2, kind: `tool`, name: `Bash` },
+      { id: 2, kind: `user_message`, text: `stop` },
+      { id: 2, kind: `question`, text: `which?` },
+    ]) {
+      expect(
+        mergeNarrationFragment([row({ id: 1, messageId: `m1` }), between], {
+          messageId: `m1`,
+          text: `x`,
+        })
+      ).toBeNull()
+    }
+  })
+
+  // A subagent's fragments merge into the subagent's OWN bubble across the
+  // rows of a sibling subagent.
+  it(`merges a subagent's fragments across a sibling's rows`, () => {
+    const feed = [
+      row({ id: 1, messageId: `m1`, text: `A`, subagentId: `sub-1` }),
+      { id: 2, kind: `tool`, name: `Grep`, subagentId: `sub-2` },
+    ]
+    expect(
+      mergeNarrationFragment(feed, {
+        messageId: `m1`,
+        text: `B`,
+        subagentId: `sub-1`,
+      })
+    ).toEqual([
+      {
+        id: 1,
+        kind: `narration`,
+        text: `AB`,
+        messageId: `m1`,
+        subagentId: `sub-1`,
+      },
+      feed[1],
+    ])
   })
 })
 
@@ -1630,5 +1733,111 @@ describe(`rate-limit banner (EXP-784)`, () => {
     expect(
       rateLimitBanner({ status: `rejected`, resetsAt: 1_700_000_000 + 45 * 60 }, now)?.resets
     ).toBe(`resets in 45m`)
+  })
+})
+
+// EXP-848/847/846: the turn slot, the working predicate and the two optional
+// wire fields. Mirrored ×4 (desktop `feed.rs`, iOS + Android `AgentFeed`).
+describe(`turn state + working predicate (EXP-848)`, () => {
+  const base = {
+    live: true,
+    sessionEnded: false,
+    turnState: `started` as const,
+    awaitingInput: false,
+    needsInput: false,
+    blocked: false,
+    compacting: false,
+  }
+
+  it(`parseTurnState takes only contract values`, () => {
+    expect(parseTurnState({ kind: `turn`, state: ` started ` })).toBe(`started`)
+    expect(parseTurnState({ kind: `turn`, state: `ended` })).toBe(`ended`)
+    expect(parseTurnState({ kind: `turn`, state: `thinking` })).toBeNull()
+    expect(parseTurnState({ kind: `turn` })).toBeNull()
+    expect(parseTurnState(null)).toBeNull()
+    expect([...contract.turnState.values]).toEqual([`started`, `ended`])
+  })
+
+  it(`works only mid-turn, and every blocker stands it down`, () => {
+    expect(sessionIsWorking(base)).toBe(true)
+    expect(sessionIsWorking({ ...base, turnState: `ended` })).toBe(false)
+    expect(sessionIsWorking({ ...base, live: false })).toBe(false)
+    expect(sessionIsWorking({ ...base, sessionEnded: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, awaitingInput: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, needsInput: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, blocked: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, compacting: true })).toBe(false)
+  })
+
+  it(`subagentLabel prefers the spawning call's title (EXP-847)`, () => {
+    expect(subagentLabel({ agentType: `general-purpose`, title: ` Audit ` })).toBe(
+      `Audit`
+    )
+    expect(subagentLabel({ agentType: `general-purpose`, title: `  ` })).toBe(
+      `general-purpose`
+    )
+    expect(subagentLabel({ agentType: `general-purpose` })).toBe(`general-purpose`)
+    expect(
+      summarizeSubagentRow([
+        { kind: `subagent`, agentType: `general-purpose`, status: `started`, title: `Audit` },
+        { kind: `subagent`, agentType: `general-purpose`, status: `completed` },
+      ]).title
+    ).toBe(`Audit`)
+  })
+
+  it(`parseToolPreview keeps the named fields, clamped (EXP-846)`, () => {
+    expect(
+      parseToolPreview({
+        id: ` abc `,
+        identifier: `EXP-848`,
+        title: `t`.repeat(400),
+        url: `https://example.test/pr/1`,
+        status: `open`,
+        count: 2.6,
+        extra: `dropped`,
+      })
+    ).toEqual({
+      id: `abc`,
+      identifier: `EXP-848`,
+      title: `t`.repeat(200),
+      url: `https://example.test/pr/1`,
+      status: `open`,
+      count: 3,
+    })
+    expect(parseToolPreview({ count: 0 })).toEqual({ count: 0 })
+    expect(parseToolPreview({ title: `   `, count: -2 })).toBeNull()
+    expect(parseToolPreview(null)).toBeNull()
+  })
+})
+
+// ── EXP-846: the Exponential MCP tool row ───────────────────────────────────
+
+describe(`expToolDisplay`, () => {
+  it(`recognises our tools through every MCP namespace`, () => {
+    expect(expToolDisplay(`mcp__exponential__exponential_issues_create`)?.name).toBe(
+      `issues_create`
+    )
+    expect(expToolDisplay(`exponential_pr_open`)?.name).toBe(`pr_open`)
+    expect(expToolDisplay(`exponential.exponential_issues_list`)?.name).toBe(
+      `issues_list`
+    )
+  })
+
+  it(`keeps another server's tool out`, () => {
+    // The contract PREFIX has to sit right in front of the row name.
+    expect(expToolDisplay(`mcp__linear__issues_create`)).toBeNull()
+    expect(expToolDisplay(`issues_create`)).toBeNull()
+    expect(expToolDisplay(`Bash`)).toBeNull()
+    expect(expToolDisplay(`exponential_issues_invented`)).toBeNull()
+    expect(expToolDisplay(undefined)).toBeNull()
+  })
+
+  it(`reads progressive while the call runs and done once it settled`, () => {
+    const row = expToolDisplay(`exponential_issues_create`)!
+    expect(expToolCaption(row, false)).toBe(`Creating issue`)
+    expect(expToolCaption(row, true)).toBe(`Created issue`)
+    // The contract names the subject field and the preview kind.
+    expect(row.subjectKey).toBe(`title`)
+    expect(row.result).toBe(`issue`)
   })
 })

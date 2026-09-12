@@ -1,4 +1,4 @@
-//! EXP-746 — the four ACP adapters.
+//! EXP-746 — the ACP adapters.
 //!
 //! Each one presents the user's UNMODIFIED agent CLI as an ACP `Agent` to the
 //! engine's `Client`, in-process: `Client.builder().connect_with(adapter,
@@ -7,7 +7,7 @@
 //! runtime. The adapters are the ONLY place that knows an agent's private
 //! wire; everything above them speaks ACP and nothing else.
 //!
-//! This module is landed COMPLETE by the foundation lane (all four variants
+//! This module is landed COMPLETE by the foundation lane (every variant
 //! stubbed) precisely so no adapter lane has to edit it.
 
 pub mod claude;
@@ -15,8 +15,6 @@ pub mod claude_wire;
 pub mod codex;
 pub mod codex_wire;
 pub mod external;
-pub mod pi;
-pub mod pi_wire;
 
 use std::path::PathBuf;
 
@@ -32,7 +30,6 @@ use crate::session::{EngineError, ResumeHandle};
 pub enum AdapterKind {
     Claude,
     Codex,
-    Pi,
     External,
 }
 
@@ -41,7 +38,6 @@ impl AdapterKind {
         match agent {
             coding::AgentKind::Builtin(coding::CodingAgent::Claude) => AdapterKind::Claude,
             coding::AgentKind::Builtin(coding::CodingAgent::Codex) => AdapterKind::Codex,
-            coding::AgentKind::Builtin(coding::CodingAgent::Pi) => AdapterKind::Pi,
             coding::AgentKind::External(_) => AdapterKind::External,
         }
     }
@@ -53,7 +49,6 @@ impl AdapterKind {
         match self {
             AdapterKind::Claude => steer::SessionAgent::Claude,
             AdapterKind::Codex => steer::SessionAgent::Codex,
-            AdapterKind::Pi => steer::SessionAgent::Pi,
             AdapterKind::External => steer::SessionAgent::External,
         }
     }
@@ -63,7 +58,6 @@ impl AdapterKind {
         match self {
             AdapterKind::Claude => "claude",
             AdapterKind::Codex => "codex",
-            AdapterKind::Pi => "pi",
             AdapterKind::External => "external",
         }
     }
@@ -83,7 +77,7 @@ pub struct AdapterSpec {
     pub mcp: coding::AgentMcp,
     /// EXP-792: the launch's team MCP servers beside `exponential` — claude
     /// renders them into its inline `--mcp-config`, codex into the
-    /// `thread/start` config; pi and an external agent read them off the
+    /// `thread/start` config; an external agent reads them off the
     /// spawn env (`EXP_MCP_SERVERS`) the launcher already set. Values are
     /// `${VAR}` references, never credentials.
     pub servers: Vec<coding::McpServerWire>,
@@ -101,7 +95,7 @@ pub struct AdapterSpec {
     /// has to do more than read history to become steerable (codex:
     /// `thread/resume` + its notification pumps) keys on it.
     pub replay: bool,
-    /// The `expu_` key — the codex/pi MCP bearer.
+    /// The `expu_` key — the codex/external MCP bearer.
     pub personal_key: Option<String>,
     /// The claude `--settings <path>` reaper anchor (`{}`, no hooks). `None`
     /// for every other agent, which the reaper never anchored either.
@@ -113,11 +107,10 @@ pub struct AdapterSpec {
     pub exit: ChildExitLink,
 }
 
-/// The four adapters behind one type, so the host holds a single field.
+/// Every adapter behind one type, so the host holds a single field.
 pub enum Adapter {
     Claude(claude::ClaudeAgent),
     Codex(codex::CodexAgent),
-    Pi(pi::PiAgent),
     External(external::ExternalAgent),
 }
 
@@ -127,14 +120,13 @@ impl Adapter {
     /// build) and REFUSE the launch — EXP-773 left nothing to fall back to.
     ///
     /// Claude spawns lazily (at `session/new`), so a missing `claude` surfaces
-    /// as a handshake failure through `EngineExit`; codex and pi spawn HERE,
+    /// as a handshake failure through `EngineExit`; codex spawns HERE,
     /// and external resolves its command here, so those come back as
     /// `EngineError::Spawn` before anything was registered.
     pub fn new(spec: AdapterSpec) -> Result<Adapter, EngineError> {
         Ok(match spec.kind {
             AdapterKind::Claude => Adapter::Claude(claude::ClaudeAgent::new(spec)?),
             AdapterKind::Codex => Adapter::Codex(codex::CodexAgent::new(spec)?),
-            AdapterKind::Pi => Adapter::Pi(pi::PiAgent::new(spec)?),
             AdapterKind::External => Adapter::External(external::ExternalAgent::new(spec)?),
         })
     }
@@ -143,7 +135,6 @@ impl Adapter {
         match self {
             Adapter::Claude(_) => AdapterKind::Claude,
             Adapter::Codex(_) => AdapterKind::Codex,
-            Adapter::Pi(_) => AdapterKind::Pi,
             Adapter::External(_) => AdapterKind::External,
         }
     }
@@ -158,7 +149,6 @@ impl ConnectTo<Client> for Adapter {
             match self {
                 Adapter::Claude(adapter) => adapter.connect_to(client).await,
                 Adapter::Codex(adapter) => adapter.connect_to(client).await,
-                Adapter::Pi(adapter) => adapter.connect_to(client).await,
                 Adapter::External(adapter) => adapter.connect_to(client).await,
             }
         }
@@ -178,10 +168,6 @@ mod tests {
         assert_eq!(
             AdapterKind::from_agent(&coding::AgentKind::Builtin(coding::CodingAgent::Codex)),
             AdapterKind::Codex
-        );
-        assert_eq!(
-            AdapterKind::from_agent(&coding::AgentKind::Builtin(coding::CodingAgent::Pi)),
-            AdapterKind::Pi
         );
         assert_eq!(
             AdapterKind::from_agent(&coding::AgentKind::External(

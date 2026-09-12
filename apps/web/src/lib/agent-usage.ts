@@ -19,6 +19,8 @@ import type {
   CodingSession,
   Device,
   DeviceAgentAccount,
+  DeviceAgentHealth,
+  DeviceAgentProfileEntry,
   DeviceAgentUsage,
   DeviceAgentUsageMap,
   DeviceUsageWindow,
@@ -301,7 +303,8 @@ export function formatUsageCost(
 /** What one agent's sign-in reads as. EXP-694 reduced it to the identity
  * alone: the bare email (no `signed in as` prefix and no ` · <plan>` tail —
  * the row's context already says both), the bare plan for an account with no
- * email (pi reports a provider, never an address), `signed in`, `signed out`,
+ * email (some agents report a provider, never an address), `signed in`,
+ * `signed out`,
  * or `unknown` when the machine reported nothing for the agent (never probed
  * is not "signed out"). */
 export function accountCaption(
@@ -319,7 +322,7 @@ export function accountCaption(
 /** EXP-688/694: what one agent's OWN tab says, where the agent is already the
  * heading — just the ADDRESS: no `claude · ` prefix, no `signed in as` and no
  * ` · <plan>` tail (the plan is the agent app's business, not this row's). An
- * account with no email (pi reports a provider, never an address) falls back
+ * account with no email (a provider-only report) falls back
  * to the bare plan, and the two negative cases read as sentences. */
 export function accountLine(
   account: DeviceAgentAccount | null | undefined
@@ -339,6 +342,160 @@ export function accountRow(
   account: DeviceAgentAccount | null | undefined
 ): string {
   return `${agent} · ${accountCaption(account)}`
+}
+
+// ── EXP-849: account HEALTH ─────────────────────────────────────────────────
+// `auth status` answers WHO a login is (email, plan) and nothing about
+// whether it still works; the device's usage probe answers that (an
+// Unauthorized probe is a dead credential, a successful one a live account)
+// and writes it onto the account + every profile as `health`. Everything
+// below is the PRESENTATION of that field, hand-mirrored with the desktop's
+// `coding::agent_accounts` + `ui/src/usage_bar.rs` and the two natives'
+// account rows: same four values, same fallback, same two badge strings.
+
+/** What a row with no `health` at all means (a pre-EXP-849 device): the only
+ * thing its payload says is whether the CLI was signed in. */
+export function derivedAgentHealth(signedIn: boolean): DeviceAgentHealth {
+  return signedIn ? `ok` : `signed_out`
+}
+
+/** One account's (or profile's) health: the device's own verdict when it sent
+ * one, else derived from `signedIn`. A `signed_out` claim from a signed-IN
+ * report is kept — the device is the authority on its own credential. */
+export function agentHealth(
+  entry:
+    | Pick<DeviceAgentAccount, `signedIn` | `health`>
+    | Pick<DeviceAgentProfileEntry, `signedIn` | `health`>
+    | null
+    | undefined
+): DeviceAgentHealth {
+  if (!entry) return `unknown`
+  if (entry.health) return entry.health
+  return derivedAgentHealth(entry.signedIn === true)
+}
+
+/** The badge an account row carries, or null when there is nothing to say
+ * (`ok`, and `unknown` — "signed in, never probed" is not a problem). The two
+ * negatives are DISTINCT on purpose: "Signed out" is a login you never made,
+ * "Needs re-login" one that expired under you. */
+export function healthBadgeLabel(
+  health: DeviceAgentHealth
+): `Needs re-login` | `Signed out` | null {
+  if (health === `needs_relogin`) return `Needs re-login`
+  if (health === `signed_out`) return `Signed out`
+  return null
+}
+
+/** Worst-first ordering of the four values: an expired credential is the one
+ * thing a human has to act on, a missing login next, then a login nobody has
+ * probed, then a working one. */
+export function healthRank(health: DeviceAgentHealth): number {
+  if (health === `needs_relogin`) return 0
+  if (health === `signed_out`) return 1
+  if (health === `unknown`) return 2
+  return 3
+}
+
+/** The worst health in a set — what a DEVICE row badges (its accounts' worst)
+ * and what an account group shows across its machines. Null for an empty
+ * set: nothing was reported, so nothing is claimed. */
+export function worstHealth(
+  healths: readonly DeviceAgentHealth[]
+): DeviceAgentHealth | null {
+  let worst: DeviceAgentHealth | null = null
+  for (const health of healths) {
+    if (worst === null || healthRank(health) < healthRank(worst)) worst = health
+  }
+  return worst
+}
+
+/** EXP-849: one account a MACHINE holds, for the device row's chips. The
+ * Devices surface is the repair surface, so every chip names the agent, the
+ * login, whether it is that machine's ACTIVE one and how healthy it is — the
+ * account-level view (`agentProfileUsageRows`) groups ACROSS machines and is
+ * the wrong shape for "what is wrong on this box". */
+export interface DeviceAccountChip {
+  /** `${agent}:${profileId}` — stable within one device row. */
+  key: string
+  agent: string
+  profileId: string
+  /** The profile's label (`Default` for the ambient login). */
+  profileLabel: string
+  signedIn: boolean
+  active: boolean
+  email: string | null
+  plan: string | null
+  health: DeviceAgentHealth
+}
+
+/** Every account one machine reported, agent by agent (contract order is the
+ * caller's business), the ACTIVE login of each agent first. A machine that
+ * reported no profiles yields its single ambient account. */
+export function deviceAccountChips(
+  device: HealthDeviceRow
+): DeviceAccountChip[] {
+  const out: DeviceAccountChip[] = []
+  for (const [agent, account] of Object.entries(device.agentAccounts ?? {})) {
+    if (!account) continue
+    const profiles = (account.profiles ?? []).filter(
+      (profile): profile is NonNullable<typeof profile> => Boolean(profile?.id)
+    )
+    if (profiles.length === 0) {
+      out.push({
+        key: `${agent}:${SYSTEM_PROFILE_ID}`,
+        agent,
+        profileId: SYSTEM_PROFILE_ID,
+        profileLabel: `Default`,
+        signedIn: account.signedIn === true,
+        active: true,
+        email: account.email || null,
+        plan: account.plan || null,
+        health: agentHealth(account),
+      })
+      continue
+    }
+    const chips = profiles.map((profile) => ({
+      key: `${agent}:${profile.id}`,
+      agent,
+      profileId: profile.id,
+      profileLabel:
+        profile.label ||
+        (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
+      signedIn: profile.signedIn === true,
+      active: profile.active === true,
+      email: profile.email || null,
+      plan: profile.plan || null,
+      health: agentHealth(profile),
+    }))
+    chips.sort((a, b) => Number(b.active) - Number(a.active))
+    out.push(...chips)
+  }
+  return out
+}
+
+// `Device`'s column is nullable; `SteerDevice`'s is optional — accept both,
+// so a device row and a composed machine can be passed unchanged.
+type HealthDeviceRow = {
+  agentAccounts?: Device[`agentAccounts`] | undefined
+}
+
+/** EXP-849: the health a DEVICE row badges — the worst among every account
+ * it reported (each agent's profiles, or the top-level account for a
+ * pre-profile machine). Null when the machine reported no account at all. */
+export function deviceWorstHealth(
+  device: HealthDeviceRow
+): DeviceAgentHealth | null {
+  const healths: DeviceAgentHealth[] = []
+  for (const account of Object.values(device.agentAccounts ?? {})) {
+    if (!account) continue
+    const profiles = (account.profiles ?? []).filter(Boolean)
+    if (profiles.length === 0) {
+      healths.push(agentHealth(account))
+      continue
+    }
+    for (const profile of profiles) healths.push(agentHealth(profile))
+  }
+  return worstHealth(healths)
 }
 
 type SessionUsageRow = Pick<
@@ -466,6 +623,9 @@ export interface AgentProfileUsageRow {
   profileLabel: string
   active: boolean
   signedIn: boolean
+  /** EXP-849: the device's verdict on the credential (`agentHealth`, derived
+   * from `signedIn` on a pre-EXP-849 machine). */
+  health: DeviceAgentHealth
   email: string | null
   plan: string | null
   usage: DeviceAgentUsage | null
@@ -519,6 +679,7 @@ export function agentProfileUsageRows(
           profileLabel: `Default`,
           active: true,
           signedIn: account?.signedIn === true,
+          health: agentHealth(account),
           email: account?.email || null,
           plan: account?.plan || null,
           usage: usageMap[agent] ?? null,
@@ -546,6 +707,7 @@ export function agentProfileUsageRows(
             (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
           active: profile.active === true,
           signedIn: profile.signedIn === true,
+          health: agentHealth(profile),
           email: profile.email || null,
           plan: profile.plan || null,
           usage,
@@ -571,9 +733,14 @@ export function peakPercent(usage: DeviceAgentUsage | null | undefined): number 
  * bucket the fuller row comes first, then device label, agent, profile, so
  * a heartbeat cannot shuffle equal rows. */
 export function attentionRank(
-  row: Pick<AgentProfileUsageRow, `signedIn` | `usage`>
+  row: Pick<AgentProfileUsageRow, `signedIn` | `usage`> & {
+    health?: DeviceAgentHealth
+  }
 ): number {
   if (!row.signedIn) return 0
+  // EXP-849: an EXPIRED credential is the same kind of "do something" as a
+  // missing one — it leads too, even though the CLI still reports signed in.
+  if (row.health === `needs_relogin`) return 0
   if (peakPercent(row.usage) >= DANGER_PERCENT) return 1
   return 2
 }
@@ -616,12 +783,16 @@ export function refreshAllowedAt(
 // chips. Mirrored on the desktop (`usage_bar.rs`, same names, same tests).
 
 export interface AgentAccountUsageGroup {
-  /** `${agent}:${email}` for a named login; a row with no email (pi names a
-   * provider, a signed-out row names nobody) can never be told apart from
+  /** `${agent}:${email}` for a named login; a row with no email (a
+   * provider-only report, or a signed-out row) can never be told apart from
    * another machine's, so it keeps its own `${agent}:${deviceId}:${profileId}`. */
   key: string
   agent: string
   signedIn: boolean
+  /** EXP-849: the WORST health among the machines holding this account — the
+   * badge the account row carries (one machine's expired credential is a
+   * re-login, even if another machine's copy still works). */
+  health: DeviceAgentHealth
   email: string | null
   plan: string | null
   /** The machines (× profile) holding this account: online first, then by
@@ -680,6 +851,7 @@ export function accountUsageGroups(
         key,
         agent: row.agent,
         signedIn: row.signedIn,
+        health: row.health,
         email: row.email,
         plan: row.plan,
         rows: [],
@@ -690,6 +862,9 @@ export function accountUsageGroups(
       byKey.set(key, group)
     }
     group.rows.push(row)
+    if (healthRank(row.health) < healthRank(group.health)) {
+      group.health = row.health
+    }
     if (!group.plan && row.plan) group.plan = row.plan
     if (fresherUsage(row.usage, group.usage)) group.usage = row.usage
     if (stampMs(row.checkedAt) > stampMs(group.checkedAt)) {

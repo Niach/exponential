@@ -54,7 +54,6 @@ use crate::run_registry::{launch_extra, RunFix, RunInput, RunIssue, RunKind, Run
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
-use crate::pi_bridge::{write_pi_bridge, write_pi_plan};
 use crate::git_credentials;
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
@@ -86,8 +85,6 @@ pub const STEER_IMAGES_DIR: &str = ".exp-steer-images";
 /// EXP-474).
 const LOCAL_EXCLUDES: &[&str] = &[
     crate::mcp_json::MCP_JSON_FILE,
-    crate::pi_bridge::PI_BRIDGE_FILE,
-    crate::pi_bridge::PI_PLAN_FILE,
     crate::worktree_agents::AGENTS_FILE,
     STEER_IMAGES_DIR,
     // FEED-22: Claude Code's `isolation: "worktree"` nests agent worktrees
@@ -379,6 +376,18 @@ pub struct ResumeRunRequest {
     /// prompt at all). The server never sends one on a relay resume; a local
     /// caller may.
     pub prompt: Option<String>,
+    /// EXP-849 — SWITCH the account this run continues on (claude only).
+    /// `None` keeps `record.account()`, which is what every ordinary resume
+    /// wants: the same config dir holds the credentials, the trust flags and
+    /// the transcript.
+    ///
+    /// A mid-session switch IS a resume with this set: the transcript JSONL is
+    /// copied into the target profile's `projects` tree so `--resume` finds it
+    /// (never the credential — see [`copy_claude_transcript`]), and the new
+    /// `coding_sessions` row chains back through `resumedFromId`. Codex is
+    /// refused: its conversation lives in the profile's own rollout store and
+    /// its login is one per session.
+    pub account: Option<String>,
 }
 
 /// The four launch shapes ONE [`prepare`] serves.
@@ -504,8 +513,6 @@ pub enum ResumeSeed {
     /// EXP-758: the engine records it alongside the ACP one, so this is what
     /// reopens the conversation when no ACP session id survived.
     Native(String),
-    /// pi resumes by FILE, not by id.
-    PiSessionFile(PathBuf),
 }
 
 /// EXP-746: everything the ACP engine needs that the PTY path expresses as
@@ -529,8 +536,8 @@ pub struct AcpLaunch {
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-792: the launch's team MCP servers, resolved (`exponential` is
     /// NOT among them — it stays [`Self::mcp`]). The adapters render them
-    /// into their own config (claude inline, codex `thread/start`); pi and
-    /// an external agent already got them as [`crate::argv::MCP_SERVERS_ENV`]
+    /// into their own config (claude inline, codex `thread/start`); an
+    /// external agent already got them as [`crate::argv::MCP_SERVERS_ENV`]
     /// on the spawn env. Empty for an agent shell and for every pick-less run.
     pub servers: Vec<McpServerWire>,
     /// EXP-792: every device-held value the launcher put in the spawn env
@@ -586,7 +593,7 @@ pub enum DisabledReason {
     /// The server refused to mint the installation token (401/403).
     TokenDenied { message: String },
     /// EXP-773: the picked agent cannot run on the ACP engine — the doctor's
-    /// `acp` check said no (a too-old CLI, a failed pi probe) or this HOST
+    /// `acp` check said no (a too-old CLI) or this HOST
     /// has no engine at all. The engine is the ONLY coding transport, so
     /// there is nothing to fall back to; `note` carries the doctor's own
     /// explanation when it has one.
@@ -596,6 +603,11 @@ pub enum DisabledReason {
     /// user asked for, so it does not start. The message names the server
     /// and what is missing ([`crate::mcp_servers::McpBlocker`]'s Display).
     McpBlocked(McpBlocker),
+    /// EXP-849: this resume asked to continue on a DIFFERENT account and the
+    /// run cannot be handed over — codex (one login per session, its
+    /// conversation lives in the login's own rollout store), a missing target
+    /// profile, or a switch asked for while the agent is mid-turn.
+    AccountSwitchRefused { message: String },
 }
 
 impl DisabledReason {
@@ -613,6 +625,7 @@ impl DisabledReason {
                 .unwrap_or_else(|| format!("{} is not available", check.tool)),
             DisabledReason::SessionLimit { message } => message.clone(),
             DisabledReason::TokenDenied { message } => message.clone(),
+            DisabledReason::AccountSwitchRefused { message } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -719,19 +732,19 @@ pub struct PreparedLaunch {
     /// EXP-275/EXP-690: the spawn runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass — mirrors
     /// `permission_args`: every claude/codex run bypasses, and plan mode
-    /// wins the starting mode, so it clears this; pi has no permission
-    /// system at all). The activity emitter uses it to keep permission-flavored
+    /// wins the starting mode, so it clears this). The activity emitter uses
+    /// it to keep permission-flavored
     /// notifications from becoming "blocked on approval" cards.
     pub bypass_permissions: bool,
     /// EXP-529: the spawn launched into plan mode (claude `--permission-mode
-    /// plan` / pi's plan extension) — mutually exclusive with
+    /// plan`) — mutually exclusive with
     /// `bypass_permissions` by the derivation above. The activity emitter
     /// stamps it into the launch narration so remote viewers can tell the
     /// run's effective permission posture.
     pub plan_mode: bool,
     /// EXP-383: which agent CLI the spawn runs. The steer wiring picks the
     /// matching activity emitter (claude transcript tail / codex rollout
-    /// tail / pi observer) — every steer-room launch path flows through
+    /// tail) — every steer-room launch path flows through
     /// here, so resume needs no separate plumbing.
     pub agent: CodingAgent,
     /// EXP-443: claude's own session id, minted here and passed via
@@ -863,11 +876,8 @@ fn agent_kind(options: &LaunchOptions) -> AgentKind {
 /// ([`CodingDeps::acp_available`]). An external agent is ACP by definition;
 /// it only needs the host.
 ///
-/// EXP-752: plan mode is NOT an exception any more. pi's plan mode is still
-/// the injected `.exp-pi-plan.ts` extension gated on `EXP_PI_PLAN_MODE`
-/// (EXP-441), but both transports now write the file and set the env, and the
-/// rpc adapter advertises it as an ACP session mode — so a plan-mode pi
-/// launch resolves its transport exactly like claude's.
+/// EXP-752: plan mode is NOT an exception — a plan-mode launch resolves its
+/// transport exactly like any other.
 fn acp_ready(
     report: &crate::doctor::DoctorReport,
     agent: &AgentKind,
@@ -883,8 +893,7 @@ fn acp_ready(
 }
 
 /// EXP-758: the doctor's own explanation for [`acp_ready`] answering `false`,
-/// when it has one — the claude version-floor copy, pi's no-rpc-mode note,
-/// codex's version floor. `None` for an external agent (never gated by a
+/// when it has one — the claude version-floor copy, codex's version floor. `None` for an external agent (never gated by a
 /// builtin's check) and for a host with no engine, where the reason is this
 /// BUILD rather than anything the CLI could tell the user.
 fn acp_note<'a>(report: &'a crate::doctor::DoctorReport, agent: &AgentKind) -> Option<&'a str> {
@@ -981,8 +990,6 @@ fn prune_hook_settings(root: &Path) {
 ///   BEFORE the write so an unguardable repo never gets the key on disk).
 /// - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
 ///   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
-/// - pi: the launcher-written `.exp-pi-mcp.ts` bridge extension (pi has no
-///   native MCP); url + key ride the spawn env like codex.
 /// EXP-637: the GUARD half of [`wire_agent_mcp`], split out because it must
 /// still run BEFORE the session row exists — a repo whose ignore rules can't
 /// be verified must fail the launch before anything server-side is created,
@@ -1051,37 +1058,14 @@ fn wire_agent_mcp(
             url: mcp_url(base_url),
             session_id: session_id.map(str::to_string),
         }),
-        CodingAgent::Pi => {
-            write_pi_bridge(cwd)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
-            // EXP-752: pi's plan mode is this extension (the rpc adapter
-            // loads it with `-e` and drives it through `/exp-plan`). Static
-            // file, inert without EXP_PI_PLAN_MODE.
-            write_pi_plan(cwd)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
-            Ok(AgentMcp::PiExtension)
-        }
     }
 }
 
-/// The spawn-env gate of the pi plan-mode extension (EXP-441): a pi launch
-/// with plan mode on sets [`crate::argv::PI_PLAN_MODE_ENV`]; without it the
-/// always-written `.exp-pi-plan.ts` returns immediately.
-/// EXP-758: `agent` is the builtin, or `None` for an external agent — which
-/// loads none of our extensions and must not be told to enter pi's plan mode.
-fn apply_pi_plan_env(spawn: SpawnSpec, agent: Option<CodingAgent>, plan_mode: bool) -> SpawnSpec {
-    if agent == Some(CodingAgent::Pi) && plan_mode {
-        spawn.env(crate::argv::PI_PLAN_MODE_ENV, "1")
-    } else {
-        spawn
-    }
-}
-
-/// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex/pi
+/// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex
 /// rides the ENV (claude's rides `.exp-mcp.json`) — codex reads it through
-/// `bearer_token_env_var`, the pi bridge reads url + token directly.
+/// `bearer_token_env_var`.
 ///
-/// EXP-758: an EXTERNAL agent takes the same env-only shape as pi's bridge
+/// EXP-758: an EXTERNAL agent takes an env-only shape too
 /// (url + key + the session header) — [`AgentMcp::ExternalEnv`] is the posture
 /// it was wired with, and the env is the only channel a binary we did not
 /// write can be handed a credential through.
@@ -1115,16 +1099,10 @@ fn apply_mcp_env(
             with_claude_mcp_timeout(spawn, std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV))
         }
         CodingAgent::Codex => spawn.env(MCP_TOKEN_ENV, personal_key),
-        CodingAgent::Pi => spawn
-            .env(MCP_URL_ENV, mcp_url(base_url))
-            .env(MCP_TOKEN_ENV, personal_key)
-            // Embedded sessions must not block on pi's startup
-            // update/network checks.
-            .env("PI_SKIP_VERSION_CHECK", "1"),
     };
-    // EXP-637: the pi bridge has no native MCP headers — it reads the run's
-    // session id from the env and sets `x-exp-session-id` itself. Harmless
-    // (and unread) on claude/codex, which carry it in their own config.
+    // EXP-637: an external ACP agent has no MCP config of ours — it reads the
+    // run's session id from the env and sets `x-exp-session-id` itself.
+    // Harmless (and unread) on claude/codex, which carry it in their config.
     match session_id {
         Some(id) => spawn.env(MCP_SESSION_ID_ENV, id),
         None => spawn,
@@ -1134,8 +1112,8 @@ fn apply_mcp_env(
 /// EXP-792 (EXP-747 B2): the account PROFILE half of the spawn env — ONLY
 /// the agent's config-dir variable (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`)
 /// pointed at the profile's dir under `{data_dir}/agents/<agent>/<id>/`.
-/// Nothing at all for `None`/`system` (the ambient login), for pi (no such
-/// variable), for an external agent, and for an id no profile answers to —
+/// Nothing at all for `None`/`system` (the ambient login), for an external
+/// agent, and for an id no profile answers to —
 /// a stale pick degrades to the ambient login rather than a spawn that
 /// cannot find its credentials.
 pub fn apply_account_env(
@@ -1180,8 +1158,8 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> Result<ResolvedMcp,
 /// every resolved secret under the launcher-minted name (`EXP_MCP_TOKEN_<n>`,
 /// `EXP_MCP_ENV_<n>_<NAME>`, a stdio server's own `<NAME>`) — the values the
 /// agents' `${VAR}` references and codex's env-named fields resolve to — plus,
-/// for the agents with no config of their own to carry the servers (pi's
-/// bridge, an external ACP binary), the server list itself as
+/// for the agents with no config of their own to carry the servers (an
+/// external ACP binary), the server list itself as
 /// [`MCP_SERVERS_ENV`]. Claude and codex get the list in their configs
 /// instead, so the list is never set for them.
 fn apply_mcp_server_env(spawn: SpawnSpec, agent: &AgentKind, resolved: &ResolvedMcp) -> SpawnSpec {
@@ -1189,7 +1167,7 @@ fn apply_mcp_server_env(spawn: SpawnSpec, agent: &AgentKind, resolved: &Resolved
     for (name, value) in &resolved.env {
         spawn = spawn.env(name, value);
     }
-    let env_carried = matches!(agent.builtin(), None | Some(CodingAgent::Pi));
+    let env_carried = agent.builtin().is_none();
     if env_carried && !resolved.servers.is_empty() {
         spawn = spawn.env(MCP_SERVERS_ENV, mcp_servers_env_json(&resolved.servers));
     }
@@ -1208,19 +1186,6 @@ fn end_on_error<T>(
         let _ = coding_sessions::end(trpc, session_id);
     }
     result
-}
-
-/// EXP-637: where pi records a run's transcript
-/// (`<data_dir>/pi-sessions/<row id>.jsonl`). pi opens a FRESH session when
-/// the file does not exist and RESUMES it when it does, so the same path
-/// serves both. `None` when the id has no usable path segment.
-pub(crate) const PI_SESSIONS_DIR: &str = "pi-sessions";
-
-fn pi_session_file(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
-    let segment = path_segment(session_id)?;
-    let dir = data_dir.join(PI_SESSIONS_DIR);
-    let _ = std::fs::create_dir_all(&dir);
-    Some(dir.join(format!("{segment}.jsonl")))
 }
 
 /// The shared 412/401/403 mapping for `repositories.installationToken`.
@@ -1292,7 +1257,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     let agent_kind = agent_kind(options);
 
     // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
-    // agent must resolve — a missing pi never blocks a claude launch).
+    // agent must resolve — a missing codex never blocks a claude launch).
     // Cheap relative to clone/mint and structural: the relay origin has no
     // button whose disabled state could have gated this.
     //
@@ -1631,15 +1596,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // doubles as the ACP session id the engine upserts), so nothing is
     // minted here.
     //
-    // EXP-758: keyed on the BUILTIN — the pins are the three CLIs' own
+    // EXP-758: keyed on the BUILTIN — the pins are the builtin CLIs' own
     // handles and mean nothing for an external agent (whose `agent` field
     // carries the settings default).
     let builtin = agent_kind.builtin();
     let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (builtin == Some(CodingAgent::Pi))
-        .then(|| pi_session_file(&deps.data_dir, &session.id))
-        .flatten();
 
     // EXP-662: record the SESSION exactly like `prepare_action` records a
     // run — same file, same fields, kind Issue/Batch — so a later Resume
@@ -1699,7 +1661,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             branch: Some(branch.clone()),
             base_branch: Some(minted.default_branch.clone()),
             claude_session_id: None,
-            pi_session_file: pi_session.clone(),
             codex_originator: codex_originator.clone(),
             inputs: Vec::new(),
             model: options.model.clone(),
@@ -1753,7 +1714,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
-    spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1833,7 +1793,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id: None,
-        bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
+        bypass_permissions: !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
@@ -2029,7 +1989,7 @@ fn prepare_action(
             // trunk clone stopped being a run cwd, so a run neither needs it
             // pulled nor may park the trunk-sync engine on its own dirt.
             // Same best-effort [`LOCAL_EXCLUDES`] coverage as a session
-            // worktree — the action's agent may be codex/pi since EXP-257.
+            // worktree — the action's agent may be codex since EXP-257.
             let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
             let cwd = match &req.kind {
                 // EXP-259: the fix-conflicts run works on the PR branch, not
@@ -2310,9 +2270,6 @@ fn prepare_action(
     // disambiguates. claude's `--session-id` is the ACP adapter's to mint.
     let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (builtin == Some(CodingAgent::Pi))
-        .then(|| pi_session_file(&deps.data_dir, &session.id))
-        .flatten();
     let (tab_prefix, tab_title) = match &req.kind {
         ActionRunKind::Chat => chat_tab_title(
             repo.as_ref().map(|repo| repo_short_name(&repo.full_name)),
@@ -2333,7 +2290,6 @@ fn prepare_action(
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
-    spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2402,7 +2358,6 @@ fn prepare_action(
             branch: run_branch.clone(),
             base_branch: base_branch.clone(),
             claude_session_id: None,
-            pi_session_file: pi_session.clone(),
             codex_originator: codex_originator.clone(),
             inputs: req
                 .inputs
@@ -2494,7 +2449,7 @@ fn prepare_action(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id: Some(req.action_id.clone()),
-        bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
+        bypass_permissions: !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
@@ -2508,11 +2463,72 @@ fn prepare_action(
 /// `pub` because the ACP engine replays a claude transcript from the same
 /// tree (Past → Replay) and must resolve it exactly as the resume probe does.
 pub fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
+    claude_projects_root_in(deps, None)
+}
+
+/// [`claude_projects_root`] for ONE account profile (EXP-849): a profile run
+/// carries `CLAUDE_CONFIG_DIR=<profile dir>`, so its transcripts live under
+/// `<profile dir>/projects`, not under `~/.claude`. `None` = the ambient
+/// login, whose tree an injected fixture root stands in for.
+pub fn claude_projects_root_in(deps: &CodingDeps, profile_dir: Option<&Path>) -> Option<PathBuf> {
+    // A profile's tree is DETERMINED by its config dir — nothing stands in for
+    // it, not even an injected fixture (which is the AMBIENT login's tree).
+    if let Some(dir) = profile_dir {
+        return Some(dir.join("projects"));
+    }
     if let Some(root) = &deps.claude_projects_root {
         return Some(root.clone());
     }
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     Some(PathBuf::from(home).join(".claude").join("projects"))
+}
+
+/// EXP-849 — hand a claude transcript to ANOTHER account profile, so a resume
+/// on that profile's `CLAUDE_CONFIG_DIR` can `--resume` into the conversation
+/// the run had. Answers whether the target tree now holds it.
+///
+/// This copies a TRANSCRIPT and nothing else. A credential file is never
+/// copied, snapshotted or restored — two CLIs sharing one credential store is
+/// fine, two stores holding the same credential is a revoked login — and the
+/// target profile's own `.credentials.json` is never touched.
+///
+/// Idempotent: a transcript already in the target tree (a switch back and
+/// forth) is left exactly as it is, so the NEWER file always wins.
+fn copy_claude_transcript(
+    deps: &CodingDeps,
+    from: Option<&Path>,
+    to: Option<&Path>,
+    session_id: &str,
+) -> bool {
+    let Some(target_root) = claude_projects_root_in(deps, to) else {
+        return false;
+    };
+    if locate_claude_transcript(&target_root, session_id).is_some() {
+        return true;
+    }
+    let Some(source) = claude_projects_root_in(deps, from)
+        .and_then(|root| locate_claude_transcript(&root, session_id))
+    else {
+        return false;
+    };
+    // Keep claude's own per-cwd directory name: it munges the cwd (and
+    // hash-suffixes long ones), and a name we invented would not be the one
+    // the CLI looks under for THIS cwd.
+    let Some(project) = source.parent().and_then(|dir| dir.file_name()) else {
+        return false;
+    };
+    let dir = target_root.join(project);
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        log::warn!("coding: could not prepare {} for a resume: {err}", dir.display());
+        return false;
+    }
+    match std::fs::copy(&source, dir.join(format!("{session_id}.jsonl"))) {
+        Ok(_) => true,
+        Err(err) => {
+            log::warn!("coding: could not hand transcript {session_id} to the target account: {err}");
+            false
+        }
+    }
 }
 
 /// EXP-761: the ONE way to find a claude transcript — `<root>/*/<session
@@ -2540,7 +2556,16 @@ pub fn locate_claude_transcript(root: &Path, session_id: &str) -> Option<PathBuf
 /// [`locate_claude_transcript`].) EXP-746: `pub` for the engine's replay,
 /// like [`claude_projects_root`] above.
 pub fn claude_transcript_exists(deps: &CodingDeps, _cwd: &Path, session_id: &str) -> bool {
-    claude_projects_root(deps)
+    claude_transcript_exists_in(deps, None, session_id)
+}
+
+/// [`claude_transcript_exists`] against ONE account profile's tree (EXP-849).
+pub fn claude_transcript_exists_in(
+    deps: &CodingDeps,
+    profile_dir: Option<&Path>,
+    session_id: &str,
+) -> bool {
+    claude_projects_root_in(deps, profile_dir)
         .is_some_and(|root| locate_claude_transcript(&root, session_id).is_some())
 }
 
@@ -2564,6 +2589,22 @@ fn prepare_resume_run(
 ) -> Result<Prepared, CodingError> {
     let record = &req.record;
     let agent = record.agent;
+    // EXP-849: what account this resume runs on. `Some(None)` is an explicit
+    // ask for the AMBIENT login (switching back), which is why this is a
+    // nested option and not a plain `Option<String>`: the ambient login is a
+    // legal switch TARGET, not the absence of one.
+    let requested_account: Option<Option<String>> = req.account.as_deref().map(|id| {
+        (!crate::agent_profiles::is_system(Some(id))).then(|| id.trim().to_string())
+    });
+    let recorded_account = record.account();
+    let resume_account = match &requested_account {
+        Some(wanted) => wanted.clone(),
+        None => recorded_account.clone(),
+    };
+    // A switch is a request that names a DIFFERENT login than the run used;
+    // "resume on the account it already ran on" is an ordinary resume,
+    // however the caller spelled it.
+    let switching = requested_account.is_some() && resume_account != recorded_account;
     let options = LaunchOptions {
         agent,
         model: req.model.clone().unwrap_or_else(|| record.model.clone()),
@@ -2584,7 +2625,9 @@ fn prepare_resume_run(
         mcp_server_ids: record.mcp_server_ids(),
         // EXP-792: the recorded account profile — the resume must read the
         // SAME config dir (credentials, trust, codex rollouts) the run did.
-        account: record.account(),
+        // EXP-849: unless the caller asked to SWITCH accounts, which is what a
+        // mid-session account change is (the gate is below).
+        account: resume_account.clone(),
         external: record.resolved_external_agent(&deps.settings.external_agents),
     };
     let agent_kind = agent_kind(&options);
@@ -2593,6 +2636,25 @@ fn prepare_resume_run(
         agent_kind.builtin(),
         options.account.as_deref(),
     );
+    // EXP-849 — refuse a switch the machine cannot honor, BEFORE anything is
+    // started: a named target that does not exist here, and codex, whose
+    // conversation lives inside the login's own rollout store (and whose
+    // login is one per session by contract — interface E).
+    if switching {
+        if agent_kind.builtin() != Some(CodingAgent::Claude) {
+            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
+                message: format!(
+                    "{} cannot continue a run on another account — start a new run on it instead.",
+                    agent_kind.label()
+                ),
+            }));
+        }
+        if let (Some(target), None) = (&resume_account, &profile_dir) {
+            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
+                message: format!("That account ({target}) is not set up on this machine."),
+            }));
+        }
+    }
     // The builtin CLI this resume runs, if any. Everything keyed on the
     // closed [`CodingAgent`] vocabulary — the doctor gate, the trust
     // seeders, the three native resume handles, the argv identities — has
@@ -2612,8 +2674,8 @@ fn prepare_resume_run(
             failed.clone(),
         )));
     }
-    // EXP-773: same ACP gate as a fresh launch — a downgraded CLI, a pi
-    // probe that now fails or a host with no engine refuses the resume with
+    // EXP-773: same ACP gate as a fresh launch — a downgraded CLI or a host
+    // with no engine refuses the resume with
     // the doctor's own reason instead of composing an argv nothing can run.
     if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
         return Ok(Prepared::Disabled(reason));
@@ -2720,14 +2782,24 @@ fn prepare_resume_run(
     let marker_allows_resume = crate::worktree_agents::worktree_agents(&cwd)
         .is_none_or(|recorded| recorded.contains(&agent));
     // EXP-758: a run also carries the agent's OWN handle — the engine wrote
-    // `agent_native_session_id` (claude's session uuid, codex's thread id,
-    // pi's session file) — which is what reopens the conversation when no
+    // `agent_native_session_id` (claude's session uuid, codex's thread id)
+    // — which is what reopens the conversation when no
     // ACP session id survived. Each slot below is already gated on the agent
     // it belongs to.
     let acp_native = record.agent_native_session_id.clone();
     // Each agent's handles are tried in order (the recorded pin first, the
     // native id second) and the FIRST one that still names a live
     // conversation wins — a stale pin must not mask a good fallback.
+    // EXP-849: the transcript is looked for in the tree the resume will RUN
+    // against — the TARGET profile's, which on a switch is not the one that
+    // holds it yet. So hand it over first (transcript only, never a
+    // credential): a switch whose copy fails simply degrades to a fresh
+    // session with the resume prompt, exactly like a pruned transcript.
+    let source_profile_dir = crate::agent_profiles::account_dir(
+        &deps.data_dir,
+        builtin,
+        recorded_account.as_deref(),
+    );
     let claude_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Claude))
         .then(|| {
             record
@@ -2735,7 +2807,17 @@ fn prepare_resume_run(
                 .clone()
                 .into_iter()
                 .chain(acp_native.clone())
-                .find(|id| claude_transcript_exists(deps, &cwd, id))
+                .find(|id| {
+                    if switching {
+                        copy_claude_transcript(
+                            deps,
+                            source_profile_dir.as_deref(),
+                            profile_dir.as_deref(),
+                            id,
+                        );
+                    }
+                    claude_transcript_exists_in(deps, profile_dir.as_deref(), id)
+                })
         })
         .flatten();
     let codex_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Codex))
@@ -2754,28 +2836,16 @@ fn prepare_resume_run(
             })
         })
         .flatten();
-    // pi resumes by FILE: the recorded transcript path, when it still exists.
-    let pi_resume_file = (marker_allows_resume && builtin == Some(CodingAgent::Pi))
-        .then(|| {
-            record
-                .pi_session_file
-                .clone()
-                .into_iter()
-                .chain(acp_native.as_deref().map(PathBuf::from))
-                .find(|path| path.is_file())
-        })
-        .flatten();
     // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
     // session id — `session/load` replays the WHOLE thread, so it is as
-    // native a resume as the three handles above. Counting it here is what
+    // native a resume as the handles above. Counting it here is what
     // keeps the seed prompt off: `engine::host` starts a turn for every
     // `AcpLaunch::prompt`, so a prompt on top of a load would put the agent
     // back to work unasked, which no other resume shape does.
     let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp());
     let native_resume = acp_resume_id.is_some()
         || claude_resume_id.is_some()
-        || codex_resume_id.is_some()
-        || pi_resume_file.is_some();
+        || codex_resume_id.is_some();
 
     // Step 4 — the seed prompt, only when nothing native survived. An ISSUE
     // session gets the issue-shaped resume prompt (PR contract, comment
@@ -2941,13 +3011,6 @@ fn prepare_resume_run(
     // would outrank the real id in the replay's fallback chain.
     let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (builtin == Some(CodingAgent::Pi))
-        .then(|| {
-            pi_resume_file
-                .clone()
-                .or_else(|| pi_session_file(&deps.data_dir, &session.id))
-        })
-        .flatten();
     // EXP-662: a resumed SESSION is titled like a fresh one (`claude ·
     // EXP-42` / `claude · EXP-42 +1`) — the strip must not tell a resume
     // apart from the launch it continues.
@@ -3006,29 +3069,30 @@ fn prepare_resume_run(
     };
 
     // The resumed run gets its OWN record — a resume of a resume chains.
-    crate::run_registry::record(
-        &deps.data_dir,
-        RunRecord {
-            session_id: session.id.clone(),
-            claude_session_id: claude_resume_id.clone(),
-            pi_session_file: pi_session.clone(),
-            codex_originator: codex_originator.clone(),
-            model: options.model.clone(),
-            effort: options.effort.clone(),
-            started_reason: run_reason.map(str::to_string),
-            resumed_from_id: Some(record.session_id.clone()),
-            // EXP-773: the ACP ids are the ENGINE's to upsert once
-            // `session/load` (or `session/new`) answers — the recorded ones
-            // belong to the run being continued, not to this one.
-            transport: Some(ACP_TRANSPORT.to_string()),
-            acp_session_id: None,
-            agent_native_session_id: None,
-            acp_child_pid: None,
-            host_pid: None,
-            recorded_at: crate::run_registry::now_secs(),
-            ..record.clone()
-        },
-    );
+    let mut resumed_record = RunRecord {
+        session_id: session.id.clone(),
+        claude_session_id: claude_resume_id.clone(),
+        codex_originator: codex_originator.clone(),
+        model: options.model.clone(),
+        effort: options.effort.clone(),
+        started_reason: run_reason.map(str::to_string),
+        resumed_from_id: Some(record.session_id.clone()),
+        // EXP-773: the ACP ids are the ENGINE's to upsert once
+        // `session/load` (or `session/new`) answers — the recorded ones
+        // belong to the run being continued, not to this one.
+        transport: Some(ACP_TRANSPORT.to_string()),
+        acp_session_id: None,
+        agent_native_session_id: None,
+        acp_child_pid: None,
+        host_pid: None,
+        recorded_at: crate::run_registry::now_secs(),
+        ..record.clone()
+    };
+    // EXP-849: the ACCOUNT this run actually landed on, which on a switch is
+    // not the recorded one — a resume of the resumed run must re-enter the
+    // login that now holds the transcript, not the one it came from.
+    resumed_record.set_account(options.account.as_deref());
+    crate::run_registry::record(&deps.data_dir, resumed_record);
 
     // The re-created row's start scope, in the recorded subject's shape —
     // an issue scope refuses a branch server-side, and a batch one carries
@@ -3093,8 +3157,7 @@ fn prepare_resume_run(
                 .clone()
                 .or_else(|| codex_resume_id.clone())
                 .map(ResumeSeed::Native)
-        })
-        .or_else(|| pi_resume_file.clone().map(ResumeSeed::PiSessionFile));
+        });
     let session_id_for_acp = session.id.clone();
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
@@ -3122,7 +3185,7 @@ fn prepare_resume_run(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id,
-        bypass_permissions: agent != CodingAgent::Pi,
+        bypass_permissions: true,
         plan_mode: false,
         agent,
         claude_session_id: None,
@@ -3237,8 +3300,8 @@ pub fn prepare_agent_shell(
     let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
 
     // EXP-369: the agent runs in the pinned worktree when the caller gave
-    // one — the MCP config file has to land in the SAME dir (claude/pi read
-    // it relative to their cwd).
+    // one — the MCP config file has to land in the SAME dir (claude reads it
+    // relative to its cwd).
     let cwd = agent_shell_cwd(req, &clone);
 
     // The per-agent MCP wiring (the agent authenticates as the real user).
@@ -3493,13 +3556,11 @@ mod tests {
         }
     }
 
-    /// EXP-752: pi's plan mode is the injected `.exp-pi-plan.ts` extension
-    /// (EXP-441) — the rpc adapter loads it with `-e` and advertises it as an
-    /// ACP session mode — so a plan-mode pi launch is as ACP-ready as
-    /// claude's, and nothing about the mode gates a launch.
+    /// EXP-752: nothing about plan mode gates a launch — a plan-mode run is
+    /// as ACP-ready as any other.
     #[test]
-    fn pi_plan_mode_is_acp_ready_like_claudes() {
-        let dir = temp_dir("pi-plan-acp");
+    fn plan_mode_is_acp_ready_like_any_other_launch() {
+        let dir = temp_dir("plan-acp");
         let base = canned_server(Vec::new());
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
@@ -3520,12 +3581,11 @@ mod tests {
         let report = crate::doctor::DoctorReport {
             claude: ready(crate::doctor::Tool::Claude),
             codex: ready(crate::doctor::Tool::Codex),
-            pi: ready(crate::doctor::Tool::Pi),
             git: ready(crate::doctor::Tool::Git),
         };
-        let pi = AgentKind::Builtin(CodingAgent::Pi);
+        let codex = AgentKind::Builtin(CodingAgent::Codex);
         let claude = AgentKind::Builtin(CodingAgent::Claude);
-        assert!(acp_ready(&report, &pi, &deps));
+        assert!(acp_ready(&report, &codex, &deps));
         assert!(acp_ready(&report, &claude, &deps));
         // A host with no engine is never ready, whatever the agent says.
         let mut hostless = make_deps(&base, &dir.0, Arc::new(FakeWorktrees {
@@ -3533,16 +3593,16 @@ mod tests {
             seen: Default::default(),
         }));
         hostless.acp_available = false;
-        assert!(!acp_ready(&report, &pi, &hostless));
+        assert!(!acp_ready(&report, &codex, &hostless));
         assert!(!acp_ready(&report, &claude, &hostless));
-        assert!(acp_gate(&report, &pi, &deps).is_none());
+        assert!(acp_gate(&report, &claude, &deps).is_none());
         assert!(matches!(
-            acp_gate(&report, &pi, &hostless),
+            acp_gate(&report, &claude, &hostless),
             Some(DisabledReason::AcpUnavailable { .. })
         ));
-        // The mode is no part of the gate (the settings default has
-        // `pi_plan_mode` ON, so this is the common launch).
-        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Pi).plan_mode);
+        // The mode is no part of the gate (claude's plan default is ON, so
+        // this is the common launch).
+        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Claude).plan_mode);
     }
 
     /// A stub `claude` that answers `--version` with an ACP-ready version and
@@ -3857,7 +3917,7 @@ mod tests {
     }
 
     /// EXP-773 (was EXP-758 #11): a run whose agent lost its ACP readiness
-    /// (a downgraded CLI, a failed pi probe, a host with no engine) has no
+    /// (a downgraded CLI, a host with no engine) has no
     /// terminal to fall back to any more — the resume is REFUSED, with the
     /// doctor's own reason attached.
     #[test]
@@ -3888,7 +3948,7 @@ mod tests {
 
     /// EXP-758 (#12): an EXTERNAL agent launch is gated on git alone rather
     /// than on a claude that is not installed, its MCP posture is the
-    /// env-only external one (no `.exp-mcp.json`, no pi bridge), and the
+    /// env-only external one (no `.exp-mcp.json`), and the
     /// worktree marker records ITS id so no builtin is ever offered a resume
     /// here.
     #[test]
@@ -3929,7 +3989,6 @@ mod tests {
             other => panic!("expected the external MCP posture, got {other:?}"),
         }
         assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
-        assert!(!worktree.join(crate::pi_bridge::PI_BRIDGE_FILE).exists());
         assert_eq!(acp.reaper_settings_path, None, "the anchor is claude's");
         assert_eq!(prepared.claude_session_id, None);
         assert_eq!(prepared.codex_originator, None);
@@ -4062,7 +4121,7 @@ mod tests {
     }
 
     /// EXP-792 (EXP-747 B2): a profile pick sets the agent's config-dir
-    /// variable and NOTHING else; `None`/`system`, pi, an external agent and
+    /// variable and NOTHING else; `None`/`system`, an external agent and
     /// an unknown id set nothing.
     #[test]
     fn apply_account_env_sets_only_the_config_dir_var() {
@@ -4098,9 +4157,7 @@ mod tests {
             let spawn = apply_account_env(base.clone(), &claude, &data_dir, none);
             assert_eq!(spawn.env, base.env, "{none:?}");
         }
-        // pi has no config-dir variable; an external agent is never profiled.
-        let pi = apply_account_env(base.clone(), &AgentKind::Builtin(CodingAgent::Pi), &data_dir, Some(&work.id));
-        assert_eq!(pi.env, base.env);
+        // An external agent is never profiled.
         let external = AgentKind::External(crate::settings::ExternalAgentSpec {
             id: "x".into(),
             label: "x".into(),
@@ -4115,7 +4172,7 @@ mod tests {
 
     /// FEED-25: a claude child carries a finite per-call MCP timeout on BOTH
     /// arms — the agent shell and the ACP session (the CLI's own default is
-    /// 27 hours); codex and pi have their own bounds and never see the
+    /// 27 hours); codex has its own bounds and never sees the
     /// variable.
     #[test]
     fn apply_mcp_env_bounds_claude_mcp_calls_on_both_arms() {
@@ -4137,8 +4194,6 @@ mod tests {
             }
             let codex = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Codex), "http://x/", "expu_k", Some("s"), shell);
             assert_eq!(timeout(&codex), None, "shell={shell}");
-            let pi = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Pi), "http://x/", "expu_k", Some("s"), shell);
-            assert_eq!(timeout(&pi), None, "shell={shell}");
         }
     }
 
@@ -4577,7 +4632,6 @@ mod tests {
         // scratch dir.
         let scratch = dir.0.join("actions").join("act-1");
         assert!(!scratch.join(".exp-mcp.json").exists());
-        assert!(!scratch.join(".exp-pi-mcp.ts").exists());
         // The MCP posture the codex adapter composes its `-c` overrides from,
         // and the key in the spawn env only — never argv, never disk.
         match &prepared.acp.mcp {
@@ -4594,56 +4648,6 @@ mod tests {
             .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
         assert_eq!(prepared.acp.options.model, "gpt-5.6-sol");
         assert!(seed_prompt(&prepared).contains("Scan the backlog."));
-    }
-
-    /// EXP-257: a PI action run — the bridge extension lands in the scratch
-    /// dir, `-e` loads it, url/token/skip-version ride the env.
-    #[test]
-    fn prepare_action_pi_writes_the_bridge() {
-        let dir = temp_dir("action-pi");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        // EXP-409: the pi auth gate checks credential presence (auth.json or
-        // a provider env key) — CI runners have neither, so satisfy the real
-        // probe the way a real pi setup would.
-        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
-        let mut req = action_request();
-        req.options = LaunchOptions {
-            agent: CodingAgent::Pi,
-            model: "grok-4.5".to_string(),
-            effort: String::new(),
-            ultracode: false,
-            plan_mode: false,
-            mcp_server_ids: Vec::new(),
-            account: None,
-            external: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let scratch = dir.0.join("actions").join("act-1").join("1a2b3c4d");
-        let bridge = fs::read_to_string(scratch.join(".exp-pi-mcp.ts")).unwrap();
-        assert!(!bridge.contains("expu_"));
-        assert!(!scratch.join(".exp-mcp.json").exists());
-        assert!(prepared.spawn.args.is_empty());
-        assert_eq!(prepared.acp.mcp, AgentMcp::PiExtension);
-        for (key, value) in [
-            ("EXP_MCP_URL", format!("{base}/api/mcp")),
-            ("EXP_MCP_TOKEN", "expu_seeded".to_string()),
-            ("PI_SKIP_VERSION_CHECK", "1".to_string()),
-        ] {
-            assert!(
-                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
-                "missing env {key}={value}: {:?}",
-                prepared.spawn.env
-            );
-        }
     }
 
     /// EXP-478: `prepare` gates the clone from before the worktree exists,
@@ -5299,7 +5303,6 @@ mod tests {
             branch: None,
             base_branch: None,
             claude_session_id: Some("claude-1".to_string()),
-            pi_session_file: None,
             codex_originator: None,
             inputs: Vec::new(),
             model: "fable".to_string(),
@@ -5327,6 +5330,7 @@ mod tests {
             model: None,
             effort: None,
             prompt: None,
+            account: None,
         }
     }
 
@@ -5383,6 +5387,133 @@ mod tests {
         assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
         assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
         assert_eq!(fresh.started_reason, None);
+    }
+
+    /// EXP-849 — a mid-session account SWITCH (claude only): the resume runs
+    /// on the target profile, the transcript is HANDED OVER into that
+    /// profile's own `projects` tree so `--resume` still finds the
+    /// conversation, and the new row chains back through `resumedFromId` like
+    /// any other resume. No credential is read, copied or written.
+    #[test]
+    fn prepare_resume_run_hands_the_transcript_to_the_target_account() {
+        let dir = temp_dir("resume-switch");
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        // The run happened on the AMBIENT login, whose tree the fixture root
+        // stands in for.
+        let projects = dir.0.join("claude-projects");
+        let project_dir = projects.join("-Users-u-worktree--71h4ur");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(project_dir.join("claude-1.jsonl"), "{\"turn\":1}\n").unwrap();
+        deps.claude_projects_root = Some(projects);
+        let target =
+            crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        // A credential in the SOURCE tree must stay exactly where it is.
+        let credential = dir.0.join("claude-projects").join("..").join("creds.json");
+        fs::write(&credential, "secret").unwrap();
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some(target.id.clone());
+        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // The conversation survived the handover …
+        assert_eq!(
+            prepared.acp.resume,
+            Some(ResumeSeed::Native("claude-1".to_string()))
+        );
+        // … because the file is now in the TARGET profile's tree, under
+        // claude's own project directory name.
+        let handed = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id)
+            .unwrap()
+            .join("projects")
+            .join("-Users-u-worktree--71h4ur")
+            .join("claude-1.jsonl");
+        assert!(handed.is_file(), "{}", handed.display());
+        assert_eq!(fs::read_to_string(&handed).unwrap(), "{\"turn\":1}\n");
+        // Nothing credential-shaped travelled with it.
+        let target_dir =
+            crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id).unwrap();
+        assert!(!target_dir.join("creds.json").exists());
+        assert!(!target_dir.join(".credentials.json").exists());
+        assert_eq!(fs::read_to_string(&credential).unwrap(), "secret");
+        // The run now reads the TARGET profile's config dir …
+        assert!(prepared
+            .spawn
+            .env
+            .iter()
+            .any(|(key, value)| key == "CLAUDE_CONFIG_DIR"
+                && value == &target_dir.to_string_lossy().to_string()));
+        // … and is a continuation, not a new run.
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
+            "{requests:?}"
+        );
+        drop(requests);
+        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
+        assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
+        assert_eq!(fresh.account().as_deref(), Some(target.id.as_str()));
+    }
+
+    /// EXP-849 — the two switches the launcher refuses outright, before it
+    /// starts anything: codex (one login per session — its conversation lives
+    /// in the login's own rollout store), and an account this machine does
+    /// not have.
+    #[test]
+    fn prepare_resume_run_refuses_a_switch_it_cannot_honor() {
+        let dir = temp_dir("resume-switch-refused");
+        let (base, _captured) = canned_server_recording(vec![]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some("deadbeef".to_string());
+        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
+                assert!(message.contains("deadbeef"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        let target =
+            crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.agent = CodingAgent::Codex;
+        let mut req = resume_request(record);
+        req.account = Some(target.id);
+        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
+                assert!(message.to_lowercase().contains("codex"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        // Naming the account the run ALREADY used is not a switch: `system`
+        // against an ambient-login record resumes as it always did.
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some("system".to_string());
+        assert!(
+            !matches!(
+                prepare(&PrepareRequest::ResumeRun(req), &deps),
+                Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused { .. }))
+            ),
+            "same-account resume must not be refused"
+        );
     }
 
     /// EXP-679: a resume ANOTHER coding session asked for is unattended —
@@ -6439,7 +6570,6 @@ mod tests {
         assert_eq!(prepared.spawn.program, deps.settings.codex_path);
         // NO on-disk MCP config for codex — the key must not land in the tree.
         assert!(!worktree.join(".exp-mcp.json").exists());
-        assert!(!worktree.join(".exp-pi-mcp.ts").exists());
         // The MCP posture the codex adapter composes its `-c` overrides from
         // points at the instance /api/mcp; the token itself never rides argv…
         assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
@@ -6470,75 +6600,6 @@ mod tests {
             .spawn
             .env
             .contains(&(crate::argv::CODEX_ORIGINATOR_ENV.to_string(), originator)));
-    }
-
-    /// EXP-201: a PI launch writes the `.exp-pi-mcp.ts` bridge (no
-    /// `.exp-mcp.json`), loads it via `-e`, and carries url + token +
-    /// PI_SKIP_VERSION_CHECK in the spawn env; tab titled `pi · …`.
-    #[test]
-    fn prepare_pi_full_sequence() {
-        let dir = temp_dir("pi-happy");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        // EXP-409: the pi auth gate checks credential presence (auth.json or
-        // a provider env key) — CI runners have neither, so satisfy the real
-        // probe the way a real pi setup would.
-        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
-        let mut req = request("EXP-42");
-        req.options = LaunchOptions {
-            agent: CodingAgent::Pi,
-            model: "grok-4.5".to_string(),
-            effort: "high".to_string(),
-            ultracode: false,
-            plan_mode: false,
-            mcp_server_ids: Vec::new(),
-            account: None,
-            external: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(prepared.tab_title, "pi · EXP-42");
-        // The bridge is on disk (static, secret-free); no .exp-mcp.json.
-        let bridge = fs::read_to_string(worktree.join(".exp-pi-mcp.ts")).unwrap();
-        assert!(!bridge.contains("expu_"));
-        assert!(!worktree.join(".exp-mcp.json").exists());
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        assert_eq!(prepared.acp.mcp, AgentMcp::PiExtension);
-        assert_eq!(prepared.acp.options.model, "grok-4.5");
-        assert_eq!(prepared.acp.options.effort, "high");
-        // EXP-637: every pi run records into its own transcript file, so a
-        // later resume can name it exactly.
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
-        assert!(record
-            .pi_session_file
-            .as_ref()
-            .unwrap()
-            .ends_with("pi-sessions/sess-1.jsonl"));
-        for (key, value) in [
-            ("EXP_MCP_URL", format!("{base}/api/mcp")),
-            ("EXP_MCP_TOKEN", "expu_seeded".to_string()),
-            ("PI_SKIP_VERSION_CHECK", "1".to_string()),
-        ] {
-            assert!(
-                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
-                "missing env {key}={value}: {:?}",
-                prepared.spawn.env
-            );
-        }
     }
 
     /// EXP-201 per-agent doctor gate: a missing codex blocks a CODEX launch
@@ -6831,7 +6892,7 @@ mod tests {
     }
 
     /// EXP-369: a pinned worktree becomes the agent's cwd (and with it the
-    /// `.exp-mcp.json` / pi-bridge target); without one the trunk clone is.
+    /// `.exp-mcp.json` target); without one the trunk clone is.
     #[test]
     fn agent_shell_runs_in_the_pinned_worktree_when_given_one() {
         let clone = PathBuf::from("/repos/acme/web");
@@ -6917,7 +6978,7 @@ mod tests {
     }
 
     /// Every resolved pair lands in the spawn env for every agent; the
-    /// server LIST rides the env only for pi and an external agent (claude
+    /// server LIST rides the env only for an external agent (claude
     /// and codex carry it in their configs), and it never carries a value.
     #[test]
     fn apply_mcp_server_env_lands_every_pair_and_the_list_only_where_the_env_carries_it() {
@@ -6925,7 +6986,6 @@ mod tests {
         let cases = [
             (AgentKind::Builtin(CodingAgent::Claude), false),
             (AgentKind::Builtin(CodingAgent::Codex), false),
-            (AgentKind::Builtin(CodingAgent::Pi), true),
             (AgentKind::External(external_spec()), true),
         ];
         for (agent, list_expected) in cases {
@@ -6951,7 +7011,7 @@ mod tests {
         // An empty pick adds nothing at all — the pre-792 env, byte for byte.
         let bare = apply_mcp_server_env(
             SpawnSpec::new("agent"),
-            &AgentKind::Builtin(CodingAgent::Pi),
+            &AgentKind::External(external_spec()),
             &ResolvedMcp::default(),
         );
         assert!(bare.env.is_empty());
