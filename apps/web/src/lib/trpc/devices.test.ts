@@ -959,6 +959,26 @@ describe(`devices.reportWorktrees`, () => {
     expect(h.state.deletes).toBe(1)
   })
 
+  // EXP-849: same ALWAYS-CLAMP contract as `register` — a machine below the
+  // version floor keeps reporting the retired `pi`, and the synced worktree
+  // row must never carry an id the clients have no vocabulary for.
+  it(`clamps a worktree's agents to the contract and keeps absent NULL`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }]]
+    await caller.reportWorktrees({
+      deviceId: `dev-1`,
+      worktrees: [
+        wt(`exp/EXP-1`, { agents: [`claude`, `pi`] }),
+        // Only the retired one: an EMPTY list, not a NULL (that means
+        // "pre-marker worktree, any agent may resume").
+        wt(`exp/EXP-2`, { agents: [`pi`] }),
+        wt(`exp/EXP-3`),
+      ],
+    })
+    expect(h.state.inserted[0]).toMatchObject({ agents: [`claude`] })
+    expect(h.state.inserted[1]).toMatchObject({ agents: [] })
+    expect(h.state.inserted[2]).toMatchObject({ agents: null })
+  })
+
   it(`bounds the report at 256 rows`, async () => {
     const rows = Array.from({ length: 257 }, (_, i) => wt(`exp/EXP-${i}`))
     await expect(

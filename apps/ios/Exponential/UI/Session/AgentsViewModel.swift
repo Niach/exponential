@@ -86,7 +86,11 @@ final class AgentsViewModel {
     /// lands via sync: the machine re-probes and its `agent_accounts` report
     /// moves.
     private(set) var accountActions: Set<String> = []
-    var accountActionError: String?
+    /// The last refusal, keyed by DEVICE id (Android `commandStates`): the
+    /// caption belongs under the chips of the machine that refused, which is
+    /// where the tap was — a single page-level slot at the bottom of the page
+    /// is invisible from the machine rows at the top.
+    private(set) var accountActionErrors: [String: String] = [:]
     /// EXP-829: the command queue the refreshes ride — set by the Devices
     /// page only. Nil (the Agent page, the onboarding step) = the accounts
     /// are still derived but nothing is ever queued from there.
@@ -556,6 +560,12 @@ final class AgentsViewModel {
         accountActions.contains(row.key)
     }
 
+    /// The last account-command refusal for this machine, for the caption
+    /// under ITS chips.
+    func accountActionError(deviceId: String) -> String? {
+        accountActionErrors[deviceId]
+    }
+
     /// EXP-849: make this login the machine's ACTIVE one for its agent — the
     /// Devices surface's "Use this account here".
     ///
@@ -584,10 +594,11 @@ final class AgentsViewModel {
     ) {
         guard let devicesApi, row.mine, row.online else { return }
         guard !accountActions.contains(row.key) else { return }
-        accountActionError = nil
+        accountActionErrors[row.deviceId] = nil
         accountActions.insert(row.key)
         let accountId = accountId
         let key = row.key
+        let deviceId = row.deviceId
         Task { [weak self] in
             do {
                 let created = try await devicesApi.createCommand(
@@ -611,13 +622,13 @@ final class AgentsViewModel {
                     ) else { continue }
                     guard !command.isPending else { continue }
                     if command.isFailed {
-                        self.accountActionError =
+                        self.accountActionErrors[deviceId] =
                             command.result ?? "The machine refused the command."
                     }
                     break
                 }
             } catch {
-                self?.accountActionError = error.userFacingMessage
+                self?.accountActionErrors[deviceId] = error.userFacingMessage
             }
             self?.accountActions.remove(key)
         }

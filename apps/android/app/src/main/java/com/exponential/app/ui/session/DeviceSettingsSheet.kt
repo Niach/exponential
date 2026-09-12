@@ -124,6 +124,14 @@ fun DeviceSettingsSheet(
      * agent, the old behaviour.
      */
     initialAgent: String? = null,
+    /**
+     * EXP-849: WHICH of [initialAgent]'s logins the chip named — a machine
+     * holding two claude profiles draws two chips, and opening on the agent
+     * alone would point the sheet's sign-in at the AMBIENT login instead of
+     * the one the caller tapped. `system` (or a profile this machine no longer
+     * reports) means the ambient login, the old behaviour.
+     */
+    initialProfileId: String? = null,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
 ) {
 
@@ -353,8 +361,19 @@ fun DeviceSettingsSheet(
                 // live in the agent's own card — the standalone "Agents"
                 // section repeated the agent list a second time.
                 accountSlot = {
+                    // EXP-849: the login the routing chip named, while the tab
+                    // is still the agent it belongs to and the machine still
+                    // reports it. The ambient login is the header button's own
+                    // target, so `system` is simply null here.
+                    val chipProfileId = initialProfileId
+                        ?.takeIf { agentTab == initialAgent && it != SYSTEM_PROFILE_ID }
+                        ?.takeIf { id ->
+                            device.agentAccounts?.get(agentTab)?.profiles.orEmpty()
+                                .any { it.id == id }
+                        }
                     AgentAccountBlock(
                         agent = agentTab,
+                        loginProfileId = chipProfileId,
                         onOpenUsage = onOpenUsage?.let {
                             {
                                 onDismiss()
@@ -624,6 +643,12 @@ private fun WorktreeRow(
 @Composable
 private fun AgentAccountBlock(
     agent: String,
+    /**
+     * EXP-849: a named profile the header sign-in targets instead of the
+     * machine's ambient login — set when a machine-row chip routed its repair
+     * into this sheet. Null = the ambient login, the ordinary case.
+     */
+    loginProfileId: String?,
     /** EXP-827: opens Devices → Accounts; null = this host has no such page. */
     onOpenUsage: (() -> Unit)?,
     account: AgentAccount?,
@@ -697,15 +722,25 @@ private fun AgentAccountBlock(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 canLogin -> {
-                    val switching = account?.signedIn == true
+                    // The header button is about the machine's AMBIENT login —
+                    // unless a machine-row chip routed a repair here naming one
+                    // of the agent's other logins, which the button then
+                    // targets: a PROFILE sign-in lands in that profile's own
+                    // config dir, so it is never the logout-first switch (a
+                    // codex logout would revoke the token server-wide).
+                    val target = loginProfileId?.let { id ->
+                        account?.profiles.orEmpty().firstOrNull { it.id == id }
+                    }
+                    val switching = account?.signedIn == true && target == null
                     Spacer(Modifier.width(8.dp))
                     GlassPill(
                         if (switching) "Switch account" else "Login",
-                        // The header button is about the machine's AMBIENT
-                        // login; a named profile is repaired from its own chip
-                        // below.
-                        onClick = { onLogin(switching, null) },
+                        onClick = { onLogin(switching, target?.id) },
                         icon = if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,
+                        contentDescription = target?.let {
+                            val label = it.label?.trim()?.takeIf { l -> l.isNotEmpty() } ?: it.id
+                            "Sign in to $label on this machine"
+                        },
                     )
                 }
             }

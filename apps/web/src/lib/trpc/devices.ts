@@ -838,7 +838,12 @@ export const devicesRouter = router({
       const now = new Date()
       await ctx.db.transaction(async (tx) => {
         for (const wt of reported) {
-          const agents = wt.agents ?? null
+          // EXP-849: the same ALWAYS-CLAMP contract as `register`'s agent
+          // lists — a worktree reported by a machine below the version floor
+          // must not park a RETIRED id in the synced row (the clients have no
+          // name or icon for one). Absent stays NULL; a list that clamps
+          // empty stays an empty list, like `clampAgentIds` everywhere else.
+          const agents = wt.agents ? clampAgentIds(wt.agents) : null
           await tx
             .insert(deviceWorktrees)
             .values({

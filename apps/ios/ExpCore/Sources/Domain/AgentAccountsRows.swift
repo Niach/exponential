@@ -442,22 +442,43 @@ public enum AgentAccountsRows {
         return group.email ?? group.plan ?? "signed in"
     }
 
+    /// The `account-switch` device cap: the machine handles
+    /// `agent_profile_use`. Shipped in desktop/CLI 0.14.38 — the server
+    /// REFUSES the command (`PRECONDITION_FAILED`) for a machine that does not
+    /// advertise it, so offering the switch there would only produce a
+    /// refusal. `SteerDevice.canSwitchAccount` reads the cap.
+    public static let switchCap = "account-switch"
+
     /// EXP-849: the ONE repair a MACHINE owes a login, as its chip menu's lead
     /// entry — a healthy login the machine is not using simply BECOMES its
     /// login (`agent_profile_use`: no login flow, no logout, no credential
     /// touched), everything else is a sign-in. Byte-identical with web
     /// `MachineAccountChip` and Android `chipAction`.
-    public static func chipAction(_ row: AgentProfileUsageRow) -> String {
+    ///
+    /// `canSwitchAccount` is the machine's `account-switch` cap: without it the
+    /// switch falls through to a sign-in, because the server would refuse the
+    /// command.
+    public static func chipAction(
+        _ row: AgentProfileUsageRow,
+        canSwitchAccount: Bool
+    ) -> String {
         if !row.signedIn { return "Sign in" }
         if row.health == .needsRelogin { return "Re-login" }
-        return row.active ? "Sign in again" : "Use this account here"
+        return chipSwitchesTo(row, canSwitchAccount: canSwitchAccount)
+            ? "Use this account here"
+            : "Sign in again"
     }
 
     /// Whether `chipAction` is the non-destructive active-login pick rather
     /// than a sign-in. An EXPIRED credential is never switched to: it would
-    /// not work — it gets re-signed-in instead.
-    public static func chipSwitchesTo(_ row: AgentProfileUsageRow) -> Bool {
-        row.signedIn && !row.active && row.health != .needsRelogin
+    /// not work — it gets re-signed-in instead. Neither is a login on a
+    /// machine whose build has no `agent_profile_use`: the server refuses that
+    /// one before it ever reaches the machine.
+    public static func chipSwitchesTo(
+        _ row: AgentProfileUsageRow,
+        canSwitchAccount: Bool
+    ) -> Bool {
+        canSwitchAccount && row.signedIn && !row.active && row.health != .needsRelogin
     }
 
     /// EXP-849: the account row's health badge, or nil when there is nothing to

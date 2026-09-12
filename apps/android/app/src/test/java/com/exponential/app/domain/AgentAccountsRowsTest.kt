@@ -515,21 +515,51 @@ class AgentAccountsRowsTest {
             health = health,
         )
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
-        assertEquals("Sign in", AgentAccountsRows.chipAction(signedOut))
-        assertFalse(AgentAccountsRows.chipSwitchesTo(signedOut))
+        assertEquals("Sign in", AgentAccountsRows.chipAction(signedOut, true))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(signedOut, true))
 
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
-        assertEquals("Re-login", AgentAccountsRows.chipAction(expired))
+        assertEquals("Re-login", AgentAccountsRows.chipAction(expired, true))
         // An expired credential is never "switched to" — it would not work.
-        assertFalse(AgentAccountsRows.chipSwitchesTo(expired))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(expired, true))
 
         val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
-        assertEquals("Sign in again", AgentAccountsRows.chipAction(current))
-        assertFalse(AgentAccountsRows.chipSwitchesTo(current))
+        assertEquals("Sign in again", AgentAccountsRows.chipAction(current, true))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(current, true))
 
         val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
-        assertEquals("Use this account here", AgentAccountsRows.chipAction(other))
-        assertTrue(AgentAccountsRows.chipSwitchesTo(other))
+        assertEquals("Use this account here", AgentAccountsRows.chipAction(other, true))
+        assertTrue(AgentAccountsRows.chipSwitchesTo(other, true))
+    }
+
+    @Test
+    fun `a machine without the account-switch cap never offers the pick`() {
+        fun chip(signedIn: Boolean, active: Boolean, health: AgentHealth) = DeviceAccountChip(
+            key = "claude:work",
+            agent = "claude",
+            profileId = "work",
+            profileLabel = "Work",
+            signedIn = signedIn,
+            active = active,
+            email = null,
+            plan = null,
+            health = health,
+        )
+        // `agent_profile_use` shipped in desktop/CLI 0.14.38 and the server
+        // refuses it without the cap, so the ONE offer an older machine makes
+        // for a healthy login it is not using is the sign-in.
+        val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
+        assertEquals("Sign in again", AgentAccountsRows.chipAction(other, false))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(other, false))
+
+        // The other states are unmoved: the cap only ever gates the switch.
+        val signedOut = chip(signedIn = false, active = false, health = AgentHealth.SignedOut)
+        assertEquals("Sign in", AgentAccountsRows.chipAction(signedOut, false))
+        val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
+        assertEquals("Re-login", AgentAccountsRows.chipAction(expired, false))
+        val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
+        assertEquals("Sign in again", AgentAccountsRows.chipAction(current, false))
+        assertFalse(AgentAccountsRows.chipSwitchesTo(current, false))
     }
 
     // ── EXP-849: a retired agent id never renders ────────────────────────────

@@ -13,7 +13,8 @@ import SwiftUI
 ///   - **Use this account here** — point the machine's ACTIVE login for that
 ///     agent at a profile it already holds (`agent_profile_use`: no login
 ///     flow, no logout, no credential touched). Hidden on the login that is
-///     already active.
+///     already active, and on a machine whose build has no
+///     `account-switch` cap — the server refuses the command there.
 ///   - **Sign in / Sign in again** — the sign-in link round-trip, which lives
 ///     in the machine's settings sheet (it has the link, the code field and
 ///     the waiting state); this routes there with that agent's tab open,
@@ -25,9 +26,12 @@ import SwiftUI
 struct DeviceAccountChips: View {
     let viewModel: AgentsViewModel
     let device: SteerDevice
-    /// Open this machine's settings sheet with `agent`'s tab selected — where
-    /// the remote sign-in link and its code field live.
-    let onSignIn: (String) -> Void
+    /// Open this machine's settings sheet on the chip's login — its agent
+    /// names the tab, its profile is the one the sign-in targets. Handing the
+    /// AGENT alone over would fall back to the machine's ACTIVE profile, so a
+    /// "Re-login" on the expired sibling of a healthy login would repair the
+    /// wrong one.
+    let onSignIn: (AgentProfileUsageRow) -> Void
 
     private var rows: [AgentProfileUsageRow] {
         viewModel.deviceAccountRows(device.deviceId)
@@ -38,9 +42,25 @@ struct DeviceAccountChips: View {
     @ViewBuilder
     var body: some View {
         if !rows.isEmpty {
-            FlowLayout(spacing: 6) {
-                ForEach(rows) { row in
-                    chip(row)
+            VStack(alignment: .leading, spacing: 6) {
+                FlowLayout(spacing: 6) {
+                    ForEach(rows) { row in
+                        chip(row)
+                    }
+                }
+                // The MATERIAL outcome of a chip action lands by SYNC (the
+                // machine re-reports its accounts), but a refusal would
+                // otherwise be silent — including the honest one the server
+                // answers for a machine too old to know the command. It
+                // belongs HERE, under the chips that fired it: a caption at
+                // the bottom of the page is off-screen from this row.
+                if let error = viewModel.accountActionError(deviceId: device.deviceId) {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("device-account-error-\(device.deviceId)")
                 }
             }
         }
@@ -77,22 +97,29 @@ struct DeviceAccountChips: View {
         // and Android: a healthy login this machine is not using BECOMES its
         // login, an expired one is re-signed-in (switching to a dead
         // credential would only fail later), everything else signs in.
-        let switchesTo = AgentAccountsRows.chipSwitchesTo(row)
+        //
+        // The switch is also a CAPABILITY: `agent_profile_use` shipped in
+        // desktop/CLI 0.14.38 and the server refuses it (PRECONDITION_FAILED)
+        // for a machine below that, so a machine without the `account-switch`
+        // cap is offered the sign-in instead of an offer that can only fail.
+        let switchesTo = AgentAccountsRows.chipSwitchesTo(
+            row, canSwitchAccount: device.canSwitchAccount
+        )
         GlassMenuItem(
-            AgentAccountsRows.chipAction(row),
+            AgentAccountsRows.chipAction(row, canSwitchAccount: device.canSwitchAccount),
             icon: switchesTo ? AppIcons.uiSwap : AppIcons.uiSignIn
         ) {
             if switchesTo {
                 viewModel.useAccountHere(row)
             } else {
-                onSignIn(row.agent)
+                onSignIn(row)
             }
         }
         // A switch is the cheap repair; the sign-in stays available under it
         // for a login that turns out to be dead after all.
         if switchesTo {
             GlassMenuItem("Sign in again", icon: AppIcons.uiSignIn) {
-                onSignIn(row.agent)
+                onSignIn(row)
             }
         }
     }

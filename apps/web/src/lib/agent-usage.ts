@@ -494,6 +494,51 @@ export function deviceAccountChips(
   return out
 }
 
+/** The three fields the chip rule reads — a `DeviceAccountChip` and the
+ * account page's `AgentProfileUsageRow` both satisfy it. */
+export type ChipActionRow = {
+  signedIn: boolean
+  active: boolean
+  health: DeviceAgentHealth
+}
+
+/** EXP-849: whether the chip's lead entry is the non-destructive active-login
+ * pick (`agent_profile_use`) rather than a sign-in. An EXPIRED credential is
+ * never switched to — it would not work, it gets re-signed-in instead.
+ *
+ * `canSwitchAccount` is the MACHINE's `account-switch` capability
+ * (`deviceCanSwitchAccount`, desktop/CLI ≥ 0.14.38). The server refuses
+ * `agent_profile_use` without it (lib/trpc/devices.ts), so a machine below
+ * that build must fall through to the sign-in action instead of being offered
+ * a switch that is guaranteed to be refused. Mirrored ×3 (iOS/Android
+ * `AgentAccountsRows.chipSwitchesTo`, desktop `accounts_section.rs`). */
+export function chipSwitchesTo(
+  row: ChipActionRow,
+  canSwitchAccount: boolean
+): boolean {
+  return (
+    canSwitchAccount &&
+    row.signedIn &&
+    !row.active &&
+    row.health !== `needs_relogin`
+  )
+}
+
+/** EXP-849: the ONE repair a MACHINE owes a login, as its chip menu's lead
+ * entry — a healthy login the machine is not using simply BECOMES its login
+ * (no login flow, no logout, no credential touched); everything else is a
+ * sign-in. Byte-identical with iOS/Android `AgentAccountsRows.chipAction`. */
+export function chipAction(
+  row: ChipActionRow,
+  canSwitchAccount: boolean
+): string {
+  if (!row.signedIn) return `Sign in`
+  if (row.health === `needs_relogin`) return `Re-login`
+  return chipSwitchesTo(row, canSwitchAccount)
+    ? `Use this account here`
+    : `Sign in again`
+}
+
 // `Device`'s column is nullable; `SteerDevice`'s is optional — accept both,
 // so a device row and a composed machine can be passed unchanged.
 type HealthDeviceRow = {

@@ -303,17 +303,26 @@ object AgentAccountsRows {
      * entry — a healthy login the machine is not using simply BECOMES its
      * login (`agent_profile_use`, no credential touched), everything else is a
      * sign-in. Byte-identical with web `MachineAccountChip`.
+     *
+     * [canSwitchAccount] is the machine's `account-switch` cap
+     * ([SteerDevice.canSwitchAccount]): the server REFUSES `agent_profile_use`
+     * without it (it shipped in desktop/CLI 0.14.38, above the fleet floor),
+     * so a machine that cannot take the pick never offers it — its logins fall
+     * through to the sign-in, which every `agent-login` build can run.
      */
-    fun chipAction(chip: DeviceAccountChip): String = when {
+    fun chipAction(chip: DeviceAccountChip, canSwitchAccount: Boolean): String = when {
         !chip.signedIn -> "Sign in"
         chip.health == AgentHealth.NeedsRelogin -> "Re-login"
-        chip.active -> "Sign in again"
+        chip.active || !canSwitchAccount -> "Sign in again"
         else -> "Use this account here"
     }
 
     /** Whether [chipAction] is the non-destructive active-login pick. */
-    fun chipSwitchesTo(chip: DeviceAccountChip): Boolean =
-        chip.signedIn && !chip.active && chip.health != AgentHealth.NeedsRelogin
+    fun chipSwitchesTo(chip: DeviceAccountChip, canSwitchAccount: Boolean): Boolean =
+        canSwitchAccount &&
+            chip.signedIn &&
+            !chip.active &&
+            chip.health != AgentHealth.NeedsRelogin
 
     /** The fullest window's percent, or 0 for a row with no usage at all. */
     fun peakPercent(usage: AgentUsage?): Int =

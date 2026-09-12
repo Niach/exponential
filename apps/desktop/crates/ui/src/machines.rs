@@ -789,9 +789,20 @@ impl MachinesSection {
                 );
                 continue;
             }
-            // ONE action per state, and the wording says which it is.
+            // ONE action per state, and the wording says which it is. The
+            // switch additionally needs the machine's `account-switch` cap
+            // (EXP-849, desktop/CLI ≥ 0.14.38): the server refuses
+            // `agent_profile_use` without it, so an older machine falls
+            // through to the sign-in rather than being offered a command that
+            // is guaranteed to be refused. THIS machine writes the pointer
+            // itself, no command and no gate (web `chipSwitchesTo`).
             let broken = chip.health == coding::agent_accounts::Health::NeedsRelogin;
-            let use_here = chip.signed_in && !chip.active && !broken;
+            let can_switch = own
+                || device
+                    .caps
+                    .iter()
+                    .any(|cap| cap == coding::doctor::ACCOUNT_SWITCH_CAP);
+            let use_here = can_switch && chip.signed_in && !chip.active && !broken;
             let action: SharedString = if !chip.signed_in {
                 "Sign in".into()
             } else if broken || chip.active {

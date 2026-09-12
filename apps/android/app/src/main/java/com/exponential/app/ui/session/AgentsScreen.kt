@@ -136,6 +136,10 @@ fun AgentsScreen(
     // EXP-849: which agent tab that sheet opens on — a machine chip's "Sign in"
     // routes into the sheet, and it must land on the login that is broken.
     var settingsAgent by remember { mutableStateOf<String?>(null) }
+    // …and WHICH of that agent's logins: a machine holding two claude profiles
+    // has two chips, so the agent alone would repair the ambient login instead
+    // of the one the chip named.
+    var settingsProfileId by remember { mutableStateOf<String?>(null) }
     var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
     // EXP-849: the Accounts section's agent TAB (claude | codex) — one agent's
     // rows at a time, so the second agent's accounts never crowd the first's
@@ -197,6 +201,7 @@ fun AgentsScreen(
                                 onStart = { onOpenAgent(AgentComposerSeed(deviceId = device.deviceId)) },
                                 onEdit = {
                                     settingsAgent = null
+                                    settingsProfileId = null
                                     settingsTargetId = device.deviceId
                                 },
                                 onRemove = { removeTarget = device },
@@ -208,6 +213,7 @@ fun AgentsScreen(
                                 // agent whose login needs the repair.
                                 onSignInAccount = { chip ->
                                     settingsAgent = chip.agent
+                                    settingsProfileId = chip.profileId
                                     settingsTargetId = device.deviceId
                                 },
                             )
@@ -344,11 +350,13 @@ fun AgentsScreen(
                 onDismiss = {
                     settingsTargetId = null
                     settingsAgent = null
+                    settingsProfileId = null
                 },
                 // EXP-827: the sheet dismisses itself, then this page scrolls
                 // to Accounts.
                 onOpenUsage = { usageRequest += 1 },
                 initialAgent = settingsAgent,
+                initialProfileId = settingsProfileId,
             )
         }
     }
@@ -684,6 +692,12 @@ private fun MachineRow(
             // commands without it, and an offline machine would hold them
             // until it wakes, which reads as a dead tap.
             actionable = device.isMine && online && device.canAgentLogin,
+            // EXP-849: `agent_profile_use` is REFUSED by the server on a
+            // machine that does not also advertise `account-switch` (it
+            // shipped in desktop/CLI 0.14.38, above the fleet floor), so an
+            // older machine never offers the pick — its logins are repaired by
+            // signing in, which every `agent-login` build can run.
+            canSwitch = device.canSwitchAccount,
             commandStates = commandStates,
             onUseHere = onUseAccountHere,
             onSignIn = onSignInAccount,
@@ -710,6 +724,8 @@ private fun MachineAccountChips(
     deviceId: String,
     chips: List<DeviceAccountChip>,
     actionable: Boolean,
+    /** The machine advertises `account-switch` — see [AgentAccountsRows.chipAction]. */
+    canSwitch: Boolean,
     commandStates: Map<String, DeviceCommandUiState>,
     onUseHere: (DeviceAccountChip) -> Unit,
     onSignIn: (DeviceAccountChip) -> Unit,
@@ -724,6 +740,7 @@ private fun MachineAccountChips(
                 MachineAccountChip(
                     chip = chip,
                     actionable = actionable,
+                    canSwitch = canSwitch,
                     state = commandStates[deviceAccountCommandKey(deviceId, chip)],
                     onUseHere = { onUseHere(chip) },
                     onSignIn = { onSignIn(chip) },
@@ -751,6 +768,7 @@ private fun MachineAccountChips(
 private fun MachineAccountChip(
     chip: DeviceAccountChip,
     actionable: Boolean,
+    canSwitch: Boolean,
     state: DeviceCommandUiState?,
     onUseHere: () -> Unit,
     onSignIn: () -> Unit,
@@ -814,9 +832,9 @@ private fun MachineAccountChip(
             // login, everything else signs in. Never a logout — signing codex
             // out would revoke the account server-wide — and never a
             // credential copy: the files stay where the CLI wrote them.
-            val switchesTo = AgentAccountsRows.chipSwitchesTo(chip)
+            val switchesTo = AgentAccountsRows.chipSwitchesTo(chip, canSwitch)
             GlassMenuItem(
-                text = { Text(AgentAccountsRows.chipAction(chip)) },
+                text = { Text(AgentAccountsRows.chipAction(chip, canSwitch)) },
                 leadingIcon = {
                     Icon(
                         if (switchesTo) ExpIcons.uiSwap else ExpIcons.uiSignIn,

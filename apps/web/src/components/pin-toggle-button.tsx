@@ -58,6 +58,13 @@ export function PinToggleButton({
   )
 }
 
+/** Whether `PinToggleMenuItem` renders anything at all (EXP-858: it does not
+ *  on a phone viewport). A menu whose OTHER rows are conditional has to ask,
+ *  or it hands a viewport a `⋯` trigger that opens an EMPTY popover. */
+export function usePinToggleVisible(): boolean {
+  return !useIsMobile()
+}
+
 /** The same toggle as a row of an overflow menu. EXP-858: dropped on a phone
  *  viewport, where there is no sidebar to pin into. */
 export function PinToggleMenuItem({
@@ -70,8 +77,8 @@ export function PinToggleMenuItem({
   targetId: string | undefined
 }) {
   const { pinned, toggle } = usePinToggle(teamId, kind, targetId)
-  const isMobile = useIsMobile()
-  if (isMobile) return null
+  const visible = usePinToggleVisible()
+  if (!visible) return null
   return (
     <DropdownMenuItem onSelect={toggle}>
       {pinned ? (

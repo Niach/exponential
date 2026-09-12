@@ -29,6 +29,14 @@ UPDATE "devices" SET "unauthed_agents" = (
   WHERE a <> '"pi"'::jsonb
 ) WHERE "unauthed_agents" @> '["pi"]'::jsonb;--> statement-breakpoint
 
+-- The worktree inventory carries its own per-worktree agent list
+-- (`reportWorktrees`, clamped the same way now).
+UPDATE "device_worktrees" SET "agents" = (
+  SELECT coalesce(jsonb_agg(a), '[]'::jsonb)
+  FROM jsonb_array_elements("agents") a
+  WHERE a <> '"pi"'::jsonb
+) WHERE "agents" @> '["pi"]'::jsonb;--> statement-breakpoint
+
 -- The two per-agent MAPS (sign-in status + usage windows).
 UPDATE "devices" SET "agent_accounts" = "agent_accounts" - 'pi'
 WHERE jsonb_exists("agent_accounts", 'pi');--> statement-breakpoint

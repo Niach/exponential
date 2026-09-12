@@ -492,19 +492,78 @@ final class AgentAccountsRowsTests: XCTestCase {
             )
         }
         let signedOut = chip(false, true, .signedOut)
-        XCTAssertEqual(AgentAccountsRows.chipAction(signedOut), "Sign in")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(signedOut))
+        XCTAssertEqual(AgentAccountsRows.chipAction(signedOut, canSwitchAccount: true), "Sign in")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(signedOut, canSwitchAccount: true))
 
         let expired = chip(true, false, .needsRelogin)
-        XCTAssertEqual(AgentAccountsRows.chipAction(expired), "Re-login")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(expired))
+        XCTAssertEqual(AgentAccountsRows.chipAction(expired, canSwitchAccount: true), "Re-login")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(expired, canSwitchAccount: true))
 
         let current = chip(true, true, .ok)
-        XCTAssertEqual(AgentAccountsRows.chipAction(current), "Sign in again")
-        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(current))
+        XCTAssertEqual(AgentAccountsRows.chipAction(current, canSwitchAccount: true), "Sign in again")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(current, canSwitchAccount: true))
 
         let other = chip(true, false, .ok)
-        XCTAssertEqual(AgentAccountsRows.chipAction(other), "Use this account here")
-        XCTAssertTrue(AgentAccountsRows.chipSwitchesTo(other))
+        XCTAssertEqual(AgentAccountsRows.chipAction(other, canSwitchAccount: true), "Use this account here")
+        XCTAssertTrue(AgentAccountsRows.chipSwitchesTo(other, canSwitchAccount: true))
+    }
+
+    // The switch is a CAPABILITY, not just a state: `agent_profile_use` shipped
+    // in desktop/CLI 0.14.38 and the server answers PRECONDITION_FAILED for a
+    // machine below it, so a machine without the `account-switch` cap is
+    // offered the sign-in instead of an offer that can only fail.
+    func testTheSwitchNeedsTheAccountSwitchCap() throws {
+        let other = AgentProfileUsageRow(
+            key: "dev:claude:work",
+            deviceId: "dev",
+            deviceLabel: "dev",
+            mine: true,
+            online: true,
+            agent: "claude",
+            profileId: "work",
+            profileLabel: "Work",
+            active: false,
+            signedIn: true,
+            email: "dev@acme.test",
+            plan: nil,
+            usage: nil,
+            checkedAt: nil,
+            health: .ok
+        )
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(other, canSwitchAccount: false))
+        XCTAssertEqual(AgentAccountsRows.chipAction(other, canSwitchAccount: false), "Sign in again")
+        // The states that were never a switch read the same either way.
+        let expired = AgentProfileUsageRow(
+            key: "dev:claude:work",
+            deviceId: "dev",
+            deviceLabel: "dev",
+            mine: true,
+            online: true,
+            agent: "claude",
+            profileId: "work",
+            profileLabel: "Work",
+            active: false,
+            signedIn: true,
+            email: "dev@acme.test",
+            plan: nil,
+            usage: nil,
+            checkedAt: nil,
+            health: .needsRelogin
+        )
+        XCTAssertEqual(AgentAccountsRows.chipAction(expired, canSwitchAccount: false), "Re-login")
+        XCTAssertFalse(AgentAccountsRows.chipSwitchesTo(expired, canSwitchAccount: false))
+    }
+
+    // The cap the rule reads is the one `SteerDevice.canSwitchAccount` looks
+    // for — locked so a rename cannot silently disable the switch everywhere.
+    func testTheSwitchCapIsTheDeviceCap() throws {
+        XCTAssertEqual(AgentAccountsRows.switchCap, "account-switch")
+        let withCap = SteerDevice(
+            deviceId: "dev",
+            deviceLabel: "dev",
+            caps: [AgentAccountsRows.switchCap]
+        )
+        XCTAssertTrue(withCap.canSwitchAccount)
+        XCTAssertFalse(SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: ["agent-login"]).canSwitchAccount)
     }
 }
