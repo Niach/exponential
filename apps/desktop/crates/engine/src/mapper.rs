@@ -83,7 +83,9 @@ pub const SETTLED_TOOLS_MAX: usize = 256;
 /// The `_meta` key an adapter stamps a subagent edge under (see
 /// [`SubagentEdge`]).
 pub use crate::local::{
-    COMPACTION_TRIGGER_META_KEY, INJECTED_PROMPT_META_KEY, SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY,
+    BACKGROUND_TASKS_META_KEY, COMPACTION_TRIGGER_META_KEY, INJECTED_PROMPT_META_KEY,
+    SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
+    TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
 
 /// Everything the mapper needs that is constant for a session.
@@ -203,6 +205,17 @@ pub struct Mapper {
     /// EXP-848: the turn slot as last published. Deduped like the others — a
     /// second `ended` for the same turn says nothing.
     turn_state: steer::TurnState,
+    /// EXP-850 §5: the current turn's start (unix ms) and the tokens it has
+    /// produced, plus when the growing count was last republished — the ONE
+    /// exception to the slot's identical-edge dedupe.
+    turn_started_at: Option<i64>,
+    turn_tokens: u64,
+    turn_tokens_published_at: Option<Instant>,
+    /// EXP-850 §2/§3: the last snapshot of each new latest-wins slot that
+    /// actually went out — an identical re-emit says nothing, exactly like
+    /// `config_state`.
+    last_background_tasks: Option<ActivityEvent>,
+    last_workflows: HashMap<String, ActivityEvent>,
     compacting_since: Option<Instant>,
     /// Disambiguates two synthetic ids whose text is identical.
     ordinal: u32,
@@ -393,6 +406,11 @@ impl Mapper {
             last_usage: None,
             last_rate_limit: None,
             turn_state: steer::TurnState::default(),
+            turn_started_at: None,
+            turn_tokens: 0,
+            turn_tokens_published_at: None,
+            last_background_tasks: None,
+            last_workflows: HashMap::new(),
             compacting_since: None,
             ordinal: 0,
         }
@@ -428,6 +446,34 @@ impl Mapper {
             .or_else(|| update_meta(&notification.update).and_then(SubagentEdge::from_meta))
         {
             self.on_subagent(&edge, out);
+        }
+        // EXP-850 §2/§3: the two new latest-wins slots ride `_meta` on
+        // whichever notification the adapter had to hand (claude uses a no-op
+        // `session_info_update`, like the rate-limit slot). Read HERE rather
+        // than in one update arm so an adapter may hang them off any carrier.
+        if let Some(tasks) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(BACKGROUND_TASKS_META_KEY))
+            .cloned()
+        {
+            self.emit_background_tasks(tasks, out);
+        }
+        if let Some(workflow) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(WORKFLOW_META_KEY))
+            .cloned()
+        {
+            self.emit_workflow(workflow, out);
+        }
+        if let Some(tokens) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TURN_TOKENS_META_KEY))
+            .and_then(Value::as_u64)
+        {
+            self.note_turn_tokens(tokens, out);
         }
         // EXP-773: prose and human turns are scoped to their subagent the same
         // way tool calls are — off the chunk's own `_meta`, else the carrying
@@ -794,7 +840,130 @@ impl Mapper {
             return;
         }
         self.turn_state = state;
-        emit(out, ActivityEvent::turn(state), None);
+        // EXP-850 §5: a turn START is the caption's clock zero and resets the
+        // token counter; the END keeps both so the final caption reads
+        // "worked 2m 04s · 1.2k tokens" instead of blanking.
+        if state == steer::TurnState::Started {
+            self.turn_started_at = Some(steer::now_unix_millis());
+            self.turn_tokens = 0;
+            self.turn_tokens_published_at = None;
+        }
+        emit(out, self.turn_event(), None);
+    }
+
+    /// The `turn` slot as it stands — the state plus EXP-850's working-caption
+    /// inputs. `tokens` is omitted while zero: a caption with no number yet
+    /// draws no token group at all.
+    fn turn_event(&self) -> ActivityEvent {
+        ActivityEvent::turn_at(self.turn_state, self.turn_started_at, Some(self.turn_tokens))
+    }
+
+    /// EXP-850 §5: the output tokens this turn has produced so far, as an
+    /// adapter measured them. Monotone (a lower number is a re-count, never
+    /// news) and republished at most every `steerWorking.tokenTickMs` — the
+    /// slot is latest-wins, so a tick costs no feed growth, but one frame per
+    /// thinking-token report would be a hundred frames a turn.
+    pub fn note_turn_tokens(&mut self, tokens: u64, out: &mut MapOut) {
+        if self.turn_state != steer::TurnState::Started || tokens <= self.turn_tokens {
+            return;
+        }
+        self.turn_tokens = tokens;
+        let tick = Duration::from_millis(
+            domain::contract::STEER_WORKING_TOKEN_TICK_MS.max(0) as u64,
+        );
+        if self
+            .turn_tokens_published_at
+            .is_some_and(|at| at.elapsed() < tick)
+        {
+            return;
+        }
+        self.turn_tokens_published_at = Some(Instant::now());
+        emit(out, self.turn_event(), None);
+    }
+
+    /// EXP-850 §2: the background-task slot, as the adapter's `_meta` carried
+    /// it. Clamped to the relay's caps and deduped: the CLI re-lists on every
+    /// change, and an identical list says nothing.
+    fn emit_background_tasks(&mut self, tasks: Value, out: &mut MapOut) {
+        let Ok(mut tasks) = serde_json::from_value::<Vec<steer::BackgroundTask>>(tasks) else {
+            return;
+        };
+        tasks.truncate(steer::BACKGROUND_TASKS_MAX);
+        for task in tasks.iter_mut() {
+            task.id = steer::truncate(&task.id, ID_MAX);
+            task.description = self.clean(&task.description, WORKFLOW_TEXT_MAX);
+            task.tool_id = task
+                .tool_id
+                .as_deref()
+                .map(|id| steer::truncate(id, ID_MAX))
+                .filter(|id| !id.is_empty());
+        }
+        let event = ActivityEvent::background_tasks(tasks);
+        if self.last_background_tasks.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_background_tasks = Some(event.clone());
+        emit(out, event, None);
+    }
+
+    /// EXP-850 §3: one workflow card, as the adapter's `_meta` carried it.
+    /// Latest-wins per id, clamped, and deduped per id.
+    fn emit_workflow(&mut self, workflow: Value, out: &mut MapOut) {
+        let Ok(mut workflow) = serde_json::from_value::<steer::WorkflowState>(workflow) else {
+            return;
+        };
+        if workflow.id.is_empty() {
+            return;
+        }
+        workflow.id = steer::truncate(&workflow.id, ID_MAX);
+        workflow.name = self.clean(&workflow.name, WORKFLOW_TEXT_MAX);
+        workflow.description = workflow
+            .description
+            .as_deref()
+            .map(|text| self.clean(text, WORKFLOW_TEXT_MAX))
+            .filter(|text| !text.is_empty());
+        workflow.summary = workflow
+            .summary
+            .as_deref()
+            .map(|text| self.clean(text, WORKFLOW_TEXT_MAX))
+            .filter(|text| !text.is_empty());
+        workflow.phases.truncate(steer::WORKFLOW_PHASES_MAX);
+        for phase in workflow.phases.iter_mut() {
+            phase.title = self.clean(&phase.title, WORKFLOW_TEXT_MAX);
+        }
+        workflow.agents.truncate(steer::WORKFLOW_AGENTS_MAX);
+        for agent in workflow.agents.iter_mut() {
+            agent.label = self.clean(&agent.label, WORKFLOW_TEXT_MAX);
+            agent.agent_id = agent
+                .agent_id
+                .as_deref()
+                .map(|id| steer::truncate(id, ID_MAX))
+                .filter(|id| !id.is_empty());
+            agent.model = agent
+                .model
+                .as_deref()
+                .map(|model| self.clean(model, WORKFLOW_TEXT_MAX));
+            for field in [
+                &mut agent.last_tool,
+                &mut agent.last_tool_summary,
+                &mut agent.result_preview,
+                &mut agent.error,
+            ] {
+                *field = field
+                    .as_deref()
+                    .map(|text| self.clean(text, WORKFLOW_TEXT_MAX))
+                    .filter(|text| !text.is_empty());
+            }
+        }
+        let id = workflow.id.clone();
+        let event = ActivityEvent::workflow(workflow);
+        if self.last_workflows.get(&id) == Some(&event) {
+            return;
+        }
+        self.last_workflows.insert(id.clone(), event.clone());
+        // The card patches the `tool` row with the SAME id, so the local feed
+        // hangs it off that row exactly like a diff.
+        emit(out, event, Some(id));
     }
 
     /// The full config snapshot from `session/new`, `session/load`,
@@ -875,12 +1044,20 @@ impl Mapper {
                 .subagents
                 .remove(&id)
                 .unwrap_or_else(|| self.clean(&edge.agent_type, AGENT_TYPE_MAX)),
+            // EXP-856: a WARNING about an id that is already live — it neither
+            // opens nor closes the run, so the table is left exactly as it is
+            // and the copy's own `started` still registers it.
+            SubagentEdgeStatus::Duplicate => self
+                .subagents
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.clean(&edge.agent_type, AGENT_TYPE_MAX)),
         };
         // EXP-748: the completed edge carries the run's tool-call total — what
         // this mapper attributed, or the adapter's own number when it counted
         // more (it sees calls that never reached a `session/update`).
         let tool_calls = match edge.status {
-            SubagentEdgeStatus::Started => None,
+            SubagentEdgeStatus::Started | SubagentEdgeStatus::Duplicate => None,
             SubagentEdgeStatus::Completed => {
                 self.subagent_prompts_seen.remove(&id);
                 let counted = self.subagent_tool_calls.remove(&id).unwrap_or(0);
@@ -895,6 +1072,7 @@ impl Mapper {
                 status: match edge.status {
                     SubagentEdgeStatus::Started => steer::SubagentStatus::Started,
                     SubagentEdgeStatus::Completed => steer::SubagentStatus::Completed,
+                    SubagentEdgeStatus::Duplicate => steer::SubagentStatus::Duplicate,
                 },
                 detail: edge
                     .detail
@@ -910,6 +1088,14 @@ impl Mapper {
                     .as_ref()
                     .map(|title| self.clean(title, TOOL_NAME_MAX))
                     .filter(|title| !title.is_empty()),
+                // EXP-850 §4: passed through like `title` — the adapter holds
+                // the workflow membership and stamps it on every edge of the
+                // agent, so a completed edge names its card too.
+                workflow_id: edge
+                    .workflow_id
+                    .as_ref()
+                    .map(|id| steer::truncate(id, ID_MAX))
+                    .filter(|id| !id.is_empty()),
             },
             None,
         );
@@ -1190,7 +1376,28 @@ impl Mapper {
         if let Some(subagent_id) = subagent_id.clone() {
             *self.subagent_tool_calls.entry(subagent_id).or_insert(0) += 1;
         }
-        let detail = self.tool_detail(call.kind, &call.title, &call.locations, call.raw_input.as_ref());
+        // EXP-850 §1: ACP v1 has no `wait` kind, so an adapter names one in
+        // `_meta` and hands over the human label with it (a `TaskOutput`'s is
+        // resolved against the background-task list, which the mapper cannot
+        // see). Both fall back to the ACP derivation.
+        let meta_kind = call
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TOOL_KIND_META_KEY))
+            .or_else(|| notification_meta.and_then(|meta| meta.get(TOOL_KIND_META_KEY)))
+            .and_then(Value::as_str)
+            .and_then(WireToolKind::parse);
+        let meta_detail = call
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TOOL_DETAIL_META_KEY))
+            .or_else(|| notification_meta.and_then(|meta| meta.get(TOOL_DETAIL_META_KEY)))
+            .and_then(Value::as_str)
+            .map(|detail| self.clean(detail, TOOL_DETAIL_MAX))
+            .filter(|detail| !detail.is_empty());
+        let detail = meta_detail.or_else(|| {
+            self.tool_detail(call.kind, &call.title, &call.locations, call.raw_input.as_ref())
+        });
         let name = self.wire_tool_name(call.kind, &call.title, detail.as_deref());
         emit(
             out,
@@ -1198,7 +1405,7 @@ impl Mapper {
                 name: self.clean(&name, TOOL_NAME_MAX),
                 detail,
                 id: Some(id.clone()),
-                tool_kind: Some(wire_tool_kind(call.kind)),
+                tool_kind: Some(meta_kind.unwrap_or_else(|| wire_tool_kind(call.kind))),
                 subagent_id,
                 at: None,
             },
@@ -1207,7 +1414,7 @@ impl Mapper {
         out.local.push(LocalFeedEvent::ToolCall {
             id: id.clone(),
             title: call.title.clone(),
-            kind: card_kind(call.kind),
+            kind: meta_kind.map_or_else(|| card_kind(call.kind), wire_card_kind),
             status: card_status(call.status),
             locations: call
                 .locations
@@ -2465,6 +2672,11 @@ type BTreeMapLike = Map<String, Value>;
 /// EXP-784: the relay's cap on `rate_limit.message` (protocol.ts).
 const RATE_LIMIT_MESSAGE_MAX: usize = 1024;
 
+/// EXP-850: every workflow / background-task string is cut to the contract's
+/// `steerWorking.previewMax` — the relay's zod enforces the same number, so
+/// the producer cuts first.
+const WORKFLOW_TEXT_MAX: usize = domain::contract::STEER_WORKING_PREVIEW_MAX;
+
 /// EXP-784: the `_meta` key an adapter publishes the rate-limit slot under,
 /// on a no-op `session_info_update`: `{"status": <agent word>, "resetsAt":
 /// <unix ms>?, "message": <text>?}`; status empty/`ok` clears.
@@ -2579,6 +2791,25 @@ fn settle_status(status: ToolCallStatus) -> Option<ToolUpdateStatus> {
         ToolCallStatus::Completed => Some(ToolUpdateStatus::Completed),
         ToolCallStatus::Failed => Some(ToolUpdateStatus::Failed),
         _ => None,
+    }
+}
+
+/// EXP-850 §1: the local card bucket for a WIRE kind an adapter named in
+/// `_meta` — the one path that can produce [`ToolCardKind::Wait`], which ACP
+/// cannot express.
+fn wire_card_kind(kind: WireToolKind) -> ToolCardKind {
+    match kind {
+        WireToolKind::Read => ToolCardKind::Read,
+        WireToolKind::Edit => ToolCardKind::Edit,
+        WireToolKind::Delete => ToolCardKind::Delete,
+        WireToolKind::Move => ToolCardKind::Move,
+        WireToolKind::Search => ToolCardKind::Search,
+        WireToolKind::Execute => ToolCardKind::Execute,
+        WireToolKind::Think => ToolCardKind::Think,
+        WireToolKind::Fetch => ToolCardKind::Fetch,
+        WireToolKind::SwitchMode => ToolCardKind::SwitchMode,
+        WireToolKind::Wait => ToolCardKind::Wait,
+        WireToolKind::Other => ToolCardKind::Other,
     }
 }
 
@@ -3403,6 +3634,7 @@ mod tests {
             detail: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         };
         let notification = notify(SessionUpdate::AgentMessageChunk(chunk("", None)))
             .meta(edge.to_meta().clone());
@@ -3427,6 +3659,7 @@ mod tests {
             detail: None,
             tool_calls: None,
             title: None,
+            workflow_id: None,
         };
         mapper.on_update(
             &notify(SessionUpdate::AgentMessageChunk(chunk("", None))).meta(start.to_meta()),
@@ -3483,6 +3716,7 @@ mod tests {
                 detail: None,
                 tool_calls: None,
                 title: None,
+                workflow_id: None,
             },
             &mut out,
         );
@@ -3877,5 +4111,299 @@ mod tests {
         assert_eq!(out.blocked, Some(None), "a warning after a wall lifts it");
         mapper.emit_rate_limit("ok", None, None, None, &mut out);
         assert_eq!(out.blocked, Some(None));
+    }
+}
+
+#[cfg(test)]
+mod exp850_tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        SessionId, SessionInfoUpdate, SessionNotification, ToolCall as AcpToolCall, ToolCallId,
+    };
+    use serde_json::json;
+
+    fn mapper() -> Mapper {
+        Mapper::new(MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(vec!["expu_supersecretkey".to_string()])),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: steer::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+        })
+    }
+
+    /// The carrier every EXP-850 slot rides: a no-op `session_info_update`
+    /// with the adapter's `_meta`, exactly like the rate-limit slot.
+    fn slot(key: &str, value: Value) -> SessionNotification {
+        SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+        )
+        .meta(json!({ key: value }).as_object().cloned().expect("an object"))
+    }
+
+    /// EXP-850 §2: the strip's slot, clamped and deduped. An identical list
+    /// says nothing; an EMPTY one closes the strip and is news.
+    #[test]
+    fn background_tasks_are_clamped_and_deduped() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let long = "x".repeat(400);
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([
+                    { "id": "b1", "kind": "shell", "description": long, "toolId": "toolu_1" },
+                    { "id": "b2", "kind": "agent", "description": "expu_supersecretkey" },
+                ]),
+            ),
+            &mut out,
+        );
+        let ActivityEvent::BackgroundTasks { tasks, .. } = &out.wire[0] else {
+            panic!("expected a background_tasks event, got {:?}", out.wire);
+        };
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks[0].description.chars().count() <= WORKFLOW_TEXT_MAX + 1);
+        assert_eq!(tasks[0].tool_id.as_deref(), Some("toolu_1"));
+        // The adapter already folded the CLI's `task_type` onto the contract
+        // vocabulary (`BackgroundTaskKind::from_task_type`), so an unknown
+        // value here is a malformed frame and drops the WHOLE list — the
+        // relay's zod does the same. The redactor walked the description.
+        assert_eq!(tasks[1].kind, steer::BackgroundTaskKind::Agent);
+        assert!(!tasks[1].description.contains("expu_supersecretkey"));
+        let mut malformed = MapOut::default();
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([{ "id": "b3", "kind": "quantum", "description": "?" }]),
+            ),
+            &mut malformed,
+        );
+        assert!(malformed.wire.is_empty(), "{:?}", malformed.wire);
+
+        // A repeat of the SAME list says nothing.
+        let mut repeat = MapOut::default();
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([{ "id": "b1", "kind": "shell", "description": "one" }]),
+            ),
+            &mut repeat,
+        );
+        let mut again = MapOut::default();
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([{ "id": "b1", "kind": "shell", "description": "one" }]),
+            ),
+            &mut again,
+        );
+        assert_eq!(repeat.wire.len(), 1);
+        assert!(again.wire.is_empty(), "{:?}", again.wire);
+
+        // The empty list is a frame, not silence.
+        let mut emptied = MapOut::default();
+        mapper.on_update(&slot(BACKGROUND_TASKS_META_KEY, json!([])), &mut emptied);
+        assert_eq!(emptied.wire.len(), 1);
+    }
+
+    /// EXP-850 §3: the card is clamped, deduped PER ID, and tagged with its
+    /// own id on the LOCAL feed so the desktop can hang it off the tool row.
+    #[test]
+    fn a_workflow_card_is_clamped_and_deduped_per_id() {
+        let mut mapper = mapper();
+        let card = |id: &str, status: &str| {
+            json!({
+                "id": id,
+                "name": "wire-probe",
+                "status": status,
+                "phases": [{ "index": 1, "title": "Alpha" }],
+                "agents": [{
+                    "index": 1,
+                    "label": "alpha:one",
+                    "phaseIndex": 1,
+                    "state": "running",
+                    "resultPreview": "x".repeat(400),
+                    "error": "expu_supersecretkey leaked",
+                }],
+            })
+        };
+        let mut out = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-1", "running")), &mut out);
+        let ActivityEvent::Workflow(state) = &out.wire[0] else {
+            panic!("expected a workflow event, got {:?}", out.wire);
+        };
+        assert_eq!(state.id, "wf-1");
+        assert!(state.agents[0].result_preview.as_ref().is_some_and(
+            |preview| preview.chars().count() <= WORKFLOW_TEXT_MAX + 1
+        ));
+        assert!(!state.agents[0]
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("expu_supersecretkey"));
+        // The local twin names the tool row the card patches.
+        assert!(matches!(
+            &out.local[0],
+            LocalFeedEvent::Activity { tool_call_id: Some(id), .. } if id == "wf-1"
+        ));
+
+        let mut repeat = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-1", "running")), &mut repeat);
+        assert!(repeat.wire.is_empty(), "{:?}", repeat.wire);
+
+        // A different id is its own slot; a moved status is news.
+        let mut other = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-2", "running")), &mut other);
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-1", "completed")), &mut other);
+        assert_eq!(other.wire.len(), 2);
+
+        // A malformed card (unknown status, no id) is dropped whole.
+        let mut bad = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-3", "melting")), &mut bad);
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("", "running")), &mut bad);
+        assert!(bad.wire.is_empty(), "{:?}", bad.wire);
+    }
+
+    /// EXP-850 §5: the turn slot stamps `startedAt`, counts tokens forward
+    /// only, and republishes at most once per `steerWorking.tokenTickMs`.
+    #[test]
+    fn the_turn_slot_stamps_a_start_and_ticks_its_tokens() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        let ActivityEvent::Turn { started_at, tokens, .. } = &out.wire[0] else {
+            panic!("expected a turn event, got {:?}", out.wire);
+        };
+        assert!(started_at.is_some(), "the turn's start is stamped");
+        assert_eq!(*tokens, None, "no tokens yet — the caption omits the group");
+        let started = *started_at;
+
+        // The first report publishes at once; a second inside the tick does
+        // not, and a LOWER number is never news.
+        let mut ticked = MapOut::default();
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(143)), &mut ticked);
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(512)), &mut ticked);
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(7)), &mut ticked);
+        assert_eq!(ticked.wire.len(), 1);
+        assert!(matches!(
+            &ticked.wire[0],
+            ActivityEvent::Turn { tokens: Some(143), started_at, .. } if *started_at == started
+        ));
+
+        // The turn END carries the final count and the same start.
+        let mut ended = MapOut::default();
+        mapper.set_turn(steer::TurnState::Ended, false, &mut ended);
+        assert!(matches!(
+            &ended.wire[0],
+            ActivityEvent::Turn {
+                state: steer::TurnState::Ended,
+                tokens: Some(512),
+                started_at,
+                ..
+            } if *started_at == started
+        ));
+
+        // A token report between turns says nothing.
+        let mut idle = MapOut::default();
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(9_000)), &mut idle);
+        assert!(idle.wire.is_empty(), "{:?}", idle.wire);
+
+        // A NEW turn resets the counter.
+        let mut next = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut next);
+        assert!(matches!(&next.wire[0], ActivityEvent::Turn { tokens: None, .. }));
+    }
+
+    /// EXP-850 §1: ACP v1 cannot express `wait`, so the adapter names the
+    /// kind AND the human label in `_meta`; both win over the ACP derivation,
+    /// and the local card gets the same bucket.
+    #[test]
+    fn a_wait_row_takes_its_kind_and_detail_from_meta() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = AcpToolCall::new(ToolCallId::new("toolu_1"), "TaskOutput")
+            .kind(ToolKind::Other)
+            .raw_input(json!({ "task_id": "b4mwz6csc", "block": true }));
+        mapper.on_update(
+            &SessionNotification::new(
+                SessionId::new("acp-1"),
+                SessionUpdate::ToolCall(call),
+            )
+            .meta(
+                json!({
+                    TOOL_KIND_META_KEY: "wait",
+                    TOOL_DETAIL_META_KEY: "Sleep in the background",
+                })
+                .as_object()
+                .cloned()
+                .expect("an object"),
+            ),
+            &mut out,
+        );
+        let ActivityEvent::Tool { name, detail, tool_kind, .. } = &out.wire[0] else {
+            panic!("expected a tool event, got {:?}", out.wire);
+        };
+        assert_eq!(name, "TaskOutput");
+        assert_eq!(detail.as_deref(), Some("Sleep in the background"));
+        assert_eq!(*tool_kind, Some(steer::ToolKind::Wait));
+        assert!(matches!(
+            &out.local[1],
+            LocalFeedEvent::ToolCall { kind: ToolCardKind::Wait, .. }
+        ));
+    }
+
+    /// EXP-853 rule 1 (kept): a `config_state` byte-identical to the last one
+    /// published says nothing. One `set_mode` used to publish three (the
+    /// request's answer, the engine's mirror, the agent's echo) and every
+    /// client re-rendered its chips for each.
+    #[test]
+    fn an_identical_config_state_is_dropped() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.set_current_mode("plan", &mut out);
+        mapper.set_current_mode("plan", &mut out);
+        mapper.set_current_mode("plan", &mut out);
+        assert_eq!(out.wire.len(), 1, "{:?}", out.wire);
+        // A REAL change is news again.
+        mapper.set_current_mode("bypassPermissions", &mut out);
+        assert_eq!(out.wire.len(), 2, "{:?}", out.wire);
+        // ... and going back to the first value is news too (the dedupe is
+        // against the LAST frame, never a set of everything ever sent).
+        mapper.set_current_mode("plan", &mut out);
+        assert_eq!(out.wire.len(), 3, "{:?}", out.wire);
+    }
+
+    /// EXP-856: the duplicate edge passes through with its workflow, its
+    /// title and its exact detail, and it neither opens nor closes the run
+    /// (no tool-call total is stamped on it).
+    #[test]
+    fn a_duplicate_subagent_edge_passes_through() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let edge = SubagentEdge {
+            id: "a55b7012793deae02".to_string(),
+            agent_type: "general-purpose".to_string(),
+            status: SubagentEdgeStatus::Duplicate,
+            detail: Some(
+                "Second copy of slowpoke started while the first is still running (resumed by SendMessage)"
+                    .to_string(),
+            ),
+            tool_calls: None,
+            title: Some("slowpoke".to_string()),
+            workflow_id: Some("toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()),
+        };
+        mapper.on_subagent(&edge, &mut out);
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("it serializes"),
+            json!({
+                "kind": "subagent",
+                "id": "a55b7012793deae02",
+                "agentType": "general-purpose",
+                "status": "duplicate",
+                "detail": "Second copy of slowpoke started while the first is still running (resumed by SendMessage)",
+                "title": "slowpoke",
+                "workflowId": "toolu_017Lh63mYhRJ3MrA4A1PXytt",
+            })
+        );
     }
 }

@@ -84,6 +84,13 @@ pub use crate::local::SUBAGENT_ID_META_KEY as PARENT_TOOL_CALL_META_KEY;
 /// `_meta` key marking a prompt this adapter injected (EXP-772).
 pub use crate::local::INJECTED_PROMPT_META_KEY;
 
+/// EXP-850: the three `_meta` keys this adapter's new state rides on, plus
+/// the two a WAIT tool row carries (ACP v1 has no `wait` kind).
+pub use crate::local::{
+    BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_TOKENS_META_KEY,
+    WORKFLOW_META_KEY,
+};
+
 /// The subagents the CLI ships. They are spawned by the model, never picked
 /// for the main thread, so the `agent` option offers only what the user (or a
 /// plugin) configured.
@@ -516,6 +523,32 @@ struct State {
     context_window: ContextWindow,
     compaction: Option<String>,
     tasks: HashMap<String, TaskEntry>,
+    /// EXP-850 §2: the CLI's FULL current background-task list, as the last
+    /// `background_tasks_changed` named it. Read by a `TaskOutput` row to
+    /// label itself and published as the `background_tasks` slot.
+    background_tasks: Vec<steer::BackgroundTask>,
+    /// EXP-850 §3: one entry per `Workflow` run, in start order, keyed by the
+    /// `Workflow` call's `tool_use_id` (= the card's wire id).
+    workflows: Vec<WorkflowRun>,
+    /// `task_id` -> workflow id, so a `task_updated` (which names only the
+    /// task) finds its card.
+    workflow_of_task: HashMap<String, String>,
+    /// EXP-850 §2: `task_id` -> the `tool_use_id` that launched it. The
+    /// `background_tasks_changed` frame names neither — only `task_started`
+    /// does, and it arrives AFTER the list — so the strip's `toolId` is
+    /// filled from here and the list re-published once it is known.
+    task_tool_ids: HashMap<String, String>,
+    /// EXP-850 §5: the turn's token estimate — claude's `thinking_tokens`
+    /// deltas plus the highest `usage.output_tokens` each assistant message
+    /// reported (the consolidated frame repeats the streamed one's count, so
+    /// summing per id would double it). Reset at every prompt.
+    turn_thinking_tokens: u64,
+    turn_message_tokens: HashMap<String, u64>,
+    /// EXP-853 rule 2: the last EXPLICIT mode change (a plan approval, a
+    /// steered `set_mode`, the `EnterPlanMode` hook) and when it landed. An
+    /// `init` that contradicts it inside [`MODE_ANNOUNCE_GRACE`] is the CLI
+    /// re-announcing a mode it has not applied yet, and is dropped.
+    explicit_mode: Option<(String, Instant)>,
     /// Bumped by every `session/prompt`. Tags the tasks a turn spawns so a
     /// stale one cannot defer a later turn (EXP-780).
     turn_seq: u64,
@@ -670,7 +703,67 @@ struct TaskEntry {
     /// (7 duplicate `completed`s in 54 edges, measured), which surfaced as a
     /// second completed subagent row.
     last_status: Option<String>,
+    /// EXP-850 §4: the workflow card this task's agent belongs to, when its
+    /// id matched a workflow agent's `agentId`. Stamped on every edge so the
+    /// completed one nests under the card too.
+    workflow_id: Option<String>,
 }
+
+/// EXP-850 §3: one `Workflow` run as the adapter folds it — the progress
+/// array is latest-per-`type:index`, so phases and agents are maps keyed by
+/// the CLI's own index.
+struct WorkflowRun {
+    /// The `Workflow` tool call's `tool_use_id` — the card's wire id.
+    id: String,
+    name: String,
+    description: Option<String>,
+    status: steer::WorkflowStatus,
+    phases: BTreeMap<u32, steer::WorkflowPhase>,
+    agents: BTreeMap<u32, steer::WorkflowAgent>,
+    summary: Option<String>,
+    /// When the card was last published — the §3 throttle's clock.
+    published_at: Option<Instant>,
+}
+
+impl WorkflowRun {
+    /// The wire payload: the WHOLE state, every time (§3 is latest-wins).
+    fn state(&self) -> steer::WorkflowState {
+        steer::WorkflowState {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            description: self.description.clone(),
+            status: self.status,
+            phases: self.phases.values().cloned().collect(),
+            agents: self.agents.values().cloned().collect(),
+            summary: self.summary.clone(),
+            at: None,
+        }
+    }
+
+    /// The agent with this `agentId`, if the card holds one (EXP-856: a
+    /// `task_started` whose `task_id` matches names a copy of it).
+    fn agent_by_id(&self, agent_id: &str) -> Option<&steer::WorkflowAgent> {
+        self.agents
+            .values()
+            .find(|agent| agent.agent_id.as_deref() == Some(agent_id))
+    }
+}
+
+/// EXP-850 §3: at most one card frame per workflow per this long while it is
+/// running — every agent state CHANGE and the terminal status publish
+/// immediately regardless.
+const WORKFLOW_PUBLISH_INTERVAL: Duration = Duration::from_millis(1000);
+
+/// EXP-853 rule 2: how long an EXPLICIT mode change outranks the mode the CLI
+/// re-announces on every turn `init`. Past it the CLI's word is the truth.
+const MODE_ANNOUNCE_GRACE: Duration = Duration::from_secs(10);
+
+/// The RUN-scoped override of [`MODE_ANNOUNCE_GRACE`], in milliseconds. Read
+/// off this session's own spawn env — never the process environment — so the
+/// `plan-stuck` fixture can exercise the past-the-window half of rule 2
+/// without a ten-second sleep, and so one test can never change another's
+/// clock. Absent (every real launch) = the constant above.
+const MODE_ANNOUNCE_GRACE_ENV: &str = "EXP_MODE_ANNOUNCE_GRACE_MS";
 
 struct PlanTask {
     subject: String,
@@ -1140,6 +1233,9 @@ impl ClaudeSession {
                 .any(|command| text.trim() == *command);
             // EXP-780: from here on, a `task_started` belongs to THIS turn.
             state.turn_seq = state.turn_seq.wrapping_add(1);
+            // EXP-850 §5: the working caption counts THIS turn's output.
+            state.turn_thinking_tokens = 0;
+            state.turn_message_tokens.clear();
             state.turns.push_back(tx);
         }
         self.send(claude_user_message(&request.prompt, &text))?;
@@ -1209,14 +1305,15 @@ impl ClaudeSession {
             let tool_use_id = task.tool_use_id.clone();
             let subagent_type = task.subagent_type.clone();
             let title = task.title.clone();
+            let workflow_id = task.workflow_id.clone();
             log::warn!("engine: claude task {task_id} never reported back; retiring it");
-            self.publish_subagent(
+            self.publish_subagent_edge(
                 cx,
-                &task_id,
-                tool_use_id.as_deref(),
+                tool_use_id.as_deref().unwrap_or(&task_id),
                 subagent_type.as_deref(),
                 "failed",
                 title.as_deref(),
+                workflow_id.as_deref(),
             );
         }
     }
@@ -1265,6 +1362,9 @@ impl ClaudeSession {
     async fn set_mode(self: &Arc<Self>, cx: &ConnectionTo<Client>, mode: &str) -> Result<(), Error> {
         let mode = clamp_mode(mode);
         self.control_request(wire::set_permission_mode(&mode)).await?;
+        // EXP-853 rule 2: an explicit switch outranks the CLI's next init
+        // announcement for `MODE_ANNOUNCE_GRACE`.
+        self.note_explicit_mode(&mode);
         self.lock().mode = mode.clone();
         self.notify(
             cx,
@@ -1415,18 +1515,20 @@ impl ClaudeSession {
         self.notify(cx, SessionUpdate::Plan(Plan::new(entries)));
     }
 
-    fn publish_subagent(
+    /// One subagent lifecycle edge, under the id its whole life publishes
+    /// under (EXP-850 §4: a workflow agent's id is its `agentId`, so the
+    /// duplicate warning and the copy's own edges share one identity).
+    fn publish_subagent_edge(
         &self,
         cx: &ConnectionTo<Client>,
-        task_id: &str,
-        tool_use_id: Option<&str>,
+        id: &str,
         agent_type: Option<&str>,
         status: &str,
         title: Option<&str>,
+        workflow_id: Option<&str>,
     ) {
         // The edge rides a no-op patch of the tool call that spawned the
         // subagent, so a client that ignores the meta sees nothing at all.
-        let id = tool_use_id.unwrap_or(task_id);
         let mut meta = Map::new();
         let mut edge = Map::new();
         edge.insert("id".to_string(), json!(id));
@@ -1435,6 +1537,9 @@ impl ClaudeSession {
         // EXP-847: omitted rather than null when the call named nothing.
         if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
             edge.insert("title".to_string(), json!(title));
+        }
+        if let Some(workflow_id) = workflow_id.filter(|id| !id.is_empty()) {
+            edge.insert("workflowId".to_string(), json!(workflow_id));
         }
         meta.insert(SUBAGENT_META_KEY.to_string(), Value::Object(edge));
         self.notify_meta(
@@ -1445,6 +1550,140 @@ impl ClaudeSession {
             )),
             meta,
         );
+    }
+
+    /// EXP-856: a second copy of an id that is STILL running. The detail text
+    /// is the contract's own sentence — every client renders it verbatim in an
+    /// amber warning row, and the desktop raises an OS notification off it.
+    fn publish_duplicate(
+        &self,
+        cx: &ConnectionTo<Client>,
+        id: &str,
+        agent_type: Option<&str>,
+        title: Option<&str>,
+        workflow_id: Option<&str>,
+        label: &str,
+    ) {
+        let detail = duplicate_agent_detail(label);
+        log::warn!("engine: claude started a second copy of live agent {id} ({label})");
+        let mut meta = Map::new();
+        let mut edge = Map::new();
+        edge.insert("id".to_string(), json!(id));
+        edge.insert("agentType".to_string(), json!(agent_type));
+        edge.insert("status".to_string(), json!("duplicate"));
+        edge.insert("detail".to_string(), json!(detail));
+        if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
+            edge.insert("title".to_string(), json!(title));
+        }
+        if let Some(workflow_id) = workflow_id.filter(|id| !id.is_empty()) {
+            edge.insert("workflowId".to_string(), json!(workflow_id));
+        }
+        meta.insert(SUBAGENT_META_KEY.to_string(), Value::Object(edge));
+        self.notify_meta(
+            cx,
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                ToolCallId::new(id),
+                ToolCallUpdateFields::new(),
+            )),
+            meta,
+        );
+    }
+
+    /// EXP-850 §2: the background-task slot, as `_meta` on a no-op
+    /// `session_info_update` (the rate-limit slot's carrier). The FULL list
+    /// every time — an empty one closes the strip.
+    fn publish_background_tasks(&self, cx: &ConnectionTo<Client>) {
+        let tasks = self.lock().background_tasks.clone();
+        let Ok(tasks) = serde_json::to_value(tasks) else { return };
+        let mut meta = Map::new();
+        meta.insert(BACKGROUND_TASKS_META_KEY.to_string(), tasks);
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
+    /// EXP-850 §1: the human label of a WAIT row — for `TaskOutput` the
+    /// description of the task it names, off the LATEST background-task list
+    /// (its id as the fallback); for `Monitor` its own `description` input.
+    fn wait_detail(&self, name: &str, input: &Value) -> Option<String> {
+        let string = |key: &str| {
+            input
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+        if name == "Monitor" {
+            return string("description");
+        }
+        let task_id = string("task_id").or_else(|| string("taskId"))?;
+        let described = self
+            .lock()
+            .background_tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .map(|task| task.description.trim().to_string())
+            .filter(|description| !description.is_empty());
+        Some(described.unwrap_or(task_id))
+    }
+
+    /// EXP-850 §3: ONE workflow card. `force` publishes regardless of the
+    /// throttle — every agent state change and the terminal status do.
+    fn publish_workflow(&self, cx: &ConnectionTo<Client>, id: &str, force: bool) {
+        let state = {
+            let mut session = self.lock();
+            let Some(run) = session.workflows.iter_mut().find(|run| run.id == id) else {
+                return;
+            };
+            let due = force
+                || run
+                    .published_at
+                    .is_none_or(|at| at.elapsed() >= WORKFLOW_PUBLISH_INTERVAL);
+            if !due {
+                return;
+            }
+            run.published_at = Some(Instant::now());
+            run.state()
+        };
+        let Ok(state) = serde_json::to_value(state) else { return };
+        let mut meta = Map::new();
+        meta.insert(WORKFLOW_META_KEY.to_string(), state);
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
+    /// EXP-850 §5: the turn's token estimate. The MAPPER owns the tick rate
+    /// (the slot is latest-wins, so a tick costs no feed growth); the adapter
+    /// simply reports what it measured.
+    fn publish_turn_tokens(&self, cx: &ConnectionTo<Client>) {
+        let tokens = {
+            let state = self.lock();
+            state.turn_thinking_tokens + state.turn_message_tokens.values().sum::<u64>()
+        };
+        if tokens == 0 {
+            return;
+        }
+        let mut meta = Map::new();
+        meta.insert(TURN_TOKENS_META_KEY.to_string(), json!(tokens));
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
+    /// EXP-853 rule 2: record an EXPLICIT mode change (an approval, a steered
+    /// `set_mode`, the `EnterPlanMode` hook) so the CLI's next `init`
+    /// announcement cannot walk it back inside the grace window.
+    fn note_explicit_mode(&self, mode: &str) {
+        self.lock().explicit_mode = Some((mode.to_string(), Instant::now()));
+    }
+
+    /// How long this run's explicit mode outranks the CLI's announcement
+    /// ([`MODE_ANNOUNCE_GRACE`], or the run-scoped override).
+    fn mode_announce_grace(&self) -> Duration {
+        self.spec
+            .spawn
+            .env
+            .iter()
+            .find(|(key, _)| key == MODE_ANNOUNCE_GRACE_ENV)
+            .and_then(|(_, value)| value.parse::<u64>().ok())
+            .map(Duration::from_millis)
+            .unwrap_or(MODE_ANNOUNCE_GRACE)
     }
 
     /// EXP-784: claude's session id changed mid-run (a `/clear`). Rides a
@@ -1680,8 +1919,37 @@ impl ClaudeSession {
                     state.model = system.model.clone();
                     state.context_window.infer(&system.model);
                 }
-                let mode_changed = match init_mode(system.permission_mode.as_deref(), &state.mode) {
+                // EXP-853 rule 2: the CLI re-announces `permissionMode` on
+                // every turn init, and an approval it has not applied yet
+                // announces the OLD mode — which flipped the Plan chip back
+                // and forth. An announcement that CONTRADICTS an explicit
+                // change inside `MODE_ANNOUNCE_GRACE` is dropped; past the
+                // window the CLI's word is the truth and is published.
+                let grace = self.mode_announce_grace();
+                let announced = init_mode(system.permission_mode.as_deref(), &state.mode);
+                let stale = match (&announced, &state.explicit_mode) {
+                    (Some(announced), Some((explicit, at))) => {
+                        announced != explicit && at.elapsed() < grace
+                    }
+                    _ => false,
+                };
+                if stale {
+                    log::debug!(
+                        "engine: claude init announced mode {:?} against the explicit {:?} set {}ms ago — dropped",
+                        system.permission_mode,
+                        state.explicit_mode.as_ref().map(|(mode, _)| mode),
+                        state
+                            .explicit_mode
+                            .as_ref()
+                            .map(|(_, at)| at.elapsed().as_millis())
+                            .unwrap_or(0),
+                    );
+                }
+                let mode_changed = match announced.filter(|_| !stale) {
                     Some(mode) => {
+                        // The CLI agrees with us now (or won): the explicit
+                        // record has done its job.
+                        state.explicit_mode = None;
                         state.mode = mode;
                         true
                     }
@@ -1801,6 +2069,65 @@ impl ClaudeSession {
                     .get("is_backgrounded")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                let task_type = system
+                    .extra
+                    .get("task_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                // EXP-850 §2: the strip's `toolId`. The list frame that opened
+                // this task named no tool call (the CLI only says it here), so
+                // the entry is patched and the strip re-published.
+                let mut relist = false;
+                if let Some(tool_use_id) = tool_use_id.clone() {
+                    let mut state = self.lock();
+                    state.task_tool_ids.insert(task_id.clone(), tool_use_id.clone());
+                    if let Some(task) = state
+                        .background_tasks
+                        .iter_mut()
+                        .find(|task| task.id == task_id && task.tool_id.is_none())
+                    {
+                        task.tool_id = Some(tool_use_id);
+                        relist = true;
+                    }
+                }
+                if relist {
+                    self.publish_background_tasks(cx);
+                }
+                let description = system
+                    .extra
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                // EXP-850 §3: a `local_workflow` task IS the card. It opens
+                // one (keyed by the `Workflow` call's own tool_use_id, so the
+                // card patches that tool row) and publishes NO subagent edge:
+                // the card replaces it.
+                let workflow = task_type == "local_workflow";
+                if workflow {
+                    let id = tool_use_id.clone().unwrap_or_else(|| task_id.clone());
+                    let mut state = self.lock();
+                    state.workflow_of_task.insert(task_id.clone(), id.clone());
+                    if !state.workflows.iter().any(|run| run.id == id) {
+                        state.workflows.push(WorkflowRun {
+                            id: id.clone(),
+                            name: system
+                                .extra
+                                .get("workflow_name")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string(),
+                            description: description.clone(),
+                            status: steer::WorkflowStatus::Running,
+                            phases: BTreeMap::new(),
+                            agents: BTreeMap::new(),
+                            summary: None,
+                            published_at: None,
+                        });
+                    }
+                    drop(state);
+                    self.publish_workflow(cx, &id, true);
+                }
                 let mut state = self.lock();
                 let turn_seq = state.turn_seq;
                 // EXP-847: the `Agent` call's own words for the job, off the
@@ -1812,28 +2139,218 @@ impl ClaudeSession {
                     .map(|entry| entry.input.clone());
                 let title = spawn_input.as_ref().and_then(task_title);
                 let subagent_type = task_agent_type(subagent_type.as_deref(), spawn_input.as_ref());
+                // EXP-850 §4 / EXP-856: a task whose id equals a WORKFLOW
+                // AGENT's `agentId` is that agent — its edges publish under
+                // the agent id (so the duplicate and its own started/completed
+                // share one identity) and carry the card's id, the agent's
+                // label and its type.
+                let workflow_agent = state.workflows.iter().find_map(|run| {
+                    run.agent_by_id(&task_id)
+                        .map(|agent| (run.id.clone(), agent.label.clone(), agent.state))
+                });
+                let live_copy = match &workflow_agent {
+                    Some((_, _, agent_state)) => {
+                        !agent_state.is_finished()
+                    }
+                    // An ordinary subagent that never finished: the CLI reuses
+                    // its id for the resumed copy.
+                    None => state.tasks.get(&task_id).is_some_and(|task| task.live),
+                };
+                let edge_id = match &workflow_agent {
+                    Some(_) => task_id.clone(),
+                    None => state
+                        .tasks
+                        .get(&task_id)
+                        .and_then(|task| task.tool_use_id.clone())
+                        .or_else(|| tool_use_id.clone())
+                        .unwrap_or_else(|| task_id.clone()),
+                };
+                let workflow_id = workflow_agent.as_ref().map(|(id, ..)| id.clone());
+                let label = workflow_agent
+                    .as_ref()
+                    .map(|(_, label, _)| label.clone())
+                    .filter(|label| !label.is_empty())
+                    .or_else(|| title.clone())
+                    .or_else(|| description.clone())
+                    .filter(|label| !label.trim().is_empty())
+                    .unwrap_or_else(|| task_id.clone());
+                let title = match &workflow_agent {
+                    Some((_, agent_label, _)) if !agent_label.is_empty() => {
+                        Some(agent_label.clone())
+                    }
+                    _ => title.clone(),
+                };
+                let agent_type = subagent_type
+                    .clone()
+                    .or_else(|| workflow_id.as_ref().map(|_| "agent".to_string()));
                 state.tasks.insert(
                     task_id.clone(),
                     TaskEntry {
-                        tool_use_id: tool_use_id.clone(),
-                        subagent_type: subagent_type.clone(),
+                        tool_use_id: Some(edge_id.clone()),
+                        subagent_type: agent_type.clone(),
                         title: title.clone(),
                         live: true,
                         backgrounded,
                         turn_seq,
                         started_at: Instant::now(),
                         last_status: Some("started".to_string()),
+                        workflow_id: workflow_id.clone(),
                     },
                 );
                 drop(state);
-                self.publish_subagent(
+                if workflow {
+                    return;
+                }
+                // EXP-856: the warning goes out BEFORE the ordinary started
+                // edge, so a reader sees "a second copy started" above the run
+                // it is about.
+                if live_copy {
+                    self.publish_duplicate(
+                        cx,
+                        &edge_id,
+                        agent_type.as_deref(),
+                        title.as_deref(),
+                        workflow_id.as_deref(),
+                        &label,
+                    );
+                }
+                self.publish_subagent_edge(
                     cx,
-                    &task_id,
-                    tool_use_id.as_deref(),
-                    subagent_type.as_deref(),
+                    &edge_id,
+                    agent_type.as_deref(),
                     "started",
                     title.as_deref(),
+                    workflow_id.as_deref(),
                 );
+            }
+            // EXP-850 §2: the CLI's FULL current list — the strip's one input.
+            SystemSubtype::BackgroundTasksChanged => {
+                let tasks: Vec<steer::BackgroundTask> = system
+                    .extra
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .map(|tasks| {
+                        tasks
+                            .iter()
+                            .filter_map(|task| {
+                                let id = task.get("task_id").and_then(Value::as_str)?;
+                                Some(steer::BackgroundTask {
+                                    id: id.to_string(),
+                                    kind: steer::BackgroundTaskKind::from_task_type(
+                                        task.get("task_type")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default(),
+                                    ),
+                                    description: task
+                                        .get("description")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                    tool_id: task
+                                        .get("tool_use_id")
+                                        .and_then(Value::as_str)
+                                        .map(str::to_string),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                {
+                    let mut state = self.lock();
+                    let mut tasks = tasks;
+                    for task in tasks.iter_mut() {
+                        if task.tool_id.is_none() {
+                            task.tool_id = state.task_tool_ids.get(&task.id).cloned();
+                        }
+                    }
+                    if state.background_tasks == tasks {
+                        return;
+                    }
+                    state.background_tasks = tasks;
+                }
+                self.publish_background_tasks(cx);
+            }
+            // EXP-850 §3: one workflow's progress array.
+            SystemSubtype::TaskProgress => {
+                let Some(task_id) = system.task_id.clone() else { return };
+                let Some(entries) = system
+                    .extra
+                    .get("workflow_progress")
+                    .and_then(Value::as_array)
+                    .cloned()
+                else {
+                    // A progress frame WITHOUT the array is a usage tick; it
+                    // says nothing the card renders.
+                    return;
+                };
+                let id = {
+                    let state = self.lock();
+                    match state.workflow_of_task.get(&task_id) {
+                        Some(id) => id.clone(),
+                        None => system
+                            .extra
+                            .get("tool_use_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| task_id.clone()),
+                    }
+                };
+                let mut changed = false;
+                {
+                    let mut state = self.lock();
+                    state.workflow_of_task.insert(task_id.clone(), id.clone());
+                    let Some(run) = state.workflows.iter_mut().find(|run| run.id == id) else {
+                        return;
+                    };
+                    for entry in &entries {
+                        match entry.get("type").and_then(Value::as_str) {
+                            Some("workflow_phase") => {
+                                let Some(index) = progress_index(entry) else { continue };
+                                run.phases.insert(
+                                    index,
+                                    steer::WorkflowPhase {
+                                        index,
+                                        title: entry
+                                            .get("title")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default()
+                                            .to_string(),
+                                    },
+                                );
+                            }
+                            Some("workflow_agent") => {
+                                let Some(index) = progress_index(entry) else { continue };
+                                let agent = workflow_agent(index, entry);
+                                let moved = run
+                                    .agents
+                                    .get(&index)
+                                    .is_none_or(|held| held.state != agent.state);
+                                changed |= moved;
+                                run.agents.insert(index, agent);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                // §3: at most one frame per second while nothing moves, but
+                // EVERY agent state change publishes at once.
+                self.publish_workflow(cx, &id, changed);
+            }
+            // EXP-850 §5: half of the working caption's token count. The
+            // frame's `estimated_tokens` restarts per thinking block, so the
+            // DELTAS are what accumulate over a turn.
+            SystemSubtype::ThinkingTokens => {
+                let delta = system
+                    .extra
+                    .get("estimated_tokens_delta")
+                    .and_then(Value::as_u64)
+                    .or_else(|| system.extra.get("estimated_tokens").and_then(Value::as_u64))
+                    .unwrap_or(0);
+                if delta == 0 {
+                    return;
+                }
+                self.lock().turn_thinking_tokens += delta;
+                self.publish_turn_tokens(cx);
             }
             SystemSubtype::TaskNotification | SystemSubtype::TaskUpdated => {
                 let Some(task_id) = system.task_id.clone() else { return };
@@ -1856,13 +2373,43 @@ impl ClaudeSession {
                             .map(str::to_string)
                     })
                     .unwrap_or_else(|| "running".to_string());
-                let terminal = matches!(status.as_str(), "completed" | "failed" | "cancelled");
+                // EXP-856: `killed` and `stopped` are terminal too — the
+                // capture's background Bash reports both, and a task left
+                // LIVE forever deferred the turn's settle and made every later
+                // `task_started` for its id read as a duplicate.
+                let terminal = matches!(
+                    status.as_str(),
+                    "completed" | "failed" | "cancelled" | "canceled" | "killed" | "stopped"
+                );
+                // EXP-850 §3: a workflow's terminal edge moves the CARD, never
+                // a subagent row.
+                let workflow_id = self.lock().workflow_of_task.get(&task_id).cloned();
+                if let Some(id) = &workflow_id {
+                    let summary = system
+                        .extra
+                        .get("summary")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .filter(|summary| !summary.trim().is_empty());
+                    {
+                        let mut state = self.lock();
+                        if let Some(run) = state.workflows.iter_mut().find(|run| run.id == *id) {
+                            if terminal {
+                                run.status = steer::WorkflowStatus::from_task_status(&status);
+                            }
+                            if let Some(summary) = summary {
+                                run.summary = Some(summary);
+                            }
+                        }
+                    }
+                    self.publish_workflow(cx, id, true);
+                }
                 let mut state = self.lock();
                 // `task_notification` and `task_updated` share this arm and
                 // the CLI sends both for one edge often enough to matter
                 // (7 duplicate `completed`s in 54, measured), which drew the
                 // subagent twice. Only a CHANGE is republished.
-                let (tool_use_id, subagent_type, title, repeat) =
+                let (tool_use_id, subagent_type, title, repeat, agent_workflow) =
                     match state.tasks.get_mut(&task_id) {
                         Some(task) => {
                             let repeat = task.last_status.as_deref() == Some(status.as_str());
@@ -1873,23 +2420,24 @@ impl ClaudeSession {
                                 task.subagent_type.clone(),
                                 task.title.clone(),
                                 repeat,
+                                task.workflow_id.clone(),
                             )
                         }
-                        None => (None, None, None, false),
+                        None => (None, None, None, false, None),
                     };
                 drop(state);
                 // The edge goes out BEFORE the settle it unblocks: settling
                 // first ends the `session/prompt`, and a client that renders
                 // the subagent card off the edge would see the run finish
                 // with that card still spinning (EXP-753).
-                if !repeat {
-                    self.publish_subagent(
+                if !repeat && workflow_id.is_none() {
+                    self.publish_subagent_edge(
                         cx,
-                        &task_id,
-                        tool_use_id.as_deref(),
+                        tool_use_id.as_deref().unwrap_or(&task_id),
                         subagent_type.as_deref(),
                         &status,
                         title.as_deref(),
+                        agent_workflow.as_deref(),
                     );
                 }
                 if terminal {
@@ -1955,6 +2503,30 @@ impl ClaudeSession {
         if let Some(id) = &message_id {
             let mut state = self.lock();
             state.synthetic_messages.remove(id);
+        }
+        // EXP-850 §5: the other half of the turn's token count. The streamed
+        // frame and the consolidated one repeat the SAME `output_tokens`, so
+        // the highest per message id is kept rather than summed.
+        if let Some(id) = &message_id {
+            if let Some(tokens) = message
+                .message
+                .get("usage")
+                .and_then(|usage| usage.get("output_tokens"))
+                .and_then(Value::as_u64)
+            {
+                let moved = {
+                    let mut state = self.lock();
+                    let held = state.turn_message_tokens.entry(id.clone()).or_insert(0);
+                    let moved = tokens > *held;
+                    if moved {
+                        *held = tokens;
+                    }
+                    moved
+                };
+                if moved {
+                    self.publish_turn_tokens(cx);
+                }
+            }
         }
         if wire::is_rate_limit_notice(model, &text) {
             if let Some(id) = &message_id {
@@ -2114,6 +2686,10 @@ impl ClaudeSession {
         drop(state);
 
         let info = tool_info(&name, &input, self.cwd());
+        // EXP-850 §1: a WAIT row carries its kind and its human label in
+        // `_meta` — the label is resolved HERE because only the adapter holds
+        // the background-task list a `TaskOutput` names by id.
+        let wait = is_wait_tool(&name).then(|| self.wait_detail(&name, &input));
         let update = if surfaced {
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 ToolCallId::new(id),
@@ -2134,7 +2710,20 @@ impl ClaudeSession {
                     .raw_input(input),
             )
         };
-        self.emit_chunk(cx, update, parent);
+        match wait {
+            Some(detail) => {
+                let mut meta = Map::new();
+                meta.insert(TOOL_KIND_META_KEY.to_string(), json!("wait"));
+                if let Some(detail) = detail {
+                    meta.insert(TOOL_DETAIL_META_KEY.to_string(), json!(detail));
+                }
+                if let Some(parent) = parent {
+                    meta.insert(PARENT_TOOL_CALL_META_KEY.to_string(), json!(parent));
+                }
+                self.notify_meta(cx, update, meta);
+            }
+            None => self.emit_chunk(cx, update, parent),
+        }
     }
 
     fn on_user(self: &Arc<Self>, cx: &ConnectionTo<Client>, message: wire::UserMsg) {
@@ -2448,6 +3037,7 @@ impl ClaudeSession {
             if let Err(error) = session.control_request(wire::set_permission_mode(&mode)).await {
                 log::warn!("engine: claude plan-mode switch failed: {error}");
             }
+            session.note_explicit_mode(&mode);
             {
                 let mut state = session.lock();
                 state.mode = mode.clone();
@@ -2579,6 +3169,22 @@ impl ClaudeSession {
             take_permission_effects(&mut state, effects)
         };
         if let Some(mode) = switched {
+            // EXP-853 rule 3: the approval's own `updatedPermissions` does not
+            // stop the CLI re-announcing the OLD mode on its next init, so the
+            // engine ALSO sets it explicitly (idempotent). Spawned rather than
+            // awaited: this runs on the control-answer path, and the request
+            // must not gate the notification the client is waiting for.
+            self.note_explicit_mode(&mode);
+            let session = self.clone();
+            let requested = mode.clone();
+            let _ = cx.spawn(async move {
+                if let Err(error) =
+                    session.control_request(wire::set_permission_mode(&requested)).await
+                {
+                    log::warn!("engine: claude plan-approval mode switch failed: {error}");
+                }
+                Ok(())
+            });
             self.notify(
                 cx,
                 SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new(mode))),
@@ -2799,6 +3405,8 @@ impl ClaudeSession {
     /// switched into plan mode.
     fn on_post_tool_use(self: &Arc<Self>, cx: &ConnectionTo<Client>, input: &wire::HookInput) {
         if input.tool_name == "EnterPlanMode" {
+            // EXP-853 rule 2: the CLI's own switch INTO plan is explicit too.
+            self.note_explicit_mode("plan");
             self.lock().mode = "plan".to_string();
             self.notify(
                 cx,
@@ -2966,6 +3574,55 @@ fn task_agent_type(reported: Option<&str>, input: Option<&Value>) -> Option<Stri
 /// [`task_agent_type`]).
 const GENERIC_AGENT_TYPE: &str = "agent";
 
+/// EXP-856: the duplicate warning's text — byte-identical on every client
+/// (STEER-WIRE-EXP-850.md §4).
+pub fn duplicate_agent_detail(label: &str) -> String {
+    format!("Second copy of {label} started while the first is still running (resumed by SendMessage)")
+}
+
+/// EXP-850 §3: one `workflow_progress` entry's `index` (the CLI counts from 1).
+fn progress_index(entry: &Value) -> Option<u32> {
+    entry
+        .get("index")
+        .and_then(Value::as_u64)
+        .and_then(|index| u32::try_from(index).ok())
+}
+
+/// EXP-850 §3: one `workflow_agent` progress entry, folded onto the wire
+/// shape. `state` is the CLI's own word plus whether it named a `startedAt` —
+/// a `start` without one is still QUEUED.
+fn workflow_agent(index: u32, entry: &Value) -> steer::WorkflowAgent {
+    let string = |key: &str| {
+        entry
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty())
+    };
+    let number = |key: &str| entry.get(key).and_then(Value::as_u64);
+    steer::WorkflowAgent {
+        index,
+        label: string("label").unwrap_or_default(),
+        phase_index: entry
+            .get("phaseIndex")
+            .and_then(Value::as_u64)
+            .and_then(|index| u32::try_from(index).ok()),
+        agent_id: string("agentId"),
+        model: string("model"),
+        state: steer::WorkflowAgentState::from_cli(
+            entry.get("state").and_then(Value::as_str).unwrap_or_default(),
+            entry.get("startedAt").and_then(Value::as_u64).is_some(),
+        ),
+        tokens: number("tokens"),
+        tool_calls: number("toolCalls").and_then(|calls| u32::try_from(calls).ok()),
+        duration_ms: number("durationMs"),
+        last_tool: string("lastToolName"),
+        last_tool_summary: string("lastToolSummary"),
+        result_preview: string("resultPreview"),
+        error: string("error"),
+    }
+}
+
 fn is_task_tool(name: &str) -> bool {
     matches!(name, "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet")
 }
@@ -2997,6 +3654,17 @@ struct ToolInfo {
     kind: ToolKind,
     content: Vec<ToolCallContent>,
     locations: Vec<ToolCallLocation>,
+}
+
+/// EXP-850 §1: claude's two WAIT tools. ACP v1 has no `wait` kind, so
+/// [`tool_info`] leaves them on `Other` and the adapter names the wire kind in
+/// `_meta` instead ([`TOOL_KIND_META_KEY`]) — the mapper prefers that for both
+/// the wire row and the local card.
+///
+/// `TaskOutput` blocks on a background task by id; `Monitor` watches a stream
+/// it describes. Neither is `Execute`: nothing runs, the session is WAITING.
+fn is_wait_tool(name: &str) -> bool {
+    matches!(name, "TaskOutput" | "Monitor")
 }
 
 fn text_content(text: impl Into<String>) -> ToolCallContent {
@@ -4075,6 +4743,7 @@ mod tests {
             turn_seq,
             started_at: Instant::now() - age,
             last_status: None,
+            workflow_id: None,
         }
     }
 

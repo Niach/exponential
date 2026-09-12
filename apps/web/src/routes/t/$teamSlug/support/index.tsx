@@ -1,12 +1,15 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { SupportInbox } from "@/components/helpdesk/support-inbox"
+import { SupportThreadList } from "@/components/helpdesk/support-inbox"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 
-// The helpdesk member inbox (EXP-128): a 3-pane Featurebase-style view over
-// the team's support threads. The sidebar links here only when the
-// team has helpdesk_enabled, but the route itself just renders empty
-// lists otherwise — the server-side member gate on the helpdesk router is the
+// The helpdesk member inbox (EXP-128). The sidebar links here only when the
+// team has helpdesk_enabled, but the route itself just renders empty lists
+// otherwise — the server-side member gate on the helpdesk router is the
 // boundary.
+//
+// EXP-851: a LIST, nothing else — the Open/Resolved strip over the threads. A
+// conversation is its own route (`support/$threadId`) with this list in the
+// sidebar beside it, so a ticket is a URL you can share and refresh.
 export const Route = createFileRoute(`/t/$teamSlug/support/`)({
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -29,7 +32,5 @@ function SupportPage() {
     )
   }
 
-  return (
-    <SupportInbox teamId={team.id} teamSlug={teamSlug} />
-  )
+  return <SupportThreadList teamId={team.id} teamSlug={teamSlug} />
 }

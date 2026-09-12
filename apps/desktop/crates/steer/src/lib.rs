@@ -75,6 +75,8 @@ pub mod publisher;
 pub mod tool_diff;
 pub mod tool_group_summary;
 pub mod viewer;
+/// EXP-850 §3/§7: the `workflow` payload and the shared caption.
+pub mod workflow;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -89,7 +91,8 @@ pub use control_channel::{
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
-    truncate_marked, worktree_diff, AgentBusyForwarder, AgentBusyHook, AnswerLink, CommandLink,
+    truncate_marked, worktree_diff, AgentBusyForwarder, AgentBusyHook, AnswerLink,
+    CaptionForwarder, CaptionHook, CaptionSignal, CommandLink,
     ConfigChange, ConfigLink,
     BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
     RemoteAnswer, SessionAgent, SessionBlocked, blocked_wall_expired, iso_from_unix_millis,
@@ -97,7 +100,7 @@ pub use activity::{
     TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,
     CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX, CONFIG_MODES_MAX,
     CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
-    STOP_GRACE, TRUNCATION_MARKER,
+    STOP_GRACE, TRUNCATION_MARKER, CAPTION_WRITE_INTERVAL,
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_row_specs,
@@ -108,11 +111,16 @@ pub use feed::{
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
-    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, ClientFrame,
+    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, BackgroundTask,
+    BackgroundTaskKind, ClientFrame,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
     StartRepoGroup, SteerRole, SubagentStatus, ToolKind, ToolPreview, ToolUpdateStatus, TurnState,
-    ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
-    CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
+    ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
+};
+pub use workflow::{
+    workflow_caption, WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowState,
+    WorkflowStatus, WORKFLOW_AGENTS_MAX, WORKFLOW_CAPTION_SEPARATOR, WORKFLOW_PHASES_MAX,
 };
 pub use tool_diff::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 pub use image_message::{

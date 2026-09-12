@@ -98,6 +98,7 @@ export type ToolKind =
   | `think`
   | `fetch`
   | `switch_mode`
+  | `wait`
   | `other`
 
 export const TOOL_KINDS: readonly ToolKind[] = [
@@ -110,6 +111,7 @@ export const TOOL_KINDS: readonly ToolKind[] = [
   `think`,
   `fetch`,
   `switch_mode`,
+  `wait`,
   `other`,
 ]
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
+import { contract } from "@exp/domain-contract"
 
 // Triple-subject coding sessions: `start` takes EXACTLY ONE of
 // issueId/teamId/actionId (zod refine). The issue path denormalizes
@@ -1072,6 +1073,89 @@ describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
 
     const error = await rejectionOf(
       caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+})
+
+// EXP-850: the working caption the session lists render as a second line —
+// same rails again (owner-or-host, live statuses only, silent no-op otherwise).
+describe(`codingSessions.setAgentCaption — working caption (EXP-850)`, () => {
+  it(`writes exactly agent_caption on a live owned row`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    const result = await caller.setAgentCaption({
+      id: SESSION_ID,
+      caption: `Workflow Batch lanes · 2/5 agents done · Implementation`,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual({
+      agentCaption: `Workflow Batch lanes · 2/5 agents done · Implementation`,
+    })
+    const shape = whereShape(updateWheres[0]).flat()
+    expect(shape).toContain(`running`)
+    expect(shape).toContain(`in_review`)
+    // An ended row stays final — it can never grow a caption again.
+    expect(shape).not.toContain(`ended`)
+  })
+
+  it(`clears it on a host-written row`, async () => {
+    selectResults.push([
+      { userId: `someone-else`, hostUserId: `actor`, status: `in_review` },
+    ])
+
+    const result = await caller.setAgentCaption({
+      id: SESSION_ID,
+      caption: null,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({ agentCaption: null })
+  })
+
+  it(`stores a blank caption as nothing to say`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    await caller.setAgentCaption({ id: SESSION_ID, caption: `   ` })
+
+    expect(updates[0]!.values).toEqual({ agentCaption: null })
+  })
+
+  it(`refuses a caption past the contract cap`, async () => {
+    const error = await rejectionOf(
+      caller.setAgentCaption({
+        id: SESSION_ID,
+        caption: `x`.repeat(contract.steerWorking.previewMax + 1),
+      })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`reports a swept row without writing`, async () => {
+    selectResults.push([])
+
+    const result = await caller.setAgentCaption({
+      id: SESSION_ID,
+      caption: `Workflow Batch lanes · starting`,
+    })
+
+    expect(result).toEqual({ updated: false })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`refuses a non-owner`, async () => {
+    selectResults.push([{ userId: `someone-else`, status: `running` }])
+
+    const error = await rejectionOf(
+      caller.setAgentCaption({ id: SESSION_ID, caption: `Workflow x · done` })
     )
 
     expect(error).toBeInstanceOf(TRPCError)

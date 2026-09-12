@@ -96,17 +96,19 @@ const GROUP_CHUNK = 200
 export function InboxView({
   teamSlug,
   compact = false,
-  activeIssueId = null,
-  onOpenIssue,
+  activeIssueIdentifier = null,
+  from,
 }: {
   teamSlug: string
-  /** EXP-827: the desktop split view's LEFT column — a narrow list whose
-   *  issue rows SELECT (`onOpenIssue`) instead of navigating to the issue
-   *  page; the support and message rows are unchanged. */
+  /** EXP-851: the SIDEBAR's list nav — the same rows in the 16rem slot, no
+   *  reading column, no empty-state illustration. */
   compact?: boolean
-  /** The issue the split view shows on the right (the highlighted row). */
-  activeIssueId?: string | null
-  onOpenIssue?: (issue: Issue, board: Board, teamSlug: string) => void
+  /** The issue the open detail shows, by identifier (the highlighted row) —
+   *  the route knows the identifier, never the id. */
+  activeIssueIdentifier?: string | null
+  /** The `?from=` token every issue row hands the detail it opens, so the
+   *  inbox stays in the sidebar beside it (`lib/detail-origin.ts`). */
+  from?: string
 }) {
   // The notifications shape is scoped to the current user, NOT to a
   // team — the stream spans all the user's teams (matching the
@@ -270,11 +272,18 @@ export function InboxView({
         )}
       >
         {groups.length === 0 ? (
-          <EmptyState
-            icon={CircleCheck}
-            title="All caught up"
-            description="Assignments, comments and mentions on issues you follow will show up here."
-          />
+          compact ? (
+            // EXP-851: the sidebar slot has no room for the illustration.
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              All caught up.
+            </div>
+          ) : (
+            <EmptyState
+              icon={CircleCheck}
+              title="All caught up"
+              description="Assignments, comments and mentions on issues you follow will show up here."
+            />
+          )
         ) : (
           visibleGroups.map((g) => {
             const latest = g.items[0]
@@ -415,37 +424,19 @@ export function InboxView({
                 </div>
               </>
             )
-            if (compact && onOpenIssue) {
-              // EXP-827: the split view — selecting keeps the list, the
-              // pane on the right shows the issue. Mark-read on select stays.
-              return (
-                <ListRow
-                  key={g.issue.id}
-                  interactive
-                  active={g.issue.id === activeIssueId}
-                  className={cn(
-                    `items-start px-3 py-2`,
-                    g.unread === 0 && g.issue.id !== activeIssueId && `opacity-60`
-                  )}
-                  data-testid={`inbox-row-${g.issue.identifier}`}
-                  onClick={() => {
-                    void markGroupRead(g)
-                    onOpenIssue(g.issue, g.board, g.teamSlug)
-                  }}
-                >
-                  {issueRowBody}
-                </ListRow>
-              )
-            }
             return (
               <ListRow
                 key={g.issue.id}
                 asChild
                 interactive
+                active={g.issue.identifier === activeIssueIdentifier}
                 className={cn(
                   `items-start px-3 py-2`,
-                  g.unread === 0 && `opacity-60`
+                  g.unread === 0 &&
+                    g.issue.identifier !== activeIssueIdentifier &&
+                    `opacity-60`
                 )}
+                data-testid={`inbox-row-${g.issue.identifier}`}
               >
                 <Link
                   to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
@@ -454,6 +445,7 @@ export function InboxView({
                     boardSlug: g.board.slug,
                     issueIdentifier: g.issue.identifier,
                   }}
+                  search={from ? { from } : {}}
                   onClick={() => void markGroupRead(g)}
                 >
                   {issueRowBody}

@@ -1465,6 +1465,161 @@ describe(`activity event kinds`, () => {
     expect(slot(hub, `turn`)?.state).toBe(`ended`)
   })
 
+  // EXP-850 §2: `background_tasks` is the sixth latest-wins slot, replayed
+  // after the workflow cards and before the diff. An EMPTY list is a frame
+  // like any other here — "the strip closes" is the clients' rule.
+  test(`background_tasks is latest-wins, replayed after the workflow cards`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, { kind: `turn`, state: `started` })
+    activity(hub, pub, {
+      kind: `background_tasks`,
+      tasks: [
+        {
+          id: `b4mwz6csc`,
+          kind: `shell`,
+          description: `Sleep in the background`,
+          toolId: `toolu_01MCRoRaXN1cvEsHJzDEg2B3`,
+        },
+      ],
+    })
+    const emptied = { kind: `background_tasks`, tasks: [] }
+    activity(hub, pub, emptied)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `turn`,
+      `background_tasks`,
+      `diff`,
+    ])
+    expect(member.events()[2]).toEqual(emptied as never)
+    expect(room(hub).activityLog.length).toBe(1)
+    // Every declared field survives the re-serialize.
+    activity(hub, pub, {
+      kind: `background_tasks`,
+      tasks: [
+        { id: `w5zr2977l`, kind: `workflow`, description: `Probe the wire` },
+      ],
+      at: 7,
+    })
+    expect(slot(hub, `background_tasks`)).toEqual({
+      kind: `background_tasks`,
+      tasks: [
+        { id: `w5zr2977l`, kind: `workflow`, description: `Probe the wire` },
+      ],
+      at: 7,
+    })
+    // An unknown task kind drops the WHOLE frame; the slot keeps the last
+    // good list.
+    activity(hub, pub, {
+      kind: `background_tasks`,
+      tasks: [{ id: `x`, kind: `quantum`, description: `?` }],
+    })
+    expect(slot(hub, `background_tasks`)?.tasks[0].id).toBe(`w5zr2977l`)
+  })
+
+  // EXP-850 §3: `workflow` is latest-wins PER ID — one frame per card, all of
+  // them replayed between `turn` and `background_tasks`.
+  test(`workflow is latest-wins per id, replayed before background_tasks`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const card = (id: string, status: string, agents: unknown[]) => ({
+      kind: `workflow`,
+      id,
+      name: `wire-probe`,
+      status,
+      phases: [{ index: 1, title: `Alpha` }],
+      agents,
+    })
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, { kind: `turn`, state: `started` })
+    activity(hub, pub, { kind: `background_tasks`, tasks: [] })
+    activity(hub, pub, card(`toolu_a`, `running`, []))
+    activity(hub, pub, card(`toolu_b`, `running`, []))
+    const settled = card(`toolu_a`, `completed`, [
+      { index: 1, label: `alpha:one`, phaseIndex: 1, state: `done` },
+    ])
+    activity(hub, pub, settled)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `turn`,
+      `workflow`,
+      `workflow`,
+      `background_tasks`,
+      `diff`,
+    ])
+    // One frame per id, in first-appearance order, newest content.
+    expect(member.events()[2]).toEqual(settled as never)
+    expect((member.events()[3] as { id: string }).id).toBe(`toolu_b`)
+    expect(room(hub).activityLog.length).toBe(1)
+    expect(room(hub).lastByKind.get(`workflow:toolu_a`)).toBeDefined()
+    // An unknown status drops the WHOLE frame; the card keeps its state.
+    activity(hub, pub, card(`toolu_a`, `melting`, []))
+    expect(slot(hub, `workflow:toolu_a`)?.status).toBe(`completed`)
+  })
+
+  // EXP-850 §3: a room keeps at most 16 workflow cards, oldest evicted.
+  test(`the workflow store is capped at 16 cards`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    for (let i = 0; i < 20; i += 1) {
+      activity(hub, pub, {
+        kind: `workflow`,
+        id: `toolu_${i}`,
+        name: `w${i}`,
+        status: `running`,
+        phases: [],
+        agents: [],
+      })
+    }
+    const held = [...room(hub).lastByKind.keys()].filter((key) =>
+      key.startsWith(`workflow:`)
+    )
+    expect(held.length).toBe(16)
+    expect(held).not.toContain(`workflow:toolu_0`)
+    expect(held).toContain(`workflow:toolu_19`)
+  })
+
+  // EXP-850 §4/§5 / EXP-856: the additive fields on shipped kinds.
+  test(`subagent carries duplicate + workflowId and turn carries startedAt + tokens`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const duplicate = {
+      kind: `subagent`,
+      id: `a55b7012793deae02`,
+      agentType: `general-purpose`,
+      status: `duplicate`,
+      title: `slowpoke`,
+      workflowId: `toolu_017Lh63mYhRJ3MrA4A1PXytt`,
+      detail: `Second copy of slowpoke started while the first is still running (resumed by SendMessage)`,
+    }
+    activity(hub, pub, duplicate)
+    activity(hub, pub, {
+      kind: `turn`,
+      state: `started`,
+      startedAt: 1_789_204_409_163,
+      tokens: 1432,
+    })
+
+    const member = connectMember(hub)
+    expect(member.events()[0]).toEqual(duplicate as never)
+    expect(slot(hub, `turn`)).toEqual({
+      kind: `turn`,
+      state: `started`,
+      startedAt: 1_789_204_409_163,
+      tokens: 1432,
+    })
+    // An unknown subagent status is still dropped whole.
+    activity(hub, pub, { kind: `subagent`, id: `x`, agentType: `a`, status: `melted` })
+    expect(room(hub).activityLog.length).toBe(1)
+  })
+
   // EXP-785/786: `tool` carries its ACP id + kind bucket, and `tool_update`
   // is a plain LOG row (never a slot) — appended and budgeted like `tool`.
   test(`tool carries id and toolKind, and tool_update is a log row`, () => {

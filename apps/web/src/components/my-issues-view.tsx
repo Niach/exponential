@@ -152,6 +152,8 @@ export function MyIssuesView({
                   boardSlug: board.slug,
                   issueIdentifier: issue.identifier,
                 },
+                // EXP-851: the sidebar keeps this list beside the issue.
+                search: { from: `inbox:my-issues` },
               })
             }}
             canCreate={false}

@@ -41,6 +41,25 @@ use crate::actions::{
 /// tool windows (the rail's Inbox / My Issues / All Issues).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
+    /// EXP-851: one BOARD's issue list, full width — the filter bar plus the
+    /// grouped list that used to live in the rail's tool column. `board_id`
+    /// is EMPTY for the dev route (`EXP_DEV_TOOL=board`), which means "the
+    /// window's active board"; the render resolves it through
+    /// [`board_for_screen`].
+    BoardIssues { board_id: String },
+    /// EXP-851: the personal list, full width — the Inbox notification stream
+    /// and the My Issues board behind ONE segmented strip (EXP-186's two tabs,
+    /// carried on the screen so a tab restore and go-back keep the tab).
+    Inbox { tab: crate::sidebar::InboxTab },
+    /// EXP-851: the Support ticket list, full width (EXP-180 — server-only
+    /// tRPC rows, polled; its Open/Resolved strip lives inside the view).
+    Support,
+    /// EXP-851: the trunk file tree beside the read-only viewer — one screen
+    /// now that the tool column is gone.
+    Files,
+    /// EXP-851: the trunk's commit history beside its diff — one screen for
+    /// the same reason as [`Screen::Files`].
+    SourceControl,
     /// Full-page issue detail (`routes/.../issues/$issueIdentifier`).
     IssueDetail { issue_id: String },
     /// `routes/t/$ws/settings/` — team, device AND personal sections
@@ -162,42 +181,58 @@ impl Screen {
         )
     }
 
-    /// EXP-480/EXP-686/EXP-706: the tab-less FULL-PAGE screens the rail
-    /// navigates to directly. While one is up the tool column unmounts and exactly one
-    /// rail entry may read as selected (Settings is full-page too, but it
-    /// replaces the rail outright — the rail highlight rules don't apply).
-    pub(crate) fn is_rail_full_page(&self) -> bool {
-        matches!(
-            self,
-            Screen::Devices
-                | Screen::Actions
-                | Screen::Automations
-                | Screen::Reviews
-                | Screen::GettingStarted { .. }
-        )
+    /// EXP-851: whether this screen can sit BESIDE a list — every tab detail,
+    /// plus two tab-less centre views:
+    ///
+    /// * the PR diff (EXP-525 took its tab away so a merged PR can't leave a
+    ///   stale chip), which is opened FROM the Reviews queue and carries it;
+    /// * the Agent page, which is BOTH a list of its own AND a step on the
+    ///   way from an issue to its coding run — "start coding" on an issue
+    ///   that sits beside its board must keep that board all the way into the
+    ///   session, so Chat carries whatever led to it and falls back to its
+    ///   own sessions list when nothing did.
+    ///
+    /// A screen that carries a list holds it in the screens panel's transient
+    /// slot rather than a tab entry (`ScreensPanel::transient_origin`).
+    pub(crate) fn carries_list(&self) -> bool {
+        self.is_detail() || matches!(self, Screen::PrDiff { .. } | Screen::Chat)
     }
 
-    /// EXP-791: whether the screen takes the WHOLE center — no tool column
-    /// beside it. The rail full-page screens and a PTY terminal. EXP-818
-    /// took a coding session OUT again: a session is a detail like an issue,
-    /// and the list beside it is the one it was opened from (the Inbox, a
-    /// board, the Agent page's sessions list) — the tab's origin decides,
-    /// exactly as it does for an issue tab. `Screen::Chat` left the rail
-    /// full pages for the same reason: it is the Agent page's center while
-    /// no session is selected, beside the Sessions tool column.
-    /// `shell::CenterPanel` keys its split on this.
-    pub(crate) fn is_full_width(&self) -> bool {
-        self.is_rail_full_page() || matches!(self, Screen::Terminal { .. })
+    /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
+    /// detail opened from it inherits. The five list screens are the Agent
+    /// page (its Running/Past rows), a board, the Inbox, Support and Reviews;
+    /// everything else — Settings, Devices, Actions, Automations, Getting
+    /// started, Files, Source Control, a terminal, any detail — is
+    /// CONTEXT-FREE and leaves the rail up.
+    pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
+        use crate::sidebar::ToolWindow;
+        let tool = match self {
+            Screen::BoardIssues { board_id } => {
+                return Some(TabOrigin {
+                    tool: ToolWindow::BoardIssues,
+                    board_id: (!board_id.is_empty()).then(|| board_id.clone()),
+                    inbox_tab: None,
+                })
+            }
+            Screen::Inbox { tab } => {
+                return Some(TabOrigin {
+                    tool: ToolWindow::Inbox,
+                    board_id: None,
+                    inbox_tab: Some(*tab),
+                })
+            }
+            Screen::Support => ToolWindow::Support,
+            Screen::Chat => ToolWindow::Sessions,
+            Screen::Reviews => ToolWindow::Reviews,
+            _ => return None,
+        };
+        Some(TabOrigin {
+            tool,
+            board_id: None,
+            inbox_tab: None,
+        })
     }
 
-    /// EXP-818: whether a navigation FROM this screen carries no list
-    /// context — a rail full page, Settings, or nothing at all. A detail
-    /// opened from one of these takes its origin from what it IS (an
-    /// issue → its board's list, a session → the sessions list, a ticket →
-    /// Support) rather than from whatever the rail happened to show last.
-    pub(crate) fn is_context_free(&self) -> bool {
-        self.is_rail_full_page() || matches!(self, Screen::Settings)
-    }
 }
 
 /// EXP-288: which sidebar entry a detail tab was opened from — clicking the
@@ -216,62 +251,59 @@ pub(crate) struct TabOrigin {
     pub inbox_tab: Option<crate::sidebar::InboxTab>,
 }
 
-/// The pending origin marker a navigation leaves for the screens panel
-/// (consumed like [`Navigation::pending_steer`]): `Capture` = read the
-/// CURRENT rail tool + active board at consume time (right for every
-/// sidebar-row click path); `Explicit` = the caller knows better (create
-/// dialog, deep links — the rail may point anywhere).
+/// The pending origin marker a navigation leaves for the screens panel:
+/// `Derive` = run the EXP-851 breadcrumb rule ([`derive_origin`]) at consume
+/// time, which is right for every in-app click path; `Explicit` = the caller
+/// knows the list itself (a deep link, an OS notification, the create
+/// dialog — nothing on screen names it).
 pub(crate) enum PendingOrigin {
-    Capture,
+    Derive,
     Explicit(TabOrigin),
+    /// EXP-851: opened from the RAIL (a pinned row, a Sessions row). The rail
+    /// is not a list, so the detail gets none — whatever screen happened to be
+    /// up before must not lend it one.
+    Rail,
 }
 
-/// EXP-818: the ONE rule for which list column a freshly opened detail sits
-/// beside — the "breadcrumb" rule:
+/// EXP-851: the ONE rule for which LIST the left column shows beside a
+/// freshly opened detail — the "breadcrumb" rule, one layer only:
 ///
-/// * Opened from a LIST context (the previous screen was a detail, or
-///   nothing but a list was up): the current rail tool stays. Inbox → issue
-///   keeps the Inbox; a board → issue → Watch keeps the board; a Sessions
-///   row clicked while the Inbox is up keeps the Inbox.
-/// * Opened from a CONTEXT-FREE screen (a rail full page, Settings, a deep
-///   link at boot): the detail brings its own list — an issue or PR diff
-///   its board, a session the Agent page's sessions list, a ticket Support.
+/// * Opened from a LIST SCREEN (a board, the Inbox, Support, the Agent page,
+///   Reviews): that list comes along, so the detail sits beside the rows it
+///   was picked from.
+/// * Opened from another screen that already CARRIES a list (an issue → its
+///   coding session, an issue → the Agent page → the run it starts): the list
+///   is inherited, one layer at a time.
+/// * Opened from anywhere ELSE — the rail itself (a pinned row, a session
+///   row, the Agent/Devices/Reviews entries), a context-free page, Settings,
+///   a deep link at boot: NO list. The rail stays up, which is the EXP-851
+///   change: a detail no longer DERIVES a list it was never opened from.
 ///
-/// `captured` is what the rail shows right now (the old EXP-288 capture);
-/// `target_board` the board of the issue/PR being opened, when known. Pure,
-/// so every combination is a unit test.
+/// `previous` is the screen navigated away from, `previous_origin` the list
+/// IT carried (only meaningful while `previous` is a detail). Pure, so every
+/// combination is a unit test.
 pub(crate) fn derive_origin(
     previous: Option<&Screen>,
-    captured: TabOrigin,
+    previous_origin: Option<TabOrigin>,
     target: &Screen,
-    target_board: Option<String>,
-) -> TabOrigin {
-    use crate::sidebar::ToolWindow;
-    let context_free = previous.is_none_or(Screen::is_context_free);
-    if !context_free {
-        return captured;
+) -> Option<TabOrigin> {
+    // Only a detail (or the PR diff) gets a left-column list; a list screen
+    // and every full page show the rail.
+    if !target.carries_list() {
+        return None;
     }
-    match target {
-        Screen::IssueDetail { .. } | Screen::PrDiff { .. } => match target_board {
-            Some(board_id) => TabOrigin {
-                tool: ToolWindow::BoardIssues,
-                board_id: Some(board_id),
-                inbox_tab: None,
-            },
-            None => captured,
-        },
-        Screen::Session { .. } => TabOrigin {
-            tool: ToolWindow::Sessions,
-            board_id: None,
-            inbox_tab: None,
-        },
-        Screen::SupportThread { .. } => TabOrigin {
-            tool: ToolWindow::Support,
-            board_id: None,
-            inbox_tab: None,
-        },
-        _ => captured,
+    let previous = previous?;
+    // A screen that CARRIES a list hands that one on (an issue beside its
+    // board → its coding run; the Agent page reached from that issue → the
+    // same board). Only when it carries none does its OWN list apply — which
+    // is how the Agent page reached from the rail still lends its sessions
+    // list to the run a row starts.
+    if previous.carries_list() {
+        if let Some(origin) = previous_origin {
+            return Some(origin);
+        }
     }
+    previous.list_origin()
 }
 
 /// EXP-827: where a SESSION screen's Back goes — the place the run was opened
@@ -351,6 +383,22 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         // across this process's windows — a tab id is process-unique.
         Screen::Terminal { tab } => crate::session_bar::terminal_tab_title(*tab, cx)
             .unwrap_or_else(|| "Terminal".into()),
+        // EXP-851: the list screens name themselves — a board by its synced
+        // name (the rail entry's label), the rest by the rail entry's word.
+        Screen::BoardIssues { board_id } => Store::global(cx)
+            .collections()
+            .boards
+            .read(cx)
+            .get(board_id)
+            .map(|board| gpui::SharedString::from(board.name.clone()))
+            .unwrap_or_else(|| "Board".into()),
+        Screen::Inbox { tab } => match tab {
+            crate::sidebar::InboxTab::Inbox => "Inbox".into(),
+            crate::sidebar::InboxTab::MyIssues => "My Issues".into(),
+        },
+        Screen::Support => "Support".into(),
+        Screen::Files => "Files".into(),
+        Screen::SourceControl => "Source Control".into(),
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
@@ -493,17 +541,21 @@ pub struct Navigation {
 
 impl Navigation {
     fn new() -> Self {
+        let screen = std::env::var("EXP_DEV_SCREEN")
+            .ok()
+            .as_deref()
+            .and_then(parse_dev_screen)
+            .or_else(legacy_tool_screen);
+        // DEV-ONLY (EXP-851): `EXP_DEV_TOOL` beside a detail `EXP_DEV_SCREEN`
+        // is the capture run asking for that list in the LEFT column.
+        let pending_origin = dev_tab_origin(screen.as_ref()).map(PendingOrigin::Explicit);
         Self {
             // DEV-ONLY (§11.4 headless verification, same family as
             // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a team and/or
             // pre-route the first screen so gate screenshots can reach
             // surfaces without synthetic input. Unset in normal runs.
             team_id: std::env::var("EXP_DEV_TEAM").ok(),
-            screen: std::env::var("EXP_DEV_SCREEN")
-                .ok()
-                .as_deref()
-                .and_then(parse_dev_screen)
-                .or_else(legacy_reviews_tool_screen),
+            screen,
             back_stack: Vec::new(),
             forward_stack: Vec::new(),
             // DEV-ONLY `EXP_DEV_BOARD_ID=<board uuid>` (EXP-642): pre-select
@@ -514,7 +566,7 @@ impl Navigation {
                 .ok()
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty()),
-            pending_origin: None,
+            pending_origin,
             // DEV-ONLY (EXP-825): `EXP_DEV_SCREEN='chat?issues=a,b&action=…'`
             // seeds the composer the way a play button would, so a capture
             // run photographs the chips without synthetic input.
@@ -589,7 +641,9 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
-/// `actions` | `automations` | `usage` | `chat` | `chat?<seed>` (EXP-825:
+/// `actions` | `automations` | `usage` | `board-issues` | `inbox` |
+/// `inbox-my-issues` | `support` | `files` | `source-control` (EXP-851 — the
+/// list screens the rail's tool windows became) | `chat` | `chat?<seed>` (EXP-825:
 /// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
 /// &icon=<name>`, any subset — [`parse_dev_chat_seed`]) | `reviews` |
 /// `getting-started` | `issue:<uuid>` |
@@ -618,6 +672,22 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "chat" => Some(Screen::Chat),
         // EXP-706: Reviews left the rail's tool windows for its own page.
         "reviews" => Some(Screen::Reviews),
+        // EXP-851: the four list screens the rail's tool windows became. A
+        // board takes the window's ACTIVE board (the empty `board_id`
+        // sentinel, resolved at render time) so `EXP_DEV_BOARD_ID` still
+        // picks which one.
+        "board-issues" | "board" | "issues" => Some(Screen::BoardIssues {
+            board_id: String::new(),
+        }),
+        "inbox" => Some(Screen::Inbox {
+            tab: crate::sidebar::InboxTab::Inbox,
+        }),
+        "inbox-my-issues" | "my-issues" => Some(Screen::Inbox {
+            tab: crate::sidebar::InboxTab::MyIssues,
+        }),
+        "support" => Some(Screen::Support),
+        "files" => Some(Screen::Files),
+        "source-control" => Some(Screen::SourceControl),
         "getting-started" => Some(Screen::GettingStarted {
             tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
                 .ok()
@@ -719,12 +789,72 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// DEV-ONLY back-compat for capture runs (EXP-706): Reviews used to be a rail
-/// TOOL window, so the shots catalog drives it with `EXP_DEV_TOOL=reviews`.
-/// It is a full-page SCREEN now — keep the old spelling landing on it (only
-/// when `EXP_DEV_SCREEN` picked nothing, which stays authoritative).
-fn legacy_reviews_tool_screen() -> Option<Screen> {
-    (std::env::var("EXP_DEV_TOOL").ok().as_deref() == Some("reviews")).then_some(Screen::Reviews)
+/// DEV-ONLY back-compat for capture runs (EXP-706/EXP-851): the rail's tool
+/// windows ARE screens now, but the shots catalog drives them with
+/// `EXP_DEV_TOOL`. Every legacy spelling maps onto its screen — only when
+/// `EXP_DEV_SCREEN` picked nothing, which stays authoritative.
+///
+/// Pure over the spec so the whole table is a unit test.
+pub(crate) fn dev_tool_screen(spec: &str) -> Option<Screen> {
+    use crate::sidebar::InboxTab;
+    match spec.trim() {
+        "inbox" => Some(Screen::Inbox {
+            tab: InboxTab::Inbox,
+        }),
+        "my-issues" => Some(Screen::Inbox {
+            tab: InboxTab::MyIssues,
+        }),
+        "board" | "board-issues" | "issues" => Some(Screen::BoardIssues {
+            board_id: String::new(),
+        }),
+        "support" => Some(Screen::Support),
+        "files" => Some(Screen::Files),
+        "source-control" => Some(Screen::SourceControl),
+        // EXP-818: the Agent page (its sessions list is the page now).
+        "sessions" | "agent" => Some(Screen::Chat),
+        // EXP-706: Reviews was a tool window once.
+        "reviews" => Some(Screen::Reviews),
+        _ => None,
+    }
+}
+
+/// The `EXP_DEV_TOOL` screen of the running process (see [`dev_tool_screen`]).
+fn legacy_tool_screen() -> Option<Screen> {
+    dev_tool_screen(std::env::var("EXP_DEV_TOOL").ok().as_deref()?)
+}
+
+/// DEV-ONLY (EXP-851): the left-column LIST a capture run wants beside a
+/// detail screen. `EXP_DEV_TOOL` names a list and `EXP_DEV_SCREEN` a detail
+/// (`issue:…`, `support:…`, `session:…`) — the pair used to mean "tool column
+/// + centre tab" and now means "ListNav + main view", so it seeds the first
+/// navigation's explicit origin. `None` whenever either half is missing or
+/// the screen is not a detail (a list screen carries its own rail).
+fn dev_tab_origin(screen: Option<&Screen>) -> Option<TabOrigin> {
+    if !screen?.is_detail() {
+        return None;
+    }
+    let mut origin = legacy_tool_screen()?.list_origin()?;
+    // `EXP_DEV_INBOX_TAB` still wins over the `my-issues` spelling.
+    if origin.tool == crate::sidebar::ToolWindow::Inbox {
+        if let Some(tab) = std::env::var("EXP_DEV_INBOX_TAB")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .and_then(parse_dev_inbox_tab)
+        {
+            origin.inbox_tab = Some(tab);
+        }
+    }
+    Some(origin)
+}
+
+/// DEV-ONLY `EXP_DEV_INBOX_TAB` values: `inbox` | `my-issues`.
+fn parse_dev_inbox_tab(spec: &str) -> Option<crate::sidebar::InboxTab> {
+    match spec {
+        "inbox" => Some(crate::sidebar::InboxTab::Inbox),
+        "my-issues" => Some(crate::sidebar::InboxTab::MyIssues),
+        _ => None,
+    }
 }
 
 /// DEV-ONLY `EXP_DEV_GETTING_STARTED_TAB` values (EXP-686): `first-steps` |
@@ -831,7 +961,7 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
 /// path runs with its tool already active); use [`navigate_from`] where the
 /// rail may point anywhere (create dialog, deep links).
 pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
-    navigate_inner(window, cx, screen, PendingOrigin::Capture);
+    navigate_inner(window, cx, screen, PendingOrigin::Derive);
 }
 
 /// [`navigate`] with an EXPLICIT tab origin (EXP-288).
@@ -839,20 +969,26 @@ pub(crate) fn navigate_from(window: &Window, cx: &mut App, screen: Screen, origi
     navigate_inner(window, cx, screen, PendingOrigin::Explicit(origin));
 }
 
+/// EXP-851: [`navigate`] from the RAIL — the detail opens with NO list beside
+/// it, so the rail stays up. Every rail row that opens a detail (a pinned
+/// issue or session, a Sessions-section row) goes through here; without it a
+/// click would inherit whatever list the main view happened to be showing.
+pub(crate) fn navigate_from_rail(window: &Window, cx: &mut App, screen: Screen) {
+    navigate_inner(window, cx, screen, PendingOrigin::Rail);
+}
+
 /// Open an issue's detail LANDING FULLY SCOPED on its board (EXP-510): the
-/// live rail switches to the board list (`select_tool_for_tab` — never
-/// `activate_tool`, whose `set_screen(None)` would close the tab being
-/// opened), the board becomes active, and the tab's origin is the board
-/// explicitly. For paths where the rail may point anywhere while the
-/// navigation fires (create dialog, deep links) — sidebar-row clicks keep
-/// plain [`navigate`], their tool is already active.
+/// board becomes the window's active one and the detail's left column is its
+/// board list, EXPLICITLY — for the paths where nothing on screen names the
+/// list (the create dialog, deep links, an OS notification). In-app row
+/// clicks keep plain [`navigate`]: the EXP-851 breadcrumb reads the list they
+/// came from.
 pub(crate) fn open_issue_scoped(
     window: &mut Window,
     cx: &mut App,
     issue_id: String,
     board_id: String,
 ) {
-    crate::sidebar::select_tool_for_tab(window, cx, crate::sidebar::ToolWindow::BoardIssues);
     set_active_board(window, cx, board_id.clone());
     navigate_from(
         window,
@@ -946,9 +1082,10 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 
 /// EXP-825: open the Agent page's composer with `seed` preselected — what
 /// every play button does now (issue detail, the bulk bar, an action's Run,
-/// a machine's ▶, Fix conflicts). The rail flips to the Sessions tool (the
-/// Agent page's list column), the seed lands on the nav the composer reads,
-/// and the navigation itself is the ordinary [`navigate`].
+/// a machine's ▶, Fix conflicts). The seed lands on the nav the composer
+/// reads and the navigation itself is the ordinary [`navigate`] — EXP-851:
+/// it no longer forces a list column, so a run started from a board's issue
+/// keeps that board beside it all the way into the session.
 ///
 /// An UNDOCKED window (an issue in its own window) mounts no screens panel,
 /// so the seed goes to the shell it was undocked from and that window is
@@ -969,7 +1106,9 @@ pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed
             return;
         }
     }
-    crate::sidebar::select_tool_for_tab(window, cx, crate::sidebar::ToolWindow::Sessions);
+    // EXP-851: NO list forcing. The Agent page is a full-width screen; a
+    // seed raised from a board's issue keeps that board in the left column,
+    // and so does the session the composer starts.
     if let Some(nav) = nav_for_window_readonly(window, cx) {
         nav.update(cx, |nav, cx| {
             nav.pending_chat_seed = Some(seed);
@@ -1265,25 +1404,26 @@ pub fn on_active_window(cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 's
 /// from user interaction (sidebar, menus, future keymap), which happens in
 /// the active window.
 pub fn init(cx: &mut App) {
-    // My Issues / Inbox are tabs of the ONE Inbox tool window (EXP-186), not
-    // screens — the actions select the rail tool + tab (the sidebar swaps to
-    // the mini list; the center stays).
+    // EXP-851: My Issues / Inbox are the two tabs of the ONE Inbox SCREEN
+    // (EXP-186's tabs, carried on the screen since the tool column went).
     cx.on_action(|_: &OpenMyIssues, cx| {
-        on_active_window(cx, |window, cx| {
-            crate::sidebar::open_inbox_tab(window, cx, crate::sidebar::InboxTab::MyIssues);
-        });
+        navigate_active(
+            cx,
+            Screen::Inbox {
+                tab: crate::sidebar::InboxTab::MyIssues,
+            },
+        );
     });
     cx.on_action(|_: &OpenInbox, cx| {
-        on_active_window(cx, |window, cx| {
-            crate::sidebar::open_inbox_tab(window, cx, crate::sidebar::InboxTab::Inbox);
-        });
+        navigate_active(
+            cx,
+            Screen::Inbox {
+                tab: crate::sidebar::InboxTab::Inbox,
+            },
+        );
     });
     cx.on_action(|_: &OpenSettings, cx| navigate_active(cx, Screen::Settings));
-    cx.on_action(|_: &OpenSourceControl, cx| {
-        on_active_window(cx, |window, cx| {
-            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::SourceControl);
-        });
-    });
+    cx.on_action(|_: &OpenSourceControl, cx| navigate_active(cx, Screen::SourceControl));
     // Manual freshness sync (fetch + ff-only catch-up) on the trunk engine.
     cx.on_action(|_: &SyncNow, cx| {
         on_active_window(cx, |window, cx| {
@@ -1292,8 +1432,8 @@ pub fn init(cx: &mut App) {
             trunk_sync.update(cx, |engine, cx| engine.refresh(window, cx));
         });
     });
-    // The picker selects a board (scope) and brings up its issue list —
-    // there is no board screen; the Board Issues tool window IS the board.
+    // The picker selects a board (scope) and opens its issue list — EXP-851
+    // made that a SCREEN (`Screen::BoardIssues`), not a tool window.
     cx.on_action(|action: &OpenBoard, cx| {
         let board_id = action.board_id.clone();
         on_active_window(cx, move |window, cx| {
@@ -1315,8 +1455,8 @@ pub fn init(cx: &mut App) {
                     switch_team(window, cx, board_team);
                 }
             }
-            set_active_board(window, cx, board_id);
-            crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::BoardIssues);
+            set_active_board(window, cx, board_id.clone());
+            navigate(window, cx, Screen::BoardIssues { board_id });
         });
     });
     cx.on_action(|action: &OpenIssue, cx| {
@@ -1382,12 +1522,25 @@ fn navigate_active(cx: &mut App, screen: Screen) {
 // Default-screen resolution (shared by screens panel + sidebar highlight)
 // -----------------------------------------------------------------------
 
-/// The active center TAB — `None` = nothing open (the center renders its
-/// empty state once [`shapes_ready`]; a skeleton before). There is no default
-/// screen anymore: issue lists live in the sidebar, the center only shows
-/// what was explicitly opened.
+/// The window's active SCREEN. EXP-851 gave the default back: with no
+/// explicit navigation yet (a fresh window, a team switch, the last tab
+/// closed) a team that HAS boards opens on its board list — the issues-first
+/// default the retired rail tool used to provide. `None` (the empty state)
+/// means there is genuinely nothing to show: no team, or no board yet.
+///
+/// The default names no board (the empty sentinel) so it follows
+/// `active_board_id` — which must therefore never recurse through here for
+/// it, and doesn't ([`active_board_id`] skips the empty sentinel).
 pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
-    nav.read(cx).screen.clone()
+    if let Some(screen) = nav.read(cx).screen.clone() {
+        return Some(screen);
+    }
+    // `try_global`: the panel-rehydrate tests build windows without a store.
+    let collections = Store::try_global(cx)?.collections();
+    let team_id = active_team_id(nav, cx)?;
+    (!collections.boards_in_team(&team_id, cx).is_empty()).then(|| Screen::BoardIssues {
+        board_id: String::new(),
+    })
 }
 
 /// Whether the teams + boards shapes have seen their first
@@ -1414,6 +1567,18 @@ pub fn active_board_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
             .is_some_and(|board| board.team_id == team_id);
         if still_here {
             return Some(picked);
+        }
+    }
+    // EXP-851: the board LIST screen names its board outright.
+    if let Some(Screen::BoardIssues { board_id }) = resolved_screen(nav, cx) {
+        if !board_id.is_empty()
+            && collections
+                .boards
+                .read(cx)
+                .get(&board_id)
+                .is_some_and(|board| board.team_id == team_id)
+        {
+            return Some(board_id);
         }
     }
     if let Some(Screen::IssueDetail { issue_id }) = resolved_screen(nav, cx) {
@@ -1485,6 +1650,60 @@ mod tests {
         assert_eq!(parse_dev_screen("suggestions"), None);
     }
 
+    /// EXP-851: the rail's tool windows are SCREENS — both spellings of every
+    /// capture drive (`EXP_DEV_SCREEN` and the legacy `EXP_DEV_TOOL`) land on
+    /// the same screen, so the committed view catalog keeps resolving.
+    #[test]
+    fn the_list_screens_have_dev_values_under_both_spellings() {
+        use crate::sidebar::InboxTab;
+        let board = Screen::BoardIssues {
+            board_id: String::new(),
+        };
+        for spec in ["board-issues", "board", "issues"] {
+            assert_eq!(parse_dev_screen(spec), Some(board.clone()), "{spec}");
+            assert_eq!(dev_tool_screen(spec), Some(board.clone()), "{spec}");
+        }
+        assert_eq!(
+            parse_dev_screen("inbox"),
+            Some(Screen::Inbox {
+                tab: InboxTab::Inbox
+            })
+        );
+        assert_eq!(
+            parse_dev_screen("inbox-my-issues"),
+            Some(Screen::Inbox {
+                tab: InboxTab::MyIssues
+            })
+        );
+        assert_eq!(
+            dev_tool_screen("my-issues"),
+            Some(Screen::Inbox {
+                tab: InboxTab::MyIssues
+            })
+        );
+        assert_eq!(parse_dev_screen("support"), Some(Screen::Support));
+        assert_eq!(dev_tool_screen("support"), Some(Screen::Support));
+        assert_eq!(parse_dev_screen("files"), Some(Screen::Files));
+        assert_eq!(dev_tool_screen("files"), Some(Screen::Files));
+        assert_eq!(parse_dev_screen("source-control"), Some(Screen::SourceControl));
+        assert_eq!(dev_tool_screen("source-control"), Some(Screen::SourceControl));
+        // EXP-818/EXP-706 spellings the catalog still carries.
+        assert_eq!(dev_tool_screen("agent"), Some(Screen::Chat));
+        assert_eq!(dev_tool_screen("sessions"), Some(Screen::Chat));
+        assert_eq!(dev_tool_screen("reviews"), Some(Screen::Reviews));
+        assert_eq!(dev_tool_screen("nonsense"), None);
+    }
+
+    /// EXP-851: `EXP_DEV_TOOL` beside a DETAIL screen means "that list in the
+    /// left column" — the pair a capture run uses for the ListNav views.
+    #[test]
+    fn dev_inbox_tab_parses_both_values() {
+        use crate::sidebar::InboxTab;
+        assert_eq!(parse_dev_inbox_tab("inbox"), Some(InboxTab::Inbox));
+        assert_eq!(parse_dev_inbox_tab("my-issues"), Some(InboxTab::MyIssues));
+        assert_eq!(parse_dev_inbox_tab("My-Issues"), None);
+    }
+
     /// The Getting-started tab override parses exactly the two documented
     /// values; anything else falls back to the checklist.
     #[test]
@@ -1502,12 +1721,16 @@ mod tests {
         assert_eq!(GettingStartedTab::default(), GettingStartedTab::FirstSteps);
     }
 
-    /// EXP-706: the full-page screens the rail navigates to directly — the
-    /// tool column unmounts while one is up, and Reviews now belongs to them.
-    /// Neither a tab nor undockable (the DIFF its rows open is both).
+    /// EXP-851: Reviews is a LIST screen — a detail opened from it inherits
+    /// the Reviews rows in the left column. Neither a tab nor undockable
+    /// (the DIFF its rows open is both).
     #[test]
-    fn reviews_is_a_rail_full_page_screen() {
-        assert!(Screen::Reviews.is_rail_full_page());
+    fn reviews_is_a_list_screen() {
+        assert!(Screen::Reviews.list_origin().is_some());
+        assert_eq!(
+            Screen::Reviews.list_origin().map(|origin| origin.tool),
+            Some(crate::sidebar::ToolWindow::Reviews)
+        );
         assert!(!Screen::Reviews.is_detail());
         assert!(!Screen::Reviews.undockable());
         assert!(Screen::PrDiff {
@@ -1541,74 +1764,95 @@ mod tests {
     /// EXP-746: a session gets a tab chip (several runs are open at once, and
     /// an ended one stays as a read-only transcript), but it is neither
     /// undockable — a fresh view in a second window would mean a second
-    /// engine handle for one live agent — nor a rail full-page screen.
+    /// engine handle for one live agent — nor a LIST a detail could inherit.
     #[test]
-    fn session_screens_are_detail_but_not_undockable_or_full_page() {
+    fn session_screens_are_detail_but_not_undockable_or_a_list() {
         let session = Screen::Session {
             session_id: "s1".into(),
         };
         assert!(session.is_detail());
         assert!(!session.undockable());
-        assert!(!session.is_rail_full_page());
+        assert!(session.list_origin().is_none());
     }
 
-    /// EXP-791/EXP-818: exactly the rail full-page screens plus a terminal
-    /// take the whole center; every list-driven detail — a session included
-    /// now — keeps the tool column beside it, and the Chat page sits beside
-    /// the Sessions list.
+    /// EXP-851: exactly five screens are LISTS — a board, the Inbox, Support,
+    /// the Agent page and Reviews. Every other screen (and every detail) is
+    /// context-free: a detail opened from it keeps the rail up.
     #[test]
-    fn full_width_is_the_rail_pages_plus_terminal() {
-        assert!(!Screen::Session {
-            session_id: "s1".into()
+    fn the_list_screens_are_the_five_the_left_column_can_show() {
+        use crate::sidebar::{InboxTab, ToolWindow};
+        let board = Screen::BoardIssues {
+            board_id: "b1".into(),
+        };
+        assert_eq!(
+            board.list_origin(),
+            Some(TabOrigin {
+                tool: ToolWindow::BoardIssues,
+                board_id: Some("b1".into()),
+                inbox_tab: None,
+            })
+        );
+        // The dev sentinel (`EXP_DEV_TOOL=board`) names no board — the render
+        // resolves the window's active one.
+        assert_eq!(
+            Screen::BoardIssues {
+                board_id: String::new()
+            }
+            .list_origin()
+            .and_then(|origin| origin.board_id),
+            None
+        );
+        assert_eq!(
+            Screen::Inbox {
+                tab: InboxTab::MyIssues
+            }
+            .list_origin(),
+            Some(TabOrigin {
+                tool: ToolWindow::Inbox,
+                board_id: None,
+                inbox_tab: Some(InboxTab::MyIssues),
+            })
+        );
+        for (screen, tool) in [
+            (Screen::Support, ToolWindow::Support),
+            (Screen::Chat, ToolWindow::Sessions),
+            (Screen::Reviews, ToolWindow::Reviews),
+        ] {
+            assert_eq!(screen.list_origin().map(|origin| origin.tool), Some(tool));
         }
-        .is_full_width());
-        assert!(!Screen::Chat.is_full_width());
-        assert!(!Screen::Chat.is_rail_full_page());
-        // (`Screen::Terminal` is covered by the predicate's `matches!` arm —
-        // a `terminal::TabId` only ever comes from a spawned manager tab.)
-        for page in [
+        for screen in [
+            Screen::Settings,
             Screen::Devices,
             Screen::Actions,
             Screen::Automations,
-            Screen::Reviews,
+            Screen::Files,
+            Screen::SourceControl,
             Screen::GettingStarted {
                 tab: GettingStartedTab::FirstSteps,
             },
+            Screen::IssueDetail {
+                issue_id: "i1".into(),
+            },
+            Screen::PrDiff {
+                issue_id: "i1".into(),
+            },
+            Screen::SupportThread {
+                thread_id: "t1".into(),
+            },
+            Screen::Session {
+                session_id: "s1".into(),
+            },
         ] {
-            assert!(page.is_full_width(), "{page:?}");
+            assert!(screen.list_origin().is_none(), "{screen:?}");
         }
-        assert!(!Screen::IssueDetail {
-            issue_id: "i1".into()
-        }
-        .is_full_width());
-        assert!(!Screen::PrDiff {
-            issue_id: "i1".into()
-        }
-        .is_full_width());
-        assert!(!Screen::SupportThread {
-            thread_id: "t1".into()
-        }
-        .is_full_width());
-        // Settings is full-page too, but it replaces the RAIL — the shell
-        // keys it separately, so it stays out of this predicate.
-        assert!(!Screen::Settings.is_full_width());
     }
 
-    /// EXP-818: the breadcrumb rule, one row per navigation the product can
-    /// make. `captured` stands for "whatever the rail shows".
+    /// EXP-851: the breadcrumb rule, one row per navigation the product can
+    /// make. A detail keeps the list it was opened FROM, inherits one from
+    /// another detail, and gets NOTHING anywhere else — the rail stays.
     #[test]
-    fn derive_origin_keeps_the_list_context_and_derives_without_one() {
+    fn derive_origin_carries_a_list_one_layer_and_never_invents_one() {
         use crate::sidebar::{InboxTab, ToolWindow};
-        let inbox = TabOrigin {
-            tool: ToolWindow::Inbox,
-            board_id: None,
-            inbox_tab: Some(InboxTab::Inbox),
-        };
-        let board = TabOrigin {
-            tool: ToolWindow::BoardIssues,
-            board_id: Some("b1".into()),
-            inbox_tab: None,
-        };
         let issue = Screen::IssueDetail {
             issue_id: "i1".into(),
         };
@@ -1618,39 +1862,87 @@ mod tests {
         let ticket = Screen::SupportThread {
             thread_id: "t1".into(),
         };
-        // Inbox → issue: the Inbox stays.
-        assert_eq!(derive_origin(None.or(Some(&issue)), inbox.clone(), &issue, Some("b2".into())), inbox);
-        // Inbox → a running session: the Inbox stays.
-        assert_eq!(derive_origin(Some(&issue), inbox.clone(), &session, None), inbox);
-        // Board → issue → Watch: the board stays.
-        assert_eq!(derive_origin(Some(&issue), board.clone(), &session, None), board);
-        // Agent page (Chat is a list context — the Sessions column) → session.
-        let sessions = TabOrigin {
-            tool: ToolWindow::Sessions,
-            board_id: None,
-            inbox_tab: None,
-        };
-        assert_eq!(derive_origin(Some(&Screen::Chat), sessions.clone(), &session, None), sessions);
-        // Devices (context-free) → a session: the sessions list comes along.
-        assert_eq!(derive_origin(Some(&Screen::Devices), inbox.clone(), &session, None), sessions);
-        // Reviews → PR diff: the issue's board comes along.
         let diff = Screen::PrDiff {
             issue_id: "i1".into(),
         };
+        let board_screen = Screen::BoardIssues {
+            board_id: "b1".into(),
+        };
+        let board = board_screen.list_origin().unwrap();
+        let inbox_screen = Screen::Inbox {
+            tab: InboxTab::Inbox,
+        };
+        let inbox = inbox_screen.list_origin().unwrap();
+
+        // A board list → an issue: the board comes along.
         assert_eq!(
-            derive_origin(Some(&Screen::Reviews), inbox.clone(), &diff, Some("b2".into())),
-            TabOrigin {
-                tool: ToolWindow::BoardIssues,
-                board_id: Some("b2".into()),
-                inbox_tab: None,
-            }
+            derive_origin(Some(&board_screen), None, &issue),
+            Some(board.clone())
         );
-        // A deep link at boot (nothing before) → issue: its board.
-        assert_eq!(derive_origin(None, inbox.clone(), &issue, Some("b2".into())).board_id.as_deref(), Some("b2"));
-        // ... but an issue whose board is unknown yet keeps the rail as is.
-        assert_eq!(derive_origin(None, inbox.clone(), &issue, None), inbox);
-        // Settings → ticket: Support.
-        assert_eq!(derive_origin(Some(&Screen::Settings), board.clone(), &ticket, None).tool, ToolWindow::Support);
+        // The Inbox → an issue: the Inbox, with the tab it was on.
+        assert_eq!(
+            derive_origin(Some(&inbox_screen), None, &issue),
+            Some(inbox.clone())
+        );
+        // Support → a ticket.
+        assert_eq!(
+            derive_origin(Some(&Screen::Support), None, &ticket)
+                .map(|origin| origin.tool),
+            Some(ToolWindow::Support)
+        );
+        // The Agent page reached from the RAIL (carrying nothing) → a session:
+        // its own sessions list comes along.
+        assert_eq!(
+            derive_origin(Some(&Screen::Chat), None, &session).map(|origin| origin.tool),
+            Some(ToolWindow::Sessions)
+        );
+        // … but reached from an issue that sits beside its board, the Agent
+        // page CARRIES that board, and so does the run it starts (EXP-851's
+        // start-coding chain: board → issue → Chat → session).
+        assert_eq!(
+            derive_origin(Some(&issue), Some(board.clone()), &Screen::Chat),
+            Some(board.clone())
+        );
+        assert_eq!(
+            derive_origin(Some(&Screen::Chat), Some(board.clone()), &session),
+            Some(board.clone())
+        );
+        // The rail's own Agent entry is a `navigate_from_rail`, so nothing is
+        // derived for it at all — the marker wins (screens::resolve_tab_origin).
+        // Reviews → the PR diff.
+        assert_eq!(
+            derive_origin(Some(&Screen::Reviews), None, &diff).map(|origin| origin.tool),
+            Some(ToolWindow::Reviews)
+        );
+        // Detail → detail INHERITS: an issue (opened from a board) starting a
+        // coding run keeps the board beside the session.
+        assert_eq!(
+            derive_origin(Some(&issue), Some(board.clone()), &session),
+            Some(board.clone())
+        );
+        // … and a detail with no list of its own hands on nothing.
+        assert_eq!(derive_origin(Some(&issue), None, &session), None);
+        // EXP-851's change: a context-free screen (the rail's pages, Settings,
+        // Files) derives NO list — the rail stays up.
+        for previous in [
+            Screen::Devices,
+            Screen::Actions,
+            Screen::Automations,
+            Screen::Settings,
+            Screen::Files,
+            Screen::SourceControl,
+            Screen::GettingStarted {
+                tab: GettingStartedTab::FirstSteps,
+            },
+        ] {
+            assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
+            assert_eq!(derive_origin(Some(&previous), None, &session), None);
+        }
+        // A deep link at boot (nothing before) has no list either.
+        assert_eq!(derive_origin(None, None, &issue), None);
+        // A plain LIST screen never gets a left-column list of its own.
+        assert_eq!(derive_origin(Some(&board_screen), None, &inbox_screen), None);
+        assert_eq!(derive_origin(Some(&board_screen), None, &Screen::Reviews), None);
     }
 
     /// EXP-827: a session's Back follows the breadcrumb, not history — the

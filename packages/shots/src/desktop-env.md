@@ -24,9 +24,9 @@ are documented for users.
 | Var | Values | Effect |
 | --- | --- | --- |
 | `EXP_DEV_TEAM` | team uuid | Pre-select the team (wins over the persisted last-team/board pair). |
-| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `chat` \| `chat?issues=<a>,<b>&action=<id>&pr=<issue-uuid>&device=<id>&text=<text>` \| `reviews` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` \| `session:<coding_sessions row id>` | Pre-route the first screen. `chat` (EXP-825) is the Agent page's composer, the ONE launcher; its optional query mirrors the web route's one-shot search params — `issues` a csv of issue uuids (one chip each), `action` an action id or `builtin:…` (the action chip), `pr` the issue whose open PR prefills the fix-conflicts `pr` input, `device`/`text` presets. The lane pairs every chat drive with `EXP_DEV_TOOL=agent`. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. `reviews` (EXP-706) is the full-page Reviews list — it used to be a rail tool, and the legacy `EXP_DEV_TOOL=reviews` spelling still lands on it. `session:` (EXP-746) opens one coding session as a `Screen::Session` tab, keyed by the `coding_sessions` ROW id, never the issue or the branch; with no engine in this process the tab dials the relay as a viewer, so it shows a Reconnecting state unless a machine is publishing that session (the `steering` capture pairs it with `bun run screenshots:desktop`). Unset = the rail tool's own center content. |
-| `EXP_DEV_TOOL` | `inbox` \| `my-issues` \| `board` (also `board-issues`, `issues`) \| `support` \| `agent` (also `sessions`) \| `files` \| `source-control` | **New.** Pre-select the rail tool window. `agent` (EXP-818) is the Agent page's sessions list, the rail entry behind `EXP_DEV_SCREEN=chat`. Default `board`. `my-issues` selects the Inbox tool AND seeds its My Issues tab. (`reviews` was retired by EXP-706 — it is a screen now, see `EXP_DEV_SCREEN`.) |
-| `EXP_DEV_INBOX_TAB` | `inbox` \| `my-issues` | **New.** The Inbox tool window's active tab. Default `inbox`; wins over the `my-issues` seed above. |
+| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `chat` \| `chat?issues=<a>,<b>&action=<id>&pr=<issue-uuid>&device=<id>&text=<text>` \| `reviews` \| `getting-started` \| **`board-issues`** \| **`inbox`** \| **`inbox-my-issues`** \| **`support`** \| **`files`** \| **`source-control`** \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` \| `session:<coding_sessions row id>` | Pre-route the first screen. **EXP-851:** the rail's tool windows are SCREENS now — `board-issues` (also `board` / `issues`) is the active board's full-width list, `inbox` / `inbox-my-issues` the two tabs of the personal list, and `support` / `files` / `source-control` the remaining three. A board list takes the window's ACTIVE board, so `EXP_DEV_BOARD_ID` still picks which one. `chat` (EXP-825) is the Agent page — the composer with the Running/Past session rows stacked under it (EXP-851) — and its optional query mirrors the web route's one-shot search params: `issues` a csv of issue uuids (one chip each), `action` an action id or `builtin:…`, `pr` the issue whose open PR prefills the fix-conflicts `pr` input, `device`/`text` presets. `pr:` is keyed by the ISSUE whose linked PR the diff shows, `support:` by the support thread id. `reviews` (EXP-706) is the full-page Reviews list. `session:` (EXP-746) opens one coding session, keyed by the `coding_sessions` ROW id; with no engine in this process the screen dials the relay as a viewer, so it shows a Reconnecting state unless a machine is publishing that session (the `steering` capture pairs it with `bun run screenshots:desktop`). Unset = the empty state. |
+| `EXP_DEV_TOOL` | `inbox` \| `my-issues` \| `board` (also `board-issues`, `issues`) \| `support` \| `agent` (also `sessions`) \| `files` \| `source-control` \| `reviews` | **EXP-851: a compatibility alias.** There is no tool column anymore — each value names the SCREEN the tool window became (`navigation::dev_tool_screen`). Alone it opens that screen, exactly like the matching `EXP_DEV_SCREEN` value; `EXP_DEV_SCREEN` always wins. Beside a DETAIL screen (`issue:` / `support:` / `session:`) it means something new: that list renders in the LEFT column as the `ListNav` beside the detail — the pair the app itself produces when a row is clicked in a list. |
+| `EXP_DEV_INBOX_TAB` | `inbox` \| `my-issues` | The Inbox tab. **EXP-851:** it rides `Screen::Inbox` now, so it only refines an `EXP_DEV_TOOL`-seeded `ListNav` origin beside a detail; to open the Inbox screen ON a tab use `EXP_DEV_SCREEN=inbox` / `inbox-my-issues`. |
 | `EXP_DEV_BOARD_ID` | board uuid | **New.** Pre-select the board, for the cases the last-visited one is the wrong one (the empty-board view). `EXP_DEV_BOARD=1` was already taken by an unrelated debug tab, hence the `_ID`. Only assigned when nothing else already picked a board. |
 | `EXP_DEV_DIALOG` | see below | Open ONE dialog, once, from the render path after the state it needs resolves. Every desktop dialog is its own OS window centred over the opener, so it lands inside the main window's rect. |
 | `EXP_DEV_SETTINGS` | `general` \| `members` \| `labels` \| `statuses` \| `storage` \| `archived-boards` \| `repositories` \| `tools` \| `agents` \| `local-repos` \| `account` \| `notifications` \| `api-keys` \| `about` \| `board:<board-uuid>` | **New.** Which settings section is selected. Default `general`. This only PICKS the section — `EXP_DEV_SCREEN=settings` is what opens the settings screen. A section the signed-in user cannot see (owner-only panes for a member) clamps to the fallback pane. There is no `widget` section on desktop (web-only). |
@@ -45,8 +45,9 @@ With an argument: `join-team:<invite-token>`, `action-editor:<action-uuid>`,
 `duplicate-picker:<issue-uuid>`.
 
 Pair the spec with whatever should be BEHIND it via a second var — the catalog
-does this with `EXP_DEV_TOOL=board` under the search palette, `EXP_DEV_SCREEN=devices`
-under the device dialogs.
+does this with `EXP_DEV_TOOL=board` under the search palette (EXP-851: that now
+opens the board's full-width list screen), `EXP_DEV_SCREEN=devices` under the
+device dialogs.
 
 ## Pre-seeded state on the opened screen
 
@@ -111,10 +112,17 @@ or one PR diff:
 ```
 
 or one coding session (the `steering` view — the relay stub has to be
-publishing that session, otherwise the tab renders Reconnecting):
+publishing that session, otherwise the screen renders Reconnecting):
 
 ```sh
 … EXP_DEV_SCREEN=session:$SESSION_ID …
+```
+
+or a detail WITH its list in the left column (EXP-851's `ListNav` — the issue
+beside the board it was picked from):
+
+```sh
+… EXP_DEV_SCREEN=issue:$ISSUE_ID EXP_DEV_TOOL=board …
 ```
 
 Give every view its own `EXP_DATA_DIR` (or wipe it between runs) so nothing

@@ -28,10 +28,12 @@ import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
+import { TeamListNav } from "@/components/team/list-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarSessions } from "@/components/team/sidebar-sessions"
 import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { sidebarOccupant } from "@/lib/detail-origin"
 import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
@@ -188,20 +190,28 @@ export function TeamSidebar({
   const userLabel = session?.user?.name || session?.user?.email
   const userInitials = userLabel ? getInitials(userLabel) : `?`
 
-  // EXP-456: while any /settings route is active the settings panel occupies
-  // the 16rem slot — the main nav slides out left, the settings nav slides in.
-  // Derived from the URL (not click state) so every settings entry point
-  // (footer gear, mobile topbar menu, deep links) drives the same swap, and a
-  // direct load lands settled with no first-paint animation. Pathname, not
+  // EXP-456 / EXP-851: the 16rem slot has THREE occupants — the main menu, the
+  // settings nav, and the LIST NAV a detail brings along (`?from=`). Derived
+  // from the URL (not click state) so every entry point (footer gear, mobile
+  // topbar menu, a list row, deep links) drives the same swap, and a direct
+  // load lands settled with no first-paint animation. Pathname, not
   // useMatchRoute: the matches lag the (eagerly updated) location during a
   // pending navigation, and the back-target effect below must see the SAME
   // snapshot or it records a settings URL as the return target.
   const router = useRouter()
   const locationHref = useRouterState({ select: (s) => s.location.href })
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const settingsBase = `/t/${teamSlug}/settings`
-  const inSettings =
-    pathname === settingsBase || pathname.startsWith(`${settingsBase}/`)
+  const fromToken = useRouterState({
+    select: (s) => {
+      const value = (s.location.search as { from?: unknown }).from
+      return typeof value === `string` ? value : null
+    },
+  })
+  const occupant = sidebarOccupant(pathname, fromToken)
+  const inSettings = occupant.kind === `settings`
+  const listOrigin = occupant.kind === `list` ? occupant.origin : null
+  // Whichever overlay is up pushes the main menu out left.
+  const overlayUp = occupant.kind !== `main`
 
   // Last non-settings location — the back button returns exactly here (with
   // its search params), not merely to the team index.
@@ -236,9 +246,9 @@ export function TeamSidebar({
               mounted so the reverse animation plays; inert removes its tab
               stops and hides it from assistive tech meanwhile. */}
           <div
-            inert={inSettings}
+            inert={overlayUp}
             className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
-              inSettings ? `-translate-x-full` : `translate-x-0`
+              overlayUp ? `-translate-x-full` : `translate-x-0`
             }`}
           >
             <SidebarHeader className="p-2">
@@ -571,6 +581,31 @@ export function TeamSidebar({
               permissions={permissions}
               onBack={handleSettingsBack}
             />
+          </div>
+
+          {/* EXP-851: the LIST NAV — the list an open detail came from, in the
+              same slot with the same slide. Mounted only while one is up: its
+              lists run live queries and tRPC polls, and an off-screen Support
+              poll every 30s is not free. */}
+          <div
+            inert={!listOrigin}
+            className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
+              listOrigin ? `translate-x-0` : `translate-x-full`
+            }`}
+          >
+            {listOrigin && (
+              <TeamListNav
+                // Keyed by the origin so switching lists remounts instead of
+                // carrying the previous list's tab/fold state over.
+                key={`${listOrigin.kind}:${
+                  `boardSlug` in listOrigin ? listOrigin.boardSlug : ``
+                }`}
+                teamSlug={teamSlug}
+                team={team}
+                boards={boards}
+                origin={listOrigin}
+              />
+            )}
           </div>
         </div>
       </Sidebar>

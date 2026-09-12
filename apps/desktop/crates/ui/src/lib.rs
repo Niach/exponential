@@ -203,9 +203,6 @@ pub fn init(cx: &mut App) {
     // §4.2 accept-invite fallback: "Join team…" in the footer account
     // menu (the exponential://invite/<token> deep link routes through oauth.rs).
     join_team::init(cx);
-    register_panel(cx, shell::CENTER_PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| shell::CenterPanel::new(window, cx)))
-    });
     register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
     });

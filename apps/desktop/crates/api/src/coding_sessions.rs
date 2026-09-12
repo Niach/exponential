@@ -545,6 +545,42 @@ pub fn set_agent_busy(trpc: &TrpcClient, id: &str, agent_busy: bool) -> Result<b
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SetAgentCaptionInput<'a> {
+    id: &'a str,
+    /// `None` is written as an explicit JSON null — the server clears the
+    /// column with it (a missing key would mean "unchanged").
+    caption: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct SetAgentCaptionEnvelope {
+    updated: bool,
+}
+
+/// `codingSessions.setAgentCaption` — mutation (EXP-850 §8). Writes the
+/// workflow caption of the newest RUNNING workflow onto the synced row's
+/// `agent_caption` column, so every other client's session list can render it
+/// as the row's second line; `None` clears it (no workflow runs, the turn
+/// ended, the engine is gone).
+///
+/// Device-written and fire-and-forget exactly like [`set_agent_busy`]: the
+/// same owner-or-host + running/in_review guards server-side, `updated: false`
+/// (row swept or ended) and transport errors both ignorable — the forwarder
+/// retries, and every server end path clears the column anyway.
+pub fn set_agent_caption(
+    trpc: &TrpcClient,
+    id: &str,
+    caption: Option<&str>,
+) -> Result<bool, ApiError> {
+    let envelope: SetAgentCaptionEnvelope = trpc.mutation(
+        "codingSessions.setAgentCaption",
+        &SetAgentCaptionInput { id, caption },
+    )?;
+    Ok(envelope.updated)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlockedInput<'a> {
     pub kind: &'a str,
     pub agent: &'a str,
@@ -1296,6 +1332,30 @@ mod tests {
         assert!(!set_agent_busy(&client(&base), "sess-1", false).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"id":"sess-1","agentBusy":false}"#));
+    }
+
+    /// EXP-850 §8: the caption column. `None` goes over as an explicit JSON
+    /// null — a MISSING key would mean "unchanged" and the row would keep a
+    /// finished workflow's caption forever.
+    #[test]
+    fn set_agent_caption_posts_the_text_and_an_explicit_null() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":true}}}"#);
+        assert!(set_agent_caption(
+            &client(&base),
+            "sess-1",
+            Some("Workflow wire-probe · 2/3 agents done · Beta")
+        )
+        .unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.setAgentCaption HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"id":"sess-1","caption":"Workflow wire-probe · 2/3 agents done · Beta"}"#
+        ));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":false}}}"#);
+        assert!(!set_agent_caption(&client(&base), "sess-1", None).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"sess-1","caption":null}"#));
     }
 
     #[test]

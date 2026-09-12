@@ -901,6 +901,19 @@ pub(crate) struct SessionCtx {
     pub(crate) publish: bool,
     pub(crate) local_sink: Option<LocalSink>,
     pub(crate) turn_signal: Arc<steer::TurnSignal>,
+    /// EXP-850 §8: the caption of the newest RUNNING workflow, in process —
+    /// what a session row hosted HERE reads instead of waiting for the
+    /// `agent_caption` column this very process is writing (the `agent_busy`
+    /// precedence rule). Moved by [`SessionCtx::deliver`] off the `workflow`
+    /// events the mapper emits, and cleared at every turn end.
+    pub(crate) caption_signal: Arc<steer::CaptionSignal>,
+    /// EXP-850 §3: the workflow cards this run has published, folded by id
+    /// (newest frame per id, oldest evicted past
+    /// [`steer::journal::JOURNAL_WORKFLOW_CAP`]) — the caption's only input.
+    /// The local feed is a RING that evicts, so the fold cannot be derived
+    /// from it; and the ticker thread must not walk a transcript once a
+    /// second either.
+    pub(crate) workflows: Mutex<Vec<steer::WorkflowState>>,
     /// The builtin agent, or the user's external ACP binary (D13).
     pub(crate) agent: coding::AgentKind,
     /// REV2-17: the ONE redactor of this run — the session's launcher secrets
@@ -987,6 +1000,19 @@ impl SessionCtx {
     }
 
     fn deliver(&self, out: MapOut) {
+        // EXP-850 §8: the caption's one input. Read BEFORE the wire vec is
+        // consumed by the sink.
+        let workflows: Vec<&steer::WorkflowState> = out
+            .wire
+            .iter()
+            .filter_map(|event| match event {
+                steer::ActivityEvent::Workflow(workflow) => Some(workflow),
+                _ => None,
+            })
+            .collect();
+        if !workflows.is_empty() {
+            self.note_captions(&workflows);
+        }
         if let Some(sink) = self.sink.get() {
             for event in out.wire {
                 sink.send(event);
@@ -1015,7 +1041,27 @@ impl SessionCtx {
         }
         if let Some(idle) = out.idle {
             self.turn_signal.set_idle(idle);
+            // EXP-850 §8: a turn that ended runs no workflow — the caption
+            // goes with it, on the same edge the busy flag does.
+            if idle {
+                self.caption_signal.set(None);
+            }
         }
+    }
+
+    /// EXP-850 §8: fold this step's workflow cards into the run's own map and
+    /// re-derive the caption — the NEWEST card still running, `None` once
+    /// they have all finished (the same rule `SteerFeed::running_workflow`
+    /// applies on every viewer).
+    fn note_captions(&self, cards: &[&steer::WorkflowState]) {
+        let caption = {
+            let mut workflows = match self.workflows.lock() {
+                Ok(workflows) => workflows,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            fold_workflow_caption(&mut workflows, cards)
+        };
+        self.caption_signal.set(caption);
     }
 
     /// FEED-25: the agent (or a turn edge) just said something.
@@ -2031,6 +2077,35 @@ pub(crate) fn thread_name(session_id: &str) -> String {
     format!("acp-engine-{short}")
 }
 
+/// EXP-850 §8 — fold workflow cards into a run's own map (latest-wins per id,
+/// oldest evicted past the journal's cap) and derive the caption: the NEWEST
+/// card still running, `None` once they have all finished. The same rule
+/// `SteerFeed::running_workflow` + `steer::workflow_caption` apply on every
+/// viewer; pure, so the precedence is testable without a session.
+pub(crate) fn fold_workflow_caption(
+    held: &mut Vec<steer::WorkflowState>,
+    cards: &[&steer::WorkflowState],
+) -> Option<String> {
+    for card in cards {
+        if card.id.is_empty() {
+            continue;
+        }
+        match held.iter_mut().find(|workflow| workflow.id == card.id) {
+            Some(workflow) => *workflow = (*card).clone(),
+            None => {
+                held.push((*card).clone());
+                while held.len() > steer::journal::JOURNAL_WORKFLOW_CAP {
+                    held.remove(0);
+                }
+            }
+        }
+    }
+    held.iter()
+        .rev()
+        .find(|workflow| workflow.status == steer::WorkflowStatus::Running)
+        .map(steer::workflow_caption)
+}
+
 /// The worktree's steer image directory (EXP-511 embeds land here).
 pub(crate) fn steer_images_dir(worktree: &std::path::Path) -> PathBuf {
     worktree.join(coding::launcher::STEER_IMAGES_DIR)
@@ -2039,6 +2114,49 @@ pub(crate) fn steer_images_dir(worktree: &std::path::Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-850 §8: the caption's precedence — latest-wins per id, the NEWEST
+    /// running card speaks, and nothing speaks once they are all finished.
+    #[test]
+    fn the_caption_follows_the_newest_running_workflow() {
+        let card = |id: &str, status: steer::WorkflowStatus| steer::WorkflowState {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            status,
+            ..steer::WorkflowState::default()
+        };
+        let mut held: Vec<steer::WorkflowState> = Vec::new();
+        let first = card("wf-1", steer::WorkflowStatus::Running);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&first]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        // A SECOND card takes the caption over while it runs...
+        let second = card("wf-2", steer::WorkflowStatus::Running);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&second]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        assert_eq!(held.len(), 2);
+        // ... and hands it back to the one still running when it finishes.
+        let second_done = card("wf-2", steer::WorkflowStatus::Completed);
+        assert_eq!(
+            fold_workflow_caption(&mut held, &[&second_done]),
+            Some("Workflow wire-probe \u{b7} starting".to_string())
+        );
+        assert_eq!(held.len(), 2, "latest-wins per id, never an append");
+        // Nothing running: nothing to say.
+        let first_done = card("wf-1", steer::WorkflowStatus::Stopped);
+        assert_eq!(fold_workflow_caption(&mut held, &[&first_done]), None);
+        // An id-less card is ignored, and the map is capped like the journal.
+        let blank = card("", steer::WorkflowStatus::Running);
+        assert_eq!(fold_workflow_caption(&mut held, &[&blank]), None);
+        for index in 0..30 {
+            let more = card(&format!("wf-x{index}"), steer::WorkflowStatus::Completed);
+            fold_workflow_caption(&mut held, &[&more]);
+        }
+        assert_eq!(held.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+    }
 
     #[test]
     fn the_client_advertises_terminals_and_a_form_elicitation() {

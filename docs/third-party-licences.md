@@ -140,6 +140,73 @@ re-vendoring `docs/licences/remotion-LICENSE.txt`.
 package is installed for typechecking and the Remotion studio only; nothing of
 it reaches the browser.
 
+## libvips inside sharp: copyleft in the public web image (EXP-854)
+
+### What we depend on
+
+`apps/web/package.json` depends on `sharp` (0.34.5) for EXP-854: the MCP tool
+`exponential_attachments_get` bounds the image it inlines into an agent's
+context (`apps/web/src/lib/mcp/inline-image.ts`). `sharp` itself is Apache-2.0,
+and so is every `@img/sharp-<platform>` binding prebuild. What needs a reading
+is the layer under them: the ten `@img/sharp-libvips-<platform>` packages,
+each a prebuilt libvips shared library declared **LGPL-3.0-or-later**. They are
+installed by platform, so the published `ghcr.io/niach/exponential-web` image
+carries the Linux ones, and that image is also the self-host distribution.
+
+`packages/shots` already depended on `sharp`, but that is a local capture tool
+which no image ships, so this is the first time the prebuilds are redistributed.
+
+### Determination 1: shipping the prebuilt libvips (2026-09-12)
+
+**Permitted, and the obligations are discharged by the notice.**
+
+LGPL-3.0 section 4 allows conveying a Combined Work under terms of our choosing
+provided the recipient can relink it against a modified libvips. We use libvips
+through `sharp`'s native binding, which loads it as a **separate, unmodified
+shared library**, which is exactly the case section 4(d)(0) is written for: the
+library is its own file in `node_modules`, replacing it needs no build of ours,
+and we ship it byte-identical to the npm prebuild, at a pinned version anyone
+can rebuild from libvips upstream. What is owed on top of that is notice
+(sections 4(a) and 4(b)): the licence text and the statement that libvips is
+used and covered by the LGPL. `apps/web/public/NOTICES.txt` reproduces the full
+LGPL-3.0 text and names all ten components, and the image serves it at
+`/NOTICES.txt` next to `/app/LICENSE` and `/app/NOTICE`.
+
+There is no analogue of the Remotion problem here: the LGPL is an open source
+licence granted to everyone downstream, so passing the image on carries the
+rights with it. Nothing is sublicensed and nothing is misstated.
+
+**Re-read this the moment we stop using the prebuilds as shipped**, that is, if
+we ever vendor, patch or statically link libvips. Static linking moves us out of
+section 4(d)(0) and into 4(d)(1), which owes the recipient the object code to
+relink with.
+
+### Determination 2: where it belongs in the notices (2026-09-12)
+
+**The aggregate, not the commercially licensed section.**
+
+The rule further down routes source-available and closed-source components into
+a dedicated section because their terms were never granted to our recipients.
+The LGPL is neither: it is an OSI-approved open source licence whose terms flow
+to everyone who receives the image. It gets its own licence heading inside the
+ordinary generated body, with its text reproduced in full, which is what the
+generator already does for every id it meets. Do not move it.
+
+### How the inventory stays honest
+
+`bun run --filter @exp/licenses collect:npm` refused this dependency twice
+before it was recorded, which is the gate working:
+
+1. No SPDX template for `LGPL-3.0-or-later`. The id is now in
+   `scripts/fetch-texts.ts` and `texts/spdx/LGPL-3.0-or-later.txt` holds the
+   canonical text from the pinned SPDX tag. Nothing here is hand-written.
+2. The musl families (`@img/sharp-libvips-linuxmusl-*`,
+   `@img/sharp-linuxmusl-*`) install on no host we collect from, so they have
+   no on-disk evidence and would drift between a macOS and a Linux run. Both
+   carry a reviewed `PLATFORM_LICENCE_FALLBACK` entry in
+   `scripts/collect-npm.ts`, verified against the registry metadata
+   (LGPL-3.0-or-later for the libvips prebuilds, Apache-2.0 for the bindings).
+
 ## Closed-source Google binaries — mobile only
 
 Found in the same EXP-262 audit. All three are shipped inside the store builds,

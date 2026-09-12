@@ -32,6 +32,10 @@ A second run can work in parallel on one of the user's own machines. Use it for 
 
 If `exponential_sessions_ask_parent` is registered, another run started you: ask it and stop until the answer arrives. If `exponential_sessions_end` is registered, finish with it as your last call.
 
+## Subagents and workflows
+
+A running workflow agent is never messaged. `SendMessage` to its id resumes a SECOND copy from its transcript, and that copy edits the same files as the live one. Pin every cross-lane decision in every lane prompt before launch; a question a lane raises mid-run is answered in the next phase, never by messaging the lane. Lanes in one shared tree own disjoint files and never run `git stash`, `git checkout`, `git reset` or `git clean`. A finished lane is only ever continued by messaging it after its completion notice.
+
 ## Pull requests
 
 One branch `exp/<IDENT>` and one PR per issue; a batch shares one branch and one PR (`issueIds` plus `head`). The PR body names the issue and every related one as `#IDENT`. Open with `exponential_pr_open`; merge with `exponential_pr_merge` only when the user asks. A merge refused for a stale base: `exponential_pr_retarget`, rebase, `--force-with-lease`, merge again. Never use `gh`.

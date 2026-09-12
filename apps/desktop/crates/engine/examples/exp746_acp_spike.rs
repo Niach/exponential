@@ -184,6 +184,13 @@ fn claude_row(frame: &ClaudeOut, capture: &mut Capture) -> Row {
             SystemSubtype::TaskNotification | SystemSubtype::TaskUpdated => {
                 ("(subagent edge)", "subagent{status}")
             }
+            // EXP-850: the three subtypes the workflow/background-task/token
+            // work added, in the same documentation table.
+            SystemSubtype::TaskProgress => ("(workflow card)", "workflow"),
+            SystemSubtype::BackgroundTasksChanged => {
+                ("(background list)", "background_tasks")
+            }
+            SystemSubtype::ThinkingTokens => ("(turn tokens)", "turn{tokens}"),
             SystemSubtype::CommandsChanged => ("AvailableCommandsUpdate", "config_state"),
             SystemSubtype::PermissionDenied => ("ToolCallUpdate{failed}", "-"),
             SystemSubtype::ModelRefusalFallback => ("ConfigOptionUpdate", "config_state"),

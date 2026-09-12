@@ -142,6 +142,7 @@ import {
   PARENT_LIVE_STATUSES,
 } from "@/lib/steer-child-messages"
 import { err, ok } from "./helpers"
+import { inlineImageForContext } from "./inline-image"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
@@ -1313,7 +1314,7 @@ export function registerExponentialTools(
     `exponential_attachments_get`,
     {
       annotations: READ_ONLY,
-      description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content; small text files include their text inline.`,
+      description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content, downscaled when large (the JSON's inline field reports what was sent; downloadUrl always has the original); small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -1389,12 +1390,28 @@ export function registerExponentialTools(
           const object = await getObject(attachment.storageKey)
           if (!object?.Body) throw new Error(`Attachment object not found`)
           const bytes = await object.Body.transformToByteArray()
+          // EXP-854: the inline copy is bounded (1280 px / 300 KB WebP) —
+          // base64 of a raw 12 MP screenshot is tens of thousands of tokens
+          // out of the window the run still needs for its work. The original
+          // stays one `downloadUrl` fetch away. A null here means the bytes
+          // could not be decoded (or sharp is unavailable): inline the
+          // original rather than send no picture at all (EXP-511).
+          const inlined = await inlineImageForContext(bytes, contentType)
+          const inlineBytes = inlined?.data ?? bytes
+          const inlineType = inlined?.mimeType ?? contentType
+          payload.inline = {
+            mimeType: inlineType,
+            width: inlined?.width,
+            height: inlined?.height,
+            bytes: inlineBytes.byteLength,
+            downscaled: inlined?.downscaled ?? false,
+          }
           return {
             content: [
               {
                 type: `image` as const,
-                data: Buffer.from(bytes).toString(`base64`),
-                mimeType: contentType,
+                data: Buffer.from(inlineBytes).toString(`base64`),
+                mimeType: inlineType,
               },
               {
                 type: `text` as const,

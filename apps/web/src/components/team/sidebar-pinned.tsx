@@ -181,7 +181,8 @@ function PinnedRows({
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
             isActive={routeSessionId === session.id}
-            onClick={() => openSession(session)}
+            // EXP-851: a pinned row is context-free — the main menu stays.
+            onClick={() => openSession(session, { origin: null })}
           >
             <span className="flex w-4 shrink-0 items-center justify-center">
               <RunningIndicator state={state} paused={ended} working={working} />

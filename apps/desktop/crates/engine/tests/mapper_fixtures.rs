@@ -869,3 +869,75 @@ fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
         ]
     );
 }
+
+/// EXP-850 §1/§2/§3 — the recorded slot carriers: the background-task strip,
+/// the workflow card (latest-wins per id, deduped) and the `wait` tool row
+/// whose kind and label ACP cannot express.
+#[test]
+fn the_workflow_fixture_maps_to_the_two_new_slots_and_a_wait_row() {
+    let wire = wire("workflow.jsonl");
+
+    // §2: the FULL list each time it changes, including the empty one that
+    // closes the strip. An identical repeat never goes out.
+    let strips: Vec<&Value> = wire
+        .iter()
+        .filter(|event| event["kind"] == "background_tasks")
+        .collect();
+    assert_eq!(strips.len(), 2, "{wire:?}");
+    assert_eq!(
+        *strips[0],
+        json!({
+            "kind": "background_tasks",
+            "tasks": [{
+                "id": "w5zr2977l",
+                "kind": "workflow",
+                "description": "Probe the workflow progress wire",
+            }],
+        })
+    );
+    assert_eq!(*strips[1], json!({ "kind": "background_tasks", "tasks": [] }));
+
+    // §3: three cards — the open, the first progress, the terminal — and NOT
+    // the byte-identical repeat of the middle one.
+    let cards: Vec<&Value> = wire.iter().filter(|event| event["kind"] == "workflow").collect();
+    assert_eq!(cards.len(), 3, "{cards:?}");
+    assert_eq!(cards[0]["agents"], json!([]));
+    assert_eq!(cards[1]["agents"][0]["state"], json!("running"));
+    assert_eq!(cards[1]["agents"][1]["state"], json!("queued"));
+    assert_eq!(cards[2]["status"], json!("completed"));
+    assert_eq!(
+        cards[2]["summary"],
+        json!("Dynamic workflow \"Probe the workflow progress wire\" completed")
+    );
+    // The card's id is the `Workflow` tool row's, which is what clients patch
+    // it onto — and the row itself is an ordinary `tool` event.
+    assert!(wire.iter().any(|event| {
+        event["kind"] == "tool" && event["id"] == "toolu_017aGvi2moAfSykrRA4LmyT4"
+    }));
+    assert!(cards
+        .iter()
+        .all(|card| card["id"] == "toolu_017aGvi2moAfSykrRA4LmyT4"));
+
+    // §1: the `wait` row takes BOTH its kind and its human label from `_meta`
+    // — the ACP call says `other` and its input names only a task id.
+    let wait = wire
+        .iter()
+        .find(|event| event["kind"] == "tool" && event["toolKind"] == "wait")
+        .expect("a wait row");
+    assert_eq!(wait["name"], json!("TaskOutput"));
+    assert_eq!(wait["detail"], json!("Sleep in the background"));
+
+    // The LOCAL feed carries the card under the tool call it patches, and the
+    // wait row's card bucket is the one ACP could not express.
+    let local = local("workflow.jsonl");
+    assert!(local.iter().any(|event| matches!(
+        event,
+        engine::LocalFeedEvent::Activity { tool_call_id: Some(id), event }
+            if id == "toolu_017aGvi2moAfSykrRA4LmyT4"
+                && matches!(event, steer::ActivityEvent::Workflow(_))
+    )));
+    assert!(local.iter().any(|event| matches!(
+        event,
+        engine::LocalFeedEvent::ToolCall { kind: engine::ToolCardKind::Wait, .. }
+    )));
+}

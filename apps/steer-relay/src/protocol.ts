@@ -108,6 +108,15 @@ export const setModeFrame = z.object({
 //   compaction:        context compaction     { kind, phase, trigger? }  (started|ended)
 //   config_state:      live agent config      { kind, options[], currentMode?, modes[]?, commands[]? }  (latest replaces prior)
 //   usage:             context + spend meter  { kind, contextUsed, contextSize, costUsd? }              (latest replaces prior)
+//   rate_limit:        the agent's wall       { kind, status, resetsAt?, message? }                     (latest replaces prior)
+//   turn:              the turn edge          { kind, state, startedAt?, tokens? }                      (latest replaces prior)
+//   background_tasks:  the bottom strip       { kind, tasks[] }                                         (latest replaces prior)
+//   workflow:          one Workflow card      { kind, id, name, status, phases[], agents[], … }         (latest replaces prior PER ID)
+//
+// EXP-850 / EXP-853 / EXP-856 pinned the last three plus `toolKind: "wait"`,
+// `subagent.status: "duplicate"` and `subagent.workflowId` — the spec of record
+// is `apps/steer-relay/STEER-WIRE-EXP-850.md`, and `crates/steer/src/frames.rs`
+// mirrors every shape below byte for byte.
 export const questionOptionSchema = z.object({
   label: z.string().max(256),
   // The `keys` member of the answer frame that picks this option — the
@@ -153,6 +162,41 @@ export const toolPreviewSchema = z.object({
   count: z.number().int().nonnegative().max(4294967295).optional(),
   status: z.string().max(200).optional(),
 })
+
+/** EXP-850: every workflow / background-task string is cut to the contract's
+ *  `steerWorking.previewMax` by the publisher, so the zod caps match it. */
+export const WORKFLOW_TEXT_MAX = contract.steerWorking.previewMax
+
+/** EXP-850 §2: contract `backgroundTaskKind` — claude's `task_type` folded
+ *  onto four values. */
+export const BACKGROUND_TASK_KINDS = contract.backgroundTaskKind.values as [
+  string,
+  ...string[],
+]
+
+/** EXP-850 §3: contract `workflowStatus` / `workflowAgentState`. */
+export const WORKFLOW_STATUSES = contract.workflowStatus.values as [
+  string,
+  ...string[],
+]
+export const WORKFLOW_AGENT_STATES = contract.workflowAgentState.values as [
+  string,
+  ...string[],
+]
+
+/** EXP-856: contract `subagentStatus` — `duplicate` is the EXP-856 addition,
+ *  a warning edge rather than a lifecycle one. */
+export const SUBAGENT_STATUSES = contract.subagentStatus.values as [
+  string,
+  ...string[],
+]
+
+/** EXP-850 §2/§3: how many entries one frame may carry. Mirrored by
+ *  `steer::BACKGROUND_TASKS_MAX` / `WORKFLOW_PHASES_MAX` /
+ *  `WORKFLOW_AGENTS_MAX`, which the publisher truncates to first. */
+export const BACKGROUND_TASKS_MAX = 32
+export const WORKFLOW_PHASES_MAX = 32
+export const WORKFLOW_AGENTS_MAX = 64
 
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
@@ -266,7 +310,11 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     kind: z.literal(`subagent`),
     id: z.string().max(128),
     agentType: z.string().max(64),
-    status: z.enum([`started`, `completed`]),
+    // EXP-856: `duplicate` joined the two lifecycle edges — a second copy of
+    // an id that is still live (a `SendMessage` resumed a running agent). It
+    // neither opens nor closes the run; the copy's own started/completed
+    // still follow under the same id. Old clients ignore the unknown value.
+    status: z.enum(SUBAGENT_STATUSES),
     detail: z.string().max(1024).optional(),
     at: z.number().optional(),
     // EXP-748: the publisher's count of this subagent's tool calls, stamped
@@ -280,6 +328,10 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     // `agentType` as a secondary caption; absent for codex, an external agent
     // and every pre-847 publisher.
     title: z.string().max(128).optional(),
+    // EXP-850 §4: the `workflow.id` this agent belongs to. Clients nest such
+    // an edge under the workflow card, never as a loose row, and the
+    // `toolGroupSummary` / "N tool calls" counts never include it.
+    workflowId: z.string().max(128).optional(),
   }),
   z.object({
     kind: z.literal(`permission`),
@@ -389,6 +441,78 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`turn`),
     state: z.enum([`started`, `ended`]),
+    // EXP-850 §5: the turn's start (unix ms) on BOTH states, and the output
+    // tokens it has produced so far — the working caption's inputs
+    // (`{verb}… ({duration} · ↓ {tokens} tokens)`). The publisher republishes
+    // the started slot with a growing count at most every
+    // `steerWorking.tokenTickMs`, which is the ONE exception to the slot's
+    // identical-frame dedupe; latest-wins, so it costs no replay growth.
+    startedAt: z.number().int().min(0).optional(),
+    tokens: z.number().int().min(0).max(1_000_000_000).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-850 §2: the agent's background tasks, as the CLI last listed them in
+  // FULL (an empty array = nothing running). LATEST-WINS state like `turn`,
+  // never a transcript row: clients draw one line per task in the strip above
+  // the composer, beside one `Waiting on {detail}` line per unsettled `wait`
+  // tool row.
+  z.object({
+    kind: z.literal(`background_tasks`),
+    tasks: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(128),
+          kind: z.enum(BACKGROUND_TASK_KINDS),
+          description: z.string().max(WORKFLOW_TEXT_MAX),
+          // The launching tool_use_id, when the CLI named one.
+          toolId: z.string().max(128).optional(),
+        })
+      )
+      .max(BACKGROUND_TASKS_MAX),
+    at: z.number().optional(),
+  }),
+  // EXP-850 §3: one claude `Workflow` run's card. LATEST-WINS PER ID — the
+  // relay keeps one frame per `workflow:{id}` key and replays them after the
+  // log, before `background_tasks`. `id` is the `Workflow` tool call's own
+  // id, so clients patch the card onto that tool row instead of appending a
+  // second one. Every field must be declared here: the relay re-serializes
+  // the PARSED event, so an undeclared one is silently stripped.
+  z.object({
+    kind: z.literal(`workflow`),
+    id: z.string().min(1).max(128),
+    name: z.string().max(WORKFLOW_TEXT_MAX),
+    description: z.string().max(WORKFLOW_TEXT_MAX).optional(),
+    status: z.enum(WORKFLOW_STATUSES),
+    phases: z
+      .array(
+        z.object({
+          index: z.number().int().min(0).max(4294967295),
+          title: z.string().max(WORKFLOW_TEXT_MAX),
+        })
+      )
+      .max(WORKFLOW_PHASES_MAX),
+    agents: z
+      .array(
+        z.object({
+          index: z.number().int().min(0).max(4294967295),
+          label: z.string().max(WORKFLOW_TEXT_MAX),
+          phaseIndex: z.number().int().min(0).max(4294967295).optional(),
+          // The agent's own id — an EXP-856 duplicate `task_started` carries
+          // exactly this string as its `task_id`.
+          agentId: z.string().max(128).optional(),
+          model: z.string().max(WORKFLOW_TEXT_MAX).optional(),
+          state: z.enum(WORKFLOW_AGENT_STATES),
+          tokens: z.number().int().min(0).optional(),
+          toolCalls: z.number().int().min(0).max(4294967295).optional(),
+          durationMs: z.number().int().min(0).optional(),
+          lastTool: z.string().max(WORKFLOW_TEXT_MAX).optional(),
+          lastToolSummary: z.string().max(WORKFLOW_TEXT_MAX).optional(),
+          resultPreview: z.string().max(WORKFLOW_TEXT_MAX).optional(),
+          error: z.string().max(WORKFLOW_TEXT_MAX).optional(),
+        })
+      )
+      .max(WORKFLOW_AGENTS_MAX),
+    summary: z.string().max(WORKFLOW_TEXT_MAX).optional(),
     at: z.number().optional(),
   }),
 ])

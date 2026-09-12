@@ -813,6 +813,13 @@
       "when": 1789190647218,
       "tag": "0115_special_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1789205707763,
+      "tag": "0116_coding_session_agent_caption",
+      "breakpoints": true
     }
   ]
 }

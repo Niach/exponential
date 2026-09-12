@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "agent_caption" text;

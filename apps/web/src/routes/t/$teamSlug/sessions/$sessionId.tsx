@@ -9,25 +9,21 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
-import { AgentShell } from "@/components/agent-shell"
-import { InboxView } from "@/components/inbox/inbox-view"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { conceptIcon } from "@/lib/icons.generated"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
   codingSessionCollection,
   deviceCollection,
 } from "@/lib/collections"
-import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import {
   CONTINUATION_COST_NOTE,
   CONTINUATION_NOTE,
 } from "@/components/session-account-switch"
 import { parseOrigin } from "@/lib/detail-origin"
-import { emptyFilters } from "@/lib/filters"
-import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import {
   findStartedRun,
@@ -50,15 +46,15 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 
 // EXP-740: one coding session, FULLSCREEN on its own route — the web twin of
 // the desktop IDE's `Screen::Session` center tab and the natives' pushed
-// Agent-session screen. The dock strip below only picks which session is here;
-// the steering view fills the content panel on every breakpoint.
+// Agent-session screen. EXP-851: the view fills the whole content panel on
+// every breakpoint — no shell, no list beside it. The list the run came from
+// is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`), which is what
+// leaves the transcript column room for the diff pane.
 //
 // EXP-312: a LIVE session is visible and steerable by its OWNER alone (the
 // relay ticket mint refuses everyone else). A teammate's session id therefore
 // renders an identity stub with the synced status badge and NO view mount —
 // mounting it would try to mint a ticket the server will refuse.
-
-const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   // EXP-818: `?from=` is WHERE this run was opened from (`lib/detail-origin.ts`
@@ -100,21 +96,21 @@ function SessionPage() {
   // Sessions rows navigate from anywhere), the destination is just no longer
   // hard-coded. The browser's own back is untouched.
   const origin = useMemo(() => parseOrigin(from), [from])
-  // EXP-818 (finished in EXP-849): a run opened from a BOARD — or from an
-  // issue on one — keeps that board's list beside it, the same master-detail
-  // the issue page has. The hook is UNCONDITIONAL (hooks cannot be skipped on
-  // a render): with no board origin it runs against an empty slug, whose
-  // queries disable themselves and return nothing.
-  const originBoardSlug =
-    origin?.kind === `board` || origin?.kind === `issue` ? origin.boardSlug : ``
-  const boardView = useBoardViewData({
-    filters: emptyFilters,
-    boardSlug: originBoardSlug,
-    teamSlug,
-  })
   const goBack = useCallback(() => {
     if (origin?.kind === `inbox`) {
-      void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug }, search: {} })
+      void navigate({
+        to: `/t/$teamSlug/inbox`,
+        params: { teamSlug },
+        search: origin.tab === `my-issues` ? { tab: `my-issues` } : {},
+      })
+      return
+    }
+    if (origin?.kind === `support`) {
+      void navigate({ to: `/t/$teamSlug/support`, params: { teamSlug } })
+      return
+    }
+    if (origin?.kind === `reviews`) {
+      void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
       return
     }
     if (origin?.kind === `board`) {
@@ -139,7 +135,7 @@ function SessionPage() {
     }
     void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
   }, [navigate, teamSlug, origin])
-  // EXP-827: the linked issue opens IN the shell, beside the sessions list.
+  // EXP-827: the linked issue opens on its own route beside the same list.
   // The origin rides along so the issue's own Back still knows it.
   const openIssue = useCallback(() => {
     void navigate({
@@ -157,65 +153,8 @@ function SessionPage() {
     )
   }
 
-  // EXP-818: every state renders beside a LIST — which one is the origin's
-  // call (`lib/detail-origin.ts`, the desktop's tool-column rule): a run
-  // opened off the inbox keeps the inbox stream on the left, everything else
-  // gets the Agent shell's sessions list. Below md the session is the whole
-  // screen either way.
-  const shell = (content: React.ReactNode) =>
-    originBoardSlug ? (
-      <div className="flex h-full min-h-0">
-        <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
-          {boardView.board ? (
-            <BoardIssueListPane
-              groups={boardView.visibleGroups}
-              teamSlug={teamSlug}
-              boardSlug={originBoardSlug}
-              // The run's own issue is the highlighted row when it has one; a
-              // batch or action run simply highlights nothing.
-              activeIssueId={row?.issue?.id ?? ``}
-              filterSearch={{}}
-            />
-          ) : (
-            <div className="flex-1 overflow-y-auto p-2">
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                {boardView.boardReady ? `Board not found.` : `Loading…`}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
-      </div>
-    ) : origin?.kind === `inbox` ? (
-      <div className="flex h-full min-h-0">
-        <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
-          <InboxView
-            teamSlug={teamSlug}
-            compact
-            activeIssueId={null}
-            onOpenIssue={(openedIssue) => {
-              void navigate({
-                to: `/t/$teamSlug/inbox`,
-                params: { teamSlug },
-                search: { issue: openedIssue.id },
-              })
-            }}
-          />
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
-      </div>
-    ) : (
-      <AgentShell
-        teamId={team.id}
-        currentUserId={currentUserId}
-        activeSessionId={sessionId}
-      >
-        {content}
-      </AgentShell>
-    )
-
   if (!session || !row) {
-    return shell(
+    return (
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title="Session" />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -235,7 +174,7 @@ function SessionPage() {
   // EXP-312: a teammate's run — the synced row is all this client may ever
   // see. No AgentSessionView, so no ticket is minted.
   if (session.userId !== currentUserId) {
-    return shell(
+    return (
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title={identity.subject} />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -261,7 +200,7 @@ function SessionPage() {
     )
   }
 
-  return shell(
+  return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The run may END while this page is open — the view stays mounted and
           read-only (its own tab in the strip vanishes, because `running`
@@ -294,7 +233,8 @@ function SessionPage() {
   )
 }
 
-/** The header the non-view states carry — the AgentSessionView draws its own. */
+/** The header the non-view states carry — the AgentSessionView draws its own.
+ *  EXP-851: the shared detail header, the same bar every detail wears. */
 function SessionStubHeader({
   onBack,
   title,
@@ -302,24 +242,7 @@ function SessionStubHeader({
   onBack: () => void
   title: string
 }) {
-  return (
-    <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="shrink-0"
-        aria-label="Back"
-        onClick={onBack}
-      >
-        <UiBackIcon />
-      </Button>
-      <span className="min-w-0 flex-1 truncate text-center text-sm font-medium">
-        {title}
-      </span>
-      {/* Balances the back button so the title stays optically centred. */}
-      <span className="size-9 shrink-0" />
-    </div>
-  )
+  return <MobileDetailHeader title={title} onBack={onBack} />
 }
 
 /** EXP-849: the continuation chain — `resumed_from_id` links the run a

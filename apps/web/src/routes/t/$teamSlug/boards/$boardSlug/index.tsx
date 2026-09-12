@@ -193,10 +193,13 @@ function BoardPage() {
               },
               // Carry the board's active filters so the detail header's
               // prev/next switcher walks the same filtered+sorted sequence.
+              // EXP-851: and the origin, so the sidebar keeps THIS board's
+              // list beside the issue.
               search: {
                 status: search.status,
                 priority: search.priority,
                 labels: search.labels,
+                from: `board:${boardSlug}`,
               },
             })
           }

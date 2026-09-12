@@ -1,5 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react"
-import { useParams } from "@tanstack/react-router"
+import { useMemo, useState } from "react"
 import type { CodingSession } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
@@ -14,63 +13,41 @@ import {
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { rowPrState, useAgentsData, usePastRuns, type AgentSessionRow } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
+import type { DetailOrigin } from "@/lib/detail-origin"
 import { agentLabel } from "@/components/agent-usage-bar"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
-// EXP-818: the Agent page's SHELL — the master-detail the Support page
-// already has: the caller's sessions list on the left (Running, then Past —
-// the two sections the Devices page carried until now), the selected
-// session (or the chat prompt while nothing is selected) on the right. Both
-// `/t/$teamSlug/agent` and `/t/$teamSlug/sessions/$sessionId` render inside
-// it, so opening a run never loses the list. Below `md` the list is the page
-// and a session is its own screen, as before.
-//
-// A run started by another run (`parent_session_id`) nests under its parent
-// (`lib/session-tree.ts`, the ×4 rule), indented.
+// EXP-818: the caller's sessions list — Running (nested by
+// `parent_session_id`, the x4 rule) then Past. EXP-851 dissolved the
+// master-detail shell it used to live in: the list is the Agent page's own
+// column on every breakpoint, and the SIDEBAR's list nav renders the very
+// same component beside an open run.
 
 const ActionChatIcon = conceptIcon(`action-chat`)
-// EXP-849: the same fold twisty the sidebar's Sessions group carries — the two
+// EXP-849: the same fold twisty the sidebar's Sessions group carries - the two
 // lists render the same tree, so they fold the same way.
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 
-export function AgentShell({
-  teamId,
-  currentUserId,
-  activeSessionId,
-  children,
-}: {
-  teamId: string
-  currentUserId: string
-  /** The session the right pane shows, for the highlighted row. */
-  activeSessionId: string | null
-  children: ReactNode
-}) {
-  return (
-    <div className="flex h-full min-h-0">
-      <div className="hidden w-80 shrink-0 flex-col border-r border-border md:flex">
-        <SessionsList
-          teamId={teamId}
-          currentUserId={currentUserId}
-          activeSessionId={activeSessionId}
-        />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-    </div>
-  )
-}
-
-/** The list alone — the phone's Agent page IS this list over the prompt. */
+/** The list — the Agent page's own column, and the sidebar's Agent list nav.
+ *  Every row hands the run it opens the `origin` this list stands for, so the
+ *  nav stays put (EXP-851); the Agent page passes `{ kind: `agent` }`. */
 export function SessionsList({
   teamId,
   currentUserId,
   activeSessionId,
   className,
+  origin = null,
+  scroll = true,
 }: {
   teamId: string
   currentUserId: string
   activeSessionId: string | null
   className?: string
+  origin?: DetailOrigin | null
+  /** EXP-851: the Agent page stacks the list UNDER the composer inside one
+   *  scroller, so it turns this list's own scrollport off. */
+  scroll?: boolean
 }) {
   const { running, isLoading } = useAgentsData(teamId, currentUserId)
   const { past } = usePastRuns(teamId, currentUserId)
@@ -107,7 +84,14 @@ export function SessionsList({
       return next
     })
   return (
-    <div className={cn(`flex-1 overflow-y-auto p-2`, TAB_BAR_CLEARANCE, className)}>
+    <div
+      className={cn(
+        `p-2`,
+        scroll && `min-h-0 flex-1 overflow-y-auto`,
+        TAB_BAR_CLEARANCE,
+        className
+      )}
+    >
       <GlassSectionHeader label="Running" />
       {isLoading ? (
         <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
@@ -129,7 +113,7 @@ export function SessionsList({
                 expanded={!collapsed.has(session.id)}
                 onToggle={() => toggle(session.id)}
                 continuation={Boolean(session.resumedFromId)}
-                onOpen={() => openSession(session)}
+                onOpen={() => openSession(session, { origin })}
               />
             )
           })}
@@ -148,7 +132,7 @@ export function SessionsList({
                 byline={pastRunRowByline(row)}
                 continued={continuedIds.has(row.session.id)}
                 active={row.session.id === activeSessionId}
-                onOpen={() => openSession(row.session)}
+                onOpen={() => openSession(row.session, { origin })}
               />
             ))}
           </div>
@@ -291,10 +275,4 @@ function PastRow({
       </div>
     </ListRow>
   )
-}
-
-/** The `$sessionId` the route is on, if any — the shell's highlight. */
-export function useRouteSessionId(): string | null {
-  const { sessionId } = useParams({ strict: false })
-  return sessionId ?? null
 }

@@ -172,6 +172,9 @@ struct AttachState {
     /// differs, or a 3 s diff tick alone would fill the screen.
     config_line: Option<String>,
     usage_line: Option<String>,
+    /// EXP-850 §3: the workflow caption last printed — the card is latest-wins
+    /// per id and moves several times a second, so only a CHANGE is a line.
+    workflow_line: Option<String>,
     diff_lines: Vec<String>,
     plan_lines: Vec<String>,
     /// Output lines already printed, per tool call ([`OUTPUT_LINE_CAP`]).
@@ -232,6 +235,8 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
             let status = match status {
                 steer::SubagentStatus::Started => "started",
                 steer::SubagentStatus::Completed => "completed",
+                // EXP-856: a second copy of an id that is still live.
+                steer::SubagentStatus::Duplicate => "started a SECOND time",
             };
             println!("  ⤷ {agent_type} {status}");
         }
@@ -275,6 +280,21 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
         // for the screens, and `exponential code` already prints what the
         // agent does. Deliberately silent.
         steer::ActivityEvent::Turn { .. } => {}
+        // EXP-850 §2: the bottom strip is a SCREEN affordance (it redraws in
+        // place); a scrolling printer would repeat the whole list on every
+        // change, so it stays silent here.
+        steer::ActivityEvent::BackgroundTasks { .. } => {}
+        // EXP-850 §3: the card redraws in place on a screen too — a line
+        // printer prints the shared caption ONLY when it changes.
+        steer::ActivityEvent::Workflow(workflow) => {
+            let line = steer::workflow_caption(workflow);
+            let mut state = lock(state);
+            if state.workflow_line.as_deref() != Some(line.as_str()) {
+                state.workflow_line = Some(line.clone());
+                drop(state);
+                println!("[{line}]");
+            }
+        }
         // EXP-784: one line per change of the rate-limit slot.
         steer::ActivityEvent::RateLimit { status, message, .. } => {
             if steer::rate_limit_clears(status) {

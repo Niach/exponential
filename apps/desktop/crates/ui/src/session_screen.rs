@@ -59,6 +59,22 @@ use crate::steer_viewer::{FeedSource, SteerSessionView};
 /// beside it is the one the caller came from (`navigation::derive_origin`);
 /// the EXP-791 slide-in over the issue is gone.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
+    open_session_inner(session_id, false, window, cx);
+}
+
+/// EXP-851: [`open_session`] from a RAIL row (the Sessions section, a pinned
+/// run) — the rail is not a list, so the run opens with no `ListNav` beside
+/// it instead of inheriting whatever the main view was showing.
+pub(crate) fn open_session_from_rail(session_id: &str, window: &mut Window, cx: &mut App) {
+    open_session_inner(session_id, true, window, cx);
+}
+
+fn open_session_inner(
+    session_id: &str,
+    from_rail: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
     // EXP-746 D5: a resume mints a NEW row id, so opening it plainly would put
     // a second tab beside the run it continues. `screens::sync_session_tabs`
     // reads that link off the synced row, but a LOCAL resume gets here first
@@ -69,13 +85,14 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     if let Some(resumed_from) = resumed_from_id(session_id, cx) {
         crate::screens::take_over_session_tab(&resumed_from, session_id, window, cx);
     }
-    crate::navigation::navigate(
-        window,
-        cx,
-        Screen::Session {
-            session_id: session_id.to_string(),
-        },
-    );
+    let screen = Screen::Session {
+        session_id: session_id.to_string(),
+    };
+    if from_rail {
+        crate::navigation::navigate_from_rail(window, cx, screen);
+    } else {
+        crate::navigation::navigate(window, cx, screen);
+    }
 }
 
 /// The run `session_id` continues (EXP-662 `resumed_from_id`), read off this

@@ -1236,6 +1236,33 @@ pub(crate) fn session_agent_busy(
     }
 }
 
+/// EXP-850 §8: the session row's SECOND line — the caption of the newest
+/// running claude workflow (`steer::workflow_caption`), or `None` when there
+/// is nothing to say.
+///
+/// Same precedence as [`session_agent_busy`]: a run hosted HERE reads the
+/// engine's in-process caption signal (this process wrote the column, so
+/// waiting for it to sync back would only add latency), every other row reads
+/// the device-written `agent_caption` column. A row that is not live never
+/// carries a caption, whatever either source says — a finished run's last
+/// workflow is history, not a status line.
+pub(crate) fn session_agent_caption(
+    session: &domain::rows::CodingSession,
+    local: Option<String>,
+    now_epoch: i64,
+) -> Option<String> {
+    if !coding_session_is_live(session, now_epoch) {
+        return None;
+    }
+    let caption = match local {
+        Some(caption) => Some(caption),
+        None => session.agent_caption.clone(),
+    };
+    caption
+        .map(|caption| caption.trim().to_string())
+        .filter(|caption| !caption.is_empty())
+}
+
 // ---------------------------------------------------------------------------
 // Live and past run projections (EXP-696 / EXP-746)
 // ---------------------------------------------------------------------------

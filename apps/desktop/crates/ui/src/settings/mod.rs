@@ -66,6 +66,37 @@ mod widget;
 /// so the swap slides without the column growing or shrinking.
 pub const SETTINGS_NAV_WIDTH: f32 = crate::sidebar::RAIL_W;
 
+/// EXP-851: the left column's BACK row — the settings nav's header row,
+/// shared with the `ListNav` (`sidebar::ListPanel::nav_back_row`) so the two
+/// occupants of that column wear the same affordance. Returns the row WITHOUT
+/// a click handler: where back goes is the caller's business.
+pub(crate) fn nav_back_row(
+    id: &'static str,
+    label: impl Into<gpui::SharedString>,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    h_flex()
+        .id(id)
+        .mx_2()
+        .px_2()
+        .py_1()
+        .gap_2()
+        .items_center()
+        .rounded(cx.theme().radius)
+        .cursor_pointer()
+        .flex_shrink_0()
+        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .child(Icon::new(registry::UI_BACK).xsmall().flex_shrink_0())
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(label.into()),
+        )
+}
+
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
     InteractiveElement as _, IntoElement, MouseButton, ParentElement, Render, SharedString,
@@ -924,23 +955,7 @@ impl Render for SettingsNavPanel {
 
         // EXP-456: the back affordance — web parity with the settings
         // sidebar's header row. Direct calls, not action dispatch (EXP-17).
-        let back_row = h_flex()
-            .id("settings-nav-back")
-            .mx_2()
-            .px_2()
-            .py_1()
-            .gap_2()
-            .items_center()
-            .rounded(cx.theme().radius)
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            .child(Icon::new(registry::UI_BACK).xsmall().flex_shrink_0())
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Settings"),
-            )
+        let back_row = nav_back_row("settings-nav-back", "Settings", cx)
             .on_click(cx.listener(|this, _, window, cx| {
                 if this.nav.read(cx).can_go_back() {
                     go_back(window, cx);

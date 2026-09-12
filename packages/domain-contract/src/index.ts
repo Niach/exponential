@@ -246,3 +246,11 @@ export {
   TOOL_GROUP_SUMMARY_SEPARATOR,
   type ToolCallSummary,
 } from "./tool-group-summary"
+
+export {
+  workflowCaption,
+  WORKFLOW_CAPTION_SEPARATOR,
+  type WorkflowCaptionInput,
+  type WorkflowCaptionAgent,
+  type WorkflowCaptionPhase,
+} from "./workflow-caption"

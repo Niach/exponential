@@ -81,7 +81,9 @@ export function SidebarSessions({
               expandable={hasChildren}
               expanded={!collapsed.has(session.id)}
               onToggle={() => toggle(session.id)}
-              onOpen={() => openSession(session)}
+              // EXP-851: a sidebar row is context-free — the run opens with
+              // the MAIN menu still up, never a list nav.
+              onOpen={() => openSession(session, { origin: null })}
             />
           ))}
         </SidebarMenu>

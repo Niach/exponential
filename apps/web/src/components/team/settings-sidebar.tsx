@@ -4,23 +4,19 @@
 // carry their own desktop nav column (the in-page nav remains mobile-only).
 import { useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { conceptIcon } from "@/lib/icons.generated"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
 import { SETTINGS_NAV } from "@/routes/t/$teamSlug/settings/-shared"
-import { Separator } from "@/components/ui/separator"
+import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-
-const UiBackIcon = conceptIcon(`ui-back`)
 
 interface SettingsSidebarProps {
   teamSlug: string
@@ -44,20 +40,7 @@ export function SettingsSidebar({
 
   return (
     <>
-      <SidebarHeader className="p-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            {/* h-10 matches the team-switcher row so the top edge doesn't
-                jump mid-slide. The whole row is the back affordance. */}
-            <SidebarMenuButton onClick={onBack} aria-label="Back" className="h-10">
-              <UiBackIcon className="h-4 w-4" />
-              <span className="text-sm font-semibold">Settings</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-
-      <Separator />
+      <SidebarBackRow label="Settings" onBack={onBack} />
 
       <SidebarContent>
         {SETTINGS_NAV.map((group) => {

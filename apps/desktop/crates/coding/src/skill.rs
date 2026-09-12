@@ -110,6 +110,17 @@ mod tests {
         assert!(RUN_SKILL.contains("ask which one"));
     }
 
+    /// EXP-856: the one rule a run cannot learn from its own transcript.
+    /// Messaging a live workflow agent resumes a SECOND copy of it from that
+    /// transcript, and both copies then edit the same files. Mirrored by the
+    /// web gate in `context-budget.test.ts`.
+    #[test]
+    fn the_playbook_forbids_messaging_a_running_workflow_agent() {
+        assert!(RUN_SKILL.contains("## Subagents and workflows"));
+        assert!(RUN_SKILL.contains("never messaged"));
+        assert!(RUN_SKILL.contains("SendMessage"));
+    }
+
     #[test]
     fn mentioned_tools_dedups_and_skips_the_bare_prefix() {
         let names = mentioned_tools(

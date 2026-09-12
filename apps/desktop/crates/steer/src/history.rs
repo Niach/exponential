@@ -189,9 +189,18 @@ fn count_lines(path: &Path) -> u64 {
 
 /// Which latest-wins slot an event owns, if any — the file's mirror of
 /// `journal::slot_of`. Replay order is the relay's `LATEST_REPLAY_ORDER`
-/// (`config_state`, `usage`, `rate_limit`, `turn`, `diff`; EXP-784 added the
-/// third, EXP-848 the fourth).
-const SLOT_COUNT: usize = 5;
+/// (`config_state`, `usage`, `rate_limit`, `turn`, `workflow`,
+/// `background_tasks`, `diff`; EXP-784 added the third, EXP-848 the fourth,
+/// EXP-850 the keyed workflow block and the background-task strip).
+const SLOT_COUNT: usize = 6;
+/// The slots replayed BEFORE the keyed workflow cards (`config_state`,
+/// `usage`, `rate_limit`, `turn`); `background_tasks` and `diff` follow them.
+const SLOTS_BEFORE_WORKFLOWS: usize = 4;
+
+/// EXP-850 §3: how many workflow cards one file's fold keeps — the in-memory
+/// journal's [`crate::journal::JOURNAL_WORKFLOW_CAP`], mirrored so a replay
+/// off disk and a replay off memory carry the same set.
+pub const HISTORY_WORKFLOW_CAP: usize = 16;
 
 fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
@@ -199,7 +208,8 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
         ActivityEvent::Usage { .. } => Some(1),
         ActivityEvent::RateLimit { .. } => Some(2),
         ActivityEvent::Turn { .. } => Some(3),
-        ActivityEvent::Diff { .. } => Some(4),
+        ActivityEvent::BackgroundTasks { .. } => Some(4),
+        ActivityEvent::Diff { .. } => Some(5),
         _ => None,
     }
 }
@@ -236,7 +246,10 @@ pub fn read_journal_seq(
     let file = File::open(&path).ok()?;
     let mut events: Vec<(u64, ActivityEvent)> = Vec::new();
     let mut slots: [Option<(u64, ActivityEvent)>; SLOT_COUNT] =
-        [None, None, None, None, None];
+        [None, None, None, None, None, None];
+    // EXP-850 §3: the keyed `workflow` fold — the newest line per workflow id,
+    // in first-appearance order, capped like the in-memory journal.
+    let mut workflows: Vec<(String, u64, ActivityEvent)> = Vec::new();
     for (seq, line) in BufReader::new(file).lines().enumerate() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -246,12 +259,28 @@ pub fn read_journal_seq(
             continue;
         };
         let seq = seq as u64;
+        if let ActivityEvent::Workflow(workflow) = &event {
+            let id = workflow.id.clone();
+            match workflows.iter_mut().find(|(held, _, _)| *held == id) {
+                Some(held) => *held = (id, seq, event),
+                None => {
+                    workflows.push((id, seq, event));
+                    while workflows.len() > HISTORY_WORKFLOW_CAP {
+                        workflows.remove(0);
+                    }
+                }
+            }
+            continue;
+        }
         match slot_of(&event) {
             Some(slot) => slots[slot] = Some((seq, event)),
             None => events.push((seq, event)),
         }
     }
-    events.extend(slots.into_iter().flatten());
+    let mut slots = slots.into_iter();
+    events.extend(slots.by_ref().take(SLOTS_BEFORE_WORKFLOWS).flatten());
+    events.extend(workflows.into_iter().map(|(_, seq, event)| (seq, event)));
+    events.extend(slots.flatten());
     Some(events)
 }
 
@@ -270,7 +299,13 @@ pub fn read_journal_page(
 ) -> Option<Vec<(u64, ActivityEvent)>> {
     let mut page: Vec<(u64, ActivityEvent)> = read_journal_seq(data_dir, session_id)?
         .into_iter()
-        .filter(|(seq, event)| *seq < before_seq && slot_of(event).is_none())
+        // EXP-850: a `workflow` is a latest-wins slot too (keyed by id), so
+        // it is excluded from a transcript page exactly like the fixed ones.
+        .filter(|(seq, event)| {
+            *seq < before_seq
+                && slot_of(event).is_none()
+                && !matches!(event, ActivityEvent::Workflow(_))
+        })
         .collect();
     if page.len() > limit {
         page.drain(..page.len() - limit);
@@ -889,5 +924,124 @@ mod tests {
     fn filetime_set(path: &Path, when: SystemTime) {
         let file = OpenOptions::new().write(true).open(path).unwrap();
         file.set_times(fs::FileTimes::new().set_modified(when)).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod exp850_tests {
+    use super::*;
+    use crate::frames::{BackgroundTask, BackgroundTaskKind, TurnState};
+    use crate::workflow::{WorkflowState, WorkflowStatus};
+    use std::time::UNIX_EPOCH;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-steer-history-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn workflow(id: &str, status: WorkflowStatus) -> ActivityEvent {
+        ActivityEvent::workflow(WorkflowState {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            status,
+            ..WorkflowState::default()
+        })
+    }
+
+    fn label(event: &ActivityEvent) -> String {
+        match event {
+            ActivityEvent::Workflow(workflow) => format!("workflow:{}", workflow.id),
+            other => serde_json::to_value(other)
+                .ok()
+                .and_then(|value| {
+                    value.get("kind").and_then(|kind| kind.as_str()).map(str::to_string)
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    /// EXP-850 §2/§3: an append-only file cannot rewrite a slot, so the READ
+    /// folds both new kinds back — the strip to one entry, the cards to one
+    /// per id — and replays them in the relay's order.
+    #[test]
+    fn the_file_folds_the_new_slots_and_replays_them_in_order() {
+        let dir = temp_dir("exp850-fold");
+        let mut writer = JournalWriter::open(&dir, "sess-1").expect("a writer");
+        writer.append(&ActivityEvent::narration("working"));
+        writer.append(&ActivityEvent::diff("+ line"));
+        writer.append(&workflow("wf-1", WorkflowStatus::Running));
+        writer.append(&ActivityEvent::background_tasks(vec![BackgroundTask {
+            id: "b1".to_string(),
+            kind: BackgroundTaskKind::Shell,
+            description: "sleep".to_string(),
+            tool_id: None,
+        }]));
+        writer.append(&ActivityEvent::turn(TurnState::Started));
+        writer.append(&workflow("wf-2", WorkflowStatus::Running));
+        writer.append(&workflow("wf-1", WorkflowStatus::Completed));
+        writer.append(&ActivityEvent::background_tasks(Vec::new()));
+
+        let events = read_journal(&dir, "sess-1").expect("a journal");
+        assert_eq!(
+            events.iter().map(label).collect::<Vec<_>>(),
+            vec![
+                "narration",
+                "turn",
+                "workflow:wf-1",
+                "workflow:wf-2",
+                "background_tasks",
+                "diff",
+            ]
+        );
+        // Latest-wins per id and whole: the completed card and the empty strip.
+        assert!(matches!(
+            &events[2],
+            ActivityEvent::Workflow(state) if state.status == WorkflowStatus::Completed
+        ));
+        assert!(matches!(
+            &events[4],
+            ActivityEvent::BackgroundTasks { tasks, .. } if tasks.is_empty()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-850 §3: the file's fold keeps the same 16 cards the in-memory
+    /// journal does, so a replay off disk and one off memory agree.
+    #[test]
+    fn the_file_fold_caps_the_workflow_cards() {
+        let dir = temp_dir("exp850-cap");
+        let mut writer = JournalWriter::open(&dir, "sess-1").expect("a writer");
+        for i in 0..20 {
+            writer.append(&workflow(&format!("wf-{i}"), WorkflowStatus::Running));
+        }
+        let events = read_journal(&dir, "sess-1").expect("a journal");
+        let cards: Vec<String> = events.iter().map(label).collect();
+        assert_eq!(cards.len(), HISTORY_WORKFLOW_CAP);
+        assert_eq!(cards.first().map(String::as_str), Some("workflow:wf-4"));
+        assert_eq!(cards.last().map(String::as_str), Some("workflow:wf-19"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A `workflow` is STATE, so an older-page request never carries one — the
+    /// asking client already holds the newest per id.
+    #[test]
+    fn a_history_page_never_carries_a_workflow_card() {
+        let dir = temp_dir("exp850-page");
+        let mut writer = JournalWriter::open(&dir, "sess-1").expect("a writer");
+        writer.append(&ActivityEvent::narration("one"));
+        writer.append(&workflow("wf-1", WorkflowStatus::Running));
+        writer.append(&ActivityEvent::narration("two"));
+        writer.append(&ActivityEvent::background_tasks(Vec::new()));
+        let page = read_journal_page(&dir, "sess-1", 10, 50).expect("a page");
+        assert_eq!(
+            page.iter().map(|(_, event)| label(event)).collect::<Vec<_>>(),
+            vec!["narration", "narration"]
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

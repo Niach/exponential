@@ -1,0 +1,140 @@
+[
+  {
+    "name": "running with no agents yet",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "running",
+      "phases": [{ "index": 1, "title": "Alpha" }],
+      "agents": []
+    },
+    "expected": "Workflow wire-probe · starting"
+  },
+  {
+    "name": "mid-run names the running agent's phase",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "running",
+      "phases": [
+        { "index": 1, "title": "Alpha" },
+        { "index": 2, "title": "Beta" }
+      ],
+      "agents": [
+        { "index": 1, "label": "alpha:one", "phaseIndex": 1, "state": "done" },
+        { "index": 2, "label": "alpha:two", "phaseIndex": 1, "state": "done" },
+        { "index": 3, "label": "beta:shell", "phaseIndex": 2, "state": "running" }
+      ]
+    },
+    "expected": "Workflow wire-probe · 2/3 agents done · Beta"
+  },
+  {
+    "name": "mid-run with a queued tail still names the running agent's phase",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "running",
+      "phases": [
+        { "index": 1, "title": "Alpha" },
+        { "index": 2, "title": "Beta" }
+      ],
+      "agents": [
+        { "index": 1, "phaseIndex": 1, "state": "running" },
+        { "index": 2, "phaseIndex": 2, "state": "queued" }
+      ]
+    },
+    "expected": "Workflow wire-probe · 0/2 agents done · Alpha"
+  },
+  {
+    "name": "mid-run without a phase title omits the segment",
+    "workflow": {
+      "name": "dup-probe",
+      "status": "running",
+      "phases": [],
+      "agents": [{ "index": 1, "state": "running" }]
+    },
+    "expected": "Workflow dup-probe · 0/1 agents done"
+  },
+  {
+    "name": "an unmatched phaseIndex omits the segment",
+    "workflow": {
+      "name": "dup-probe",
+      "status": "running",
+      "phases": [{ "index": 1, "title": "Run" }],
+      "agents": [{ "index": 1, "phaseIndex": 7, "state": "running" }]
+    },
+    "expected": "Workflow dup-probe · 0/1 agents done"
+  },
+  {
+    "name": "all agents done while the workflow still runs",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "running",
+      "phases": [{ "index": 1, "title": "Alpha" }],
+      "agents": [
+        { "index": 1, "phaseIndex": 1, "state": "done" },
+        { "index": 2, "phaseIndex": 1, "state": "done" }
+      ]
+    },
+    "expected": "Workflow wire-probe · 2/2 agents done · Alpha"
+  },
+  {
+    "name": "an errored agent counts as done",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "running",
+      "phases": [{ "index": 1, "title": "Alpha" }],
+      "agents": [
+        { "index": 1, "phaseIndex": 1, "state": "error" },
+        { "index": 2, "phaseIndex": 1, "state": "running" }
+      ]
+    },
+    "expected": "Workflow wire-probe · 1/2 agents done · Alpha"
+  },
+  {
+    "name": "completed",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "completed",
+      "phases": [{ "index": 1, "title": "Alpha" }],
+      "agents": [
+        { "index": 1, "phaseIndex": 1, "state": "done" },
+        { "index": 2, "phaseIndex": 1, "state": "done" },
+        { "index": 3, "phaseIndex": 2, "state": "done" }
+      ]
+    },
+    "expected": "Workflow wire-probe · done · 3 agents"
+  },
+  {
+    "name": "completed with one agent",
+    "workflow": {
+      "name": "dup-probe",
+      "status": "completed",
+      "phases": [{ "index": 1, "title": "Run" }],
+      "agents": [{ "index": 1, "phaseIndex": 1, "state": "done" }]
+    },
+    "expected": "Workflow dup-probe · done · 1 agent"
+  },
+  {
+    "name": "failed",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "failed",
+      "phases": [{ "index": 1, "title": "Alpha" }],
+      "agents": [{ "index": 1, "phaseIndex": 1, "state": "error" }]
+    },
+    "expected": "Workflow wire-probe · failed"
+  },
+  {
+    "name": "stopped",
+    "workflow": {
+      "name": "wire-probe",
+      "status": "stopped",
+      "phases": [],
+      "agents": [{ "index": 1, "state": "running" }]
+    },
+    "expected": "Workflow wire-probe · stopped"
+  },
+  {
+    "name": "no phases and no agents while completed",
+    "workflow": { "name": "empty", "status": "completed" },
+    "expected": "Workflow empty · done · 0 agents"
+  }
+]

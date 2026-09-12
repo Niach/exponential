@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ChevronRight, Files, Link2 } from "lucide-react"
+import { Files, Link2 } from "lucide-react"
 import { toast } from "sonner"
 import { conceptIcon } from "@/lib/icons.generated"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
-import { BoardGlyph } from "@/components/board-glyph"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -41,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import type { IssueFilterSearch } from "@/lib/filters"
+import { parseOrigin } from "@/lib/detail-origin"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -53,6 +53,7 @@ import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import {
@@ -85,9 +86,16 @@ interface IssueDetailViewProps {
   teamSlug: string
   teamId: string
   readOnly?: boolean
-  // Board filter params carried from the list view — preserved on the
-  // breadcrumb's back-to-board link.
+  // Board filter params carried from the list view — preserved on the phone
+  // header's back-to-board target.
   filterSearch?: IssueFilterSearch
+  /** EXP-851: the `?from=` token this issue was opened with
+   *  (`lib/detail-origin.ts`) — the phone header's back button returns THERE
+   *  (the inbox, the board, a review queue) instead of always to the board. */
+  origin?: string
+  /** The session→issue hop draws its own back-to-run header, so the issue's
+   *  phone header would be a second bar on the same line. */
+  showMobileHeader?: boolean
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -146,6 +154,8 @@ export function IssueDetailView({
   teamId,
   readOnly = false,
   filterSearch,
+  origin,
+  showMobileHeader = true,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
@@ -817,34 +827,50 @@ export function IssueDetailView({
     />
   )
 
-  // EXP-568 phone header: one line, no room for a board NAME or an "N / total"
-  // counter — the board glyph stands in for the crumb, and the identifier +
-  // title carry the rest.
+  // EXP-851 phone header: the shared `MobileDetailHeader`, the native layout —
+  // round back on the left, the IDENTIFIER centred, the `…` on the right. The
+  // board-glyph breadcrumb is gone (the sidebar's list nav says where you
+  // are); back returns to the LIST this issue was opened from.
   const mobileHeader = (
-    <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-xs text-muted-foreground min-w-0">
-      <Link
-        to="/t/$teamSlug/boards/$boardSlug"
-        params={{ teamSlug, boardSlug: board.slug }}
-        search={{
-          status: filterSearch?.status,
-          priority: filterSearch?.priority,
-          labels: filterSearch?.labels,
-        }}
-        aria-label={board.name}
-        className="inline-flex shrink-0 items-center hover:text-foreground"
-      >
-        <BoardGlyph board={board} className="size-4" />
-      </Link>
-      <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
-      <span className="shrink-0 font-mono">{issue.identifier}</span>
-      <span className="truncate text-foreground">{title}</span>
-      {/* EXP-698 r5: no prev/next on phones — the natives have none either,
-          and the row is too tight for a switcher nobody reaches for there. */}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
-        {pinToggle}
-        {mobileMenu}
-      </div>
-    </div>
+    <MobileDetailHeader
+      title={<span className="font-mono">{issue.identifier}</span>}
+      backLabel="Back"
+      onBack={() => {
+        const from = parseOrigin(origin)
+        if (from?.kind === `inbox`) {
+          void navigate({
+            to: `/t/$teamSlug/inbox`,
+            params: { teamSlug },
+            search: from.tab === `my-issues` ? { tab: `my-issues` } : {},
+          })
+          return
+        }
+        if (from?.kind === `reviews`) {
+          void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
+          return
+        }
+        void navigate({
+          to: `/t/$teamSlug/boards/$boardSlug`,
+          params: {
+            teamSlug,
+            boardSlug:
+              from?.kind === `board` ? from.boardSlug : board.slug,
+          },
+          search: {
+            status: filterSearch?.status,
+            priority: filterSearch?.priority,
+            labels: filterSearch?.labels,
+          },
+        })
+      }}
+      menu={
+        // EXP-698 r5: no prev/next on phones — the natives have none either.
+        <div className="flex shrink-0 items-center">
+          {pinToggle}
+          {mobileMenu}
+        </div>
+      }
+    />
   )
 
   const duplicateBanner = issue.duplicateOfId ? (
@@ -990,7 +1016,7 @@ export function IssueDetailView({
   if (isMobile) {
     return (
       <div className="flex flex-col h-full min-h-0">
-        {mobileHeader}
+        {showMobileHeader && mobileHeader}
         {duplicateBanner}
         {/* EXP-698: clearance for the floating IssueDetailMobileBar below, so
             the last comment scrolls clear of it instead of ending under the

@@ -1,19 +1,17 @@
-//! The center panel (masterplan-v3 §4.2, reworked twice — EXP-288): a
-//! TAB-BASED editor area whose tabs are DETAIL VIEWS ONLY (issue detail,
-//! PR diff, support thread). High-level surfaces get no
-//! tabs: Source Control's diff and the file viewer are the center content
-//! their rail tool shows (driven by the sidebar's commit/file selection),
-//! and Settings and the Actions page (EXP-480) are tab-less full-screen
-//! modes. Every tab REMEMBERS
-//! the sidebar entry it was opened from ([`TabEntry::origin`]) — clicking a
-//! tab re-selects that entry (and board) so the sidebar always shows the
-//! list the tab came from.
+//! The ONE main view (masterplan-v3 §4.2, reworked — EXP-288/EXP-851): a
+//! TAB-BASED area whose tabs are DETAIL VIEWS ONLY (issue detail, PR diff,
+//! support thread, coding session, terminal). Everything else is a plain
+//! full-width screen: the five LIST screens (a board, the Inbox, Support,
+//! Files, Source Control), the rail's pages and Settings. Every detail tab
+//! REMEMBERS the LIST it was opened from ([`TabEntry::origin`]) — that is
+//! what the shell's left column renders as the `ListNav`, so a tab click, a
+//! go-back and a go-forward all restore the column for free.
 //!
 //! One panel: a compact chip strip over content swapped on the per-window
 //! [`Navigation`] state. The heavyweight views (issue detail, file viewer,
 //! …) stay single instances re-pointed on tab switch — tabs remember *what*
 //! is open, not per-tab view state. Closing the active tab activates its
-//! neighbor; closing the last shows the active tool's default center. A
+//! neighbor; closing the last shows the empty state. A
 //! team switch drops all tabs (they are team-scoped). Tabs that don't fit
 //! the strip collapse into a "+N" overflow menu (EXP-288).
 
@@ -43,7 +41,7 @@ use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
     shapes_ready, Navigation, PendingOrigin, Screen, TabOrigin,
 };
-use crate::sidebar::{rail_shared_for_window, RailShared, ToolWindow};
+use crate::sidebar::{rail_shared_for_window, ListMode, ListPanel, RailShared};
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
@@ -101,22 +99,19 @@ pub(crate) fn session_views(
         .collect()
 }
 
-/// EXP-818: put the rail back the way `screen`'s tab remembers it — the
-/// go-back / go-forward twin of [`ScreensPanel::activate_tab`]'s origin
-/// replay. A detail restores its tab's origin; the Chat page selects the
-/// Sessions tool (it is the Agent page's center); a rail full page and
-/// Settings have no list column to restore.
+/// EXP-851: keep the window's active BOARD in step with the screen go-back /
+/// go-forward landed on — the left column follows the tab's own origin
+/// (`shell::list_nav_origin`), so nothing else needs restoring, but the
+/// repo-backed surfaces (files, git, the `+` shell cwd) still resolve through
+/// `active_board_id`.
 pub(crate) fn restore_origin_for_screen(window: &Window, cx: &mut App, screen: &Screen) {
-    let origin = match screen {
-        Screen::Chat => Some(TabOrigin {
-            tool: ToolWindow::Sessions,
-            board_id: None,
-            inbox_tab: None,
-        }),
-        screen if screen.is_detail() => screens_for_window(window, cx)
-            .and_then(|panel| panel.read(cx).origin_of(screen)),
-        _ => None,
-    };
+    if let Screen::BoardIssues { board_id } = screen {
+        if !board_id.is_empty() {
+            crate::navigation::set_active_board(window, cx, board_id.clone());
+            return;
+        }
+    }
+    let origin = screens_for_window(window, cx).and_then(|panel| panel.read(cx).origin_of(screen));
     if let Some(origin) = origin {
         crate::sidebar::apply_origin(window, cx, &origin);
     }
@@ -216,6 +211,13 @@ pub(crate) fn build_screen_content(
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
+        // EXP-851: the list screens are never undockable (only a detail is),
+        // so this arm exists to keep the match total.
+        Screen::BoardIssues { .. }
+        | Screen::Inbox { .. }
+        | Screen::Support
+        | Screen::Files
+        | Screen::SourceControl => cx.new(|_| NeverUndocked).into(),
     }
 }
 
@@ -230,12 +232,31 @@ impl Render for NeverUndocked {
     }
 }
 
-/// One open tab: the detail screen it shows plus the sidebar entry it was
-/// opened from (EXP-288 — activating the tab re-selects that entry).
+/// One open tab: the detail screen it shows plus the LIST it was opened from
+/// (EXP-288/EXP-851 — the `ListNav` beside it). `None` = opened from the rail
+/// or from a context-free page: the rail stays up.
 #[derive(Clone)]
 struct TabEntry {
     screen: Screen,
-    origin: TabOrigin,
+    origin: Option<TabOrigin>,
+}
+
+/// EXP-851: which list a tab ends up carrying. `pending` is the marker the
+/// navigation left (`None` = not a navigation at all: a tab click, a go-back,
+/// a close-reactivation — the tab keeps what it has), `existing` the tab's
+/// current list, `derived` the breadcrumb rule's answer. Pure, so the three
+/// cases are a unit test.
+fn resolve_tab_origin(
+    pending: Option<&PendingOrigin>,
+    existing: Option<&TabOrigin>,
+    derived: Option<TabOrigin>,
+) -> Option<TabOrigin> {
+    match pending {
+        None => existing.cloned(),
+        Some(PendingOrigin::Explicit(origin)) => Some(origin.clone()),
+        Some(PendingOrigin::Derive) => derived,
+        Some(PendingOrigin::Rail) => None,
+    }
 }
 
 /// EXP-769/EXP-791: one entry of the bottom session bar, in bar order — an
@@ -718,9 +739,18 @@ pub struct ScreensPanel {
     /// drain), so it is created on first activation and lives exactly as long
     /// as its tab — every removal path shuts it down.
     sessions: HashMap<String, Entity<crate::session_screen::SessionScreenView>>,
-    /// The window's shared rail state (EXP-288): the active tool drives the
-    /// tab-less center default (SC diff / file viewer), and the file
-    /// selection re-points the viewer.
+    /// EXP-851: the list a TAB-LESS centre view sits beside — today only the
+    /// PR diff (EXP-525 retired its tab). One slot: exactly one such view is
+    /// up at a time, and it is replaced the moment another navigation lands.
+    transient_origin: Option<(Screen, Option<TabOrigin>)>,
+    /// EXP-851: the LIST screens' view — a board, the Inbox and Support, full
+    /// width. The same type the shell's `ListNav` mounts, in its Screen mode.
+    list: Entity<ListPanel>,
+    /// EXP-851: the Source Control screen's commit history (it lived on the
+    /// retired tool column). Its diff is [`Self::source_control`].
+    history: Entity<crate::source_control::HistoryList>,
+    /// The window's shared rail state (EXP-288): the file selection
+    /// re-points the viewer, and the SC selection the diff.
     rail: Entity<RailShared>,
     /// Open tabs in strip order — detail screens only, deduped by `screen`
     /// (several issues at once; re-opening focuses + refreshes the origin).
@@ -770,6 +800,8 @@ impl ScreensPanel {
             cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
+        let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
+        let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
 
         let mut subscriptions = Vec::new();
         // Navigation changes open/focus tabs and retarget the shared views
@@ -864,6 +896,9 @@ impl ScreensPanel {
             reviews,
             getting_started,
             sessions: HashMap::new(),
+            transient_origin: None,
+            list,
+            history,
             rail,
             tabs: Vec::new(),
             tabs_team: None,
@@ -980,58 +1015,49 @@ impl ScreensPanel {
         let Some(screen) = resolved_screen(&self.nav, cx) else {
             return;
         };
-        // EXP-288: only detail views are tabs — Settings renders
-        // tab-less (no chip, nothing highlighted).
-        if !screen.is_detail() {
+        // EXP-851: only a screen that can sit beside a list gets that far —
+        // a list screen and every full page show the rail and own no tab.
+        if !screen.carries_list() {
             return;
         }
-        // Resolve the origin: an explicit one wins; Capture reads the rail
-        // tool + active board at consume time (the row click that navigated
-        // ran with its tool already active) — EXP-818: unless the navigation
-        // came from a context-free screen, in which case the detail brings
-        // its own list (`navigation::derive_origin`). `None` (go-back / tab
-        // reactivation of a closed tab) falls back to the same rule.
-        let captured = {
-            let rail = self.rail.read(cx);
-            let tool = rail.tool();
-            let captured = TabOrigin {
-                board_id: (tool == ToolWindow::BoardIssues)
-                    .then(|| active_board_id(&self.nav, cx))
-                    .flatten(),
-                inbox_tab: (tool == ToolWindow::Inbox).then(|| rail.inbox_tab()),
-                tool,
-            };
-            let target_board = match &screen {
-                Screen::IssueDetail { issue_id } | Screen::PrDiff { issue_id } => Store::global(cx)
-                    .collections()
-                    .issues
-                    .read(cx)
-                    .get(issue_id)
-                    .map(|issue| issue.board_id.clone()),
-                _ => None,
-            };
-            let nav = self.nav.read(cx);
-            crate::navigation::derive_origin(nav.previous_screen(), captured, &screen, target_board)
+        // EXP-851: the breadcrumb rule — the list comes from the screen we
+        // navigated FROM (a list screen hands its own; another detail hands
+        // the one it carries), and from nothing else. An explicit marker
+        // (deep link, OS notification, create dialog) still wins.
+        let derived = {
+            let previous = self.nav.read(cx).previous_screen().cloned();
+            let previous_origin = previous
+                .as_ref()
+                .and_then(|previous| self.origin_of(previous));
+            crate::navigation::derive_origin(previous.as_ref(), previous_origin, &screen)
         };
+        // EXP-525/EXP-851: the PR diff is a TAB-LESS centre view — it keeps
+        // its list in the transient slot instead of a tab entry.
+        if !screen.is_detail() {
+            let existing = self
+                .transient_origin
+                .as_ref()
+                .filter(|(stored, _)| *stored == screen)
+                .and_then(|(_, origin)| origin.clone());
+            let origin =
+                resolve_tab_origin(pending_origin.as_ref(), existing.as_ref(), derived);
+            self.transient_origin = Some((screen, origin));
+            return;
+        }
         match self.tabs.iter().position(|tab| tab.screen == screen) {
             Some(ix) => {
                 // Dedupe keeps ONE tab; a real re-navigation refreshes its
-                // origin (LATEST origin wins), a plain activation keeps it.
-                if let Some(pending) = pending_origin {
-                    self.tabs[ix].origin = match pending {
-                        PendingOrigin::Explicit(origin) => origin,
-                        PendingOrigin::Capture => captured,
-                    };
-                }
+                // list (LATEST wins), a plain activation keeps it.
+                self.tabs[ix].origin = resolve_tab_origin(
+                    pending_origin.as_ref(),
+                    self.tabs[ix].origin.as_ref(),
+                    derived,
+                );
             }
             None => {
-                let origin = match pending_origin {
-                    Some(PendingOrigin::Explicit(origin)) => origin,
-                    _ => captured,
-                };
                 self.tabs.push(TabEntry {
                     screen: screen.clone(),
-                    origin,
+                    origin: resolve_tab_origin(pending_origin.as_ref(), None, derived),
                 });
             }
         }
@@ -1066,6 +1092,11 @@ impl ScreensPanel {
                 }
             }
             Screen::PrDiff { .. }
+            | Screen::BoardIssues { .. }
+            | Screen::Inbox { .. }
+            | Screen::Support
+            | Screen::Files
+            | Screen::SourceControl
             | Screen::Devices
             | Screen::Actions
             | Screen::Automations
@@ -1164,10 +1195,14 @@ impl ScreensPanel {
 
     /// EXP-818: the remembered origin of `screen`'s tab, if it has one.
     pub(crate) fn origin_of(&self, screen: &Screen) -> Option<TabOrigin> {
-        self.tabs
-            .iter()
-            .find(|tab| &tab.screen == screen)
-            .map(|tab| tab.origin.clone())
+        if let Some(tab) = self.tabs.iter().find(|tab| &tab.screen == screen) {
+            return tab.origin.clone();
+        }
+        // EXP-851: the tab-less PR diff keeps its list in its own slot.
+        self.transient_origin
+            .as_ref()
+            .filter(|(stored, _)| stored == screen)
+            .and_then(|(_, origin)| origin.clone())
     }
 
     /// EXP-791: whether the bottom session bar has anything to show — it
@@ -1309,20 +1344,13 @@ impl ScreensPanel {
             set_screen(window, cx, Some(entry.screen));
             return;
         }
-        crate::sidebar::select_tool_for_tab(window, cx, entry.origin.tool);
-        if entry.origin.tool == ToolWindow::BoardIssues {
-            if let Some(board_id) = entry.origin.board_id {
-                // Degrades safely if the board has since been trashed —
-                // `active_board_id` existence-checks at query time.
-                crate::navigation::set_active_board(window, cx, board_id);
-            }
-        }
-        if entry.origin.tool == ToolWindow::Inbox {
-            if let Some(tab) = entry.origin.inbox_tab {
-                // EXP-426: restore the Inbox tab the detail came from (the
-                // tab-only setter — `activate_tool` would close this tab).
-                crate::sidebar::select_inbox_tab_for_tab(window, cx, tab);
-            }
+        // EXP-851: the tab CARRIES its list, so the shell's left column
+        // follows the screen by itself. Only the window's board scope (files,
+        // git, the `+` shell cwd) has to be put back; it degrades safely if
+        // the board has since been trashed (`active_board_id` existence-checks
+        // at query time).
+        if let Some(origin) = &entry.origin {
+            crate::sidebar::apply_origin(window, cx, origin);
         }
         set_screen(window, cx, Some(entry.screen));
     }
@@ -2071,6 +2099,134 @@ impl ScreensPanel {
             .into_any_element()
     }
 
+    /// EXP-851: the Files SCREEN — the trunk tree beside the read-only
+    /// viewer. It was a tool column plus a tool-default centre; one screen
+    /// now, with the tree as its own fixed-width list.
+    fn render_files_screen(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let file_tree = self.rail.read(cx).file_tree();
+        let refresh_tree = file_tree.clone();
+        h_flex()
+            .size_full()
+            .min_h_0()
+            .child(
+                v_flex()
+                    .w(px(crate::shell::LIST_NAV_WIDTH))
+                    .flex_shrink_0()
+                    .h_full()
+                    .min_h_0()
+                    .border_r_1()
+                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                    .child(
+                        self.screen_list_header(
+                            Icon::new(registry::NAV_FILES),
+                            "Files",
+                            cx,
+                        )
+                        .child(
+                            Button::new("files-refresh")
+                                .ghost()
+                                .cursor_pointer()
+                                .xsmall()
+                                .icon(Icon::from(ExpIcon::Repeat))
+                                .tooltip("Refresh")
+                                .on_click(move |_, _, cx| {
+                                    refresh_tree.update(cx, |tree, cx| tree.refresh(cx));
+                                }),
+                        ),
+                    )
+                    .child(div().flex_1().min_h_0().child(file_tree)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(self.file_viewer.clone()),
+            )
+            .into_any_element()
+    }
+
+    /// EXP-851: the Source Control SCREEN — the trunk's commit history beside
+    /// the diff of whatever the history list has selected (EXP-253/EXP-509).
+    fn render_source_control_screen(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        h_flex()
+            .size_full()
+            .min_h_0()
+            .child(
+                v_flex()
+                    .w(px(crate::shell::LIST_NAV_WIDTH))
+                    .flex_shrink_0()
+                    .h_full()
+                    .min_h_0()
+                    .border_r_1()
+                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                    .child(
+                        self.screen_list_header(
+                            Icon::from(ExpIcon::GitMerge),
+                            "Source Control",
+                            cx,
+                        )
+                        .child(
+                            Button::new("history-refresh")
+                                .ghost()
+                                .cursor_pointer()
+                                .xsmall()
+                                .icon(Icon::from(ExpIcon::Repeat))
+                                .tooltip("Check for updates")
+                                .on_click(move |_, window, cx| {
+                                    trunk_sync.update(cx, |engine, cx| engine.refresh(window, cx));
+                                }),
+                        ),
+                    )
+                    // The explicit sized wrapper is load-bearing for entity
+                    // children (the dock wrapper's flex-child rule).
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .w_full()
+                            .flex()
+                            .flex_col()
+                            .child(self.history.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(self.source_control.clone()),
+            )
+            .into_any_element()
+    }
+
+    /// The header strip over the Files / Source Control screens' own list
+    /// column (the retired tool header, unchanged).
+    fn screen_list_header(
+        &self,
+        icon: Icon,
+        title: &'static str,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
+        h_flex()
+            .flex_shrink_0()
+            .w_full()
+            .h(px(30.))
+            .px_3()
+            .gap_1p5()
+            .items_center()
+            .text_color(cx.theme().sidebar_foreground.opacity(0.7))
+            .child(icon.xsmall())
+            .child(
+                div()
+                    .flex_1()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(title),
+            )
+    }
+
     /// Nothing open: point at the sidebar (or at board creation when the
     /// team has none, or team creation when the account has none).
     fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -2163,40 +2319,6 @@ impl ScreensPanel {
                     )
                     .into_any_element();
             }
-        }
-        let has_boards = active_team
-            .as_deref()
-            .map(|id| {
-                !Store::global(cx)
-                    .collections()
-                    .boards_in_team(id, cx)
-                    .is_empty()
-            })
-            .unwrap_or(false);
-        if has_boards {
-            return v_flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .child(
-                    Icon::new(registry::NAV_INBOX)
-                        .size_6()
-                        .text_color(cx.theme().muted_foreground),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Nothing open"),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Pick an issue from the sidebar. It opens as a tab here."),
-                )
-                .into_any_element();
         }
         // EXP-698 round 5: the shared empty-state shape (`controls::empty_state`)
         // with the Getting-started checklist under it — the same block the
@@ -2572,6 +2694,12 @@ impl Render for ScreensPanel {
                     None => self.render_syncing(cx),
                 }
             }
+            // EXP-851: the five LIST screens, full width.
+            Some(Screen::BoardIssues { .. })
+            | Some(Screen::Inbox { .. })
+            | Some(Screen::Support) => self.list.clone().into_any_element(),
+            Some(Screen::Files) => self.render_files_screen(cx),
+            Some(Screen::SourceControl) => self.render_source_control_screen(cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
@@ -2580,19 +2708,11 @@ impl Render for ScreensPanel {
             Some(Screen::GettingStarted { .. }) => {
                 self.getting_started.clone().into_any_element()
             }
-            // EXP-288: no tab selected — the active TOOL owns the center.
-            // Source Control shows its diff (following the History
-            // selection), Files the read-only viewer (its Idle phase covers
-            // "no file selected"); everything else keeps the empty state.
-            None => match self.rail.read(cx).tool() {
-                ToolWindow::SourceControl => self.source_control.clone().into_any_element(),
-                ToolWindow::Files => self.file_viewer.clone().into_any_element(),
-                // EXP-818: the Agent page with no session selected IS the
-                // chat prompt.
-                ToolWindow::Sessions => self.chat.clone().into_any_element(),
-                _ if !shapes_ready(cx) => self.render_syncing(cx),
-                _ => self.render_empty(cx),
-            },
+            // EXP-851: nothing open at all (a fresh window, the last tab
+            // closed, a team switch). There is no tool default left to fall
+            // back on — the empty state points at the rail.
+            None if !shapes_ready(cx) => self.render_syncing(cx),
+            None => self.render_empty(cx),
         };
 
         // EXP-277: the tab strip lives in the titlebar (AppTitleBar) whenever
@@ -2670,9 +2790,66 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        lead_reserve_rems, neighbor_in_strip, partition_tabs, resume_swaps, takes_over_tab,
-        ChipLead,
+        lead_reserve_rems, neighbor_in_strip, partition_tabs, resolve_tab_origin, resume_swaps,
+        takes_over_tab, ChipLead,
     };
+    use crate::navigation::{PendingOrigin, TabOrigin};
+    use crate::sidebar::ToolWindow;
+
+    fn origin(tool: ToolWindow) -> TabOrigin {
+        TabOrigin {
+            tool,
+            board_id: None,
+            inbox_tab: None,
+        }
+    }
+
+    /// EXP-851: which list a tab ends up with. A REAL navigation re-derives
+    /// (latest wins), an explicit marker overrides, and a screen change that
+    /// is not a navigation at all — a tab click, a go-back, the reactivation
+    /// after a close — leaves the tab's list exactly as it was. That last
+    /// case is what makes tab activation restore the left column: the tab
+    /// keeps its origin, and the shell reads the occupant off it.
+    #[test]
+    fn a_tab_keeps_its_list_unless_a_navigation_says_otherwise() {
+        let board = origin(ToolWindow::BoardIssues);
+        let inbox = origin(ToolWindow::Inbox);
+        // Tab click / go-back: no marker, the tab keeps what it has.
+        assert_eq!(
+            resolve_tab_origin(None, Some(&board), Some(inbox.clone())),
+            Some(board.clone())
+        );
+        // … including "no list at all" (a rail-opened detail stays rail-side).
+        assert_eq!(resolve_tab_origin(None, None, Some(inbox.clone())), None);
+        // A real navigation takes the breadcrumb's answer, replacing the old.
+        assert_eq!(
+            resolve_tab_origin(
+                Some(&PendingOrigin::Derive),
+                Some(&board),
+                Some(inbox.clone())
+            ),
+            Some(inbox.clone())
+        );
+        // … and a breadcrumb with no list clears the tab's.
+        assert_eq!(
+            resolve_tab_origin(Some(&PendingOrigin::Derive), Some(&board), None),
+            None
+        );
+        // A RAIL row opens with no list, whatever is on screen.
+        assert_eq!(
+            resolve_tab_origin(Some(&PendingOrigin::Rail), Some(&board), Some(inbox.clone())),
+            None
+        );
+        // An explicit marker (deep link, OS notification) always wins.
+        assert_eq!(
+            resolve_tab_origin(
+                Some(&PendingOrigin::Explicit(board.clone())),
+                None,
+                Some(inbox)
+            ),
+            Some(board)
+        );
+    }
 
     /// EXP-781: closing a tab activates its own strip's neighbour and NOTHING
     /// else. The last session tab closing leaves the center empty rather than
@@ -3054,8 +3231,10 @@ mod tests {
             }
         }
 
-        // The production nesting (shell.rs `CenterPanel`): an `h_resizable`
-        // split whose right panel holds the screens panel. The resizable
+        // EXP-492/EXP-499's REGRESSION harness: the retired centre split
+        // (EXP-851 removed it from the app) — an `h_resizable` whose right
+        // panel holds the screens panel, the nesting that produced the
+        // collapse this test guards `pinned_panel_root` against. The resizable
         // panels are flex items with `flex_basis` fed BACK from prepaint
         // bounds via `ResizableState` — at widths where the bases mismatch
         // the container, taffy's flex resolution measures the panel CONTENT
@@ -3076,8 +3255,10 @@ mod tests {
                         .with_state(&self.state)
                         .child(
                             resizable_panel()
-                                .size(px(crate::sidebar::DEFAULT_DOCK_WIDTH))
-                                .size_range(px(crate::sidebar::MIN_DOCK_WIDTH)..px(880.))
+                                // The split's old defaults, inlined: the
+                                // constants went with the split itself.
+                                .size(px(520.))
+                                .size_range(px(320.)..px(880.))
                                 .child(div().size_full()),
                         )
                         .child(resizable_panel().child(self.probe.clone())),

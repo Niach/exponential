@@ -297,5 +297,9 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
   }
   // EXP-760: a sub-issue is one issues_create call with parentId.
   expect(playbook).toContain(`parentId`)
+  // EXP-856: the workflow rule. A second copy of a live lane, resumed by
+  // SendMessage into the same files, is the failure this sentence prevents.
+  expect(playbook).toContain(`never messaged`)
+  expect(playbook).toContain(`SendMessage`)
   expect(playbook).not.toContain(`\u2014`)
 })

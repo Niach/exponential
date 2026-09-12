@@ -30,6 +30,13 @@ vi.mock(`@/lib/trpc-client`, () => ({
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => mockState.navigate,
   useParams: () => ({ teamSlug: `acme` }),
+  // EXP-851: `useOpenComposer` reads the current screen + its `?from=` so the
+  // launch carries the origin it was started from — a context-free page here,
+  // so the composer URL stays exactly the seed.
+  useLocation: ({ select }: { select: (l: { pathname: string }) => unknown }) =>
+    select({ pathname: `/t/acme/devices` }),
+  useSearch: ({ select }: { select: (s: Record<string, unknown>) => unknown }) =>
+    select({}),
 }))
 
 vi.mock(`sonner`, () => ({

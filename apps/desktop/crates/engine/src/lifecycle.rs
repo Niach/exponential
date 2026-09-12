@@ -479,6 +479,10 @@ fn spawn_tickers(
             // EXP-848: the turn mirror — same forwarder, same retry, same
             // clear-on-teardown as `needs_input`.
             let mut agent_busy = steer::AgentBusyForwarder::new();
+            // EXP-850 §8: the synced `agent_caption` column — the same
+            // forwarder rule plus a 5 s floor, since a workflow's progress
+            // moves several times a second and this is a list's second line.
+            let mut caption = steer::CaptionForwarder::new();
             let mut blocked = steer::BlockedForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
             let hook: Option<steer::NeedsInputHook> = {
@@ -498,6 +502,15 @@ fn spawn_tickers(
                 let session_id = ctx.session_id.clone();
                 Some(Arc::new(move |busy| {
                     api::coding_sessions::set_agent_busy(&trpc, &session_id, busy).is_ok()
+                }))
+            };
+            // EXP-850 §8: same shape as the busy hook — a failed write is
+            // simply not confirmed and the forwarder retries it.
+            let caption_hook: Option<steer::CaptionHook> = {
+                let trpc = Arc::clone(&ctx.trpc);
+                let session_id = ctx.session_id.clone();
+                Some(Arc::new(move |caption: Option<&str>| {
+                    api::coding_sessions::set_agent_caption(&trpc, &session_id, caption).is_ok()
                 }))
             };
             // EXP-804: the same shape as the needs-input hook — a failed
@@ -527,6 +540,13 @@ fn spawn_tickers(
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
                 agent_busy.tick(!ctx.turn_signal.is_idle(), &busy_hook);
+                // EXP-850 §8: the caption of the newest RUNNING workflow —
+                // `None` while none runs, which is also what a turn end and
+                // the teardown below write.
+                {
+                    let held = ctx.caption_signal.get();
+                    caption.tick(held.as_deref(), &caption_hook);
+                }
                 {
                     // EXP-831 follow-up: a wall whose own reset stamp has
                     // passed is dropped here, so the synced row agrees with
@@ -567,6 +587,8 @@ fn spawn_tickers(
             needs_input.clear_on_teardown(&hook);
             // EXP-848: a run whose engine is gone is never working.
             agent_busy.clear_on_teardown(&busy_hook);
+            // EXP-850 §8: a run whose engine is gone runs no workflow either.
+            caption.clear_on_teardown(&caption_hook);
             blocked.clear_on_teardown(&blocked_hook);
         });
 }

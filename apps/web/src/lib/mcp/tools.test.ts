@@ -1276,6 +1276,14 @@ describe(`exponential_attachments_get`, () => {
       unknown
     >
     expect(payload.downloadUrl).toContain(`?token=`)
+    // EXP-854: what was inlined is stated in the payload. These bytes are not
+    // a decodable image, so the bound falls back to the ORIGINAL rather than
+    // dropping the picture (EXP-511) and says so.
+    expect(payload.inline).toEqual({
+      mimeType: `image/png`,
+      bytes: 4,
+      downscaled: false,
+    })
   })
 
   it(`inlines small text files next to the URL`, async () => {
