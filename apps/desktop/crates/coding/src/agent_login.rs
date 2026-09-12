@@ -9,11 +9,6 @@
 //! |--------|--------------------------------|------------------------------|
 //! | claude | `claude auth login --claudeai` | no TUI, no method picker     |
 //! | codex  | `codex login --device-auth`    | prints a URL + a device code |
-//! | pi     | bare `pi`, then `/login`       | no login command at all      |
-//!
-//! pi is LOCAL-ONLY: driving a TUI slash command is not something to do to a
-//! machine nobody is sitting at ([`login_plan`] still describes it, the
-//! remote executor refuses it).
 //!
 //! [`LoginProgress`] is the wire between the machine running the login and
 //! the client that asked for it: as soon as the sign-in URL is on screen the
@@ -53,11 +48,6 @@ pub struct LoginPlan {
     pub spawn: SpawnSpec,
     /// The terminal tab's title.
     pub title: String,
-    /// Sent into the PTY once [`Self::ready_anchor`] shows up — pi's
-    /// `/login\r`, nothing for the agents with a real login command.
-    pub typed_after_ready: Option<String>,
-    /// The on-screen marker that means "the CLI is accepting input".
-    pub ready_anchor: Option<String>,
 }
 
 /// The login plan for `agent`, against this machine's configured binaries.
@@ -77,24 +67,12 @@ pub fn login_plan(settings: &Settings, agent: CodingAgent, remote: bool) -> Logi
         CodingAgent::Claude => LoginPlan {
             spawn: SpawnSpec::new(program).args(["auth", "login", "--claudeai"]),
             title: "Sign in to Claude".to_string(),
-            typed_after_ready: None,
-            ready_anchor: None,
         },
         // Device auth prints a URL plus a short code — the shape a phone can
         // finish.
         CodingAgent::Codex => LoginPlan {
             spawn: SpawnSpec::new(program).args(["login", "--device-auth"]),
             title: "Sign in to Codex".to_string(),
-            typed_after_ready: None,
-            ready_anchor: None,
-        },
-        // pi has no login command: its `/login` is a slash command inside
-        // the running TUI, typed once the prompt appears.
-        CodingAgent::Pi => LoginPlan {
-            spawn: SpawnSpec::new(program),
-            title: "Sign in to pi".to_string(),
-            typed_after_ready: Some("/login\r".to_string()),
-            ready_anchor: Some(PI_PROMPT.to_string()),
         },
     };
     if remote {
@@ -103,29 +81,15 @@ pub fn login_plan(settings: &Settings, agent: CodingAgent, remote: bool) -> Logi
     plan
 }
 
-/// pi's input prompt.
-pub const PI_PROMPT: &str = "❯";
-
-/// Whether pi's prompt is on screen (the cue to type `/login`). Reads the
-/// LAST few rendered lines only: the anchor also appears inside pi's banner
-/// art and in earlier output.
-pub fn pi_prompt_ready(lines: &[String]) -> bool {
-    lines
-        .iter()
-        .rev()
-        .take(5)
-        .any(|line| line.trim_start().starts_with(PI_PROMPT))
-}
-
 /// What to warn about before switching accounts. Codex's logout REVOKES the
 /// session server-side (every other machine signed in with it loses access),
-/// so that one confirms; claude's is local and pi has no account at all.
+/// so that one confirms; claude's is local.
 pub fn warn_on_switch(agent: CodingAgent) -> Option<&'static str> {
     match agent {
         CodingAgent::Codex => Some(
             "Signing out of Codex revokes this session with OpenAI — other machines using it will need to sign in again.",
         ),
-        CodingAgent::Claude | CodingAgent::Pi => None,
+        CodingAgent::Claude => None,
     }
 }
 
@@ -135,9 +99,8 @@ pub fn logout(settings: &Settings, agent: CodingAgent) -> Result<(), String> {
     logout_in(settings, agent, None)
 }
 
-/// Sign `agent` OUT on this machine (the first half of a switch). pi has no
-/// logout — its credentials are provider files, and clearing them is not
-/// ours to do. `env` is the profile's config-dir pair
+/// Sign `agent` OUT on this machine (the first half of a switch). `env` is
+/// the profile's config-dir pair
 /// ([`agent_profiles::config_env`]) so a switch inside a profile signs out
 /// THAT login and never the ambient one; `None` = the ambient login.
 /// Blocking; `Err` carries a user-facing sentence.
@@ -149,7 +112,6 @@ pub fn logout_in(
     let args: &[&str] = match agent {
         CodingAgent::Claude => &["auth", "logout"],
         CodingAgent::Codex => &["logout"],
-        CodingAgent::Pi => return Ok(()),
     };
     let program = settings.resolved_path_for(agent);
     let mut cmd = terminal::process::background_command(&program);
@@ -192,21 +154,17 @@ pub struct LoginRequest {
     pub target: LoginTarget,
 }
 
-/// The sentence both hosts refuse a remote pi login with (the clients show
-/// a failed row's `result` verbatim).
-pub const PI_NO_REMOTE_LOGIN: &str = "pi has no remote sign-in";
+/// The sentences both hosts refuse a remote login with (the clients show a
+/// failed row's `result` verbatim).
 pub const UNKNOWN_AGENT: &str = "This machine does not know that agent.";
 pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
 
 /// Parse an `agent_login` payload: `{agent, switch: "true"|"false",
 /// profileId?, newProfileLabel?}`. `Err` carries the refusal sentence the
-/// command completes with. pi is refused outright: its `/login` is a slash
-/// command inside its TUI with nothing to hand back, and it has no profiles
-/// either.
+/// command completes with.
 pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
     let raw_agent = payload["agent"].as_str().unwrap_or_default();
     let agent = match CodingAgent::parse(raw_agent) {
-        Some(CodingAgent::Pi) => return Err(PI_NO_REMOTE_LOGIN.to_string()),
         Some(agent) => agent,
         // Byte-identical to the pre-profile refusals: a blank agent was a
         // malformed payload, an unknown one an unknown agent.
@@ -375,23 +333,14 @@ mod tests {
         let settings = Settings {
             claude_path: "/bin/claude".into(),
             codex_path: "/bin/codex".into(),
-            pi_path: "/bin/pi".into(),
             ..Settings::default()
         };
         let claude = login_plan(&settings, CodingAgent::Claude, false);
         assert_eq!(claude.spawn.program, "/bin/claude");
         assert_eq!(claude.spawn.args, vec!["auth", "login", "--claudeai"]);
-        assert_eq!(claude.typed_after_ready, None, "no picker to drive");
 
         let codex = login_plan(&settings, CodingAgent::Codex, false);
         assert_eq!(codex.spawn.args, vec!["login", "--device-auth"]);
-        assert_eq!(codex.typed_after_ready, None);
-
-        // pi has no login command: run it and type the slash command.
-        let pi = login_plan(&settings, CodingAgent::Pi, false);
-        assert!(pi.spawn.args.is_empty());
-        assert_eq!(pi.typed_after_ready.as_deref(), Some("/login\r"));
-        assert_eq!(pi.ready_anchor.as_deref(), Some("❯"));
     }
 
     /// EXP-695: a remote sign-in must not open a browser on the machine —
@@ -462,13 +411,10 @@ mod tests {
         assert_eq!(system.target, LoginTarget::System);
 
         // Refusals.
-        assert_eq!(
-            parse_login_payload(&serde_json::json!({"agent": "pi", "profileId": "0badf00d"})),
-            Err(PI_NO_REMOTE_LOGIN.to_string())
-        );
+        // EXP-849: a retired agent id is simply unknown now.
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "pi"})),
-            Err(PI_NO_REMOTE_LOGIN.to_string())
+            Err(UNKNOWN_AGENT.to_string())
         );
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "gemini"})),
@@ -490,7 +436,7 @@ mod tests {
 
     /// EXP-827: `system` resolves without touching the disk, an unknown id
     /// is refused, a new label creates the profile (indexed, NOT active)
-    /// and the login env points at its dir; pi has no profiles to log into.
+    /// and the login env points at its dir.
     #[test]
     fn login_profile_resolves_creates_and_refuses() {
         let dir = scratch_dir("resolve");
@@ -531,19 +477,6 @@ mod tests {
         assert_eq!(key, "CLAUDE_CONFIG_DIR");
         assert!(value.ends_with(&id));
 
-        // pi: no profiles, existing or new.
-        assert!(resolve_login_profile(
-            &dir,
-            CodingAgent::Pi,
-            &LoginTarget::Profile("0badf00d".to_string())
-        )
-        .is_err());
-        assert!(resolve_login_profile(
-            &dir,
-            CodingAgent::Pi,
-            &LoginTarget::NewProfile("Work".to_string())
-        )
-        .is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -565,23 +498,8 @@ mod tests {
     fn only_codex_warns_before_a_switch() {
         assert!(warn_on_switch(CodingAgent::Codex).is_some());
         assert_eq!(warn_on_switch(CodingAgent::Claude), None);
-        assert_eq!(warn_on_switch(CodingAgent::Pi), None);
     }
 
-    #[test]
-    fn pi_prompt_is_detected_only_at_the_bottom_of_the_screen() {
-        let ready = vec![
-            "pi 0.84.1".to_string(),
-            "".to_string(),
-            "❯ ".to_string(),
-        ];
-        assert!(pi_prompt_ready(&ready));
-        // The banner's own glyphs, far above the cursor, are not a prompt.
-        let mut booting = vec!["  ❯❯❯ pi".to_string()];
-        booting.extend((0..8).map(|n| format!("loading {n}")));
-        assert!(!pi_prompt_ready(&booting));
-        assert!(!pi_prompt_ready(&[]));
-    }
 
     #[test]
     fn login_progress_round_trips_through_the_result_text() {

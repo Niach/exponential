@@ -31,6 +31,11 @@ import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.modeChip
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
+import com.exponential.app.domain.TURN_STATE_ENDED
+import com.exponential.app.domain.TURN_STATE_STARTED
+import com.exponential.app.domain.agentWorking
+import com.exponential.app.domain.clearTurn
+import com.exponential.app.domain.label
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
@@ -58,6 +63,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -1306,6 +1312,138 @@ class AgentFeedTest {
                 items = emptyList(),
             ).rowClass,
         )
+    }
+
+    // ── EXP-846/847/848: the turn slot, subagent titles, tool previews ──────
+
+    @Test
+    fun `the turn slot is latest-wins state and defaults to ended`() {
+        // Nothing has been said about a turn yet: idle, so nothing pulses.
+        assertEquals(TURN_STATE_ENDED, ActivityFeedState().turnState)
+        assertEquals(listOf("started", "ended"), DomainContract.turnStateValues)
+
+        val started = ActivityFeedState()
+            .applying(narration("working"))
+            .applying(event("""{"kind":"turn","state":"started","at":1700000000000}"""))
+        assertEquals(TURN_STATE_STARTED, started.turnState)
+        // State beside the feed — never a row.
+        assertEquals(1, started.feed.size)
+
+        val ended = started.applying(event("""{"kind":"turn","state":"ended"}"""))
+        assertEquals(TURN_STATE_ENDED, ended.turnState)
+        assertEquals(1, ended.feed.size)
+
+        // A state this build cannot name leaves the slot standing.
+        val odd = started
+            .applying(event("""{"kind":"turn","state":"thinking"}"""))
+            .applying(event("""{"kind":"turn"}"""))
+        assertEquals(TURN_STATE_STARTED, odd.turnState)
+
+        // The session ending forces it back to idle.
+        assertEquals(TURN_STATE_ENDED, started.clearTurn().turnState)
+        assertSame(ended, ended.clearTurn())
+    }
+
+    @Test
+    fun `the working rule needs a live run mid-turn with nothing parked on it`() {
+        fun working(
+            live: Boolean = true,
+            sessionEnded: Boolean = false,
+            turnState: String = TURN_STATE_STARTED,
+            awaitingInput: Boolean = false,
+            needsInput: Boolean = false,
+            blocked: Boolean = false,
+            compacting: Boolean = false,
+        ) = agentWorking(
+            live, sessionEnded, turnState, awaitingInput, needsInput, blocked, compacting,
+        )
+
+        assertTrue(working())
+        // Every gate, one at a time.
+        assertFalse(working(live = false))
+        assertFalse(working(sessionEnded = true))
+        assertFalse(working(turnState = TURN_STATE_ENDED))
+        assertFalse(working(awaitingInput = true))
+        assertFalse(working(needsInput = true))
+        assertFalse(working(blocked = true))
+        assertFalse(working(compacting = true))
+    }
+
+    @Test
+    fun `a subagent carries the spawning call's description as its label`() {
+        val state = ActivityFeedState()
+            .applying(
+                event(
+                    """{"kind":"subagent","id":"s1","status":"started",
+                       "agentType":"explore","title":"Find the sync regression"}""",
+                ),
+            )
+            .applying(toolEvent("Read", subagentId = "s1"))
+        val marker = state.feed.first() as AgentFeedItem.Subagent
+        assertEquals("Find the sync regression", marker.title)
+
+        val run = collectSubagents(state.feed).single()
+        assertEquals("Find the sync regression", run.title)
+        // The description is the label; the type stays available as a caption.
+        assertEquals("Find the sync regression", run.label)
+        assertEquals("explore", run.agentType)
+
+        // A completed edge carrying none never erases it.
+        val closed = state.applying(
+            event("""{"kind":"subagent","id":"s1","status":"completed"}"""),
+        )
+        assertEquals("Find the sync regression", collectSubagents(closed.feed).single().label)
+
+        // No title anywhere: the label IS the agent type.
+        val untitled = ActivityFeedState().applying(subagentStartedEvent("s2"))
+        assertEquals("explore", collectSubagents(untitled.feed).single().label)
+    }
+
+    @Test
+    fun `a completed edge may be the first frame carrying the description`() {
+        val state = ActivityFeedState()
+            .applying(subagentStartedEvent("s1"))
+            .applying(
+                event(
+                    """{"kind":"subagent","id":"s1","status":"completed","title":"Audit the shapes"}""",
+                ),
+            )
+        val run = collectSubagents(state.feed).single()
+        assertTrue(run.completed)
+        assertEquals("Audit the shapes", run.label)
+    }
+
+    @Test
+    fun `a tool_update folds an Exponential preview onto its call`() {
+        val state = ActivityFeedState()
+            .applying(toolWithId("call-1", "other"))
+            .applying(
+                event(
+                    """{"kind":"tool_update","id":"call-1","status":"completed",
+                       "preview":{"identifier":"EXP-849","title":"Drop pi",
+                                  "url":"https://exp.test/i/1","count":3,"status":"in_review"}}""",
+                ),
+            )
+        val row = state.feed.single() as AgentFeedItem.Tool
+        assertTrue(row.settled)
+        val preview = row.preview!!
+        assertEquals("EXP-849", preview.identifier)
+        assertEquals("Drop pi", preview.title)
+        assertEquals("https://exp.test/i/1", preview.url)
+        assertEquals(3, preview.count)
+        assertEquals("in_review", preview.status)
+        // It weighs against the feed budget like the other folded payloads.
+        assertTrue(feedItemBytes(row) > feedItemBytes(row.copy(preview = null)))
+
+        // A later update carrying none keeps it; an empty object is no preview.
+        val kept = state.applying(
+            event("""{"kind":"tool_update","id":"call-1","diff":"- a\n+ b"}"""),
+        )
+        assertEquals(preview, (kept.feed.single() as AgentFeedItem.Tool).preview)
+        val none = ActivityFeedState()
+            .applying(toolWithId("call-2", "other"))
+            .applying(event("""{"kind":"tool_update","id":"call-2","preview":{}}"""))
+        assertNull((none.feed.single() as AgentFeedItem.Tool).preview)
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────

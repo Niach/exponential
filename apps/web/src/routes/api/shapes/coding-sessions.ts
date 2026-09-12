@@ -27,7 +27,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // a blocked run still reads `running`, so without this column every client
 // renders a silently stalled run as healthy), and `parent_session_id` for
 // EXP-818 (the run that spawned this one through `exponential_sessions_start`
-// — every client's session lists nest a child under its parent) — each a
+// — every client's session lists nest a child under its parent), and
+// `agent_busy` for EXP-848 (device-written turn state: every client's session
+// list keys its working spinner on it, because `running` alone says live, not
+// thinking) — each a
 // ONE-TIME shape-identity rotation (benign: small table, full resync; land in
 // one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
@@ -60,6 +63,7 @@ const CODING_SESSION_COLUMNS = [
   `resumed_from_id`,
   `parent_session_id`,
   `needs_input`,
+  `agent_busy`,
   `blocked`,
   `started_at`,
   `ended_at`,

@@ -482,7 +482,11 @@ fun IssueDetailScreen(
         val startAllowed = steerEnabled == true && permissions.isMember && state.board?.repositoryId != null
         val startUi: StartButtonUi? = when {
             !startAllowed -> null
-            ownSession != null -> StartButtonUi.Session(codingSessionDisplayState(ownSession, issue.prState))
+            ownSession != null -> StartButtonUi.Session(
+                codingSessionDisplayState(ownSession, issue.prState),
+                // EXP-848: the dot pulses only while the agent is mid-turn.
+                busy = ownSession.agentBusy,
+            )
             devices == null -> null
             else -> StartButtonUi.Start(enabled = devices.isNotEmpty())
         }

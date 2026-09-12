@@ -45,7 +45,7 @@ pub enum TabKind {
     /// only Action runs hold sync off.
     AgentShell,
     /// EXP-484: an agent CLI's own LOGIN command (`claude auth login
-    /// --claudeai`, `codex login --device-auth`, or pi's `/login` typed at
+    /// --claudeai` or `codex login --device-auth`, typed at
     /// its prompt), run in a visible tab so the user can complete the flow.
     /// Carries the agent id (plain string — the `terminal` crate has no
     /// coding/api types, §6.1). No `coding_sessions` row, no steer room; the

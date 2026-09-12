@@ -8,8 +8,8 @@
 //! |--------|--------------------------------------------------------------|
 //! | Agents | Default agent, then one TAB per agent: CLI path + model +    |
 //! |        | effort, the agent's own toggles — Claude: ultracode, plan    |
-//! |        | mode; Codex: none; pi: plan mode (EXP-690: every run         |
-//! |        | bypasses permissions, no toggle) — and (EXP-694) this        |
+//! |        | mode; Codex: none (EXP-690: every run bypasses permissions,  |
+//! |        | no toggle) — and (EXP-694) this                              |
 //! |        | machine's account + usage rows for that agent                |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
@@ -103,9 +103,6 @@ pub struct AgentsPane {
     codex_input: Entity<InputState>,
     codex_model_select: ChoiceSelect,
     codex_effort_select: ChoiceSelect,
-    pi_input: Entity<InputState>,
-    pi_model_select: ChoiceSelect,
-    pi_thinking_select: ChoiceSelect,
     /// Which agent tab of the Agents card is showing — pure UI state, not
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
@@ -114,7 +111,6 @@ pub struct AgentsPane {
     /// box, everything else OFF.
     claude_ultracode: bool,
     claude_plan_mode: bool,
-    pi_plan_mode: bool,
     /// The hub settings the controls were last synced from (the autosave
     /// baseline: a control rewrite the pane itself performed drafts back to
     /// it and writes nothing).
@@ -136,8 +132,6 @@ impl AgentsPane {
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
         let codex_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
-        let pi_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_PI_PATH));
         let defaults = Settings::default();
         let agent_select =
             choice_select(&AGENT_CHOICES, defaults.default_agent.id(), window, cx);
@@ -165,18 +159,6 @@ impl AgentsPane {
             window,
             cx,
         );
-        let pi_model_select = choice_select(
-            model_choices_for(CodingAgent::Pi),
-            &defaults.pi_model,
-            window,
-            cx,
-        );
-        let pi_thinking_select = choice_select(
-            effort_choices_for(CodingAgent::Pi),
-            &defaults.pi_thinking,
-            window,
-            cx,
-        );
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
@@ -187,7 +169,7 @@ impl AgentsPane {
                 cx.notify();
             }),
         ];
-        for input in [&claude_input, &codex_input, &pi_input] {
+        for input in [&claude_input, &codex_input] {
             // EXP-694 autosave: typing settles, a blur commits.
             subscriptions.push(cx.subscribe(input, |this: &mut Self, _, event: &InputEvent, cx| {
                 match event {
@@ -207,8 +189,6 @@ impl AgentsPane {
             &effort_select,
             &codex_model_select,
             &codex_effort_select,
-            &pi_model_select,
-            &pi_thinking_select,
         ] {
             // EXP-694 autosave: confirming a choice IS the save (the baseline
             // guard in `save` swallows the pane's own rewrites).
@@ -229,13 +209,9 @@ impl AgentsPane {
             codex_input,
             codex_model_select,
             codex_effort_select,
-            pi_input,
-            pi_model_select,
-            pi_thinking_select,
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
-            pi_plan_mode: defaults.pi_plan_mode,
             externals: Vec::new(),
             synced: None,
             path_save: None,
@@ -253,16 +229,12 @@ impl AgentsPane {
         onto.default_agent = from.default_agent;
         onto.claude_path = from.claude_path.clone();
         onto.codex_path = from.codex_path.clone();
-        onto.pi_path = from.pi_path.clone();
         onto.claude_model = from.claude_model.clone();
         onto.claude_effort = from.claude_effort.clone();
         onto.codex_model = from.codex_model.clone();
         onto.codex_effort = from.codex_effort.clone();
-        onto.pi_model = from.pi_model.clone();
-        onto.pi_thinking = from.pi_thinking.clone();
         onto.claude_ultracode = from.claude_ultracode;
         onto.claude_plan_mode = from.claude_plan_mode;
-        onto.pi_plan_mode = from.pi_plan_mode;
         onto.external_agents = from.external_agents.clone();
     }
 
@@ -287,9 +259,6 @@ impl AgentsPane {
         self.codex_input.update(cx, |input, cx| {
             input.set_value(settings.codex_path.clone(), window, cx)
         });
-        self.pi_input.update(cx, |input, cx| {
-            input.set_value(settings.pi_path.clone(), window, cx)
-        });
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
         self.agent_select.update(cx, |select, cx| {
@@ -304,8 +273,6 @@ impl AgentsPane {
             (&self.effort_select, settings.claude_effort.clone()),
             (&self.codex_model_select, settings.codex_model.clone()),
             (&self.codex_effort_select, settings.codex_effort.clone()),
-            (&self.pi_model_select, settings.pi_model.clone()),
-            (&self.pi_thinking_select, settings.pi_thinking.clone()),
         ] {
             select.update(cx, |select, cx| {
                 select.set_selected_value(&SharedString::from(value), window, cx)
@@ -313,7 +280,6 @@ impl AgentsPane {
         }
         self.claude_ultracode = settings.claude_ultracode;
         self.claude_plan_mode = settings.claude_plan_mode;
-        self.pi_plan_mode = settings.pi_plan_mode;
         // EXP-746: rebuild the external rows only when the FILE says
         // something the editor does not — rebuilding them on every resync
         // would replace the input entities under a cursor mid-word.
@@ -350,16 +316,12 @@ impl AgentsPane {
                 .unwrap_or_default(),
             claude_path: value(&self.claude_input, &defaults.claude_path),
             codex_path: value(&self.codex_input, &defaults.codex_path),
-            pi_path: value(&self.pi_input, &defaults.pi_path),
             claude_model: selected(&self.model_select, cx),
             claude_effort: selected(&self.effort_select, cx),
             codex_model: selected(&self.codex_model_select, cx),
             codex_effort: selected(&self.codex_effort_select, cx),
-            pi_model: selected(&self.pi_model_select, cx),
-            pi_thinking: selected(&self.pi_thinking_select, cx),
             claude_ultracode: self.claude_ultracode,
             claude_plan_mode: self.claude_plan_mode,
-            pi_plan_mode: self.pi_plan_mode,
             external_agents: self.drafted_externals(cx),
             ..defaults
         };
@@ -630,7 +592,7 @@ impl AgentsPane {
         section(cx)
             .child(card_header(
                 "External agents",
-                "ACP-speaking binaries this machine may run beside Claude, Codex and pi. \
+                "ACP-speaking binaries this machine may run beside Claude and Codex. \
                  They start from the Start-coding dialog on this machine only.",
                 cx,
             ))
@@ -686,7 +648,7 @@ impl AgentsPane {
         let (accounts, usage) = own_agent_status(cx);
         let account = accounts.get(agent_tab.id());
         let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
-        let affordance = login_affordance(agent_tab, true, true, &[], signed_in);
+        let affordance = login_affordance(true, true, &[], signed_in);
         let account_rows = agent_account_rows(
             agent_tab,
             account,
@@ -710,11 +672,6 @@ impl AgentsPane {
                 &self.codex_input,
                 self.codex_model_select.clone(),
                 self.codex_effort_select.clone(),
-            ),
-            CodingAgent::Pi => (
-                &self.pi_input,
-                self.pi_model_select.clone(),
-                self.pi_thinking_select.clone(),
             ),
         };
         let path_row = surface::glass_input_row(
@@ -761,18 +718,6 @@ impl AgentsPane {
                     },
                 ));
         }
-        if agent_tab == CodingAgent::Pi {
-            group = group.toggle(DefaultsToggle::new(
-                "pi-plan-mode",
-                "Plan mode",
-                self.pi_plan_mode,
-                |this: &mut Self, on, cx| {
-                    this.pi_plan_mode = on;
-                    this.save(cx);
-                },
-            ));
-        }
-
         section(cx).child(card_title("Agents")).child(
             // 8px between the two groups (EXP-694's group rhythm).
             v_flex()

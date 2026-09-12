@@ -118,7 +118,7 @@ describe(`device launch defaults`, () => {
       deviceDefaultAgent(
         server({
           agents: [`codex`],
-          launchDefaults: { defaultAgent: `pi`, agents: {} },
+          launchDefaults: { defaultAgent: `claude`, agents: {} },
         })
       )
     ).toBe(null)
@@ -132,6 +132,8 @@ describe(`device launch defaults`, () => {
       model: ``,
       effort: `high`,
     })
+    // An agent the advertisement has no entry for (EXP-849: `pi` is retired,
+    // historical rows still name it).
     expect(deviceAgentLaunchDefaults(advertising, `pi`)).toBe(null)
     expect(deviceAgentLaunchDefaults(server(), `claude`)).toBe(null)
   })
@@ -156,12 +158,14 @@ describe(`device launch defaults`, () => {
       ultracode: false,
       planMode: false,
     })
-    // Capability masking beats a lying advertisement: pi never ultracodes,
-    // but its advertised plan default rides through (EXP-441).
-    expect(agentSeed(`pi`, { planMode: true, ultracode: true })).toEqual({
-      model: ``,
+    // Capability masking beats a lying advertisement: claude ultracodes and
+    // plans, codex does neither.
+    expect(
+      agentSeed(`claude`, { model: `fable`, planMode: true, ultracode: true })
+    ).toEqual({
+      model: `fable`,
       effort: ``,
-      ultracode: false,
+      ultracode: true,
       planMode: true,
     })
     // Codex never plans.
@@ -597,7 +601,8 @@ describe(`acp agents (EXP-749)`, () => {
     expect(deviceAcpAgentIds(mapped)).toEqual([`claude`])
     expect(deviceAgentNotReady(mapped, `codex`)).toBe(true)
     expect(deviceAgentNotReady(mapped, `claude`)).toBe(false)
-    // Not runnable there at all is equally unstartable.
+    // Not runnable there at all is equally unstartable (EXP-849: a retired
+    // agent id from a historical row).
     expect(deviceAgentNotReady(mapped, `pi`)).toBe(true)
     // No agent picked yet is never a claim.
     expect(deviceAgentNotReady(mapped, ``)).toBe(false)

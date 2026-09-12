@@ -39,8 +39,8 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.ui.issue.LiveDot
 import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.PulsingDot
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.relativeTime
@@ -253,7 +253,11 @@ private fun AgentSessionRow(
                         when {
                             paused -> StaticDot(LostGray)
                             else -> when (state) {
-                                CodingSessionDisplayState.Running -> PulsingDot()
+                                // EXP-848: the pulse means MID-TURN, off the
+                                // synced agent_busy flag — a live run between
+                                // turns is steady, not forever "working".
+                                CodingSessionDisplayState.Running ->
+                                    LiveDot(busy = session.agentBusy)
                                 CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
                                 CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
                                 CodingSessionDisplayState.Done -> StaticDot(DoneBlue)

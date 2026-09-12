@@ -488,7 +488,7 @@ function AccountCard({
  * CHECK when the account is the ACTIVE login on that machine. A chip of one
  * of MY machines that can run a sign-in opens a menu: "Switch account on X"
  * (signed in) or "Sign in on X" (`canLogin` — the device-agent-account rule:
- * online, the `agent-login` cap, never pi). */
+ * online plus the `agent-login` cap). */
 function DeviceChip({
   row,
   now,
@@ -511,7 +511,6 @@ function DeviceChip({
   const canLogin =
     device !== null &&
     row.online &&
-    row.agent !== `pi` &&
     deviceCanAgentLogin({ caps: device.caps ?? [] })
   if (!canLogin) {
     return (

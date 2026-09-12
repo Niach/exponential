@@ -66,7 +66,11 @@ struct CodingNowCard: View {
                 // 40% tone border) and the IDE draw. The pulsing dot rides its
                 // leading slot while the run is live; the parked states get
                 // the pill's own static `dot:`.
-                if state == .running {
+                // EXP-848: the dot pulses only while a turn is open — a live
+                // run sitting idle gets the pill's own static dot.
+                if CodingSessionDisplayState.pulses(
+                    state: state, agentBusy: session.agentBusy
+                ) {
                     GlassPill(label, size: .sm, tint: tint) {
                         PulsingLiveDot(size: GlassPillTokens.dotSize)
                     }

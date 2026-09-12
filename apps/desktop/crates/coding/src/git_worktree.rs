@@ -495,7 +495,7 @@ from it would force-push those away."
 /// covers them all — and unlike `.gitignore` it is never committed.
 ///
 /// Best-effort coverage for the NON-secret seed files the launcher drops
-/// next to the checkout (`.exp-pi-*.ts`, `.exp-agents`, `PROMPT.md`): a
+/// next to the checkout (`.exp-mcp.json`, `.exp-agents`, `PROMPT.md`): a
 /// missing/at-odds `.git` layout only skips the write (the launch itself
 /// must not fail on it). The secret-carrying `.exp-mcp.json` is guarded by
 /// [`ensure_ignored`] at its write site instead (EXP-474) — resolved from

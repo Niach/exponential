@@ -1,4 +1,0 @@
-{"type":"tool_execution_end","toolCallId":"call-1","toolName":"edit","result":{"output":"1 edit applied"},"isError":false}
-{"type":"turn_end","message":{"role":"assistant","stopReason":"stop","usage":{"input":900,"output":334,"totalTokens":1234,"cost":{"input":0.01,"output":0.0025,"total":0.0125}}},"toolResults":[]}
-{"type":"agent_end","messages":[],"willRetry":false}
-{"type":"agent_settled"}

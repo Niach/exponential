@@ -241,8 +241,7 @@ fun worktreePruneCommand(deviceId: String): JsonObject = buildJsonObject {
  * The `agent_login` input for [DevicesApi.createCommand] (EXP-484) — ask the
  * machine to run [agent]'s OWN sign-in flow and publish the login URL (plus
  * the codex device code) back as the command result. [switchAccount] signs the
- * current account out first; the server refuses the whole command for `pi`,
- * which has no remote sign-in. Gated on [SteerDevice.canAgentLogin].
+ * current account out first. Gated on [SteerDevice.canAgentLogin].
  */
 fun agentLoginCommand(deviceId: String, agent: String, switchAccount: Boolean): JsonObject =
     buildJsonObject {
@@ -256,7 +255,7 @@ fun agentLoginCommand(deviceId: String, agent: String, switchAccount: Boolean): 
  * The `agent_login_code` input for [DevicesApi.createCommand] (EXP-765) — hand
  * the authorization code the browser showed back to the sign-in still waiting
  * on the machine, which types it into that login's prompt. The server trims
- * [code] and refuses an empty one and `pi`.
+ * [code] and refuses an empty one.
  */
 fun agentLoginCodeCommand(deviceId: String, agent: String, code: String): JsonObject =
     buildJsonObject {

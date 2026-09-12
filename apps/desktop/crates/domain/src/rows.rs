@@ -535,7 +535,7 @@ pub struct CodingSession {
     /// `running` / `in_review` / `ended` — raw wire value (contract-locked).
     #[serde(default)]
     pub status: Option<String>,
-    /// EXP-484: the agent CLI running it (`claude`/`codex`/`pi`) — raw wire
+    /// EXP-484: the agent CLI running it (`claude`/`codex`) — raw wire
     /// value; `None` on rows written before the column existed.
     #[serde(default)]
     pub agent: Option<String>,
@@ -543,6 +543,14 @@ pub struct CodingSession {
     /// plan-approval / AskUserQuestion picker and waits for a human.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub needs_input: Option<bool>,
+    /// EXP-848: device-written like `needs_input` — the agent is executing a
+    /// turn RIGHT NOW (the engine's `turn` edges mirror onto it). Orthogonal
+    /// to `status`: a `running` row between turns, parked on a question or
+    /// walled by a rate limit is NOT busy, and every session list keys its
+    /// working spinner on this rather than on the status. Absent on rows
+    /// written before the column existed, which reads as not busy.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub agent_busy: Option<bool>,
     /// EXP-804 jsonb `{kind, agent, window, resetsAt, since}` — the agent's
     /// usage wall as row state; `None` = not blocked. Orthogonal to `status`
     /// exactly like `needs_input` above: a blocked run still reads `running`
@@ -878,7 +886,7 @@ impl DeviceRow {
     }
 
     /// EXP-484: this machine's account row for `agent` (`claude`/`codex`/
-    /// `pi`), still as the raw wire object — `domain` deliberately does not
+    /// `codex`), still as the raw wire object — `domain` deliberately does not
     /// depend on `coding`, so the typed shape stays there and callers
     /// deserialize what they need.
     pub fn agent_account(&self, agent: &str) -> Option<&serde_json::Value> {
@@ -1069,7 +1077,7 @@ mod tests {
             "dev@acme.test"
         );
         assert_eq!(row.agent_account("codex").unwrap()["signedIn"], false);
-        assert_eq!(row.agent_account("pi"), None);
+        assert_eq!(row.agent_account("gemini"), None);
         assert_eq!(
             row.agent_usage_for("claude").unwrap()["windows"][0]["percent"],
             42
@@ -1096,16 +1104,13 @@ mod tests {
         // TEXT-stored jsonb, like every other list column.
         let row: DeviceRow = serde_json::from_value(json!({
             "id": "row-1",
-            "agents": "[\"claude\",\"codex\",\"pi\"]",
-            "acp_agents": "[\"claude\",\"codex\"]",
+            "agents": "[\"claude\",\"codex\"]",
+            "acp_agents": "[\"claude\"]",
         }))
         .unwrap();
-        assert_eq!(
-            row.acp_agent_ids(),
-            Some(vec!["claude".to_string(), "codex".to_string()])
-        );
+        assert_eq!(row.acp_agent_ids(), Some(vec!["claude".to_string()]));
         assert!(!row.agent_cannot_run_session("claude"));
-        assert!(row.agent_cannot_run_session("pi"));
+        assert!(row.agent_cannot_run_session("codex"));
         // An agent the machine cannot run at all is the launch gate's
         // business, not this note.
         assert!(!row.agent_cannot_run_session("nope"));

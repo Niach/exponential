@@ -83,7 +83,8 @@ private struct CreateCommandInput: Encodable {
     let kind: String
     let repoFullName: String?
     let branch: String?
-    /// EXP-484: contract `codingAgent` id for `agent_login` (`pi` is refused
+    /// EXP-484: contract `codingAgent` id for `agent_login` (an id outside
+    /// the contract is refused
     /// server-side — it has no remote sign-in).
     let agent: String?
     /// EXP-484: sign out first, then sign in as somebody else. `switch` is a

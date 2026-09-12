@@ -78,12 +78,14 @@ import kotlinx.coroutines.flow.collectLatest
 
 // What the right-hand start circle renders (EXP-240): the play launcher
 // (dimmed while no desktop is online), the in-flight spinner, or the live
-// session's state dot (reusing PulsingDot/StaticDot). Null hides the circle
+// session's state dot (reusing LiveDot/StaticDot). Null hides the circle
 // (steer off / non-member / repo-less board) — the screen owns the mapping.
 sealed interface StartButtonUi {
     data class Start(val enabled: Boolean) : StartButtonUi
     data object Sending : StartButtonUi
-    data class Session(val state: CodingSessionDisplayState) : StartButtonUi
+    /** EXP-848: [busy] is the run's synced `agent_busy` — the dot pulses only
+     *  while the agent is mid-turn. */
+    data class Session(val state: CodingSessionDisplayState, val busy: Boolean = false) : StartButtonUi
 }
 
 // The four signals collapse-on-blur watches, as one snapshotFlow value (Kotlin
@@ -349,7 +351,8 @@ private fun CollapsedBar(
                             contentAlignment = Alignment.Center,
                         ) {
                             when (startButton.state) {
-                                CodingSessionDisplayState.Running -> PulsingDot(size = 8.dp)
+                                CodingSessionDisplayState.Running ->
+                                    LiveDot(busy = startButton.busy, size = 8.dp)
                                 CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber, size = 8.dp)
                                 CodingSessionDisplayState.Review -> StaticDot(ReviewGreen, size = 8.dp)
                                 CodingSessionDisplayState.Done -> StaticDot(DoneBlue, size = 8.dp)

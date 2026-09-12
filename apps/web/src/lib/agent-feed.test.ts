@@ -9,7 +9,11 @@ import {
   parseRateLimit,
   parseSessionUsage,
   parseToolKind,
+  parseToolPreview,
+  parseTurnState,
   rateLimitClears,
+  sessionIsWorking,
+  subagentLabel,
   feedItemBytes,
   TOOL_KINDS,
   answerKey,
@@ -1112,8 +1116,8 @@ describe(`config state`, () => {
     expect(modeChip(blank)?.valueLabel).toBe(CONFIG_DEFAULT_VALUE_LABEL)
   })
 
-  // EXP-772: the claude/pi pair draws a Plan SWITCH; anything else keeps the
-  // two-value chip.
+  // EXP-772: the plan + one-other pair draws a Plan SWITCH; anything else
+  // keeps the two-value chip.
   it(`planModeToggle recognizes the plan + one other pair`, () => {
     expect(planModeToggle(parseConfigState(state()))).toEqual({
       planId: `plan`,
@@ -1630,5 +1634,79 @@ describe(`rate-limit banner (EXP-784)`, () => {
     expect(
       rateLimitBanner({ status: `rejected`, resetsAt: 1_700_000_000 + 45 * 60 }, now)?.resets
     ).toBe(`resets in 45m`)
+  })
+})
+
+// EXP-848/847/846: the turn slot, the working predicate and the two optional
+// wire fields. Mirrored ×4 (desktop `feed.rs`, iOS + Android `AgentFeed`).
+describe(`turn state + working predicate (EXP-848)`, () => {
+  const base = {
+    live: true,
+    sessionEnded: false,
+    turnState: `started` as const,
+    awaitingInput: false,
+    needsInput: false,
+    blocked: false,
+    compacting: false,
+  }
+
+  it(`parseTurnState takes only contract values`, () => {
+    expect(parseTurnState({ kind: `turn`, state: ` started ` })).toBe(`started`)
+    expect(parseTurnState({ kind: `turn`, state: `ended` })).toBe(`ended`)
+    expect(parseTurnState({ kind: `turn`, state: `thinking` })).toBeNull()
+    expect(parseTurnState({ kind: `turn` })).toBeNull()
+    expect(parseTurnState(null)).toBeNull()
+    expect([...contract.turnState.values]).toEqual([`started`, `ended`])
+  })
+
+  it(`works only mid-turn, and every blocker stands it down`, () => {
+    expect(sessionIsWorking(base)).toBe(true)
+    expect(sessionIsWorking({ ...base, turnState: `ended` })).toBe(false)
+    expect(sessionIsWorking({ ...base, live: false })).toBe(false)
+    expect(sessionIsWorking({ ...base, sessionEnded: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, awaitingInput: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, needsInput: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, blocked: true })).toBe(false)
+    expect(sessionIsWorking({ ...base, compacting: true })).toBe(false)
+  })
+
+  it(`subagentLabel prefers the spawning call's title (EXP-847)`, () => {
+    expect(subagentLabel({ agentType: `general-purpose`, title: ` Audit ` })).toBe(
+      `Audit`
+    )
+    expect(subagentLabel({ agentType: `general-purpose`, title: `  ` })).toBe(
+      `general-purpose`
+    )
+    expect(subagentLabel({ agentType: `general-purpose` })).toBe(`general-purpose`)
+    expect(
+      summarizeSubagentRow([
+        { kind: `subagent`, agentType: `general-purpose`, status: `started`, title: `Audit` },
+        { kind: `subagent`, agentType: `general-purpose`, status: `completed` },
+      ]).title
+    ).toBe(`Audit`)
+  })
+
+  it(`parseToolPreview keeps the named fields, clamped (EXP-846)`, () => {
+    expect(
+      parseToolPreview({
+        id: ` abc `,
+        identifier: `EXP-848`,
+        title: `t`.repeat(400),
+        url: `https://example.test/pr/1`,
+        status: `open`,
+        count: 2.6,
+        extra: `dropped`,
+      })
+    ).toEqual({
+      id: `abc`,
+      identifier: `EXP-848`,
+      title: `t`.repeat(200),
+      url: `https://example.test/pr/1`,
+      status: `open`,
+      count: 3,
+    })
+    expect(parseToolPreview({ count: 0 })).toEqual({ count: 0 })
+    expect(parseToolPreview({ title: `   `, count: -2 })).toBeNull()
+    expect(parseToolPreview(null)).toBeNull()
   })
 })

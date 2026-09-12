@@ -119,10 +119,8 @@ pub fn run(
     codes: CodeInbox,
     doctor_soon: Arc<AtomicBool>,
 ) {
-    // pi's `/login` is a slash command inside its TUI that opens a provider
-    // flow with no remote-finishable handle (the server refuses it too —
-    // this is the belt to that suspenders); the parser refuses it with the
-    // sentence the clients show verbatim.
+    // An unknown agent or a malformed payload is refused with the sentence
+    // the clients show verbatim.
     let request = match agent_login::parse_login_payload(&command.payload) {
         Ok(request) => request,
         Err(message) => {
@@ -156,7 +154,7 @@ pub fn run(
         .spawn(move || {
             // EXP-827: the profile this login lands on, created here when
             // the payload asked for a new one. A refused target (unknown
-            // id, pi) is the completion; nothing is spawned.
+            // id) is the completion; nothing is spawned.
             let outcome = match agent_login::resolve_login_profile(&data_dir, agent, &target) {
                 Err(message) => Some((false, message)),
                 Ok(profile_id) => {
@@ -399,16 +397,17 @@ mod tests {
         assert!(tx.send("late".to_string()).is_err());
     }
 
-    /// pi is refused with the sentence the clients show verbatim, and an
-    /// unknown agent never reaches a PTY either. EXP-827: the same parse
+    /// An unknown agent never reaches a PTY, with the sentence the clients
+    /// show verbatim. EXP-827: the same parse
     /// reads the profile half of the payload: an existing id, a new
     /// label, or neither (the ambient login).
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
         use coding::agent_login::{parse_login_payload, LoginTarget};
+        // EXP-849: a retired agent id is simply unknown now.
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "pi", "switch": "false"})),
-            Err("pi has no remote sign-in".to_string())
+            Err("This machine does not know that agent.".to_string())
         );
         assert!(parse_login_payload(&serde_json::json!({"switch": "false"})).is_err());
         let claude = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
@@ -427,9 +426,9 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(fresh.target, LoginTarget::NewProfile("Work".to_string()));
-        // pi is refused before its profile half is even looked at.
+        // An unknown agent is refused before its profile half is looked at.
         assert!(parse_login_payload(&serde_json::json!({
-            "agent": "pi", "newProfileLabel": "Work"
+            "agent": "gemini", "newProfileLabel": "Work"
         }))
         .is_err());
     }

@@ -152,7 +152,7 @@ pub struct RemoteStart {
     /// server registers `exponential_sessions_end` for it and that call ends
     /// it. Absent = a person asked for the start.
     pub started_reason: Option<String>,
-    /// EXP-201: the agent the remote client picked (`claude`/`codex`/`pi`).
+    /// EXP-201: the agent the remote client picked (`claude`/`codex`).
     /// Absent/unknown = claude (the pre-EXP-201 behavior).
     pub agent: Option<String>,
     pub model: Option<String>,

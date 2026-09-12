@@ -2,6 +2,7 @@ package com.exponential.app.data.db
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -295,5 +296,43 @@ class CodingSessionEntityDecodeTest {
         assertNull(nullEntity.prUrl)
         assertNull(nullEntity.prNumber)
         assertNull(nullEntity.prState)
+    }
+
+    // EXP-848: agent_busy — the device-written "mid-turn" flag beside
+    // needs_input. A pre-EXP-848 server sends neither key; both must read as
+    // false (nothing pulses on a row that never said it was busy).
+    @Test
+    fun `agent_busy decodes like needs_input and defaults false`() {
+        fun row(extra: String) = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running"$extra,
+              "started_at": "2026-09-12 10:00:00+00",
+              "created_at": "2026-09-12 10:00:00+00",
+              "updated_at": "2026-09-12 10:00:00+00"
+            }
+        """.trimIndent()
+        // Electric's boolean wire form, and the tRPC-shaped camelCase twin.
+        assertTrue(
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agent_busy\": \"t\""),
+            ).agentBusy,
+        )
+        assertFalse(
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agent_busy\": \"f\""),
+            ).agentBusy,
+        )
+        assertTrue(
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agentBusy\": true"),
+            ).agentBusy,
+        )
+        assertFalse(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentBusy)
     }
 }

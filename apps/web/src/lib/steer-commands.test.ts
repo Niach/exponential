@@ -29,9 +29,11 @@ describe(`steerCommandsFor`, () => {
     const codex = steerCommandsFor(`codex`).map((c) => c.name)
     expect(claude).toEqual([`compact`, `clear`])
     // Every agent sees the same two rows — the desktop maps `/clear` per
-    // agent (pi runs it natively).
+    // agent.
     expect(codex).toEqual(claude)
-    expect(steerCommandsFor(`pi`).map((c) => c.name)).toEqual(claude)
+    // EXP-849: a retired agent (historical rows still carry `pi`) gets the
+    // empty catalog, like any unknown id.
+    expect(steerCommandsFor(`pi`)).toEqual([])
     // Catalog order is preserved (a prefix of the full list's order).
     const order = STEER_COMMANDS.map((c) => c.name)
     expect(claude).toEqual(order.filter((n) => claude.includes(n)))
@@ -58,7 +60,7 @@ describe(`steerCommandsFor`, () => {
 describe(`steerAgentId`, () => {
   it(`an agent-less acp run is an external agent`, () => {
     // The sentinel is outside the contract on purpose: the curated rows
-    // describe claude/codex/pi behaviour, and an external agent's own
+    // describe claude/codex behaviour, and an external agent's own
     // catalog is whatever it advertises.
     expect(contract.codingAgent.values).not.toContain(EXTERNAL_STEER_AGENT)
     expect(steerAgentId(null, true)).toBe(EXTERNAL_STEER_AGENT)
@@ -76,7 +78,7 @@ describe(`steerAgentId`, () => {
 
   it(`a row that names its agent keeps it, ACP or not`, () => {
     expect(steerAgentId(`codex`, true)).toBe(`codex`)
-    expect(steerAgentId(` pi `, true)).toBe(`pi`)
+    expect(steerAgentId(` codex `, true)).toBe(`codex`)
     expect(steerAgentId(`claude`, false)).toBe(`claude`)
   })
 

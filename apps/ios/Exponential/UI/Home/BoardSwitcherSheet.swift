@@ -126,7 +126,9 @@ struct BoardSwitcherSheet: View {
                     state: CodingSessionDisplayState.of(
                         session: session, prState: issue?.prState ?? session.prState
                     ),
-                    paused: ended
+                    paused: ended,
+                    // EXP-848: pulses only while a turn is open.
+                    busy: session.agentBusy
                 )
             case let .action(_, action):
                 AppIcon(action.icon ?? AppIcons.actionDefault, size: 16)

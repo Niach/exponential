@@ -649,6 +649,11 @@ struct StreamedBlock {
 struct TaskEntry {
     tool_use_id: Option<String>,
     subagent_type: Option<String>,
+    /// EXP-847: the spawning `Agent` call's own `description` (its `name` as a
+    /// fallback) — read off the tool table at `task_started` and kept HERE,
+    /// because the tool RESULT takes the table entry away and the completed
+    /// edge must still name the subagent.
+    title: Option<String>,
     live: bool,
     /// `task_started.is_backgrounded`: the model did NOT stop for this one, so
     /// the main thread keeps running (and asking) beside it.
@@ -908,7 +913,7 @@ impl ClaudeSession {
             Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => {
                 Some(native.clone().unwrap_or_else(|| id.clone()))
             }
-            Some(ResumeHandle::PiSessionFile(_)) | None => None,
+            None => None,
         };
         let resume = resume.map(str::to_string).or(recorded);
         // The pin: claude's own uuid, minted in `new` and NEVER the ACP id.
@@ -1203,6 +1208,7 @@ impl ClaudeSession {
             task.last_status = Some("failed".to_string());
             let tool_use_id = task.tool_use_id.clone();
             let subagent_type = task.subagent_type.clone();
+            let title = task.title.clone();
             log::warn!("engine: claude task {task_id} never reported back; retiring it");
             self.publish_subagent(
                 cx,
@@ -1210,6 +1216,7 @@ impl ClaudeSession {
                 tool_use_id.as_deref(),
                 subagent_type.as_deref(),
                 "failed",
+                title.as_deref(),
             );
         }
     }
@@ -1415,15 +1422,21 @@ impl ClaudeSession {
         tool_use_id: Option<&str>,
         agent_type: Option<&str>,
         status: &str,
+        title: Option<&str>,
     ) {
         // The edge rides a no-op patch of the tool call that spawned the
         // subagent, so a client that ignores the meta sees nothing at all.
         let id = tool_use_id.unwrap_or(task_id);
         let mut meta = Map::new();
-        meta.insert(
-            SUBAGENT_META_KEY.to_string(),
-            json!({ "id": id, "agentType": agent_type, "status": status }),
-        );
+        let mut edge = Map::new();
+        edge.insert("id".to_string(), json!(id));
+        edge.insert("agentType".to_string(), json!(agent_type));
+        edge.insert("status".to_string(), json!(status));
+        // EXP-847: omitted rather than null when the call named nothing.
+        if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
+            edge.insert("title".to_string(), json!(title));
+        }
+        meta.insert(SUBAGENT_META_KEY.to_string(), Value::Object(edge));
         self.notify_meta(
             cx,
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
@@ -1790,11 +1803,19 @@ impl ClaudeSession {
                     .unwrap_or(false);
                 let mut state = self.lock();
                 let turn_seq = state.turn_seq;
+                // EXP-847: the `Agent` call's own words for the job, off the
+                // tool table the `content_block_start` filled. Read ONCE here:
+                // the tool result takes the entry away.
+                let title = tool_use_id
+                    .as_deref()
+                    .and_then(|id| state.tools.get(id))
+                    .and_then(|entry| task_title(&entry.input));
                 state.tasks.insert(
                     task_id.clone(),
                     TaskEntry {
                         tool_use_id: tool_use_id.clone(),
                         subagent_type: subagent_type.clone(),
+                        title: title.clone(),
                         live: true,
                         backgrounded,
                         turn_seq,
@@ -1809,6 +1830,7 @@ impl ClaudeSession {
                     tool_use_id.as_deref(),
                     subagent_type.as_deref(),
                     "started",
+                    title.as_deref(),
                 );
             }
             SystemSubtype::TaskNotification | SystemSubtype::TaskUpdated => {
@@ -1838,15 +1860,21 @@ impl ClaudeSession {
                 // the CLI sends both for one edge often enough to matter
                 // (7 duplicate `completed`s in 54, measured), which drew the
                 // subagent twice. Only a CHANGE is republished.
-                let (tool_use_id, subagent_type, repeat) = match state.tasks.get_mut(&task_id) {
-                    Some(task) => {
-                        let repeat = task.last_status.as_deref() == Some(status.as_str());
-                        task.live = !terminal;
-                        task.last_status = Some(status.clone());
-                        (task.tool_use_id.clone(), task.subagent_type.clone(), repeat)
-                    }
-                    None => (None, None, false),
-                };
+                let (tool_use_id, subagent_type, title, repeat) =
+                    match state.tasks.get_mut(&task_id) {
+                        Some(task) => {
+                            let repeat = task.last_status.as_deref() == Some(status.as_str());
+                            task.live = !terminal;
+                            task.last_status = Some(status.clone());
+                            (
+                                task.tool_use_id.clone(),
+                                task.subagent_type.clone(),
+                                task.title.clone(),
+                                repeat,
+                            )
+                        }
+                        None => (None, None, None, false),
+                    };
                 drop(state);
                 // The edge goes out BEFORE the settle it unblocks: settling
                 // first ends the `session/prompt`, and a client that renders
@@ -1859,6 +1887,7 @@ impl ClaudeSession {
                         tool_use_id.as_deref(),
                         subagent_type.as_deref(),
                         &status,
+                        title.as_deref(),
                     );
                 }
                 if terminal {
@@ -2894,6 +2923,19 @@ fn plan_status(status: &str) -> PlanEntryStatus {
         "completed" => PlanEntryStatus::Completed,
         _ => PlanEntryStatus::Pending,
     }
+}
+
+/// EXP-847: what the spawning `Agent`/`Task` call said the subagent is FOR —
+/// its `description` input, its `name` as a fallback, `None` when it named
+/// neither (the chip then falls back to the agent TYPE). The same input
+/// [`tool_info`] titles the card from, so the chip and the card agree.
+fn task_title(input: &Value) -> Option<String> {
+    ["description", "name"]
+        .into_iter()
+        .filter_map(|key| input.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn is_task_tool(name: &str) -> bool {
@@ -3999,12 +4041,29 @@ mod tests {
         TaskEntry {
             tool_use_id: Some("toolu_1".to_string()),
             subagent_type: Some("explore".to_string()),
+            title: Some("Audit the shape proxies".to_string()),
             live,
             backgrounded: true,
             turn_seq,
             started_at: Instant::now() - age,
             last_status: None,
         }
+    }
+
+    /// EXP-847: the subagent chip's title is the spawning call's own
+    /// `description`, its `name` second, nothing when it named neither.
+    #[test]
+    fn a_task_title_prefers_the_description() {
+        assert_eq!(
+            task_title(&json!({ "description": "  Audit the shape proxies  ", "name": "explore" })),
+            Some("Audit the shape proxies".to_string())
+        );
+        assert_eq!(
+            task_title(&json!({ "description": "   ", "name": "explore" })),
+            Some("explore".to_string())
+        );
+        assert_eq!(task_title(&json!({ "prompt": "do it" })), None);
+        assert_eq!(task_title(&Value::Null), None);
     }
 
     /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on

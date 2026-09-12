@@ -12,7 +12,6 @@
 //! cargo run -p engine --example exp746_acp_spike -- claude
 //! cargo run -p engine --example exp746_acp_spike -- claude plan
 //! cargo run -p engine --example exp746_acp_spike -- codex handshake
-//! cargo run -p engine --example exp746_acp_spike -- pi handshake
 //! ```
 //!
 //! Env: `EXP_SPIKE_DIR` (scratch worktree, default a temp dir),
@@ -30,7 +29,6 @@ use engine::adapters::claude_wire::{
     self, ClaudeArgs, ClaudeOut, ClaudeProcess, McpConfig, SystemSubtype, TurnEnd,
 };
 use engine::adapters::codex_wire::{self, AppServer, CodexMode, Incoming};
-use engine::adapters::pi_wire::{self, PiArgs, PiOut, PiProcess};
 use serde_json::{json, Value};
 use terminal::pty::SpawnSpec;
 
@@ -41,10 +39,9 @@ fn main() {
     let outcome = match agent.as_str() {
         "claude" => run_claude(&checkpoint),
         "codex" => run_codex(&checkpoint),
-        "pi" => run_pi(&checkpoint),
         _ => {
             eprintln!(
-                "usage: cargo run -p engine --example exp746_acp_spike -- claude|codex|pi [checkpoint]"
+                "usage: cargo run -p engine --example exp746_acp_spike -- claude|codex [checkpoint]"
             );
             std::process::exit(2);
         }
@@ -986,256 +983,6 @@ fn run_codex(checkpoint: &str) -> bool {
     completed && models.is_ok()
 }
 
-// ---------------------------------------------------------------------------
-// pi
-// ---------------------------------------------------------------------------
-
-fn pi_row(frame: &PiOut) -> Row {
-    let label = frame.label();
-    let (acp, wire) = match frame {
-        PiOut::Response { .. } => ("(command completion)", "-"),
-        PiOut::ExtensionUiRequest { method, .. } => match method.as_str() {
-            "confirm" | "select" => ("session/request_permission", "question"),
-            "input" | "editor" => ("elicitation/create", "question (stepper)"),
-            _ => ("(none)", "-"),
-        },
-        PiOut::ExtensionError { .. } => ("(adapter error)", "narration"),
-        PiOut::Event { kind, event } => match kind.as_str() {
-            "message_update" => {
-                match event["assistantMessageEvent"]["type"].as_str().unwrap_or_default() {
-                    "text_delta" => ("AgentMessageChunk", "narration (coalesced)"),
-                    "thinking_delta" => ("AgentThoughtChunk", "narration (thought buffer)"),
-                    _ => ("(none)", "-"),
-                }
-            }
-            "tool_execution_start" => ("ToolCall", "tool"),
-            "tool_execution_update" => ("ToolCallUpdate", "local:CommandOutput"),
-            "tool_execution_end" => ("ToolCallUpdate{status}", "local:ToolCard"),
-            "turn_end" => ("UsageUpdate", "usage"),
-            "agent_settled" => ("PromptResponse{EndTurn}", "- (idle)"),
-            "compaction_start" => ("CompactionUpdate{started}", "compaction{started}"),
-            "compaction_end" => ("CompactionUpdate{ended}", "compaction{ended}"),
-            "thinking_level_changed" => ("ConfigOptionUpdate", "config_state"),
-            "session_info_changed" => ("SessionInfoUpdate", "-"),
-            _ => ("(none)", "-"),
-        },
-        PiOut::Unknown => ("(dropped)", "-"),
-    };
-    Row { frame: label, acp, wire }
-}
-
-/// Checkpoint 13: `--mode rpc` handshake, `get_state`, a prompt through to
-/// `agent_settled`, `set_thinking_level`, `compact`.
-fn run_pi(checkpoint: &str) -> bool {
-    let all = checkpoint == "all";
-    let mut ok = true;
-    if all || checkpoint == "handshake" {
-        ok &= pi_handshake();
-    }
-    if all || checkpoint == "plan" {
-        ok &= pi_plan();
-    }
-    ok
-}
-
-fn pi_handshake() -> bool {
-    header("pi", "handshake", "--mode rpc → get_state → prompt → agent_settled");
-    let cwd = scratch_dir("pi");
-    let args = pi_wire::pi_argv(&PiArgs::default());
-    let spec = SpawnSpec::new("pi").args(args).cwd(cwd);
-    let mut capture = Capture::new("pi", "handshake");
-    let Ok(process) = PiProcess::spawn(&spec) else {
-        println!("  !! pi did not spawn");
-        return false;
-    };
-
-    process
-        .send(&pi_wire::command("1", "get_state", json!({})))
-        .expect("stdin accepts get_state");
-    let mut state = Value::Null;
-    let got_state = process.pump(
-        Instant::now() + Duration::from_secs(60),
-        |frame, raw| {
-            capture.record(raw, pi_row(frame));
-            if let PiOut::Response { command, data, .. } = frame {
-                if command == "get_state" {
-                    state = data.clone();
-                }
-            }
-            Vec::new()
-        },
-        |frame| matches!(frame, PiOut::Response { command, .. } if command == "get_state"),
-    );
-    capture.note_init();
-    println!("  ── get_state answered: {got_state} → {}", truncate(&state.to_string(), 200));
-
-    process
-        .send(&pi_wire::command("2", "prompt", json!({ "message": "Reply with the single word ok." })))
-        .expect("stdin accepts prompt");
-    let mut first_token = false;
-    let settled = process.pump(
-        Instant::now() + Duration::from_secs(180),
-        |frame, raw| {
-            if !first_token && matches!(frame, PiOut::Event { kind, .. } if kind == "message_update")
-            {
-                first_token = true;
-                capture.note_token();
-            }
-            capture.record(raw, pi_row(frame));
-            if let PiOut::ExtensionUiRequest { id, method, .. } = frame {
-                let payload = match method.as_str() {
-                    "confirm" => json!({ "confirmed": true }),
-                    "select" => json!({ "value": "" }),
-                    _ => json!({ "cancelled": true }),
-                };
-                return vec![pi_wire::extension_ui_response(id, payload)];
-            }
-            Vec::new()
-        },
-        |frame| matches!(frame, PiOut::Event { kind, .. } if kind == "agent_settled"),
-    );
-    println!("  ── agent_settled: {settled}");
-
-    process
-        .send(&pi_wire::command("3", "set_thinking_level", json!({ "level": "high" })))
-        .expect("stdin accepts set_thinking_level");
-    let thinking = process.pump(
-        Instant::now() + Duration::from_secs(60),
-        |frame, raw| {
-            capture.record(raw, pi_row(frame));
-            Vec::new()
-        },
-        |frame| matches!(frame, PiOut::Response { command, .. } if command == "set_thinking_level"),
-    );
-    println!("  ── set_thinking_level answered: {thinking}");
-
-    process.send(&pi_wire::command("4", "compact", json!({}))).expect("stdin accepts compact");
-    let compacted = process.pump(
-        Instant::now() + Duration::from_secs(180),
-        |frame, raw| {
-            capture.record(raw, pi_row(frame));
-            Vec::new()
-        },
-        |frame| {
-            matches!(frame, PiOut::Event { kind, .. } if kind == "compaction_end")
-                || matches!(frame, PiOut::Response { command, success: false, .. } if command == "compact")
-        },
-    );
-    println!("  ── compact reached an end: {compacted}");
-    capture.summary();
-    got_state && settled
-}
-
-/// EXP-752 checkpoint: plan mode over `--mode rpc`. pi has no native modes, so
-/// the whole mode is the launcher's `.exp-pi-plan.ts` extension: `-e` loads it
-/// exactly as the TUI does, `/exp-plan on|off` sent as a PROMPT runs its
-/// registered command (pi dispatches extension commands instead of prompting
-/// the model), and its `ctx.ui.confirm` reaches us as an
-/// `extension_ui_request` titled "Approve plan?".
-fn pi_plan() -> bool {
-    header(
-        "pi",
-        "plan",
-        "-e .exp-pi-plan.ts → /exp-plan off|on → a write prompt → confirm",
-    );
-    let cwd = scratch_dir("pi-plan");
-    // The same file the launcher writes into a worktree — the extension IS
-    // the mode, so the spike drives the shipped source, never a copy.
-    let Ok(plan) = coding::pi_bridge::write_pi_plan(&cwd) else {
-        println!("  !! the plan extension could not be written into {}", cwd.display());
-        return false;
-    };
-    println!("  ── plan extension at {}", plan.display());
-    let extensions = vec![PathBuf::from(format!("./{}", coding::pi_bridge::PI_PLAN_FILE))];
-    // `EXP_SPIKE_PI_MODEL` picks the model this checkpoint runs on: pi's own
-    // default is whatever the machine last used, and a model the local
-    // account cannot serve fails the turn before any tool is offered.
-    let model = std::env::var("EXP_SPIKE_PI_MODEL").unwrap_or_default();
-    let args = pi_wire::pi_argv(&PiArgs {
-        model: (!model.is_empty()).then_some(model.as_str()),
-        extensions: &extensions,
-        ..PiArgs::default()
-    });
-    let spec = SpawnSpec::new("pi")
-        .args(args)
-        .cwd(cwd)
-        // The extension's own gate: without it the file returns immediately.
-        .env("EXP_PI_PLAN_MODE", "1");
-    let mut capture = Capture::new("pi", "plan");
-    let Ok(process) = PiProcess::spawn(&spec) else {
-        println!("  !! pi did not spawn");
-        return false;
-    };
-
-    // The command round trip, both ways: `off` is what a client's
-    // `session/set_mode` sends, `on` puts the gate back so the write prompt
-    // below actually meets it.
-    let mut switched = true;
-    for (id, argument) in [("1", "off"), ("2", "on")] {
-        process
-            .send(&pi_wire::command(
-                id,
-                "prompt",
-                json!({ "message": format!("/{} {argument}", coding::pi_bridge::PI_PLAN_COMMAND) }),
-            ))
-            .expect("stdin accepts the plan command");
-        let mut answer = Value::Null;
-        let answered = process.pump(
-            Instant::now() + Duration::from_secs(60),
-            |frame, raw| {
-                capture.record(raw, pi_row(frame));
-                if let PiOut::Response { command, success, data, .. } = frame {
-                    if command == "prompt" {
-                        answer = json!({ "success": success, "data": data });
-                    }
-                }
-                Vec::new()
-            },
-            |frame| matches!(frame, PiOut::Response { command, .. } if command == "prompt"),
-        );
-        println!("  ── /exp-plan {argument} answered: {answered} → {}", truncate(&answer.to_string(), 200));
-        switched &= answered;
-    }
-
-    // With the gate active, a write request must reach the exit_plan_mode
-    // tool and raise the extension's confirm dialog — the frame the adapter
-    // turns into a SwitchMode permission card.
-    process
-        .send(&pi_wire::command(
-            "3",
-            "prompt",
-            json!({
-                "message": "Add a file called plan-check.txt containing the word ok. Do it now."
-            }),
-        ))
-        .expect("stdin accepts prompt");
-    let mut confirms = 0usize;
-    let settled = process.pump(
-        Instant::now() + Duration::from_secs(180),
-        |frame, raw| {
-            capture.record(raw, pi_row(frame));
-            if let PiOut::ExtensionUiRequest { id, method, params } = frame {
-                println!(
-                    "  ── extension_ui_request {method}: {}",
-                    truncate(&params.to_string(), 200)
-                );
-                if method == "confirm" {
-                    confirms += 1;
-                    return vec![pi_wire::extension_ui_response(id, json!({ "confirmed": true }))];
-                }
-                return vec![pi_wire::extension_ui_response(id, json!({ "cancelled": true }))];
-            }
-            Vec::new()
-        },
-        |frame| matches!(frame, PiOut::Event { kind, .. } if kind == "agent_settled"),
-    );
-    println!("  ── agent_settled: {settled}; confirm dialogs seen: {confirms}");
-    capture.summary();
-    switched && settled
-}
-
-// Silence the unused-import warning when a checkpoint set is compiled out.
-#[allow(dead_code)]
 fn _incoming_is_used(incoming: Incoming) -> bool {
     matches!(incoming, Incoming::Junk)
 }

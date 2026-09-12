@@ -4,7 +4,10 @@ import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
 import { sessionIdentity } from "@/lib/session-identity"
-import { sessionDisplayState } from "@/lib/coding-session-display"
+import {
+  sessionDisplayState,
+  sessionRowIsWorking,
+} from "@/lib/coding-session-display"
 import type { CodingSession, Issue, Pin } from "@/db/schema"
 import {
   actionCollection,
@@ -165,7 +168,9 @@ function PinnedRows({
       if (!session) return []
       const issue = session.issueId ? issuesById.get(session.issueId) : undefined
       const identity = sessionIdentity({ session, issue })
-      const state = sessionDisplayState(session, rowPrState(session, issue))
+      const pinPrState = rowPrState(session, issue)
+      const state = sessionDisplayState(session, pinPrState)
+      const working = sessionRowIsWorking(session, pinPrState)
       // A pinned run may be over (the Sessions group lists live ones only):
       // an ended row gets the Past list's steady grey dot, never a live one.
       const ended = session.status === `ended` || session.status === `merged`
@@ -179,7 +184,7 @@ function PinnedRows({
             onClick={() => openSession(session)}
           >
             <span className="flex w-4 shrink-0 items-center justify-center">
-              <RunningIndicator state={state} paused={ended} />
+              <RunningIndicator state={state} paused={ended} working={working} />
             </span>
             {identity.identifier && (
               <span className="shrink-0 font-mono text-xs text-muted-foreground">

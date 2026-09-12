@@ -501,7 +501,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx, &check_in)
     });
     if advertised.nothing_installed() {
-        log::info!("no agent CLI installed — registered offline; install claude/codex/pi to accept remote starts");
+        log::info!("no agent CLI installed — registered offline; install claude or codex to accept remote starts");
     } else if advertised.agents.is_empty() {
         log::info!(
             "no agent CLI signed in ({} installed but signed out) — remote starts will be refused until one is",
@@ -585,8 +585,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // it is provably clean and carries no commits. Blocking git on the
         // 1Hz loop is fine: it runs once per finished run, not per tick.
         // EXP-764: a finished repo-LESS run has no worktree to judge — it is
-        // purged whole: scratch dir, claude trust entries, pi session file,
-        // run record, steer journal. Nothing of it is resumable.
+        // purged whole: scratch dir, claude trust entries, run record and
+        // steer journal. Nothing of it is resumable.
         {
             let mut guard = lock_sessions(&sessions);
             let reaped: Vec<(String, Option<coding::RunCleanup>, PathBuf)> = guard
@@ -3380,7 +3380,6 @@ mod tests {
             branch: Some("exp/EXP-42".to_string()),
             base_branch: Some("master".to_string()),
             claude_session_id: Some("claude-1".to_string()),
-            pi_session_file: None,
             codex_originator: None,
             inputs: Vec::new(),
             model: String::new(),

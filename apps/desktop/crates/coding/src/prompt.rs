@@ -130,8 +130,8 @@ moves the issue to `in_review` automatically, and merging it later completes it 
 /// reused worktree, told to pick the existing branch work back up instead of
 /// starting over. Today only codex can land here (its exact-session recovery
 /// — [`crate::codex_sessions`] — found no rollout for the worktree, e.g. it
-/// was coded by another agent or the sessions were pruned); claude/pi always
-/// resume natively via cwd-scoped `--continue`.
+/// was coded by another agent or the sessions were pruned); claude always
+/// resumes natively via cwd-scoped `--continue`.
 pub fn render_resume_prompt(
     identifier: &str,
     title: &str,

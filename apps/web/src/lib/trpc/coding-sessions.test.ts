@@ -388,13 +388,16 @@ describe(`codingSessions.start — agent (EXP-484)`, () => {
   })
 
   it(`stores it on batch runs too, and rejects an off-contract agent`, async () => {
-    await caller.start({ teamId: TEAM_ID, agent: `pi` })
-    expect(inserts[0]!.values.agent).toBe(`pi`)
+    await caller.start({ teamId: TEAM_ID, agent: `claude` })
+    expect(inserts[0]!.values.agent).toBe(`claude`)
 
-    const error = await rejectionOf(
-      caller.start({ teamId: TEAM_ID, agent: `aider` } as never)
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    // EXP-849: `pi` is off-contract now, like any unknown id.
+    for (const agent of [`aider`, `pi`]) {
+      const error = await rejectionOf(
+        caller.start({ teamId: TEAM_ID, agent } as never)
+      )
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
   })
 
   // EXP-792 (EXP-747 B7): the account profile the run launched on.
@@ -1015,6 +1018,60 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
 
     const error = await rejectionOf(
       caller.setNeedsInput({ id: SESSION_ID, needsInput: false })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+})
+
+// EXP-848: the turn flag the session lists pulse on — same rails as
+// setNeedsInput (owner-or-host, live statuses only, silent no-op otherwise).
+describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
+  it(`writes exactly agent_busy on a live owned row`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    const result = await caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual({ agentBusy: true })
+    const shape = whereShape(updateWheres[0]).flat()
+    expect(shape).toContain(`running`)
+    expect(shape).toContain(`in_review`)
+    // An ended row stays final — it can never pulse again.
+    expect(shape).not.toContain(`ended`)
+  })
+
+  it(`clears it on a host-written row`, async () => {
+    selectResults.push([
+      { userId: `someone-else`, hostUserId: `actor`, status: `in_review` },
+    ])
+
+    const result = await caller.setAgentBusy({
+      id: SESSION_ID,
+      agentBusy: false,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({ agentBusy: false })
+  })
+
+  it(`reports a swept row without writing`, async () => {
+    selectResults.push([])
+
+    const result = await caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
+
+    expect(result).toEqual({ updated: false })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`refuses a non-owner`, async () => {
+    selectResults.push([{ userId: `someone-else`, status: `running` }])
+
+    const error = await rejectionOf(
+      caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
     )
 
     expect(error).toBeInstanceOf(TRPCError)

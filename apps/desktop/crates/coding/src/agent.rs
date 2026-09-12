@@ -1,12 +1,12 @@
-//! The coding agents the launcher can spawn (EXP-201): Claude Code, OpenAI
-//! Codex CLI, and pi (pi.dev). One closed enum with per-agent capability
+//! The coding agents the launcher can spawn (EXP-201): Claude Code and the
+//! OpenAI Codex CLI. One closed enum with per-agent capability
 //! metadata — argv composition ([`crate::argv`]), settings normalization
 //! ([`crate::settings`]), the doctor ([`crate::doctor`]), and every agent
 //! picker key off these methods instead of scattering `match`es.
 //!
 //! The model/effort value sets mirror `packages/domain-contract/contract.json`
-//! (`codingAgent`/`codingModel`/`codingEffort`/`codexModel`/`codexEffort`/
-//! `piModel`/`piThinking`) — the `coding` crate deliberately does not depend
+//! (`codingAgent`/`codingModel`/`codingEffort`/`codexModel`/`codexEffort`)
+//! — the `coding` crate deliberately does not depend
 //! on `domain`, so the parity check lives in `ui::coding_selects` tests like
 //! the pre-existing model/effort ones.
 
@@ -22,24 +22,6 @@ pub const CODEX_MODELS: [&str; 3] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-lu
 /// Codex `model_reasoning_effort` levels (no `max`); blank = omit.
 pub const CODEX_EFFORTS: [&str; 5] = ["minimal", "low", "medium", "high", "xhigh"];
 
-/// pi `--model` patterns, fuzzy-resolved by pi itself: a substring match over
-/// its model registry, preferring the highest-sorting undated id — so `fable`
-/// resolves to `claude-fable-5` on pi 0.84.4 (2026-08-28, lists no 5.1 yet)
-/// and flips to `claude-fable-5-1` by itself once pi's registry adds it (a
-/// user's `models.json` can add it sooner). Blank = omit (pi's own default).
-pub const PI_MODELS: [&str; 7] = [
-    "fable",
-    "opus",
-    "sonnet",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "grok-4.5",
-];
-
-/// pi `--thinking` levels; blank = omit.
-pub const PI_THINKING: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
 /// The coding agent CLIs the desktop can launch. `id()` strings are the wire
 /// vocabulary (contract `codingAgent`, steer frames, settings.json).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -48,18 +30,16 @@ pub enum CodingAgent {
     #[default]
     Claude,
     Codex,
-    Pi,
 }
 
 impl CodingAgent {
-    pub const ALL: [CodingAgent; 3] = [CodingAgent::Claude, CodingAgent::Codex, CodingAgent::Pi];
+    pub const ALL: [CodingAgent; 2] = [CodingAgent::Claude, CodingAgent::Codex];
 
-    /// The wire/settings id (`claude`/`codex`/`pi`).
+    /// The wire/settings id (`claude`/`codex`).
     pub fn id(self) -> &'static str {
         match self {
             CodingAgent::Claude => "claude",
             CodingAgent::Codex => "codex",
-            CodingAgent::Pi => "pi",
         }
     }
 
@@ -68,7 +48,6 @@ impl CodingAgent {
         match self {
             CodingAgent::Claude => "Claude Code",
             CodingAgent::Codex => "Codex",
-            CodingAgent::Pi => "pi",
         }
     }
 
@@ -79,7 +58,6 @@ impl CodingAgent {
         match raw.trim().to_ascii_lowercase().as_str() {
             "claude" => Some(CodingAgent::Claude),
             "codex" => Some(CodingAgent::Codex),
-            "pi" => Some(CodingAgent::Pi),
             _ => None,
         }
     }
@@ -95,20 +73,18 @@ impl CodingAgent {
     }
 
     /// A launch-into-plan mode. Claude Code natively (`--permission-mode
-    /// plan`); pi via the launcher-injected `.exp-pi-plan.ts` extension
-    /// (EXP-441, [`crate::pi_bridge::PI_PLAN_SOURCE`]). Codex HAS an
-    /// interactive plan mode (`/plan`) but no flag to start in it.
+    /// plan`). Codex HAS an interactive plan mode (`/plan`) but no flag to
+    /// start in it.
     pub fn supports_plan_mode(self) -> bool {
-        matches!(self, CodingAgent::Claude | CodingAgent::Pi)
+        matches!(self, CodingAgent::Claude)
     }
 
     /// The closed model set for this agent (blank "CLI default" is an extra
-    /// valid value for Codex and pi; Claude's `--model` is explicit-always).
+    /// valid value for Codex; Claude's `--model` is explicit-always).
     pub fn model_values(self) -> &'static [&'static str] {
         match self {
             CodingAgent::Claude => &MODEL_ALIASES,
             CodingAgent::Codex => &CODEX_MODELS,
-            CodingAgent::Pi => &PI_MODELS,
         }
     }
 
@@ -117,7 +93,6 @@ impl CodingAgent {
         match self {
             CodingAgent::Claude => &EFFORT_LEVELS,
             CodingAgent::Codex => &CODEX_EFFORTS,
-            CodingAgent::Pi => &PI_THINKING,
         }
     }
 
@@ -127,12 +102,11 @@ impl CodingAgent {
         !matches!(self, CodingAgent::Claude)
     }
 
-    /// The effort concept's UI label ("Thinking" is pi's own vocabulary).
+    /// The effort concept's UI label.
     pub fn effort_label(self) -> &'static str {
         match self {
             CodingAgent::Claude => "Effort",
             CodingAgent::Codex => "Reasoning",
-            CodingAgent::Pi => "Thinking",
         }
     }
 }
@@ -143,7 +117,7 @@ impl std::fmt::Display for CodingAgent {
     }
 }
 
-/// EXP-746 (D13): WHICH agent a launch runs — one of the three builtin CLIs,
+/// EXP-746 (D13): WHICH agent a launch runs — one of the builtin CLIs,
 /// or a user-declared external ACP binary ([`ExternalAgentSpec`]).
 ///
 /// Everything keyed on the closed [`CodingAgent`] vocabulary (the doctor
@@ -229,7 +203,12 @@ mod tests {
 
     #[test]
     fn serde_uses_the_lowercase_ids() {
-        assert_eq!(serde_json::to_string(&CodingAgent::Pi).unwrap(), "\"pi\"");
+        assert_eq!(
+            serde_json::to_string(&CodingAgent::Claude).unwrap(),
+            "\"claude\""
+        );
+        // EXP-849: pi is gone from the vocabulary; a legacy id no longer parses.
+        assert!(CodingAgent::parse("pi").is_none());
         assert_eq!(
             serde_json::from_str::<CodingAgent>("\"codex\"").unwrap(),
             CodingAgent::Codex
@@ -238,18 +217,17 @@ mod tests {
 
     #[test]
     fn capability_matrix() {
-        // Ultracode is Claude-only; plan mode is claude (native) + pi (via
-        // the injected extension, EXP-441). EXP-690: there is no
-        // skip-permissions capability any more — every run bypasses.
+        // Ultracode and launch-into-plan are Claude-only (EXP-849 dropped pi).
+        // EXP-690: there is no skip-permissions capability any more — every
+        // run bypasses.
         assert!(CodingAgent::Claude.supports_ultracode());
         assert!(CodingAgent::Claude.supports_plan_mode());
         assert!(!CodingAgent::Claude.allows_blank_model());
-        for agent in [CodingAgent::Codex, CodingAgent::Pi] {
+        for agent in [CodingAgent::Codex] {
             assert!(!agent.supports_ultracode(), "{agent}");
             assert!(agent.allows_blank_model(), "{agent}");
         }
         assert!(!CodingAgent::Codex.supports_plan_mode());
-        assert!(CodingAgent::Pi.supports_plan_mode());
     }
 
     /// EXP-746: an external agent carries its own id/label locally but NO
@@ -288,7 +266,5 @@ mod tests {
         assert_eq!(CodingAgent::Claude.effort_values(), &EFFORT_LEVELS);
         assert_eq!(CodingAgent::Codex.model_values(), &CODEX_MODELS);
         assert_eq!(CodingAgent::Codex.effort_values(), &CODEX_EFFORTS);
-        assert_eq!(CodingAgent::Pi.model_values(), &PI_MODELS);
-        assert_eq!(CodingAgent::Pi.effort_values(), &PI_THINKING);
     }
 }

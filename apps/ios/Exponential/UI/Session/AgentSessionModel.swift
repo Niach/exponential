@@ -73,7 +73,7 @@ final class AgentSessionModel {
             logger.info("phase \(Self.describe(oldValue), privacy: .public) -> \(Self.describe(self.phase), privacy: .public)")
             // EXP-724: nothing is compacting on a session that is over — the
             // `ended` edge that would have closed the strip is never coming.
-            if case .ended = phase { clearCompaction() }
+            if case .ended = phase { clearLiveWork() }
             // FEED-26: the fallback "last activity" — a run that goes quiet
             // the moment it comes live still needs a clock to count from.
             if phase == .live { markActivity() }
@@ -154,6 +154,11 @@ final class AgentSessionModel {
     /// `compaction` activity event and cleared by its `ended` edge, the replay
     /// swap, the end of the session, and a backstop timer.
     private(set) var compacting: AgentCompaction?
+    /// EXP-848: whether the agent is inside a TURN right now — the engine's
+    /// `turn` edges as a latest-wins slot beside `compacting`, never a feed
+    /// row. `.ended` until one arrives: an idle run must not pulse by default,
+    /// and a publisher too old to emit them simply never reads as working.
+    private(set) var turnState: AgentTurnState = .ended
     /// FEED-26: when this run's feed last CHANGED while live, falling back to
     /// the moment the phase became live. What `staleActivityMinutes` counts
     /// from.
@@ -409,6 +414,10 @@ final class AgentSessionModel {
     /// replay is authoritative and is about to decide what the prefix even is.
     private func prependPage(_ events: [[String: Any]], seqs: [Int]) {
         guard !isStaging, !events.isEmpty else { return }
+        // EXP-848: the latest-wins turn slot must not be rewritten by a page
+        // of OLD transcript folded through the live reducer.
+        prependingPage = true
+        defer { prependingPage = false }
         let oldest = oldestSeq
         // Fold the page through the SAME reducer the live stream uses, over a
         // scratch feed, so merging and upserts behave identically.
@@ -492,13 +501,27 @@ final class AgentSessionModel {
         phase == .live && !sessionEnded && !activeQuestionIds.isEmpty
     }
 
-    /// EXP-790: the agent is actively working — live and nothing waiting on
-    /// the user (no active card, synced `needs_input` clear, no compaction
-    /// running). Web `working` parity: what swaps the empty composer's send
-    /// glyph for Stop.
+    /// EXP-848: the agent is actively working — the ONE predicate this screen
+    /// has (the view used to carry a second, looser copy that ignored the
+    /// compaction gate and the usage wall, so the trailing "Working…" row and
+    /// the Stop button disagreed). The rule itself is `AgentFeed.working`,
+    /// mirrored ×4: a turn is open and nothing is waiting on a human, walling
+    /// the run or folding its context away.
+    ///
+    /// Drives the transcript's trailing "Working…" row AND the empty
+    /// composer's Stop glyph (EXP-790).
     var agentWorking: Bool {
-        phase == .live && !sessionEnded && activeQuestionIds.isEmpty
-            && session?.needsInput != true && compacting == nil
+        AgentFeed.working(
+            live: phase == .live,
+            sessionEnded: sessionEnded,
+            turnState: turnState,
+            awaitingInput: !activeQuestionIds.isEmpty,
+            needsInput: session?.needsInput == true,
+            // EXP-804: "blocked" is whatever the badge considers blocked — the
+            // raw jsonb text may be present but unreadable.
+            blocked: AgentUsagePresentation.parseBlocked(session?.blocked) != nil,
+            compacting: compacting != nil
+        )
     }
 
     /// Questions whose answer is out — sent (optimistic lock) or confirmed
@@ -651,6 +674,10 @@ final class AgentSessionModel {
     /// Set while a flush applies its batch — the projections are rebuilt once
     /// at the end instead of after every frame.
     @ObservationIgnored private var applyingBatch = false
+    /// EXP-848: set while `prependPage` folds an OLDER page through the live
+    /// reducer — the latest-wins turn slot is about the run's present, so a
+    /// page from the far end of the transcript must not touch it.
+    @ObservationIgnored private var prependingPage = false
     /// EXP-656: the activity events of an in-flight join replay. nil = not
     /// staging; non-nil (even empty) = the visible feed is frozen and every
     /// `activity` frame buffers here until the replay commits in ONE pass.
@@ -869,7 +896,7 @@ final class AgentSessionModel {
         dialInFlight = false
         lastFrameAt = nil
         cancelAnswerExpiries()
-        clearCompaction()
+        clearLiveWork()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
         deviceObservationTask?.cancel()
@@ -1143,7 +1170,7 @@ final class AgentSessionModel {
                         self.session = row
                         // EXP-724: the run is over (or gone) — no `ended`
                         // compaction frame will ever arrive for it.
-                        if self.sessionEnded { self.clearCompaction() }
+                        if self.sessionEnded { self.clearLiveWork() }
                         self.rebuildHostDevice()
                         // EXP-678: a batch run's Merge target only appears
                         // once THIS row flips to in_review (the pr_open
@@ -1789,19 +1816,28 @@ final class AgentSessionModel {
         recentEchoes = []
         answerTracker.reset()
         cancelAnswerExpiries()
-        clearCompaction()
-        // EXP-746: the config/usage slots go too. `resetFeed` only ever runs
-        // inside `commitStaging`, which re-applies every staged frame at once,
-        // and the relay's join replay always carries the current
-        // `config_state`/`usage` after the log (latest-wins kinds) — so the
-        // chips repaint inside the same batch and never blank. Keeping a stale
-        // config across a session swap would be the actual bug.
+        clearLiveWork()
+        // EXP-746: the config/usage slots go too (EXP-848: the turn slot with
+        // them, via `clearLiveWork` above). `resetFeed` only ever runs inside
+        // `commitStaging`, which re-applies every staged frame at once, and the
+        // relay's join replay always carries the current
+        // `config_state`/`usage`/`turn` after the log (latest-wins kinds) — so
+        // the chips repaint inside the same batch and never blank. Keeping a
+        // stale config across a session swap would be the actual bug.
         sessionConfig = nil
         sessionUsage = nil
         sessionRateLimit = nil
     }
 
     // MARK: - Compaction strip (EXP-724)
+
+    /// EXP-848: everything that says "work is in flight" — the compaction
+    /// strip and the turn slot. Every path that can strand one strands both,
+    /// so they are cleared together.
+    private func clearLiveWork() {
+        clearCompaction()
+        turnState = .ended
+    }
 
     /// Close the strip and disarm its backstop. Idempotent — every path that
     /// can strand a `started` calls it (the replay swap, the session ending,
@@ -2137,7 +2173,9 @@ final class AgentSessionModel {
                 detail: Self.trimmedField(event["detail"]),
                 // EXP-748: the publisher's count, stamped on the completed
                 // edge — it outlives the tool rows replay evicts first.
-                toolCalls: event["toolCalls"] as? Int
+                toolCalls: event["toolCalls"] as? Int,
+                // EXP-847: what the spawn asked for; absent on older builds.
+                title: Self.trimmedField(event["title"])
             ))
         case "permission":
             guard let tool = Self.trimmedField(event["tool"]) else { return }
@@ -2155,6 +2193,12 @@ final class AgentSessionModel {
         case "rate_limit":
             // EXP-784: the fourth slot; an empty/`ok` status clears it.
             sessionRateLimit = AgentFeed.applyRateLimit(sessionRateLimit, event: event)
+        case "turn":
+            // EXP-848: latest-wins STATE, never a row. Skipped while an OLDER
+            // page folds through this reducer — a turn edge from the far end of
+            // the transcript says nothing about what the run is doing now.
+            guard !prependingPage else { return }
+            turnState = AgentFeed.applyTurn(turnState, event: event)
         case "compaction":
             // EXP-724. The strip's state is the pure fold; the marker row is
             // the caller's job because only `ended` writes one — and it writes

@@ -16,7 +16,7 @@ class DeviceSettingsDefaultsTest {
 
     private fun device(
         agents: List<String>? = listOf("claude", "codex"),
-        unauthed: List<String> = listOf("pi"),
+        unauthed: List<String> = emptyList(),
         defaults: DeviceLaunchDefaults? = null,
         accounts: Map<String, AgentAccount>? = null,
     ) = SteerDevice(
@@ -30,8 +30,8 @@ class DeviceSettingsDefaultsTest {
     @Test
     fun `editable agents cover runnable + signed-out + stored, contract order`() {
         assertEquals(
-            listOf("claude", "codex", "pi"),
-            editableAgents(device()),
+            listOf("claude", "codex"),
+            editableAgents(device(agents = listOf("codex"), unauthed = listOf("claude"))),
         )
         // A machine the row knows nothing about stays fully editable.
         assertEquals(
@@ -41,14 +41,20 @@ class DeviceSettingsDefaultsTest {
         // EXP-688: an agent the machine only reports an ACCOUNT for still gets
         // a tab — that block is where its sign-in and usage live now.
         assertEquals(
-            listOf("claude", "pi"),
+            listOf("claude", "codex"),
             editableAgents(
                 device(
                     agents = listOf("claude"),
                     unauthed = emptyList(),
-                    accounts = mapOf("pi" to AgentAccount(signedIn = true)),
+                    accounts = mapOf("codex" to AgentAccount(signedIn = true)),
                 ),
             ),
+        )
+        // EXP-849: an agent id the CONTRACT no longer names (a machine still
+        // reporting `pi`, an external binary) is not editable at all.
+        assertEquals(
+            listOf("claude"),
+            editableAgents(device(agents = listOf("claude", "pi"), unauthed = emptyList())),
         )
     }
 
@@ -108,10 +114,11 @@ class DeviceSettingsDefaultsTest {
         val codex = built.agents.getValue("codex")
         assertFalse(codex.ultracode)
         assertFalse(codex.planMode)
-        // pi: plan mode only.
-        val pi = built.agents.getValue("pi")
-        assertFalse(pi.ultracode)
-        assertTrue(pi.planMode)
+        // EXP-849: plan mode is claude's alone now — a retired/unknown agent
+        // id keeps neither capability.
+        val retired = built.agents.getValue("pi")
+        assertFalse(retired.ultracode)
+        assertFalse(retired.planMode)
     }
 
     /**
@@ -121,7 +128,7 @@ class DeviceSettingsDefaultsTest {
      */
     @Test
     fun `saved defaults re-seed to the drafts they were built from`() {
-        val agents = listOf("claude", "codex", "pi")
+        val agents = listOf("claude", "codex")
         val edited = mapOf(
             "claude" to AgentDraft(
                 model = DomainContract.codingModelValues.last(),
@@ -129,14 +136,8 @@ class DeviceSettingsDefaultsTest {
                 ultracode = true,
                 planMode = true,
             ),
-            "codex" to AgentDraft(
-                model = DomainContract.codexModelValues.first(),
-                effort = DomainContract.codexEffortValues.last(),
-                ultracode = false,
-                planMode = false,
-            ),
             // CLI defaults ("") must survive the round trip as themselves.
-            "pi" to AgentDraft("", "", ultracode = false, planMode = true),
+            "codex" to AgentDraft("", "", ultracode = false, planMode = false),
         )
         val echoed = device(
             agents = agents,

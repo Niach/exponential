@@ -1329,9 +1329,6 @@ affiliated with, endorsed by, or sponsored by any of the owners named below.
   Codex logo
     Owner: OpenAI, L.L.C.
     Used to label the Codex coding agent in agent pickers and session views.
-  Pi logo
-    Owner: the Pi project
-    Used to label the Pi coding agent in agent pickers and session views.
 
 
 ==============================================================================

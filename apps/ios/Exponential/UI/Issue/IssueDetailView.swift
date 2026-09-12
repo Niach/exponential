@@ -730,7 +730,9 @@ struct IssueDetailView: View {
         if let session = ownSessions.max(by: { $0.startedAt < $1.startedAt }) {
             return .session(
                 CodingSessionDisplayState.of(session: session, prState: issue.prState),
-                sessionId: session.id
+                sessionId: session.id,
+                // EXP-848: the dot pulses on the device-written turn flag.
+                busy: session.agentBusy
             )
         }
         guard let devices = vm.steerDevices else { return .hidden }

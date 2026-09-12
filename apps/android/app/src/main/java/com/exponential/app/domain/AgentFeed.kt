@@ -54,10 +54,17 @@ fun feedItemBytes(item: AgentFeedItem): Long {
         is AgentFeedItem.UserMessage -> item.text.length.toLong()
         // EXP-786: a folded per-call diff weighs too.
         is AgentFeedItem.Tool ->
-            (item.name.length + (item.detail?.length ?: 0) + (item.diff?.length ?: 0)).toLong()
+            (
+                item.name.length + (item.detail?.length ?: 0) + (item.diff?.length ?: 0) +
+                    // EXP-846: the folded Exponential-tool preview weighs too.
+                    (item.preview?.weight() ?: 0)
+                ).toLong()
         is AgentFeedItem.Permission -> (item.tool.length + (item.detail?.length ?: 0)).toLong()
         is AgentFeedItem.Subagent ->
-            (item.subagentId.length + item.agentType.length + (item.detail?.length ?: 0)).toLong()
+            (
+                item.subagentId.length + item.agentType.length + (item.detail?.length ?: 0) +
+                    (item.title?.length ?: 0)
+                ).toLong()
         is AgentFeedItem.Question ->
             (item.text.length + (item.answer?.length ?: 0) + (item.header?.length ?: 0) +
                 item.options.sumOf { it.label.length + it.key.length }).toLong()
@@ -121,7 +128,9 @@ sealed interface AgentFeedItem {
      *  `toolKind` value); [settled] = a status landed (the call ENDED),
      *  [failed] = that status was `failed` (a later `completed` clears it).
      *  EXP-786: [diff] is the per-call unified diff an `edit` published,
-     *  already cut to the contract's caps by the publisher. */
+     *  already cut to the contract's caps by the publisher.
+     *  EXP-846: [preview] is what an EXPONENTIAL MCP call returned, folded in
+     *  by its `tool_update` — plumbed here in phase 1, rendered later. */
     data class Tool(
         override val id: Long,
         val name: String,
@@ -135,6 +144,7 @@ sealed interface AgentFeedItem {
         val settled: Boolean = false,
         val failed: Boolean = false,
         val diff: String? = null,
+        val preview: ToolResultPreview? = null,
     ) : AgentFeedItem
 
     /** A human turn (EXP-78): the initial prompt or a steered message.
@@ -189,7 +199,12 @@ sealed interface AgentFeedItem {
      *  subagent made, stamped on the completed edge. The replay log evicts a
      *  subagent's tool events first, so the visible rows can undercount long
      *  after the fact while this number stays honest. Absent on an older
-     *  desktop. */
+     *  desktop.
+     *
+     *  EXP-847: [title] is what the spawning Agent call DESCRIBED the run as
+     *  ("Find the regression in the sync loop") — the label every client
+     *  prefers over [agentType], which stays the secondary caption. Absent on
+     *  a publisher older than EXP-847 and on a call that described nothing. */
     data class Subagent(
         override val id: Long,
         val subagentId: String,
@@ -197,6 +212,7 @@ sealed interface AgentFeedItem {
         val completed: Boolean,
         val detail: String? = null,
         val toolCalls: Int? = null,
+        val title: String? = null,
         override val seq: Long? = null,
     ) : AgentFeedItem
 
@@ -350,6 +366,62 @@ fun rateLimitBannerShows(state: SessionRateLimitState, nowMs: Long): Boolean =
 
 /** EXP-785: a wire `toolKind`, or null for anything this build does not know. */
 fun parseToolKind(raw: String?): String? = raw?.takeIf { it in DomainContract.toolKindValues }
+
+/**
+ * EXP-846: what an EXPONENTIAL MCP tool call returned, as the engine read it
+ * out of the tool's JSON result and published on the call's `tool_update`
+ * (`preview`). Every field is optional — the engine fills what the row it
+ * touched actually carries, and the strings arrive already capped at 200 chars.
+ * Phase 1 PLUMBS it only: the reducer keeps it on the tool row, the custom
+ * issue-pill / PR-link / "N results" rendering is a later phase.
+ */
+data class ToolResultPreview(
+    val id: String? = null,
+    val identifier: String? = null,
+    val title: String? = null,
+    val url: String? = null,
+    val count: Int? = null,
+    val status: String? = null,
+) {
+    /** What this preview adds to a tool row's [feedItemBytes] estimate. */
+    fun weight(): Int = (id?.length ?: 0) + (identifier?.length ?: 0) +
+        (title?.length ?: 0) + (url?.length ?: 0) + (status?.length ?: 0)
+}
+
+// ── EXP-848: the agent's turn, as a latest-wins slot ────────────────────────
+//
+// The engine publishes ONE `turn` event per edge (`{kind:'turn',state}`, the
+// contract's `turnState` values). Like `config_state`/`usage`/`rate_limit` it
+// is STATE, never a feed row: the relay keeps the newest per room and replays
+// it, so a late joiner learns whether the agent is mid-turn from one frame.
+
+/** The agent is executing a turn right now. */
+const val TURN_STATE_STARTED = "started"
+
+/** The turn is over — `end_turn`, a cancel, or a prompt error. The DEFAULT
+ *  everywhere: before any `turn` event arrives a client assumes idle, so
+ *  nothing ever pulses just because a socket is up. */
+const val TURN_STATE_ENDED = "ended"
+
+/**
+ * EXP-848: the ONE "the agent is working RIGHT NOW" rule — the busy footer, the
+ * composer's Stop glyph and every other live-work cue read it and nothing
+ * re-derives it. Byte-identical ×4 (web `agentWorking`, iOS, desktop
+ * `steer::agent_working`): a live, unended run mid-turn with nothing parked on
+ * it. Joined the socket but no turn yet ⇒ NOT working — [TURN_STATE_ENDED] is
+ * the default, which is what stopped a freshly attached viewer from pulsing
+ * over an idle agent.
+ */
+fun agentWorking(
+    live: Boolean,
+    sessionEnded: Boolean,
+    turnState: String,
+    awaitingInput: Boolean,
+    needsInput: Boolean,
+    blocked: Boolean,
+    compacting: Boolean,
+): Boolean = live && !sessionEnded && turnState == TURN_STATE_STARTED &&
+    !awaitingInput && !needsInput && !blocked && !compacting
 
 /** A chip whose value is blank — the CLI's own default. Byte-identical ×4. */
 const val CONFIG_DEFAULT_VALUE_LABEL = "CLI default"
@@ -563,6 +635,7 @@ fun completeSubagent(
     subagentId: String,
     detail: String?,
     toolCalls: Int? = null,
+    title: String? = null,
 ): List<AgentFeedItem>? {
     val index = feed.indexOfLast {
         it is AgentFeedItem.Subagent && it.subagentId == subagentId && !it.completed
@@ -576,6 +649,9 @@ fun completeSubagent(
             // EXP-748: the count only ever rides the completed edge, so the
             // fold is where it lands on the row.
             toolCalls = toolCalls ?: item.toolCalls,
+            // EXP-847: a completed edge may be the first frame carrying the
+            // description; one that carries none never erases it.
+            title = title ?: item.title,
         )
     }
 }
@@ -643,8 +719,17 @@ sealed interface AgentFeedRow {
          *  rows or, when the publisher reported more (replay evicted a
          *  subagent's tool events), its count. 0 = nothing to say. */
         val toolCount: Int = 0,
+        /** EXP-847: the spawning Agent call's description, from the first
+         *  marker that carried one. Null = no publisher said. */
+        val title: String? = null,
     ) : AgentFeedRow
 }
+
+/** EXP-847: how a subagent run READS — its description when the spawning call
+ *  gave one, else its agent type. ONE copy per client (the chips, the group row
+ *  and the tab strip all call this). */
+val AgentFeedRow.SubagentRun.label: String
+    get() = title?.takeIf { it.isNotBlank() } ?: agentType
 
 // ── EXP-787: the transcript's rhythm ────────────────────────────────────────
 //
@@ -745,6 +830,12 @@ fun groupFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> 
                                 ?: SUBAGENT_FALLBACK_TYPE,
                             completed = markers.any { it.completed },
                             detail = markers.lastOrNull { it.detail != null }?.detail,
+                            // EXP-847: the first description any marker of this
+                            // run carried — the started edge normally, the
+                            // completed one when that is all we kept.
+                            title = markers.firstNotNullOfOrNull {
+                                it.title?.takeIf { t -> t.isNotBlank() }
+                            },
                             items = scoped,
                             toolCount = maxOf(
                                 scoped.count { it is AgentFeedItem.Tool },
@@ -887,6 +978,10 @@ data class ActivityFeedState(
     /** EXP-784: the agent's rate-limit window, the fourth slot. Null = not
      *  limited (or cleared by an empty/`ok` status). */
     val rateLimit: SessionRateLimitState? = null,
+    /** EXP-848: the agent's turn edge, the fifth slot — [TURN_STATE_STARTED]
+     *  or [TURN_STATE_ENDED], and ENDED until a `turn` event says otherwise
+     *  (an older publisher sends none, and an idle run must never pulse). */
+    val turnState: String = TURN_STATE_ENDED,
     /** Per-card answer locks, keyed by the card's wire id (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
     /** What THIS client picked per locked card — the option labels (a typed
@@ -980,6 +1075,9 @@ fun ActivityFeedState.applyActivityEvent(
                 settled = row.settled || settles,
                 failed = if (settles) status == "failed" else row.failed,
                 diff = event.str("diff")?.takeIf { it.isNotBlank() } ?: row.diff,
+                // EXP-846: only Exponential MCP calls carry one; an update
+                // without it leaves whatever the call already previewed.
+                preview = toolPreview(event["preview"]) ?: row.preview,
             )
             withFeed(feed.toMutableList().also { it[at] = next })
         }
@@ -1070,8 +1168,10 @@ fun ActivityFeedState.applyActivityEvent(
         val detail = event.str("detail")?.takeIf { it.isNotBlank() }
         val completed = event.str("status") == "completed"
         val toolCalls = event.int("toolCalls")?.takeIf { it >= 0 }
+        // EXP-847: the spawning Agent call's own description of the run.
+        val title = event.str("title")?.takeIf { it.isNotBlank() }
         val closed = if (subagentId != null && completed) {
-            completeSubagent(feed, subagentId, detail, toolCalls)
+            completeSubagent(feed, subagentId, detail, toolCalls, title)
         } else {
             null
         }
@@ -1086,6 +1186,7 @@ fun ActivityFeedState.applyActivityEvent(
                     completed = completed,
                     detail = detail,
                     toolCalls = toolCalls,
+                    title = title,
                     seq = seq,
                 ),
             )
@@ -1182,6 +1283,11 @@ fun ActivityFeedState.applyActivityEvent(
             )
         }
     }
+    // EXP-848: the fifth slot — the agent's turn edge. A state this build
+    // cannot name leaves the slot standing (the `config_state` rule): guessing
+    // would either pulse an idle run or still a working one.
+    "turn" -> event.str("state")?.takeIf { it in DomainContract.turnStateValues }
+        ?.let { copy(turnState = it) } ?: this
     // EXP-784: the fourth slot. Null clears — an empty/`ok` status says the
     // window lifted, and an unreadable payload must not leave a stale "rate
     // limited" banner beside a live run.
@@ -1200,6 +1306,22 @@ fun ActivityFeedState.applyActivityEvent(
         )
     }
     else -> this
+}
+
+/** EXP-846: one `tool_update.preview` object. Null when the field is absent or
+ *  not an object, and an object with nothing readable in it is null too — a
+ *  preview that says nothing must not mark the row as having one. */
+private fun toolPreview(raw: JsonElement?): ToolResultPreview? {
+    val obj = raw as? JsonObject ?: return null
+    val preview = ToolResultPreview(
+        id = obj.str("id")?.takeIf { it.isNotBlank() },
+        identifier = obj.str("identifier")?.takeIf { it.isNotBlank() },
+        title = obj.str("title")?.takeIf { it.isNotBlank() },
+        url = obj.str("url")?.takeIf { it.isNotBlank() },
+        count = obj.int("count")?.takeIf { it >= 0 },
+        status = obj.str("status")?.takeIf { it.isNotBlank() },
+    )
+    return preview.takeIf { it != ToolResultPreview() }
 }
 
 /** One `values[]` array of a `config_state` option; anything unusable drops
@@ -1261,6 +1383,12 @@ fun ActivityFeedState.releaseResolvedLocks(): ActivityFeedState {
  *  it. Leaves no marker — nothing was observed to finish. */
 fun ActivityFeedState.clearCompaction(): ActivityFeedState =
     if (compacting == null) this else copy(compacting = null)
+
+/** EXP-848: force the turn slot back to idle — the session ended under us, so
+ *  whatever turn was in flight is not in flight any more and nothing may keep
+ *  reading as working. */
+fun ActivityFeedState.clearTurn(): ActivityFeedState =
+    if (turnState == TURN_STATE_ENDED) this else copy(turnState = TURN_STATE_ENDED)
 
 /** A locally-echoed steered message, shown before its transcript twin. */
 fun ActivityFeedState.appendUserMessage(text: String): ActivityFeedState =

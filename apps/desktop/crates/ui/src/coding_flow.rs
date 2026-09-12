@@ -9,7 +9,7 @@
 //!   file-persisted, per-install) and the tooling-doctor report. The settings
 //!   pane edits through it; the Start-coding button and the launcher read
 //!   from it. The doctor runs on the background executor (it probes every
-//!   agent CLI — claude/codex/pi — plus `git`, EXP-201) and re-runs whenever
+//!   agent CLI — claude/codex — plus `git`, EXP-201) and re-runs whenever
 //!   the settings change.
 //! - [`LocalSessions`] — the sessions THIS process launched (issue →
 //!   `{session_id, tab, manager}`). Drives the §7.5 play↔stop flip: while an
@@ -519,7 +519,7 @@ impl LocalSessions {
                 .detach();
             } else if coding::scratch::is_scratch_dir(&data_dir, &entry.worktree) {
                 // EXP-764: a repo-less run is purged WHOLE with the run —
-                // scratch dir, claude trust entries, pi session file, run
+                // scratch dir, claude trust entries, run
                 // record, steer journal. Nothing of it is resumable.
                 let session_id = entry.session_id.clone();
                 let worktree = entry.worktree.clone();
@@ -934,7 +934,7 @@ pub fn install_quit_hook(cx: &mut App) {
         coding::reaper::reap(&data_dir);
         // EXP-758: …and the ACP children the waits above could not collect
         // (a wedged agent that outlived its budget). `reap` only selects on
-        // the claude hook marker, so a codex/pi/external child is invisible
+        // the claude hook marker, so a codex/external child is invisible
         // to it; `reap_recorded` works off the run registry's recorded pids.
         let reaped = coding::reaper::reap_recorded(&data_dir);
         if reaped > 0 {
@@ -1741,12 +1741,12 @@ impl CodingHub {
 /// when no agent CLI is installed (git may still be fine — coding just has
 /// nothing to launch).
 pub(crate) const NO_AGENT_COPY: &str =
-    "No coding agent CLI found (claude, codex, or pi). Install one in Settings → Tools.";
+    "No coding agent CLI found (claude or codex). Install one in Settings → Tools.";
 
 /// EXP-409 variant: agents ARE installed, but every one of them is signed
 /// out — the fix is a login, not an install.
 pub(crate) const NO_AGENT_SIGNED_IN_COPY: &str =
-    "No coding agent is signed in. Sign in to claude, codex, or pi (see Settings → Tools).";
+    "No coding agent is signed in. Sign in to claude or codex (see Settings → Tools).";
 
 /// `Some(reason)` when the doctor has REPORTED and no agent CLI is usable —
 /// the shared gate for every Start-coding entry point (EXP-367: buttons

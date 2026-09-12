@@ -25,16 +25,14 @@ export function agentInstalledOn(
   )
 }
 
-/** The agents an "Add account" flow may sign in on the machine: installed,
- * never pi (no remote sign-in). */
+/** The agents an "Add account" flow may sign in on the machine: every
+ * installed one (EXP-849: all remaining agents have a device-code flow). */
 export function addableAgents(
   row: Pick<Device, `agents` | `unauthedAgents`>
 ): string[] {
-  const seen = new Set<string>()
-  for (const agent of [...(row.agents ?? []), ...(row.unauthedAgents ?? [])]) {
-    if (agent !== `pi`) seen.add(agent)
-  }
-  return [...seen]
+  return [
+    ...new Set([...(row.agents ?? []), ...(row.unauthedAgents ?? [])]),
+  ]
 }
 
 /** The caller's machines a sign-in can be queued on right now: own, online,

@@ -204,12 +204,6 @@ export const TRADEMARKS: Trademark[] = [
     use: `label the Codex coding agent in agent pickers and session views`,
   },
   {
-    mark: `Pi logo`,
-    owner: `the Pi project`,
-    clients: [`desktop`, `ios`],
-    use: `label the Pi coding agent in agent pickers and session views`,
-  },
-  {
     mark: `Microsoft Windows logo`,
     owner: `Microsoft Corporation`,
     clients: [`marketing`],

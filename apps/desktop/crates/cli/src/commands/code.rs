@@ -32,7 +32,7 @@ pub fn run(args: &[String]) -> CommandResult {
     let detach = take_flag(&mut args, "--detach");
     reject_unknown_flags(&args)?;
     let Some(issue_ref) = args.first() else {
-        anyhow::bail!("usage: exponential code <ISSUE> [--agent claude|codex|pi] [--model m] [--effort e] [--plan] [--detach]");
+        anyhow::bail!("usage: exponential code <ISSUE> [--agent claude|codex] [--model m] [--effort e] [--plan] [--detach]");
     };
 
     let ctx = context::load()?;
@@ -271,6 +271,10 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
                 println!("  ✗ tool call {id} failed");
             }
         }
+        // EXP-848: a line printer has no spinner to drive — the turn slot is
+        // for the screens, and `exponential code` already prints what the
+        // agent does. Deliberately silent.
+        steer::ActivityEvent::Turn { .. } => {}
         // EXP-784: one line per change of the rate-limit slot.
         steer::ActivityEvent::RateLimit { status, message, .. } => {
             if steer::rate_limit_clears(status) {

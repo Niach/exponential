@@ -884,7 +884,8 @@ pub(crate) fn refresh_allowed_at(usage: Option<&AgentUsage>, now_epoch: i64) -> 
 /// One account card of the usage page.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AgentAccountUsageGroup {
-    /// `<agent>:<email>` for a named login; a row with no email (pi names a
+    /// `<agent>:<email>` for a named login; a row with no email (an agent
+    /// that names a
     /// provider, a signed-out row names nobody) can never be told apart from
     /// another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
     pub key: String,
@@ -1668,9 +1669,9 @@ mod tests {
 
     #[test]
     fn account_groups_keep_email_less_and_signed_out_rows_apart() {
-        let mut a = page_row("a", "pi");
+        let mut a = page_row("a", "codex");
         a.plan = Some("openai-codex (oauth)".into());
-        let mut b = page_row("b", "pi");
+        let mut b = page_row("b", "codex");
         b.plan = Some("openai-codex (oauth)".into());
         let mut out_a = page_row("a", "claude");
         out_a.signed_in = false;
@@ -1680,7 +1681,7 @@ mod tests {
         let groups = account_usage_groups(vec![a, b, out_a, out_b], |_| false);
         assert_eq!(
             groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
-            vec!["pi:a:system", "pi:b:system", "claude:a:system", "claude:b:system"]
+            vec!["codex:a:system", "codex:b:system", "claude:a:system", "claude:b:system"]
         );
         assert!(!groups[2].signed_in);
     }

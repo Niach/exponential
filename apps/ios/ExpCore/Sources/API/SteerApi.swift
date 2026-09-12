@@ -115,7 +115,7 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
 /// EXP-484: one coding agent's sign-in status on a machine, as the device
 /// reported it (`devices.agent_accounts[agent]`). READ-ONLY visibility — no
 /// credential ever leaves the machine. `plan` is the subscription tier for
-/// claude/codex and `"<provider> (oauth|api key)"` for pi, which has no email.
+/// claude/codex and `"<provider> (oauth|api key)"` for an agent with no email.
 /// Every field optional: the sender is a desktop/daemon of unknown vintage and
 /// the server clamps rather than rejects.
 public struct AgentAccount: Decodable, Equatable, Sendable {
@@ -622,7 +622,7 @@ private struct ViewerTicketInput: Encodable {
 /// composer's choices. Nil fields are omitted from the wire (synthesized
 /// Encodable uses encodeIfPresent) and mean "desktop settings default"
 /// (plan mode OFF). `agent` absent = claude (EXP-201). `effort: ""` (and
-/// `model: ""` for codex/pi) is an explicit "CLI default".
+/// `model: ""` for codex) is an explicit "CLI default".
 public struct SteerStartOptions: Sendable {
     public let agent: String?
     public let model: String?

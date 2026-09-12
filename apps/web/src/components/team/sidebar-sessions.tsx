@@ -2,7 +2,10 @@ import { useParams } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
 import { nestSessions } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
-import { sessionDisplayState } from "@/lib/coding-session-display"
+import {
+  sessionDisplayState,
+  sessionRowIsWorking,
+} from "@/lib/coding-session-display"
 import { cn } from "@/lib/utils"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { rowPrState, useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
@@ -77,7 +80,9 @@ function SessionItem({
 }) {
   const { session, issue, device, paused } = row
   const identity = sessionIdentity(row)
-  const state = sessionDisplayState(session, rowPrState(session, issue))
+  const prState = rowPrState(session, issue)
+  const state = sessionDisplayState(session, prState)
+  const working = sessionRowIsWorking(session, prState)
   const isChat = identity.identifier === null && session.actionName === `Chat`
   const title = identity.identifier
     ? identity.subject
@@ -95,7 +100,7 @@ function SessionItem({
           {isChat ? (
             <ActionChatIcon className="size-3.5 text-muted-foreground" />
           ) : (
-            <RunningIndicator state={state} paused={paused} />
+            <RunningIndicator state={state} paused={paused} working={working} />
           )}
         </span>
         {identity.identifier && (

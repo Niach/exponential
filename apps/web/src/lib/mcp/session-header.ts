@@ -1,7 +1,7 @@
 // EXP-637: how a tool call knows which coding session it is running inside.
 //
 // The desktop/CLI launcher injects this header into the MCP config it writes
-// for the agent (claude/pi via the JSON `headers` block, codex via
+// for the agent (claude via the JSON `headers` block, codex via
 // `-c mcp_servers.exponential.http_headers`), so every request the agent makes
 // carries the id of the `coding_sessions` row that spawned it. That is what
 // lets `exponential_sessions_end` close out the right run and what lets

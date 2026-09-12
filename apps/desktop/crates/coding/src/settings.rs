@@ -22,11 +22,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::agent::{CodingAgent, CODEX_EFFORTS, CODEX_MODELS, PI_MODELS, PI_THINKING};
+use crate::agent::{CodingAgent, CODEX_EFFORTS, CODEX_MODELS};
 
 pub const DEFAULT_CLAUDE_PATH: &str = "claude";
 pub const DEFAULT_CODEX_PATH: &str = "codex";
-pub const DEFAULT_PI_PATH: &str = "pi";
 pub const DEFAULT_REPOS_ROOT: &str = "~/Exponential/repos";
 pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// §7.7 default coding model — passed as `--model fable` on every spawn.
@@ -60,11 +59,12 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// the EXP-282 rail state (EXP-723 removed the collapsible rail — the sidebar
 /// is always expanded, so there is no preference left to hold), and the
 /// EXP-742 collapsed-dock bubble (EXP-769 replaced the sliding dock with the
-/// session bar, which has no collapsed form to pick).
+/// session bar, which has no collapsed form to pick), and the EXP-201 pi keys
+/// (EXP-849 dropped the agent for good — `ExternalAgent` is the escape hatch).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 17] = [
+const DEAD_KEYS: [&str; 21] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -82,6 +82,10 @@ const DEAD_KEYS: [&str; 17] = [
     "railExpanded",
     "startInTerminal",
     "terminalDockBubble",
+    "piPath",
+    "piModel",
+    "piThinking",
+    "piPlanMode",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -101,8 +105,6 @@ pub struct Settings {
     pub claude_path: String,
     /// Program name or absolute path of the Codex CLI (EXP-201).
     pub codex_path: String,
-    /// Program name or absolute path of the pi CLI (EXP-201).
-    pub pi_path: String,
     /// Raw repos-&-worktrees root; may start with `~`.
     pub repos_root: String,
     /// Prepended to the issue identifier for the coding branch (`exp/EXP-42`).
@@ -121,11 +123,6 @@ pub struct Settings {
     /// Codex reasoning effort (`-c model_reasoning_effort=<v>`); one of
     /// [`CODEX_EFFORTS`] or blank (= omit).
     pub codex_effort: String,
-    /// pi model pattern (`--model`, fuzzy-resolved by pi); one of
-    /// [`PI_MODELS`] or blank (= omit — pi's own default model applies).
-    pub pi_model: String,
-    /// pi thinking level (`--thinking`); one of [`PI_THINKING`] or blank.
-    pub pi_thinking: String,
     /// Claude "dynamic workflows" (`--effort ultracode`) default — OFF by
     /// default. EXP-206: ONE default for issue and batch runs alike (the old
     /// per-run-mode pairs are dead keys); the Start-coding dialog prefills
@@ -137,9 +134,6 @@ pub struct Settings {
     /// Claude native plan-mode default — ON by default (Claude presents a
     /// plan for approval in the terminal before editing).
     pub claude_plan_mode: bool,
-    /// pi plan-mode default — ON by default like Claude's (EXP-441: pi's
-    /// plan mode is the launcher-injected `.exp-pi-plan.ts` extension).
-    pub pi_plan_mode: bool,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -211,18 +205,14 @@ impl Default for Settings {
             default_agent: CodingAgent::Claude,
             claude_path: DEFAULT_CLAUDE_PATH.to_string(),
             codex_path: DEFAULT_CODEX_PATH.to_string(),
-            pi_path: DEFAULT_PI_PATH.to_string(),
             repos_root: DEFAULT_REPOS_ROOT.to_string(),
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
             codex_model: String::new(),
             codex_effort: String::new(),
-            pi_model: String::new(),
-            pi_thinking: String::new(),
             claude_ultracode: false,
             claude_plan_mode: true,
-            pi_plan_mode: true,
             terminal_shell: None,
             external_agents: Vec::new(),
             changelog_seen_id: None,
@@ -257,9 +247,6 @@ impl Settings {
         if settings.codex_path.trim().is_empty() {
             settings.codex_path = defaults.codex_path;
         }
-        if settings.pi_path.trim().is_empty() {
-            settings.pi_path = defaults.pi_path;
-        }
         if settings.repos_root.trim().is_empty() {
             settings.repos_root = defaults.repos_root;
         }
@@ -269,11 +256,9 @@ impl Settings {
         settings.claude_model =
             normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
-        // Codex/pi allow BLANK ("CLI default") — unknown values degrade to it.
+        // Codex allows BLANK ("CLI default") — unknown values degrade to it.
         settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
-        settings.pi_model = normalize_choice(&settings.pi_model, &PI_MODELS, "");
-        settings.pi_thinking = normalize_choice(&settings.pi_thinking, &PI_THINKING, "");
         // Blank/whitespace shell degrades to None (= auto-detect).
         settings.terminal_shell = settings
             .terminal_shell
@@ -338,12 +323,6 @@ impl Settings {
                 &[&[".local", "bin", "codex"]],
                 dirs::home_dir(),
             ),
-            CodingAgent::Pi => resolve_program(
-                &self.pi_path,
-                DEFAULT_PI_PATH,
-                &[&[".local", "bin", "pi"]],
-                dirs::home_dir(),
-            ),
         }
     }
 
@@ -352,7 +331,6 @@ impl Settings {
         match agent {
             CodingAgent::Claude => &self.claude_path,
             CodingAgent::Codex => &self.codex_path,
-            CodingAgent::Pi => &self.pi_path,
         }
     }
 
@@ -361,7 +339,6 @@ impl Settings {
         match agent {
             CodingAgent::Claude => &self.claude_model,
             CodingAgent::Codex => &self.codex_model,
-            CodingAgent::Pi => &self.pi_model,
         }
     }
 
@@ -370,7 +347,6 @@ impl Settings {
         match agent {
             CodingAgent::Claude => &self.claude_effort,
             CodingAgent::Codex => &self.codex_effort,
-            CodingAgent::Pi => &self.pi_thinking,
         }
     }
 
@@ -380,7 +356,6 @@ impl Settings {
         match agent {
             CodingAgent::Claude => self.claude_plan_mode,
             CodingAgent::Codex => false,
-            CodingAgent::Pi => self.pi_plan_mode,
         }
     }
 
@@ -573,22 +548,18 @@ mod tests {
         assert_eq!(settings.default_agent, CodingAgent::Claude);
         assert_eq!(settings.claude_path, "claude");
         assert_eq!(settings.codex_path, "codex");
-        assert_eq!(settings.pi_path, "pi");
         assert_eq!(settings.repos_root, "~/Exponential/repos");
         assert_eq!(settings.branch_prefix, "exp/");
         assert_eq!(settings.claude_model, "fable");
         assert_eq!(settings.claude_effort, "");
-        // Codex/pi default to the CLI's own model + effort (blank = omit).
+        // Codex defaults to the CLI's own model + effort (blank = omit).
         assert_eq!(settings.codex_model, "");
         assert_eq!(settings.codex_effort, "");
-        assert_eq!(settings.pi_model, "");
-        assert_eq!(settings.pi_thinking, "");
         // Per-agent run defaults (EXP-206 — no issue/batch split): Claude
         // plan mode ON, ultracode OFF. EXP-690: skip-permissions is no
         // longer a setting — every run bypasses.
         assert!(!settings.claude_ultracode);
         assert!(settings.claude_plan_mode);
-        assert!(settings.pi_plan_mode);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
         assert!(settings.external_agents.is_empty());
@@ -638,29 +609,27 @@ mod tests {
 
         // Save writes the lowercase id.
         let mut settings = Settings::default();
-        settings.default_agent = CodingAgent::Pi;
+        settings.default_agent = CodingAgent::Codex;
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
-        assert!(raw.contains(r#""defaultAgent": "pi""#), "raw: {raw}");
-        assert_eq!(Settings::load(&path).default_agent, CodingAgent::Pi);
+        assert!(raw.contains(r#""defaultAgent": "codex""#), "raw: {raw}");
+        assert_eq!(Settings::load(&path).default_agent, CodingAgent::Codex);
     }
 
-    /// EXP-201: the codex/pi model + effort fields normalize into their own
+    /// EXP-201: the codex model + effort fields normalize into their own
     /// closed sets, with blank ("CLI default") as the fallback.
     #[test]
-    fn codex_and_pi_choices_normalize_on_load() {
+    fn codex_choices_normalize_on_load() {
         let dir = TempDir::new("agent-choices");
         let path = dir.0.join("settings.json");
         fs::write(
             &path,
-            r#"{"codexModel":" GPT-5.6-Sol ","codexEffort":"max","piModel":"grok-4.5","piThinking":" XHigh "}"#,
+            r#"{"codexModel":" GPT-5.6-Sol ","codexEffort":"max"}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
         assert_eq!(settings.codex_model, "gpt-5.6-sol");
         assert_eq!(settings.codex_effort, "", "codex has no max — degrade to blank");
-        assert_eq!(settings.pi_model, "grok-4.5");
-        assert_eq!(settings.pi_thinking, "xhigh");
     }
 
     #[test]
@@ -754,25 +723,21 @@ mod tests {
         let settings = Settings::load(&path);
         assert!(!settings.claude_ultracode, "missing key must default FALSE");
         assert!(settings.claude_plan_mode, "missing key must default TRUE");
-        assert!(settings.pi_plan_mode, "missing key must default TRUE");
 
         fs::write(
             &path,
-            r#"{"claudeUltracode":true,"claudePlanMode":false,"piPlanMode":false,"claudeSkipPermissions":true,"codexSkipPermissions":true,"subagentModel":"opus","releaseUltracode":false,"issueUltracode":true,"batchPlanMode":true,"issueSkipPermissions":true}"#,
+            r#"{"claudeUltracode":true,"claudePlanMode":false,"piPath":"pi","piModel":"grok-4.5","piThinking":"high","piPlanMode":false,"claudeSkipPermissions":true,"codexSkipPermissions":true,"subagentModel":"opus","releaseUltracode":false,"issueUltracode":true,"batchPlanMode":true,"issueSkipPermissions":true}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
         assert!(settings.claude_ultracode);
         assert!(!settings.claude_plan_mode);
-        assert!(!settings.pi_plan_mode);
 
         // plan_mode_for maps per agent; codex has no launch-into-plan mode.
         let defaults = Settings::default();
         assert!(defaults.plan_mode_for(CodingAgent::Claude));
-        assert!(defaults.plan_mode_for(CodingAgent::Pi));
         assert!(!defaults.plan_mode_for(CodingAgent::Codex));
         assert!(!settings.plan_mode_for(CodingAgent::Claude));
-        assert!(!settings.plan_mode_for(CodingAgent::Pi));
 
         // Saving scrubs the retired keys the merge-save would otherwise
         // carry forever.
@@ -781,6 +746,10 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         for dead in [
             "subagentModel",
+            "piPath",
+            "piModel",
+            "piThinking",
+            "piPlanMode",
             "releaseUltracode",
             "issueUltracode",
             "batchUltracode",
@@ -804,18 +773,14 @@ mod tests {
             default_agent: CodingAgent::Codex,
             claude_path: "/opt/homebrew/bin/claude".to_string(),
             codex_path: "/opt/homebrew/bin/codex".to_string(),
-            pi_path: "/opt/homebrew/bin/pi".to_string(),
             repos_root: "~/code/repos".to_string(),
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
             codex_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
-            pi_model: "grok-4.5".to_string(),
-            pi_thinking: "high".to_string(),
             claude_ultracode: true,
             claude_plan_mode: false,
-            pi_plan_mode: false,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             external_agents: vec![ExternalAgentSpec {
                 id: "acme".to_string(),
@@ -838,7 +803,6 @@ mod tests {
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"externalAgents\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);

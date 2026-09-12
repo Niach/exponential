@@ -21,7 +21,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/coding/`,
     label: `Coding agents`,
-    blurb: `Hand issues to Claude Code, Codex or pi from the desktop IDE: single runs, batch runs, steer, review, merge.`,
+    blurb: `Hand issues to Claude Code or Codex from the desktop IDE: single runs, batch runs, steer, review, merge.`,
   },
   {
     path: `/docs/actions/`,

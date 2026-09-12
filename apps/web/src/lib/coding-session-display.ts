@@ -27,3 +27,20 @@ export function sessionDisplayState(
   if (session.needsInput && !merged) return `needs_input`
   return `running`
 }
+
+/** EXP-848: whether a LIST row's dot pulses — the agent is executing a turn
+ * right now, per the device-written `agent_busy` flag. `running` only ever
+ * meant "the run is live": a row sat pulsing through every idle gap between
+ * turns, which is what made a parked run look busy. A parked state
+ * (needs_input/review/done) never pulses, whatever the flag says.
+ * Hand-mirrored with `sessionDisplayState` ×4. */
+export function sessionRowIsWorking(
+  session: Pick<CodingSession, `status` | `needsInput` | `agentBusy`>,
+  prState: string | null | undefined
+): boolean {
+  return (
+    session.status !== `ended` &&
+    sessionDisplayState(session, prState) === `running` &&
+    session.agentBusy === true
+  )
+}

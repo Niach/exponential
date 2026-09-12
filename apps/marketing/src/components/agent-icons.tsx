@@ -1,7 +1,6 @@
 /* ─── Agent brand marks (inline SVG) ───────────────────────────────────
    Path data mirrors the desktop client's bundled icons
-   (apps/desktop/assets/icons/{claude,codex,pi}.svg — pi uses the iOS/
-   Android 5-rect decomposition, no evenodd hole). All fill currentColor
+   (apps/desktop/assets/icons/{claude,codex}.svg). All fill currentColor
    so callers tint them; ClaudeLogo's brand terracotta is opt-in via CSS. */
 
 export function ClaudeLogo({ size = 16 }: { size?: number }) {
@@ -32,25 +31,10 @@ export function CodexLogo({ size = 16 }: { size?: number }) {
   )
 }
 
-export function PiLogo({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 800 800"
-      fill="currentColor"
-      aria-hidden
-    >
-      <path d="M165.29,165.29 H517.36 V282.65 H165.29 Z M165.29,282.65 H282.65 V634.72 H165.29 Z M400,282.65 H517.36 V400 H400 Z M282.65,400 H400 V517.36 H282.65 Z M517.36,400 H634.72 V634.72 H517.36 Z" />
-    </svg>
-  )
-}
-
-/* The three launchable agents, in the product's tab order. */
+/* The launchable agents, in the product's pick order (EXP-849 dropped pi). */
 export const AGENTS = [
   { id: `claude`, name: `Claude Code`, Logo: ClaudeLogo },
   { id: `codex`, name: `Codex`, Logo: CodexLogo },
-  { id: `pi`, name: `pi`, Logo: PiLogo },
 ] as const
 
 /* ─── Hero strip — "works with your agent" (EXP-207) ─── */

@@ -302,7 +302,7 @@ describe(`steer command catalog`, () => {
     expect(compact?.agents).toEqual(contract.codingAgent.values)
     expect(commands.find((c) => c.name === `clear`)?.confirm).toBe(true)
     // Deliberately tiny (2026-09-03): only the two whose effect every viewer
-    // can see. The desktop maps `clear` per agent (pi runs ctx.newSession()).
+    // can see. The desktop maps `clear` per agent.
     expect(commands.map((c) => c.name)).toEqual([`compact`, `clear`])
   })
 })

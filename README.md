@@ -20,7 +20,7 @@
 
 - **Issues** with statuses, priorities, labels, due dates, markdown, @mentions. Realtime sync on every client via [ElectricSQL](https://electric-sql.com).
 - **Boards backed by a GitHub repo**: one issue, one branch, one PR, tracked on the issue. Or one combined PR for a batch.
-- **Start coding**: hand an issue to Claude Code, Codex, or pi from the desktop app. It plans, codes in a worktree, and opens the PR.
+- **Start coding**: hand an issue to Claude Code or Codex from the desktop app. It plans, codes in a worktree, and opens the PR.
 - **Live steer**: watch and redirect a running session from your phone.
 - **Actions & automations**: reusable team prompts, run on demand or on a schedule or an issue event, on your own machines.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts runs on.

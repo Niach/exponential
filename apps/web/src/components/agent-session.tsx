@@ -66,6 +66,8 @@ import {
   opensInlineField,
   rateLimitBanner,
   rowClass,
+  sessionIsWorking,
+  subagentLabel,
   splitTruncatedDiff,
   subagentIdOf,
   summarizeSubagentRow,
@@ -328,6 +330,7 @@ export function AgentSessionView({
     config,
     usage: sessionUsage,
     rateLimit,
+    turnState,
     answerStates,
     connected,
     canLoadEarlier: snapshotCanLoadEarlier,
@@ -573,16 +576,18 @@ export function AgentSessionView({
       ),
     [catalogAgent, config?.commands]
   )
-  /** EXP-389: the agent is actively working — live and nothing waiting on
-   *  the user (no active question card, synced needs_input clear; all three
-   *  agents drive the flag). Mobile parity. EXP-724: a compaction has its own
-   *  strip, so the generic footer stands down while one runs. */
-  const working =
-    live &&
-    !sessionEnded &&
-    !awaitingInput &&
-    !session.needsInput &&
-    !compactingNow
+  /** EXP-389/EXP-848: the agent is actively EXECUTING a turn — the shared
+   *  predicate (`sessionIsWorking`), keyed on the turn slot rather than on
+   *  "live", so an idle run between turns no longer pulses. Mobile parity. */
+  const working = sessionIsWorking({
+    live,
+    sessionEnded,
+    turnState,
+    awaitingInput,
+    needsInput: session.needsInput,
+    blocked: session.blocked != null,
+    compacting: compactingNow,
+  })
   /** EXP-549/550: the host machine per the synced devices row — its RENAMED
    *  label, and whether it is offline right now. */
   const device = useSessionDevice(session)
@@ -881,7 +886,7 @@ export function AgentSessionView({
               {visibleTabs.map((agent) => (
                 <AgentTab
                   key={agent.subagentId}
-                  label={agent.agentType}
+                  label={subagentLabel(agent)}
                   running={!agent.done}
                   active={activeAgent === agent.subagentId}
                   onClick={() => setAgentTab(agent.subagentId)}
@@ -2481,12 +2486,18 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   const tools = items.filter(
     (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
   )
-  const { agentType, done, detail, toolCount } = summarizeSubagentRow(items)
+  const summary = summarizeSubagentRow(items)
+  const { done, detail, toolCount } = summary
   const expandable = tools.length > 0
   const header = (
     <>
       <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      <span className="shrink-0 font-medium">{agentType}</span>
+      {/* EXP-847: the spawning call's description names the subagent; the
+          agent type stays a secondary caption beside it. */}
+      <span className="shrink-0 font-medium">{subagentLabel(summary)}</span>
+      {summary.title && (
+        <span className="shrink-0 text-[0.6875rem]">{summary.agentType}</span>
+      )}
       {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
       <span className="shrink-0 text-[0.6875rem]">
         {done ? `done` : `running`}
@@ -2603,8 +2614,11 @@ function AgentConversation({
         >
           <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
           <span className="shrink-0 font-medium">
-            {summary.agentType}
+            {subagentLabel(summary)}
           </span>
+          {summary.title && (
+            <span className="shrink-0 text-[0.6875rem]">{summary.agentType}</span>
+          )}
           {!summary.done && (
             <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
           )}

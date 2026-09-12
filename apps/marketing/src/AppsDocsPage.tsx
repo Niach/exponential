@@ -153,8 +153,9 @@ export function AppsDocsPage() {
             <p>
               The round button beside the tab pill is{` `}
               <strong>New issue</strong> — or <strong>Start chat</strong>{` `}
-              on the Devices and Actions surfaces, which opens the launcher on
-              its <a href="/docs/coding/#start-coding">Chat</a> tab. Search
+              on the Devices and Actions surfaces, which opens the{` `}
+              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
+              with nothing chipped. Search
               sits in the board header next to <strong>Filter</strong>. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
               status, priority, assignee, labels and delete on it. Full

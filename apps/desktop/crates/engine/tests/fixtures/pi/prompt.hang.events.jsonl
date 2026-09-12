@@ -1,3 +1,0 @@
-{"type":"agent_start"}
-{"type":"turn_start"}
-{"type":"message_update","message":{"role":"assistant","responseId":"resp-hang","timestamp":1788687314849},"assistantMessageEvent":{"type":"text_delta","delta":"still working"}}

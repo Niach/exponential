@@ -84,10 +84,6 @@ pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
             "Install the Codex CLI: npm install -g @openai/codex",
             "https://developers.openai.com/codex/cli",
         ),
-        Tool::Pi => (
-            "Install the pi coding agent from pi.dev",
-            "https://pi.dev",
-        ),
     }
 }
 
@@ -99,10 +95,6 @@ pub(crate) fn sign_in_hint(tool: Tool) -> &'static str {
     match tool {
         Tool::Claude => "Signed out — sign in to use Claude Code.",
         Tool::Codex => "Signed out — sign in to use the Codex CLI.",
-        Tool::Pi => {
-            "pi has no credential — sign in with /login, or set a provider API key \
-             (e.g. ANTHROPIC_API_KEY)."
-        }
         Tool::Git => "",
     }
 }
@@ -114,10 +106,9 @@ pub(crate) fn sign_in_hint(tool: Tool) -> &'static str {
 pub struct DoctorPanel {
     claude_input: Entity<InputState>,
     codex_input: Entity<InputState>,
-    pi_input: Entity<InputState>,
     /// The hub paths the inputs were last synced from — external-change
     /// detection only (each input saves itself; there is no pane-wide Save).
-    synced_paths: Option<(String, String, String)>,
+    synced_paths: Option<(String, String)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -127,8 +118,6 @@ impl DoctorPanel {
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
         let codex_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
-        let pi_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_PI_PATH));
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
@@ -136,7 +125,7 @@ impl DoctorPanel {
             this.resync(window, cx);
             cx.notify();
         })];
-        for input in [&claude_input, &codex_input, &pi_input] {
+        for input in [&claude_input, &codex_input] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify(); // live dirty tracking on the Save-path button
@@ -147,7 +136,6 @@ impl DoctorPanel {
         let mut this = Self {
             claude_input,
             codex_input,
-            pi_input,
             synced_paths: None,
             _subscriptions: subscriptions,
         };
@@ -159,7 +147,6 @@ impl DoctorPanel {
         match agent {
             CodingAgent::Claude => &self.claude_input,
             CodingAgent::Codex => &self.codex_input,
-            CodingAgent::Pi => &self.pi_input,
         }
     }
 
@@ -171,7 +158,6 @@ impl DoctorPanel {
         let paths = (
             settings.claude_path.clone(),
             settings.codex_path.clone(),
-            settings.pi_path.clone(),
         );
         if self.synced_paths.as_ref() == Some(&paths) {
             return;
@@ -195,7 +181,6 @@ impl DoctorPanel {
             match agent {
                 CodingAgent::Claude => coding::settings::DEFAULT_CLAUDE_PATH,
                 CodingAgent::Codex => coding::settings::DEFAULT_CODEX_PATH,
-                CodingAgent::Pi => coding::settings::DEFAULT_PI_PATH,
             }
             .to_string()
         } else {
@@ -206,7 +191,6 @@ impl DoctorPanel {
         match agent {
             CodingAgent::Claude => settings.claude_path = value,
             CodingAgent::Codex => settings.codex_path = value,
-            CodingAgent::Pi => settings.pi_path = value,
         }
         let _ = CodingHub::save_settings(&hub, settings, cx);
         cx.notify();
@@ -439,22 +423,19 @@ mod tests {
         let one_ok = DoctorReport {
             claude: green(Tool::Claude),
             codex: red(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git),
         };
         assert_eq!(row_severity(&one_ok.claude, &one_ok), RowSeverity::Ok);
         assert_eq!(row_severity(&one_ok.codex, &one_ok), RowSeverity::Muted);
-        assert_eq!(row_severity(&one_ok.pi, &one_ok), RowSeverity::Muted);
 
         // NO agent installed → every agent row is danger (coding disabled).
         let none_ok = DoctorReport {
             claude: red(Tool::Claude),
             codex: red(Tool::Codex),
-            pi: red(Tool::Pi),
             git: red(Tool::Git),
         };
         assert_eq!(row_severity(&none_ok.claude, &none_ok), RowSeverity::Danger);
-        assert_eq!(row_severity(&none_ok.pi, &none_ok), RowSeverity::Danger);
+        assert_eq!(row_severity(&none_ok.codex, &none_ok), RowSeverity::Danger);
 
         // git failing is danger REGARDLESS of the agents' state.
         assert_eq!(row_severity(&none_ok.git, &none_ok), RowSeverity::Danger);
@@ -471,7 +452,7 @@ mod tests {
     /// Every failing tool gets an install link (guidance is never blank).
     #[test]
     fn every_tool_has_an_install_hint() {
-        for tool in [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Git] {
+        for tool in [Tool::Claude, Tool::Codex, Tool::Git] {
             let (hint, url) = install_hint(tool);
             assert!(!hint.is_empty());
             assert!(url.starts_with("https://"), "{url}");
@@ -497,19 +478,17 @@ mod tests {
         let one_ok = DoctorReport {
             claude: green(Tool::Claude),
             codex: signed_out(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git),
         };
         assert_eq!(row_severity(&one_ok.codex, &one_ok), RowSeverity::Muted);
         let none_ok = DoctorReport {
             claude: signed_out(Tool::Claude),
             codex: signed_out(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git),
         };
         assert_eq!(row_severity(&none_ok.claude, &none_ok), RowSeverity::Danger);
 
-        for tool in [Tool::Claude, Tool::Codex, Tool::Pi] {
+        for tool in [Tool::Claude, Tool::Codex] {
             assert!(!sign_in_hint(tool).is_empty());
         }
     }

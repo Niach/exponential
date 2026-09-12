@@ -170,13 +170,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             <div data-testid="agent-options-sheet">
               <GlassGroup>
                 <GlassPickerRow
-                  label={
-                    agent === `pi`
-                      ? `Thinking`
-                      : agent === `codex`
-                        ? `Reasoning`
-                        : `Effort`
-                  }
+                  label={agent === `codex` ? `Reasoning` : `Effort`}
                   value={
                     launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
                   }

@@ -66,12 +66,15 @@ export type IdeApi = {
   coding: CodingState
   codingTarget: CodingTarget | null
   codingScript: FeedRow[]
-  /* Start-coding dialog beat: request opens the dialog (pre-seeding its
-     picker), confirm launches whatever the picker settled on. */
-  pendingCoding: CodingTarget | null
-  requestCoding: (target: CodingTarget) => void
-  cancelStartCoding: () => void
-  confirmStartCoding: (target: CodingTarget) => void
+  /* EXP-825: the launcher is the Agent page COMPOSER, a rail destination —
+     every play button navigates here with its issues already chipped, and
+     the send starts the run (1 chip = a single run, 2+ = a batch). */
+  composerOpen: boolean
+  chips: string[]
+  openComposer: (issueIds: string[]) => void
+  closeComposer: () => void
+  toggleChip: (issueId: string) => void
+  submitComposer: () => void
   stopCoding: () => void
   scriptPos: ScriptPos
 

@@ -55,13 +55,13 @@ esac
 # --- Preflight: warn, don't block (the CLI's doctor owns enforcement) --------
 command -v git >/dev/null 2>&1 || warn "git is not installed — coding sessions need it"
 found_agent=""
-for agent in claude codex pi; do
+for agent in claude codex; do
   if command -v "$agent" >/dev/null 2>&1; then
     found_agent="$agent"
     break
   fi
 done
-[ -n "$found_agent" ] || warn "no agent CLI found (claude, codex or pi) — install one to run coding sessions"
+[ -n "$found_agent" ] || warn "no agent CLI found (claude or codex) — install one to run coding sessions"
 
 # --- Resolve the latest cli-v* release ---------------------------------------
 # per_page=100 (the GitHub max): the list is shared with the desktop/android/

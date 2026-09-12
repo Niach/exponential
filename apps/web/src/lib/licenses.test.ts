@@ -516,7 +516,7 @@ describe(`notice sections`, () => {
 
   it(`desktop names the marks it actually ships`, () => {
     const trademarks = section(notices.desktop, `Trademarks`)!
-    for (const mark of [`Apple logo`, `Google "G" logo`, `Claude logo`, `Codex logo`, `Pi logo`]) {
+    for (const mark of [`Apple logo`, `Google "G" logo`, `Claude logo`, `Codex logo`]) {
       expect(trademarks).toContain(mark)
     }
   })

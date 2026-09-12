@@ -72,7 +72,7 @@ pub type LocalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
 
 /// The `_meta` key an adapter stamps its own session identity under, on the
 /// `session/new` (or `session/load`) RESPONSE: claude's stream-json
-/// `session_id`, codex's `thread.id`, pi's session file path. It lands on the
+/// `session_id`, codex's `thread.id`. It lands on the
 /// run record as `agent_native_session_id` (D8) and is what a PTY resume of
 /// the same conversation would need.
 pub const NATIVE_SESSION_META_KEY: &str = "exponentialNativeSessionId";
@@ -193,7 +193,7 @@ pub struct EngineExit {
 /// command renders as a LIVE card with a Stop button instead of a block of
 /// text that appears once it is over. Output stays exactly as local as the
 /// `ToolCallContent::Content` path it joins — the wire never carried a
-/// command's stdout and still does not. Our own claude/codex/pi adapters
+/// command's stdout and still does not. Our own claude/codex adapters
 /// never call these; an `ExternalAgent` (any ACP stdio binary) is what
 /// exercises them. `elicitation.form` is NOT optional — without it the
 /// claude port has to disallow `AskUserQuestion` and codex answers
@@ -323,7 +323,7 @@ pub struct ChildExitLink {
     /// EXP-758: the child's pid, recorded at spawn. The lifecycle writes it
     /// onto the run record so a host that died without its end sequence
     /// (Cmd-Q, a crash) leaves a pid the next start can reap
-    /// (`coding::reaper::reap_recorded`) — codex/pi/external children carry
+    /// (`coding::reaper::reap_recorded`) — codex/external children carry
     /// no `claude-hooks` anchor, so this is the only handle on them.
     pid: Arc<Mutex<Option<u32>>>,
     /// EXP-784: stdout lines the transport DROPPED over the child's life
@@ -596,10 +596,11 @@ struct FeedState {
     backlog: std::collections::VecDeque<LocalFeedEvent>,
     /// Latest-wins state, kept OUT of the ring because eviction would
     /// otherwise silently drop it on a long run: the phase (the composer's
-    /// gate), and the four latest-wins activity kinds — the relay's own
+    /// gate), and the latest-wins activity kinds — the relay's own
     /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `rate_limit`
-    /// (EXP-784), `diff`), which are slots in `SteerFeed` too and never feed
-    /// rows. A `tool_update` (EXP-785) is an ordinary row of the ring.
+    /// (EXP-784), `turn` (EXP-848), `diff`), which are slots in `SteerFeed`
+    /// too and never feed rows. A `tool_update` (EXP-785) is an ordinary row
+    /// of the ring.
     phase: Option<EnginePhase>,
     /// EXP-758: the [`EnginePhase::Failed`] edge, kept even after `Ended`
     /// overwrote the phase slot a millisecond later. Without it the ONE line
@@ -610,6 +611,8 @@ struct FeedState {
     config_state: Option<LocalFeedEvent>,
     usage: Option<LocalFeedEvent>,
     rate_limit: Option<LocalFeedEvent>,
+    /// EXP-848: the turn slot — the spinner's source of truth.
+    turn: Option<LocalFeedEvent>,
     diff: Option<LocalFeedEvent>,
     subscribers: Vec<flume::Sender<LocalFeedEvent>>,
 }
@@ -624,6 +627,7 @@ impl FeedState {
             steer::ActivityEvent::ConfigState { .. } => Some(&mut self.config_state),
             steer::ActivityEvent::Usage { .. } => Some(&mut self.usage),
             steer::ActivityEvent::RateLimit { .. } => Some(&mut self.rate_limit),
+            steer::ActivityEvent::Turn { .. } => Some(&mut self.turn),
             steer::ActivityEvent::Diff { .. } => Some(&mut self.diff),
             _ => None,
         }
@@ -728,6 +732,7 @@ impl LocalFeed {
             &state.config_state,
             &state.usage,
             &state.rate_limit,
+            &state.turn,
             &state.diff,
         ]
         .into_iter()
@@ -1343,7 +1348,7 @@ where
             let (session_id, modes, options, meta) = match &ctx.resume {
                 // A recorded ACP session re-enters through `session/load`;
                 // every other resume shape is the ADAPTER's business (claude
-                // `--resume=`, codex `thread/resume`, pi `--session`) and
+                // `--resume=`, codex `thread/resume`) and
                 // arrives here as a plain `session/new`.
                 Some(ResumeHandle::Acp(id)) => {
                     let session_id = SessionId::new(id.clone());
@@ -1407,6 +1412,12 @@ where
             // wait for the turn (EXP-637) must not sit out `STOP_GRACE` on a
             // session that never started one.
             ctx.turn_signal.set_idle(true);
+            // EXP-848: and SEED the `turn` slot with it, so a viewer that
+            // joins before the first prompt reads `ended` off the replay
+            // instead of inferring it.
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| mapper.set_turn(steer::TurnState::Ended, true, &mut out));
+            ctx.dispatch(out);
 
             if ctx.replay {
                 // A transcript replay has nothing to steer: `session/load`
@@ -1465,7 +1476,13 @@ where
             // and `needs_input` true, so the ended run still read as waiting
             // for an answer nobody can give.
             let mut out = MapOut::default();
-            ctx.with_mapper(|mapper| mapper.on_cancel(&mut out));
+            ctx.with_mapper(|mapper| {
+                mapper.on_cancel(&mut out);
+                // EXP-848: the loop is over, so no turn can be in flight —
+                // close the slot even if the prompt that was open never
+                // answered.
+                mapper.set_turn(steer::TurnState::Ended, false, &mut out);
+            });
             ctx.dispatch(out);
             Ok(())
         })
@@ -1488,7 +1505,7 @@ fn advertises_mode(mapper: &Mapper, mode_id: &str) -> bool {
 /// The engine's own mirror of a `session/set_mode` that answered Ok.
 ///
 /// Gated on [`advertises_mode`]: a session with no modes answers Ok as a
-/// silent NO-OP (pi), and mirroring that would publish a `config_state`
+/// silent NO-OP, and mirroring that would publish a `config_state`
 /// naming a mode the run never entered.
 fn mirror_mode(mapper: &mut Mapper, mode_id: &str, out: &mut MapOut) {
     if advertises_mode(mapper, mode_id) {
@@ -1572,7 +1589,7 @@ fn handle_command(
                     // (when it sends one) is then a no-op re-emit.
                     //
                     // Only for a mode the agent actually ADVERTISES: an agent
-                    // with no mode list answers Ok as a silent no-op (pi), and
+                    // with no mode list answers Ok as a silent no-op, and
                     // mirroring that would publish a `config_state` claiming a
                     // mode the run never entered.
                     Ok(_) => {
@@ -1778,6 +1795,11 @@ fn start_turn(
     announce_prompt(ctx, &announce);
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
+    // EXP-848: the turn slot opens HERE — the one signal every client's
+    // `working` predicate reads (`on_stop` closes it).
+    let mut turn_out = MapOut::default();
+    ctx.with_mapper(|mapper| mapper.set_turn(steer::TurnState::Started, false, &mut turn_out));
+    ctx.dispatch(turn_out);
     let request = ready_blocks.map(|blocks| PromptRequest::new(session_id.clone(), blocks));
     let ready = request.as_ref().and_then(|request| {
         turns.slots.try_acquire().ok().map(|permit| {
@@ -1867,7 +1889,7 @@ fn blocks_text(blocks: &[ContentBlock]) -> String {
 /// and every ask an agent raises mid-tool is SESSION-scoped with that id on
 /// it (claude `AskUserQuestion`, codex `requestUserInput`), so the
 /// `<id>#<n>` stepper stays correlatable with the tool card it belongs to.
-/// A session scope with no tool call (pi) has nothing to name and falls
+/// A session scope with no tool call has nothing to name and falls
 /// through to the synthetic id.
 fn elicitation_id(request: &CreateElicitationRequest) -> String {
     use agent_client_protocol::schema::v1::{ElicitationMode, ElicitationScope};
@@ -2120,6 +2142,27 @@ mod tests {
         }
     }
 
+    /// EXP-848: a turn edge as a local feed event.
+    fn turn(state: steer::TurnState) -> LocalFeedEvent {
+        LocalFeedEvent::Activity {
+            event: steer::ActivityEvent::turn(state),
+            tool_call_id: None,
+        }
+    }
+
+    fn turns(events: &[LocalFeedEvent]) -> Vec<steer::TurnState> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                LocalFeedEvent::Activity {
+                    event: steer::ActivityEvent::Turn { state, .. },
+                    ..
+                } => Some(*state),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn drain(rx: &flume::Receiver<LocalFeedEvent>) -> Vec<LocalFeedEvent> {
         rx.drain().collect()
     }
@@ -2197,6 +2240,9 @@ mod tests {
         feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
         feed.emit(None, config_state("plan"));
         feed.emit(None, usage(1_234));
+        // EXP-848: the turn slot is state too — evicting it would leave a
+        // reopened tab spinning at an idle run (or silent under a working one).
+        feed.emit(None, turn(steer::TurnState::Started));
         for index in 0..BACKLOG_CAP * 2 {
             feed.emit(None, narration(&format!("row {index}")));
         }
@@ -2216,6 +2262,13 @@ mod tests {
                 ..
             } if *context_used == 1_234
         )));
+        assert_eq!(turns(&replay), vec![steer::TurnState::Started]);
+        // …and only the NEWEST turn edge: it is a slot, not a row.
+        feed.emit(None, turn(steer::TurnState::Ended));
+        assert_eq!(
+            turns(&drain(&feed.subscribe())),
+            vec![steer::TurnState::Ended]
+        );
     }
 
     /// EXP-766: the CLI daemon has no `LocalSink` and never reopens a view, so
@@ -2619,8 +2672,8 @@ mod tests {
             .collect()
     }
 
-    /// The bug this guards: pi advertises NO modes and answers `set_mode`
-    /// with a silent Ok. Mirroring that Ok published `current_mode = "plan"`
+    /// The bug this guards: an agent that advertises NO modes answers
+    /// `set_mode` with a silent Ok. Mirroring that Ok published `current_mode = "plan"`
     /// for a run that never entered plan mode, and every client painted it.
     #[test]
     fn a_set_mode_on_a_session_without_modes_publishes_no_config_state() {

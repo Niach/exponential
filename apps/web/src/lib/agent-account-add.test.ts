@@ -30,11 +30,13 @@ function device(overrides: Partial<Device>): Device {
 }
 
 describe(`agentInstalledOn / addableAgents`, () => {
-  it(`counts runnable and signed-out agents, never pi`, () => {
-    const row = device({ agents: [`claude`, `pi`], unauthedAgents: [`codex`] })
+  it(`counts runnable and signed-out agents, deduped`, () => {
+    const row = device({ agents: [`claude`, `codex`], unauthedAgents: [`codex`] })
     expect(agentInstalledOn(row, `claude`)).toBe(true)
     expect(agentInstalledOn(row, `codex`)).toBe(true)
-    expect(agentInstalledOn(row, `pi`)).toBe(true)
+    expect(agentInstalledOn(row, `nope`)).toBe(false)
+    // EXP-849: every installed agent is addable — each one has a device-code
+    // sign-in now.
     expect(addableAgents(row)).toEqual([`claude`, `codex`])
   })
 })

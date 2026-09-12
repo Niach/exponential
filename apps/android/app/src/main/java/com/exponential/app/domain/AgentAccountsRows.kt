@@ -51,8 +51,8 @@ data class AgentProfileUsageRow(
 /** One account row of the section. */
 data class AgentAccountUsageGroup(
     /**
-     * `<agent>:<email>` for a named login; a row with no email (pi names a
-     * provider, a signed-out row names nobody) can never be told apart from
+     * `<agent>:<email>` for a named login; a row with no email (an agent that
+     * names a provider, a signed-out row names nobody) can never be told apart from
      * another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
      */
     val key: String,
@@ -328,7 +328,7 @@ object AgentAccountsRows {
 
     /**
      * The row's identity line: `Not signed in`, else the email, else the
-     * plan (pi reports a provider, never an address), else `signed in`.
+     * plan (an agent may report a provider, never an address), else `signed in`.
      */
     fun caption(group: AgentAccountUsageGroup): String = when {
         !group.signedIn -> "Not signed in"

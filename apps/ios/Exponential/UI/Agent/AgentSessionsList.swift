@@ -439,7 +439,10 @@ struct AgentSessionsList: View {
                     identifier: row.issue?.identifier,
                     title: sessionRowTitle(issue: row.issue, session: row.session),
                     state: state,
-                    paused: paused
+                    paused: paused,
+                    // EXP-848: the dot pulses on the device-written turn flag,
+                    // not on the row merely being `running`.
+                    busy: row.session.agentBusy
                 )
                 HStack(spacing: 6) {
                     if paused {

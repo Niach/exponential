@@ -74,7 +74,7 @@ pub fn route_line(line: &str) -> Option<(u64, Option<Value>)> {
 ///
 /// EXP-746: `pub` because the ACP engine spawns the same shape of child (a
 /// long-lived JSON-RPC-over-stdio agent) and must not grow a second
-/// kill-on-drop guard — codex/pi/external ACP children have no `claude-hooks`
+/// kill-on-drop guard — codex/external ACP children have no `claude-hooks`
 /// reaper anchor, so this Drop IS what keeps them from escaping.
 pub struct ChildGuard(std::process::Child);
 

@@ -135,13 +135,11 @@ function useUpdateBlockers(): (device: SteerDevice) => UpdateBlockerSession[] {
 }
 
 /** EXP-747 A5: the agent a machine row's "Sign in" pill targets — the first
- * signed-out agent with a device-code flow (pi has none: local only). Null
- * when nothing is signed out, or the build cannot run `agent_login`. */
+ * signed-out agent (EXP-849: every agent has a device-code flow). Null when
+ * nothing is signed out, or the build cannot run `agent_login`. */
 export function signInAgentFor(device: SteerDevice): string | null {
   if (!deviceIsOnline(device) || !deviceCanAgentLogin(device)) return null
-  return (
-    deviceUnauthedAgentIds(device).find((agent) => agent !== `pi`) ?? null
-  )
+  return deviceUnauthedAgentIds(device)[0] ?? null
 }
 
 // The install script is served by the CLOUD marketing site for every

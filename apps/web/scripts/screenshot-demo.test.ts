@@ -174,8 +174,8 @@ describe(`demo agent report (EXP-733)`, () => {
   /** The stub re-stamps on every heartbeat (screenshot-desktop.ts HEARTBEAT_MS). */
   const HEARTBEAT_MS = 30_000
 
-  it(`reports all three agents, signed in, with a line each client can print`, () => {
-    expect(agents.sort()).toStrictEqual([`claude`, `codex`, `pi`])
+  it(`reports every agent, signed in, with a line each client can print`, () => {
+    expect(agents.sort()).toStrictEqual([`claude`, `codex`])
     const { agentAccounts } = demoAgentReport(new Date())
     for (const agent of agents) {
       // "Sign-in status unknown" / "Not signed in" are exactly the fallbacks

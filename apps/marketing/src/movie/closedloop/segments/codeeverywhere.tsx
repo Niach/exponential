@@ -1,9 +1,9 @@
 // closedloop/segments/codeeverywhere.tsx — clip 2 (260f, EXP-385: the merged
 // start-coding + live-steer clip). Code from everywhere, running locally:
 // the phone rises with EXP-151's REAL mobile issue view (identifier pill,
-// chip box, the icon-only play circle), the real start sheet slides up
-// (Issues · agent pills · Model · Effort — a long dwell, this IS the film's
-// start-coding dialog) and on Start the desktop reacts SIMULTANEOUSLY — the
+// chip box, the icon-only play circle), the real Agent page pushes in (the
+// chipped issue · the prompt field · Device · Agent · Model — a long dwell,
+// this IS the film's launcher) and on Start the desktop reacts SIMULTANEOUSLY — the
 // run's SESSION slides in over the issue body (EXP-791), a Sessions row
 // appears in the rail, EXP-151 FLIPs Backlog → In Progress. The "Start sent"
 // toast confirms, the phone flips to the session screen, mirrors the feed,
@@ -72,11 +72,11 @@ const DUR = SEGMENT_DURATIONS["code-everywhere"]
 const B = {
   phoneIn: 8, // the iPhone rises with the EXP-151 issue view
   tapAt: 28, // play-circle tap on the issue view
-  sheetAt: 34, // the start sheet slides up — then DWELLS (~70f)
-  flick: { at: 58, out: 66 }, // hover flick across the Codex pill
-  startAt: 104, // toolbar Start-coding press → spinner
+  sheetAt: 34, // the Agent page pushes in — then DWELLS (~70f)
+  flick: { at: 58, out: 66 }, // hover flick across the Agent pill
+  startAt: 104, // the submit pill's press → spinner
   simul: 112, // the desktop reacts: dock springs, tab pops, board FLIPs
-  sheetOut: 112, // sheet collapses; the "Start sent" toast confirms
+  sheetOut: 112, // the screen pops back; the "Start sent" toast confirms
   sessionSlide: 118, // the transcript slides in over the issue body
   feed: [124, 134, 146, 158, 168] as const, // first 5 CL_SESSION events
   phoneSwap: 136, // the phone flips to the session screen
@@ -111,14 +111,14 @@ const FEED_SCHEDULE = [...B.feed, B.steerLand, ...B.reply]
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.06, x: 790, y: 513 }]
 
 // Portrait (EXP-482): the phone IS the story — and at 1080×1350 the whole
-// device fits the frame (comp rect ~380×780 at its 1.15 scale), start sheet
+// device fits the frame (comp rect ~380×780 at its 1.15 scale), composer
 // and all, instead of the old sheet-only crop. Two shots: the cut sits 4f
 // before `simul`, so the dock springs open ON camera in shot B, and in the
 // caption gap (ce1 is gone by 106, ce2 arrives at 116). Shot B slides right
 // and down so a band of the terminal dock rides beside the phone — the
 // steer must be SEEN landing there.
 const CAMERA_KEYS_PT: CamKey[] = shotKeys([
-  { at: 0, s: 1.7, x: 224, y: 610 }, // the WHOLE phone, start sheet up
+  { at: 0, s: 1.7, x: 224, y: 610 }, // the WHOLE phone, Agent page up
   { at: 108, s: 1.7, x: 334, y: 590 }, // phone session feed + dock band
 ])
 

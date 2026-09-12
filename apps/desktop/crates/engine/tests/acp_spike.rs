@@ -1,7 +1,7 @@
 //! EXP-746 — the phase-1 SPIKE test (the gate for every other lane).
 //!
-//! Owned by lane S1. Offline checks (argv vectors, the codex line classifier,
-//! pi's discriminator) always run; the LIVE checklist is gated behind
+//! Owned by lane S1. Offline checks (argv vectors, the codex line
+//! classifier) always run; the LIVE checklist is gated behind
 //! `EXP_ACP_SPIKE=1` and self-skips whenever the CLI under test is absent, so
 //! a plain `cargo test` stays green on a machine with no agent installed.
 //!
@@ -18,7 +18,6 @@ use engine::adapters::claude_wire::{
     self, ClaudeArgs, ClaudeOut, ClaudeProcess, McpConfig, TurnEnd,
 };
 use engine::adapters::codex_wire::{self, classify_line, AppServer, CodexMode, Incoming};
-use engine::adapters::pi_wire::{self, parse_line, PiArgs, PiOut, PiProcess};
 use serde_json::json;
 use terminal::pty::SpawnSpec;
 
@@ -95,15 +94,6 @@ fn codex_classify_line_routes_all_three_shapes() {
         Incoming::Notification { .. }
     ));
     assert!(matches!(classify_line("codex: starting"), Incoming::Junk));
-}
-
-#[test]
-fn pi_parse_line_ignores_an_unknown_type() {
-    assert!(matches!(
-        parse_line(r#"{"type":"some_event_pi_added_last_week","payload":1}"#),
-        PiOut::Event { .. }
-    ));
-    assert!(matches!(parse_line("{"), PiOut::Unknown));
 }
 
 // ---------------------------------------------------------------------------
@@ -189,32 +179,4 @@ fn codex_app_server_thread_start_and_turn() {
         completed = method == "turn/completed" || method == "turn/failed";
     }
     assert!(completed, "the turn reached a completion notification");
-}
-
-/// Checkpoint 13: the rpc handshake and the idle edge.
-#[test]
-fn pi_rpc_prompt_and_settled() {
-    if !live() || cli("pi").is_none() {
-        return;
-    }
-    let spec = SpawnSpec::new("pi").args(pi_wire::pi_argv(&PiArgs::default())).cwd(scratch("pi"));
-    let process = PiProcess::spawn(&spec).expect("pi spawns");
-    process.send(&pi_wire::command("1", "get_state", json!({}))).expect("stdin");
-    let answered = process.pump(
-        Instant::now() + Duration::from_secs(60),
-        |_frame, _raw| Vec::new(),
-        |frame| matches!(frame, PiOut::Response { command, .. } if command == "get_state"),
-    );
-    assert!(answered, "get_state answered");
-    process
-        .send(&pi_wire::command("2", "prompt", json!({ "message": "Reply with the single word ok." })))
-        .expect("stdin");
-    let settled = process.pump(
-        Instant::now() + Duration::from_secs(180),
-        |_frame, _raw| Vec::new(),
-        // `agent_settled` is the true idle edge; `agent_end` can precede a
-        // retry, so it is NOT the one to wait on.
-        |frame| matches!(frame, PiOut::Event { kind, .. } if kind == "agent_settled"),
-    );
-    assert!(settled, "the turn settled");
 }

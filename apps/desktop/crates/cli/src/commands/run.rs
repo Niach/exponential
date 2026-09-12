@@ -106,7 +106,7 @@ pub fn run(args: &[String]) -> CommandResult {
         super::code::wait_with_signals(&session)
     };
     // EXP-764 (daemon parity): a repo-less run is purged whole with the run
-    // — scratch dir, trust entries, pi session file, record, journal.
+    // — scratch dir, trust entries, record, journal.
     if coding::scratch::is_scratch_dir(&ctx.data_dir, &session.worktree) {
         let purged = coding::scratch::purge(
             &ctx.data_dir,

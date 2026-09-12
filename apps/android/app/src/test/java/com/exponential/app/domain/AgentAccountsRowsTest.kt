@@ -226,14 +226,14 @@ class AgentAccountsRowsTest {
     fun `keeps email-less and signed-out rows apart — nothing to merge on`() {
         val groups = AgentAccountsRows.accountUsageGroups(
             listOf(
-                row(deviceId = "a", agent = "pi", plan = "openai-codex (oauth)"),
-                row(deviceId = "b", agent = "pi", plan = "openai-codex (oauth)"),
+                row(deviceId = "a", agent = "codex", plan = "openai-codex (oauth)"),
+                row(deviceId = "b", agent = "codex", plan = "openai-codex (oauth)"),
                 row(deviceId = "a", agent = "claude", signedIn = false, email = "x@y.z"),
                 row(deviceId = "b", agent = "claude", signedIn = false),
             ),
         ) { false }
         assertEquals(
-            listOf("pi:a:system", "pi:b:system", "claude:a:system", "claude:b:system"),
+            listOf("codex:a:system", "codex:b:system", "claude:a:system", "claude:b:system"),
             groups.map { it.key },
         )
         assertFalse(groups[2].signedIn)
@@ -333,11 +333,11 @@ class AgentAccountsRowsTest {
 
     @Test
     fun `sections follow the contract agent order`() {
-        val groups = listOf("pi", "zeta", "claude", "codex", "alpha").map { agent ->
+        val groups = listOf("zeta", "claude", "codex", "alpha").map { agent ->
             AgentAccountsRows.accountUsageGroups(listOf(row(deviceId = "a", agent = agent))) { false }.single()
         }
         val sections = AgentAccountsRows.sections(groups)
-        assertEquals(listOf("claude", "codex", "pi", "alpha", "zeta"), sections.map { it.agent })
+        assertEquals(listOf("claude", "codex", "alpha", "zeta"), sections.map { it.agent })
     }
 
     @Test

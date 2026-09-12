@@ -11,7 +11,7 @@
 import { contract } from "@exp/domain-contract"
 
 export interface CodingLaunchPrefs {
-  /** Coding agent CLI (`claude`/`codex`/`pi`) — EXP-201. */
+  /** Coding agent CLI (`claude`/`codex`) — EXP-201. */
   agent: string
   model: string
   /** `""` = "CLI default" (omit the effort flag) — a valid value. */
@@ -86,13 +86,11 @@ export interface AgentLaunchDefaults {
 }
 
 /** The model values pickable for `agent` (EXP-201). Blank ("CLI default") is
- * an extra valid choice for codex/pi; claude is explicit-always. */
+ * an extra valid choice for codex; claude is explicit-always. */
 export function agentModelValues(agent: string): readonly string[] {
   switch (agent) {
     case `codex`:
       return contract.codexModel.values
-    case `pi`:
-      return contract.piModel.values
     default:
       return contract.codingModel.values
   }
@@ -103,8 +101,6 @@ export function agentEffortValues(agent: string): readonly string[] {
   switch (agent) {
     case `codex`:
       return contract.codexEffort.values
-    case `pi`:
-      return contract.piThinking.values
     default:
       return contract.codingEffort.values
   }
@@ -115,19 +111,19 @@ export function agentAllowsBlankModel(agent: string): boolean {
   return agent !== `claude`
 }
 
-/** Ultracode is Claude-only; plan mode is claude + pi (EXP-441: pi via the
- * launcher-injected extension). EXP-690 retired the skip-permissions choice:
- * every launch bypasses the agent's permission prompts. */
+/** Ultracode and plan mode are Claude-only (EXP-849 dropped pi). EXP-690
+ * retired the skip-permissions choice: every launch bypasses the agent's
+ * permission prompts. */
 export function agentSupportsUltracode(agent: string): boolean {
   return agent === `claude`
 }
 
 export function agentSupportsPlanMode(agent: string): boolean {
-  return agent === `claude` || agent === `pi`
+  return agent === `claude`
 }
 
 /** The default model choice for `agent` — first contract value for claude
- * (explicit-always), blank "CLI default" for codex/pi. */
+ * (explicit-always), blank "CLI default" for codex. */
 export function defaultModelFor(agent: string): string {
   return agentAllowsBlankModel(agent) ? `` : contract.codingModel.values[0]
 }

@@ -58,7 +58,7 @@ pub struct CodingSession {
     /// `coding_session_status`).
     #[serde(default)]
     pub status: Option<String>,
-    /// EXP-484: the agent CLI running it (`claude`/`codex`/`pi`); `None` on
+    /// EXP-484: the agent CLI running it (`claude`/`codex`); `None` on
     /// rows written before the column existed.
     #[serde(default)]
     pub agent: Option<String>,
@@ -508,6 +508,37 @@ pub fn set_needs_input(trpc: &TrpcClient, id: &str, needs_input: bool) -> Result
     let envelope: SetNeedsInputEnvelope = trpc.mutation(
         "codingSessions.setNeedsInput",
         &SetNeedsInputInput { id, needs_input },
+    )?;
+    Ok(envelope.updated)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetAgentBusyInput<'a> {
+    id: &'a str,
+    agent_busy: bool,
+}
+
+#[derive(Deserialize)]
+struct SetAgentBusyEnvelope {
+    updated: bool,
+}
+
+/// `codingSessions.setAgentBusy` — mutation (EXP-848). Mirrors the engine's
+/// `turn` edges onto the synced row's `agent_busy` column, so every OTHER
+/// client's session list can spin the "working" dot on what the agent is
+/// actually doing instead of on `status = 'running'` (a run parked on a
+/// question, walled by a rate limit or simply between turns is running and
+/// NOT working).
+///
+/// Device-written and fire-and-forget exactly like [`set_needs_input`]:
+/// `updated: false` (row swept or ended) and transport errors are both
+/// ignorable — the forwarder retries, and every server end path clears the
+/// flag anyway.
+pub fn set_agent_busy(trpc: &TrpcClient, id: &str, agent_busy: bool) -> Result<bool, ApiError> {
+    let envelope: SetAgentBusyEnvelope = trpc.mutation(
+        "codingSessions.setAgentBusy",
+        &SetAgentBusyInput { id, agent_busy },
     )?;
     Ok(envelope.updated)
 }
@@ -1103,12 +1134,12 @@ mod tests {
             Attribution::default(),
             None,
             None,
-            Some("pi"),
+            Some("codex"),
             &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"teamId":"ws-1","agent":"pi"}"#));
+        assert!(request.ends_with(r#"{"teamId":"ws-1","agent":"codex"}"#));
 
         let (base, captured) = one_shot_server(
             200,
@@ -1212,8 +1243,8 @@ mod tests {
     #[test]
     fn decodes_the_session_agent() {
         let session: CodingSession =
-            serde_json::from_str(r#"{"id":"sess-1","agent":"pi"}"#).unwrap();
-        assert_eq!(session.agent.as_deref(), Some("pi"));
+            serde_json::from_str(r#"{"id":"sess-1","agent":"codex"}"#).unwrap();
+        assert_eq!(session.agent.as_deref(), Some("codex"));
         let session: CodingSession = serde_json::from_str(r#"{"id":"sess-2"}"#).unwrap();
         assert_eq!(session.agent, None);
     }
@@ -1249,6 +1280,22 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.setNeedsInput HTTP/1.1"));
         assert!(request.ends_with(r#"{"id":"sess-1","needsInput":true}"#));
+    }
+
+    /// EXP-848: the turn mirror — same shape, same fire-and-forget contract
+    /// as `setNeedsInput`.
+    #[test]
+    fn set_agent_busy_posts_flag_and_decodes_updated() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":true}}}"#);
+        assert!(set_agent_busy(&client(&base), "sess-1", true).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.setAgentBusy HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"sess-1","agentBusy":true}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":false}}}"#);
+        assert!(!set_agent_busy(&client(&base), "sess-1", false).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"sess-1","agentBusy":false}"#));
     }
 
     #[test]

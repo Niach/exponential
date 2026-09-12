@@ -697,7 +697,6 @@ impl SteerSessionView {
         match self.agent() {
             SessionAgent::Claude => Some(coding::CodingAgent::Claude),
             SessionAgent::Codex => Some(coding::CodingAgent::Codex),
-            SessionAgent::Pi => Some(coding::CodingAgent::Pi),
             SessionAgent::External => None,
         }
     }
@@ -790,18 +789,42 @@ impl SteerSessionView {
         self.active = self.feed.active_question_ids();
     }
 
-    /// Whether the synthetic "Working…" row sits under the transcript: a
-    /// live, unended run with nothing waiting on the reader and no strip
-    /// already saying what is happening.
+    /// EXP-848 — the ONE working predicate (identical on all four clients,
+    /// ONE copy per client): the synthetic "Working…" row and the composer's
+    /// Stop button both read it.
+    ///
+    /// `turn_state` is the authority — a LIVE run is working only while the
+    /// engine says a turn is in flight, and the slot defaults to `ended`, so
+    /// nothing pulses at a run that is merely connected. Everything else is a
+    /// veto: an ended row, a question waiting on the reader (the open cards
+    /// AND the row's own `needs_input`, FEED-35), a rate-limit wall (a walled
+    /// run is stalled, not working) and a compaction (whose strip already says
+    /// what is happening).
+    ///
+    /// Authoritative through the FEED SLOT, never the local engine's
+    /// `TurnSignal`: a remote viewer has no engine, and one rule that works
+    /// for every `FeedSource` beats two that disagree.
     fn working_now(&self) -> bool {
-        !self.feed.is_empty()
-            && self.phase == ViewerPhase::Live
-            && !self.row_ended()
-            && self.active.is_empty()
-            && !self.feed.is_staging()
-            // EXP-724: the compaction strip already says what is happening —
-            // a second "Working…" under it is noise (web parity).
-            && self.feed.compacting().is_none()
+        is_working(&WorkingFacts {
+            empty_feed: self.feed.is_empty(),
+            live: self.phase == ViewerPhase::Live,
+            row_ended: self.row_ended(),
+            turn_working: self.feed.turn_state().is_working(),
+            awaiting_input: !self.active.is_empty(),
+            needs_input: self.row_needs_input(),
+            staging: self.feed.is_staging(),
+            blocked: self.rate_limit_wall_showing(chrono::Utc::now().timestamp_millis()),
+            compacting: self.feed.compacting().is_some(),
+        })
+    }
+
+    /// FEED-35: the synced attention flag the HOST wrote — a run parked on a
+    /// picker this viewer never received a card for is still waiting.
+    fn row_needs_input(&self) -> bool {
+        self.row
+            .as_ref()
+            .and_then(|row| row.needs_input)
+            .unwrap_or(false)
     }
 
     /// The view-side bits of one item that move its rendered height — see
@@ -1361,6 +1384,15 @@ impl SteerSessionView {
             return None;
         }
         if self.feed.compacting().is_some() {
+            return None;
+        }
+        // EXP-848: "No activity for N min" under a pulsing "Working…" was a
+        // contradiction — the header and the spinner disagreed because one
+        // read the clock and the other nothing at all. With the turn slot the
+        // answer is unambiguous: a run whose agent is mid-turn is thinking or
+        // inside a long tool, which is not a stall. Quiet + NO turn in flight
+        // is the real FEED-26 case, and that is what the caption now names.
+        if self.working_now() {
             return None;
         }
         let quiet = self.last_activity.elapsed();
@@ -2147,7 +2179,6 @@ impl SteerSessionView {
             return match session.agent() {
                 coding::AgentKind::Builtin(coding::CodingAgent::Claude) => SessionAgent::Claude,
                 coding::AgentKind::Builtin(coding::CodingAgent::Codex) => SessionAgent::Codex,
-                coding::AgentKind::Builtin(coding::CodingAgent::Pi) => SessionAgent::Pi,
                 coding::AgentKind::External(_) => SessionAgent::External,
             };
         }
@@ -2738,6 +2769,43 @@ pub(crate) fn feed_pulse(feed: &SteerFeed) -> FeedPulse {
     (feed.len(), feed.items().last().cloned())
 }
 
+/// EXP-848 — everything the working predicate reads, gathered so the rule
+/// itself is a pure function one test can pin (the spinner, the Stop button
+/// and the FEED-26 caption all go through [`is_working`], and a second copy
+/// is how they drifted apart in the first place).
+pub(crate) struct WorkingFacts {
+    /// Nothing on screen yet — the synthetic row has nothing to sit under.
+    pub empty_feed: bool,
+    pub live: bool,
+    pub row_ended: bool,
+    /// The feed's latest-wins `turn` slot (default `ended`).
+    pub turn_working: bool,
+    /// A question card is waiting for an answer in THIS viewer.
+    pub awaiting_input: bool,
+    /// The synced row says the host parked the run (FEED-35).
+    pub needs_input: bool,
+    pub staging: bool,
+    /// A rate-limit WALL is up (EXP-804/FEED-35 — the same rule the row's
+    /// `blocked` column records).
+    pub blocked: bool,
+    pub compacting: bool,
+}
+
+/// EXP-848 — the ONE working predicate, identical on all four clients: the
+/// agent is executing a turn and nothing is waiting, walled or compacting.
+/// `turn_working` is the authority; every other field is a veto.
+pub(crate) fn is_working(facts: &WorkingFacts) -> bool {
+    !facts.empty_feed
+        && facts.live
+        && !facts.row_ended
+        && facts.turn_working
+        && !facts.awaiting_input
+        && !facts.needs_input
+        && !facts.staging
+        && !facts.blocked
+        && !facts.compacting
+}
+
 /// The header/tooltip caption for a phase, mirroring the web `phaseLabel`.
 ///
 /// FEED-26: `stale_minutes` is the whole minutes a LIVE run's feed has been
@@ -2811,6 +2879,26 @@ pub(crate) fn tool_group_caption(items: &[&FeedItem]) -> String {
         })
         .collect();
     steer::tool_group_summary(&calls)
+}
+
+/// EXP-847 — what a subagent chip is NAMED: the spawning `Agent` call's own
+/// `title` (what the model said this subagent is FOR) when it carried one,
+/// else the agent TYPE, which is all codex, an external agent and every
+/// pre-847 publisher have. Mirrored ×4.
+pub(crate) fn subagent_label(title: Option<&str>, agent_type: &str) -> String {
+    title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| agent_type.trim())
+        .to_string()
+}
+
+/// EXP-847 — the agent TYPE as a SECONDARY caption: shown only when the
+/// title took the primary line, so a type-only chip never says its type twice.
+pub(crate) fn subagent_type_caption(title: Option<&str>, agent_type: &str) -> Option<String> {
+    let title = title.map(str::trim).filter(|title| !title.is_empty())?;
+    let agent_type = agent_type.trim();
+    (!agent_type.is_empty() && agent_type != title).then(|| agent_type.to_string())
 }
 
 /// The subagent group row's status caption: `running · 1 tool call`.
@@ -3949,7 +4037,21 @@ impl SteerSessionView {
                 div()
                     .flex_shrink_0()
                     .text_color(cx.theme().foreground)
-                    .child(SharedString::from(summary.agent_type.clone())),
+                    .child(SharedString::from(subagent_label(
+                        summary.title.as_deref(),
+                        &summary.agent_type,
+                    ))),
+            )
+            .when_some(
+                subagent_type_caption(summary.title.as_deref(), &summary.agent_type),
+                |this, agent_type| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_2xs()
+                            .child(SharedString::from(agent_type)),
+                    )
+                },
             )
             .when(running, |this| this.child(Spinner::new().xsmall()))
             .child(
@@ -4770,7 +4872,10 @@ impl SteerSessionView {
                     cx,
                 )
                 .when(!agent.done, |this| this.child(Spinner::new().xsmall()))
-                .child(SharedString::from(agent.agent_type.clone()))
+                .child(SharedString::from(subagent_label(
+                    agent.title.as_deref(),
+                    &agent.agent_type,
+                )))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.focus_subagent(Some(subagent_id.clone()), cx);
                 })),
@@ -4800,7 +4905,21 @@ impl SteerSessionView {
                             div()
                                 .flex_shrink_0()
                                 .text_color(cx.theme().foreground)
-                                .child(SharedString::from(summary.agent_type.clone())),
+                                .child(SharedString::from(subagent_label(
+                                    summary.title.as_deref(),
+                                    &summary.agent_type,
+                                ))),
+                        )
+                        .when_some(
+                            subagent_type_caption(summary.title.as_deref(), &summary.agent_type),
+                            |this, agent_type| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_2xs()
+                                        .child(SharedString::from(agent_type)),
+                                )
+                            },
                         )
                         .when(!summary.done, |this| this.child(Spinner::new().xsmall()))
                         .child(
@@ -5551,6 +5670,83 @@ mod tests {
         assert!(image_marker_in_range(2, 2));
         assert!(!image_marker_in_range(3, 2));
         assert!(!image_marker_in_range(1, 0));
+    }
+
+    /// EXP-847: the chip names the JOB when the spawning call said one, and
+    /// falls back to the agent type otherwise; the type then rides a secondary
+    /// caption, and never twice.
+    #[test]
+    fn a_subagent_chip_prefers_the_spawning_calls_title() {
+        assert_eq!(
+            subagent_label(Some("  Audit the shape proxies  "), "explore"),
+            "Audit the shape proxies"
+        );
+        assert_eq!(subagent_label(None, " explore "), "explore");
+        assert_eq!(subagent_label(Some("   "), "explore"), "explore");
+        // The type is a caption ONLY beside a title.
+        assert_eq!(
+            subagent_type_caption(Some("Audit the shape proxies"), "explore").as_deref(),
+            Some("explore")
+        );
+        assert_eq!(subagent_type_caption(None, "explore"), None);
+        // …and never a repeat of the title it sits beside.
+        assert_eq!(subagent_type_caption(Some("explore"), "explore"), None);
+        assert_eq!(subagent_type_caption(Some("Audit"), "  "), None);
+    }
+
+    /// EXP-848: the turn slot is the AUTHORITY and everything else is a veto
+    /// — and the default (`turn_working: false`) never pulses.
+    #[test]
+    fn the_working_predicate_needs_a_turn_in_flight_and_no_veto() {
+        let working = || WorkingFacts {
+            empty_feed: false,
+            live: true,
+            row_ended: false,
+            turn_working: true,
+            awaiting_input: false,
+            needs_input: false,
+            staging: false,
+            blocked: false,
+            compacting: false,
+        };
+        assert!(is_working(&working()));
+        // No turn in flight is the common case: a live run between turns.
+        assert!(!is_working(&WorkingFacts { turn_working: false, ..working() }));
+        // Every veto, one at a time.
+        assert!(!is_working(&WorkingFacts { empty_feed: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { live: false, ..working() }));
+        assert!(!is_working(&WorkingFacts { row_ended: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { awaiting_input: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { needs_input: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { staging: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { blocked: true, ..working() }));
+        assert!(!is_working(&WorkingFacts { compacting: true, ..working() }));
+    }
+
+    /// FEED-26 + EXP-848: the idle caption and a pulsing "Working…" are
+    /// mutually exclusive by construction — `stale_minutes` asks the same
+    /// predicate, so a mid-turn run never reads as stalled.
+    #[test]
+    fn the_idle_caption_never_sits_under_a_working_run() {
+        let mid_turn = WorkingFacts {
+            empty_feed: false,
+            live: true,
+            row_ended: false,
+            turn_working: true,
+            awaiting_input: false,
+            needs_input: false,
+            staging: false,
+            blocked: false,
+            compacting: false,
+        };
+        assert!(is_working(&mid_turn), "the run the header must NOT call stale");
+        // Quiet with no turn in flight is the real FEED-26 case, and the
+        // caption is free to name it.
+        assert!(!is_working(&WorkingFacts { turn_working: false, ..mid_turn }));
+        assert_eq!(
+            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, Some(27)),
+            "No activity for 27 min · macbook"
+        );
     }
 
     #[test]

@@ -707,7 +707,7 @@ export const comments = pgTable(
 
 // The live "coding now" record — one row per interactive desktop coding
 // session (one session tab + one agent CLI child driven over ACP —
-// claude/codex/pi, EXP-201). SYNCED as an Electric shape
+// claude/codex, EXP-201). SYNCED as an Electric shape
 // so every coordination client shows the badge + Watch/Steer button. No
 // plan/approval state, no run history, no slot pool — PR outcome lives on
 // `issues` (prUrl/prNumber/prState/branch). Three session subjects: issue-
@@ -866,6 +866,12 @@ export const codingSessions = pgTable(
     // with running/in_review (which stay server-owned) instead of being a
     // status of its own; cleared by the desktop when the picker resolves.
     needsInput: boolean(`needs_input`).notNull().default(false),
+    // EXP-848: device-written turn state — the agent is EXECUTING a turn right
+    // now. Like `needs_input` it composes with the server-owned status instead
+    // of being one (a busy run is `running`; every server end path clears it),
+    // and it is what the session lists key their working spinner on: `running`
+    // alone only says the run is live, not that the agent is thinking.
+    agentBusy: boolean(`agent_busy`).notNull().default(false),
     // EXP-804: the agent's usage wall as row state. NULL = not blocked. The
     // run stays `running` — a blocked run is still live, steerable and
     // killable; this is orthogonal to status, like `needs_input` above.
@@ -1374,8 +1380,8 @@ export const deviceWorktrees = pgTable(
 // (EXP-484, payload {agent, switch: "true"|"false", profileId?,
 // newProfileLabel?}: the device runs the agent CLI's own login flow inside
 // the named account profile (EXP-827: `profileId` = an existing profile,
-// `newProfileLabel` = create one first, neither = the ambient login; pi has
-// none) and completes the command EARLY, as soon as the sign-in URL is on
+// `newProfileLabel` = create one first, neither = the ambient login) and
+// completes the command EARLY, as soon as the sign-in URL is on
 // screen, with the JSON progress in `result` ({agent, phase, url?, code?,
 // message?, profileId}, `profileId` = the id it signed into, `system` when
 // none was named)) |

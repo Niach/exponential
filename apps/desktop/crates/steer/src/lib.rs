@@ -87,7 +87,8 @@ pub use control_channel::{
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
-    truncate_marked, worktree_diff, AnswerLink, CommandLink, CommandSink, ConfigChange, ConfigLink,
+    truncate_marked, worktree_diff, AgentBusyForwarder, AgentBusyHook, AnswerLink, CommandLink,
+    ConfigChange, ConfigLink,
     BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
     RemoteAnswer, SessionAgent, SessionBlocked, blocked_wall_expired, iso_from_unix_millis,
     now_unix_millis,
@@ -105,10 +106,11 @@ pub use feed::{
     FEED_BYTE_CAP, FEED_ITEM_CAP, REPLAY_MAX, REPLAY_QUIET,
 };
 pub use frames::{
-    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, ClientFrame, ConfigCommand, ConfigMode, ConfigOption,
-    ConfigValue, QuestionOption, ServerFrame, StartInput, StartRepoGroup, SteerRole,
-    SubagentStatus, ToolKind, ToolUpdateStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED,
-    CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
+    rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, ClientFrame,
+    ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
+    StartRepoGroup, SteerRole, SubagentStatus, ToolKind, ToolPreview, ToolUpdateStatus, TurnState,
+    ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
+    CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
 };
 pub use tool_diff::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 pub use image_message::{

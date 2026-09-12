@@ -341,7 +341,7 @@ describe(`accountCaption`, () => {
     expect(accountCaption({ signedIn: false })).toBe(`signed out`)
   })
 
-  it(`renders a plan-only account (pi reports a provider, no email)`, () => {
+  it(`renders a plan-only account (a provider, no email)`, () => {
     expect(accountCaption({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
       `anthropic (oauth)`
     )
@@ -363,7 +363,7 @@ describe(`accountLine`, () => {
     )
   })
 
-  it(`falls back to the bare plan without an email (pi)`, () => {
+  it(`falls back to the bare plan without an email`, () => {
     expect(accountLine({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
       `anthropic (oauth)`
     )
@@ -386,7 +386,7 @@ describe(`accountRow`, () => {
       })
     ).toBe(`claude · danny@example.com`)
     expect(accountRow(`codex`, { signedIn: false })).toBe(`codex · signed out`)
-    expect(accountRow(`pi`, null)).toBe(`pi · unknown`)
+    expect(accountRow(`claude`, null)).toBe(`claude · unknown`)
   })
 })
 
@@ -649,16 +649,16 @@ describe(`accountUsageGroups`, () => {
   it(`keeps email-less and signed-out rows apart — nothing to merge on`, () => {
     const groups = accountUsageGroups(
       [
-        row({ deviceId: `a`, agent: `pi`, plan: `openai-codex (oauth)` }),
-        row({ deviceId: `b`, agent: `pi`, plan: `openai-codex (oauth)` }),
+        row({ deviceId: `a`, agent: `codex`, plan: `openai-codex (oauth)` }),
+        row({ deviceId: `b`, agent: `codex`, plan: `openai-codex (oauth)` }),
         row({ deviceId: `a`, agent: `claude`, signedIn: false, email: `x@y.z` }),
         row({ deviceId: `b`, agent: `claude`, signedIn: false }),
       ],
       () => false
     )
     expect(groups.map((group) => group.key)).toEqual([
-      `pi:a:system`,
-      `pi:b:system`,
+      `codex:a:system`,
+      `codex:b:system`,
       `claude:a:system`,
       `claude:b:system`,
     ])

@@ -10,7 +10,7 @@
 //! coding::prepare_with_hooks → PreparedLaunch { transport: Acp, acp: Some(..) }
 //!   → engine::start(EngineStart, host) ──► EngineSession
 //!       ├ thread acp-engine-<sid8>: Client.builder()…connect_with(adapter, main_fn)
-//!       │    adapter = Claude | Codex | Pi | External   (ConnectTo<Client>)
+//!       │    adapter = Claude | Codex | External   (ConnectTo<Client>)
 //!       ├ mapper.rs : SessionUpdate/requests → wire ActivityEvent + LocalFeedEvent
 //!       ├ lifecycle.rs : publisher, heartbeat, diffs, kill feed, end sequence
 //!       └ desktop: Screen::Session (FeedSource::Local) · cli: line printer
@@ -29,7 +29,7 @@
 //!
 //! Landed in P0 as signatures with `todo!()` bodies (the transport, the sink
 //! and the small conversions are real); the lanes that fill each one are named
-//! in its doc comment: E1 core, E2 claude, E3 codex, E4 pi/external, S1 spike.
+//! in its doc comment: E1 core, E2 claude, E3 codex, E4 external, S1 spike.
 
 pub mod adapters;
 pub mod host;

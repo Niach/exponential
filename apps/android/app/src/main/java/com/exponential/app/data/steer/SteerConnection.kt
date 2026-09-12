@@ -27,6 +27,7 @@ import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.clearCompaction
+import com.exponential.app.domain.clearTurn
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.lockAnswer
@@ -517,8 +518,10 @@ class SteerConnection internal constructor(
         _phase.value = next
         // EXP-724: the run is over — whatever it was compacting, it is not
         // compacting now, and the strip must not outlive the session.
+        // EXP-848: the same for the turn slot — a run that ended mid-turn must
+        // not keep reading as working.
         if (next is AgentPhase.Ended) {
-            _activity.value = _activity.value.clearCompaction()
+            _activity.value = _activity.value.clearCompaction().clearTurn()
             armCompactionTimeout(null)
         }
     }
@@ -678,6 +681,10 @@ class SteerConnection internal constructor(
                 val text = received.getOrNull() ?: break
                 lastFrameAtMs = nowMs()
                 val result = handleControlFrame(text) ?: continue
+                // EXP-848: `live` means a ROOM answered the join — never that
+                // the agent is mid-turn. The turn slot stays ENDED until a
+                // `turn` event (replayed or fresh) says `started`, so nothing
+                // pulses just because the socket came up.
                 if (result.live) {
                     // EXP-773: a room answered, so the journal fetch (if
                     // there was one) is over — what arrives next IS the

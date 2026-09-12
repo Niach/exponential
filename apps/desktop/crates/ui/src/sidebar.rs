@@ -1021,14 +1021,22 @@ impl RailView {
                     None,
                 ),
             };
-            // EXP-818: "working" is a FACT here, not a default — the local
-            // engine's turn signal. A run hosted elsewhere never spins.
-            let busy = local_sessions.as_ref().is_some_and(|sessions| {
+            // EXP-818/EXP-848: "working" is a FACT here, not a default. A run
+            // hosted HERE reads the engine's own turn signal; every other
+            // machine's run reads the `agent_busy` column its device writes on
+            // each turn edge (ONE rule — `queries::session_agent_busy`).
+            let local_busy = local_sessions.as_ref().and_then(|sessions| {
                 sessions
                     .read(cx)
                     .session_by_id(&session_id)
-                    .is_some_and(|session| !session.host.session.turn_signal().is_idle())
+                    .map(|session| !session.host.session.turn_signal().is_idle())
             });
+            let busy = row
+                .as_ref()
+                .map(|row| queries::session_agent_busy(row, local_busy, now))
+                // No row yet (a local start ahead of its echo): the engine is
+                // the only thing that can answer, and it is right here.
+                .unwrap_or_else(|| local_busy.unwrap_or(false));
             let active = active_screen.as_ref() == Some(&screen);
             let dot = div()
                 .flex_shrink_0()

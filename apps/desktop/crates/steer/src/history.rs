@@ -189,15 +189,17 @@ fn count_lines(path: &Path) -> u64 {
 
 /// Which latest-wins slot an event owns, if any — the file's mirror of
 /// `journal::slot_of`. Replay order is the relay's `LATEST_REPLAY_ORDER`
-/// (`config_state`, `usage`, `rate_limit`, `diff`; EXP-784 added the third).
-const SLOT_COUNT: usize = 4;
+/// (`config_state`, `usage`, `rate_limit`, `turn`, `diff`; EXP-784 added the
+/// third, EXP-848 the fourth).
+const SLOT_COUNT: usize = 5;
 
 fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
         ActivityEvent::ConfigState { .. } => Some(0),
         ActivityEvent::Usage { .. } => Some(1),
         ActivityEvent::RateLimit { .. } => Some(2),
-        ActivityEvent::Diff { .. } => Some(3),
+        ActivityEvent::Turn { .. } => Some(3),
+        ActivityEvent::Diff { .. } => Some(4),
         _ => None,
     }
 }
@@ -233,7 +235,8 @@ pub fn read_journal_seq(
     let path = journal_path(data_dir, session_id)?;
     let file = File::open(&path).ok()?;
     let mut events: Vec<(u64, ActivityEvent)> = Vec::new();
-    let mut slots: [Option<(u64, ActivityEvent)>; SLOT_COUNT] = [None, None, None, None];
+    let mut slots: [Option<(u64, ActivityEvent)>; SLOT_COUNT] =
+        [None, None, None, None, None];
     for (seq, line) in BufReader::new(file).lines().enumerate() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -704,21 +707,25 @@ mod tests {
         // EXP-785: a tool_update is a ROW — it pages and replays in place.
         writer.append(&ActivityEvent::tool_update("tc-1", None, None));
         writer.append(&ActivityEvent::rate_limit("rejected", Some(9), None));
+        // EXP-848: the turn slot folds too — only the newest edge survives.
+        writer.append(&ActivityEvent::turn(crate::frames::TurnState::Started));
+        writer.append(&ActivityEvent::turn(crate::frames::TurnState::Ended));
         drop(writer);
 
         let events = read_journal(&dir, "sess-1").unwrap();
-        assert_eq!(events.len(), 6, "two rows + four folded slots");
+        assert_eq!(events.len(), 7, "two rows + five folded slots");
         assert_eq!(events[0], ActivityEvent::narration("prose"));
         assert_eq!(events[1], ActivityEvent::tool_update("tc-1", None, None));
-        // LATEST_REPLAY_ORDER: config_state, usage, rate_limit, diff — newest
-        // of each.
+        // LATEST_REPLAY_ORDER: config_state, usage, rate_limit, turn, diff —
+        // newest of each.
         assert!(matches!(
             &events[2],
             ActivityEvent::ConfigState { current_mode: Some(mode), .. } if mode == "bypassPermissions"
         ));
         assert!(matches!(&events[3], ActivityEvent::Usage { .. }));
         assert_eq!(events[4], ActivityEvent::rate_limit("rejected", Some(9), None));
-        assert_eq!(events[5], ActivityEvent::diff("new diff"));
+        assert_eq!(events[5], ActivityEvent::turn(crate::frames::TurnState::Ended));
+        assert_eq!(events[6], ActivityEvent::diff("new diff"));
         // A page carries the rows and never a slot.
         let page = read_journal_page(&dir, "sess-1", u64::MAX, 10).unwrap();
         let kinds: Vec<&ActivityEvent> = page.iter().map(|(_, event)| event).collect();

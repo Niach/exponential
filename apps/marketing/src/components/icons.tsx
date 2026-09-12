@@ -28,8 +28,10 @@ import {
   Folder,
   FolderOpen,
   Github,
+  Hash,
   GitMerge,
   GitPullRequest,
+  Image as ImageIcon,
   Inbox,
   Info,
   Keyboard,
@@ -164,6 +166,10 @@ export const IcInfo = wrap(Info)
 export const IcLifeBuoy = wrap(LifeBuoy)
 export const IcListFilter = wrap(ListFilter)
 export const IcMore = wrap(MoreHorizontal)
+/* Composer tools (EXP-825): `editor-issue-ref`, `action-run` (IcPlay above)
+   and `editor-image`. */
+export const IcHash = wrap(Hash)
+export const IcImage = wrap(ImageIcon)
 export const IcWrench = wrap(Wrench)
 
 const Custom = ({

@@ -161,7 +161,7 @@ function ownDeviceRow(over: Record<string, unknown> = {}) {
   return {
     userId: `actor`,
     deviceId: `dev-1`,
-    agents: [`claude`, `codex`, `pi`],
+    agents: [`claude`, `codex`],
     unauthedAgents: [],
     caps: [],
     lastSeenAt: new Date(),
@@ -470,17 +470,17 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
-    // Blank model is the codex/pi "CLI default" — valid. (Only this call
+    // Blank model is the codex "CLI default" — valid. (Only this call
     // reaches the device resolve; the two above fail at the input layer.)
     queueOwnDevice()
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
-      agent: `pi`,
+      agent: `codex`,
       model: ``,
-      effort: `max`,
+      effort: `high`,
     })
-    expect(lastStartBody()).toMatchObject({ agent: `pi`, model: ``, effort: `max` })
+    expect(lastStartBody()).toMatchObject({ agent: `codex`, model: ``, effort: `high` })
   })
 
   it(`rejects claude-only toggles on a non-claude start`, async () => {
@@ -494,8 +494,8 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
-    // Plan mode is claude/pi-only (EXP-441) — codex rejects it, pi carries
-    // it through to the relay.
+    // Plan mode is claude-only (EXP-849 dropped pi) — codex rejects it,
+    // claude carries it through to the relay.
     error = await rejectionOf(
       caller.startSession({
         issueId: ISSUE_A,
@@ -510,10 +510,10 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
-      agent: `pi`,
+      agent: `claude`,
       planMode: true,
     })
-    expect(lastStartBody()).toMatchObject({ agent: `pi`, planMode: true })
+    expect(lastStartBody()).toMatchObject({ agent: `claude`, planMode: true })
   })
 })
 
@@ -1044,7 +1044,7 @@ function sharedDeviceRow(overrides: Record<string, unknown> = {}) {
     deviceId: SHARED_DEVICE,
     sharedTeamIds: [`ws-1`],
     kind: `server`,
-    agents: [`claude`, `codex`, `pi`],
+    agents: [`claude`, `codex`],
     unauthedAgents: [],
     caps: [],
     lastSeenAt: new Date(),

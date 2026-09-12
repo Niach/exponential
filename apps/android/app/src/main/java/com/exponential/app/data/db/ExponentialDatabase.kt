@@ -247,9 +247,15 @@ import androidx.room.TypeConverters
     // v54 (EXP-824): attachments.duration_ms + poster_storage_key — inline
     //      video/audio playback length and the poster-frame marker. Both
     //      nullable; destructive fallback wipes + resyncs.
+    // v55 (EXP-848): coding_sessions.agent_busy — the device-written "the agent
+    //      is mid-turn" flag (needs_input's twin, NOT NULL default false). The
+    //      session lists pulse on it instead of on status = running, so without
+    //      the column every live run reads as busy. New column on the
+    //      coding-sessions shape allowlist; destructive fallback wipes +
+    //      resyncs so every row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 54,
+    version = 55,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

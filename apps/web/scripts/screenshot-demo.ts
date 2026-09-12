@@ -304,9 +304,7 @@ export const SUPPORT_REPORTER_THREAD_TITLE = `Can't sign in on the iPad app`
  * Claude's three windows are the SAME numbers the desktop's own DEV stub
  * (`ui/src/device_settings.rs` `dev_agent_status`, `EXP_DEV_AGENT_ACCOUNT`)
  * bakes into `settings-agents`, so the two places a capture shows this
- * machine's claude limits agree. pi has no usage surface of its own — its
- * Anthropic OAuth provider answers the same endpoint claude does — so it
- * reports claude's windows under the provider caption pi actually prints.
+ * machine's claude limits agree.
  * `screenshot-demo.test.ts` checks the pad against the countdown rule.
  */
 export const COUNTDOWN_PAD_SECONDS = 45
@@ -361,7 +359,7 @@ const CODEX_WINDOWS: DemoUsageWindow[] = [
   { key: `weekly`, label: `Week`, percent: 57, resetsIn: 4 * 86_400 + 9 * 3_600 },
 ]
 
-export const DEMO_AGENT_STATUS: Record<`claude` | `codex` | `pi`, DemoAgentStatus> = {
+export const DEMO_AGENT_STATUS: Record<`claude` | `codex`, DemoAgentStatus> = {
   claude: {
     signedIn: true,
     email: DEMO_EMAIL,
@@ -401,11 +399,6 @@ export const DEMO_AGENT_STATUS: Record<`claude` | `codex` | `pi`, DemoAgentStatu
         windows: CODEX_WINDOWS,
       },
     ],
-  },
-  pi: {
-    signedIn: true,
-    plan: `anthropic (oauth)`,
-    windows: CLAUDE_WINDOWS,
   },
 }
 

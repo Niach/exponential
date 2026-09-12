@@ -225,7 +225,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(codex.planMode)
 
         // The map covers RUNNABLE agents only — nothing to seed for the rest.
-        XCTAssertNil(device.agentDefaults(for: "pi"))
+        XCTAssertNil(device.agentDefaults(for: "zed"))
     }
 
     /// The ACP cap rides `caps` like every other capability, so an older
@@ -261,7 +261,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
     func testAgentNotReadyOnlyWhenAcpAgentsAreKnown() throws {
         let result = try decode("""
         {"devices":[
-        {"deviceId":"d12","deviceLabel":"macbook","agents":["claude","codex","pi"],
+        {"deviceId":"d12","deviceLabel":"macbook","agents":["claude","codex","zed"],
         "acpAgents":["claude","codex","bogus"],"caps":["acp"],"online":true},
         {"deviceId":"d13","deviceLabel":"old-box","agents":["claude","codex"],
         "caps":[],"online":true},
@@ -272,7 +272,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         // Values outside the contract never reach the UI copy.
         XCTAssertEqual(reported.acpAgentIds, ["claude", "codex"])
         XCTAssertFalse(reported.agentNotReady("claude"))
-        XCTAssertTrue(reported.agentNotReady("pi"))
+        XCTAssertTrue(reported.agentNotReady("zed"))
 
         let unknown = result.devices[1]
         XCTAssertNil(unknown.acpAgentIds)

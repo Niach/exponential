@@ -415,9 +415,9 @@ impl AccountsSection {
         });
         let agent = CodingAgent::parse(&row.agent);
         let own = row.device_id == own_device_id;
-        let affordance = agent.filter(|_| row.mine).and_then(|agent| {
-            crate::device_settings::login_affordance(agent, own, row.online, caps, row.signed_in)
-        });
+        let affordance = (agent.is_some() && row.mine)
+            .then(|| crate::device_settings::login_affordance(own, row.online, caps, row.signed_in))
+            .flatten();
         match (agent, affordance) {
             (Some(agent), Some(affordance)) => {
                 let device_id = row.device_id.clone();
@@ -850,7 +850,7 @@ mod tests {
     #[test]
     fn sections_follow_the_contract_agent_order() {
         let sections = AccountsSection::sections(vec![
-            group("pi", "pi:a"),
+            group("zed", "zed:a"),
             group("zed", "zed:a"),
             group("codex", "codex:a"),
             group("claude", "claude:a"),
@@ -861,7 +861,7 @@ mod tests {
                 .iter()
                 .map(|(agent, groups)| (agent.as_str(), groups.len()))
                 .collect::<Vec<_>>(),
-            vec![("claude", 1), ("codex", 2), ("pi", 1), ("zed", 1)]
+            vec![("claude", 1), ("codex", 2), ("zed", 2)]
         );
     }
 

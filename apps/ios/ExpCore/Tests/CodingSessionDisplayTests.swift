@@ -63,4 +63,24 @@ final class CodingSessionDisplayTests: XCTestCase {
             .running
         )
     }
+
+    // EXP-848: the dot pulses on the device-written `agent_busy`, never on the
+    // row merely being `running` — and never at all on a parked, paused or
+    // disconnected row.
+    func testPulsesOnlyOnAnOpenTurnOfALiveRunningRow() {
+        XCTAssertTrue(CodingSessionDisplayState.pulses(state: .running, agentBusy: true))
+        XCTAssertFalse(CodingSessionDisplayState.pulses(state: .running, agentBusy: false))
+        XCTAssertFalse(
+            CodingSessionDisplayState.pulses(state: .running, agentBusy: true, paused: true)
+        )
+        XCTAssertFalse(
+            CodingSessionDisplayState.pulses(state: .running, agentBusy: true, live: false)
+        )
+        for parked in [CodingSessionDisplayState.needsInput, .review, .done] {
+            XCTAssertFalse(CodingSessionDisplayState.pulses(state: parked, agentBusy: true))
+        }
+        // A row written before the column exists decodes false, so it never
+        // pulses rather than pulsing forever.
+        XCTAssertFalse(session(status: "running").agentBusy)
+    }
 }

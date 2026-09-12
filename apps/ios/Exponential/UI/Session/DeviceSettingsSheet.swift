@@ -657,10 +657,10 @@ struct DeviceSettingsSheet: View {
 
     /// A remote login rides a `device_commands` row the machine picks up on
     /// its heartbeat, so it needs a machine that is listening and a build that
-    /// advertises the capability. pi has no remote sign-in at all (no device
-    /// code, no URL — the server refuses it too).
+    /// advertises the capability. EXP-849 retired the one agent that had no
+    /// remote sign-in at all, so every contract agent can be offered one.
     private func canOfferLogin(_ device: SteerDevice, agent: String) -> Bool {
-        device.isOnline && device.canAgentLogin && agent != "pi"
+        device.isOnline && device.canAgentLogin
     }
 
     /// When we can't drive the machine from here, say how old what we show is.

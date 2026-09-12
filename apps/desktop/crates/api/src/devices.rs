@@ -543,9 +543,7 @@ pub fn create_command(
 /// the current account out (a Codex switch REVOKES that session server-side,
 /// so callers confirm first). Serialized as a JSON boolean: the server owns
 /// the `Record<string,string>` payload's `"true"`/`"false"` encoding.
-///
-/// `pi` is refused server-side — it has no remote sign-in (its `/login` is a
-/// slash command inside a running TUI).
+
 pub fn create_agent_login_command(
     trpc: &TrpcClient,
     device_id: &str,
@@ -892,7 +890,7 @@ mod tests {
     /// the pickers read the two differently.
     #[test]
     fn register_posts_the_acp_ready_subset() {
-        let agents = vec!["claude".to_string(), "pi".to_string()];
+        let agents = vec!["claude".to_string(), "codex".to_string()];
         let acp = vec!["claude".to_string()];
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
         register(
@@ -914,7 +912,7 @@ mod tests {
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"deviceId":"dev-1","label":"buildbox","kind":"server","agents":["claude","pi"],"acpAgents":["claude"],"caps":[]}"#
+            r#"{"deviceId":"dev-1","label":"buildbox","kind":"server","agents":["claude","codex"],"acpAgents":["claude"],"caps":[]}"#
         ), "{request}");
 
         // Empty is sent; absent is omitted entirely.
@@ -995,11 +993,11 @@ mod tests {
 
     #[test]
     fn set_launch_defaults_carries_the_cas_arm() {
-        let defaults = serde_json::json!({"defaultAgent": "pi"});
+        let defaults = serde_json::json!({"defaultAgent": "codex"});
         // Unconditional (UI edit): the CAS key is omitted entirely.
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"ok":true,"launchDefaults":{"defaultAgent":"pi"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
+            r#"{"result":{"data":{"ok":true,"launchDefaults":{"defaultAgent":"codex"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
         );
         let result = set_launch_defaults(
             &client(&base),

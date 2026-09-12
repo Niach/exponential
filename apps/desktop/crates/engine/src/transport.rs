@@ -60,7 +60,7 @@ const TERM_POLL: Duration = Duration::from_millis(10);
 
 /// A live agent child: its stdout as lines, its stdin as a line writer, and
 /// the one-shot exit. Dropping this ENDS the child (and its process group on
-/// unix) unless it already exited: codex/pi/external ACP children carry no
+/// unix) unless it already exited: codex/external ACP children carry no
 /// `claude-hooks` reaper anchor, so this drop is what keeps them from
 /// escaping (EXP-300). EXP-758: the drop asks first (stdin EOF, SIGTERM,
 /// [`CHILD_TERM_GRACE`]) and only then kills.
@@ -328,7 +328,7 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
             let _done = ReaderDone(reader_done_in_thread);
             // BufReader::lines() splits on `\n` and strips a trailing `\r`.
             // NEVER a splitter that also breaks on U+2028/U+2029: those are
-            // legal inside JSON strings and pi's own jsonl reader is
+            // legal inside JSON strings and a jsonl reader is
             // deliberately LF-only for exactly that reason.
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };

@@ -331,10 +331,10 @@ fun DeviceSettingsSheet(
                         codeState = commandStates[agentLoginCodeCommandKey(agentTab)],
                         // The command opens a login flow ON the machine and
                         // publishes its URL back, so it needs a machine that is
-                        // ours, online, and new enough to advertise the cap. pi
-                        // has no remote sign-in at all (the server refuses it).
-                        canLogin = device.online && device.canAgentLogin &&
-                            device.isMine && agentTab != "pi",
+                        // ours, online, and new enough to advertise the cap.
+                        // EXP-849: every remaining agent signs in remotely (pi,
+                        // the one exception, is gone).
+                        canLogin = device.online && device.canAgentLogin && device.isMine,
                         onLogin = { switchAccount ->
                             if (switchAccount && agentTab == "codex") {
                                 switchConfirmAgent = agentTab

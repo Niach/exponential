@@ -94,9 +94,8 @@ export function AgentAccountBlock({
 }) {
   const account: DeviceAgentAccount | null = row?.agentAccounts?.[agent] ?? null
   const usage = parseAgentUsage(row?.agentUsage?.[agent])
-  // pi's sign-in is an interactive prompt with no device-code flow to hand
-  // back — local only, and the server refuses the command outright.
-  const canLogin = online && canAgentLogin && agent !== `pi`
+  // EXP-849: every remaining agent has a device-code flow.
+  const canLogin = online && canAgentLogin
   const signedIn = account?.signedIn === true
   const asOf = account?.checkedAt ?? row?.agentUsageAt ?? null
   // EXP-827: the usage windows moved to the Devices page's Accounts

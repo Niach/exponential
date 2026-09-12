@@ -203,7 +203,7 @@ export type RelayStartResult =
  * "CLI default" (omit --effort), distinct from absent.
  */
 export interface SteerStartOptions {
-  /** EXP-201: the agent CLI to launch (`claude`/`codex`/`pi`); absent =
+  /** EXP-201: the agent CLI to launch (`claude`/`codex`); absent =
    * claude (the pre-EXP-201 behavior on every desktop). */
   agent?: string
   model?: string

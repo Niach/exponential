@@ -204,12 +204,6 @@ fn open_transcript(record: &coding::run_registry::RunRecord, cx: &App) -> Option
         .map(engine::ResumeHandle::Native)
         .or_else(|| {
             record
-                .pi_session_file
-                .clone()
-                .map(engine::ResumeHandle::PiSessionFile)
-        })
-        .or_else(|| {
-            record
                 .acp_session_id
                 .clone()
                 .map(engine::ResumeHandle::Acp)

@@ -166,8 +166,8 @@ pub const INJECTED_PROMPT_META_KEY: &str = "exponentialInjectedPrompt";
 pub const COMPACTION_TRIGGER_META_KEY: &str = "trigger";
 
 /// One subagent lifecycle edge. Deliberately tiny: the relay vocabulary has
-/// exactly `{id, agentType, status, detail?, toolCalls?}` and nothing an
-/// adapter adds beyond that could be rendered anywhere.
+/// exactly `{id, agentType, status, detail?, toolCalls?, title?}` and nothing
+/// an adapter adds beyond that could be rendered anywhere.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubagentEdge {
     pub id: String,
@@ -178,6 +178,10 @@ pub struct SubagentEdge {
     /// The mapper keeps its own count from the attributed tool calls and
     /// prefers the larger of the two on the completed edge.
     pub tool_calls: Option<u32>,
+    /// EXP-847: the spawning `Agent` tool call's `description` (its `name` as
+    /// a fallback) — what the model said this subagent is FOR. `None` for an
+    /// adapter whose wire names neither.
+    pub title: Option<String>,
 }
 
 /// A local mirror of `steer::SubagentStatus`, so an adapter never has to
@@ -220,6 +224,9 @@ impl SubagentEdge {
                 serde_json::Value::from(tool_calls),
             );
         }
+        if let Some(title) = &self.title {
+            edge.insert("title".to_string(), serde_json::Value::String(title.clone()));
+        }
         meta.insert(SUBAGENT_META_KEY.to_string(), serde_json::Value::Object(edge));
         meta
     }
@@ -258,6 +265,10 @@ impl SubagentEdge {
                 .get("toolCalls")
                 .and_then(serde_json::Value::as_u64)
                 .and_then(|n| u32::try_from(n).ok()),
+            title: edge
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
         })
     }
 }
@@ -274,6 +285,7 @@ mod tests {
             status: SubagentEdgeStatus::Completed,
             detail: Some("found it".to_string()),
             tool_calls: Some(3),
+            title: Some("Audit the shape proxies".to_string()),
         };
         assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
     }

@@ -172,7 +172,9 @@ private fun SessionRow(
                 CodingSessionDisplayState.Review -> ReviewGreen
                 CodingSessionDisplayState.Done -> DoneBlue
             }
-            val running = state == CodingSessionDisplayState.Running
+            // EXP-848: the pulse is the MID-TURN cue (synced `agent_busy`) —
+            // a live run between turns keeps the pill's static disc.
+            val running = state == CodingSessionDisplayState.Running && session.agentBusy
             GlassPill(
                 when (state) {
                     CodingSessionDisplayState.Running -> "Coding now"
@@ -336,6 +338,15 @@ internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
             .clip(CircleShape)
             .background(LiveGreen.copy(alpha = alpha)),
     )
+}
+
+/** EXP-848: a LIVE run's dot — it pulses only while the agent is actually
+ *  mid-turn (the synced `coding_sessions.agent_busy` flag), and sits steady
+ *  green between turns. Every session list goes through this, so the rule
+ *  cannot drift row to row (web/iOS/desktop parity). */
+@Composable
+internal fun LiveDot(busy: Boolean, size: androidx.compose.ui.unit.Dp = 8.dp) {
+    if (busy) PulsingDot(size) else StaticDot(LiveGreen, size)
 }
 
 // Static (non-pulsing) status dot — the `in_review` "ready for review" signal

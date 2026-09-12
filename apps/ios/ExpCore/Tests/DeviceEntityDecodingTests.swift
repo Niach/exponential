@@ -23,7 +23,7 @@ final class DeviceEntityDecodingTests: XCTestCase {
         {"id":"row-1","user_id":"u1","device_id":"dev-1","label":"buildbox",
         "kind":"server","platform":"linux","version":"0.9.0",
         "agents":["claude","codex"],"caps":["actions","resume","worktrees"],
-        "unauthed_agents":["pi"],
+        "unauthed_agents":["codex"],
         "launch_defaults":{"defaultAgent":"codex","agents":{"claude":{"model":"fable","ultracode":true}}},
         "launch_defaults_updated_at":"2026-08-10T10:00:00.000Z",
         "active_sessions":"2","last_seen_at":"2026-08-11T10:00:00.000Z",
@@ -108,10 +108,10 @@ final class DeviceEntityDecodingTests: XCTestCase {
         // Pre-stringified (fixture form) and absent both decode.
         let stringified = try decodeDevice("""
         {"id":"row-5","user_id":"u1","device_id":"dev-5","label":"laptop",
-        "agent_accounts":"{\\"pi\\":{\\"signedIn\\":true,\\"plan\\":\\"anthropic (oauth)\\"}}"}
+        "agent_accounts":"{\\"zed\\":{\\"signedIn\\":true,\\"plan\\":\\"anthropic (oauth)\\"}}"}
         """)
         XCTAssertEqual(
-            AgentUsagePresentation.parseAccounts(stringified.agentAccounts)?["pi"]?.plan,
+            AgentUsagePresentation.parseAccounts(stringified.agentAccounts)?["zed"]?.plan,
             "anthropic (oauth)"
         )
         XCTAssertNil(stringified.agentUsage)

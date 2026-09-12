@@ -32,7 +32,7 @@ pub struct LaunchEnv<'a> {
     /// `None` = no steer runtime, i.e. no engine: a launch is refused.
     pub runtime: Option<&'a Arc<SteerRuntime>>,
     /// The `expu_` personal key — the activity redactor's exact-match
-    /// secret (codex/pi carry it env-only; REV2-17).
+    /// secret (codex carries it env-only; REV2-17).
     pub personal_key: Option<String>,
 }
 
@@ -319,7 +319,7 @@ fn fail_before_start(err: anyhow::Error, end_row: impl FnOnce()) -> anyhow::Erro
 
 /// EXP-746: which steer agent vocabulary an ACP run speaks. An EXTERNAL agent
 /// (D13) is deliberately its own value — the contract's curated `/` catalog
-/// describes claude/codex/pi behaviour we verified, so an external agent's
+/// describes claude/codex behaviour we verified, so an external agent's
 /// menu carries only what it advertised itself.
 fn acp_session_agent(prepared: &PreparedLaunch) -> steer::SessionAgent {
     if prepared.acp.options.external.is_some() {
@@ -328,7 +328,6 @@ fn acp_session_agent(prepared: &PreparedLaunch) -> steer::SessionAgent {
     match prepared.agent {
         CodingAgent::Claude => steer::SessionAgent::Claude,
         CodingAgent::Codex => steer::SessionAgent::Codex,
-        CodingAgent::Pi => steer::SessionAgent::Pi,
     }
 }
 

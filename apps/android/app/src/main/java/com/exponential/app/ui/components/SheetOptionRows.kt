@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -321,20 +324,18 @@ val SwitchThumb: @Composable () -> Unit = {
 /** Sentinel-free UI state: an empty effort means "CLI default" (omit --effort). */
 internal const val CLI_DEFAULT_EFFORT = ""
 
-/** Same convention for codex/pi models: an empty model means "CLI default". */
+/** Same convention for codex models: an empty model means "CLI default". */
 internal const val CLI_DEFAULT_MODEL = ""
 
 internal const val DEFAULT_AGENT = "claude"
 
 internal fun modelValuesFor(agent: String): List<String> = when (agent) {
     "codex" -> DomainContract.codexModelValues
-    "pi" -> DomainContract.piModelValues
     else -> DomainContract.codingModelValues
 }
 
 internal fun effortValuesFor(agent: String): List<String> = when (agent) {
     "codex" -> DomainContract.codexEffortValues
-    "pi" -> DomainContract.piThinkingValues
     else -> DomainContract.codingEffortValues
 }
 
@@ -343,29 +344,34 @@ internal fun modelOptionsFor(agent: String): List<String> =
     if (agent == DEFAULT_AGENT) DomainContract.codingModelValues
     else listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agent)
 
-/** claude has no CLI-default model entry; codex/pi default to the blank one. */
+/** claude has no CLI-default model entry; codex defaults to the blank one. */
 internal fun defaultModelFor(agent: String): String =
     if (agent == DEFAULT_AGENT) DomainContract.codingModelValues.first() else CLI_DEFAULT_MODEL
 
 /**
- * Plan mode is claude (native) + pi (via the launcher-injected extension,
- * EXP-441); codex has no launch-into-plan mode.
+ * Plan mode is claude (native) only since EXP-849 dropped pi; codex has no
+ * launch-into-plan mode.
  */
-internal fun supportsPlanMode(agent: String): Boolean =
-    agent == DEFAULT_AGENT || agent == "pi"
+internal fun supportsPlanMode(agent: String): Boolean = agent == DEFAULT_AGENT
 
 internal fun agentLabel(value: String): String = when (value) {
     "claude" -> "Claude Code"
     "codex" -> "Codex"
-    "pi" -> "pi"
     else -> value
 }
 
-/** Monochrome brand marks derived from the desktop IDE's SVG icons (EXP-208). */
-internal fun agentIconRes(value: String): Int = when (value) {
-    "codex" -> R.drawable.ic_agent_codex
-    "pi" -> R.drawable.ic_agent_pi
-    else -> R.drawable.ic_agent_claude
+/**
+ * Monochrome brand marks derived from the desktop IDE's SVG icons (EXP-208).
+ * EXP-849: only the agents we ship have a mark — a historical `pi` row, or any
+ * agent id this build does not know, gets the NEUTRAL concept glyph rather
+ * than silently wearing claude's — the `settings-agents` concept, the same
+ * neutral-glyph rule the desktop falls back to.
+ */
+@Composable
+internal fun agentIconPainter(value: String): Painter = when (value) {
+    "claude" -> painterResource(R.drawable.ic_agent_claude)
+    "codex" -> painterResource(R.drawable.ic_agent_codex)
+    else -> rememberVectorPainter(ExpIcons.settingsAgents)
 }
 
 internal fun modelLabel(value: String): String = when (value) {

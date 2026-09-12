@@ -9,8 +9,8 @@
 //!   through exact-match masking of the launcher-created secrets (the JIT
 //!   GitHub installation token from the clone's shared
 //!   `.git/exp-git-credentials` credential file, EXP-73; the `expu_` personal
-//!   key from `.exp-mcp.json`, or handed in by the wiring for codex/pi, which
-//!   keep it env-only — REV2-17) plus gitleaks-style patterns;
+//!   key from `.exp-mcp.json`, or handed in by the wiring for codex, which
+//!   keeps it env-only — REV2-17) plus gitleaks-style patterns;
 //! * the relay's `activityEventSchema` caps, so the mapper truncates
 //!   client-side before a frame is ever sent;
 //! * [`worktree_diff`] + [`DiffSnapshots`] — the debounced `git diff`
@@ -194,7 +194,7 @@ impl Redactor {
 /// installation token from the clone's shared credential file (EXP-73 —
 /// `origin` stays bare, so the pre-EXP-73 remote-URL extraction survives only
 /// as a migration fallback), and the `expu_` personal key written into
-/// `.exp-mcp.json` (claude sessions only — codex/pi keep the key env-only,
+/// `.exp-mcp.json` (claude sessions only — codex keeps the key env-only,
 /// which is what [`EmitterConfig::extra_secrets`] exists for). All are
 /// launcher-created and long-lived only for the session; masking them is
 /// belt-and-braces on top of the patterns.
@@ -433,8 +433,8 @@ impl AnswerLink {
 }
 
 /// EXP-724: fold an agent's compaction reason onto the wire's two values.
-/// The relay's schema accepts `manual` | `auto` ONLY (pi reports
-/// `threshold`/`overflow`, a future claude could report anything else), and
+/// The relay's schema accepts `manual` | `auto` ONLY (a future claude could
+/// report anything else), and
 /// an unknown trigger would sever the publisher socket.
 pub fn normalize_compaction_trigger(trigger: Option<&str>) -> Option<&'static str> {
     match trigger {
@@ -447,11 +447,6 @@ pub fn normalize_compaction_trigger(trigger: Option<&str>) -> Option<&'static st
 // ---------------------------------------------------------------------------
 // The publisher ↔ engine command seam (EXP-724)
 // ---------------------------------------------------------------------------
-
-/// EXP-724: a pi command dispatch — `(name, args)` onto the observer
-/// extension's `/steer` queue. `None` (claude/codex) means the emitter types
-/// the command into the TUI instead.
-pub type CommandSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// The publisher ↔ emitter seam for remote slash commands, the sibling of
 /// [`AnswerLink`] (EXP-724).
@@ -468,24 +463,19 @@ pub type CommandSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 pub struct CommandLink {
     tx: flume::Sender<crate::commands::ParsedCommand>,
     rx: flume::Receiver<crate::commands::ParsedCommand>,
-    /// Emitter side: is the agent between turns? pi's `ctx.compact()` aborts
-    /// a streaming turn and codex's mid-task command handling is unverified,
-    /// so both hold a command until this reads true (claude's TUI queues
-    /// input mid-turn and needs no gate).
+    /// Emitter side: is the agent between turns? codex's mid-task command
+    /// handling is unverified, so it holds a command until this reads true
+    /// (claude queues input mid-turn and needs no gate).
     composer_idle: AtomicBool,
-    sink: Option<CommandSink>,
 }
 
 impl CommandLink {
-    /// `sink` dispatches pi commands through the observer extension; pass
-    /// `None` for the agents whose commands are typed into the TUI.
-    pub fn new(sink: Option<CommandSink>) -> Arc<Self> {
+    pub fn new() -> Arc<Self> {
         let (tx, rx) = flume::unbounded();
         Arc::new(Self {
             tx,
             rx,
             composer_idle: AtomicBool::new(false),
-            sink,
         })
     }
 
@@ -507,18 +497,6 @@ impl CommandLink {
 
     pub fn composer_idle(&self) -> bool {
         self.composer_idle.load(Ordering::Relaxed)
-    }
-
-    /// Emitter side: hand the command to pi's observer extension. `false`
-    /// when this session has no sink (claude/codex — type it instead).
-    pub fn dispatch_to_sink(&self, command: &crate::commands::ParsedCommand) -> bool {
-        match &self.sink {
-            Some(sink) => {
-                sink(command.command.name, &command.args);
-                true
-            }
-            None => false,
-        }
     }
 }
 
@@ -667,9 +645,8 @@ pub enum SessionAgent {
     #[default]
     Claude,
     Codex,
-    Pi,
     /// EXP-746 (D13): a user-configured ACP agent binary. Deliberately
-    /// NEUTRAL everywhere the other three get per-agent treatment — its
+    /// NEUTRAL everywhere the builtins get per-agent treatment — its
     /// [`crate::commands::catalog_for`] is empty (the contract knows no such
     /// agent, so the `/` menu carries only what the agent itself advertises
     /// through `config_state.commands`), and the codex sigil guard stays
@@ -687,7 +664,6 @@ impl SessionAgent {
         match self {
             SessionAgent::Claude => "claude",
             SessionAgent::Codex => "codex",
-            SessionAgent::Pi => "pi",
             SessionAgent::External => "external",
         }
     }
@@ -787,7 +763,7 @@ pub fn stop_now(idle: bool, elapsed: Duration) -> bool {
 }
 
 /// The debounced changed-only worktree diff snapshot — step 8 of every
-/// emitter, extracted verbatim so the codex/pi emitters share it (EXP-383).
+/// emitter, extracted verbatim so the codex emitter shares it (EXP-383).
 pub struct DiffSnapshots {
     last: String,
     last_at: Option<Instant>,
@@ -849,13 +825,20 @@ impl DiffSnapshots {
 /// value (`None` = the last write failed and wants a retry). The session row
 /// is born with the flag off. Forwarded on flips; an unconfirmed write
 /// re-attempts every [`NEEDS_INPUT_RETRY`] (EXP-355). Extracted verbatim from
-/// the claude emitter so the codex/pi emitters share it (EXP-383).
+/// the claude emitter so the codex emitter shares it (EXP-383).
 pub struct NeedsInputForwarder {
     forwarded: Option<bool>,
     retry_at: Option<Instant>,
 }
 
 pub type NeedsInputHook = Arc<dyn Fn(bool) -> bool + Send + Sync>;
+
+/// EXP-848: the synced `agent_busy` flag rides the SAME mechanism — one
+/// device-written bool, forwarded on flips, retried when a write does not
+/// land, cleared at teardown. Aliases rather than a second copy: there is
+/// exactly one rule, and two names for it would be two places to fix.
+pub type AgentBusyForwarder = NeedsInputForwarder;
+pub type AgentBusyHook = NeedsInputHook;
 
 impl NeedsInputForwarder {
     pub fn new() -> Self {
@@ -1095,7 +1078,7 @@ mod blocked_tests {
 
     #[test]
     fn session_agent_ids_are_the_contract_agents() {
-        for agent in [SessionAgent::Claude, SessionAgent::Codex, SessionAgent::Pi] {
+        for agent in [SessionAgent::Claude, SessionAgent::Codex] {
             assert!(domain::contract::CODING_AGENT_VALUES.contains(&agent.id()));
         }
         // EXP-746: deliberately un-nameable by the contract.

@@ -58,7 +58,7 @@ pub fn status(args: &[String]) -> CommandResult {
     let agents = report.installed_agents();
     let unauthed = report.unauthed_agents();
     if agents.is_empty() && unauthed.is_empty() {
-        println!("Agents    none installed — install claude, codex or pi (see `exponential doctor`)");
+        println!("Agents    none installed — install claude or codex (see `exponential doctor`)");
     } else {
         let mut parts: Vec<String> = agents.iter().map(|agent| agent.id().to_string()).collect();
         // EXP-409: an installed-but-signed-out agent is unusable — name it
@@ -102,7 +102,7 @@ fn acp_summary(report: &coding::DoctorReport) -> String {
 mod tests {
     use super::*;
     use coding::doctor::{Tool, ToolCheck};
-    use coding::{CodingAgent, DoctorReport};
+    use coding::DoctorReport;
 
     fn check(tool: Tool, ok: bool, acp: Option<bool>) -> ToolCheck {
         ToolCheck {
@@ -122,8 +122,6 @@ mod tests {
         DoctorReport {
             claude: check(Tool::Claude, true, claude),
             codex: check(Tool::Codex, true, codex),
-            // Not installed: it can never be ACP-ready, whatever the flag says.
-            pi: check(Tool::Pi, false, Some(true)),
             git: check(Tool::Git, true, None),
         }
     }
@@ -134,9 +132,6 @@ mod tests {
     fn the_acp_line_names_the_ready_agents() {
         let both = report(Some(true), Some(true));
         assert_eq!(acp_summary(&both), "claude, codex");
-        // pi is not installed, so its `Some(true)` never reaches the line.
-        assert!(!both.installed_agents().contains(&CodingAgent::Pi));
-
         assert_eq!(acp_summary(&report(Some(true), None)), "claude");
         assert_eq!(
             acp_summary(&report(Some(false), Some(false))),

@@ -77,9 +77,10 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
 
 /// One ACCOUNT: the rows above folded by login. EXP-817's rule ×4.
 public struct AgentAccountUsageGroup: Equatable, Sendable, Identifiable {
-    /// `<agent>:<email>` for a named login; a row with no email (pi names a
-    /// provider, a signed-out row names nobody) can never be told apart from
-    /// another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
+    /// `<agent>:<email>` for a named login; a row with no email (an agent that
+    /// names a provider, a signed-out row that names nobody) can never be told
+    /// apart from another machine's, so it keeps its own
+    /// `<agent>:<deviceId>:<profileId>`.
     public let key: String
     public let agent: String
     public let signedIn: Bool
@@ -365,7 +366,7 @@ public enum AgentAccountsRows {
     }
 
     /// The row's title: `Not signed in`, else the email, else the bare plan
-    /// (pi reports a provider, never an address), else `signed in`.
+    /// (an agent that reports a provider, never an address), else `signed in`.
     public static func groupCaption(_ group: AgentAccountUsageGroup) -> String {
         guard group.signedIn else { return "Not signed in" }
         return group.email ?? group.plan ?? "signed in"

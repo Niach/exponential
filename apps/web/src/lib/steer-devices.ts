@@ -216,8 +216,7 @@ export function deviceCanResumeRun(
 
 /** EXP-484: the machine runs the `agent_login` device command (the desktop
  * app and the CLI daemon both advertise it). Without the cap the queued row
- * would sit pending forever, so requesters hide Login/Switch account. pi is
- * refused server-side regardless — its sign-in has no device-code flow. */
+ * would sit pending forever, so requesters hide Login/Switch account. */
 export function deviceCanAgentLogin(
   device: Pick<SteerDevice, `caps`>
 ): boolean {

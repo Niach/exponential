@@ -915,28 +915,29 @@ button.mob-backbtn {
   }
 }
 
-/* ─── Start-coding sheet (mss-*) — the iOS recreation (EXP-471) ───
-   Traced off shots/start-coding/ios.webp, the captured
-   apps/ios/.../Session/StartCodingSheet inside ExpUI's `GlassSheetChrome`.
-   EVERY length here is an iOS POINT: `.mss-screen` is the phone's own 414pt-
-   wide canvas and `.mss-phone` scales the whole thing down with ONE
+/* ─── Agent page (mag-*) — the iOS recreation (EXP-825/845) ───
+   The ONE launcher: the pushed "Agent" detail with `AgentComposerCard`
+   (ExpUI `GlassComposer`: subject chips · field · tool row with the LABELLED
+   primary submit pill), `AgentOptionsRow`'s glass pills under it and the
+   caller's sessions below. It replaced the three-tab Start-coding sheet this
+   block used to recreate.
+
+   EVERY length here is an iOS POINT: `.mag-screen` is the phone's own 414pt-
+   wide canvas and `.mag-phone` scales the whole thing down with ONE
    transform, so the recreation stays measurable against the store shot
-   (17pt body, 15pt subheadline, 12pt mono identifiers, 49pt picker rows,
-   57pt toggle rows, cards inset 18.5pt at radius 24.5pt) instead of drifting
-   into hand-tuned marketing px. Change `--mss-scale` to resize; never the
-   values below.
+   (17pt body, 15pt subheadline, 12pt mono identifiers, cards at radius
+   24.5pt inset 18.5pt) instead of drifting into hand-tuned marketing px.
+   Change `--mag-scale` to resize; never the values below.
 
    Fills and strokes are the SHARED glass tokens (packages/design-tokens →
-   ExpUI GlassTokens): fillSection .039 (segmented capsule), fillRow .051
-   (cards), fillCard .059 (toggle track), fillActive .09 (selected segment),
-   strokeSection .078, strokeCard .102. The sheet surface is the opaque
-   `glass.backgroundBottom` #111114 — flat, no gradient and no material
-   (GlassSheetTokens.background). */
+   ExpUI GlassTokens): fillSection .039, fillRow .051, fillCard .059,
+   fillActive .09, strokeSection .078, strokeCard .102. The screen surface is
+   the opaque `glass.backgroundBottom` #111114 — flat, no material. */
 
-.mss-phone {
-  --mss-scale: 0.66;
-  width: calc(414px * var(--mss-scale));
-  height: calc(696px * var(--mss-scale));
+.mag-phone {
+  --mag-scale: 0.66;
+  width: calc(414px * var(--mag-scale));
+  height: calc(696px * var(--mag-scale));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -944,14 +945,13 @@ button.mob-backbtn {
   user-select: none;
 }
 
-.mss-screen {
+.mag-screen {
   display: flex;
   flex-direction: column;
   width: 414px;
   height: 696px;
-  transform: scale(var(--mss-scale));
+  transform: scale(var(--mag-scale));
   transform-origin: top left;
-  /* GlassSheetTokens.background — opaque #111114, no blur. */
   background: #111114;
   color: #fff;
   font-family: var(--font-ui);
@@ -963,242 +963,221 @@ button.mob-backbtn {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── The system drag indicator. EXP-687: a sheet has NO bar buttons — a
-      swipe down cancels and the ONE confirm is pinned to the bottom. ── */
-.mss-grabber {
-  width: 36px;
-  height: 5px;
-  margin: 5px auto 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.3);
-  flex: none;
-}
-
-/* ── Glass segmented capsules: the Issues|Actions|Chat tabs (the free-
-      standing `.capsule` style) and the agent strip (`.embedded`, the first
-      ROW of the options card — no fill, no border of its own). ── */
-.mss-seg {
-  display: flex;
-  height: 34.5px;
-  margin: 30.5px 18.5px 0;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.078);
-  background: rgba(255, 255, 255, 0.039);
-  flex: none;
-}
-
-.mss-agents {
+/* ── The pushed detail's inline nav bar (no tab bar on a detail) ── */
+.mag-nav {
   display: flex;
   align-items: center;
-  height: 47.5px;
-  padding: 0 8px;
-}
-
-.mss-segbtn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   gap: 6px;
-  height: 100%;
-  border-radius: 999px;
-  font-size: 15px;
-  /* EXP-698: the weight is CONSTANT across segments — only the opacity
-     moves. A semibold/regular swap re-flowed the strip on every tap. */
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.7);
-  white-space: nowrap;
-}
-
-.mss-agents .mss-segbtn {
-  height: 28px;
-}
-
-.mss-segbtn.is-active {
-  background: rgba(255, 255, 255, 0.09);
-  color: #fff;
-}
-
-.mss-segbtn svg {
+  height: 44px;
+  padding: 0 12px;
   flex: none;
 }
 
-/* ── Grouped cards ── */
-/* EXP-768: no section header between the capsule and the picker card —
-   the Form's own section spacing is the whole gap. */
-.mss-seg + .mss-card {
-  margin-top: 15.5px;
+.mag-back {
+  display: flex;
+  color: #fff;
+  transform: rotate(180deg);
 }
 
-.mss-card {
-  margin: 8.5px 18.5px 0;
+.mag-navtitle {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* ── Grouped cards: the composer and the sessions list ── */
+.mag-card {
+  margin: 12px 18.5px 0;
   border-radius: 24.5px;
   background: rgba(255, 255, 255, 0.051);
-  flex: none;
-}
-
-.mss-card + .mss-card {
-  margin-top: 14.5px;
-}
-
-.mss-sep {
-  height: 1px;
-  margin: 0 19px 0 18.5px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-/* The agent strip's own 8pt row insets push its hairline further in. */
-.mss-sep.is-agents {
-  margin-left: 34.5px;
-}
-
-.mss-row {
-  display: flex;
-  align-items: center;
-  height: 48px;
-  padding-left: 18.5px;
-}
-
-.mss-rowlabel {
-  flex: 1;
-}
-
-.mss-row.is-picker {
-  padding-right: 19.5px;
-}
-
-/* A 31pt switch makes the toggle rows taller than the picker ones. */
-.mss-row.is-toggle {
-  height: 57px;
-  padding-right: 19px;
-}
-
-.mss-value {
-  color: rgba(255, 255, 255, 0.7);
-  white-space: nowrap;
-}
-
-.mss-chev {
-  margin-left: 8px;
-  color: rgba(255, 255, 255, 0.5);
-  flex: none;
-}
-
-/* GlassToggleStyle, off: UISwitch geometry (51×31, 27pt thumb, 2pt inset)
-   over the glass fill + hairline, with a mutedForeground thumb. */
-.mss-toggle {
-  position: relative;
-  width: 51px;
-  height: 31px;
-  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.102);
-  background: rgba(255, 255, 255, 0.059);
   flex: none;
 }
 
-.mss-toggle::after {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 27px;
-  height: 27px;
+/* A chip IS the issue-ref pill (status · priority · mono identifier · muted
+   title) with its own trailing ✕ (EXP-827). */
+.mag-chips {
+  display: flex;
+  padding: 12px 12px 0;
+}
+
+.mag-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 6px 0 10px;
   border-radius: 999px;
-  background: #a1a1a1;
-}
-
-/* ── Issue picker: inline search + checkbox rows ── */
-.mss-search {
-  display: flex;
-  align-items: center;
-  gap: 8.5px;
-  height: 49px;
-  padding: 0 18.5px;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-.mss-search svg {
-  flex: none;
-}
-
-.mss-list {
-  padding: 12.5px 0;
-}
-
-.mss-irow {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  margin: 0 18.5px;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.059);
+  border: 1px solid rgba(255, 255, 255, 0.102);
   font-size: 15px;
 }
 
-/* Selection must be unmissable (EXP-241): glyph swap plus a tinted row. */
-.mss-irow.is-checked {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.mss-check {
-  flex: none;
-}
-
-.mss-glyph {
-  flex: none;
-}
-
-.mss-prio {
-  margin-left: 9px;
-}
-
-.mss-id {
-  width: 60px;
-  margin-left: 12px;
+.mag-chipid {
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: -0.02em;
   color: rgba(255, 255, 255, 0.62);
+  flex: none;
 }
 
-.mss-status {
-  margin-left: 4.5px;
-}
-
-.mss-title {
-  margin-left: 9px;
-  padding-right: 2px;
+.mag-chiptitle {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/* ── The ONE pinned confirm (GlassSubmitButton): solid `primary` #e5e5e5
-      with `primaryForeground` #171717 content, radius 10, 14pt v-padding,
-      on an opaque floor inset 16pt / 10pt (GlassSheetTokens). ── */
-.mss-action {
-  margin-top: auto;
-  padding: 10px 16px;
-  background: #111114;
+.mag-chipx {
+  display: flex;
+  color: rgba(255, 255, 255, 0.5);
   flex: none;
 }
 
-.mss-submit {
+/* The one-block markdown field — 44pt minimum, the card's 12/12 band. */
+.mag-field {
+  min-height: 44px;
+  padding: 14px 12px 0;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.mag-tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px 12px;
+}
+
+.mag-tool {
+  display: flex;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.mag-spacer {
+  flex: 1;
+}
+
+/* GlassPill, primary: #e5e5e5 fill with #171717 content (DesignTokens). */
+.mag-submit {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 45.5px;
-  border-radius: 10px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
   background: #e5e5e5;
   color: #171717;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
-/* Narrow phones: the 273px sheet would crowd a 320px viewport's gutters. */
+/* ── AgentOptionsRow: one horizontally scrolling line of glass pills ── */
+.mag-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 18.5px;
+  flex: none;
+}
+
+.mag-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.051);
+  border: 1px solid rgba(255, 255, 255, 0.078);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+}
+
+.mag-pillchev {
+  color: rgba(255, 255, 255, 0.5);
+  transform: rotate(90deg);
+}
+
+/* The Plan switch rides its pill at SwiftUI's mini scale. */
+.mag-switch {
+  position: relative;
+  width: 28px;
+  height: 17px;
+  border-radius: 999px;
+  background: #e5e5e5;
+  flex: none;
+}
+
+.mag-switch::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #171717;
+}
+
+/* ── The caller's sessions under the options row ── */
+.mag-sectionlabel {
+  margin: 20px 18.5px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.66);
+  flex: none;
+}
+
+.mag-card.is-list {
+  margin-top: 8.5px;
+  overflow: hidden;
+}
+
+.mag-srow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 18.5px;
+}
+
+.mag-srow + .mag-srow {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mag-srow-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mag-srow-title {
+  font-size: 15px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mag-srow-caption {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mag-glyph {
+  flex: none;
+}
+
+.mag-prio {
+  flex: none;
+}
+
+/* Narrow phones: the 273px canvas would crowd a 320px viewport's gutters. */
 @media (max-width: 379px) {
-  .mss-phone {
-    --mss-scale: 0.58;
+  .mag-phone {
+    --mag-scale: 0.58;
   }
 }

@@ -8,9 +8,6 @@
 //! * a switch signs OUT first (`coding::agent_login::logout`); codex's logout
 //!   revokes the token server-side, so a LOCAL switch confirms first (a
 //!   REMOTE one was already confirmed by the requester);
-//! * pi has no login command — its `/login` is a slash command inside the
-//!   running TUI, typed once its prompt shows (or at the 10s deadline
-//!   regardless, so a missed anchor never strands the tab);
 //! * a REMOTE run watches the grid and completes its device command EARLY,
 //!   the moment the sign-in URL (+ codex's device code) is up — the
 //!   requester needs the link, not the eventual outcome. The signed-in flip
@@ -54,15 +51,10 @@ use crate::coding_flow::CodingHub;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
 
-/// Grid poll cadence — pi's prompt and the sign-in URL both land within a
-/// second or two of the spawn, and a quarter-second read of a 120×36 grid is
-/// nothing next to the PTY itself.
+/// Grid poll cadence — the sign-in URL lands within a second or two of the
+/// spawn, and a quarter-second read of a 120×36 grid is nothing next to the
+/// PTY itself.
 const POLL: Duration = Duration::from_millis(250);
-
-/// Type pi's `/login` at this deadline even if its prompt never matched (a
-/// themed banner, a resized grid): a login that types one line too early is
-/// recoverable, one that never types anything is not.
-const READY_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How long a remote login may run without ever showing a URL before the
 /// command is failed back to the requester.
@@ -178,8 +170,8 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
 }
 
 /// Run `then` once the user has confirmed switching `agent`'s account —
-/// immediately for the agents whose sign-out is local (claude; pi has no
-/// account at all), behind a confirm for codex, whose `logout` REVOKES the
+/// immediately for the agents whose sign-out is local (claude), behind a
+/// confirm for codex, whose `logout` REVOKES the
 /// session with OpenAI so every other machine signed in with it loses
 /// access. The copy is byte-identical to the web dialog's.
 ///
@@ -441,7 +433,7 @@ fn spawn_login_tab(
                 }
             })
             .detach();
-            watch_login(plan, manager, tab, run, cx);
+            watch_login(manager, tab, run, cx);
         }
         _ => {
             notify(
@@ -456,24 +448,20 @@ fn spawn_login_tab(
     }
 }
 
-/// The 250ms foreground grid watch: types pi's `/login` once its prompt is
-/// up (or at the deadline), and — for a remote run — publishes the sign-in
+/// The 250ms foreground grid watch: for a remote run, publishes the sign-in
 /// URL the instant the driver recognizes one.
 fn watch_login(
-    plan: coding::LoginPlan,
     manager: Entity<TerminalManager>,
     tab: TabId,
     run: Arc<LoginRun>,
     cx: &mut App,
 ) {
-    let typed = plan.typed_after_ready.clone();
-    if typed.is_none() && run.remote.is_none() {
-        return; // nothing to watch: claude/codex started locally
+    if run.remote.is_none() {
+        return; // nothing to watch: a local claude/codex login
     }
     let agent = run.agent;
     cx.spawn(async move |cx| {
         let started = std::time::Instant::now();
-        let mut typed = typed;
         // The defensive Enter is written ONCE: the picker stays on screen
         // for several polls, and one `\r` per 250ms tick would walk the CLI
         // through every prompt after it.
@@ -493,14 +481,6 @@ fn watch_login(
                 // budget on a dead grid.
                 let _ = cx.update(|cx| run.finish(cx));
                 return;
-            }
-            if let Some(text) = typed.clone() {
-                let ready = agent_login::pi_prompt_ready(&lines)
-                    || started.elapsed() >= READY_DEADLINE;
-                if ready {
-                    typed = None;
-                    let _ = cx.update(|cx| write_input(&manager, tab, text.as_bytes(), cx));
-                }
             }
             if let Some(remote) = run.remote.as_ref() {
                 if remote.published.load(Ordering::SeqCst) {
@@ -559,8 +539,6 @@ fn watch_login(
                     }
                     return;
                 }
-            } else if typed.is_none() {
-                return; // pi's line is in — nothing left to watch
             }
         }
     })

@@ -49,7 +49,7 @@ impl ParsedCommand {
 // `steerCommands` cannot name, so an external ACP agent's catalog is EMPTY and
 // its `/` menu carries only what the agent advertised itself
 // (`config_state.commands`). Never add it to the contract: the curated rows
-// describe claude/codex/pi behaviour we verified.
+// describe claude/codex behaviour we verified.
 fn agent_id(agent: SessionAgent) -> &'static str {
     agent.id()
 }
@@ -124,8 +124,8 @@ mod tests {
         assert!(catalog_for(SessionAgent::Claude)
             .iter()
             .any(|c| c.name == "compact"));
-        // `/clear` is every agent's (pi runs it natively) and confirms.
-        for agent in [SessionAgent::Claude, SessionAgent::Codex, SessionAgent::Pi] {
+        // `/clear` is every agent's and confirms.
+        for agent in [SessionAgent::Claude, SessionAgent::Codex] {
             let rows = catalog_for(agent);
             assert_eq!(
                 rows.iter().map(|c| c.name).collect::<Vec<_>>(),
@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(parsed.args, "keep the diff");
         assert_eq!(parsed.text(), "/compact keep the diff");
         assert_eq!(
-            parse_command("  /Compact  ", SessionAgent::Pi).unwrap().text(),
+            parse_command("  /Compact  ", SessionAgent::Codex).unwrap().text(),
             "/compact"
         );
         // Not in the catalog at all.
@@ -156,7 +156,6 @@ mod tests {
         assert_eq!(parse_command("/model opus", SessionAgent::Claude), None);
         assert_eq!(parse_command("/new", SessionAgent::Codex), None);
         assert!(parse_command("/clear", SessionAgent::Codex).is_some());
-        assert!(parse_command("/clear", SessionAgent::Pi).is_some());
         // Prose, paths and a bare slash are never commands.
         assert_eq!(parse_command("fix /compact later", SessionAgent::Claude), None);
         assert_eq!(parse_command("/api/foo", SessionAgent::Claude), None);

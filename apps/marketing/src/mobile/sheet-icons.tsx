@@ -1,14 +1,13 @@
-/* ─── Start-coding sheet glyphs — the shared registry, iOS sizing ───
-   The picker rows wear the SAME glyphs the phone does (packages/icons
+/* ─── Agent page glyphs — the shared registry, iOS sizing ───
+   The subject chips wear the SAME glyphs the phone does (packages/icons
    icons.json, the status / priority / ui-selected names): lucide marks plus
    the two pie clocks, which are registry-only shapes (`progress-2-4` / `progress-3-4`,
    path data copied verbatim). The IDE recreation's own StatusIcon speaks the
-   desktop's timer/PR vocabulary, so the sheet keeps its own atoms rather than
+   desktop's timer/PR vocabulary, so the phone keeps its own atoms rather than
    drifting the shared ones. Colors are the design-token semantics
    (packages/design-tokens tokens.json + ExpUI StatusColor/PriorityColor).
-   Sizes are iOS POINTS on the 414pt canvas — see StartCodingSheet.tsx. */
+   Sizes are iOS POINTS on the 414pt canvas — see AgentComposer.tsx. */
 import {
-  Circle,
   CircleCheck,
   CircleDashed,
   Minus,
@@ -45,7 +44,7 @@ function ProgressClock({
       stroke={color}
       strokeWidth={2}
       aria-hidden
-      className={`mss-glyph mss-status`}
+      className={`mag-glyph mag-status`}
     >
       <circle cx="12" cy="12" r="10" />
       <path d={wedge} fill={color} stroke="none" />
@@ -53,13 +52,13 @@ function ProgressClock({
   )
 }
 
-export function MssStatusIcon({ status }: { status: IssueStatus }) {
+export function MagStatusIcon({ status }: { status: IssueStatus }) {
   /* AppIcon.Size.small on the phone, measured at 15pt of drawn glyph. */
   const size = 15
   const props = { size, strokeWidth: 2, "aria-hidden": true } as const
   switch (status) {
     case `backlog`:
-      return <CircleDashed {...props} color={NEUTRAL} className={`mss-glyph mss-status`} />
+      return <CircleDashed {...props} color={NEUTRAL} className={`mag-glyph mag-status`} />
     case `in_progress`:
       return (
         <ProgressClock
@@ -77,37 +76,22 @@ export function MssStatusIcon({ status }: { status: IssueStatus }) {
         />
       )
     case `done`:
-      return <CircleCheck {...props} color={BLUE} className={`mss-glyph mss-status`} />
+      return <CircleCheck {...props} color={BLUE} className={`mag-glyph mag-status`} />
   }
 }
 
-export function MssPriorityIcon({ priority }: { priority: IssuePriority }) {
+export function MagPriorityIcon({ priority }: { priority: IssuePriority }) {
   const props = { size: 13, strokeWidth: 2, "aria-hidden": true } as const
   switch (priority) {
     case `none`:
-      return <Minus {...props} color={NEUTRAL} className={`mss-glyph mss-prio`} />
+      return <Minus {...props} color={NEUTRAL} className={`mag-glyph mag-prio`} />
     case `urgent`:
-      return <TriangleAlert {...props} color={RED} className={`mss-glyph mss-prio`} />
+      return <TriangleAlert {...props} color={RED} className={`mag-glyph mag-prio`} />
     case `high`:
-      return <SignalHigh {...props} color={ORANGE} className={`mss-glyph mss-prio`} />
+      return <SignalHigh {...props} color={ORANGE} className={`mag-glyph mag-prio`} />
     case `medium`:
-      return <SignalMedium {...props} color={YELLOW} className={`mss-glyph mss-prio`} />
+      return <SignalMedium {...props} color={YELLOW} className={`mag-glyph mag-prio`} />
     case `low`:
-      return <SignalLow {...props} color={BLUE} className={`mss-glyph mss-prio`} />
+      return <SignalLow {...props} color={BLUE} className={`mag-glyph mag-prio`} />
   }
-}
-
-/* ui-selected / ui-unselected at AppIcon.Size.medium (17pt): white when
-   checked, secondary when not (StartCodingSheet.issueRow). */
-export function MssCheckIcon({ checked }: { checked: boolean }) {
-  const props = { size: 17, strokeWidth: 2, "aria-hidden": true } as const
-  return checked ? (
-    <CircleCheck {...props} color="#ffffff" className={`mss-check`} />
-  ) : (
-    <Circle
-      {...props}
-      color="rgba(255,255,255,0.6)"
-      className={`mss-check`}
-    />
-  )
 }

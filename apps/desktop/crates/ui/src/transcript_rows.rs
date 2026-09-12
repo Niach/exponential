@@ -122,11 +122,15 @@ pub(crate) fn row_fingerprint(
                 status,
                 detail,
                 tool_calls,
+                title,
                 ..
             } => {
                 (*status as u8).hash(&mut hasher);
                 detail.as_ref().map(String::len).hash(&mut hasher);
                 tool_calls.hash(&mut hasher);
+                // EXP-847: the title is the row's own line and the type moves
+                // to a caption beside it — both change the measured height.
+                title.as_ref().map(String::len).hash(&mut hasher);
             }
             FeedKind::Question(card) => {
                 card.text.len().hash(&mut hasher);
@@ -612,6 +616,7 @@ mod tests {
                 settled: false,
                 failed: false,
                 diff: None,
+                preview: None,
             },
             seq: None,
         }

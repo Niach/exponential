@@ -1,5 +1,5 @@
 //! The tooling doctor (masterplan-v3 §7.7, EXP-201): runs `--version` on
-//! every agent CLI (`claude`, `codex`, `pi` — each at its configured/probed
+//! every agent CLI (`claude`, `codex` — each at its configured/probed
 //! path) and on `git`, capturing success + version string or the spawn error.
 //!
 //! Gating is per-agent (EXP-201): **git is required for every launch**, but a
@@ -14,15 +14,14 @@
 //! A resolvable Claude that is OLDER than [`MIN_CLAUDE_VERSION`] also fails
 //! its check (with "run: claude update" copy) — one version gate replaces
 //! the old per-flag `--help` probe and its whole degradation matrix. Codex
-//! and pi have NO minimum version yet (presence-only, deliberately lenient).
+//! has NO minimum version yet (presence-only, deliberately lenient).
 //!
 //! EXP-409: an installed agent that is SIGNED OUT fails its check too —
 //! installed-but-not-signed-in equals not installed for every gate, because
 //! a logged-out agent spawns onto its login prompt and a headless/remote
 //! session hangs there invisibly. Probes: `claude auth status` (local JSON,
-//! `{"loggedIn": bool}`), `codex login status` (exit 0 / "Not logged in"),
-//! and pi credential presence (`~/.pi/agent/auth.json` or a provider API-key
-//! env var — pi has no login command). Every probe FAILS OPEN: an
+//! `{"loggedIn": bool}`) and `codex login status` (exit 0 / "Not logged
+//! in"). Every probe FAILS OPEN: an
 //! unrecognisable answer (older CLI, changed output) leaves the check green
 //! rather than falsely bricking a working install.
 //!
@@ -34,19 +33,18 @@
 //! ([`terminal::pty::login_path`], §6.12) — the SAME environment the engine
 //! spawns the agent into. A `.app`/`.desktop` launch carries a minimal PATH
 //! without Homebrew/npm-global, so probing with the process PATH reported
-//! codex/pi as "not found" on machines where every launch worked (EXP-206).
+//! codex as "not found" on machines where every launch worked (EXP-206).
 //!
 //! Blocking `std::process` calls — callers run this off the foreground
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
 use crate::agent::CodingAgent;
-use crate::agent_accounts::{now_iso, pi_account, AgentAccount, AgentAccounts};
+use crate::agent_accounts::{now_iso, AgentAccount, AgentAccounts};
 use crate::settings::Settings;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
-use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use terminal::process::background_command;
 
 /// EXP-414: the deadline for every probe shell-out. The CLI daemon re-runs
@@ -174,7 +172,6 @@ pub fn device_caps(advertised: &AgentAdvertisement) -> Vec<String> {
 pub enum Tool {
     Claude,
     Codex,
-    Pi,
     Git,
 }
 
@@ -183,7 +180,6 @@ impl Tool {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
-            Tool::Pi => "pi",
             Tool::Git => "git",
         }
     }
@@ -193,7 +189,6 @@ impl Tool {
         match self {
             Tool::Claude => Some(CodingAgent::Claude),
             Tool::Codex => Some(CodingAgent::Codex),
-            Tool::Pi => Some(CodingAgent::Pi),
             Tool::Git => None,
         }
     }
@@ -203,7 +198,6 @@ impl Tool {
         match self {
             Tool::Claude => "claude not found on PATH. Set an absolute path.",
             Tool::Codex => "codex not found on PATH. Set an absolute path.",
-            Tool::Pi => "pi not found on PATH. Set an absolute path.",
             Tool::Git => "git not found on PATH",
         }
     }
@@ -215,7 +209,6 @@ impl Tool {
         match self {
             Tool::Claude => "claude is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
             Tool::Codex => "codex is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
-            Tool::Pi => "pi has no provider credentials. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
             Tool::Git => "",
         }
     }
@@ -240,14 +233,14 @@ pub struct ToolCheck {
     /// `None` = not applicable (git) or unknown (probe failed open).
     pub authed: Option<bool>,
     /// EXP-484: WHO is signed in on this machine — filled from the same
-    /// sign-in probe the gate above runs (claude's `auth status` JSON, pi's
-    /// credential files, codex's presence-only answer, enriched from the
+    /// sign-in probe the gate above runs (claude's `auth status` JSON,
+    /// codex's presence-only answer, enriched from the
     /// usage cache by [`crate::agent_usage::collect_if_due`]). `None` for
     /// git and for a check that never reached its auth probe.
     pub account: Option<AgentAccount>,
     /// EXP-484: whether this agent's usage windows may be fetched at all —
     /// [`ClaudeAuthStatus::usage_eligible`] for claude, `false` elsewhere
-    /// (codex answers over its app-server, pi over its own credential).
+    /// (codex answers over its app-server).
     pub usage_eligible: bool,
     /// EXP-746: whether this agent can run on the ACP engine.
     /// **Non-fatal for the doctor** — it never touches `ok`,
@@ -269,13 +262,12 @@ impl ToolCheck {
     }
 }
 
-/// `{ claude, codex, pi, git }` — the §7.7 report, one row per agent CLI plus
+/// `{ claude, codex, git }` — the §7.7 report, one row per agent CLI plus
 /// git (EXP-201; the old two-row `agent`/`git` shape is gone).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DoctorReport {
     pub claude: ToolCheck,
     pub codex: ToolCheck,
-    pub pi: ToolCheck,
     pub git: ToolCheck,
 }
 
@@ -285,7 +277,6 @@ impl DoctorReport {
         match agent {
             CodingAgent::Claude => &self.claude,
             CodingAgent::Codex => &self.codex,
-            CodingAgent::Pi => &self.pi,
         }
     }
 
@@ -396,8 +387,8 @@ impl DoctorReport {
     /// (EXP-808) — the same judgement [`probe_profile_auth`] makes for a
     /// profile dir, made from the doctor's own check: claude needs a
     /// first-party `claude.ai` subscription
-    /// ([`ClaudeAuthStatus::usage_eligible`]), codex and pi need only to be
-    /// installed and signed in (they answer over their own surfaces).
+    /// ([`ClaudeAuthStatus::usage_eligible`]), codex needs only to be
+    /// installed and signed in (it answers over its own surface).
     pub fn ambient_usage_eligible(&self, agent: CodingAgent) -> bool {
         let check = self.check_for(agent);
         if check.version.is_none() || check.signed_out() {
@@ -405,7 +396,7 @@ impl DoctorReport {
         }
         match agent {
             CodingAgent::Claude => check.usage_eligible,
-            CodingAgent::Codex | CodingAgent::Pi => true,
+            CodingAgent::Codex => true,
         }
     }
 
@@ -578,60 +569,31 @@ impl AgentAdvertisement {
     }
 }
 
-/// How thorough a doctor pass is (EXP-755). It changes exactly ONE check:
-/// pi's rpc handshake ([`probe_pi_rpc`]), the only probe that spawns a real
-/// protocol conversation instead of a millisecond `--version` shell-out.
-///
-/// * [`DoctorDepth::Quick`] — every HOT caller: desktop launch, every
-///   `prepare` (§7.1 step 0), the CLI daemon's 5-minute recheck, the account
-///   status pass. An UNCHANGED pi reuses the last verdict.
-/// * [`DoctorDepth::Deep`] — `exponential doctor` alone: a hand-typed
-///   command can afford the handshake, and "I just reinstalled it, tell me
-///   now" is exactly what it is for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DoctorDepth {
-    Quick,
-    Deep,
-}
-
 /// Run every check: each agent's resolved program
 /// ([`Settings::resolved_path_for`]) — claude version-gated against
 /// [`MIN_CLAUDE_VERSION`], every agent sign-in-gated (EXP-409) — and plain
 /// `git` from PATH.
 ///
-/// [`DoctorDepth::Quick`]: this is the launch/daemon path, so pi's rpc
-/// handshake is only paid once per pi binary ([`run_doctor_deep`] forces it).
+///
+/// EXP-849: every check here is a millisecond `--version`/credential probe —
+/// the only real handshake left is [`probe_codex_acp`], which `exponential
+/// doctor` runs on demand.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
-    run_doctor_with_depth(settings, DoctorDepth::Quick)
-}
-
-/// [`run_doctor`] with every deep probe forced (EXP-755) — `exponential
-/// doctor`'s pass.
-pub fn run_doctor_deep(settings: &Settings) -> DoctorReport {
-    run_doctor_with_depth(settings, DoctorDepth::Deep)
-}
-
-fn run_doctor_with_depth(settings: &Settings, depth: DoctorDepth) -> DoctorReport {
     // EXP-419: a Windows installer edits the registry PATH, which a running
     // process never sees — re-read it so "Check tools" (and every later
     // spawn) finds a just-installed git/agent without an app restart.
     terminal::process::refresh_windows_path();
     let claude_program = settings.resolved_path_for(CodingAgent::Claude);
     let codex_program = settings.resolved_path_for(CodingAgent::Codex);
-    let pi_program = settings.resolved_path_for(CodingAgent::Pi);
     let mut claude = check_tool(Tool::Claude, &claude_program);
     apply_version_gate(&mut claude);
     apply_auth_gate(&mut claude, &claude_program);
     let mut codex = check_tool(Tool::Codex, &codex_program);
     apply_auth_gate(&mut codex, &codex_program);
     apply_codex_acp(&mut codex);
-    let mut pi = check_tool(Tool::Pi, &pi_program);
-    apply_auth_gate(&mut pi, &pi_program);
-    probe_pi_rpc(&mut pi, settings, depth);
     DoctorReport {
         claude,
         codex,
-        pi,
         git: check_tool(Tool::Git, "git"),
     }
 }
@@ -677,7 +639,7 @@ Update to {acp_major}.{acp_minor}.{acp_patch}+ to run coding sessions."
 /// authoritative one.
 ///
 /// EXP-758: with a VERSION FLOOR ([`MIN_CODEX_ACP_VERSION`]) — claude has one
-/// and pi has its probe, so codex was the one agent an unusably old build of
+/// too, so codex was the one agent an unusably old build of
 /// which still resolved to the engine and then died in the handshake. Like
 /// claude's, the floor never reddens the doctor row, and an unparseable
 /// version stays ready: never falsely demote a nonstandard build.
@@ -710,197 +672,6 @@ Update to {min_major}.{min_minor}.{min_patch}+ to run coding sessions."
 /// doctor` and the settings pane call it on demand.
 pub fn probe_codex_acp(program: &str, path_env: &str) -> bool {
     crate::codex_app_server::probe(program, path_env, PROBE_TIMEOUT).is_ok()
-}
-
-/// The copy a pi build without the rpc mode gets (EXP-746).
-const PI_NO_RPC_MODE_NOTE: &str = "This pi build has no rpc mode. Update pi to run coding \
-sessions.";
-
-/// EXP-755: the last `pi --mode rpc` verdict, per resolved program path.
-///
-/// IN-PROCESS on purpose. [`run_doctor`] takes no `data_dir` — it runs from
-/// the launcher, the daemon loop and the settings pane alike — and the one
-/// on-disk cache in this crate ([`crate::usage_cache`]) is a file because two
-/// PROCESSES share one token budget there. Nothing is shared here: the cost
-/// is a local spawn, and a fresh process paying it once is correct.
-///
-/// Keyed by PATH rather than held in one slot so probes of two different pi
-/// binaries (a settings edit, the test suite's parallel stubs) never evict
-/// each other.
-static PI_RPC_CACHE: Mutex<BTreeMap<String, PiRpcVerdict>> = Mutex::new(BTreeMap::new());
-
-/// What identifies "the same pi": the resolved program, the version it
-/// printed and its mtime. A bare name whose metadata does not resolve (a
-/// shim, a `pi` the OS finds on PATH) keys on path + version ALONE — an
-/// in-place update of such a build keeps the old verdict until its version
-/// string moves or `exponential doctor` re-probes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PiRpcStamp {
-    program: String,
-    version: Option<String>,
-    modified: Option<SystemTime>,
-}
-
-#[derive(Clone, Debug)]
-struct PiRpcVerdict {
-    stamp: PiRpcStamp,
-    acp: bool,
-    note: Option<String>,
-}
-
-/// EXP-746: pi's ACP readiness — a real `pi --mode rpc` handshake, bounded
-/// by [`PROBE_TIMEOUT`] and killed on every exit path.
-///
-/// EXP-755 wraps it in two things it lacked. The program comes from the
-/// CALLER's `settings` (it used to resolve a DEFAULT `Settings`, so a
-/// hand-configured `pi_path` was never the binary probed — the spawn failed
-/// and the check stayed green by fail-open), and a [`DoctorDepth::Quick`]
-/// pass reuses the cached verdict for an unchanged pi instead of paying the
-/// handshake on every launch, every prepare and every daemon recheck.
-fn probe_pi_rpc(check: &mut ToolCheck, settings: &Settings, depth: DoctorDepth) {
-    if !check.ok {
-        check.acp = Some(false);
-        check.acp_note = Some("pi is not available".to_string());
-        return;
-    }
-    check.acp = Some(true);
-
-    let program = settings.resolved_path_for(CodingAgent::Pi);
-    let stamp = PiRpcStamp {
-        modified: std::fs::metadata(&program)
-            .and_then(|meta| meta.modified())
-            .ok(),
-        version: check.version.clone(),
-        program,
-    };
-    if depth == DoctorDepth::Quick {
-        if let Some(cached) = cached_pi_rpc(&stamp) {
-            check.acp = Some(cached.acp);
-            check.acp_note = cached.note;
-            return;
-        }
-    }
-    let probed = pi_rpc_handshake(&stamp.program);
-    // Fail open for THIS call whatever happened (the engine's own handshake is
-    // the authoritative one).
-    let supported = probed.unwrap_or(true);
-    let note = (!supported).then(|| PI_NO_RPC_MODE_NOTE.to_string());
-    check.acp = Some(supported);
-    check.acp_note = note.clone();
-    // EXP-766: only a REAL verdict is worth remembering. An indeterminate
-    // probe used to cache its fail-open `true` under the binary's stamp, so a
-    // pi that could not be spawned once read as ready until the binary
-    // changed or the process restarted.
-    if probed.is_none() {
-        return;
-    }
-    if let Ok(mut cache) = PI_RPC_CACHE.lock() {
-        cache.insert(
-            stamp.program.clone(),
-            PiRpcVerdict {
-                stamp,
-                acp: supported,
-                note,
-            },
-        );
-    }
-}
-
-/// The cached verdict for exactly this pi, or `None` when the binary moved,
-/// changed version or changed on disk since it was taken.
-fn cached_pi_rpc(stamp: &PiRpcStamp) -> Option<PiRpcVerdict> {
-    let cache = PI_RPC_CACHE.lock().ok()?;
-    cache
-        .get(&stamp.program)
-        .filter(|verdict| &verdict.stamp == stamp)
-        .cloned()
-}
-
-/// The handshake itself: spawn `<program> --mode rpc`, ask one `get_state`
-/// and close stdin. `true` = this build speaks rpc.
-///
-/// It HAS to be a handshake: `pi --mode <anything>` parses leniently and
-/// exits 0 with no output on stdin EOF, so PRESENCE proves nothing and only
-/// an answered `get_state` distinguishes a build that has the rpc mode from
-/// one that does not. That also rules out [`output_with_timeout`], which
-/// pins `Stdio::null()` on stdin; the recipe below is the same otherwise
-/// (own process group, drained pipes, killed at the deadline).
-///
-/// `None` = INDETERMINATE (no spawn, no stdio, a wedged child). The caller
-/// still fails open on it — the engine's own handshake is the authoritative
-/// one and a false negative here would refuse every coding launch on a
-/// working install (EXP-773: there is no terminal transport to demote to) —
-/// but a `None` is never CACHED (EXP-766), so the next pass probes again
-/// instead of trusting an answer nobody gave.
-fn pi_rpc_handshake(program: &str) -> Option<bool> {
-    use std::io::{Read as _, Write as _};
-    use std::process::Stdio;
-    use wait_timeout::ChildExt as _;
-
-    let mut cmd = background_command(program);
-    cmd.env("PATH", terminal::pty::login_path())
-        .args(["--mode", "rpc"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        cmd.process_group(0);
-    }
-    let Ok(mut child) = cmd.spawn() else {
-        return None;
-    };
-    let Some(mut stdin) = child.stdin.take() else {
-        return None;
-    };
-    let Some(mut stdout) = child.stdout.take() else {
-        return None;
-    };
-    // One command, then EOF: pi's rpc loop ends with its stdin, so the child
-    // reaps itself and the deadline below is only the wedged-child guard.
-    let asked = stdin
-        .write_all(b"{\"id\":\"1\",\"type\":\"get_state\"}\n")
-        .and_then(|()| stdin.flush())
-        .is_ok();
-    drop(stdin);
-    if !asked {
-        let _ = child.kill();
-        let _ = child.wait();
-        return None;
-    }
-    // Drain on a thread: a child that fills the pipe buffer would never exit.
-    let reader = std::thread::spawn(move || {
-        let mut answer = String::new();
-        let _ = stdout.read_to_string(&mut answer);
-        answer
-    });
-    let exited = matches!(child.wait_timeout(PROBE_TIMEOUT), Ok(Some(_)));
-    if !exited {
-        #[cfg(unix)]
-        unsafe {
-            libc::killpg(child.id() as i32, libc::SIGKILL);
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        return None;
-    }
-    Some(answered_get_state(&reader.join().unwrap_or_default()))
-}
-
-/// Did the child answer our `get_state` on its rpc stream? Line-delimited
-/// JSON, so a stray log line before or after the answer is fine.
-fn answered_get_state(stdout: &str) -> bool {
-    stdout.lines().any(|line| {
-        serde_json::from_str::<serde_json::Value>(line.trim()).is_ok_and(|value| {
-            value.get("type").and_then(serde_json::Value::as_str) == Some("response")
-                && value.get("command").and_then(serde_json::Value::as_str) == Some("get_state")
-                && value
-                    .get("success")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false)
-        })
-    })
 }
 
 /// EXP-409: stamp `authed` on a still-green agent check and flip it red when
@@ -937,16 +708,6 @@ fn apply_auth_gate_with_path(check: &mut ToolCheck, program: &str, path_env: &st
                 ..AgentAccount::default()
             });
             authed
-        }
-        Tool::Pi => {
-            let state = read_pi_credentials();
-            check.account = Some(pi_account(
-                state.auth_json.as_deref(),
-                state.settings_json.as_deref(),
-                state.env_credential,
-                &now,
-            ));
-            pi_auth_state(state.auth_json.as_deref(), state.env_credential)
         }
         Tool::Git => return,
     };
@@ -1028,7 +789,7 @@ fn probe_claude_auth_status_in(
 
 /// EXP-792 (EXP-747 B3): who is signed in inside ONE account profile dir of
 /// `agent` — the same probes the doctor's auth gate runs, pointed at the
-/// profile's config dir. `None` for pi (no profiles) and for a probe that
+/// profile's config dir. `None` for a probe that
 /// never ran. A profile is explicit, so an unreadable answer reads as
 /// signed OUT here (the ambient gate fails open instead).
 pub(crate) struct ProfileAuth {
@@ -1067,7 +828,6 @@ pub(crate) fn probe_profile_auth(
                 usage_eligible: authed,
             })
         }
-        CodingAgent::Pi => None,
     }
 }
 
@@ -1129,79 +889,6 @@ pub fn parse_codex_login_status(success: bool, output: &str) -> Option<bool> {
         return Some(false);
     }
     success.then_some(true)
-}
-
-/// pi has NO login command: credentials are provider API keys, from
-/// `~/.pi/agent/auth.json` (oauth/key entries per provider) or environment
-/// variables. The env list mirrors the notable providers in `pi --help`;
-/// a stale/invalid key is undetectable here — this only catches "no
-/// credential anywhere", which is the state that hangs a session.
-const PI_PROVIDER_ENV_VARS: &[&str] = &[
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_OAUTH_TOKEN",
-    "OPENAI_API_KEY",
-    "AZURE_OPENAI_API_KEY",
-    "GEMINI_API_KEY",
-    "GROQ_API_KEY",
-    "DEEPSEEK_API_KEY",
-    "XAI_API_KEY",
-    "MISTRAL_API_KEY",
-    "CEREBRAS_API_KEY",
-    "FIREWORKS_API_KEY",
-    "TOGETHER_API_KEY",
-    "OPENROUTER_API_KEY",
-    "AI_GATEWAY_API_KEY",
-    "ZAI_API_KEY",
-    "MOONSHOT_API_KEY",
-    "MINIMAX_API_KEY",
-    "KIMI_API_KEY",
-    "OPENCODE_API_KEY",
-    "NVIDIA_API_KEY",
-    "CLOUDFLARE_API_KEY",
-    "AWS_BEARER_TOKEN_BEDROCK",
-];
-
-/// pi's on-disk credential state: its provider credentials, its settings
-/// (for `defaultProvider`) and whether any provider API key is exported.
-pub(crate) struct PiCredentials {
-    pub auth_json: Option<String>,
-    pub settings_json: Option<String>,
-    pub env_credential: bool,
-}
-
-pub(crate) fn read_pi_credentials() -> PiCredentials {
-    let env_credential = PI_PROVIDER_ENV_VARS
-        .iter()
-        .any(|name| std::env::var(name).is_ok_and(|value| !value.trim().is_empty()));
-    let read = |file: &str| {
-        dirs::home_dir()
-            .map(|home| home.join(".pi").join("agent").join(file))
-            .filter(|path| path.exists())
-            .map(|path| std::fs::read_to_string(&path).unwrap_or_default())
-    };
-    PiCredentials {
-        auth_json: read("auth.json"),
-        // EXP-484: pi names no account — its caption is the PROVIDER it
-        // would run against, which lives here and nowhere else.
-        settings_json: read("settings.json"),
-        env_credential,
-    }
-}
-
-/// Classify pi's credential presence (split out for tests): any env key OR a
-/// non-empty provider map in auth.json = signed in; a present-but-unreadable
-/// auth.json fails open; nothing anywhere = signed out.
-pub fn pi_auth_state(auth_json: Option<&str>, env_credential: bool) -> Option<bool> {
-    if env_credential {
-        return Some(true);
-    }
-    match auth_json {
-        Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
-            Ok(serde_json::Value::Object(map)) => Some(!map.is_empty()),
-            _ => None,
-        },
-        None => Some(false),
-    }
 }
 
 /// Parse `major.minor.patch` off a claude version line
@@ -1363,14 +1050,14 @@ pub(crate) fn output_with_timeout(
 
 /// First non-empty line of `--version` output, with the tool's own noise
 /// prefix stripped (`git version 2.39.5 …` → `2.39.5 …`; `codex-cli 0.46.0`
-/// → `0.46.0`; claude's `1.0.35 (Claude Code)` and pi's bare semver pass
+/// → `0.46.0`; claude's `1.0.35 (Claude Code)` passes
 /// through).
 pub fn parse_version_output(tool: Tool, stdout: &str) -> Option<String> {
     let line = first_line(stdout)?;
     let stripped = match tool {
         Tool::Git => line.strip_prefix("git version ").unwrap_or(line),
         Tool::Codex => line.strip_prefix("codex-cli ").unwrap_or(line),
-        Tool::Claude | Tool::Pi => line,
+        Tool::Claude => line,
     };
     let trimmed = stripped.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -1415,11 +1102,6 @@ mod tests {
         assert_eq!(
             parse_version_output(Tool::Codex, "0.46.0\n"),
             Some("0.46.0".to_string())
-        );
-        // pi prints a bare version.
-        assert_eq!(
-            parse_version_output(Tool::Pi, "0.80.10\n"),
-            Some("0.80.10".to_string())
         );
     }
 
@@ -1580,7 +1262,7 @@ mod tests {
 
     /// EXP-206: bare tool names resolve against the INJECTED login PATH, not
     /// the process PATH — a stub-only dir finds the stub, and an empty PATH
-    /// misses even a real `git`. This is what fixes codex/pi installed in
+    /// misses even a real `git`. This is what fixes codex installed in
     /// Homebrew's bin showing "not found" under a GUI launch's minimal PATH.
     #[cfg(unix)]
     #[test]
@@ -1640,11 +1322,6 @@ mod tests {
             check.error.as_deref(),
             Some("codex not found on PATH. Set an absolute path.")
         );
-        let check = check_tool(Tool::Pi, "definitely-not-a-real-binary-exp");
-        assert_eq!(
-            check.error.as_deref(),
-            Some("pi not found on PATH. Set an absolute path.")
-        );
         let check = check_tool(Tool::Git, "definitely-not-a-real-binary-exp");
         assert_eq!(check.error.as_deref(), Some("git not found on PATH"));
     }
@@ -1660,7 +1337,7 @@ mod tests {
         assert!(!version.starts_with("git version"), "prefix not stripped: {version}");
     }
 
-    /// EXP-201 per-agent gating: a missing pi never blocks a claude launch;
+    /// EXP-201 per-agent gating: a missing codex never blocks a claude launch;
     /// a missing git blocks EVERY launch; the presence advertisement lists
     /// exactly the usable agents.
     #[test]
@@ -1668,7 +1345,6 @@ mod tests {
         let report = DoctorReport {
             claude: green(Tool::Claude, "2.1.215 (Claude Code)"),
             codex: red(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.45.0"),
         };
         assert_eq!(report.first_failure_for(CodingAgent::Claude), None);
@@ -1676,7 +1352,6 @@ mod tests {
             report.first_failure_for(CodingAgent::Codex),
             Some(&report.codex)
         );
-        assert_eq!(report.first_failure_for(CodingAgent::Pi), Some(&report.pi));
         assert!(report.any_agent_ok());
         assert_eq!(report.installed_agents(), vec![CodingAgent::Claude]);
 
@@ -1698,15 +1373,14 @@ mod tests {
         assert!(!none.any_agent_ok());
         assert!(none.installed_agents().is_empty());
 
-        // All three installed → all three advertised, in ALL order.
+        // Both installed → both advertised, in ALL order.
         let all = DoctorReport {
             codex: green(Tool::Codex, "0.46.0"),
-            pi: green(Tool::Pi, "0.80.10"),
             ..report.clone()
         };
         assert_eq!(
             all.installed_agents(),
-            vec![CodingAgent::Claude, CodingAgent::Codex, CodingAgent::Pi]
+            vec![CodingAgent::Claude, CodingAgent::Codex]
         );
     }
 
@@ -1791,7 +1465,7 @@ mod tests {
     /// EXP-792 (A3): the signed-out fix is a button, never a command to type.
     #[test]
     fn signed_out_message_never_asks_for_a_terminal_command() {
-        for tool in [Tool::Claude, Tool::Codex, Tool::Pi] {
+        for tool in [Tool::Claude, Tool::Codex] {
             let message = tool.signed_out_message();
             assert!(message.contains("Sign in from Settings → Agents"), "{message}");
             assert!(!message.contains('`'), "{message}");
@@ -1834,7 +1508,6 @@ mod tests {
         let report = DoctorReport {
             claude,
             codex: red(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.45.0"),
         };
         assert!(report.any_agent_ok());
@@ -1934,7 +1607,6 @@ mod tests {
         let report = DoctorReport {
             claude: green(Tool::Claude, "2.1.215 (Claude Code)"),
             codex: green(Tool::Codex, "0.46.0"),
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.45.0"),
         };
         let settings = Settings {
@@ -1944,13 +1616,12 @@ mod tests {
             claude_plan_mode: true,
             codex_model: "".into(),
             codex_effort: "high".into(),
-            pi_model: "grok-4.5".into(),
             ..Settings::default()
         };
         let advert = report.agent_advertisement(&settings);
         assert_eq!(advert.agents, vec!["claude", "codex"]);
         assert_eq!(advert.default_agent, "claude");
-        // Only runnable agents get a defaults entry — pi (red) has none.
+        // Only runnable agents get a defaults entry.
         assert_eq!(
             advert.launch_defaults.keys().collect::<Vec<_>>(),
             vec!["claude", "codex"]
@@ -1970,25 +1641,17 @@ mod tests {
 
         // A default agent that is NOT runnable still passes through as an id
         // (clients clamp); it simply has no launch_defaults entry.
+        let report = DoctorReport {
+            codex: red(Tool::Codex),
+            ..report
+        };
         let settings = Settings {
-            default_agent: CodingAgent::Pi,
+            default_agent: CodingAgent::Codex,
             ..settings
         };
         let advert = report.agent_advertisement(&settings);
-        assert_eq!(advert.default_agent, "pi");
-        assert!(!advert.launch_defaults.contains_key("pi"));
-
-        // A RUNNABLE pi advertises its own plan default (EXP-441) — plan
-        // rides through, ultracode stays masked.
-        let report = DoctorReport {
-            pi: green(Tool::Pi, "0.84.1"),
-            ..report
-        };
-        let advert = report.agent_advertisement(&settings);
-        let pi = &advert.launch_defaults["pi"];
-        assert_eq!(pi.model, "grok-4.5");
-        assert!(pi.plan_mode, "pi_plan_mode defaults ON");
-        assert!(!pi.ultracode);
+        assert_eq!(advert.default_agent, "codex");
+        assert!(!advert.launch_defaults.contains_key("codex"));
     }
 
     /// EXP-409: `claude auth status` JSON classification — noise-tolerant,
@@ -2112,7 +1775,6 @@ mod tests {
         let report = DoctorReport {
             claude,
             codex: red(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.44.0"),
         };
         let settings = Settings::default();
@@ -2142,7 +1804,6 @@ mod tests {
         let report = DoctorReport {
             claude,
             codex: red(Tool::Codex),
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.44.0"),
         };
         let mut settings = Settings::default();
@@ -2182,8 +1843,6 @@ mod tests {
         let report = DoctorReport {
             claude,
             codex,
-            // Not installed: no probe ran, so no row at all.
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.45.0"),
         };
         let accounts = report.agent_accounts("2026-08-28T10:00:00.000Z");
@@ -2200,18 +1859,6 @@ mod tests {
         assert!(!wire.contains("checked_at"));
     }
 
-    /// EXP-409: pi credential presence — env key or a non-empty auth.json
-    /// map counts; unreadable auth.json fails open; nothing = signed out.
-    #[test]
-    fn pi_auth_state_classifies_credentials() {
-        assert_eq!(pi_auth_state(None, true), Some(true));
-        assert_eq!(pi_auth_state(Some("{\"openai-codex\": {\"type\": \"oauth\"}}"), false), Some(true));
-        assert_eq!(pi_auth_state(Some("{}"), false), Some(false));
-        assert_eq!(pi_auth_state(None, false), Some(false));
-        // Present but unparseable → fail open.
-        assert_eq!(pi_auth_state(Some("not json"), false), None);
-        assert_eq!(pi_auth_state(Some("[]"), false), None);
-    }
 
     /// EXP-409 end-to-end against stub binaries: a signed-out claude/codex
     /// flips red with the sign-in copy (version kept), a signed-in one stays
@@ -2296,7 +1943,6 @@ mod tests {
         let report = DoctorReport {
             claude: checked(Tool::Claude, &claude_in),
             codex: checked(Tool::Codex, &codex_out),
-            pi: red(Tool::Pi),
             git: green(Tool::Git, "2.45.0"),
         };
         assert_eq!(report.installed_agents(), vec![CodingAgent::Claude]);
@@ -2305,254 +1951,6 @@ mod tests {
         assert!(report.first_failure_for(CodingAgent::Codex).is_some());
 
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// EXP-746: a `get_state` answer only counts when it is a SUCCESSFUL
-    /// response to that very command — anything else leaves the build
-    /// unproven (and, from the probe, marked not supported).
-    #[test]
-    fn answered_get_state_needs_a_successful_get_state_response() {
-        assert!(answered_get_state(
-            "{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}"
-        ));
-        // Line-delimited: log noise around the answer is fine.
-        assert!(answered_get_state(
-            "starting pi\n{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}\nbye"
-        ));
-        for answer in [
-            "",
-            "not json",
-            // The right command, but it failed.
-            "{\"type\":\"response\",\"command\":\"get_state\",\"success\":false}",
-            // Success, but a different command.
-            "{\"type\":\"response\",\"command\":\"ping\",\"success\":true}",
-            // An event, not a response.
-            "{\"type\":\"event\",\"command\":\"get_state\",\"success\":true}",
-            // No success flag at all.
-            "{\"type\":\"response\",\"command\":\"get_state\"}",
-        ] {
-            assert!(!answered_get_state(answer), "{answer}");
-        }
-    }
-
-    /// A stub `pi` that counts its rpc invocations: `--version` prints a
-    /// version, every other invocation reads one line off stdin, appends to
-    /// a log and (with `rpc`) answers the `get_state`.
-    #[cfg(unix)]
-    struct PiStub {
-        dir: std::path::PathBuf,
-        path: std::path::PathBuf,
-        log: std::path::PathBuf,
-    }
-
-    #[cfg(unix)]
-    impl PiStub {
-        fn new(tag: &str, rpc: bool) -> Self {
-            use std::fs;
-            use std::os::unix::fs::PermissionsExt;
-
-            let mut dir = std::env::temp_dir();
-            dir.push(format!(
-                "exp-coding-doctor-pi-{tag}-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            fs::create_dir_all(&dir).unwrap();
-            let log = dir.join("runs.log");
-            let path = dir.join("pi");
-            let answer = match rpc {
-                true => "echo '{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}'",
-                // A build WITHOUT the rpc mode: it parses the flag, says
-                // nothing on stdout and exits 0 (the real degradation).
-                false => "echo 'pi: unknown mode' >&2",
-            };
-            fs::write(
-                &path,
-                format!(
-                    "#!/bin/sh\ncase \"$1\" in\n--version) echo '0.80.10';;\n*) read line\necho run >> '{}'\n{answer};;\nesac\n",
-                    log.display()
-                ),
-            )
-            .unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-            Self { dir, path, log }
-        }
-
-        fn settings(&self) -> Settings {
-            Settings {
-                pi_path: self.path.to_string_lossy().into_owned(),
-                ..Settings::default()
-            }
-        }
-
-        /// How many rpc handshakes actually reached the binary.
-        fn runs(&self) -> usize {
-            std::fs::read_to_string(&self.log)
-                .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
-                .unwrap_or(0)
-        }
-
-        /// Forget this stub's cached verdict (test-only, see below).
-        fn forget(&self) {
-            PI_RPC_CACHE
-                .lock()
-                .unwrap()
-                .remove(&self.path.to_string_lossy().into_owned());
-        }
-
-        /// Move the binary's mtime forward — an in-place `pi` update.
-        fn bump_mtime(&self, secs: i64) {
-            let modified = std::fs::metadata(&self.path)
-                .unwrap()
-                .modified()
-                .unwrap()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap();
-            let when = libc::timeval {
-                tv_sec: modified.as_secs() as libc::time_t + secs as libc::time_t,
-                tv_usec: 0,
-            };
-            let times = [when, when];
-            let path = std::ffi::CString::new(self.path.to_string_lossy().as_bytes()).unwrap();
-            assert_eq!(unsafe { libc::utimes(path.as_ptr(), times.as_ptr()) }, 0);
-        }
-    }
-
-    #[cfg(unix)]
-    impl Drop for PiStub {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.dir);
-        }
-    }
-
-    /// One probe that DID reach the stub. Exec'ing a just-written script can
-    /// hit ETXTBSY while a concurrent test's fork holds the write fd; that
-    /// spawn failure fails OPEN and caches a verdict the assertions must not
-    /// read, so drop it and retry (see run_doctor_gates_on_the_stub_version).
-    #[cfg(unix)]
-    fn probe_expecting_a_run(stub: &PiStub, depth: DoctorDepth) -> ToolCheck {
-        let before = stub.runs();
-        let settings = stub.settings();
-        for _ in 0..20 {
-            let mut check = green(Tool::Pi, "0.80.10");
-            probe_pi_rpc(&mut check, &settings, depth);
-            if stub.runs() > before {
-                return check;
-            }
-            stub.forget();
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        panic!("pi stub never ran");
-    }
-
-    /// EXP-755: the probe uses the CALLER's configured `pi_path` (it used to
-    /// resolve a default `Settings`, so a hand-configured pi was never the
-    /// binary probed), and a second QUICK pass over the unchanged binary
-    /// reuses the verdict instead of paying the handshake again — this runs
-    /// on every launch, every prepare and the daemon's 5-minute recheck.
-    #[cfg(unix)]
-    #[test]
-    fn probe_pi_rpc_uses_the_configured_path_and_reuses_the_verdict_per_stamp() {
-        let stub = PiStub::new("reuse", true);
-        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
-        assert_eq!(check.acp, Some(true), "{:?}", check.acp_note);
-        assert_eq!(check.acp_note, None);
-        assert_eq!(stub.runs(), 1, "the configured path must be the one probed");
-
-        let mut again = green(Tool::Pi, "0.80.10");
-        probe_pi_rpc(&mut again, &stub.settings(), DoctorDepth::Quick);
-        assert_eq!(again.acp, Some(true));
-        assert_eq!(stub.runs(), 1, "an unchanged pi is never re-probed");
-    }
-
-    /// The stamp covers the binary's mtime: an in-place `pi` update re-probes
-    /// on the very next quick pass, so a build that GAINED the rpc mode is
-    /// picked up without an app restart.
-    #[cfg(unix)]
-    #[test]
-    fn a_touched_pi_binary_re_probes() {
-        let stub = PiStub::new("touched", true);
-        probe_expecting_a_run(&stub, DoctorDepth::Quick);
-        assert_eq!(stub.runs(), 1);
-
-        stub.bump_mtime(2);
-        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
-        assert_eq!(check.acp, Some(true));
-        assert_eq!(stub.runs(), 2, "a changed binary invalidates its verdict");
-    }
-
-    /// `exponential doctor` re-runs the handshake even when the stamp still
-    /// matches — the command exists to answer "is it ready NOW".
-    #[cfg(unix)]
-    #[test]
-    fn a_deep_doctor_re_probes_the_same_stamp() {
-        let stub = PiStub::new("deep", true);
-        probe_expecting_a_run(&stub, DoctorDepth::Quick);
-        assert_eq!(stub.runs(), 1);
-
-        let check = probe_expecting_a_run(&stub, DoctorDepth::Deep);
-        assert_eq!(check.acp, Some(true));
-        assert_eq!(stub.runs(), 2, "a deep pass ignores the cache");
-    }
-
-    /// A pi that answers nothing on its rpc stream is marked not supported,
-    /// with the note the doctor rows and the session screen render — and the
-    /// verdict caches like any other (the note rides the cache too).
-    #[cfg(unix)]
-    #[test]
-    fn a_pi_without_rpc_mode_is_marked_not_supported() {
-        let stub = PiStub::new("norpc", false);
-        let check = probe_expecting_a_run(&stub, DoctorDepth::Quick);
-        assert_eq!(check.acp, Some(false));
-        assert_eq!(check.acp_note.as_deref(), Some(PI_NO_RPC_MODE_NOTE));
-        assert!(check
-            .acp_note
-            .as_deref()
-            .is_some_and(|note| note.contains("no rpc mode")
-                && note.contains("Update pi")));
-
-        let mut again = green(Tool::Pi, "0.80.10");
-        probe_pi_rpc(&mut again, &stub.settings(), DoctorDepth::Quick);
-        assert_eq!(again.acp, Some(false));
-        assert_eq!(again.acp_note.as_deref(), Some(PI_NO_RPC_MODE_NOTE));
-        assert_eq!(stub.runs(), 1);
-    }
-
-    /// A pi that is not installed at all never reaches the handshake — the
-    /// row is red already, and the note says so.
-    #[test]
-    fn a_missing_pi_is_not_probed_at_all() {
-        let mut check = red(Tool::Pi);
-        probe_pi_rpc(&mut check, &Settings::default(), DoctorDepth::Deep);
-        assert_eq!(check.acp, Some(false));
-        assert_eq!(check.acp_note.as_deref(), Some("pi is not available"));
-    }
-
-    /// EXP-766: an INDETERMINATE probe still fails open for that one call, but
-    /// it is never cached. Caching it pinned "ready" onto a pi that could not
-    /// even be spawned, for the rest of the process.
-    #[test]
-    fn an_indeterminate_probe_is_not_cached() {
-        let program = std::env::temp_dir()
-            .join(format!("exp766-pi-missing-{}", std::process::id()))
-            .to_string_lossy()
-            .into_owned();
-        let settings = Settings {
-            pi_path: program.clone(),
-            ..Settings::default()
-        };
-        let mut check = green(Tool::Pi, "0.80.10");
-        probe_pi_rpc(&mut check, &settings, DoctorDepth::Quick);
-        // Fail-open is unchanged: the engine's handshake decides.
-        assert_eq!(check.acp, Some(true));
-        assert_eq!(check.acp_note, None);
-        assert!(
-            PI_RPC_CACHE.lock().unwrap().get(&program).is_none(),
-            "an answer nobody gave is not a verdict"
-        );
     }
 
     /// EXP-414: a wedged probe is killed at the deadline instead of stalling

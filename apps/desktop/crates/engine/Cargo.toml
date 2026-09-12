@@ -1,5 +1,5 @@
 # EXP-746: the ACP session engine — the in-process host that drives an agent CLI
-# over agent-client-protocol, the four adapters (claude/codex/pi/external), the
+# over agent-client-protocol, the adapters (claude/codex/external), the
 # ONE SessionUpdate → ActivityEvent mapper, and the run lifecycle both hosts
 # share. Deliberately gpui-free so the headless CLI daemon links it too.
 #

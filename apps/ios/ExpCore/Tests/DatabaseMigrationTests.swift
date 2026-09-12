@@ -101,7 +101,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
-             "v35_attachment_video_metadata"]
+             "v35_attachment_video_metadata",
+             "v36_coding_session_agent_busy"]
         )
     }
 
@@ -129,7 +130,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
-             "v35_attachment_video_metadata"]
+             "v35_attachment_video_metadata",
+             "v36_coding_session_agent_busy"]
         )
     }
 
@@ -185,7 +187,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
-             "v35_attachment_video_metadata"]
+             "v35_attachment_video_metadata",
+             "v36_coding_session_agent_busy"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -261,7 +264,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v29_device_acp_agents", "v30_coding_session_blocked",
              "v31_coding_session_parent", "v32_action_prompt_placeholder",
              "v33_pins", "v34_device_shared_team_ids",
-             "v35_attachment_video_metadata"]
+             "v35_attachment_video_metadata",
+             "v36_coding_session_agent_busy"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1323,6 +1327,46 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
                     + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
                     + "WHERE \"shape\" = 'attachments'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v36 (EXP-848): a store created before `coding_sessions.agent_busy`
+    // existed must gain it NOT NULL DEFAULT false (the wire-bool mapping keys
+    // on the boolean affinity) and get the coding-sessions offset reset so
+    // already-synced rows re-arrive carrying it.
+    func testCodingSessionAgentBusyColumnAddedToExistingStore() throws {
+        let pool = try makePool("coding-session-agent-busy")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v35_attachment_video_metadata")
+        try pool.write { db in
+            if try db.columns(in: "coding_sessions").contains(where: { $0.name == "agent_busy" }) {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: "agent_busy") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("agent_busy"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let added = try pool.read { db in
+            try db.columns(in: "coding_sessions").first { $0.name == "agent_busy" }
+        }
+        XCTAssertNotNil(added)
+        XCTAssertTrue(added?.isNotNull ?? false)
+        XCTAssertTrue(added?.type.uppercased().contains("BOOL") ?? false)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'coding-sessions'"
             )
         }
         XCTAssertEqual(reset, true)

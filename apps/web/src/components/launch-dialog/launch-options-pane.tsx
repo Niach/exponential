@@ -7,7 +7,7 @@ import {
   type GlassPickerOption,
 } from "@/components/ui/glass-rows"
 import { TabsTrigger } from "@/components/ui/tabs"
-import { ClaudeIcon, CodexIcon, PiIcon } from "@/components/icons/brand-icons"
+import { ClaudeIcon, CodexIcon } from "@/components/icons/brand-icons"
 import {
   agentAllowsBlankModel,
   agentEffortValues,
@@ -40,7 +40,6 @@ import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
   codex: `Codex`,
-  pi: `pi`,
 }
 
 // Each agent's brand mark for the tab strip — mirrors the desktop IDE's
@@ -51,7 +50,6 @@ const AGENT_ICONS: Record<
 > = {
   claude: ClaudeIcon,
   codex: CodexIcon,
-  pi: PiIcon,
 }
 
 const ResumeBranchIcon = conceptIcon(`ui-branch`)
@@ -211,13 +209,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         disabled={!pinned}
       />
       <GlassPickerRow
-        label={
-          agent === `pi`
-            ? `Thinking`
-            : agent === `codex`
-              ? `Reasoning`
-              : `Effort`
-        }
+        label={agent === `codex` ? `Reasoning` : `Effort`}
         value={effortValue === `` ? effortSentinel : effortValue}
         onValueChange={(value) =>
           onEffortChange(automation && value === effortSentinel ? `` : value)

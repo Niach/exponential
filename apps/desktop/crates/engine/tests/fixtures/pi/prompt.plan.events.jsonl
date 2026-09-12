@@ -1,4 +1,0 @@
-{"type":"agent_start"}
-{"type":"turn_start"}
-{"type":"tool_execution_start","toolCallId":"call-plan","toolName":"exit_plan_mode","args":{"plan":"1. read the parser\n2. fix the escape"}}
-{"type":"extension_ui_request","id":"ui-plan","method":"confirm","title":"Approve plan?","message":"1. read the parser\n2. fix the escape"}

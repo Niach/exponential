@@ -7,7 +7,10 @@ import { sessionIdentity } from "@/lib/session-identity"
 import { cn } from "@/lib/utils"
 import { relativeTime } from "@/components/comment-rows/format"
 import { RunningIndicator, pastRunRowByline } from "@/components/agent-session-row"
-import { sessionDisplayState } from "@/lib/coding-session-display"
+import {
+  sessionDisplayState,
+  sessionRowIsWorking,
+} from "@/lib/coding-session-display"
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { rowPrState, useAgentsData, usePastRuns, type AgentSessionRow } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -132,7 +135,9 @@ function RunningRow({
 }) {
   const { session, issue, device, paused } = row
   const identity = sessionIdentity(row)
-  const state = sessionDisplayState(session, rowPrState(session, issue))
+  const prState = rowPrState(session, issue)
+  const state = sessionDisplayState(session, prState)
+  const working = sessionRowIsWorking(session, prState)
   const isChat = identity.identifier === null && session.actionName === `Chat`
   return (
     <ListRow
@@ -147,7 +152,7 @@ function RunningRow({
         {isChat ? (
           <ActionChatIcon className="size-3.5 text-muted-foreground" />
         ) : (
-          <RunningIndicator state={state} paused={paused} />
+          <RunningIndicator state={state} paused={paused} working={working} />
         )}
       </span>
       <div className="min-w-0 flex-1">

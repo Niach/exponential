@@ -217,11 +217,11 @@ describe(`automations.create`, () => {
     expect((error as TRPCError).message).toContain(`No agent is signed in`)
 
     selectResults.push([action])
-    selectResults.push([ownDevice])
+    selectResults.push([{ ...ownDevice, agents: [`claude`] }])
     error = await rejectionOf(
-      caller.create({ teamId: TEAM_ID, actionId: ACTION_ID, deviceId: `d`, trigger: schedule, agent: `pi` })
+      caller.create({ teamId: TEAM_ID, actionId: ACTION_ID, deviceId: `d`, trigger: schedule, agent: `codex` })
     )
-    expect((error as TRPCError).message).toBe(`pi is not available on that device`)
+    expect((error as TRPCError).message).toBe(`codex is not available on that device`)
   })
 
   it(`validates model/effort against the agent's contract lists`, async () => {

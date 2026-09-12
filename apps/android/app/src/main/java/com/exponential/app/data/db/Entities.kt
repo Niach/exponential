@@ -321,6 +321,11 @@ data class CodingSessionEntity(
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
+    // EXP-848: the agent is MID-TURN right now, written by the device on every
+    // turn edge exactly like needsInput (and cleared by every server end path).
+    // Orthogonal to `status`: a live run sits at false between turns, which is
+    // why the session lists pulse on THIS and never on status = running.
+    @ColumnInfo(name = "agent_busy") @SerialName("agent_busy") @JsonNames("agentBusy") val agentBusy: PgBool = false,
     // EXP-804: the agent's usage wall as row state, kept as the raw jsonb
     // TEXT off the wire (`{kind, agent, window, resetsAt, since}`) exactly
     // like DeviceEntity.agentUsage; NULL = not blocked. Orthogonal to

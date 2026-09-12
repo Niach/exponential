@@ -9,20 +9,18 @@ import Foundation
 // page composer, the automation editor, device launch defaults) now reads
 // them from here, so a contract change lands once.
 enum LaunchVocabulary {
-    /// Sentinel for the blank "CLI default" choice (omit --effort; for
-    /// codex/pi also the omit-model default — claude is explicit-always).
+    /// Sentinel for the blank "CLI default" choice (omit --effort; for codex
+    /// also the omit-model default — claude is explicit-always).
     static let cliDefault = "cli-default"
 
     // MARK: - Option lists
 
-    /// Claude's model is explicit-always; codex/pi offer a "CLI default"
-    /// blank. Parameterized because a seed validates an advertised value
-    /// against the agent it belongs to, which isn't always the selected one
-    /// yet (EXP-437).
+    /// Claude's model is explicit-always; codex offers a "CLI default" blank.
+    /// Parameterized because a seed validates an advertised value against the
+    /// agent it belongs to, which isn't always the selected one yet (EXP-437).
     static func modelValues(for agent: String) -> [String] {
         switch agent {
         case "codex": [cliDefault] + DomainContract.codexModelValues
-        case "pi": [cliDefault] + DomainContract.piModelValues
         default: DomainContract.codingModelValues
         }
     }
@@ -30,7 +28,6 @@ enum LaunchVocabulary {
     static func effortValues(for agent: String) -> [String] {
         switch agent {
         case "codex": DomainContract.codexEffortValues
-        case "pi": DomainContract.piThinkingValues
         default: DomainContract.codingEffortValues
         }
     }
@@ -38,7 +35,7 @@ enum LaunchVocabulary {
     /// The automation variant's model list. A binding offers "CLI default" for
     /// EVERY agent (a blank pin is what stores NULL on the row and lets the
     /// machine decide), and the caller prepends it — so drop the copy
-    /// `modelValues` already inserts for codex/pi.
+    /// `modelValues` already inserts for codex.
     static func automationModelValues(for agent: String) -> [String] {
         modelValues(for: agent).filter { $0 != cliDefault }
     }
@@ -47,10 +44,10 @@ enum LaunchVocabulary {
         agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
     }
 
-    /// Plan mode is claude (native) + pi (via the launcher-injected
-    /// extension, EXP-441); codex has no launch-into-plan mode.
+    /// Plan mode is claude's own (EXP-441); codex has no launch-into-plan
+    /// mode. EXP-849 dropped the second agent that had one.
     static func supportsPlanMode(_ agent: String) -> Bool {
-        agent == "claude" || agent == "pi"
+        agent == "claude"
     }
 
     /// The agents [device] can actually RUN, in contract order.
@@ -73,11 +70,12 @@ enum LaunchVocabulary {
 
     // MARK: - Labels
 
+    /// EXP-849: an id outside the contract (a historical row, a future agent)
+    /// falls through as itself rather than rendering blank.
     static func agentLabel(_ value: String) -> String {
         switch value {
         case "claude": "Claude Code"
         case "codex": "Codex"
-        case "pi": "pi"
         default: value
         }
     }
@@ -101,7 +99,6 @@ enum LaunchVocabulary {
     static func effortTitle(for agent: String) -> String {
         switch agent {
         case "codex": "Reasoning"
-        case "pi": "Thinking"
         default: "Effort"
         }
     }

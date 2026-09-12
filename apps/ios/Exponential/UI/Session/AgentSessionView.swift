@@ -232,7 +232,11 @@ struct AgentSessionView: View {
                             title: headerTitle,
                             state: headerState,
                             paused: hostPaused || headerLost,
-                            live: model?.phase == .live
+                            live: model?.phase == .live,
+                            // EXP-848: this screen knows more than the row does
+                            // — its own working predicate drives the dot, and
+                            // the synced flag only covers the pre-model frame.
+                            busy: model.map { $0.agentWorking } ?? session.agentBusy
                         )
                         HStack(spacing: 6) {
                             Text(headerCaption)
@@ -761,8 +765,10 @@ struct AgentSessionView: View {
                         agentTab = nil
                     }
                     ForEach(agents) { run in
+                        // EXP-847: what the spawn ASKED for, with the agent
+                        // type as the fallback.
                         agentTabChip(
-                            label: run.agentType,
+                            label: run.label,
                             running: !run.done,
                             selected: active == run.subagentId
                         ) {
@@ -828,6 +834,7 @@ struct AgentSessionView: View {
                         }) {
                             SubagentRow(
                                 agentType: focused.agentType,
+                                title: focused.title,
                                 status: focused.done ? .completed : .started,
                                 detail: focused.detail
                             )
@@ -884,9 +891,11 @@ struct AgentSessionView: View {
                                         cur: row.rowClass
                                     )))
                             }
-                            // EXP-389: the agent-is-busy footer — live and
-                            // nothing waiting on the user (Android parity).
-                            if isWorking(model) {
+                            // EXP-389: the agent-is-busy footer. EXP-848: the
+                            // model's ONE working predicate — it used to read a
+                            // looser local copy, so this row could pulse while
+                            // the composer showed Send.
+                            if model.agentWorking {
                                 WorkingIndicatorRow()
                                     .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
                                         prev: rows.last?.rowClass, cur: .tool
@@ -998,15 +1007,6 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-389: the agent is actively working — live socket, session not
-    /// ended, no active question card, and the synced `needs_input` flag
-    /// clear (all three agents drive it: claude via hooks, codex via turn
-    /// edges, pi via agent_settled).
-    private func isWorking(_ model: AgentSessionModel) -> Bool {
-        model.phase == .live && !model.sessionEnded && !model.awaitingInput
-            && model.session?.needsInput != true
-    }
-
     /// EXP-787: the ladder's token name resolved to points. ExpCore cannot see
     /// ExpUI, so `AgentFeed.transcriptGap` names the gap and the view measures
     /// it off the shared `DesignTokens.Transcript` group.
@@ -1037,7 +1037,7 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, _, _, _, failed, diff):
+            case let .tool(_, name, detail, _, _, _, _, failed, diff, _):
                 ToolRow(name: name, detail: detail, failed: failed, diff: diff)
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -1056,8 +1056,10 @@ struct AgentSessionView: View {
                 }
             case let .question(question):
                 questionCard(question)
-            case let .subagent(_, _, agentType, status, detail, _):
-                SubagentRow(agentType: agentType, status: status, detail: detail)
+            case let .subagent(_, _, agentType, status, detail, _, title):
+                SubagentRow(
+                    agentType: agentType, title: title, status: status, detail: detail
+                )
             case let .permission(_, tool, detail):
                 PermissionRow(tool: tool, detail: detail)
             case .compaction:
@@ -3170,7 +3172,8 @@ private struct ToolGroupRow: View {
     /// contract fixture, not a bare count.
     private var caption: String {
         ToolGroupSummary.summarize(items.compactMap { item in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _) = item else { return nil }
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         })
     }
@@ -3198,7 +3201,7 @@ private struct ToolGroupRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        if case let .tool(_, name, detail, _, _, _, _, failed, diff) = item {
+                        if case let .tool(_, name, detail, _, _, _, _, failed, diff, _) = item {
                             ToolRow(
                                 name: name, detail: detail, failed: failed,
                                 nested: true, diff: diff
@@ -3208,7 +3211,7 @@ private struct ToolGroupRow: View {
                 }
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
-                      case let .tool(_, name, detail, _, _, _, _, failed, diff) = last {
+                      case let .tool(_, name, detail, _, _, _, _, failed, diff, _) = last {
                 ToolRow(
                     name: name, detail: detail, failed: failed, nested: true, diff: diff
                 )
@@ -3234,10 +3237,19 @@ private struct SubagentGroupRow: View {
 
     @State private var expanded = false
 
+    /// EXP-847: the spawn's description leads (`run.label`), the agent type
+    /// is its fallback; the type stays as the header's secondary caption so a
+    /// titled run still says WHICH agent is doing the work.
     private var title: String {
         let count = run.toolCount
         let work = count == 1 ? "1 tool call" : "\(count) tool calls"
-        return count == 0 ? run.agentType : "\(run.agentType) · \(work)"
+        return count == 0 ? run.label : "\(run.label) · \(work)"
+    }
+
+    /// The muted caption beside the title — the agent type, but only when it
+    /// is not already the title.
+    private var typeCaption: String? {
+        run.title == nil ? nil : run.agentType
     }
 
     private var header: some View {
@@ -3252,6 +3264,14 @@ private struct SubagentGroupRow: View {
                 .transcriptToolText(.medium)
                 .foregroundStyle(.white)
                 .lineLimit(1)
+            // EXP-847: the agent type as a secondary caption — only where the
+            // title took its place in the lead.
+            if let typeCaption {
+                Text(typeCaption)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                    .lineLimit(1)
+            }
             Text(run.done ? "done" : "running…")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -3314,7 +3334,7 @@ private struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, _, failed, diff):
+        case let .tool(_, name, detail, _, _, _, _, failed, diff, _):
             ToolRow(name: name, detail: detail, failed: failed, diff: diff)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
@@ -3330,14 +3350,20 @@ private struct SubagentItemRow: View {
 /// the top of the feed, or a start with nothing published under it yet.
 private struct SubagentRow: View {
     let agentType: String
+    /// EXP-847: the spawn's own description, when it named one.
+    var title: String? = nil
     let status: AgentSubagentStatus
     let detail: String?
+
+    /// EXP-847: the title leads, the agent type is the fallback — mirroring
+    /// `AgentSubagentRun.label`.
+    private var label: String { title ?? agentType }
 
     var body: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.codingSubagent, size: 11)
                 .foregroundStyle(DesignTokens.Semantic.blue)
-            Text(status == .completed ? "\(agentType) finished" : "\(agentType) started")
+            Text(status == .completed ? "\(label) finished" : "\(label) started")
                 .transcriptToolText(.medium)
                 .foregroundStyle(.white)
             if let detail {

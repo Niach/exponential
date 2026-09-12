@@ -22,6 +22,10 @@ import com.exponential.app.data.db.CodingSessionEntity
 // live status now (a person-started run stays live after its PR and the idle
 // edge is "your turn"), so this ordering is the ONLY mask — every consumer
 // goes through it, the nav dot included.
+// EXP-848: `Running` says the run is LIVE, never that the agent is busy right
+// now — the pulse every list draws keys on the synced `agent_busy` flag
+// (`LiveDot`), so a live run between turns reads as steady rather than as
+// forever working.
 enum class CodingSessionDisplayState { Running, NeedsInput, Review, Done }
 
 fun codingSessionDisplayState(

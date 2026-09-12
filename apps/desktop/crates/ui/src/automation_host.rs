@@ -937,7 +937,7 @@ mod tests {
 
     /// EXP-583: an automation's pins ride to the launch; everything it leaves
     /// unset follows the machine, and plan mode is forced off either way (the
-    /// shipped default IS plan mode for claude and pi, and an unattended run
+    /// shipped default IS plan mode for claude, and an unattended run
     /// would park at the plan-approval card forever).
     #[test]
     fn launch_pins_layer_over_the_device_defaults() {

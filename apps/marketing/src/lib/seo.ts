@@ -192,7 +192,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/coding/index.html`,
     sources: [`src/CodingDocsPage.tsx`, `../../shots/issue-detail`],
     title: `Coding agents · Exponential docs`,
-    description: `Hand issues to Claude Code, Codex or pi from the desktop IDE or the CLI: setup, the start-coding dialog, single and batch runs, steering live sessions, reviewing and merging.`,
+    description: `Hand issues to Claude Code or Codex from the desktop IDE or the CLI: setup, the Agent page composer, single and batch runs, steering live sessions, reviewing and merging.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

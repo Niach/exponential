@@ -807,7 +807,7 @@ fn run_device_command(
     // id is dropped without a completion.
     if command.kind == "agent_login" {
         // The ONE parse the foreground login runs as well (EXP-827: agent,
-        // switch and the profile half). pi's sign-in is an interactive
+        // switch and the profile half). An unknown agent's sign-in is
         // prompt with no device-code flow to hand back, so it is refused
         // here, local only (the server refuses it too).
         if let Err(refusal) = coding::agent_login::parse_login_payload(&command.payload) {

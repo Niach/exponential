@@ -39,7 +39,7 @@ data class DeviceOwner(
  * [model]/[effort] are contract values where an EMPTY string is the explicit
  * "CLI default" (omit the flag) — the same convention the start options use.
  * The booleans ride only when true, so an absent one IS false; capability
- * clamping (ultracode is claude-only, plan mode is claude/pi-only (EXP-441))
+ * clamping (ultracode and plan mode are claude-only since EXP-849)
  * stays the reader's job.
  */
 @Serializable
@@ -72,8 +72,8 @@ data class DeviceLaunchDefaults(
 /**
  * EXP-484: what a machine knows about ONE agent CLI's local sign-in. Read-only
  * status — no credential is ever carried, copied or refreshed. [plan] is the
- * subscription tier for claude/codex (`api key` for a codex API-key account)
- * and `"<provider> (oauth|api key)"` for pi, which has no email at all.
+ * subscription tier for claude/codex (`api key` for a codex API-key account);
+ * an account with no email at all reports `"<provider> (oauth|api key)"`.
  * [checkedAt] is when the machine last probed.
  */
 @Serializable

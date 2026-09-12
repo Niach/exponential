@@ -965,14 +965,6 @@ export const devicesRouter = router({
             message: `agent_login needs an agent`,
           })
         }
-        // pi signs in through its own interactive prompt with no device-code
-        // flow to hand back — local only, by design.
-        if (input.agent === `pi`) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `pi has no remote sign-in`,
-          })
-        }
         // The executor lives in the desktop app and the daemon, both of
         // which declare `agent-login` unconditionally (EXP-672 keeps the cap
         // as the contract): a row without it would leave the command pending
@@ -1004,12 +996,6 @@ export const devicesRouter = router({
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `agent_login_code needs an agent and a code`,
-          })
-        }
-        if (input.agent === `pi`) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `pi has no remote sign-in`,
           })
         }
         // The device types this verbatim into a waiting PTY, so ANY control

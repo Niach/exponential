@@ -101,6 +101,7 @@ function RunningPing() {
 // here for the existing importers.
 import {
   sessionDisplayState,
+  sessionRowIsWorking,
   type SessionDisplayState,
 } from "@/lib/coding-session-display"
 
@@ -133,11 +134,27 @@ const PAUSED_TONE = `var(--muted-foreground)`
 // is alive but cannot move until something outside it changes.
 const BLOCKED_TONE = `var(--color-amber-400)`
 
-/** The phone bar's badge dot — the pulsing ping while a run is live, the
- * badge's own tone once it parks, so the circle and the pill never disagree
- * about a state's colour (iOS `sessionDot`, Android's mirror). */
-function SessionStateDot({ state }: { state: SessionDisplayState }) {
-  if (state === `running`) return <RunningPing />
+/** The phone bar's badge dot — the pulsing ping while the agent WORKS
+ * (EXP-848: `working`, never the bare `running` state), the badge's own tone
+ * once it parks, so the circle and the pill never disagree about a state's
+ * colour (iOS `sessionDot`, Android's mirror). */
+function SessionStateDot({
+  state,
+  working = false,
+}: {
+  state: SessionDisplayState
+  working?: boolean
+}) {
+  if (state === `running`) {
+    return working ? (
+      <RunningPing />
+    ) : (
+      <span
+        className="inline-flex size-2 rounded-full"
+        style={{ backgroundColor: RUNNING_TONE }}
+      />
+    )
+  }
   return (
     <span
       className="inline-flex size-2 rounded-full"
@@ -188,7 +205,7 @@ export function SessionStatusBadge({
   count = 1,
   paused = false,
 }: {
-  session: Pick<CodingSession, `status` | `needsInput`>
+  session: Pick<CodingSession, `status` | `needsInput` | `agentBusy`>
   prState: string | null | undefined
   count?: number
   /** EXP-550: the host machine is offline — the agent is parked, not gone.
@@ -209,10 +226,17 @@ export function SessionStatusBadge({
     )
   }
   if (state === `running`) {
-    // The pulsing ping IS the dot while a run is live — it rides the `leading`
-    // slot so the ripple has room the 6px disc would clip.
+    // The pulsing ping IS the dot while the agent WORKS (EXP-848) — it rides
+    // the `leading` slot so the ripple has room the 6px disc would clip. An
+    // idle-between-turns run keeps the badge and drops the ripple.
+    const working = sessionRowIsWorking(session, prState)
     return (
-      <Pill size="sm" style={toneStyle(RUNNING_TONE)} leading={<RunningPing />}>
+      <Pill
+        size="sm"
+        style={toneStyle(RUNNING_TONE)}
+        leading={working ? <RunningPing /> : undefined}
+        dot={working ? undefined : RUNNING_TONE}
+      >
         Coding now
         {count > 1 ? ` (·${count})` : ``}
       </Pill>
@@ -402,7 +426,10 @@ function AgentRow({
       const dot = paused ? (
         <StateDot className="bg-muted-foreground/40" />
       ) : (
-        <SessionStateDot state={sessionDisplayState(latest, issue.prState)} />
+        <SessionStateDot
+          state={sessionDisplayState(latest, issue.prState)}
+          working={sessionRowIsWorking(latest, issue.prState)}
+        />
       )
       const glyph = (
         <span className="relative flex">
@@ -469,7 +496,10 @@ function AgentRow({
           {paused ? (
             <StateDot className="bg-muted-foreground/40" />
           ) : (
-            <SessionStateDot state={sessionDisplayState(latest, issue.prState)} />
+            <SessionStateDot
+              state={sessionDisplayState(latest, issue.prState)}
+              working={sessionRowIsWorking(latest, issue.prState)}
+            />
           )}
           <span className="truncate">
             {verb}

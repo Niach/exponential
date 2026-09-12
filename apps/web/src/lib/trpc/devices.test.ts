@@ -259,6 +259,7 @@ describe(`devices.register`, () => {
           ultracode: null,
           planMode: null,
         },
+        // EXP-849: a retired agent id — the clamp drops it whole.
         pi: {
           model: ``,
           effort: ``,
@@ -288,7 +289,6 @@ describe(`devices.register`, () => {
           planMode: true,
         },
         codex: { model: ``, effort: `` },
-        pi: { model: ``, effort: ``, planMode: true },
       },
     })
   })
@@ -300,7 +300,7 @@ describe(`devices.register`, () => {
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
-      agents: [`claude`, `codex`, `pi`],
+      agents: [`claude`, `codex`],
       acpAgents: [`claude`, `codex`],
     })
     expect(h.state.inserted[0]).toMatchObject({
@@ -876,7 +876,7 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `pi` },
+      launchDefaults: { defaultAgent: `codex` },
       expectedUpdatedAt: null,
     })
     expect(result).toMatchObject({
@@ -896,19 +896,19 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `pi` },
+      launchDefaults: { defaultAgent: `codex` },
       expectedUpdatedAt: `2026-08-10T10:00:00.000Z`,
     })
     expect(result.ok).toBe(true)
-    expect(result.launchDefaults).toEqual({ defaultAgent: `pi` })
+    expect(result.launchDefaults).toEqual({ defaultAgent: `codex` })
   })
 
   it(`tolerates 0.14.10's explicit-null toggles on a device push (EXP-495)`, async () => {
     h.state.selectQueue = deviceRow()
     const wire = {
-      defaultAgent: `pi`,
+      defaultAgent: `codex`,
       agents: {
-        pi: { model: ``, effort: ``, ultracode: null, planMode: false },
+        codex: { model: ``, effort: ``, ultracode: null, planMode: false },
       },
     }
     const result = await caller.setLaunchDefaults({
@@ -919,8 +919,8 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.ok).toBe(true)
     expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
     expect(result.launchDefaults).toEqual({
-      defaultAgent: `pi`,
-      agents: { pi: { model: ``, effort: ``, planMode: false } },
+      defaultAgent: `codex`,
+      agents: { codex: { model: ``, effort: `` } },
     })
   })
 
@@ -1205,8 +1205,14 @@ describe(`agent status clamps (EXP-484)`, () => {
 
   it(`drops an unparsable checkedAt instead of failing the write`, () => {
     expect(
-      clampAgentAccounts({ pi: { signedIn: true, checkedAt: `yesterday` } })
-    ).toEqual({ pi: { signedIn: true } })
+      clampAgentAccounts({ codex: { signedIn: true, checkedAt: `yesterday` } })
+    ).toEqual({ codex: { signedIn: true } })
+  })
+
+  // EXP-849: an agent outside contract `codingAgent` (a retired `pi` report
+  // from an old build) is dropped, never stored.
+  it(`drops an unknown agent`, () => {
+    expect(clampAgentAccounts({ pi: { signedIn: true } })).toEqual({})
   })
 
   it(`rounds and clamps percent, caps windows, truncates key and label`, () => {
@@ -1373,20 +1379,6 @@ describe(`devices.createCommand — agent_login`, () => {
     await expect(
       caller.createCommand({ deviceId: `dev-1`, kind: `agent_login` })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-  })
-
-  it(`refuses pi — its sign-in has no device-code flow`, async () => {
-    h.state.selectQueue = capableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login`,
-        agent: `pi`,
-      })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `pi has no remote sign-in`,
-    })
   })
 
   it(`refuses a machine that does not advertise the cap`, async () => {
@@ -1559,17 +1551,6 @@ describe(`devices.createCommand — agent_login_code`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  it(`refuses pi`, async () => {
-    h.state.selectQueue = codeCapableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login_code`,
-        agent: `pi`,
-        code: `abc`,
-      })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-  })
 })
 
 // EXP-792: MCP server support on the devices router — the two new caps, the

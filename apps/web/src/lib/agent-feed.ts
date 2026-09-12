@@ -810,9 +810,23 @@ export const SUBAGENT_FALLBACK_TYPE = `agent`
 export interface SubagentSummary {
   subagentId: string
   agentType: string
+  /** EXP-847: the spawning Agent call's description, when the publisher sent
+   *  one — `subagentLabel` prefers it over `agentType`. */
+  title?: string
   done: boolean
   detail?: string
   toolCount: number
+}
+
+/** EXP-847: what a subagent is CALLED on screen — the spawning call's
+ *  description, falling back to the agent type (all a pre-EXP-847 publisher
+ *  sends). Mirrored ×4 so the chips read the same everywhere. */
+export function subagentLabel(summary: {
+  agentType: string
+  title?: string
+}): string {
+  const title = summary.title?.trim()
+  return title ? title : summary.agentType
 }
 
 /** Every subagent seen in the feed, in first-appearance order, each summarized
@@ -823,6 +837,7 @@ export function collectSubagents<
     kind: string
     subagentId?: string
     agentType?: string
+    title?: string
     status?: string
     detail?: string
   },
@@ -861,6 +876,8 @@ export function visibleSubagentTabs(
  *  status / detail selection so all clients can mirror it:
  *  - `agentType`: the first marker's real type — a later marker carrying the
  *    fallback (an old desktop's completed edge) can never degrade the label;
+ *  - `title` (EXP-847): the first marker's non-empty description, what
+ *    `subagentLabel` shows instead of the type;
  *  - `done`: any marker completed;
  *  - `detail`: the LATEST non-empty detail (the completed edge restates the
  *    freshest);
@@ -872,13 +889,20 @@ export function summarizeSubagentRow<
   T extends {
     kind: string
     agentType?: string
+    title?: string
     status?: string
     detail?: string
     toolCalls?: number
   },
 >(
   items: readonly T[]
-): { agentType: string; done: boolean; detail?: string; toolCount: number } {
+): {
+  agentType: string
+  title?: string
+  done: boolean
+  detail?: string
+  toolCount: number
+} {
   const markers = items.filter((i) => i.kind === `subagent`)
   const types = markers
     .map((m) => m.agentType?.trim() ?? ``)
@@ -892,6 +916,7 @@ export function summarizeSubagentRow<
       types.find((t) => t !== SUBAGENT_FALLBACK_TYPE) ??
       types[0] ??
       SUBAGENT_FALLBACK_TYPE,
+    title: markers.map((m) => m.title?.trim()).find((t) => t),
     done: markers.some((m) => m.status === `completed`),
     detail: [...markers].reverse().find((m) => m.detail?.trim())?.detail,
     toolCount: Math.max(items.filter((i) => i.kind === `tool`).length, reported),
@@ -1103,9 +1128,9 @@ export function modeChip(
 }
 
 /** EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
- *  That shape (claude, and pi when it launched with the plan extension) draws
- *  a "Plan" switch instead of a two-value chip; anything else falls back to
- *  the chip. `null` when the run is not that shape. */
+ *  That shape (claude) draws a "Plan" switch instead of a two-value chip;
+ *  anything else falls back to the chip. `null` when the run is not that
+ *  shape. */
 export interface PlanModeToggle {
   /** The mode to switch to when turning plan ON. */
   planId: string
@@ -1364,4 +1389,87 @@ export function rateLimitBanner(
       ? null
       : formatResetCountdown(new Date(rateLimitResetsAtMs(state.resetsAt)).toISOString(), now)
   return { text, resets }
+}
+
+
+/** EXP-848: the agent's TURN state — the fifth latest-wins slot (`journal.rs`,
+ *  `hub.ts` LATEST_WINS_KINDS, iOS/Android `AgentFeed`, desktop `feed.rs`).
+ *  `started` = the agent is executing a turn; `ended` = the turn is over
+ *  (end_turn, a cancel, a prompt error). Every client DEFAULTS to `ended`
+ *  before any event arrives, so a run never pulses on arrival. */
+export type TurnState = (typeof contract.turnState.values)[number]
+
+/** Fold a `turn` event. An unreadable payload keeps the previous slot (the
+ *  `config_state` rule): blanking to idle mid-turn would stop the working
+ *  indicator over an agent that is still thinking. */
+export function parseTurnState(event: unknown): TurnState | null {
+  if (!isEventRecord(event)) return null
+  const state = event.state
+  if (typeof state !== `string`) return null
+  const trimmed = state.trim()
+  return (contract.turnState.values as readonly string[]).includes(trimmed)
+    ? (trimmed as TurnState)
+    : null
+}
+
+/** EXP-846: the preview the engine distils from an Exponential MCP tool's JSON
+ *  result (`expToolDisplay`), folded onto the `tool` row by `tool_update`.
+ *  Every field is optional — a result that carried none yields null. Phase 1
+ *  PLUMBS it (wire → reducer → row); the custom rendering is a later phase. */
+export interface ExpToolPreview {
+  id?: string
+  identifier?: string
+  title?: string
+  url?: string
+  count?: number
+  status?: string
+}
+
+/** The engine caps every preview string; the client re-clamps because the
+ *  wire is a device's word, not ours. */
+const PREVIEW_FIELD_MAX = 200
+
+export function parseToolPreview(value: unknown): ExpToolPreview | null {
+  if (!isEventRecord(value)) return null
+  const out: ExpToolPreview = {}
+  for (const key of [`id`, `identifier`, `title`, `url`, `status`] as const) {
+    const raw = value[key]
+    if (typeof raw !== `string`) continue
+    const trimmed = raw.trim()
+    if (trimmed) out[key] = trimmed.slice(0, PREVIEW_FIELD_MAX)
+  }
+  const count = value.count
+  if (typeof count === `number` && Number.isFinite(count) && count >= 0) {
+    out.count = Math.round(count)
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/** EXP-848: THE "the agent is working right now" predicate — one copy per
+ *  client (desktop `feed.rs`, iOS + Android `AgentFeed`), driving both the
+ *  "Working…" footer and the composer's Stop glyph.
+ *
+ *  `running` alone is NOT it: a live run between turns is idle, which is why
+ *  the turn slot exists (default `ended`, so nothing pulses before the first
+ *  edge). The negatives are the four states that each own their own UI:
+ *  a trailing question/plan, the synced `needs_input` flag, the usage wall
+ *  (`blocked`) and a compaction strip. */
+export function sessionIsWorking(input: {
+  live: boolean
+  sessionEnded: boolean
+  turnState: TurnState
+  awaitingInput: boolean
+  needsInput: boolean
+  blocked: boolean
+  compacting: boolean
+}): boolean {
+  return (
+    input.live &&
+    !input.sessionEnded &&
+    input.turnState === `started` &&
+    !input.awaitingInput &&
+    !input.needsInput &&
+    !input.blocked &&
+    !input.compacting
+  )
 }

@@ -887,7 +887,7 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(settled?[2], feed[2])
         // A failed settle wins over the completed one; the diff stays.
         let failed = AgentFeed.applyToolUpdate(feed: settled!, event: ["id": "tc-1", "status": "failed"])
-        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff)? = failed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff, _)? = failed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(isSettled)
@@ -1237,6 +1237,129 @@ final class AgentFeedTests: XCTestCase {
             ).rowClass,
             .tool
         )
+    }
+
+    // MARK: - Turn edges (EXP-848)
+
+    func testTurnStateRawValuesMatchTheContract() {
+        XCTAssertEqual(AgentTurnState.allCases.map(\.rawValue), DomainContract.turnStateValues)
+    }
+
+    func testApplyTurnIsLatestWinsAndIgnoresNonsense() {
+        XCTAssertEqual(AgentFeed.applyTurn(.ended, event: ["state": "started"]), .started)
+        XCTAssertEqual(AgentFeed.applyTurn(.started, event: ["state": "ended"]), .ended)
+        // A malformed frame never flips the indicator (the applyCompaction
+        // contract).
+        XCTAssertEqual(AgentFeed.applyTurn(.started, event: ["state": "halfway"]), .started)
+        XCTAssertEqual(AgentFeed.applyTurn(.started, event: [:]), .started)
+        XCTAssertEqual(AgentFeed.applyTurn(.ended, event: ["state": 1]), .ended)
+    }
+
+    func testWorkingNeedsAnOpenTurnAndNothingWaitingOnAHuman() {
+        func working(
+            live: Bool = true,
+            ended: Bool = false,
+            turn: AgentTurnState = .started,
+            awaiting: Bool = false,
+            needsInput: Bool = false,
+            blocked: Bool = false,
+            compacting: Bool = false
+        ) -> Bool {
+            AgentFeed.working(
+                live: live, sessionEnded: ended, turnState: turn, awaitingInput: awaiting,
+                needsInput: needsInput, blocked: blocked, compacting: compacting
+            )
+        }
+        XCTAssertTrue(working())
+        // The default is IDLE: a run whose publisher never sent a turn edge
+        // must not pulse.
+        XCTAssertFalse(working(turn: .ended))
+        XCTAssertFalse(working(live: false))
+        XCTAssertFalse(working(ended: true))
+        XCTAssertFalse(working(awaiting: true))
+        XCTAssertFalse(working(needsInput: true))
+        XCTAssertFalse(working(blocked: true))
+        XCTAssertFalse(working(compacting: true))
+    }
+
+    // MARK: - Subagent titles (EXP-847)
+
+    func testSubagentTitleLeadsAndTheTypeIsItsFallback() {
+        let titled: [AgentFeedItem] = [
+            .subagent(
+                id: 1, subagentId: "s1", agentType: "explore", status: .started,
+                detail: "map", title: "Find every caller of resolveTeamAccess"
+            ),
+            tool(2, subagentId: "s1"),
+            // A completed edge with no title must not blank the label.
+            .subagent(
+                id: 3, subagentId: "s1", agentType: "explore", status: .completed, detail: nil
+            ),
+        ]
+        guard case let .subagentRun(run) = AgentFeed.rows(titled)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertEqual(run.title, "Find every caller of resolveTeamAccess")
+        XCTAssertEqual(run.label, "Find every caller of resolveTeamAccess")
+        XCTAssertEqual(run.agentType, "explore")
+        // The title weighs against the feed budget.
+        XCTAssertGreaterThan(
+            AgentFeed.itemBytes(titled[0]),
+            AgentFeed.itemBytes(.subagent(
+                id: 1, subagentId: "s1", agentType: "explore", status: .started, detail: "map"
+            ))
+        )
+
+        let untitled: [AgentFeedItem] = [
+            .subagent(id: 1, subagentId: "s1", agentType: "explore", status: .started, detail: nil),
+        ]
+        guard case let .subagentRun(bare) = AgentFeed.rows(untitled)[0] else {
+            return XCTFail("expected a subagent run")
+        }
+        XCTAssertNil(bare.title)
+        XCTAssertEqual(bare.label, "explore")
+    }
+
+    // MARK: - Exponential tool previews (EXP-846)
+
+    func testToolPreviewFoldsOntoItsRowAndSurvivesALaterSettle() {
+        let feed: [AgentFeedItem] = [
+            .tool(
+                id: 1, name: "exponential_issues_create", detail: nil, subagentId: nil,
+                callId: "tc-1", toolKind: "other"
+            ),
+        ]
+        let previewed = AgentFeed.applyToolUpdate(feed: feed, event: [
+            "id": "tc-1",
+            "preview": ["identifier": "EXP-849", "title": "Drop pi", "count": 3],
+        ])
+        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview)? = previewed?[0] else {
+            return XCTFail("not a tool row")
+        }
+        XCTAssertFalse(settled, "a preview alone never settles the call")
+        XCTAssertEqual(preview?.identifier, "EXP-849")
+        XCTAssertEqual(preview?.title, "Drop pi")
+        XCTAssertEqual(preview?.count, 3)
+        XCTAssertNil(preview?.url)
+
+        // A later settle keeps the preview the row already holds.
+        let settledNext = AgentFeed.applyToolUpdate(
+            feed: previewed!, event: ["id": "tc-1", "status": "completed"]
+        )
+        guard case let .tool(_, _, _, _, _, _, isSettled, _, _, kept)? = settledNext?[0] else {
+            return XCTFail("not a tool row")
+        }
+        XCTAssertTrue(isSettled)
+        XCTAssertEqual(kept?.identifier, "EXP-849")
+    }
+
+    func testToolPreviewIsNilForAnUnusableOrEmptyPayload() {
+        XCTAssertNil(AgentFeed.toolPreview(nil))
+        XCTAssertNil(AgentFeed.toolPreview("EXP-849"))
+        XCTAssertNil(AgentFeed.toolPreview([:] as [String: Any]))
+        // Blank strings carry nothing — the whole preview drops.
+        XCTAssertNil(AgentFeed.toolPreview(["title": "   ", "url": ""]))
+        XCTAssertEqual(AgentFeed.toolPreview(["count": 0])?.count, 0)
     }
 
     // MARK: - Fixtures

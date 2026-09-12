@@ -25,10 +25,17 @@ struct SessionRowTitle: View {
     /// disconnected screen must not pulse a green "coding now" dot over a
     /// caption that says "Connecting…" or "Session ended".
     var live: Bool = true
+    /// EXP-848: the agent is inside a TURN right now — the synced
+    /// `coding_sessions.agent_busy` in a list, the screen's own working
+    /// predicate while steering. Without it every live row pulsed "coding now"
+    /// whether the agent was doing anything or not.
+    let busy: Bool
 
     var body: some View {
         HStack(spacing: 6) {
-            if paused || state != .running || !live {
+            if !CodingSessionDisplayState.pulses(
+                state: state, agentBusy: busy, paused: paused, live: live
+            ) {
                 Circle()
                     .fill(paused ? DesignTokens.Semantic.neutral : sessionStateColor(state))
                     .frame(width: 9, height: 9)
@@ -54,8 +61,8 @@ struct SessionRowTitle: View {
 ///
 /// A quiet amber pill that renders BESIDE the state badge, never instead of
 /// it: the wall is ORTHOGONAL to the session state, so a walled run still
-/// reads `running` and still pulses its live dot. Without this the two are
-/// indistinguishable — the run just goes silent (the 2026-09-09 incident).
+/// reads `running`. Without this the two are indistinguishable — the run just
+/// goes silent (the 2026-09-09 incident).
 ///
 /// The label itself is `AgentUsagePresentation.blockedBadgeLabel`, locked ×4;
 /// nothing here decides wording. Nil label = not blocked = no pill.

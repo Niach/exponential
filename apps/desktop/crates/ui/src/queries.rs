@@ -1131,6 +1131,29 @@ pub(crate) fn coding_session_display(
     CodingSessionDisplay::Running
 }
 
+/// EXP-848: is the agent executing a turn RIGHT NOW? The ONE input every
+/// desktop session list spins its working indicator on — `status = running`
+/// never was one: a run between turns, parked on a question or walled by a
+/// rate limit is running and NOT working.
+///
+/// `local` is the in-process engine's turn signal when THIS machine hosts the
+/// run (a fact this process reads directly, with no round trip); every other
+/// row falls back to the device-written `agent_busy` column. A row that is not
+/// live is never working, whatever either source says.
+pub(crate) fn session_agent_busy(
+    session: &domain::rows::CodingSession,
+    local: Option<bool>,
+    now_epoch: i64,
+) -> bool {
+    if !coding_session_is_live(session, now_epoch) {
+        return false;
+    }
+    match local {
+        Some(busy) => busy,
+        None => session.agent_busy.unwrap_or(false),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Live and past run projections (EXP-696 / EXP-746)
 // ---------------------------------------------------------------------------
@@ -2376,7 +2399,7 @@ mod tests {
     /// the transport, it never filters the strip.
     #[test]
     fn remote_launch_devices_carry_acp_agents_and_null_means_unknown() {
-        let mut ready = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude", "pi"], -30);
+        let mut ready = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude", "codex"], -30);
         ready.acp_agents = Some(json!(["claude"]));
         let mut none_ready = launch_device_row("r-2", "dev-2", "Beta", "me", &["claude"], -30);
         none_ready.acp_agents = Some(json!([]));
@@ -2391,11 +2414,11 @@ mod tests {
             devices[0].acp_agents,
             Some(vec![coding::CodingAgent::Claude])
         );
-        // Never a filter: pi is still offered, the pill just says it cannot
-        // run a session there.
+        // Never a filter: codex is still offered, the pill just says it
+        // cannot run a session there.
         assert_eq!(
             devices[0].agents,
-            vec![coding::CodingAgent::Claude, coding::CodingAgent::Pi]
+            vec![coding::CodingAgent::Claude, coding::CodingAgent::Codex]
         );
         // An EMPTY list is a real answer.
         assert_eq!(devices[1].device_id, "dev-2");
@@ -2430,10 +2453,10 @@ mod tests {
     #[test]
     fn launch_defaults_parse_through_a_json_string_column() {
         // §5.5: a jsonb column can arrive as a JSON STRING.
-        let raw = json!(r#"{"defaultAgent":"pi"}"#);
+        let raw = json!(r#"{"defaultAgent":"codex"}"#);
         assert_eq!(
             device_launch_settings(Some(&raw)).default_agent,
-            coding::CodingAgent::Pi
+            coding::CodingAgent::Codex
         );
         // Absent / unparsable degrades to the static defaults, never panics.
         assert_eq!(
@@ -2477,7 +2500,7 @@ mod tests {
         assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "claude").is_none());
         assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "codex").is_some());
         // …and no marker means any agent.
-        assert!(resume_worktree(rows.iter(), "r-1", "EXP-3", "pi").is_some());
+        assert!(resume_worktree(rows.iter(), "r-1", "EXP-3", "codex").is_some());
         // A device whose row has not synced has no join key at all.
         assert!(resume_worktree(rows.iter(), "", "EXP-1", "claude").is_none());
     }

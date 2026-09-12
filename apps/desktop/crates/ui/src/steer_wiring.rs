@@ -938,7 +938,7 @@ fn remote_batch_start(
 /// EXP-746 — the account facts the engine needs off the app state.
 ///
 /// REV2-17: the account's `expu_` personal key. It is the redactor's
-/// exact-match secret (a codex/pi session carries it in the spawn env, never
+/// exact-match secret (a codex session carries it in the spawn env, never
 /// in a worktree file) AND the bearer the engine puts on the agent's MCP
 /// wiring. The store always holds the current one — the launcher's
 /// `ensure_personal_key` reads-or-mints it there before any spawn.

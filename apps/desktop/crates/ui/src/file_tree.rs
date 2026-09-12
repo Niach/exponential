@@ -137,7 +137,7 @@ pub struct OpenTerminalHere {
 /// session at `path` instead of a plain shell — the settings pane's
 /// per-worktree terminal dropdown dispatches it. The repo ids ride the action
 /// because the agent's JIT installation token mints off `repository_id`;
-/// `agent` is a [`coding::CodingAgent`] id (`claude`/`codex`/`pi`).
+/// `agent` is a [`coding::CodingAgent`] id (`claude`/`codex`).
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]
 #[action(namespace = exp, no_json)]
 pub struct OpenAgentShellHere {

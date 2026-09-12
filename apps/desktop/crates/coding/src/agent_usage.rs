@@ -17,8 +17,6 @@
 //!   at all ([`crate::doctor::ClaudeAuthStatus::usage_eligible`]).
 //! * **codex** — its own `codex app-server` JSON-RPC surface
 //!   ([`crate::codex_app_server`]); `~/.codex/auth.json` is never touched.
-//! * **pi** — pi has no usage surface, but when its default provider is an
-//!   Anthropic OAuth credential the same endpoint answers for it.
 //!
 //! Two of them also have a LIVE publisher ([`live`]): a running codex
 //! session is pushed `account/rateLimits/updated`, a running claude session
@@ -49,7 +47,7 @@ use crate::usage_cache::{self, AgentCacheEntry, PollOutcome};
 /// become an unbounded jsonb column.
 pub const MAX_WINDOWS: usize = 10;
 
-/// The Anthropic OAuth usage endpoint (claude + pi's Anthropic provider).
+/// The Anthropic OAuth usage endpoint.
 pub const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 
 /// Whole-request budget for the usage GET.
@@ -542,20 +540,6 @@ pub fn parse_claude_credentials(raw: &str) -> Option<ClaudeOauthCredential> {
     })
 }
 
-/// pi's Anthropic OAuth credential, when that is what it would run on — the
-/// same endpoint answers for it. Returns `None` for an API-key provider, a
-/// non-Anthropic default, and for an EXPIRED token (pi refreshes its own;
-/// we never do).
-pub fn pi_anthropic_oauth(auth_json: Option<&str>, now_ms: i64) -> Option<ClaudeOauthCredential> {
-    let value: Value = serde_json::from_str(auth_json?).ok()?;
-    let entry = value.get("anthropic")?;
-    let kind = entry.get("type").and_then(Value::as_str).unwrap_or_default();
-    if !kind.eq_ignore_ascii_case("oauth") {
-        return None;
-    }
-    let credential = parse_claude_credentials(&entry.to_string())?;
-    (!credential.expired(now_ms)).then_some(credential)
-}
 
 /// What a credential read produced. `Denied` is its own answer on purpose:
 /// a macOS Keychain ACL prompt on a headless daemon must back OFF for an
@@ -1027,7 +1011,7 @@ pub fn force_collect(
     now: u64,
 ) -> Result<AgentStatusPayload, u64> {
     // An id this machine does not have — a picker that raced a profile
-    // deletion, or any id at all for pi, which has no profiles — refreshes
+    // deletion — refreshes
     // the ambient login, the one a run without an account lands on.
     let profile = crate::agent_profiles::get(data_dir, agent, profile.trim())
         .map(|row| row.id)
@@ -1060,8 +1044,7 @@ struct UsageTarget {
     /// The account profile's id; `system` is the ambient login.
     profile: String,
     /// The profile's config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) —
-    /// `None` for the ambient login, and for pi always (it has no
-    /// `config_env_var`, so it is single-profile by construction).
+    /// `None` for the ambient login.
     dir: Option<PathBuf>,
     /// The device's default login for this agent: it owns the top-level
     /// account fields and the top-level `agentUsage` entry.
@@ -1243,8 +1226,7 @@ struct AgentProbe {
 /// `None` means "nobody is telling us" — the caller falls back to the poll
 /// policy and its spawn. codex pushes `account/rateLimits/updated` down the
 /// app-server connection and claude prints a `rate_limit_event` per turn
-/// (EXP-819); pi answers only over an endpoint the poller has to call
-/// itself.
+/// (EXP-819).
 fn live_probe(agent: CodingAgent, entry: &AgentCacheEntry, now: u64) -> Option<AgentProbe> {
     let source = live_source(agent)?;
     let live = live::snapshot(agent)?;
@@ -1294,19 +1276,18 @@ enum LiveSource {
     Partial,
 }
 
-/// The agents with a live publisher. pi has none.
+/// The agents with a live publisher.
 fn live_source(agent: CodingAgent) -> Option<LiveSource> {
     match agent {
         CodingAgent::Codex => Some(LiveSource::Whole),
         CodingAgent::Claude => Some(LiveSource::Partial),
-        CodingAgent::Pi => None,
     }
 }
 
 /// EXP-819 — whether [`probe_agent`] can NAME the login. Only codex's can
-/// (`account/read` beside the windows); claude's and pi's usage GET names
-/// nobody — their identity is the doctor's credential read — so a live
-/// session of theirs owes the identity no probe: it would spend a request to
+/// (`account/read` beside the windows); claude's usage GET names nobody —
+/// its identity is the doctor's credential read — so a live session of its
+/// own owes the identity no probe: it would spend a request to
 /// learn the same `None`.
 fn probe_names_account(agent: CodingAgent) -> bool {
     matches!(agent, CodingAgent::Codex)
@@ -1315,9 +1296,7 @@ fn probe_names_account(agent: CodingAgent) -> bool {
 /// Probe ONE login's usage. EXP-808: `config_dir` is the account profile's
 /// config dir — claude reads the credential kept beside it, codex answers
 /// with that `CODEX_HOME` in its app-server's env. `None` = the ambient
-/// login, which is also pi's only case: pi has no `config_env_var`
-/// ([`crate::agent_profiles::config_env_var`] returns `None` for it), so it
-/// has no profiles and this argument is always `None` on its arm.
+/// login.
 fn probe_agent(
     agent: CodingAgent,
     settings: &Settings,
@@ -1356,19 +1335,6 @@ fn probe_agent(
                     }
                     fetch_and_parse(&credential.access_token, &user_agent)
                 }
-            }
-        }
-        CodingAgent::Pi => {
-            let state = crate::doctor::read_pi_credentials();
-            match pi_anthropic_oauth(state.auth_json.as_deref(), now as i64 * 1000) {
-                Some(credential) => {
-                    fetch_and_parse(&credential.access_token, &claude_user_agent(None))
-                }
-                None => AgentProbe {
-                    outcome: PollOutcome::Failed,
-                    windows: None,
-                    account: None,
-                },
             }
         }
         CodingAgent::Codex => {
@@ -1624,25 +1590,6 @@ mod tests {
         assert_eq!(parse_claude_credentials("not json"), None);
     }
 
-    #[test]
-    fn pi_anthropic_oauth_only_answers_for_a_live_oauth_provider() {
-        let auth = r#"{"anthropic":{"type":"oauth","access":"tok","expires":1756000000000}}"#;
-        let credential = pi_anthropic_oauth(Some(auth), 1_755_000_000_000).unwrap();
-        assert_eq!(credential.access_token, "tok");
-        // Expired → no fetch (we never refresh someone else's credential).
-        assert_eq!(pi_anthropic_oauth(Some(auth), 1_757_000_000_000), None);
-        // An API-key provider has no usage endpoint.
-        assert_eq!(
-            pi_anthropic_oauth(Some(r#"{"anthropic":{"type":"api","key":"sk"}}"#), 0),
-            None
-        );
-        // A different default provider entirely.
-        assert_eq!(
-            pi_anthropic_oauth(Some(r#"{"openai":{"type":"oauth","access":"tok"}}"#), 0),
-            None
-        );
-        assert_eq!(pi_anthropic_oauth(None, 0), None);
-    }
 
     #[test]
     fn usage_serializes_the_locked_wire_shape() {
@@ -1720,7 +1667,6 @@ mod tests {
         let report = DoctorReport {
             claude: signed_out,
             codex: missing(Tool::Codex),
-            pi: missing(Tool::Pi),
             git: missing(Tool::Git),
         };
         let payload = collect_if_due(&dir, &Settings::default(), &report, 1_756_000_000);
@@ -1806,7 +1752,6 @@ mod tests {
                 acp: None,
                 acp_note: None,
             },
-            pi: missing(Tool::Pi),
             git: missing(Tool::Git),
         }
     }
@@ -2157,7 +2102,6 @@ mod tests {
                 acp_note: None,
             },
             codex: missing(Tool::Codex),
-            pi: missing(Tool::Pi),
             git: missing(Tool::Git),
         }
     }
@@ -2232,16 +2176,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Only codex's probe names the login; a live claude or pi session never
-    /// owes the identity a request.
+    /// Only codex's probe names the login; a live claude session never owes
+    /// the identity a request.
     #[test]
     fn only_a_codex_probe_is_owed_the_identity() {
         assert!(probe_names_account(CodingAgent::Codex));
         assert!(!probe_names_account(CodingAgent::Claude));
-        assert!(!probe_names_account(CodingAgent::Pi));
         assert_eq!(live_source(CodingAgent::Codex), Some(LiveSource::Whole));
         assert_eq!(live_source(CodingAgent::Claude), Some(LiveSource::Partial));
-        assert_eq!(live_source(CodingAgent::Pi), None);
     }
 
     #[test]
@@ -2409,10 +2351,6 @@ mod tests {
         let targets = usage_targets(&dir, &report, &eligible, 0, None);
         assert!(!targets.iter().any(|target| target.profile == ids[0]));
 
-        // pi has no config-dir variable, so it is single-profile by
-        // construction: its plan is the ambient login and nothing else.
-        assert!(crate::agent_profiles::create(&dir, CodingAgent::Pi, "Work").is_err());
-        assert_eq!(crate::agent_profiles::config_env_var(CodingAgent::Pi), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

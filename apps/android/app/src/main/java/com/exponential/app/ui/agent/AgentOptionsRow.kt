@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -50,7 +49,7 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.SwitchThumb
-import com.exponential.app.ui.components.agentIconRes
+import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
@@ -141,7 +140,7 @@ internal fun AgentOptionsRow(
             selected = launch.model,
             onSelect = onModelChange,
         )
-        // Plan mode is claude + pi (EXP-441). EXP-827: a slide switch on
+        // Plan mode is claude-only since EXP-849. EXP-827: a slide switch on
         // every platform, not a lit select pill.
         if (supportsPlanMode(launch.agent) && !resumeActive) {
             PlanSwitchPill(
@@ -255,7 +254,7 @@ private fun OptionMenuPill(
             leading = brand?.let { agent ->
                 {
                     Icon(
-                        painterResource(agentIconRes(agent)),
+                        agentIconPainter(agent),
                         contentDescription = null,
                         modifier = Modifier.size(13.dp),
                     )
@@ -326,7 +325,6 @@ internal fun AgentOptionsSheet(
                 PickerRow(
                     label = when (launch.agent) {
                         "codex" -> "Reasoning"
-                        "pi" -> "Thinking"
                         else -> "Effort"
                     },
                     value = effortLabel(launch.effort),

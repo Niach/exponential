@@ -301,7 +301,8 @@ export function formatUsageCost(
 /** What one agent's sign-in reads as. EXP-694 reduced it to the identity
  * alone: the bare email (no `signed in as` prefix and no ` · <plan>` tail —
  * the row's context already says both), the bare plan for an account with no
- * email (pi reports a provider, never an address), `signed in`, `signed out`,
+ * email (some agents report a provider, never an address), `signed in`,
+ * `signed out`,
  * or `unknown` when the machine reported nothing for the agent (never probed
  * is not "signed out"). */
 export function accountCaption(
@@ -319,7 +320,7 @@ export function accountCaption(
 /** EXP-688/694: what one agent's OWN tab says, where the agent is already the
  * heading — just the ADDRESS: no `claude · ` prefix, no `signed in as` and no
  * ` · <plan>` tail (the plan is the agent app's business, not this row's). An
- * account with no email (pi reports a provider, never an address) falls back
+ * account with no email (a provider-only report) falls back
  * to the bare plan, and the two negative cases read as sentences. */
 export function accountLine(
   account: DeviceAgentAccount | null | undefined
@@ -616,8 +617,8 @@ export function refreshAllowedAt(
 // chips. Mirrored on the desktop (`usage_bar.rs`, same names, same tests).
 
 export interface AgentAccountUsageGroup {
-  /** `${agent}:${email}` for a named login; a row with no email (pi names a
-   * provider, a signed-out row names nobody) can never be told apart from
+  /** `${agent}:${email}` for a named login; a row with no email (a
+   * provider-only report, or a signed-out row) can never be told apart from
    * another machine's, so it keeps its own `${agent}:${deviceId}:${profileId}`. */
   key: string
   agent: string

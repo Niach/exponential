@@ -155,6 +155,7 @@ import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.activeQuestionIds
+import com.exponential.app.domain.agentWorking
 import com.exponential.app.domain.askComplete
 import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
 import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
@@ -167,6 +168,7 @@ import com.exponential.app.domain.splitTruncatedDiff
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.label
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.rowClass
 import com.exponential.app.domain.transcriptGap
@@ -438,12 +440,21 @@ fun AgentSessionScreen(
     // LEAVES rather than doubling as the card's text path (EXP-788, retired).
     // The draft stays in the connection and comes back with the composer.
     val composerHidden = awaitingInput && !sessionEnded
-    // EXP-389: the agent is actively working — live and nothing waiting on
-    // the user (no active question card, synced needs_input clear; all three
-    // agents drive the flag). Drives the busy footer AND the composer's Stop
-    // glyph (EXP-790).
-    val agentWorking = phase == AgentPhase.Live && !sessionEnded &&
-        !awaitingInput && session?.needsInput != true
+    // EXP-389/848: the agent is actively working. ONE rule, shared ×4
+    // (`agentWorking`): a live, unended run MID-TURN with nothing parked on it —
+    // no active question card, synced needs_input clear, no usage wall, not
+    // compacting. Phase alone used to stand in for "mid-turn", which read as
+    // working for the whole time an idle agent sat there. Drives the busy
+    // footer AND the composer's Stop glyph (EXP-790).
+    val agentWorking = agentWorking(
+        live = phase == AgentPhase.Live,
+        sessionEnded = sessionEnded,
+        turnState = activity.turnState,
+        awaitingInput = awaitingInput,
+        needsInput = session?.needsInput == true,
+        blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
+        compacting = activity.compacting != null,
+    )
     // EXP-790: the composer folds to a one-line pill while it is unfocused
     // and empty (the issue's comment bar rule); a restored draft opens it.
     var composerExpanded by rememberSaveable {
@@ -1955,6 +1966,7 @@ private fun ActivityFeed(
                                     agentType = item.agentType,
                                     completed = item.completed,
                                     detail = item.detail,
+                                    title = item.title,
                                     items = emptyList(),
                                 ),
                                 liveTail = false,
@@ -2036,8 +2048,9 @@ private fun LazyListState.isNearBottom(slackPx: Float): Boolean {
 }
 
 /** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent
- *  (ended tabs are dropped, EXP-387), labeled with the run's real agent type
- *  and a spinner while it works. */
+ *  (ended tabs are dropped, EXP-387), labeled with the run's DESCRIPTION when
+ *  the spawning call gave one and its agent type otherwise (EXP-847), and a
+ *  spinner while it works. */
 @Composable
 private fun AgentTabStrip(
     agents: List<AgentFeedRow.SubagentRun>,
@@ -2057,7 +2070,7 @@ private fun AgentTabStrip(
         }
         agents.forEach { run ->
             AgentTabChip(
-                label = run.agentType,
+                label = run.label,
                 running = !run.completed,
                 selected = selected == run.subagentId,
             ) {
@@ -3248,10 +3261,28 @@ private fun SubagentGroupRow(
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Text(
-                run.agentType,
+                // EXP-847: what the spawning Agent call called this run, with
+                // the agent type as the fallback.
+                run.label,
                 style = transcriptToolStyle(),
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // A sentence-long description shrinks instead of pushing the
+                // spinner and the tool count off the row.
+                modifier = Modifier.weight(1f, fill = false),
             )
+            // EXP-847: the type stays readable as a SECONDARY caption whenever
+            // the description took the headline.
+            if (run.label != run.agentType) {
+                Text(
+                    run.agentType,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (run.completed) {
                 Icon(
                     ExpIcons.uiCheck,

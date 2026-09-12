@@ -1454,6 +1454,163 @@ describe(`rate_limit slot (EXP-784)`, () => {
   })
 })
 
+// EXP-848: `turn` is the FIFTH latest-wins slot — idle (`ended`) by default so
+// nothing pulses before the first edge, and replayed so a late joiner learns it.
+describe(`turn slot (EXP-848)`, () => {
+  const turnEvent = (state: string) => ({
+    t: `activity`,
+    event: { kind: `turn`, state, at: 1_700_000_000_000 },
+  })
+
+  it(`defaults to ended, folds both edges as a slot, and never appends a row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    expect(store.getSnapshot().turnState).toBe(`ended`)
+    socket.frame(turnEvent(`started`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnState).toBe(`started`)
+    expect(store.getSnapshot().feed).toEqual([])
+    socket.frame(turnEvent(`ended`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnState).toBe(`ended`)
+    expect(store.getSnapshot().feed).toEqual([])
+    store.dispose()
+  })
+
+  it(`keeps the current state on an unreadable payload`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(turnEvent(`started`))
+    socket.frame(turnEvent(`sideways`))
+    socket.frame({ t: `activity`, event: { kind: `turn` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnState).toBe(`started`)
+    store.dispose()
+  })
+
+  it(`an older history page never repaints the slot`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `live` }, seq: 10 })
+    socket.frame(turnEvent(`ended`))
+    socket.frame({ t: `activity_synced`, truncated: true, firstSeq: 10 })
+    await vi.advanceTimersByTimeAsync(100)
+    store.loadEarlier()
+    const request = JSON.parse(
+      socket.sent[socket.sent.length - 1]!
+    ) as { requestId: string }
+    socket.frame({
+      t: `history_chunk`,
+      requestId: request.requestId,
+      done: true,
+      events: [
+        { kind: `narration`, text: `older` },
+        { kind: `turn`, state: `started` },
+      ],
+      seqs: [1, 2],
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    // The page DID land (otherwise the assertion below would pass vacuously).
+    expect(
+      store.getSnapshot().feed.map((item) => (item as { text?: string }).text)
+    ).toEqual([`older`, `live`])
+    expect(store.getSnapshot().turnState).toBe(`ended`)
+    store.dispose()
+  })
+
+  it(`a replay repaints the slot, and a replay without one is idle`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(turnEvent(`started`))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `replayed` } })
+    socket.frame(turnEvent(`started`))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnState).toBe(`started`)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `again` } })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().turnState).toBe(`ended`)
+    store.dispose()
+  })
+})
+
+// EXP-847/846: the two optional fields the reducer stores on its rows — the
+// subagent's title and an Exponential MCP tool's result preview.
+describe(`subagent title + tool preview (EXP-847/846)`, () => {
+  it(`keeps a subagent's title beside its agentType`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `subagent`,
+        id: `sub-1`,
+        agentType: `general-purpose`,
+        title: `  Audit the launcher  `,
+        status: `started`,
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).toMatchObject({
+      kind: `subagent`,
+      agentType: `general-purpose`,
+      title: `Audit the launcher`,
+    })
+    store.dispose()
+  })
+
+  it(`folds a tool_update preview onto the tool row, clamped`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool`, name: `exponential_issues_create`, id: `call-1` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `tool_update`,
+        id: `call-1`,
+        status: `completed`,
+        preview: {
+          identifier: `EXP-848`,
+          title: `x`.repeat(250),
+          count: 3.4,
+          url: `   `,
+        },
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const row = store.getSnapshot().feed[0] as { preview?: Record<string, unknown> }
+    expect(row.preview).toEqual({
+      identifier: `EXP-848`,
+      title: `x`.repeat(200),
+      count: 3,
+    })
+    store.dispose()
+  })
+
+  it(`ignores a preview that carried nothing usable`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool`, name: `exponential_boards_list`, id: `call-2` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `tool_update`, id: `call-2`, preview: { count: -1 } },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).not.toHaveProperty(`preview`)
+    store.dispose()
+  })
+})
+
 // EXP-746: `config_state` and `usage` are latest-wins SLOTS on the snapshot,
 // and the two outbound frames that change them are fire-and-forget.
 describe(`live config + usage (EXP-746)`, () => {

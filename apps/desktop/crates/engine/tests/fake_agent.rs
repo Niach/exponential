@@ -2,7 +2,7 @@
 //!
 //! `FakeAgent` is a real `ConnectTo<Client>` over the SDK's own in-process
 //! channel, so these tests drive the REAL `host.rs` + `session.rs` +
-//! `lifecycle.rs` — the same code path a claude/codex/pi adapter takes,
+//! `lifecycle.rs` — the same code path a claude/codex adapter takes,
 //! minus the child process. What it guards:
 //!
 //! - a turn's updates reach the relay sink AND the local feed;
@@ -715,6 +715,39 @@ fn a_turn_publishes_its_updates_and_feeds_the_local_screen() {
         harness.session.agent_native_session_id().as_deref(),
         Some("agent-native-1")
     );
+    harness.session.kill("killed");
+}
+
+/// EXP-848: the turn slot, end to end through the REAL host. The session
+/// start SEEDS `ended`, a prompt opens `started`, and the turn settling closes
+/// it again — which is the one signal every client's "Working…" spinner and
+/// Stop button read.
+#[test]
+fn a_turn_publishes_its_started_and_ended_edges() {
+    let harness = start_fake("turn-edges");
+    // The handshake seeds the slot: a viewer that joins before any prompt
+    // reads `ended` rather than inferring it.
+    until("the seeded turn slot", || {
+        !events_of(&harness.sink, "turn").is_empty()
+    });
+    assert_eq!(events_of(&harness.sink, "turn")[0]["state"], "ended");
+
+    harness.session.send_prompt("stream".to_string());
+    until("the started edge", || {
+        events_of(&harness.sink, "turn")
+            .iter()
+            .any(|event| event["state"] == "started")
+    });
+    // …and the turn settling closes it. The fake answers `stream` on its own,
+    // so no release is needed.
+    until("the ended edge after the turn", || {
+        let states: Vec<String> = events_of(&harness.sink, "turn")
+            .iter()
+            .map(|event| event["state"].as_str().unwrap_or_default().to_string())
+            .collect();
+        states.iter().rposition(|state| state == "ended")
+            > states.iter().position(|state| state == "started")
+    });
     harness.session.kill("killed");
 }
 

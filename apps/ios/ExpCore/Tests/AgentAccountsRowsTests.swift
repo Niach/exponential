@@ -259,16 +259,16 @@ final class AgentAccountsRowsTests: XCTestCase {
     func testKeepsEmailLessAndSignedOutRowsApart() throws {
         let groups = AgentAccountsRows.accountGroups(
             [
-                row(deviceId: "a", agent: "pi", plan: "openai-codex (oauth)"),
-                row(deviceId: "b", agent: "pi", plan: "openai-codex (oauth)"),
+                row(deviceId: "a", agent: "zed", plan: "openai-codex (oauth)"),
+                row(deviceId: "b", agent: "zed", plan: "openai-codex (oauth)"),
                 row(deviceId: "a", agent: "claude", signedIn: false, email: "x@y.z"),
                 row(deviceId: "b", agent: "claude", signedIn: false),
             ],
             canRefresh: { _ in false }
         )
         XCTAssertEqual(groups.map(\.key), [
-            "pi:a:system",
-            "pi:b:system",
+            "zed:a:system",
+            "zed:b:system",
             "claude:a:system",
             "claude:b:system",
         ])
@@ -368,7 +368,7 @@ final class AgentAccountsRowsTests: XCTestCase {
     // section, after the known ones.
     func testSectionsFollowTheContractAgentOrder() {
         let sections = AgentAccountsRows.sections([
-            group("pi", "pi:a"),
+            group("aider", "aider:a"),
             group("zed", "zed:a"),
             group("codex", "codex:a"),
             group("claude", "claude:a"),
@@ -376,7 +376,7 @@ final class AgentAccountsRowsTests: XCTestCase {
         ])
         XCTAssertEqual(
             sections.map { ($0.agent, $0.groups.count) }.map { "\($0.0):\($0.1)" },
-            ["claude:1", "codex:2", "pi:1", "zed:1"]
+            ["claude:1", "codex:2", "aider:1", "zed:1"]
         )
         XCTAssertEqual(sections[1].groups.map(\.key), ["codex:a", "codex:b"])
     }
@@ -407,7 +407,7 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
         XCTAssertEqual(AgentAccountsRows.groupCaption(named), "dev@acme.test")
         let provider = AgentAccountUsageGroup(
-            key: "pi:a:system", agent: "pi", signedIn: true, email: nil, plan: "anthropic (oauth)",
+            key: "zed:a:system", agent: "zed", signedIn: true, email: nil, plan: "anthropic (oauth)",
             rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
         )
         XCTAssertEqual(AgentAccountsRows.groupCaption(provider), "anthropic (oauth)")

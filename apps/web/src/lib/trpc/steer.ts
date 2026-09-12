@@ -94,12 +94,10 @@ const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 const agentModelValues: Record<string, readonly string[]> = {
   claude: contract.codingModel.values,
   codex: [``, ...contract.codexModel.values],
-  pi: [``, ...contract.piModel.values],
 }
 const agentEffortValues: Record<string, readonly string[]> = {
   claude: [``, ...contract.codingEffort.values],
   codex: [``, ...contract.codexEffort.values],
-  pi: [``, ...contract.piThinking.values],
 }
 
 // The registered `devices` row as a start reads it: the agent advertisement
@@ -493,8 +491,7 @@ export const steerRouter = router({
           }
           // Per-agent vocabulary (EXP-201): model/effort must come from the
           // (agent ?? claude) contract lists, and the claude-only toggles may
-          // not ride a codex/pi start (pi additionally has no permission
-          // system to skip).
+          // not ride a codex start.
           const agent = value.agent ?? `claude`
           if (
             value.model !== undefined &&
@@ -525,7 +522,7 @@ export const steerRouter = router({
           if (agent === `codex` && value.planMode) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              message: `planMode is a claude/pi-only option`,
+              message: `planMode is a Claude-only option`,
             })
           }
         })
@@ -1342,6 +1339,8 @@ export const steerRouter = router({
               status: `ended`,
               endedAt: new Date(),
               endedBy: `user`,
+              // EXP-848: an ended run is never busy.
+              agentBusy: false,
             })
             .where(eq(codingSessions.id, sessionId))
             .returning()

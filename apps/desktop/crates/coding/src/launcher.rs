@@ -54,7 +54,6 @@ use crate::run_registry::{launch_extra, RunFix, RunInput, RunIssue, RunKind, Run
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
-use crate::pi_bridge::{write_pi_bridge, write_pi_plan};
 use crate::git_credentials;
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
@@ -86,8 +85,6 @@ pub const STEER_IMAGES_DIR: &str = ".exp-steer-images";
 /// EXP-474).
 const LOCAL_EXCLUDES: &[&str] = &[
     crate::mcp_json::MCP_JSON_FILE,
-    crate::pi_bridge::PI_BRIDGE_FILE,
-    crate::pi_bridge::PI_PLAN_FILE,
     crate::worktree_agents::AGENTS_FILE,
     STEER_IMAGES_DIR,
     // FEED-22: Claude Code's `isolation: "worktree"` nests agent worktrees
@@ -504,8 +501,6 @@ pub enum ResumeSeed {
     /// EXP-758: the engine records it alongside the ACP one, so this is what
     /// reopens the conversation when no ACP session id survived.
     Native(String),
-    /// pi resumes by FILE, not by id.
-    PiSessionFile(PathBuf),
 }
 
 /// EXP-746: everything the ACP engine needs that the PTY path expresses as
@@ -529,8 +524,8 @@ pub struct AcpLaunch {
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-792: the launch's team MCP servers, resolved (`exponential` is
     /// NOT among them — it stays [`Self::mcp`]). The adapters render them
-    /// into their own config (claude inline, codex `thread/start`); pi and
-    /// an external agent already got them as [`crate::argv::MCP_SERVERS_ENV`]
+    /// into their own config (claude inline, codex `thread/start`); an
+    /// external agent already got them as [`crate::argv::MCP_SERVERS_ENV`]
     /// on the spawn env. Empty for an agent shell and for every pick-less run.
     pub servers: Vec<McpServerWire>,
     /// EXP-792: every device-held value the launcher put in the spawn env
@@ -586,7 +581,7 @@ pub enum DisabledReason {
     /// The server refused to mint the installation token (401/403).
     TokenDenied { message: String },
     /// EXP-773: the picked agent cannot run on the ACP engine — the doctor's
-    /// `acp` check said no (a too-old CLI, a failed pi probe) or this HOST
+    /// `acp` check said no (a too-old CLI) or this HOST
     /// has no engine at all. The engine is the ONLY coding transport, so
     /// there is nothing to fall back to; `note` carries the doctor's own
     /// explanation when it has one.
@@ -719,19 +714,19 @@ pub struct PreparedLaunch {
     /// EXP-275/EXP-690: the spawn runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass — mirrors
     /// `permission_args`: every claude/codex run bypasses, and plan mode
-    /// wins the starting mode, so it clears this; pi has no permission
-    /// system at all). The activity emitter uses it to keep permission-flavored
+    /// wins the starting mode, so it clears this). The activity emitter uses
+    /// it to keep permission-flavored
     /// notifications from becoming "blocked on approval" cards.
     pub bypass_permissions: bool,
     /// EXP-529: the spawn launched into plan mode (claude `--permission-mode
-    /// plan` / pi's plan extension) — mutually exclusive with
+    /// plan`) — mutually exclusive with
     /// `bypass_permissions` by the derivation above. The activity emitter
     /// stamps it into the launch narration so remote viewers can tell the
     /// run's effective permission posture.
     pub plan_mode: bool,
     /// EXP-383: which agent CLI the spawn runs. The steer wiring picks the
     /// matching activity emitter (claude transcript tail / codex rollout
-    /// tail / pi observer) — every steer-room launch path flows through
+    /// tail) — every steer-room launch path flows through
     /// here, so resume needs no separate plumbing.
     pub agent: CodingAgent,
     /// EXP-443: claude's own session id, minted here and passed via
@@ -863,11 +858,8 @@ fn agent_kind(options: &LaunchOptions) -> AgentKind {
 /// ([`CodingDeps::acp_available`]). An external agent is ACP by definition;
 /// it only needs the host.
 ///
-/// EXP-752: plan mode is NOT an exception any more. pi's plan mode is still
-/// the injected `.exp-pi-plan.ts` extension gated on `EXP_PI_PLAN_MODE`
-/// (EXP-441), but both transports now write the file and set the env, and the
-/// rpc adapter advertises it as an ACP session mode — so a plan-mode pi
-/// launch resolves its transport exactly like claude's.
+/// EXP-752: plan mode is NOT an exception — a plan-mode launch resolves its
+/// transport exactly like any other.
 fn acp_ready(
     report: &crate::doctor::DoctorReport,
     agent: &AgentKind,
@@ -883,8 +875,7 @@ fn acp_ready(
 }
 
 /// EXP-758: the doctor's own explanation for [`acp_ready`] answering `false`,
-/// when it has one — the claude version-floor copy, pi's no-rpc-mode note,
-/// codex's version floor. `None` for an external agent (never gated by a
+/// when it has one — the claude version-floor copy, codex's version floor. `None` for an external agent (never gated by a
 /// builtin's check) and for a host with no engine, where the reason is this
 /// BUILD rather than anything the CLI could tell the user.
 fn acp_note<'a>(report: &'a crate::doctor::DoctorReport, agent: &AgentKind) -> Option<&'a str> {
@@ -981,8 +972,6 @@ fn prune_hook_settings(root: &Path) {
 ///   BEFORE the write so an unguardable repo never gets the key on disk).
 /// - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
 ///   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
-/// - pi: the launcher-written `.exp-pi-mcp.ts` bridge extension (pi has no
-///   native MCP); url + key ride the spawn env like codex.
 /// EXP-637: the GUARD half of [`wire_agent_mcp`], split out because it must
 /// still run BEFORE the session row exists — a repo whose ignore rules can't
 /// be verified must fail the launch before anything server-side is created,
@@ -1051,37 +1040,14 @@ fn wire_agent_mcp(
             url: mcp_url(base_url),
             session_id: session_id.map(str::to_string),
         }),
-        CodingAgent::Pi => {
-            write_pi_bridge(cwd)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-mcp.ts: {e}")))?;
-            // EXP-752: pi's plan mode is this extension (the rpc adapter
-            // loads it with `-e` and drives it through `/exp-plan`). Static
-            // file, inert without EXP_PI_PLAN_MODE.
-            write_pi_plan(cwd)
-                .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
-            Ok(AgentMcp::PiExtension)
-        }
     }
 }
 
-/// The spawn-env gate of the pi plan-mode extension (EXP-441): a pi launch
-/// with plan mode on sets [`crate::argv::PI_PLAN_MODE_ENV`]; without it the
-/// always-written `.exp-pi-plan.ts` returns immediately.
-/// EXP-758: `agent` is the builtin, or `None` for an external agent — which
-/// loads none of our extensions and must not be told to enter pi's plan mode.
-fn apply_pi_plan_env(spawn: SpawnSpec, agent: Option<CodingAgent>, plan_mode: bool) -> SpawnSpec {
-    if agent == Some(CodingAgent::Pi) && plan_mode {
-        spawn.env(crate::argv::PI_PLAN_MODE_ENV, "1")
-    } else {
-        spawn
-    }
-}
-
-/// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex/pi
+/// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex
 /// rides the ENV (claude's rides `.exp-mcp.json`) — codex reads it through
-/// `bearer_token_env_var`, the pi bridge reads url + token directly.
+/// `bearer_token_env_var`.
 ///
-/// EXP-758: an EXTERNAL agent takes the same env-only shape as pi's bridge
+/// EXP-758: an EXTERNAL agent takes an env-only shape too
 /// (url + key + the session header) — [`AgentMcp::ExternalEnv`] is the posture
 /// it was wired with, and the env is the only channel a binary we did not
 /// write can be handed a credential through.
@@ -1115,16 +1081,10 @@ fn apply_mcp_env(
             with_claude_mcp_timeout(spawn, std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV))
         }
         CodingAgent::Codex => spawn.env(MCP_TOKEN_ENV, personal_key),
-        CodingAgent::Pi => spawn
-            .env(MCP_URL_ENV, mcp_url(base_url))
-            .env(MCP_TOKEN_ENV, personal_key)
-            // Embedded sessions must not block on pi's startup
-            // update/network checks.
-            .env("PI_SKIP_VERSION_CHECK", "1"),
     };
-    // EXP-637: the pi bridge has no native MCP headers — it reads the run's
-    // session id from the env and sets `x-exp-session-id` itself. Harmless
-    // (and unread) on claude/codex, which carry it in their own config.
+    // EXP-637: an external ACP agent has no MCP config of ours — it reads the
+    // run's session id from the env and sets `x-exp-session-id` itself.
+    // Harmless (and unread) on claude/codex, which carry it in their config.
     match session_id {
         Some(id) => spawn.env(MCP_SESSION_ID_ENV, id),
         None => spawn,
@@ -1134,8 +1094,8 @@ fn apply_mcp_env(
 /// EXP-792 (EXP-747 B2): the account PROFILE half of the spawn env — ONLY
 /// the agent's config-dir variable (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`)
 /// pointed at the profile's dir under `{data_dir}/agents/<agent>/<id>/`.
-/// Nothing at all for `None`/`system` (the ambient login), for pi (no such
-/// variable), for an external agent, and for an id no profile answers to —
+/// Nothing at all for `None`/`system` (the ambient login), for an external
+/// agent, and for an id no profile answers to —
 /// a stale pick degrades to the ambient login rather than a spawn that
 /// cannot find its credentials.
 pub fn apply_account_env(
@@ -1180,8 +1140,8 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> Result<ResolvedMcp,
 /// every resolved secret under the launcher-minted name (`EXP_MCP_TOKEN_<n>`,
 /// `EXP_MCP_ENV_<n>_<NAME>`, a stdio server's own `<NAME>`) — the values the
 /// agents' `${VAR}` references and codex's env-named fields resolve to — plus,
-/// for the agents with no config of their own to carry the servers (pi's
-/// bridge, an external ACP binary), the server list itself as
+/// for the agents with no config of their own to carry the servers (an
+/// external ACP binary), the server list itself as
 /// [`MCP_SERVERS_ENV`]. Claude and codex get the list in their configs
 /// instead, so the list is never set for them.
 fn apply_mcp_server_env(spawn: SpawnSpec, agent: &AgentKind, resolved: &ResolvedMcp) -> SpawnSpec {
@@ -1189,7 +1149,7 @@ fn apply_mcp_server_env(spawn: SpawnSpec, agent: &AgentKind, resolved: &Resolved
     for (name, value) in &resolved.env {
         spawn = spawn.env(name, value);
     }
-    let env_carried = matches!(agent.builtin(), None | Some(CodingAgent::Pi));
+    let env_carried = agent.builtin().is_none();
     if env_carried && !resolved.servers.is_empty() {
         spawn = spawn.env(MCP_SERVERS_ENV, mcp_servers_env_json(&resolved.servers));
     }
@@ -1208,19 +1168,6 @@ fn end_on_error<T>(
         let _ = coding_sessions::end(trpc, session_id);
     }
     result
-}
-
-/// EXP-637: where pi records a run's transcript
-/// (`<data_dir>/pi-sessions/<row id>.jsonl`). pi opens a FRESH session when
-/// the file does not exist and RESUMES it when it does, so the same path
-/// serves both. `None` when the id has no usable path segment.
-pub(crate) const PI_SESSIONS_DIR: &str = "pi-sessions";
-
-fn pi_session_file(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
-    let segment = path_segment(session_id)?;
-    let dir = data_dir.join(PI_SESSIONS_DIR);
-    let _ = std::fs::create_dir_all(&dir);
-    Some(dir.join(format!("{segment}.jsonl")))
 }
 
 /// The shared 412/401/403 mapping for `repositories.installationToken`.
@@ -1292,7 +1239,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     let agent_kind = agent_kind(options);
 
     // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
-    // agent must resolve — a missing pi never blocks a claude launch).
+    // agent must resolve — a missing codex never blocks a claude launch).
     // Cheap relative to clone/mint and structural: the relay origin has no
     // button whose disabled state could have gated this.
     //
@@ -1631,15 +1578,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // doubles as the ACP session id the engine upserts), so nothing is
     // minted here.
     //
-    // EXP-758: keyed on the BUILTIN — the pins are the three CLIs' own
+    // EXP-758: keyed on the BUILTIN — the pins are the builtin CLIs' own
     // handles and mean nothing for an external agent (whose `agent` field
     // carries the settings default).
     let builtin = agent_kind.builtin();
     let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (builtin == Some(CodingAgent::Pi))
-        .then(|| pi_session_file(&deps.data_dir, &session.id))
-        .flatten();
 
     // EXP-662: record the SESSION exactly like `prepare_action` records a
     // run — same file, same fields, kind Issue/Batch — so a later Resume
@@ -1699,7 +1643,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             branch: Some(branch.clone()),
             base_branch: Some(minted.default_branch.clone()),
             claude_session_id: None,
-            pi_session_file: pi_session.clone(),
             codex_originator: codex_originator.clone(),
             inputs: Vec::new(),
             model: options.model.clone(),
@@ -1753,7 +1696,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
-    spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1833,7 +1775,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id: None,
-        bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
+        bypass_permissions: !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
@@ -2029,7 +1971,7 @@ fn prepare_action(
             // trunk clone stopped being a run cwd, so a run neither needs it
             // pulled nor may park the trunk-sync engine on its own dirt.
             // Same best-effort [`LOCAL_EXCLUDES`] coverage as a session
-            // worktree — the action's agent may be codex/pi since EXP-257.
+            // worktree — the action's agent may be codex since EXP-257.
             let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
             let cwd = match &req.kind {
                 // EXP-259: the fix-conflicts run works on the PR branch, not
@@ -2310,9 +2252,6 @@ fn prepare_action(
     // disambiguates. claude's `--session-id` is the ACP adapter's to mint.
     let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (builtin == Some(CodingAgent::Pi))
-        .then(|| pi_session_file(&deps.data_dir, &session.id))
-        .flatten();
     let (tab_prefix, tab_title) = match &req.kind {
         ActionRunKind::Chat => chat_tab_title(
             repo.as_ref().map(|repo| repo_short_name(&repo.full_name)),
@@ -2333,7 +2272,6 @@ fn prepare_action(
     );
     spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
     spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
-    spawn = apply_pi_plan_env(spawn, agent_kind.builtin(), options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2402,7 +2340,6 @@ fn prepare_action(
             branch: run_branch.clone(),
             base_branch: base_branch.clone(),
             claude_session_id: None,
-            pi_session_file: pi_session.clone(),
             codex_originator: codex_originator.clone(),
             inputs: req
                 .inputs
@@ -2494,7 +2431,7 @@ fn prepare_action(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id: Some(req.action_id.clone()),
-        bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
+        bypass_permissions: !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
@@ -2612,8 +2549,8 @@ fn prepare_resume_run(
             failed.clone(),
         )));
     }
-    // EXP-773: same ACP gate as a fresh launch — a downgraded CLI, a pi
-    // probe that now fails or a host with no engine refuses the resume with
+    // EXP-773: same ACP gate as a fresh launch — a downgraded CLI or a host
+    // with no engine refuses the resume with
     // the doctor's own reason instead of composing an argv nothing can run.
     if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
         return Ok(Prepared::Disabled(reason));
@@ -2720,8 +2657,8 @@ fn prepare_resume_run(
     let marker_allows_resume = crate::worktree_agents::worktree_agents(&cwd)
         .is_none_or(|recorded| recorded.contains(&agent));
     // EXP-758: a run also carries the agent's OWN handle — the engine wrote
-    // `agent_native_session_id` (claude's session uuid, codex's thread id,
-    // pi's session file) — which is what reopens the conversation when no
+    // `agent_native_session_id` (claude's session uuid, codex's thread id)
+    // — which is what reopens the conversation when no
     // ACP session id survived. Each slot below is already gated on the agent
     // it belongs to.
     let acp_native = record.agent_native_session_id.clone();
@@ -2754,28 +2691,16 @@ fn prepare_resume_run(
             })
         })
         .flatten();
-    // pi resumes by FILE: the recorded transcript path, when it still exists.
-    let pi_resume_file = (marker_allows_resume && builtin == Some(CodingAgent::Pi))
-        .then(|| {
-            record
-                .pi_session_file
-                .clone()
-                .into_iter()
-                .chain(acp_native.as_deref().map(PathBuf::from))
-                .find(|path| path.is_file())
-        })
-        .flatten();
     // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
     // session id — `session/load` replays the WHOLE thread, so it is as
-    // native a resume as the three handles above. Counting it here is what
+    // native a resume as the handles above. Counting it here is what
     // keeps the seed prompt off: `engine::host` starts a turn for every
     // `AcpLaunch::prompt`, so a prompt on top of a load would put the agent
     // back to work unasked, which no other resume shape does.
     let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp());
     let native_resume = acp_resume_id.is_some()
         || claude_resume_id.is_some()
-        || codex_resume_id.is_some()
-        || pi_resume_file.is_some();
+        || codex_resume_id.is_some();
 
     // Step 4 — the seed prompt, only when nothing native survived. An ISSUE
     // session gets the issue-shaped resume prompt (PR contract, comment
@@ -2941,13 +2866,6 @@ fn prepare_resume_run(
     // would outrank the real id in the replay's fallback chain.
     let codex_originator = (builtin == Some(CodingAgent::Codex))
         .then(|| crate::argv::codex_session_originator(&session.id));
-    let pi_session = (builtin == Some(CodingAgent::Pi))
-        .then(|| {
-            pi_resume_file
-                .clone()
-                .or_else(|| pi_session_file(&deps.data_dir, &session.id))
-        })
-        .flatten();
     // EXP-662: a resumed SESSION is titled like a fresh one (`claude ·
     // EXP-42` / `claude · EXP-42 +1`) — the strip must not tell a resume
     // apart from the launch it continues.
@@ -3011,7 +2929,6 @@ fn prepare_resume_run(
         RunRecord {
             session_id: session.id.clone(),
             claude_session_id: claude_resume_id.clone(),
-            pi_session_file: pi_session.clone(),
             codex_originator: codex_originator.clone(),
             model: options.model.clone(),
             effort: options.effort.clone(),
@@ -3093,8 +3010,7 @@ fn prepare_resume_run(
                 .clone()
                 .or_else(|| codex_resume_id.clone())
                 .map(ResumeSeed::Native)
-        })
-        .or_else(|| pi_resume_file.clone().map(ResumeSeed::PiSessionFile));
+        });
     let session_id_for_acp = session.id.clone();
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
@@ -3122,7 +3038,7 @@ fn prepare_resume_run(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         action_id,
-        bypass_permissions: agent != CodingAgent::Pi,
+        bypass_permissions: true,
         plan_mode: false,
         agent,
         claude_session_id: None,
@@ -3237,8 +3153,8 @@ pub fn prepare_agent_shell(
     let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
 
     // EXP-369: the agent runs in the pinned worktree when the caller gave
-    // one — the MCP config file has to land in the SAME dir (claude/pi read
-    // it relative to their cwd).
+    // one — the MCP config file has to land in the SAME dir (claude reads it
+    // relative to its cwd).
     let cwd = agent_shell_cwd(req, &clone);
 
     // The per-agent MCP wiring (the agent authenticates as the real user).
@@ -3493,13 +3409,11 @@ mod tests {
         }
     }
 
-    /// EXP-752: pi's plan mode is the injected `.exp-pi-plan.ts` extension
-    /// (EXP-441) — the rpc adapter loads it with `-e` and advertises it as an
-    /// ACP session mode — so a plan-mode pi launch is as ACP-ready as
-    /// claude's, and nothing about the mode gates a launch.
+    /// EXP-752: nothing about plan mode gates a launch — a plan-mode run is
+    /// as ACP-ready as any other.
     #[test]
-    fn pi_plan_mode_is_acp_ready_like_claudes() {
-        let dir = temp_dir("pi-plan-acp");
+    fn plan_mode_is_acp_ready_like_any_other_launch() {
+        let dir = temp_dir("plan-acp");
         let base = canned_server(Vec::new());
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
@@ -3520,12 +3434,11 @@ mod tests {
         let report = crate::doctor::DoctorReport {
             claude: ready(crate::doctor::Tool::Claude),
             codex: ready(crate::doctor::Tool::Codex),
-            pi: ready(crate::doctor::Tool::Pi),
             git: ready(crate::doctor::Tool::Git),
         };
-        let pi = AgentKind::Builtin(CodingAgent::Pi);
+        let codex = AgentKind::Builtin(CodingAgent::Codex);
         let claude = AgentKind::Builtin(CodingAgent::Claude);
-        assert!(acp_ready(&report, &pi, &deps));
+        assert!(acp_ready(&report, &codex, &deps));
         assert!(acp_ready(&report, &claude, &deps));
         // A host with no engine is never ready, whatever the agent says.
         let mut hostless = make_deps(&base, &dir.0, Arc::new(FakeWorktrees {
@@ -3533,16 +3446,16 @@ mod tests {
             seen: Default::default(),
         }));
         hostless.acp_available = false;
-        assert!(!acp_ready(&report, &pi, &hostless));
+        assert!(!acp_ready(&report, &codex, &hostless));
         assert!(!acp_ready(&report, &claude, &hostless));
-        assert!(acp_gate(&report, &pi, &deps).is_none());
+        assert!(acp_gate(&report, &claude, &deps).is_none());
         assert!(matches!(
-            acp_gate(&report, &pi, &hostless),
+            acp_gate(&report, &claude, &hostless),
             Some(DisabledReason::AcpUnavailable { .. })
         ));
-        // The mode is no part of the gate (the settings default has
-        // `pi_plan_mode` ON, so this is the common launch).
-        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Pi).plan_mode);
+        // The mode is no part of the gate (claude's plan default is ON, so
+        // this is the common launch).
+        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Claude).plan_mode);
     }
 
     /// A stub `claude` that answers `--version` with an ACP-ready version and
@@ -3857,7 +3770,7 @@ mod tests {
     }
 
     /// EXP-773 (was EXP-758 #11): a run whose agent lost its ACP readiness
-    /// (a downgraded CLI, a failed pi probe, a host with no engine) has no
+    /// (a downgraded CLI, a host with no engine) has no
     /// terminal to fall back to any more — the resume is REFUSED, with the
     /// doctor's own reason attached.
     #[test]
@@ -3888,7 +3801,7 @@ mod tests {
 
     /// EXP-758 (#12): an EXTERNAL agent launch is gated on git alone rather
     /// than on a claude that is not installed, its MCP posture is the
-    /// env-only external one (no `.exp-mcp.json`, no pi bridge), and the
+    /// env-only external one (no `.exp-mcp.json`), and the
     /// worktree marker records ITS id so no builtin is ever offered a resume
     /// here.
     #[test]
@@ -3929,7 +3842,6 @@ mod tests {
             other => panic!("expected the external MCP posture, got {other:?}"),
         }
         assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
-        assert!(!worktree.join(crate::pi_bridge::PI_BRIDGE_FILE).exists());
         assert_eq!(acp.reaper_settings_path, None, "the anchor is claude's");
         assert_eq!(prepared.claude_session_id, None);
         assert_eq!(prepared.codex_originator, None);
@@ -4062,7 +3974,7 @@ mod tests {
     }
 
     /// EXP-792 (EXP-747 B2): a profile pick sets the agent's config-dir
-    /// variable and NOTHING else; `None`/`system`, pi, an external agent and
+    /// variable and NOTHING else; `None`/`system`, an external agent and
     /// an unknown id set nothing.
     #[test]
     fn apply_account_env_sets_only_the_config_dir_var() {
@@ -4098,9 +4010,7 @@ mod tests {
             let spawn = apply_account_env(base.clone(), &claude, &data_dir, none);
             assert_eq!(spawn.env, base.env, "{none:?}");
         }
-        // pi has no config-dir variable; an external agent is never profiled.
-        let pi = apply_account_env(base.clone(), &AgentKind::Builtin(CodingAgent::Pi), &data_dir, Some(&work.id));
-        assert_eq!(pi.env, base.env);
+        // An external agent is never profiled.
         let external = AgentKind::External(crate::settings::ExternalAgentSpec {
             id: "x".into(),
             label: "x".into(),
@@ -4115,7 +4025,7 @@ mod tests {
 
     /// FEED-25: a claude child carries a finite per-call MCP timeout on BOTH
     /// arms — the agent shell and the ACP session (the CLI's own default is
-    /// 27 hours); codex and pi have their own bounds and never see the
+    /// 27 hours); codex has its own bounds and never sees the
     /// variable.
     #[test]
     fn apply_mcp_env_bounds_claude_mcp_calls_on_both_arms() {
@@ -4137,8 +4047,6 @@ mod tests {
             }
             let codex = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Codex), "http://x/", "expu_k", Some("s"), shell);
             assert_eq!(timeout(&codex), None, "shell={shell}");
-            let pi = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Pi), "http://x/", "expu_k", Some("s"), shell);
-            assert_eq!(timeout(&pi), None, "shell={shell}");
         }
     }
 
@@ -4577,7 +4485,6 @@ mod tests {
         // scratch dir.
         let scratch = dir.0.join("actions").join("act-1");
         assert!(!scratch.join(".exp-mcp.json").exists());
-        assert!(!scratch.join(".exp-pi-mcp.ts").exists());
         // The MCP posture the codex adapter composes its `-c` overrides from,
         // and the key in the spawn env only — never argv, never disk.
         match &prepared.acp.mcp {
@@ -4594,56 +4501,6 @@ mod tests {
             .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
         assert_eq!(prepared.acp.options.model, "gpt-5.6-sol");
         assert!(seed_prompt(&prepared).contains("Scan the backlog."));
-    }
-
-    /// EXP-257: a PI action run — the bridge extension lands in the scratch
-    /// dir, `-e` loads it, url/token/skip-version ride the env.
-    #[test]
-    fn prepare_action_pi_writes_the_bridge() {
-        let dir = temp_dir("action-pi");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        // EXP-409: the pi auth gate checks credential presence (auth.json or
-        // a provider env key) — CI runners have neither, so satisfy the real
-        // probe the way a real pi setup would.
-        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
-        let mut req = action_request();
-        req.options = LaunchOptions {
-            agent: CodingAgent::Pi,
-            model: "grok-4.5".to_string(),
-            effort: String::new(),
-            ultracode: false,
-            plan_mode: false,
-            mcp_server_ids: Vec::new(),
-            account: None,
-            external: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let scratch = dir.0.join("actions").join("act-1").join("1a2b3c4d");
-        let bridge = fs::read_to_string(scratch.join(".exp-pi-mcp.ts")).unwrap();
-        assert!(!bridge.contains("expu_"));
-        assert!(!scratch.join(".exp-mcp.json").exists());
-        assert!(prepared.spawn.args.is_empty());
-        assert_eq!(prepared.acp.mcp, AgentMcp::PiExtension);
-        for (key, value) in [
-            ("EXP_MCP_URL", format!("{base}/api/mcp")),
-            ("EXP_MCP_TOKEN", "expu_seeded".to_string()),
-            ("PI_SKIP_VERSION_CHECK", "1".to_string()),
-        ] {
-            assert!(
-                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
-                "missing env {key}={value}: {:?}",
-                prepared.spawn.env
-            );
-        }
     }
 
     /// EXP-478: `prepare` gates the clone from before the worktree exists,
@@ -5299,7 +5156,6 @@ mod tests {
             branch: None,
             base_branch: None,
             claude_session_id: Some("claude-1".to_string()),
-            pi_session_file: None,
             codex_originator: None,
             inputs: Vec::new(),
             model: "fable".to_string(),
@@ -6439,7 +6295,6 @@ mod tests {
         assert_eq!(prepared.spawn.program, deps.settings.codex_path);
         // NO on-disk MCP config for codex — the key must not land in the tree.
         assert!(!worktree.join(".exp-mcp.json").exists());
-        assert!(!worktree.join(".exp-pi-mcp.ts").exists());
         // The MCP posture the codex adapter composes its `-c` overrides from
         // points at the instance /api/mcp; the token itself never rides argv…
         assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
@@ -6470,75 +6325,6 @@ mod tests {
             .spawn
             .env
             .contains(&(crate::argv::CODEX_ORIGINATOR_ENV.to_string(), originator)));
-    }
-
-    /// EXP-201: a PI launch writes the `.exp-pi-mcp.ts` bridge (no
-    /// `.exp-mcp.json`), loads it via `-e`, and carries url + token +
-    /// PI_SKIP_VERSION_CHECK in the spawn env; tab titled `pi · …`.
-    #[test]
-    fn prepare_pi_full_sequence() {
-        let dir = temp_dir("pi-happy");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        // EXP-409: the pi auth gate checks credential presence (auth.json or
-        // a provider env key) — CI runners have neither, so satisfy the real
-        // probe the way a real pi setup would.
-        std::env::set_var("ANTHROPIC_API_KEY", "test-pi-credential");
-        let mut req = request("EXP-42");
-        req.options = LaunchOptions {
-            agent: CodingAgent::Pi,
-            model: "grok-4.5".to_string(),
-            effort: "high".to_string(),
-            ultracode: false,
-            plan_mode: false,
-            mcp_server_ids: Vec::new(),
-            account: None,
-            external: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(prepared.tab_title, "pi · EXP-42");
-        // The bridge is on disk (static, secret-free); no .exp-mcp.json.
-        let bridge = fs::read_to_string(worktree.join(".exp-pi-mcp.ts")).unwrap();
-        assert!(!bridge.contains("expu_"));
-        assert!(!worktree.join(".exp-mcp.json").exists());
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        assert_eq!(prepared.acp.mcp, AgentMcp::PiExtension);
-        assert_eq!(prepared.acp.options.model, "grok-4.5");
-        assert_eq!(prepared.acp.options.effort, "high");
-        // EXP-637: every pi run records into its own transcript file, so a
-        // later resume can name it exactly.
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
-        assert!(record
-            .pi_session_file
-            .as_ref()
-            .unwrap()
-            .ends_with("pi-sessions/sess-1.jsonl"));
-        for (key, value) in [
-            ("EXP_MCP_URL", format!("{base}/api/mcp")),
-            ("EXP_MCP_TOKEN", "expu_seeded".to_string()),
-            ("PI_SKIP_VERSION_CHECK", "1".to_string()),
-        ] {
-            assert!(
-                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
-                "missing env {key}={value}: {:?}",
-                prepared.spawn.env
-            );
-        }
     }
 
     /// EXP-201 per-agent doctor gate: a missing codex blocks a CODEX launch
@@ -6831,7 +6617,7 @@ mod tests {
     }
 
     /// EXP-369: a pinned worktree becomes the agent's cwd (and with it the
-    /// `.exp-mcp.json` / pi-bridge target); without one the trunk clone is.
+    /// `.exp-mcp.json` target); without one the trunk clone is.
     #[test]
     fn agent_shell_runs_in_the_pinned_worktree_when_given_one() {
         let clone = PathBuf::from("/repos/acme/web");
@@ -6917,7 +6703,7 @@ mod tests {
     }
 
     /// Every resolved pair lands in the spawn env for every agent; the
-    /// server LIST rides the env only for pi and an external agent (claude
+    /// server LIST rides the env only for an external agent (claude
     /// and codex carry it in their configs), and it never carries a value.
     #[test]
     fn apply_mcp_server_env_lands_every_pair_and_the_list_only_where_the_env_carries_it() {
@@ -6925,7 +6711,6 @@ mod tests {
         let cases = [
             (AgentKind::Builtin(CodingAgent::Claude), false),
             (AgentKind::Builtin(CodingAgent::Codex), false),
-            (AgentKind::Builtin(CodingAgent::Pi), true),
             (AgentKind::External(external_spec()), true),
         ];
         for (agent, list_expected) in cases {
@@ -6951,7 +6736,7 @@ mod tests {
         // An empty pick adds nothing at all — the pre-792 env, byte for byte.
         let bare = apply_mcp_server_env(
             SpawnSpec::new("agent"),
-            &AgentKind::Builtin(CodingAgent::Pi),
+            &AgentKind::External(external_spec()),
             &ResolvedMcp::default(),
         );
         assert!(bare.env.is_empty());

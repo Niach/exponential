@@ -69,21 +69,23 @@ struct Entry {
 
 /// EXP-758: the latest-wins slots, in the relay's replay order
 /// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `rate_limit`,
-/// `diff` — the diff stays LAST, where it replayed before any of this became
-/// a map). EXP-784 added `rate_limit` beside `usage`.
+/// `turn`, `diff` — the diff stays LAST, where it replayed before any of this
+/// became a map). EXP-784 added `rate_limit` beside `usage`; EXP-848 `turn`.
 const SLOT_CONFIG_STATE: usize = 0;
 const SLOT_USAGE: usize = 1;
 const SLOT_RATE_LIMIT: usize = 2;
-const SLOT_DIFF: usize = 3;
-const SLOT_COUNT: usize = 4;
+const SLOT_TURN: usize = 3;
+const SLOT_DIFF: usize = 4;
+const SLOT_COUNT: usize = 5;
 
-/// Which slot an event owns, if any. The ONE place the four latest-wins
-/// kinds are named.
+/// Which slot an event owns, if any. The ONE place the latest-wins kinds are
+/// named.
 fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
         ActivityEvent::ConfigState { .. } => Some(SLOT_CONFIG_STATE),
         ActivityEvent::Usage { .. } => Some(SLOT_USAGE),
         ActivityEvent::RateLimit { .. } => Some(SLOT_RATE_LIMIT),
+        ActivityEvent::Turn { .. } => Some(SLOT_TURN),
         ActivityEvent::Diff { .. } => Some(SLOT_DIFF),
         _ => None,
     }
@@ -95,7 +97,7 @@ pub struct ActivityJournal {
     entries: Vec<Entry>,
     /// EXP-758: latest-wins STATE by kind, held OUTSIDE `entries`, `len()` and
     /// `bytes()` so eviction can never reach it. Each payload is already
-    /// capped upstream (a diff at 512 KiB, a config at 8 options), so three
+    /// capped upstream (a diff at 512 KiB, a config at 8 options), so the
     /// slots are a bounded overhead on top of the budgets, not a hole in them.
     slots: [Option<ActivityEvent>; SLOT_COUNT],
     /// EXP-783: the seq of whatever currently occupies each slot.
@@ -383,6 +385,7 @@ mod tests {
             detail: None,
             at: None,
             tool_calls: None,
+            title: None,
         }
     }
 
@@ -531,6 +534,7 @@ mod tests {
         let mut journal = ActivityJournal::new();
         journal.push(config("opus"));
         journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::turn(crate::frames::TurnState::Started));
         journal.push(ActivityEvent::diff("--- v1"));
         for i in 0..JOURNAL_EVENT_CAP + 500 {
             journal.push(ActivityEvent::narration(format!("line {i}")));
@@ -539,14 +543,15 @@ mod tests {
         assert_eq!(journal.len(), JOURNAL_EVENT_CAP);
         let replay: Vec<&ActivityEvent> = journal.replay().collect();
         assert_eq!(
-            replay[replay.len() - 3..].to_vec(),
+            replay[replay.len() - 4..].to_vec(),
             vec![
                 &config("opus"),
                 &ActivityEvent::usage(10, 200, None),
+                &ActivityEvent::turn(crate::frames::TurnState::Started),
                 &ActivityEvent::diff("--- v1"),
             ],
-            "the log first, then config_state, usage, diff — the relay's own \
-             LATEST_REPLAY_ORDER (hub.ts)"
+            "the log first, then config_state, usage, turn, diff — the relay's \
+             own LATEST_REPLAY_ORDER (hub.ts)"
         );
     }
 
@@ -557,6 +562,7 @@ mod tests {
         let mut journal = ActivityJournal::new();
         journal.push(config("opus"));
         journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::turn(crate::frames::TurnState::Started));
         journal.push(ActivityEvent::diff("--- v1"));
         let big = "x".repeat(600 * 1024);
         for i in 0..12 {
@@ -566,10 +572,11 @@ mod tests {
         assert!(journal.bytes() <= JOURNAL_BYTE_CAP, "{}", journal.bytes());
         let replay: Vec<&ActivityEvent> = journal.replay().collect();
         assert_eq!(
-            replay[replay.len() - 3..].to_vec(),
+            replay[replay.len() - 4..].to_vec(),
             vec![
                 &config("opus"),
                 &ActivityEvent::usage(10, 200, None),
+                &ActivityEvent::turn(crate::frames::TurnState::Started),
                 &ActivityEvent::diff("--- v1"),
             ],
             "a 4 MiB flood of narration never costs the state slots"
@@ -583,6 +590,7 @@ mod tests {
         let mut journal = ActivityJournal::new();
         journal.push(config("opus"));
         journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(ActivityEvent::turn(crate::frames::TurnState::Ended));
         journal.push(ActivityEvent::diff("--- v1"));
 
         assert_eq!(journal.len(), 0);
@@ -590,9 +598,15 @@ mod tests {
         assert!(journal.is_empty(), "len/bytes count the LOG, not the slots");
         assert_eq!(
             journal.replay().count(),
-            3,
-            "…and the replay still carries all three"
+            4,
+            "…and the replay still carries every slot"
         );
+        // EXP-848: only the LAST turn edge survives — the slot is a slot.
+        journal.push(ActivityEvent::turn(crate::frames::TurnState::Started));
+        let replay: Vec<&ActivityEvent> = journal.replay().collect();
+        assert_eq!(replay.len(), 4);
+        assert!(replay
+            .contains(&&ActivityEvent::turn(crate::frames::TurnState::Started)));
     }
 
     #[test]
