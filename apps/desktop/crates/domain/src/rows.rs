@@ -778,9 +778,12 @@ pub struct DeviceRow {
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub unauthed_agents: Option<serde_json::Value>,
     /// EXP-749 jsonb string[] — the subset of `agents` that speaks ACP on
-    /// that machine. NULL (an older build's row) means UNKNOWN: assume every
-    /// runnable agent. Never a filter, only a label
-    /// ([`Self::agent_cannot_run_session`]).
+    /// that machine. Every build at the current floor writes it on register
+    /// AND on every heartbeat, so a NULL column belongs to a row nothing
+    /// online wrote: it reads as EMPTY (nothing there speaks ACP), never as
+    /// "assume everything". Still tolerantly decoded — a row that omits the
+    /// column must parse, not sink the whole device list.
+    /// Never a filter, only a label ([`Self::agent_cannot_run_session`]).
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub acp_agents: Option<serde_json::Value>,
     /// jsonb `{defaultAgent?, agents?: {..}}` — camelCase inner keys.
@@ -846,30 +849,25 @@ impl DeviceRow {
         Self::string_list(&self.unauthed_agents)
     }
 
-    /// EXP-749: the machine's ACP-ready agents, or `None` when the column is
-    /// NULL/unparseable — an older build registered this row and said
-    /// nothing, so nothing may be inferred from it. Deliberately NOT folded
-    /// into an empty `Vec`: "none of them" and "we do not know" are opposite
-    /// answers here.
-    pub fn acp_agent_ids(&self) -> Option<Vec<String>> {
-        let list = self.acp_agents.as_ref()?.as_array()?;
-        Some(
-            list.iter()
-                .filter_map(|item| item.as_str().map(str::to_string))
-                .collect(),
-        )
+    /// EXP-749: the machine's ACP-ready agents. A NULL/unparseable column
+    /// folds to EMPTY: every build a client can reach advertises the list, so
+    /// silence is "nothing here speaks ACP", not a licence to assume.
+    pub fn acp_agent_ids(&self) -> Vec<String> {
+        let Some(list) = self.acp_agents.as_ref().and_then(|value| value.as_array()) else {
+            return Vec::new();
+        };
+        list.iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect()
     }
 
     /// EXP-773: whether `agent` CANNOT run a coding session on this machine
     /// — it is runnable there, but absent from the ACP-ready list, and the
-    /// engine is the only transport. Unknown readiness reads as ready (the
-    /// pickers stay quiet rather than warning about a machine they know
-    /// nothing about), and so does an agent this device cannot run at all —
-    /// the launch gate names that failure instead.
+    /// engine is the only transport. An agent this device cannot run at all
+    /// is not this note's business: the launch gate names that failure
+    /// instead.
     pub fn agent_cannot_run_session(&self, agent: &str) -> bool {
-        let Some(acp) = self.acp_agent_ids() else {
-            return false;
-        };
+        let acp = self.acp_agent_ids();
         self.agent_ids().iter().any(|id| id == agent) && !acp.iter().any(|id| id == agent)
     }
 
@@ -1102,11 +1100,11 @@ mod tests {
         assert_eq!(narrow.agent_usage_for("claude"), None);
     }
 
-    /// EXP-749: the ACP-ready subset. A LIST is authoritative (EXP-773: an
-    /// agent missing from it cannot start a run there at all); a NULL column
-    /// is an older build's row and means unknown, so nothing is claimed.
+    /// EXP-749: the ACP-ready subset. The list is authoritative (EXP-773: an
+    /// agent missing from it cannot start a run there at all), and a NULL
+    /// column reads as EMPTY — every build a client can reach advertises it.
     #[test]
-    fn device_row_reads_acp_agents_and_null_means_unknown() {
+    fn device_row_reads_acp_agents_and_null_means_none() {
         // TEXT-stored jsonb, like every other list column.
         let row: DeviceRow = serde_json::from_value(json!({
             "id": "row-1",
@@ -1114,7 +1112,7 @@ mod tests {
             "acp_agents": "[\"claude\"]",
         }))
         .unwrap();
-        assert_eq!(row.acp_agent_ids(), Some(vec!["claude".to_string()]));
+        assert_eq!(row.acp_agent_ids(), vec!["claude".to_string()]);
         assert!(!row.agent_cannot_run_session("claude"));
         assert!(row.agent_cannot_run_session("codex"));
         // An agent the machine cannot run at all is the launch gate's
@@ -1128,10 +1126,11 @@ mod tests {
             "acp_agents": [],
         }))
         .unwrap();
-        assert_eq!(none_ready.acp_agent_ids(), Some(Vec::new()));
+        assert!(none_ready.acp_agent_ids().is_empty());
         assert!(none_ready.agent_cannot_run_session("claude"));
 
-        // NULL / absent / garbage = unknown: assume every runnable agent.
+        // NULL / absent / garbage: the ROW still parses (tolerant decoding),
+        // and reads as "nothing here speaks ACP".
         for column in [json!(null), json!("not json"), json!(7)] {
             let row: DeviceRow = serde_json::from_value(json!({
                 "id": "row-3",
@@ -1139,11 +1138,12 @@ mod tests {
                 "acp_agents": column,
             }))
             .unwrap();
-            assert_eq!(row.acp_agent_ids(), None);
-            assert!(!row.agent_cannot_run_session("claude"));
+            assert!(row.acp_agent_ids().is_empty());
+            assert!(row.agent_cannot_run_session("claude"));
         }
         let missing: DeviceRow = serde_json::from_value(json!({"id": "row-4"})).unwrap();
-        assert_eq!(missing.acp_agent_ids(), None);
+        assert!(missing.acp_agent_ids().is_empty());
+        // Nothing runnable is declared either, so the note still says nothing.
         assert!(!missing.agent_cannot_run_session("claude"));
     }
 

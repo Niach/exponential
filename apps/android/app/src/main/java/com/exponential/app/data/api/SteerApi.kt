@@ -186,10 +186,13 @@ data class SteerDevice(
     @SerialName("caps") val caps: List<String>? = null,
     /**
      * EXP-749: the agents this machine runs through the in-process ACP engine
-     * (the session screen). NULL is UNKNOWN, not empty — an older build never
-     * advertises it, and every runnable agent is then assumed ACP-ready.
+     * (the session screen). Every build above the version floor reports it, so
+     * an EMPTY list is the real answer — that machine can start nothing right
+     * now. Decoding stays tolerant of a missing key: `devices.acp_agents` is a
+     * nullable column and a registry row for a machine that never reported
+     * still syncs as NULL (DeviceRows maps that to empty).
      */
-    @SerialName("acpAgents") val acpAgents: List<String>? = null,
+    @SerialName("acpAgents") val acpAgents: List<String> = emptyList(),
     /**
      * EXP-437: the machine's per-agent coding defaults, so a remote start
      * pre-fills what that machine would use locally. Absent on older desktops
@@ -276,24 +279,17 @@ data class SteerDevice(
 
     /**
      * The agents this machine runs through the ACP engine, in contract order
-     * (EXP-749), or null when it never advertised any — see [acpAgents].
-     * EXP-773 deleted the PTY fallback, so an agent missing from a reported
-     * list cannot start here at all.
+     * (EXP-749) — see [acpAgents]. Empty = nothing can start there.
      */
-    val acpAgentIds: List<String>?
-        get() = acpAgents?.let { advertised ->
-            DomainContract.codingAgentValues.filter { it in advertised }
-        }
+    val acpAgentIds: List<String>
+        get() = DomainContract.codingAgentValues.filter { it in acpAgents }
 
     /**
-     * EXP-773: whether [agent] CANNOT start here — the machine reported an ACP
-     * set and this agent is outside it, and there is no PTY path left. Nothing
-     * is FILTERED on it: the agent stays pickable, the caption says why the
-     * start is blocked. Unknown (null [acpAgentIds]) reads as ready, the
-     * pre-EXP-749 answer.
+     * EXP-773: whether [agent] CANNOT start here — it is outside the machine's
+     * ACP set, and there is no PTY path left. Nothing is FILTERED on it: the
+     * agent stays pickable, the caption says why the start is blocked.
      */
-    fun agentNotReady(agent: String): Boolean =
-        acpAgentIds?.let { agent !in it } == true
+    fun agentNotReady(agent: String): Boolean = agent !in acpAgentIds
 
     /** EXP-409: agents installed but signed out — displayed, never offered. */
     val unauthedAgentIds: List<String>
@@ -338,6 +334,17 @@ data class SteerDevice(
      * account buttons only appear for machines that advertise it.
      */
     val canAgentLogin: Boolean get() = caps?.contains("agent-login") == true
+
+    /**
+     * EXP-849: whether this machine can switch the account of a LIVE run —
+     * end it, move the transcript into the other profile and relaunch there.
+     * A build without the cap resumes on the RECORDED account and drops the
+     * `account` field, so the switch would silently keep the exhausted login;
+     * the server refuses such a live switch, and the rows say so instead of
+     * failing after the tap. An ENDED run needs no cap: naming an account on
+     * a resume is the launch-time choice every build honours.
+     */
+    val canSwitchAccount: Boolean get() = caps?.contains("account-switch") == true
 
     /**
      * EXP-746: whether this machine runs coding sessions through the

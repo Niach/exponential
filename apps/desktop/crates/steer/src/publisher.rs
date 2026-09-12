@@ -599,7 +599,7 @@ impl Recorder {
         if let Some(file) = self.file.as_mut() {
             file.append(&event);
         }
-        self.journal.push_seq(Some(seq), event);
+        self.journal.push_seq(seq, event);
         seq
     }
 }
@@ -994,7 +994,7 @@ async fn pump_connection(
                         // image path back to the token the steerer sent.
                         prepare_for_journal(&mut event, embeds);
                         let seq = recorder.push(event.clone());
-                        if !send_activity(ws, Some(seq), event).await {
+                        if !send_activity(ws, seq, event).await {
                             return LoopEnd::Dropped;
                         }
                     }
@@ -1176,7 +1176,7 @@ async fn send_history_page(
     ws.send(Message::Text(frame)).await.is_ok()
 }
 
-async fn send_activity(ws: &mut WsStream, seq: Option<u64>, event: ActivityEvent) -> bool {
+async fn send_activity(ws: &mut WsStream, seq: u64, event: ActivityEvent) -> bool {
     let frame = ClientFrame::Activity { event, seq }.to_json();
     if frame.len() >= RELAY_MAX_PAYLOAD_BYTES {
         log::warn!(

@@ -39,8 +39,28 @@ class FakeSocket {
     this.readyState = WebSocket.OPEN
     this.onopen?.()
   }
+  /** EXP-783: every publisher numbers its activity frames and every relay
+   *  names the span its replay covered, so the fake relay does too — a test
+   *  that cares about the numbers passes them and the counter follows along,
+   *  everything else gets a plain 0-based run. */
+  private nextSeq = 0
   frame(frame: object) {
-    this.onmessage?.({ data: JSON.stringify(frame) })
+    const f = frame as {
+      t?: string
+      seq?: number
+      firstSeq?: number
+      lastSeq?: number
+    }
+    let out: object = frame
+    if (f.t === `activity`) {
+      const seq = f.seq ?? this.nextSeq
+      this.nextSeq = Math.max(this.nextSeq, seq + 1)
+      out = { ...f, seq }
+    } else if (f.t === `activity_synced`) {
+      // Defaults FIRST: an explicit span in the test wins.
+      out = { firstSeq: 0, lastSeq: Math.max(0, this.nextSeq - 1), ...f }
+    }
+    this.onmessage?.({ data: JSON.stringify(out) })
   }
   serverClose(code = 1006) {
     this.readyState = WebSocket.CLOSED
@@ -271,7 +291,9 @@ describe(`connection lifecycle`, () => {
     await vi.advanceTimersByTimeAsync(1_000)
     expect(store.getSnapshot().feed).toHaveLength(1)
     socket.frame({ t: `activity_reset` })
-    socket.frame({ t: `activity_synced` })
+    // A room with nothing to replay names the empty span at zero, so nothing
+    // on screen can be proved older than it: the feed swaps whole.
+    socket.frame({ t: `activity_synced`, firstSeq: 0, lastSeq: 0 })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(store.getSnapshot().feed).toHaveLength(0)
     store.dispose()
@@ -942,6 +964,30 @@ describe(`sending`, () => {
     store.dispose()
   })
 
+  // EXP-783: the echo is a row this client made up, so it inherits the newest
+  // sequence it has seen — the feed stays monotonic and a later replay can
+  // still measure the prefix against its span.
+  it(`a local echo inherits the newest sequence on screen`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `narration`, text: `working` },
+      seq: 12,
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.sendMessage(`and now this`)).toBe(true)
+    expect(store.getSnapshot().feed.at(-1)).toMatchObject({
+      kind: `user_message`,
+      seq: 12,
+    })
+    const feed = store.getSnapshot().feed
+    expect(feed.every((item, ix) => ix === 0 || feed[ix - 1].seq <= item.seq)).toBe(
+      true
+    )
+    store.dispose()
+  })
+
   it(`sendMessage returns false with no open socket (draft is kept by the caller)`, () => {
     const { store } = makeStore()
     expect(store.sendMessage(`too early`)).toBe(false)
@@ -955,6 +1001,7 @@ describe(`answering questions`, () => {
   const card = (questionId: string) =>
     ({
       id: 1,
+      seq: 1,
       kind: `question` as const,
       text: `Which approach?`,
       options: [{ label: `Refactor`, key: `1` }],
@@ -1222,7 +1269,10 @@ describe(`compaction`, () => {
     socket.frame(compaction(`ended`))
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().compacting).toBeNull()
-    expect(store.getSnapshot().feed).toEqual([{ id: 0, kind: `compaction` }])
+    // The marker carries the sequence of the `ended` event behind it.
+    expect(store.getSnapshot().feed).toEqual([
+      { id: 0, kind: `compaction`, seq: 1 },
+    ])
     store.dispose()
   })
 
@@ -1232,7 +1282,9 @@ describe(`compaction`, () => {
     socket.frame(compaction(`ended`))
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().compacting).toBeNull()
-    expect(store.getSnapshot().feed).toEqual([{ id: 0, kind: `compaction` }])
+    expect(store.getSnapshot().feed).toEqual([
+      { id: 0, kind: `compaction`, seq: 0 },
+    ])
     store.dispose()
   })
 
@@ -1249,7 +1301,7 @@ describe(`compaction`, () => {
     expect(store.getSnapshot().compacting).toBeNull()
     // No marker row — the fold never reported an end.
     expect(store.getSnapshot().feed).toEqual([
-      { id: 0, kind: `narration`, text: `Back at it` },
+      { id: 0, kind: `narration`, text: `Back at it`, seq: 1 },
     ])
     store.dispose()
   })
@@ -1907,7 +1959,9 @@ describe(`replay staging (EXP-751)`, () => {
 
   it(`a replay with no end marker commits on the quiet timeout`, async () => {
     const { store, socket } = await liveWithFeed()
-    // An old relay: reset + replay, no activity_synced.
+    // A publisher-driven republish: reset + replay and no `activity_synced`
+    // at all (the marker is a JOIN reply), so nothing names a span and the
+    // quiet timer commits the full swap.
     socket.frame({ t: `activity_reset` })
     socket.frame(narration(`replayed one`))
     await vi.advanceTimersByTimeAsync(100)

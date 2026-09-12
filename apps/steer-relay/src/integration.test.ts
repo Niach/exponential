@@ -85,6 +85,18 @@ function collector(ws: WebSocket) {
   }
 }
 
+/** EXP-783: every publisher numbers its activity frames, so the tests do too
+ *  — one 0-based counter per publisher socket, exactly like a device's
+ *  recorder. Returns the seq it sent, which is what the relay echoes back and
+ *  what `activity_synced` names its span with. */
+const publisherSeqs = new WeakMap<WebSocket, number>()
+function sendActivity(pub: WebSocket, event: unknown): number {
+  const seq = publisherSeqs.get(pub) ?? 0
+  publisherSeqs.set(pub, seq + 1)
+  pub.send(JSON.stringify({ t: `activity`, event, seq }))
+  return seq
+}
+
 /** EXP-672: with the outbound presence listing gone, "has the control socket
  *  registered yet?" is observable only through routing — `/start` answers 404
  *  and sends NOTHING until the `online` frame lands, so retrying the real
@@ -160,15 +172,8 @@ describe(`steer relay end-to-end`, () => {
       })
     )
     // Activity emitted BEFORE anyone joins → the replayable log + lastDiff.
-    pub.send(
-      JSON.stringify({
-        t: `activity`,
-        event: { kind: `narration`, text: `thinking` },
-      })
-    )
-    pub.send(
-      JSON.stringify({ t: `activity`, event: { kind: `diff`, diff: `+ line` } })
-    )
+    const thinkingSeq = sendActivity(pub, { kind: `narration`, text: `thinking` })
+    sendActivity(pub, { kind: `diff`, diff: `+ line` })
 
     const member = await connect(
       ticket({ role: `viewer`, sub: `member-user`, sessionId })
@@ -187,8 +192,13 @@ describe(`steer relay end-to-end`, () => {
       t: `activity`,
       event: { kind: `diff`, diff: `+ line` },
     })
-    // EXP-656: the join replay ends with an explicit marker.
-    expect(await memberIn.nextJson()).toEqual({ t: `activity_synced` })
+    // EXP-656: the join replay ends with an explicit marker. EXP-783: it names
+    // the span of the LOG it replayed (the latest-wins diff is not in it).
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity_synced`,
+      firstSeq: thinkingSeq,
+      lastSeq: thinkingSeq,
+    })
 
     // Live activity — including the v2 kinds — reaches the member intact.
     const question = {
@@ -204,8 +214,12 @@ describe(`steer relay end-to-end`, () => {
       total: 2,
       header: `Palette`,
     }
-    pub.send(JSON.stringify({ t: `activity`, event: question }))
-    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: question })
+    const questionSeq = sendActivity(pub, question)
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity`,
+      event: question,
+      seq: questionSeq,
+    })
 
     // A joined viewer's input and answers reach the publisher directly
     // (EXP-312: steering is seamless and owner-only — no claim, no perm).
@@ -228,26 +242,20 @@ describe(`steer relay end-to-end`, () => {
     })
 
     // The publisher acks + resolves the card; both are ordinary activity.
-    pub.send(
-      JSON.stringify({
-        t: `activity`,
-        event: { kind: `answer_ack`, id: `toolu_1#0`, askId: `toolu_1` },
-      })
-    )
+    sendActivity(pub, {
+      kind: `answer_ack`,
+      id: `toolu_1#0`,
+      askId: `toolu_1`,
+    })
     expect(await memberIn.nextJson()).toMatchObject({
       t: `activity`,
       event: { kind: `answer_ack`, id: `toolu_1#0` },
     })
-    pub.send(
-      JSON.stringify({
-        t: `activity`,
-        event: {
-          kind: `question_resolved`,
-          id: `toolu_1#0`,
-          answers: [`Blue`],
-        },
-      })
-    )
+    sendActivity(pub, {
+      kind: `question_resolved`,
+      id: `toolu_1#0`,
+      answers: [`Blue`],
+    })
     expect(await memberIn.nextJson()).toMatchObject({
       t: `activity`,
       event: { kind: `question_resolved`, answers: [`Blue`] },
@@ -256,12 +264,13 @@ describe(`steer relay end-to-end`, () => {
     // activity_reset from the publisher clears the log and tells the audience.
     pub.send(JSON.stringify({ t: `activity_reset` }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
-    pub.send(
-      JSON.stringify({
-        t: `activity`,
-        event: { kind: `narration`, text: `republished` },
-      })
-    )
+    // The publisher keeps counting across its own reset (its journal is one
+    // run), so the republished log starts ABOVE zero — which is exactly what
+    // makes the late joiner's span `truncated`.
+    const republishedSeq = sendActivity(pub, {
+      kind: `narration`,
+      text: `republished`,
+    })
     expect(await memberIn.nextJson()).toMatchObject({
       t: `activity`,
       event: { kind: `narration`, text: `republished` },
@@ -294,12 +303,20 @@ describe(`steer relay end-to-end`, () => {
       contextSize: 200_000,
       costUsd: 1.24,
     }
-    pub.send(JSON.stringify({ t: `activity`, event: { ...configState, currentMode: `code` } }))
+    sendActivity(pub, { ...configState, currentMode: `code` })
     expect(await memberIn.nextJson()).toMatchObject({ t: `activity` })
-    pub.send(JSON.stringify({ t: `activity`, event: configState }))
-    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: configState })
-    pub.send(JSON.stringify({ t: `activity`, event: usage }))
-    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: usage })
+    const configSeq = sendActivity(pub, configState)
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity`,
+      event: configState,
+      seq: configSeq,
+    })
+    const usageSeq = sendActivity(pub, usage)
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity`,
+      event: usage,
+      seq: usageSeq,
+    })
 
     // EXP-850 §2/§3: the two new latest-wins kinds ride the same rails — the
     // workflow cards keyed PER ID, replayed between `turn` and the strip.
@@ -335,12 +352,17 @@ describe(`steer relay end-to-end`, () => {
         },
       ],
     }
-    pub.send(JSON.stringify({ t: `activity`, event: workflow }))
-    expect(await memberIn.nextJson()).toEqual({ t: `activity`, event: workflow })
-    pub.send(JSON.stringify({ t: `activity`, event: backgroundTasks }))
+    const workflowSeq = sendActivity(pub, workflow)
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity`,
+      event: workflow,
+      seq: workflowSeq,
+    })
+    const tasksSeq = sendActivity(pub, backgroundTasks)
     expect(await memberIn.nextJson()).toEqual({
       t: `activity`,
       event: backgroundTasks,
+      seq: tasksSeq,
     })
 
     const late = await connect(
@@ -354,14 +376,34 @@ describe(`steer relay end-to-end`, () => {
       event: { kind: `narration`, text: `republished` },
     })
     // The newest snapshot only, and after the log.
-    expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: configState })
-    expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: usage })
-    expect(await lateIn.nextJson()).toEqual({ t: `activity`, event: workflow })
+    expect(await lateIn.nextJson()).toEqual({
+      t: `activity`,
+      event: configState,
+      seq: configSeq,
+    })
+    expect(await lateIn.nextJson()).toEqual({
+      t: `activity`,
+      event: usage,
+      seq: usageSeq,
+    })
+    expect(await lateIn.nextJson()).toEqual({
+      t: `activity`,
+      event: workflow,
+      seq: workflowSeq,
+    })
     expect(await lateIn.nextJson()).toEqual({
       t: `activity`,
       event: backgroundTasks,
+      seq: tasksSeq,
     })
-    expect(await lateIn.nextJson()).toEqual({ t: `activity_synced` })
+    // The log this room holds starts above zero, so the span it names is a
+    // TAIL: the pages below it live in the device's journal.
+    expect(await lateIn.nextJson()).toEqual({
+      t: `activity_synced`,
+      firstSeq: republishedSeq,
+      lastSeq: republishedSeq,
+      truncated: true,
+    })
     late.close()
 
     // EXP-746: live-config steering rides the same viewer gate, and a BLANK
@@ -411,17 +453,17 @@ describe(`steer relay end-to-end`, () => {
     const memberIn = collector(member)
     member.send(JSON.stringify({ t: `join`, channel: `activity` }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
-    expect(await memberIn.nextJson()).toEqual({ t: `activity_synced` })
+    // Nothing to replay: the span is the empty one at zero.
+    expect(await memberIn.nextJson()).toEqual({
+      t: `activity_synced`,
+      firstSeq: 0,
+      lastSeq: 0,
+    })
 
     // A frame no schema in the union matches fails the parse and is dropped;
     // nothing is relayed and the socket stays open.
     pub.send(JSON.stringify({ t: `resize`, cols: 200, rows: 50 }))
-    pub.send(
-      JSON.stringify({
-        t: `activity`,
-        event: { kind: `narration`, text: `after the unknown frame` },
-      })
-    )
+    sendActivity(pub, { kind: `narration`, text: `after the unknown frame` })
     // The very next frame is the activity event.
     expect(await memberIn.nextJson()).toMatchObject({
       t: `activity`,

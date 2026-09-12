@@ -98,12 +98,6 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   device without it.
 /// - `acp` (EXP-746) — this build speaks the ACP engine and steering v2:
 ///   `set_config`/`set_mode` frames, `config_state`/`usage` kinds.
-/// - `agent-login-code` (EXP-765) — this build runs `agent_login_code`: it
-///   types the authorization code claude's browser page hands the requester
-///   into the login PTY still waiting for it. EXP-745 dropped the server and
-///   current-client gates on it (every device runs the command), but SHIPPED
-///   iOS/Android builds still hide their code field for a machine that does
-///   not advertise it, so the cap stays declared.
 /// - `mcp` (EXP-792) — this build runs `mcp_oauth_start`/`mcp_oauth_code`
 ///   and reports per-server MCP readiness on the heartbeat; the server
 ///   refuses `beginOAuth` against a device without it.
@@ -112,10 +106,11 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 /// - `update-now` (FEED-36) — this build runs `update_now`: ends every live
 ///   session and applies a queued self-update right away (the CLI daemon;
 ///   the desktop advertises it too but updates through its own updater).
-///
-/// EXP-849's `agent_profile_use` ("use this account here") rides `agent-login`
-/// rather than a cap of its own: the server gates it on that cap, and a build
-/// that can drive a machine's logins can also point it at one of them.
+/// - `account-switch` (EXP-849) — this build honours the `account` field on a
+///   `start_session` frame that RESUMES a live claude run (the mid-run account
+///   switch) and runs the `agent_profile_use` command ("use this account
+///   here"). It refuses nothing new: a machine without it simply never gets
+///   asked, and the server refuses both on its behalf.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
 /// (`apps/web/src/lib/trpc/devices.ts`); this is 10 + 7 = 17.
@@ -126,11 +121,16 @@ pub const DEVICE_CAPS: [&str; 10] = [
     "agent-login",
     "agent-start",
     "acp",
-    "agent-login-code",
+    ACCOUNT_SWITCH_CAP,
     "mcp",
     "agent-usage-refresh",
     "update-now",
 ];
+
+/// EXP-849's account-switch cap, by name: the ONE place the literal lives, so
+/// a client deciding whether a machine can move a live run (or its default
+/// login) to another account never repeats the string.
+pub const ACCOUNT_SWITCH_CAP: &str = "account-switch";
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
@@ -1434,16 +1434,17 @@ mod tests {
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
-        // EXP-765: handing the login its code is part of the same signed-out
-        // story — a build cap beside `agent-login`, never an action cap.
-        assert!(DEVICE_CAPS.contains(&"agent-login-code"));
-        assert!(!ACTION_CAPS.contains(&"agent-login-code"));
-        assert!(signed_out.contains(&"agent-login-code".to_string()));
+        // EXP-849: pointing a machine at one of its logins is part of the same
+        // signed-out story — a build cap beside `agent-login`, never an action
+        // cap.
+        assert!(DEVICE_CAPS.contains(&ACCOUNT_SWITCH_CAP));
+        assert!(!ACTION_CAPS.contains(&ACCOUNT_SWITCH_CAP));
+        assert!(signed_out.contains(&ACCOUNT_SWITCH_CAP.to_string()));
     }
 
     /// EXP-792: running `mcp_oauth_*` and a forced usage refresh are
     /// properties of the BINARY — build caps, advertised while signed out,
-    /// and the whole list stays under `capsInput`'s ceiling of 16.
+    /// and the whole list stays under `capsInput`'s ceiling of 24.
     #[test]
     fn device_caps_include_mcp_and_usage_refresh_under_the_ceiling() {
         assert!(DEVICE_CAPS.contains(&"mcp"));

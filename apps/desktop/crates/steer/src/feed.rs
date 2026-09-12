@@ -151,8 +151,9 @@ pub enum FeedKind {
         /// nested under that subagent's card.
         subagent_id: Option<String>,
         /// EXP-785: the ACP tool-call id — the key a `tool_update` folds
-        /// into this row by. Absent from a pre-EXP-785 publisher's rows,
-        /// which then never settle.
+        /// into this row by. Absent from a REPLAYED journal line older than
+        /// EXP-785 (the device keeps 60 days of them), which then never
+        /// settles.
         call_id: Option<String>,
         /// EXP-785: ACP's kind bucket (`edit`, `execute`, …), when the
         /// publisher sent one.
@@ -253,10 +254,12 @@ pub struct SessionRateLimit {
 pub struct FeedItem {
     pub id: FeedItemId,
     pub kind: FeedKind,
-    /// EXP-783: the publisher's wire sequence for the event behind this row,
-    /// when it sent one. The only monotonic anchor a client has: it is what
-    /// lets a replay be spliced onto a prefix already on screen, and what an
-    /// older-page request is addressed relative to.
+    /// EXP-783: the publisher's wire sequence for the event behind this row.
+    /// `None` on a LOCAL row (this client's own echo, a synthetic card): the
+    /// wire numbers every event, the feed's own rows are not on it. The only
+    /// monotonic anchor a client has: it is what lets a replay be spliced
+    /// onto a prefix already on screen, and what an older-page request is
+    /// addressed relative to.
     pub seq: Option<u64>,
 }
 
@@ -585,10 +588,11 @@ impl SteerFeed {
     /// EXP-783 — the span-aware commit. `first_seq` is the OLDEST sequence
     /// the replay carried: everything the feed already holds BELOW it is a
     /// prefix the replay does not restate, so it is KEPT and the replay is
-    /// spliced on top. Without a `first_seq` (a publisher or relay older than
-    /// EXP-783) this is the full swap it has always been.
-    pub fn apply_synced_from(&mut self, first_seq: Option<u64>) {
-        self.commit_staged(first_seq);
+    /// spliced on top. The marker always names its span; the markerless
+    /// paths ([`SteerFeed::apply_synced`], [`SteerFeed::force_swap`]) are the
+    /// ones that still swap the whole transcript.
+    pub fn apply_synced_from(&mut self, first_seq: u64) {
+        self.commit_staged(Some(first_seq));
     }
 
     /// The caller's fallback for a replay that ends without a marker: commit
@@ -673,8 +677,8 @@ impl SteerFeed {
 
     /// EXP-783: the oldest wire sequence the feed still holds — what the next
     /// older-page request is asked relative to. `None` when nothing on screen
-    /// is numbered (every publisher older than EXP-783), which is also the
-    /// signal that paging is unavailable for this run.
+    /// is numbered (a feed of purely LOCAL rows: echoes and synthetic cards),
+    /// which is also the signal that there is nothing to page back from.
     pub fn oldest_seq(&self) -> Option<u64> {
         self.items.iter().find_map(|item| item.seq)
     }
@@ -2271,7 +2275,7 @@ mod tests {
         for seq in 3..8u64 {
             feed.apply_seq(Some(seq), ActivityEvent::narration(format!("line {seq}")));
         }
-        feed.apply_synced_from(Some(3));
+        feed.apply_synced_from(3);
 
         assert_eq!(
             texts(&feed),

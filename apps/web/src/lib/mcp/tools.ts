@@ -2,6 +2,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import {
+  actionInputsSchema,
   automationTriggerSchema,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
@@ -63,12 +64,6 @@ import {
   builtinFixConflictsAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
-// EXP-825 compat: the retired `text`/`textarea` input kinds are accepted and
-// dropped at the boundary (lib/action-inputs.ts owns the rule + trigger).
-import {
-  compatActionInputsSchema,
-  retireLegacyActionInputs,
-} from "@/lib/action-inputs"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
@@ -1372,7 +1367,10 @@ export function registerExponentialTools(
         }
 
         const contentType = attachment.contentType
-        const isImage = contentType.startsWith(`image/`)
+        // EXP-853 review: the inline copy goes through sharp, so classify
+        // with the SAME accepted-image set the uploads use — a stored
+        // `image/svg+xml` is an `image/` type sharp would hand to librsvg.
+        const isImage = isAcceptedImageContentType(contentType)
         const isTextLike =
           contentType.startsWith(`text/`) ||
           contentType === `application/json` ||
@@ -3153,11 +3151,6 @@ export function registerExponentialTools(
             caps: device.caps,
             version: device.version,
             sharedTeamIds: device.sharedTeamIds,
-            // FEED-33 compat: the pre-FEED-33 single-team key
-            // (`sharedTeamIds[0]`, null when private) old MCP consumers
-            // read. Removable once ios min >= 0.14.30 AND android min >=
-            // 0.14.32 AND desktop/cli min >= 0.14.37 (lib/api-conventions.ts).
-            sharedTeamId: device.sharedTeamIds?.[0] ?? null,
             isDefault: device.isDefault,
             // EXP-484: per-agent sign-in status and usage windows as the
             // machine last probed them (absent on builds without the
@@ -3634,26 +3627,14 @@ export function registerExponentialTools(
         icon: boardIconEnumSchema.nullable().optional(),
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
-        inputs: compatActionInputsSchema.optional(),
+        inputs: actionInputsSchema.optional(),
         promptPlaceholder: z.string().max(200).nullable().optional(),
       }),
     },
     async (input) => {
       try {
         if (!access.full) assertTeamFullyGranted(access, input.teamId)
-        // EXP-825 compat: an old creator run still declares `type: text`
-        // inputs — dropped here, the hint seeded from the first one.
-        const retired = retireLegacyActionInputs(
-          input.inputs,
-          input.promptPlaceholder
-        )
-        const result = await caller(user, request).actions.create({
-          ...input,
-          ...(retired.inputs !== undefined ? { inputs: retired.inputs } : {}),
-          ...(retired.promptPlaceholder !== undefined
-            ? { promptPlaceholder: retired.promptPlaceholder }
-            : {}),
-        })
+        const result = await caller(user, request).actions.create(input)
         return ok(result.action)
       } catch (e) {
         return err(e)
@@ -3672,7 +3653,7 @@ export function registerExponentialTools(
         icon: boardIconEnumSchema.nullable().optional(),
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
-        inputs: compatActionInputsSchema.optional(),
+        inputs: actionInputsSchema.optional(),
         promptPlaceholder: z.string().max(200).nullable().optional(),
         sortOrder: z.number().finite().optional(),
       }),
@@ -3683,9 +3664,6 @@ export function registerExponentialTools(
           const action = await getActionContext(input.id)
           assertTeamFullyGranted(access, action.teamId)
         }
-        // EXP-825 compat: retired text defs ride through to actions.update,
-        // which drops them against the ROW (the hint seeds only when the
-        // row has none — a decision this tool cannot make without it).
         const result = await caller(user, request).actions.update(input)
         return ok(result.action)
       } catch (e) {

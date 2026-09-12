@@ -204,7 +204,22 @@ class DeviceRowsTest {
     }
 
     @Test
-    fun `acp_agents maps through and null means every agent is assumed ready`() {
+    fun `the account-switch cap is read off the machine's caps`() {
+        // EXP-849: a mid-run switch needs the machine to honour `account` on a
+        // live run's resume; an older build silently keeps the recorded login.
+        val switcher = entity { copy(caps = """["resume-run","account-switch"]""") }
+            .toSteerDevice(nowMs, "me")
+        assertTrue(switcher.canSwitchAccount)
+
+        assertFalse(
+            entity { copy(caps = """["resume-run"]""") }
+                .toSteerDevice(nowMs, "me").canSwitchAccount,
+        )
+        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canSwitchAccount)
+    }
+
+    @Test
+    fun `acp_agents maps through and an absent one means nothing can start`() {
         // EXP-773: an agent the machine runs but does NOT drive through the
         // engine cannot start there at all; nothing is filtered on it, the
         // sheet captions it and blocks the start.
@@ -214,19 +229,18 @@ class DeviceRowsTest {
         assertFalse(partial.agentNotReady("claude"))
         assertTrue(partial.agentNotReady("codex"))
 
-        // Unknown (an older machine, or one that never advertised): assume
-        // every runnable agent is ACP-ready, the pre-EXP-749 reading.
-        val unknown = entity().toSteerDevice(nowMs, "me")
-        assertNull(unknown.acpAgentIds)
-        assertFalse(unknown.agentNotReady("codex"))
-
-        // Explicitly empty is NOT unknown: nothing can start there.
+        // Empty: nothing can start there.
         val none = entity { copy(acpAgents = "[]") }.toSteerDevice(nowMs, "me")
         assertEquals(emptyList<String>(), none.acpAgentIds)
         assertTrue(none.agentNotReady("claude"))
 
-        // Malformed jsonb degrades to unknown, never drops the row.
+        // A NULL column (a registry row whose machine never reported one) and
+        // malformed jsonb both read the same way — no assumption is made for
+        // a machine that did not answer.
+        val absent = entity().toSteerDevice(nowMs, "me")
+        assertEquals(emptyList<String>(), absent.acpAgentIds)
+        assertTrue(absent.agentNotReady("codex"))
         val broken = entity { copy(acpAgents = "not json") }.toSteerDevice(nowMs, "me")
-        assertNull(broken.acpAgentIds)
+        assertEquals(emptyList<String>(), broken.acpAgentIds)
     }
 }

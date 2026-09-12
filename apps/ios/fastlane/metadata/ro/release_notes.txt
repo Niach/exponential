@@ -1,20 +1,12 @@
-- Video și audio în descrieri și comentarii: atașezi un clip și rulează chiar acolo, cu imagine de copertă și durata lui; ce încarci este convertit întâi la 720p
-- Conturi GitHub: setările echipei listează fiecare cont conectat cu un link „Configure”, iar „Connect another account” deschide selectorul de cont al GitHub, așa că se poate instala și o a doua organizație
-- Adăugare repository: selectorul spune de ce lipsește un repository, trimite la setările GitHub ale fiecărui cont și acceptă un repository după nume
-- Listă mai scurtă de rulări trecute: o rulare încheiată arată mașina și ora, fără numele agentului și motivul încheierii
-- Punctul unei sesiuni active s-a mutat pe butonul Chat din bara de jos, care apare acum pe fiecare filă; la Devices rămâne doar avertismentul de autentificare
-- Câmpul numește întotdeauna mașina pe care va porni o rulare și deschide un meniu doar când există mai multe
-- Bannerul de limită dispare singur după ce trece ora de resetare, iar un simplu avertisment de consum nu apare niciodată ca limită
-- Partajează o mașină cu mai multe echipe: foaia dispozitivului are câte un comutator pentru fiecare echipă, în loc de o singură alegere
-- Detalii de câmp: „Plan” este un comutator, un task sau o acțiune aleasă se scoate cu propriul buton de închidere, iar bara de jos a unui board unește chatul și taskul nou într-o singură capsulă
-- Fixări: fixează un task, o sesiune sau o acțiune din meniul ei și stă în secțiunea „Pinned” din capul selectorului de boarduri
-- Conturi pe pagina „Devices”: câte un rând pentru fiecare cont de agent, cu barele lui de consum și un chip pentru fiecare mașină, aceeași secțiune pe care o au web și desktop
-- Un singur câmp pentru tot: câmpul din pagina „Agent” pornește totul, cu taskurile sau o acțiune alese sus și mașina, agentul, modelul și modul plan dedesubt; foaia „Start coding” a dispărut
-- Fiecare buton de pornire duce acolo: „Start coding” pe un task, bara de selecție multiplă, „Run” pe o acțiune și „Fix merge conflicts” deschid câmpul cu lucrurile potrivite deja alese
-- Instrucțiuni la pornire: ce scrii lângă taskurile sau acțiunea alese ajunge la rulare ca instrucțiuni suplimentare; într-un chat este chiar promptul
-- Imagini la pornire: atașezi până la patru imagini în câmp, iar mașina le are înainte de prima tură
-- Acțiunile păstrează doar alegeri: o acțiune cere un repository, un board, un pull request sau o iconiță; textul liber vine din câmp, iar sugestia acțiunii este textul lui de substituție
-- Sesiuni lângă câmp: pagina „Agent” listează rulările tale curente și trecute lângă prompt, iar o rulare pornită de altă rulare apare imbricată sub ea
-- Răspuns chiar în card: la un plan sau la o întrebare răspunzi în cardul lui, cu un câmp înăuntru când preferi să scrii în loc să alegi; câmpul de pilotare se retrage între timp
-- Mesaje de la agenți: un agent poate trimite echipei tale o notificare prin MCP; ajunge ca push și ca rând propriu în Inbox
-- Limite care se potrivesc: un avertisment de consum nu mai marchează o rulare drept limitată, iar la o limită reală fereastra și ora de resetare descriu același lucru
+- Continuă cu e-mailul sau cu o cheie de acces: intră cu un cod din 6 cifre trimis pe e-mail, ori cu Face ID sau Touch ID; toate variantele stau într-o singură listă, iar o adresă necunoscută devine pur și simplu un cont nou
+- Indicatorul de lucru se oprește când se oprește agentul: urmărește acum tura reală a agentului în locul conexiunii, arată ce face, cu durata și tokenurile, iar Stop stă în antetul sesiunii
+- Carduri pentru uneltele Exponential: când agentul apelează Exponential, istoricul arată o descriere simplă precum „Creating issue” sau „Opened pull request”, iar la final o previzualizare a rezultatului
+- Subagenți cu nume: eticheta unui subagent poartă sarcina primită, rândurile lui rezumă uneltele folosite, iar o etichetă Plan doar pentru citire apare cât timp rularea încă planifică
+- Card de workflow: o rulare cu mai mulți agenți apare ca un singur card cu fazele ei și agenții dedesubt, iar rândul sesiunii capătă un al doilea rând cu ceea ce se lucrează acum
+- Conturi care spun adevărul: starea unui cont de agent vine dintr-o măsurătoare reală de consum, așa că o autentificare moartă scrie „Needs re-login” în loc de „Signed in”
+- Devices este pagina de reparații: acolo te autentifici din nou într-un cont de agent sau alegi ce cont conectat folosește o mașină
+- Schimbare de cont în mijlocul rulării: o rulare Claude care atinge limita poate continua pe alt cont din fișa de consum sau din avertizarea de limită, ca rulare nouă legată de cea veche
+- Mașina pe care ai atins-o: butonul de pornire al unei mașini deschide câmpul cu exact acea mașină aleasă, iar câmpul spune de ce o mașină nu poate prelua rularea
+- Înapoi de unde ai venit: ieșirea dintr-o sesiune te duce înapoi la issue-ul, boardul sau inboxul din care ai deschis-o, iar o rulare pornită de altă rulare apare imbricată sub ea
+- Watch în loc de Coding now: propria ta rulare în desfășurare pe un issue este un buton Watch între proprietățile issue-ului, nu un card separat
+- Discuții și fixare: o discuție nouă oferă sugestii de la care să pornești, iar un issue, o sesiune sau o action pot fi fixate din ecranul lor

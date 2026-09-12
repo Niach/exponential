@@ -1,20 +1,12 @@
-- Video a zvuk v popisech a komentářích: přilož klip a přehraje se přímo v textu, s náhledem a délkou; co nahraješ, se předtím převede na 720p
-- Účty GitHub: nastavení týmu vypisuje každý připojený účet s odkazem „Configure“ a „Connect another account“ otevře výběr účtu přímo na GitHubu, takže jde nainstalovat i druhou organizaci
-- Přidání repozitáře: výběr řekne, proč repozitář chybí, odkáže na nastavení GitHubu u každého účtu a přijme repozitář podle názvu
-- Kratší seznam minulých běhů: ukončený běh ukazuje zařízení a čas, bez jména agenta a důvodu ukončení
-- Tečka běžícího sezení se přesunula na tlačítko Chat ve spodní liště, které je teď na každé záložce; u Devices zůstává jen upozornění na přihlášení
-- Pole vždy pojmenuje zařízení, na kterém běh začne, a menu otevře, jen když je na výběr víc než jedno
-- Banner o limitu zmizí sám, jakmile uplyne čas obnovení, a pouhé varování o spotřebě se jako limit nikdy nezobrazí
-- Sdílení zařízení s více týmy: panel zařízení má jeden přepínač pro každý tým místo jediné volby
-- Detaily pole: „Plan“ je přepínač, vybraný úkol nebo akce se odebere vlastním křížkem a spodní lišta boardu spojuje chat a nový úkol do jedné kapsle
-- Piny: připni úkol, sezení nebo akci z jejich menu a objeví se v sekci „Pinned“ nahoře v přepínači boardů
-- Účty na stránce „Devices“: jeden řádek na každý účet agenta s jeho pruhy spotřeby a chipem pro každé zařízení, stejná sekce jakou má web a desktop
-- Jedno pole na všechno: pole na stránce „Agent“ spouští všechno, s úkoly nebo akcí vybranými nahoře a zařízením, agentem, modelem a režimem plánu pod ním; panel „Start coding“ je pryč
-- Každé tlačítko přehrání vede sem: „Start coding“ u úkolu, panel hromadného výběru, „Run“ u akce i „Fix merge conflicts“ otevřou pole s tím správným už vybraným
-- Pokyny při startu: co napíšeš vedle vybraných úkolů nebo akce, dorazí do běhu jako doplňující pokyny; u chatu je to samotný prompt
-- Obrázky při startu: k poli připojíš až čtyři obrázky a zařízení je má před prvním tahem
-- Akce mají jen výběry: akce se ptá na repozitář, board, pull request nebo ikonu; volný text přichází z pole a nápověda akce je jeho zástupný text
-- Sezení vedle pole: stránka „Agent“ vypisuje běžící i minulé běhy vedle promptu a běh spuštěný jiným během je vnořený pod ním
-- Odpověď přímo v kartě: plán nebo otázku zodpovíš v její vlastní kartě, s polem uvnitř, když chceš raději psát než vybírat; ovládací pole zatím ustoupí
-- Zprávy od agentů: agent může tvému týmu poslat oznámení přes MCP; přijde jako push a jako vlastní řádek v Inboxu
-- Limity, které sedí: varování o spotřebě už neoznačí běh jako omezený a u skutečného limitu popisují okno i čas obnovení totéž
+- Pokračovat e-mailem nebo přístupovým klíčem: přihlas se šestimístným kódem, který ti přijde e-mailem, nebo přes Face ID či Touch ID; všechny možnosti jsou v jednom seznamu a neznámý e-mail se prostě stane novým účtem
+- Ukazatel práce skončí, když skončí agent: sleduje teď skutečný tah agenta místo spojení, ukazuje, co právě dělá, i s časem a tokeny, a Stop je v záhlaví relace
+- Karty nástrojů Exponential: když agent zavolá Exponential, historie ukáže prostý popisek jako „Creating issue“ nebo „Opened pull request“ a po dokončení náhled výsledku
+- Podagenti se jménem: štítek podagenta nese úkol, který dostal, jeho řádky shrnují použité nástroje a štítek Plan jen pro čtení svítí, dokud běh ještě plánuje
+- Karta workflow: běh s více agenty se zobrazí jako jedna karta s fázemi a agenty pod nimi a řádek relace dostane druhý řádek s tím, na čem se právě pracuje
+- Účty, které říkají pravdu: stav účtu agenta pochází ze skutečného měření spotřeby, takže mrtvé přihlášení hlásí „Needs re-login“ místo „Signed in“
+- Devices je stránka oprav: tam se do účtu agenta přihlásíš znovu nebo vybereš, který přihlášený účet stroj používá
+- Změna účtu uprostřed běhu: běh Claude, který narazí na limit, může pokračovat pod jiným účtem z přehledu spotřeby nebo z hlášky o limitu, jako nový běh navázaný na ten původní
+- Stroj, na který jsi klepl: tlačítko přehrání u stroje otevře pole s tímto strojem už vybraným a pole řekne, proč stroj běh vzít nemůže
+- Zpátky tam, odkud jsi přišel: odchod z relace tě vrátí na issue, board nebo do doručené pošty, odkud jsi ji otevřel, a běh spuštěný jiným během je vnořený pod ním
+- Watch místo Coding now: tvůj vlastní živý běh na issue je štítek Watch mezi vlastnostmi issue, ne samostatná karta
+- Chaty a připínání: nový chat nabídne návrhy, čím začít, a issue, relaci nebo action lze připnout z její vlastní obrazovky

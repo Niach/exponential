@@ -568,9 +568,10 @@ data class DeviceEntity(
     @ColumnInfo(name = "unauthed_agents") @SerialName("unauthed_agents") @JsonNames("unauthedAgents")
     @Serializable(with = JsonAsStringSerializer::class) val unauthedAgents: String? = null,
     // EXP-749: the agents this machine runs through the in-process ACP engine
-    // (the session screen). NULL is UNKNOWN, not empty: an older build never
-    // advertises it and every runnable agent is assumed ACP-ready. A runnable
-    // agent missing from this list cannot start there at all (EXP-773).
+    // (the session screen). The column is nullable and NULL still arrives for
+    // a registry row whose machine never reported one, but it no longer MEANS
+    // anything: the consumer reads it as "none", and a runnable agent missing
+    // from the list cannot start there at all (EXP-773).
     @ColumnInfo(name = "acp_agents") @SerialName("acp_agents") @JsonNames("acpAgents")
     @Serializable(with = JsonAsStringSerializer::class) val acpAgents: String? = null,
     // The server-authoritative per-agent launch defaults (EXP-481) — a jsonb

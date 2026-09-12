@@ -175,7 +175,7 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes[2]!.table).toBe(pins)
     // REV2-28: their assignments in that team are cleared too.
     // EXP-481: and their device shares with this team — the synced devices
-    // shape scopes on shared_team_id single-table and cannot re-check
+    // shape scopes on shared_team_ids single-table and cannot re-check
     // membership the way a server-side team_members join does.
     expect(updates).toEqual([
       { table: issues, values: { assigneeId: null } },

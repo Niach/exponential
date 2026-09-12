@@ -1,20 +1,12 @@
-- Video og lyd i beskrivelser og kommentarer: legg ved et klipp, så spilles det av der, med plakatbilde og lengde; det du laster opp konverteres først til 720p
-- GitHub-kontoer: teaminnstillingene viser hver tilkoblede konto med en «Configure»-lenke, og «Connect another account» åpner GitHubs egen kontovelger, slik at en organisasjon nummer to kan installeres
-- Legg til repository: velgeren sier hvorfor et repository mangler, lenker til GitHub-innstillingene for hver konto og tar et repository på navn
-- Kortere liste over tidligere kjøringer: en avsluttet kjøring viser maskin og tidspunkt, uten agentens navn og grunnen til at den sluttet
-- Prikken for en pågående økt er flyttet til Chat-knappen i bunnlinjen, som nå vises på hver fane; Devices beholder bare varselet om innlogging
-- Feltet navngir alltid maskinen en kjøring starter på, og åpner bare en meny når det finnes mer enn én
-- Banneret om en nådd grense forsvinner av seg selv når nullstillingstidspunktet er passert, og en ren forbruksadvarsel vises aldri som en grense
-- Del en maskin med flere team: enhetsarket har én bryter per team i stedet for ett enkelt valg
-- Detaljer i feltet: «Plan» er en bryter, en valgt sak eller handling fjernes med sitt eget lukkekryss, og bunnlinjen på et board slår sammen chat og ny sak i én kapsel
-- Festing: fest en sak, en økt eller en handling fra menyen dens, så ligger den i «Pinned»-delen øverst i boardvelgeren
-- Kontoer på Devices-siden: én rad per agentkonto med forbruksstolpene sine og en chip per maskin, den samme delen som web og skrivebord har
-- Ett felt for alt: feltet på «Agent»-siden starter alt, med saker eller en handling valgt øverst og maskin, agent, modell og planmodus under; «Start coding»-arket er borte
-- Hver avspillingsknapp fører dit: «Start coding» på en sak, markeringslinjen, «Run» på en handling og «Fix merge conflicts» åpner feltet med det riktige allerede valgt
-- Instruksjoner ved start: det du skriver ved siden av de valgte sakene eller handlingen, når kjøringen som ekstra instruksjoner; i en chat er det prompten
-- Bilder ved start: legg ved opptil fire bilder i feltet, så har maskinen dem før første tur
-- Handlinger beholder bare valg: en handling ber om et repository, et board, en pull request eller et ikon; den frie teksten kommer fra feltet, med handlingens eget hint som plassholder
-- Økter ved siden av feltet: «Agent»-siden viser kjøringene dine, både pågående og tidligere, ved siden av prompten, og en kjøring startet av en annen ligger nestet under
-- Svar inne i kortet: en plan eller et spørsmål svarer du på i selve kortet, med et felt i kortet når du heller vil skrive enn å velge; styrefeltet trekker seg unna så lenge
-- Agentmeldinger: en agent kan sende teamet ditt et varsel via MCP; det kommer som push og som sin egen rad i Inbox
-- Grenser som henger sammen: en forbruksadvarsel merker ikke lenger en kjøring som begrenset, og ved en ekte grense beskriver vinduet og nullstillingstidspunktet det samme
+- Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én liste, og en ukjent e-post blir rett og slett en ny konto
+- Arbeidsindikatoren stopper når agenten stopper: den følger nå agentens virkelige tur i stedet for tilkoblingen, viser hva den gjør med tid og tokens, og Stop ligger i overskriften til økten
+- Kort for Exponential-verktøy: når agenten kaller Exponential, viser loggen en enkel tekst som «Creating issue» eller «Opened pull request», og etterpå en forhåndsvisning av resultatet
+- Underagenter med navn: en underagents brikke bærer oppgaven den fikk, radene oppsummerer verktøyene den brukte, og en Plan-brikke uten knapper vises så lenge kjøringen fortsatt planlegger
+- Workflow-kort: en kjøring med flere agenter vises som ett kort med fasene sine og agentene under, og en øktrad får en andre linje med det kjøringen jobber med akkurat nå
+- Kontoer som forteller sannheten: tilstanden til en agentkonto kommer fra en ekte forbruksmåling, så en død innlogging viser «Needs re-login» i stedet for «Signed in»
+- Devices er reparasjonssiden: der logger du inn på en agentkonto igjen, eller velger hvilken innlogget konto en maskin bruker
+- Bytt konto midt i en kjøring: en Claude-kjøring som treffer grensen sin kan fortsette på en annen konto fra forbruksarket eller grensevarselet, som en ny kjøring knyttet til den gamle
+- Maskinen du trykket på: avspillingsknappen til en maskin åpner feltet med akkurat den maskinen valgt, og feltet sier hvorfor når en maskin ikke kan ta kjøringen
+- Tilbake dit du kom fra: forlater du en økt, havner du tilbake på issuet, boardet eller innboksen du åpnet den fra, og en kjøring startet av en annen kjøring ligger under den
+- Watch i stedet for Coding now: din egen pågående kjøring på et issue er en Watch-knapp blant issuets egenskaper, ikke et eget kort
+- Chatter og festing: en ny chat foreslår noe å begynne med, og et issue, en økt eller en action kan festes fra sin egen skjerm

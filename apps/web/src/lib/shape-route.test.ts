@@ -872,11 +872,10 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).toContain(`acp_agents`)
     expect(columns).toContain(`last_seen_at`)
     expect(columns).toContain(`caps`)
-    // FEED-33: the uuid[] share set plus its single-column compat mirror
-    // (trigger #17) for the pre-FEED-33 clients; the mirror is removable at
-    // the floor in api-conventions.ts, the array is not.
+    // FEED-33: the share is the uuid[] and only the uuid[] — the single-column
+    // compat mirror retired with the 0.14.30/0.14.32/0.14.37 floors.
     expect(columns).toContain(`shared_team_ids`)
-    expect(columns).toContain(`shared_team_id`)
+    expect(columns).not.toContain(`shared_team_id`)
 
     // Anonymous: requireAuth — explicit 401, never a sentinel shape.
     resolveSession.mockResolvedValue(null)

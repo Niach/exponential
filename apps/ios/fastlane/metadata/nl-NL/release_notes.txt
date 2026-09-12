@@ -1,20 +1,12 @@
-- Video en audio in beschrijvingen en reacties: voeg een clip toe en hij speelt daar meteen af, met een voorbeeldafbeelding en zijn lengte; wat je uploadt wordt eerst naar 720p omgezet
-- GitHub-accounts: de teaminstellingen tonen elk gekoppeld account met een "Configure"-link, en "Connect another account" opent de accountkeuze van GitHub zelf, zodat ook een tweede organisatie geïnstalleerd kan worden
-- Repository toevoegen: de kiezer zegt waarom een repository ontbreekt, verwijst naar de GitHub-instellingen van elk account en neemt een repository op naam
-- Kortere lijst met eerdere runs: een beëindigde run toont de machine en de tijd, zonder de naam van de agent en de reden van het einde
-- De stip van een lopende sessie zit nu op de Chat-knop in de onderste balk, die op elk tabblad verschijnt; Devices houdt alleen de inlogwaarschuwing
-- Het veld noemt altijd de machine waarop een run start en opent alleen een menu als er meer dan één is
-- De limietbanner verdwijnt vanzelf zodra de resettijd voorbij is, en een gewone verbruikswaarschuwing wordt nooit als limiet getoond
-- Deel een machine met meerdere teams: het apparaatblad heeft één schakelaar per team in plaats van één enkele keuze
-- Details in het veld: "Plan" is een schakelaar, een gekozen issue of actie haal je weg met zijn eigen sluitknop, en de onderste balk van een board voegt chat en nieuwe issue samen in één capsule
-- Pins: zet een issue, een sessie of een actie vast vanuit zijn menu, dan staat hij in de sectie "Pinned" bovenaan de boardkiezer
-- Accounts op de pagina Devices: één regel per agentaccount met zijn verbruiksbalken en een chip per machine, dezelfde sectie die web en desktop al hebben
-- Eén invoerveld voor alles: het veld op de "Agent"-pagina start alles, met issues of een actie bovenaan en machine, agent, model en planmodus eronder; het "Start coding"-blad is weg
-- Elke afspeelknop komt daar uit: "Start coding" op een issue, de selectiebalk, "Run" van een actie en "Fix merge conflicts" openen het veld met de juiste selectie al gemaakt
-- Instructies bij een start: wat je naast de gekozen issues of actie typt, bereikt de run als extra instructies; bij een chat is het de prompt
-- Afbeeldingen bij een start: voeg tot vier afbeeldingen toe aan het veld, de machine heeft ze voor de eerste beurt
-- Acties houden alleen keuzes over: een actie vraagt om een repository, board, pull request of icoon; de vrije tekst komt uit het veld, met de hint van de actie als tijdelijke tekst
-- Sessies naast het veld: de "Agent"-pagina toont je lopende en eerdere runs naast de prompt, en een run die door een andere run is gestart staat eronder genest
-- Antwoorden in de kaart: een plan of een vraag beantwoord je in de kaart zelf, met een veld erin als je liever schrijft dan kiest; het stuurveld gaat zolang opzij
-- Agentberichten: een agent kan je team een melding sturen via MCP; die komt binnen als push en als eigen regel in de Inbox
-- Limieten die kloppen: een verbruikswaarschuwing markeert een run niet meer als gelimiteerd, en bij een echte limiet beschrijven het venster en de resettijd hetzelfde
+- Doorgaan met e-mail of met een passkey: log in met een 6-cijferige code die je gemaild krijgt, of met Face ID of Touch ID; alle opties staan in één lijst, en een onbekend e-mailadres wordt gewoon een nieuw account
+- De werk-indicator stopt wanneer de agent stopt: hij volgt nu de echte beurt van de agent in plaats van de verbinding, toont wat hij doet met de duur en de tokens, en Stop staat in de kop van de sessie
+- Kaarten voor Exponential-tools: roept de agent Exponential aan, dan toont het verloop een eenvoudig bijschrift als „Creating issue” of „Opened pull request”, en daarna een voorproefje van het resultaat
+- Subagenten met een naam: de chip van een subagent draagt de taak die hij kreeg, zijn regels vatten de gebruikte tools samen, en een alleen-lezen Plan-chip verschijnt zolang de run nog plant
+- Workflow-kaart: een run met meerdere agenten verschijnt als één kaart met zijn fasen en de agenten eronder, en een sessieregel krijgt een tweede regel met waar de run nu aan werkt
+- Accounts die de waarheid vertellen: de gezondheid van een agent-account komt uit een echte verbruiksmeting, dus een dode login leest „Needs re-login” in plaats van „Signed in”
+- Devices is de reparatiepagina: daar log je een agent-account opnieuw in of kies je welk ingelogd account een machine gebruikt
+- Wisselen van account tijdens een run: een Claude-run die zijn limiet raakt, kan vanuit het verbruiksscherm of de limietmelding verder op een ander account, als nieuwe run die aan de oude gekoppeld is
+- De machine die je tikte: de play-knop van een machine opent de composer met die machine al gekozen, en de composer zegt waarom een machine de run niet kan aannemen
+- Terug waar je vandaan kwam: een sessie verlaten brengt je terug naar de issue, het board of de inbox waar je hem opende, en een run die door een andere run is gestart, staat eronder genest
+- Watch in plaats van Coding now: je eigen lopende run op een issue is een Watch-pil in de eigenschappen van de issue en niet langer een eigen kaart
+- Chats en pins: een nieuwe chat biedt suggesties om mee te beginnen, en een issue, een sessie of een action kun je vanaf het eigen scherm vastpinnen

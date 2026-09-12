@@ -53,6 +53,7 @@ final class SessionAccountSwitchTests: XCTestCase {
         sessionEnded: Bool = false,
         deviceOnline: Bool = true,
         canResume: Bool = true,
+        canSwitchAccount: Bool = true,
         turnState: AgentTurnState = .ended,
         currentAccount: String? = nil
     ) throws -> String? {
@@ -64,6 +65,7 @@ final class SessionAccountSwitchTests: XCTestCase {
             sessionEnded: sessionEnded,
             deviceOnline: deviceOnline,
             canResume: canResume,
+            canSwitchAccount: canSwitchAccount,
             turnState: turnState,
             currentAccount: currentAccount
         )
@@ -122,6 +124,11 @@ final class SessionAccountSwitchTests: XCTestCase {
             try refusal("work", deviceOnline: false), SessionAccountSwitch.reasonOffline
         )
         XCTAssertEqual(try refusal("work", canResume: false), SessionAccountSwitch.reasonNoCap)
+        // EXP-849: a machine that resumes but ignores `account` on a live run
+        // would switch nothing at all, so it gets the same "update it" line.
+        XCTAssertEqual(
+            try refusal("work", canSwitchAccount: false), SessionAccountSwitch.reasonNoCap
+        )
         XCTAssertEqual(try refusal("work", sessionEnded: true), SessionAccountSwitch.reasonEnded)
         XCTAssertEqual(try refusal("work", mine: false), SessionAccountSwitch.reasonNotMine)
     }

@@ -64,13 +64,6 @@ export interface SteerDevice {
   /** EXP-432/FEED-33: the teams this device is shared with (empty/absent =
    * private). */
   sharedTeamIds?: string[]
-  /** FEED-33 compat: the pre-FEED-33 single-team key (`sharedTeamIds[0]`,
-   * null when private) that desktop/CLI <= 0.14.36, iOS <= 0.14.29 and
-   * Android <= 0.14.31 read for their "Shared" badge. Removable once
-   * CLIENT_MIN_VERSION_IOS >= 0.14.30 AND CLIENT_MIN_VERSION_ANDROID >=
-   * 0.14.32 AND CLIENT_MIN_VERSION_DESKTOP (CLI) >= 0.14.37; registered in
-   * lib/api-conventions.ts. Never read it on the web. */
-  sharedTeamId?: string | null
   /** EXP-432: set only on teammates' shared rows — the device owner. Absent
    * on the caller's own rows. */
   owner?: { id: string; name: string }
@@ -212,6 +205,16 @@ export function deviceCanResumeRun(
   device: Pick<SteerDevice, `caps`>
 ): boolean {
   return (device.caps ?? []).includes(`resume-run`)
+}
+
+/** EXP-849: the machine honours `account` on a live-run resume — it ends the
+ * run, moves the agent transcript into the target profile's config dir and
+ * relaunches there. Older builds resume on the RECORDED account and silently
+ * ignore the field, so requesters hide the mid-run switch instead. */
+export function deviceCanSwitchAccount(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`account-switch`)
 }
 
 /** EXP-484: the machine runs the `agent_login` device command (the desktop
@@ -438,9 +441,6 @@ export function steerDeviceFromRow(
     updateRequested,
     updateBlocked: updateRequested && row.activeSessions > 0,
     sharedTeamIds: row.sharedTeamIds ?? [],
-    // FEED-33 compat: the single-team alias old clients read (floor on the
-    // type's doc comment).
-    sharedTeamId: row.sharedTeamIds?.[0] ?? null,
     // EXP-622: a default belongs to the row's OWNER — never surface a
     // teammate's shared server as the caller's default.
     isDefault: row.userId === opts.currentUserId && row.isDefault,

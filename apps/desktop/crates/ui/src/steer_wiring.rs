@@ -404,8 +404,9 @@ fn register_device(
 ) {
     let agents = advertisement.agents.clone();
     let unauthed_agents = advertisement.unauthed_agents.clone();
-    // EXP-749: which of those speak ACP here. Sent even when empty — a NULL
-    // column means "older build, assume all", which is a different answer.
+    // EXP-749: which of those speak ACP here. Sent even when empty — the
+    // column is what every client reads to say whether an agent can run a
+    // session on this machine, and silence there reads as "none".
     let acp_agents = advertisement.acp_agents.clone();
     let caps = caps.to_vec();
     // EXP-484: WHO each installed CLI is signed in as, straight off the

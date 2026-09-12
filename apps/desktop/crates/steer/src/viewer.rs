@@ -199,9 +199,9 @@ pub enum ViewerEvent {
     /// `input` only from a joined connection, so a socket that is open but
     /// unanswered can send nothing and must not look otherwise.
     Connected(bool),
-    /// One activity event → `SteerFeed::apply`. EXP-783: with the
-    /// publisher's wire sequence, when it sent one.
-    Activity(Option<u64>, ActivityEvent),
+    /// One activity event → `SteerFeed::apply`, with the publisher's wire
+    /// sequence (EXP-783 — every frame carries one).
+    Activity(u64, ActivityEvent),
     /// `activity_reset` → `SteerFeed::apply_reset` (which STAGES; it does not
     /// blank the feed — EXP-656).
     Reset,
@@ -209,7 +209,7 @@ pub enum ViewerEvent {
     /// span the replay covered, so the feed can keep the pages BELOW
     /// `first_seq` instead of swapping the whole transcript away.
     Synced {
-        first_seq: Option<u64>,
+        first_seq: u64,
         truncated: bool,
     },
     /// EXP-783: one page of OLDER transcript, answering
@@ -874,9 +874,10 @@ async fn pump_connection(
                         Some(ViewerFrame::HistoryChunk { request_id, events, seqs, done }) => {
                             mark_joined();
                             // The relay guarantees `seqs` lines up with
-                            // `events` when it is sent at all; a chunk from an
-                            // older publisher carries none and the page is
-                            // prepended unnumbered.
+                            // `events`; a short array (it cannot happen, the
+                            // zod requires one per event) leaves the tail of
+                            // the page prepended unnumbered rather than
+                            // dropping it.
                             let events = events
                                 .into_iter()
                                 .enumerate()
@@ -1263,13 +1264,13 @@ mod tests {
         conn.send(r#"{"t":"activity","event":{"kind":"narration","text":"working"},"seq":4}"#);
         assert_eq!(
             harness.next_event(),
-            ViewerEvent::Activity(Some(4), ActivityEvent::narration("working"))
+            ViewerEvent::Activity(4, ActivityEvent::narration("working"))
         );
         conn.send(r#"{"t":"activity_synced","firstSeq":0,"lastSeq":4}"#);
         assert_eq!(
             harness.next_event(),
             ViewerEvent::Synced {
-                first_seq: Some(0),
+                first_seq: 0,
                 truncated: false
             }
         );

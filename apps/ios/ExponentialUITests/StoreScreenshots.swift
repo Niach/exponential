@@ -106,9 +106,14 @@ final class StoreScreenshots: XCTestCase {
         XCTAssertTrue(detailOpened, "Issue detail did not open")
         // The live session row sits above the comment thread — it is what makes
         // this shot say "an agent is coding on this right now" rather than
-        // "live steering is unavailable on this instance".
+        // "live steering is unavailable on this instance". EXP-818/849: the
+        // reader's OWN run with steering on is the Watch pill alone; the
+        // "Coding now" caption only renders for a teammate's run or while the
+        // steer config has not resolved yet, so waiting for it was a race.
+        let watchPill = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Watch")).firstMatch
         XCTAssertTrue(
-            app.staticTexts["Coding now"].firstMatch.waitForExistence(timeout: 30),
+            watchPill.waitForExistence(timeout: 30),
             "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
         snapshot("02_issue-detail", settle: 2, popRects: app)

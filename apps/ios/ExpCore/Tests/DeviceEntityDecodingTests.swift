@@ -126,9 +126,9 @@ final class DeviceEntityDecodingTests: XCTestCase {
     }
 
     // EXP-749: `acp_agents` is jsonb like agents/caps — a real array off the
-    // wire, pre-stringified from fixtures — and ABSENT on a pre-EXP-749
-    // snapshot, where nil must stay nil (it means "assume every runnable
-    // agent", never "none of them").
+    // wire, pre-stringified from fixtures — and still NULLABLE on a row a
+    // pre-EXP-749 build last wrote. Such a row maps to an EMPTY set: nothing
+    // starts there (every build above the floor reports the real one).
     func testDecodesAcpAgentsJsonbAndAbsence() throws {
         let wire = try decodeDevice("""
         {"id":"row-7","user_id":"u1","device_id":"dev-7","label":"macbook",
@@ -155,8 +155,10 @@ final class DeviceEntityDecodingTests: XCTestCase {
         )
         XCTAssertNil(bare.acpAgents)
 
-        // The mapping keeps the absent/known distinction: nil = unknown.
-        XCTAssertNil(SteerDevice(entity: bare, currentUserId: "u1").acpAgentIds)
+        // A NULL column maps to EMPTY, so no agent can start on that row.
+        let stale = SteerDevice(entity: bare, currentUserId: "u1")
+        XCTAssertEqual(stale.acpAgentIds, [])
+        XCTAssertTrue(stale.agentNotReady("claude"))
         XCTAssertEqual(
             SteerDevice(entity: wire, currentUserId: "u1").acpAgentIds, ["claude"]
         )

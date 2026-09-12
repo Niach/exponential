@@ -98,12 +98,22 @@ function connectStalePublicViewer(hub: Hub, sessionId = `sess-1`) {
   return sock
 }
 
+/** EXP-783: every publisher numbers its activity frames, so the helper numbers
+ *  them too — one 0-based counter per publisher socket, exactly like a device's
+ *  journal-seeded recorder. Pass `seq` to pin a specific one (the counter then
+ *  continues above it). */
+const publisherSeqs = new WeakMap<FakeSocket, number>()
 const activity = (
   hub: Hub,
   pub: FakeSocket,
   event: unknown,
   seq?: number
-) => hub.onMessage(pub, JSON.stringify({ t: `activity`, event, seq }))
+) => {
+  const next = publisherSeqs.get(pub) ?? 0
+  const use = seq ?? next
+  publisherSeqs.set(pub, Math.max(next, use + 1))
+  return hub.onMessage(pub, JSON.stringify({ t: `activity`, event, seq: use }))
+}
 
 interface RoomInternals {
   activityLog: { framed: string; bytes: number; subagentTool?: string }[]
@@ -657,7 +667,7 @@ describe(`session rooms`, () => {
     const pub = connectPublisher(hub)
     activity(hub, pub, { kind: `narration`, text: `before-join` })
     activity(hub, pub, { kind: `diff`, diff: `old diff` })
-    activity(hub, pub, { kind: `tool`, name: `Bash` })
+    activity(hub, pub, { kind: `tool`, name: `Bash`, id: `tc-1`, toolKind: `execute` })
     activity(hub, pub, { kind: `diff`, diff: `new diff` })
 
     const member = connectMember(hub)
@@ -673,7 +683,13 @@ describe(`session rooms`, () => {
     ])
     expect(member.events().at(-1)?.diff).toBe(`new diff`)
 
-    activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
+    activity(hub, pub, {
+      kind: `tool`,
+      name: `Edit`,
+      detail: `src/a.ts`,
+      id: `tc-2`,
+      toolKind: `edit`,
+    })
     expect(member.events().at(-1)).toMatchObject({ kind: `tool`, name: `Edit` })
   })
 
@@ -683,7 +699,7 @@ describe(`session rooms`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
     activity(hub, pub, { kind: `narration`, text: `one` })
-    activity(hub, pub, { kind: `tool`, name: `Bash` })
+    activity(hub, pub, { kind: `tool`, name: `Bash`, id: `tc-1`, toolKind: `execute` })
     activity(hub, pub, { kind: `narration`, text: `three` })
     activity(hub, pub, { kind: `diff`, diff: `d` })
 
@@ -705,6 +721,28 @@ describe(`session rooms`, () => {
     connectPublisher(hub)
     const member = connectMember(hub)
     expect(member.frames().map((f) => f.t)).toEqual([`activity_reset`, `activity_synced`])
+    // EXP-783: the span is always named — an empty log names the empty one at
+    // zero, which asks the client for the full swap it would do anyway.
+    expect(member.lastFrame(`activity_synced`)).toEqual({
+      t: `activity_synced`,
+      firstSeq: 0,
+      lastSeq: 0,
+    })
+    hub.destroy()
+  })
+
+  // EXP-783: `seq` is REQUIRED — every publisher in the fleet numbers its
+  // frames, so an unnumbered one is a broken publisher, not an old one.
+  test(`an activity frame with no seq is dropped`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    hub.onMessage(
+      pub,
+      JSON.stringify({ t: `activity`, event: { kind: `narration`, text: `x` } })
+    )
+    expect(member.framesOf(`activity`)).toHaveLength(0)
+    expect(room(hub).activityLog.length).toBe(0)
     hub.destroy()
   })
 
@@ -841,6 +879,7 @@ describe(`session rooms`, () => {
         t: `history_chunk`,
         requestId: relayId,
         events: [],
+        seqs: [],
         done: true,
       })
     )
@@ -1158,7 +1197,13 @@ describe(`removed public_viewer role (EXP-90)`, () => {
     const pub = connectPublisher(hub)
     const stale = connectStalePublicViewer(hub)
 
-    activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
+    activity(hub, pub, {
+      kind: `tool`,
+      name: `Edit`,
+      detail: `src/a.ts`,
+      id: `tc-1`,
+      toolKind: `edit`,
+    })
     expect(stale.sent.length).toBe(0)
   })
 
@@ -1282,7 +1327,14 @@ describe(`activity event kinds`, () => {
         title: `Review the shape proxies`,
       },
       { kind: `subagent`, id: `sub-1`, agentType: `code-reviewer`, status: `completed` },
-      { kind: `tool`, name: `Grep`, detail: `foo`, subagentId: `sub-1` },
+      {
+        kind: `tool`,
+        name: `Grep`,
+        detail: `foo`,
+        subagentId: `sub-1`,
+        id: `tc-9`,
+        toolKind: `search`,
+      },
       { kind: `permission`, tool: `Bash`, detail: `rm -rf build` },
       { kind: `compaction`, phase: `started`, trigger: `auto` },
       { kind: `compaction`, phase: `ended` },
@@ -1518,7 +1570,8 @@ describe(`activity event kinds`, () => {
       kind: `background_tasks`,
       tasks: [{ id: `x`, kind: `quantum`, description: `?` }],
     })
-    expect(slot(hub, `background_tasks`)?.tasks[0].id).toBe(`w5zr2977l`)
+    const kept = slot(hub, `background_tasks`)?.tasks as { id: string }[]
+    expect(kept[0].id).toBe(`w5zr2977l`)
   })
 
   // EXP-850 §3: `workflow` is latest-wins PER ID — one frame per card, all of
@@ -1556,7 +1609,7 @@ describe(`activity event kinds`, () => {
     ])
     // One frame per id, in first-appearance order, newest content.
     expect(member.events()[2]).toEqual(settled as never)
-    expect((member.events()[3] as { id: string }).id).toBe(`toolu_b`)
+    expect((member.events()[3] as unknown as { id: string }).id).toBe(`toolu_b`)
     expect(room(hub).activityLog.length).toBe(1)
     expect(room(hub).lastByKind.get(`workflow:toolu_a`)).toBeDefined()
     // An unknown status drops the WHOLE frame; the card keeps its state.
@@ -1657,7 +1710,9 @@ describe(`activity event kinds`, () => {
 
     // Schema bounds: an unknown toolKind, a blank id, a bad status, and an
     // over-cap diff each drop the WHOLE frame.
-    activity(hub, pub, { kind: `tool`, name: `X`, toolKind: `teleport` })
+    activity(hub, pub, { kind: `tool`, name: `X`, id: `tc-x`, toolKind: `teleport` })
+    activity(hub, pub, { kind: `tool`, name: `X`, toolKind: `search` })
+    activity(hub, pub, { kind: `tool`, name: `X`, id: `tc-x` })
     activity(hub, pub, { kind: `tool_update`, id: `` })
     activity(hub, pub, { kind: `tool_update`, id: `tc-1`, status: `pending` })
     activity(hub, pub, {
@@ -1666,9 +1721,11 @@ describe(`activity event kinds`, () => {
       diff: `x`.repeat(TOOL_DIFF_MAX_WIRE_BYTES + 1),
     })
     expect(room(hub).activityLog.length).toBe(4)
-    // A pre-EXP-785 tool row (no id, no kind) still fans out untouched.
-    activity(hub, pub, { kind: `tool`, name: `Grep` })
-    expect(member.events().at(-1)).toEqual({ kind: `tool`, name: `Grep` } as never)
+    // A row that names its call settles; the id and the kind are both
+    // REQUIRED, so the three rejects above never reach the log.
+    const grep = { kind: `tool`, name: `Grep`, id: `tc-2`, toolKind: `search` }
+    activity(hub, pub, grep)
+    expect(member.events().at(-1)).toEqual(grep as never)
   })
 
   // EXP-846: an `exponential_*` call's settle carries the SUBJECT it landed on.
@@ -2205,7 +2262,15 @@ describe(`two-tier activity eviction (EXP-748)`, () => {
     pub: ReturnType<typeof connectPublisher>,
     detail: string,
     subagentId: string
-  ) => activity(hub, pub, { kind: `tool`, name: `Read`, detail, subagentId })
+  ) =>
+    activity(hub, pub, {
+      kind: `tool`,
+      name: `Read`,
+      detail,
+      subagentId,
+      id: `tc-${detail}`,
+      toolKind: `read`,
+    })
 
   test(`the count cap evicts subagent tool calls before the main transcript (EXP-748)`, () => {
     const hub = new Hub()
@@ -3042,6 +3107,7 @@ describe(`history pages after the replay (EXP-796)`, () => {
         sessionId: `sess-past`,
         requestId: ask!.requestId,
         events: [],
+        seqs: [],
         done: true,
       })
     )

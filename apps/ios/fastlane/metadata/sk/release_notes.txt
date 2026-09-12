@@ -1,20 +1,12 @@
-- Video a zvuk v popisoch a komentároch: prilož klip a prehrá sa priamo v texte, s náhľadom a dĺžkou; čo nahráš, sa predtým prevedie na 720p
-- Účty GitHub: nastavenia tímu vypisujú každý pripojený účet s odkazom „Configure“ a „Connect another account“ otvorí výber účtu priamo na GitHube, takže sa dá nainštalovať aj druhá organizácia
-- Pridanie repozitára: výber povie, prečo repozitár chýba, odkáže na nastavenia GitHubu pri každom účte a prijme repozitár podľa názvu
-- Kratší zoznam minulých behov: ukončený beh ukazuje zariadenie a čas, bez mena agenta a dôvodu ukončenia
-- Bodka bežiacej relácie sa presunula na tlačidlo Chat v spodnej lište, ktoré je teraz na každej záložke; pri Devices zostáva len upozornenie na prihlásenie
-- Pole vždy pomenuje zariadenie, na ktorom beh začne, a menu otvorí, len keď je na výber viac než jedno
-- Banner o limite zmizne sám, len čo uplynie čas obnovenia, a samotné upozornenie na spotrebu sa ako limit nikdy nezobrazí
-- Zdieľanie zariadenia s viacerými tímami: panel zariadenia má jeden prepínač pre každý tím namiesto jedinej voľby
-- Detaily poľa: „Plan“ je prepínač, vybraná úloha alebo akcia sa odoberie vlastným krížikom a spodná lišta boardu spája chat a novú úlohu do jednej kapsuly
-- Piny: pripni úlohu, reláciu alebo akciu z jej menu a bude v sekcii „Pinned“ hore v prepínači boardov
-- Účty na stránke „Devices“: jeden riadok na každý účet agenta s jeho pruhmi spotreby a chipom pre každé zariadenie, tá istá sekcia akú majú web a desktop
-- Jedno pole na všetko: pole na stránke „Agent“ spúšťa všetko, s úlohami alebo akciou vybranými hore a zariadením, agentom, modelom a režimom plánu pod ním; panel „Start coding“ je preč
-- Každé tlačidlo prehrania vedie sem: „Start coding“ pri úlohe, panel hromadného výberu, „Run“ pri akcii aj „Fix merge conflicts“ otvoria pole so správnym výberom už hotovým
-- Pokyny pri štarte: čo napíšeš vedľa vybraných úloh alebo akcie, dorazí do behu ako doplňujúce pokyny; pri chate je to samotný prompt
-- Obrázky pri štarte: k poľu pripojíš až štyri obrázky a zariadenie ich má pred prvým ťahom
-- Akcie majú len výbery: akcia sa pýta na repozitár, board, pull request alebo ikonu; voľný text prichádza z poľa a pomôcka akcie je jeho zástupný text
-- Relácie vedľa poľa: stránka „Agent“ vypisuje bežiace aj minulé behy vedľa promptu a beh spustený iným behom je vnorený pod ním
-- Odpoveď priamo v karte: plán alebo otázku zodpovieš v jej vlastnej karte, s poľom vnútri, keď chceš radšej písať než vyberať; ovládacie pole zatiaľ ustúpi
-- Správy od agentov: agent môže tvojmu tímu poslať upozornenie cez MCP; príde ako push a ako vlastný riadok v Inboxe
-- Limity, ktoré sedia: upozornenie na spotrebu už neoznačí beh ako obmedzený a pri skutočnom limite opisujú okno aj čas obnovenia to isté
+- Pokračovať e-mailom alebo prístupovým kľúčom: prihlás sa šesťmiestnym kódom, ktorý ti príde e-mailom, alebo cez Face ID či Touch ID; všetky možnosti sú v jednom zozname a neznámy e-mail sa jednoducho stane novým účtom
+- Ukazovateľ práce skončí, keď skončí agent: sleduje teraz skutočný ťah agenta namiesto spojenia, ukazuje, čo práve robí, aj s časom a tokenmi, a Stop je v záhlaví relácie
+- Karty nástrojov Exponential: keď agent zavolá Exponential, história ukáže jednoduchý popis ako „Creating issue“ alebo „Opened pull request“ a po dokončení náhľad výsledku
+- Podagenti s menom: štítok podagenta nesie úlohu, ktorú dostal, jeho riadky zhrnú použité nástroje a štítok Plan len na čítanie svieti, kým beh ešte plánuje
+- Karta workflow: beh s viacerými agentmi sa zobrazí ako jedna karta s fázami a agentmi pod nimi a riadok relácie dostane druhý riadok s tým, na čom sa práve pracuje
+- Účty, ktoré hovoria pravdu: stav účtu agenta pochádza zo skutočného merania spotreby, takže mŕtve prihlásenie hlási „Needs re-login“ namiesto „Signed in“
+- Devices je stránka opráv: tam sa do účtu agenta prihlásiš znova alebo vyberieš, ktorý prihlásený účet stroj používa
+- Zmena účtu uprostred behu: beh Claude, ktorý narazí na limit, môže pokračovať pod iným účtom z prehľadu spotreby alebo z hlásenia o limite, ako nový beh naviazaný na ten pôvodný
+- Stroj, na ktorý si klikol: tlačidlo prehrania pri stroji otvorí pole s týmto strojom už vybraným a pole povie, prečo stroj beh prevziať nemôže
+- Späť tam, odkiaľ si prišiel: odchod z relácie ťa vráti na issue, board alebo do doručenej pošty, odkiaľ si ju otvoril, a beh spustený iným behom je vnorený pod ním
+- Watch namiesto Coding now: tvoj vlastný živý beh na issue je štítok Watch medzi vlastnosťami issue, nie samostatná karta
+- Chaty a pripínanie: nový chat ponúkne návrhy, čím začať, a issue, reláciu alebo action možno pripnúť z jej vlastnej obrazovky

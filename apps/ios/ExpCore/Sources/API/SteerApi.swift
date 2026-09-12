@@ -336,11 +336,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// Never offered in a picker — surfaced as a "not signed in" reason.
     public let unauthedAgents: [String]?
     /// EXP-749: the subset of `agents` the machine's ACP engine can drive.
-    /// ABSENT = the build never reported it, so every runnable agent is
-    /// assumed ACP-ready (the pre-EXP-749 behaviour). EXP-773 deleted the PTY
-    /// fallback, so an agent missing from a REPORTED list cannot start there.
-    /// Never a filter: read it through `agentNotReady(_:)`.
-    public let acpAgents: [String]?
+    /// Every build above the desktop/CLI floor reports it, so the
+    /// "absent = assume every runnable agent" fallback is gone. The column is
+    /// still NULLABLE server-side (a stale row from a build that never
+    /// registered again), and a NULL decodes to EMPTY: nothing starts there.
+    /// EXP-773 deleted the PTY fallback, so an agent outside this list cannot
+    /// start at all. Never a filter: read it through `agentNotReady(_:)`.
+    public let acpAgents: [String]
     /// Feature capabilities the desktop advertised (EXP-253: `actions`).
     /// Absent (old desktop/relay) = none — action starts are strictly gated
     /// on this, unlike the lenient agents fallback.
@@ -402,7 +404,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         connectedAt: Double? = nil,
         agents: [String]? = nil,
         unauthedAgents: [String]? = nil,
-        acpAgents: [String]? = nil,
+        acpAgents: [String] = [],
         caps: [String]? = nil,
         kind: String? = nil,
         platform: String? = nil,
@@ -453,10 +455,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         case agentUsageAt, launchDefaults, rowId
     }
 
-    // Hand-written only because `sharedTeamIds` is non-optional: a relay
-    // presence row and a pre-FEED-33 server omit it, and that must read as
-    // "private", never as a dropped row. Everything else is decodeIfPresent
-    // exactly as the synthesized decoder did it.
+    // Hand-written only because `sharedTeamIds` and `acpAgents` are
+    // non-optional: a relay presence row and a pre-FEED-33 server omit the
+    // former, and a device row written before EXP-749 carries a NULL
+    // `acp_agents`. Both must default, never drop the row. Everything else is
+    // decodeIfPresent exactly as the synthesized decoder did it.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         deviceId = try c.decode(String.self, forKey: .deviceId)
@@ -464,7 +467,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         connectedAt = try c.decodeIfPresent(Double.self, forKey: .connectedAt)
         agents = try c.decodeIfPresent([String].self, forKey: .agents)
         unauthedAgents = try c.decodeIfPresent([String].self, forKey: .unauthedAgents)
-        acpAgents = try c.decodeIfPresent([String].self, forKey: .acpAgents)
+        acpAgents = try c.decodeIfPresent([String].self, forKey: .acpAgents) ?? []
         caps = try c.decodeIfPresent([String].self, forKey: .caps)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         platform = try c.decodeIfPresent(String.self, forKey: .platform)
@@ -512,20 +515,17 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         (unauthedAgents ?? []).filter { DomainContract.codingAgentValues.contains($0) }
     }
 
-    /// EXP-749: the ACP-drivable agents as contract ids, or nil when the
-    /// machine reported none at all. Nil is UNKNOWN, never "none" — collapsing
-    /// it with `?? []` would claim no agent can start there.
-    public var acpAgentIds: [String]? {
-        guard let acpAgents else { return nil }
-        return acpAgents.filter { DomainContract.codingAgentValues.contains($0) }
+    /// EXP-749: the ACP-drivable agents as contract ids. Empty means nothing
+    /// can start on this machine, which is also what a stale NULL column
+    /// reads as now that every build above the floor reports the set.
+    public var acpAgentIds: [String] {
+        acpAgents.filter { DomainContract.codingAgentValues.contains($0) }
     }
 
-    /// EXP-773: whether [agent] CANNOT start on this machine — it reported an
-    /// ACP set and this agent is outside it, and the PTY fallback is gone.
-    /// Only ever true when the machine actually reported its ACP agents.
+    /// EXP-773: whether [agent] CANNOT start on this machine — it is outside
+    /// the machine's ACP set and the PTY fallback is gone.
     public func agentNotReady(_ agent: String) -> Bool {
-        guard let acpAgentIds else { return false }
-        return !acpAgentIds.contains(agent)
+        !acpAgentIds.contains(agent)
     }
 
     /// Whether anything can be launched here at all (EXP-409). A machine that
@@ -583,6 +583,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// cap-gated like actions — the server refuses `resumeSessionId` without
     /// it, so a Resume affordance renders only when the machine advertises it.
     public var canResumeRun: Bool { caps?.contains("resume-run") == true }
+
+    /// EXP-849: whether this machine honours `account` on the resume of a LIVE
+    /// run (the mid-session account switch). Its own cap, not `resume-run`: an
+    /// older machine resumes fine but IGNORES the account and relaunches under
+    /// the same login, so the switch would silently do nothing.
+    public var canSwitchAccount: Bool { caps?.contains("account-switch") == true }
 
     /// EXP-530: whether this machine runs action automations locally (watches
     /// its own sync and fires schedule/event triggers). Trigger device pickers

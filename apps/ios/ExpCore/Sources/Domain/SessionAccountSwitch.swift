@@ -163,6 +163,7 @@ public enum SessionAccountSwitch {
         sessionEnded: Bool,
         deviceOnline: Bool,
         canResume: Bool,
+        canSwitchAccount: Bool,
         turnState: AgentTurnState,
         currentAccount: String? = nil
     ) -> String? {
@@ -170,7 +171,11 @@ public enum SessionAccountSwitch {
         guard mine else { return reasonNotMine }
         guard !sessionEnded else { return reasonEnded }
         guard deviceOnline else { return reasonOffline }
-        guard canResume else { return reasonNoCap }
+        // BOTH caps: `resume-run` carries the relaunch, `account-switch`
+        // (desktop/CLI 0.14.38) is what makes the machine honour `account` on
+        // a LIVE run. Without the second one the switch is a no-op there, so
+        // it must read as "update that machine", never as a silent nothing.
+        guard canResume, canSwitchAccount else { return reasonNoCap }
         // EXP-848's turn slot is the idle test: `ended` is the default, so a
         // viewer that has not seen a `turn` event yet reads as idle.
         guard turnState != .started else { return reasonBusy }

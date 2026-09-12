@@ -1,20 +1,12 @@
-- Videos und Audio in Beschreibungen und Kommentaren: hänge einen Clip an, und er läuft direkt dort, mit Vorschaubild und Länge; was du hochlädst, wird vorher auf 720p umgewandelt
-- GitHub-Konten: die Team-Einstellungen listen jedes verbundene Konto mit einem Link zu „Configure“, und „Connect another account“ öffnet die Kontoauswahl von GitHub, sodass sich auch eine zweite Organisation installieren lässt
-- Repository hinzufügen: die Auswahl sagt, warum ein Repository fehlt, verlinkt die GitHub-Einstellungen jedes Kontos und nimmt ein Repository per Name
-- Kürzere Liste früherer Läufe: ein beendeter Lauf zeigt Gerät und Zeit, ohne den Namen des Agenten und den Grund für das Ende
-- Der Punkt für eine laufende Session sitzt jetzt am Chat-Button in der unteren Leiste, den es nun auf jedem Tab gibt; bei Devices bleibt nur der Hinweis zur Anmeldung
-- Das Eingabefeld nennt immer das Gerät, auf dem ein Lauf startet, und öffnet ein Menü nur, wenn es mehr als eines gibt
-- Limit-Banner verschwinden von selbst, sobald die Rücksetzzeit vorbei ist, und eine reine Verbrauchswarnung wird nie als Limit angezeigt
-- Ein Gerät mit mehreren Teams teilen: das Geräte-Sheet hat einen Schalter pro Team statt einer einzigen Auswahl
-- Details im Eingabefeld: „Plan“ ist ein Schalter, ein gewähltes Issue oder eine Action wird über ihr eigenes Schließen-Symbol entfernt, und die untere Leiste eines Boards fasst Chat und neues Issue in einer Kapsel zusammen
-- Pins: hefte ein Issue, eine Session oder eine Action über ihr Menü an, und sie steht im Bereich „Pinned“ oben in der Board-Auswahl
-- Konten auf der Seite „Devices“: eine Zeile pro Agentenkonto mit seinen Verbrauchsbalken und einem Chip pro Gerät, derselbe Bereich wie auf Web und Desktop
-- Ein Eingabefeld für alles: das Eingabefeld der Seite „Agent“ startet alles, mit Issues oder einer Action oben und Gerät, Agent, Modell und Plan-Modus darunter; das Sheet „Start coding“ ist weg
-- Jeder Play-Button führt dorthin: „Start coding“ an einem Issue, die Mehrfachauswahl, „Run“ einer Action und „Fix merge conflicts“ öffnen das Eingabefeld mit dem Passenden bereits ausgewählt
-- Anweisungen beim Start: was du neben den gewählten Issues oder der Action tippst, erreicht den Lauf als zusätzliche Anweisung; bei einem Chat ist es der Prompt
-- Bilder beim Start: hänge bis zu vier Bilder an das Eingabefeld, das Gerät hat sie vor dem ersten Zug
-- Actions haben nur noch Auswahlfelder: eine Action fragt nach Repository, Board, Pull Request oder Icon; der freie Text kommt aus dem Eingabefeld, mit dem Hinweis der Action als Platzhalter
-- Sessions neben dem Eingabefeld: die Seite „Agent“ listet deine laufenden und früheren Läufe neben dem Prompt, und ein Lauf, den ein anderer Lauf gestartet hat, steht eingerückt darunter
-- Antworten in der Karte: ein Plan oder eine Frage wird in der eigenen Karte beantwortet, mit einem Feld darin, wenn du schreiben statt wählen willst; das Eingabefeld tritt so lange zurück
-- Agenten-Nachrichten: ein Agent kann deinem Team über MCP eine Nachricht schicken; sie kommt als Push und als eigene Zeile in der Inbox an
-- Limits, die zusammenpassen: eine Verbrauchswarnung markiert einen Lauf nicht mehr als limitiert, und bei einem echten Limit beschreiben Fenster und Rücksetzzeit dasselbe Limit
+- Weiter mit E-Mail oder mit einem Passkey: melde dich mit einem 6-stelligen Code an, der dir zugeschickt wird, oder mit Face ID oder Touch ID; alle Wege stehen in einer einzigen Liste, und eine unbekannte E-Mail wird einfach zu einem neuen Konto
+- Der Arbeitshinweis endet, wenn der Agent fertig ist: er folgt jetzt dem echten Zug des Agenten statt der Verbindung, zeigt die laufende Tätigkeit mit Dauer und Tokens, und „Stop“ sitzt in der Kopfzeile der Session
+- Karten für Exponential-Werkzeuge: ruft der Agent Exponential auf, zeigt der Verlauf eine schlichte Beschriftung wie „Creating issue“ oder „Opened pull request“ und danach eine Vorschau des Ergebnisses
+- Subagenten mit Namen: ein Subagenten-Chip trägt die Aufgabe, die er bekommen hat, seine Zeilen fassen die benutzten Werkzeuge zusammen, und ein reiner Anzeige-Chip „Plan“ erscheint, solange der Lauf noch plant
+- Workflow-Karte: ein Lauf mit mehreren Agenten erscheint als eine Karte mit seinen Phasen und den Agenten darunter, und eine Session-Zeile bekommt eine zweite Zeile mit dem, woran der Lauf gerade arbeitet
+- Konten, die die Wahrheit sagen: der Zustand eines Agentenkontos kommt aus einer echten Verbrauchsabfrage, eine tote Anmeldung zeigt also „Needs re-login“ statt „Signed in“
+- „Devices“ ist die Reparaturseite: dort meldest du ein Agentenkonto neu an oder wählst, welches angemeldete Konto ein Gerät benutzt
+- Konto mitten im Lauf wechseln: ein Claude-Lauf am Limit kann über das Verbrauchs-Sheet oder den Limit-Hinweis mit einem anderen Konto weiterlaufen, als neuer Lauf, der mit dem alten verknüpft ist
+- Das Gerät, das du getippt hast: der Play-Button eines Geräts öffnet das Eingabefeld mit genau diesem Gerät, und das Eingabefeld sagt, warum ein Gerät den Lauf nicht übernehmen kann
+- Zurück, wo du hergekommen bist: verlässt du eine Session, landest du wieder beim Issue, Board oder in der Inbox, von wo du sie geöffnet hast, und ein Lauf, den ein anderer Lauf gestartet hat, steht eingerückt darunter
+- „Watch“ statt „Coding now“: dein eigener laufender Lauf an einem Issue ist ein „Watch“-Chip in den Eigenschaften des Issues statt einer eigenen Karte
+- Chats und Pins: ein neuer Chat bietet Vorschläge zum Anfangen, und ein Issue, eine Session oder eine Action lässt sich vom eigenen Bildschirm aus anheften

@@ -87,6 +87,8 @@ data class SessionAccountSwitchState(
     val sessionEnded: Boolean = false,
     val deviceOnline: Boolean = false,
     val canResume: Boolean = false,
+    /** EXP-849: the machine honours `account` on a LIVE run's resume. */
+    val canSwitchAccount: Boolean = false,
     val deviceLabel: String = "",
 ) {
     /**
@@ -102,6 +104,7 @@ data class SessionAccountSwitchState(
             sessionEnded = sessionEnded,
             deviceOnline = deviceOnline,
             canResume = canResume,
+            canSwitchAccount = canSwitchAccount,
             turnState = turnState,
         )
 
@@ -309,6 +312,7 @@ class AgentSessionViewModel @Inject constructor(
             sessionEnded = row.status == DomainContract.codingSessionStatusEnded,
             deviceOnline = steerDevice?.online == true,
             canResume = steerDevice?.canResumeRun == true,
+            canSwitchAccount = steerDevice?.canSwitchAccount == true,
             deviceLabel = steerDevice?.deviceLabel?.takeIf { it.isNotBlank() }
                 ?: deviceId.orEmpty(),
         )

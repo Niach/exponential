@@ -59,7 +59,7 @@ struct Entry {
     bytes: usize,
     /// EXP-783: the publisher's monotonic index for this event, carried onto
     /// the wire so a viewer can splice a replay onto a prefix it already has.
-    seq: Option<u64>,
+    seq: u64,
     /// Question id while the card is still answerable (pin key).
     pinned_question: Option<String>,
     /// EXP-748: the subagent this tool call was attributed to — the
@@ -107,7 +107,7 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
 struct WorkflowSlot {
     id: String,
     event: ActivityEvent,
-    seq: Option<u64>,
+    seq: u64,
 }
 
 /// The replay buffer described in the module docs.
@@ -119,8 +119,9 @@ pub struct ActivityJournal {
     /// capped upstream (a diff at 512 KiB, a config at 8 options), so the
     /// slots are a bounded overhead on top of the budgets, not a hole in them.
     slots: [Option<ActivityEvent>; SLOT_COUNT],
-    /// EXP-783: the seq of whatever currently occupies each slot.
-    slot_seqs: [Option<u64>; SLOT_COUNT],
+    /// EXP-783: the seq of whatever currently occupies each slot (read only
+    /// while the matching `slots` entry is filled).
+    slot_seqs: [u64; SLOT_COUNT],
     /// EXP-850 §3: the `workflow` slots, keyed by workflow id and kept in
     /// first-appearance order (oldest evicted past [`JOURNAL_WORKFLOW_CAP`]).
     /// Outside `entries` and both budgets like every other latest-wins slot.
@@ -134,6 +135,9 @@ pub struct ActivityJournal {
     /// Scan hint: an index at or below the OLDEST subagent tool entry, so a
     /// long main-line head is not re-walked on every eviction.
     subagent_scan_from: usize,
+    /// The sequence the test-only [`ActivityJournal::push`] hands out next.
+    #[cfg(test)]
+    test_seq: u64,
 }
 
 impl ActivityJournal {
@@ -141,15 +145,18 @@ impl ActivityJournal {
         Self::default()
     }
 
-    /// Record one published event with no wire sequence (tests, and any
-    /// caller that does not number its stream).
+    /// Record one published event, numbering the stream for the caller —
+    /// tests only, so a case that does not care about sequences reads as it
+    /// always did.
     #[cfg(test)]
     pub fn push(&mut self, event: ActivityEvent) {
-        self.push_seq(None, event);
+        let seq = self.test_seq;
+        self.test_seq += 1;
+        self.push_seq(seq, event);
     }
 
     /// Record one published event under its EXP-783 wire sequence.
-    pub fn push_seq(&mut self, seq: Option<u64>, event: ActivityEvent) {
+    pub fn push_seq(&mut self, seq: u64, event: ActivityEvent) {
         // EXP-758: latest-wins STATE, exactly like the relay's per-kind slots
         // — the newest snapshot DROPS ITS PREDECESSOR into its own slot and
         // never enters `entries` at all. Position among the log is irrelevant
@@ -280,11 +287,11 @@ impl ActivityJournal {
 
     /// EXP-783: the replay with each event's wire sequence beside it — what a
     /// re-publish sends so a viewer can splice rather than swap.
-    pub fn replay_seq(&self) -> impl Iterator<Item = (Option<u64>, &ActivityEvent)> {
+    pub fn replay_seq(&self) -> impl Iterator<Item = (u64, &ActivityEvent)> {
         // EXP-850: the relay's `LATEST_REPLAY_ORDER` — the keyed workflow
         // cards sit between `turn` and `background_tasks`, and the diff stays
         // last.
-        let mut tail: Vec<(Option<u64>, &ActivityEvent)> = Vec::new();
+        let mut tail: Vec<(u64, &ActivityEvent)> = Vec::new();
         for slot in [SLOT_CONFIG_STATE, SLOT_USAGE, SLOT_RATE_LIMIT, SLOT_TURN] {
             if let Some(event) = self.slots[slot].as_ref() {
                 tail.push((self.slot_seqs[slot], event));

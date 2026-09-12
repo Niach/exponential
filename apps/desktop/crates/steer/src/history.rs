@@ -313,10 +313,11 @@ pub fn read_journal_seq(
         if line.trim().is_empty() {
             continue;
         }
-        let Ok(event) = serde_json::from_str::<ActivityEvent>(&line) else {
+        let Ok(mut event) = serde_json::from_str::<ActivityEvent>(&line) else {
             continue;
         };
         let seq = seq as u64;
+        backfill_tool_identity(&mut event, seq);
         if let ActivityEvent::Workflow(workflow) = &event {
             let id = workflow.id.clone();
             match workflows.iter_mut().find(|(held, _, _)| *held == id) {
@@ -340,6 +341,26 @@ pub fn read_journal_seq(
     events.extend(workflows.into_iter().map(|(_, seq, event)| (seq, event)));
     events.extend(slots.flatten());
     Some(events)
+}
+
+/// EXP-785: a `tool` row needs its call `id` and `tool_kind` on the wire —
+/// the relay DROPS one without them, and a client keys its `tool_update` fold
+/// on the id. A journal line written before EXP-785 (the device keeps 60 days
+/// of them) carries neither, so a replay stamps the missing pieces: the id is
+/// the line's own position, which is unique within the file and stable across
+/// replays, and the kind is `other`, which is what an unknown tool renders as
+/// anyway. The row can never settle — nothing will ever send an update for
+/// that id — but it is READ, which is the whole point of a transcript.
+fn backfill_tool_identity(event: &mut ActivityEvent, seq: u64) {
+    let ActivityEvent::Tool { id, tool_kind, .. } = event else {
+        return;
+    };
+    if id.is_none() {
+        *id = Some(format!("journal-{seq}"));
+    }
+    if tool_kind.is_none() {
+        *tool_kind = Some(crate::frames::ToolKind::Other);
+    }
 }
 
 /// EXP-783 — the page of a session's transcript BELOW `before_seq`.
@@ -516,7 +537,7 @@ pub async fn publish_history(
             event: event.clone(),
             // EXP-783: the replay carries the ORIGINAL sequence, so a viewer
             // that already holds part of this run splices instead of losing it.
-            seq: Some(*seq),
+            seq: *seq,
         }
         .to_json();
         if framed.len() >= RELAY_MAX_PAYLOAD_BYTES {
@@ -757,6 +778,59 @@ mod tests {
         let events = read_journal(&dir, "sess-1").unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[1], ActivityEvent::narration("second"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-785 (pre-cleanup train): a journal line written before the tool
+    /// call carried an `id` and a `toolKind` still parses AND still reaches
+    /// the wire — the relay drops a `tool` frame without them, so the reader
+    /// stamps the line's own position and `other` on its way out. A row that
+    /// has them keeps them.
+    #[test]
+    fn a_pre_exp_785_tool_line_is_given_an_id_and_a_kind() {
+        let dir = temp_dir("legacy-tool");
+        let path = journal_path(&dir, "sess-1").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            concat!(
+                r#"{"kind":"narration","text":"before"}"#,
+                "\n",
+                r#"{"kind":"tool","name":"Edit","detail":"a.rs"}"#,
+                "\n",
+                r#"{"kind":"tool","name":"Bash","id":"tc-9","toolKind":"execute"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        assert_eq!(events.len(), 3);
+        let (seq, legacy) = &events[1];
+        assert_eq!(*seq, 1);
+        assert_eq!(
+            legacy,
+            &ActivityEvent::Tool {
+                name: "Edit".to_string(),
+                detail: Some("a.rs".to_string()),
+                // The line index: unique in the file, stable across replays.
+                id: Some("journal-1".to_string()),
+                tool_kind: Some(crate::frames::ToolKind::Other),
+                subagent_id: None,
+                at: None,
+            }
+        );
+        assert_eq!(
+            events[2].1,
+            ActivityEvent::Tool {
+                name: "Bash".to_string(),
+                detail: None,
+                id: Some("tc-9".to_string()),
+                tool_kind: Some(crate::frames::ToolKind::Execute),
+                subagent_id: None,
+                at: None,
+            }
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -176,8 +176,8 @@ data class SteerTimings(
     /**
      * EXP-656: how long a staged join replay may stay quiet before it is
      * committed anyway. The relay marks the end of its replay with
-     * `activity_synced`, so this only covers a publisher-driven republish (old
-     * desktops give no end marker) — long enough that a chunky replay does not
+     * `activity_synced`, so this only covers a publisher-driven republish (the
+     * relay marks no end for one) — long enough that a chunky replay does not
      * commit in halves, short enough that the feed is never visibly late.
      */
     val replayQuietMs: Long = 400,
@@ -815,7 +815,7 @@ class SteerConnection internal constructor(
             "activity" -> {
                 val event = obj["event"] as? JsonObject
                 // EXP-783: the publisher's monotonic index, echoed by the
-                // relay. Absent from a publisher older than EXP-783.
+                // relay — on every activity frame the protocol carries.
                 val seq = (obj["seq"] as? JsonPrimitive)?.longOrNull
                 if (stagedFrames != null) stageFrame(event, seq)
                 else handleActivityEvent(event, seq)
@@ -831,8 +831,9 @@ class SteerConnection internal constructor(
                 FrameResult(live = true)
             }
             // EXP-656: the relay's end-of-replay marker, sent right after the
-            // join replay. Nothing else needs it — an old relay falls back to
-            // the quiet timer.
+            // join replay. A publisher-driven republish gets none (the relay
+            // has no end-of-burst signal for it) and commits on the quiet
+            // timer instead.
             // EXP-783: it also names the SPAN it replayed, so the commit
             // keeps the pages the reader had already scrolled back to load,
             // and `truncated` says whether older transcript exists at all.
@@ -983,7 +984,7 @@ class SteerConnection internal constructor(
      * awaiting their ack, whose cards came back in the replay — the tap that
      * locked them may be only milliseconds old.
      */
-    private fun commitStaging(why: String, firstSeq: Long? = null) {
+    private fun commitStaging(why: String, markerFirstSeq: Long? = null) {
         val staged = stagedFrames ?: return
         stageQuietJob?.cancel()
         stageQuietJob = null
@@ -996,10 +997,17 @@ class SteerConnection internal constructor(
         val previous = _activity.value
         // EXP-783: everything this client holds BELOW the replay's oldest
         // sequence is a prefix the replay does not restate — pages a reader
-        // scrolled back to load, which the full swap used to throw away. Kept
-        // only when the WHOLE prefix is numbered: an unnumbered row cannot be
-        // proved older than the replay, so one of them makes this the full
-        // swap it has always been.
+        // scrolled back to load, which the full swap used to throw away.
+        //
+        // The join marker names that span. A commit that fires WITHOUT one
+        // (the quiet/cap/keepalive timers, and every publisher-driven
+        // republish, which the relay never marks) reads it off the burst
+        // itself: `seq` rides every activity frame. Only an EMPTY burst has no
+        // span to splice onto, and that swap is total, as it always was. A row
+        // with no `seq` cannot be proved older than the replay — that is a
+        // locally echoed message, never a replayed one — so it ends the
+        // retained prefix.
+        val firstSeq = markerFirstSeq ?: staged.firstNotNullOfOrNull { it.second }
         val retained = if (firstSeq == null) {
             emptyList()
         } else {

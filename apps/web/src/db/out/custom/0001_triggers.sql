@@ -704,34 +704,3 @@ UPDATE devices d
     SELECT 1 FROM unnest(d.shared_team_ids) AS s(id)
     LEFT JOIN teams t ON t.id = s.id
     WHERE t.id IS NULL);
-
--- 17. (FEED-33 compat) devices.shared_team_id is a read-only mirror of
---     devices.shared_team_ids[1] (the array is sorted, so the pick is
---     deterministic; NULL when the set is empty) for the clients in the wild
---     that still read the single column off the devices shape (iOS
---     0.14.28/0.14.29, Android 0.14.31, desktop/CLI 0.14.36; migration 0114
---     re-added the column, no FK). Server-written only — no router touches
---     it; every share/unshare path (devices.setShared, #16, its heal pass)
---     writes shared_team_ids and lands here. #13 (propagate_device_shared_team,
---     AFTER UPDATE) is untouched: it reads NEW.shared_team_ids and fans out to
---     device_worktrees, which never gets the mirror. Removable (with the
---     column + the shape allowlist entry) when CLIENT_MIN_VERSION_IOS >=
---     0.14.30 AND CLIENT_MIN_VERSION_ANDROID >= 0.14.32 AND
---     CLIENT_MIN_VERSION_DESKTOP (which also floors the CLI) >= 0.14.37.
-CREATE OR REPLACE FUNCTION mirror_device_shared_team_id()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.shared_team_id := NEW.shared_team_ids[1];
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER mirror_device_shared_team_id
-  BEFORE INSERT OR UPDATE OF shared_team_ids ON devices
-  FOR EACH ROW EXECUTE FUNCTION mirror_device_shared_team_id();
-
--- Heal pass (idempotent, every boot): mirrors for rows written in the
--- migrate→boot gap or under a pre-trigger binary.
-UPDATE devices
-  SET shared_team_id = shared_team_ids[1]
-  WHERE shared_team_id IS DISTINCT FROM shared_team_ids[1];

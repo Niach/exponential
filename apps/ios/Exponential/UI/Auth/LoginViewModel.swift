@@ -217,6 +217,20 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
                 self.startBrowserLoginFlow()
                 return
             }
+            // EXP-857 (security): the rpId is the SERVER's claim, and iOS
+            // scopes a passkey by rpId alone. A hostile instance asking for
+            // app.exponential.at would get the authenticator to sign its
+            // challenge with the user's cloud credential — refuse and hand off
+            // to the browser, which enforces the origin itself.
+            guard PasskeyWire.relyingPartyMatchesInstance(
+                rpId: options.rpId, instanceUrl: instanceUrl
+            ) else {
+                logger.error("Passkey rpId does not match the instance host, refusing the ceremony")
+                self.passkeyCookieHeader = ""
+                self.passkeyInFlight = false
+                self.startBrowserLoginFlow()
+                return
+            }
             self.passkeyCookieHeader = options.cookieHeader
             let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
                 relyingPartyIdentifier: options.rpId

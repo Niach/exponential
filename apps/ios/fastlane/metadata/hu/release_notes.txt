@@ -1,20 +1,12 @@
-- Videó és hang a leírásokban és a hozzászólásokban: csatolj egy klipet, és ott helyben lejátszódik, borítóképpel és a hosszával; amit feltöltesz, előbb 720p-re alakul
-- GitHub-fiókok: a csapat beállításai minden csatlakoztatott fiókot felsorolnak egy „Configure” hivatkozással, a „Connect another account” pedig a GitHub saját fiókválasztóját nyitja meg, így egy második szervezet is telepíthető
-- Repository hozzáadása: a választó megmondja, miért hiányzik egy repository, hivatkozik minden fiók GitHub-beállításaira, és név szerint is elfogad egy repositoryt
-- Rövidebb lista a korábbi futásokról: egy befejezett futás a gépet és az időt mutatja, az ügynök neve és a befejezés oka nélkül
-- A futó munkamenet pontja az alsó sáv Chat gombjára került, amely mostantól minden lapon látszik; a Devices csak a bejelentkezési figyelmeztetést tartja meg
-- A mező mindig megnevezi a gépet, amelyen a futás elindul, és csak akkor nyit menüt, ha egynél több van
-- A korlát sávja magától eltűnik, ha a visszaállás ideje elmúlt, és a puszta fogyasztási figyelmeztetés soha nem jelenik meg korlátként
-- Egy gép több csapattal is megosztható: az eszköz lapján csapatonként egy kapcsoló áll egyetlen választás helyett
-- A mező részletei: a „Plan” kapcsoló lett, a kiválasztott feladatot vagy műveletet a saját bezáró gombja veszi le, egy board alsó sávja pedig a chatet és az új feladatot egy kapszulába vonja össze
-- Rögzítés: rögzíts egy feladatot, munkamenetet vagy műveletet a menüjéből, és a board-váltó tetején a „Pinned” szakaszban lesz
-- Fiókok a „Devices” oldalon: ügynöki fiókonként egy sor a fogyasztási sávjaival és gépenként egy chippel, ugyanaz a szakasz, ami a weben és az asztali appban már megvan
-- Egy mező mindenre: az „Agent” oldal mezője indít mindent, felül a kiválasztott feladatokkal vagy művelettel, alatta a géppel, az ügynökkel, a modellel és a terv móddal; a „Start coding” lap eltűnt
-- Minden indítógomb ide vezet: a feladat „Start coding” gombja, a többes kijelölés sávja, egy művelet „Run” gombja és a „Fix merge conflicts” a mezőt nyitja meg, a megfelelő elemekkel már kiválasztva
-- Utasítások az indításhoz: amit a kiválasztott feladatok vagy a művelet mellé írsz, kiegészítő utasításként jut el a futáshoz; chatnél ez maga a prompt
-- Képek az indításhoz: legfeljebb négy képet csatolhatsz a mezőhöz, a gép még az első kör előtt megkapja őket
-- A műveleteknél csak választás marad: egy művelet repositoryt, boardot, pull requestet vagy ikont kér; a szabad szöveg a mezőből jön, a művelet saját tippje pedig a helyőrzője
-- Munkamenetek a mező mellett: az „Agent” oldal a prompt mellett listázza a futó és a korábbi futásokat, és egy másik futás által indított futás alatta, beágyazva jelenik meg
-- Válasz magában a kártyában: egy tervre vagy kérdésre a saját kártyájában válaszolsz, benne egy mezővel, ha inkább írnál, mint választanál; a vezérlőmező addig félreáll
-- Ügynöki üzenetek: egy ügynök MCP-n keresztül értesítést küldhet a csapatodnak; pushként és az Inboxban saját sorként érkezik
-- Összhangban lévő korlátok: a fogyasztási figyelmeztetés többé nem jelöli korlátozottnak a futást, valódi korlátnál pedig az ablak és a visszaállás ideje ugyanazt írja le
+- Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen listában van, és egy ismeretlen e-mail-cím egyszerűen új fiók lesz
+- A munkajelzés akkor ér véget, amikor az ügynök: mostantól az ügynök valódi körét követi a kapcsolat helyett, mutatja, mit csinál, idővel és tokenekkel, a Stop pedig a munkamenet fejlécében van
+- Exponential eszközkártyák: amikor az ügynök az Exponentialt hívja, az előzmény egyszerű feliratot mutat, például „Creating issue” vagy „Opened pull request”, majd a végén az eredmény előnézetét
+- Alügynökök névvel: az alügynök címkéje a kapott feladatot viseli, sorai összefoglalják a használt eszközöket, és egy csak olvasható Plan címke látszik, amíg a futás még tervez
+- Workflow-kártya: a több ügynökös futás egyetlen kártyaként jelenik meg a szakaszaival és alattuk az ügynökökkel, a munkamenet sora pedig második sort kap arról, min dolgozik éppen
+- Fiókok, amelyek igazat mondanak: az ügynökfiók állapota valódi használatmérésből jön, így egy halott bejelentkezés „Needs re-login” feliratot mutat a „Signed in” helyett
+- A Devices a javítás oldala: ott jelentkezel be újra egy ügynökfiókba, vagy választod ki, melyik bejelentkezett fiókot használja egy gép
+- Fiókváltás futás közben: a korlátjába ütköző Claude-futás másik fiókkal folytatható a használati lapról vagy a korlátüzenetből, új futásként, amely a régihez kapcsolódik
+- Az a gép, amelyre koppintottál: a gép lejátszás gombja úgy nyitja meg a mezőt, hogy pont az a gép van kiválasztva, és a mező megmondja, ha egy gép nem tudja elvállalni a futást
+- Vissza oda, ahonnan jöttél: a munkamenetből kilépve visszakerülsz arra az issue-ra, boardra vagy postaládába, ahonnan megnyitottad, és a másik futás által indított futás alatta beágyazva jelenik meg
+- Watch a Coding now helyett: a saját élő futásod egy issue-n Watch gomb az issue tulajdonságai között, nem külön kártya
+- Csevegések és kitűzés: az új csevegés javaslatokat kínál a kezdéshez, és egy issue, egy munkamenet vagy egy action a saját képernyőjéről tűzhető ki
