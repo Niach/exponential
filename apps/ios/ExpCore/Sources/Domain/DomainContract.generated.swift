@@ -26,7 +26,7 @@ public enum DomainContract {
     public static let codingSessionEndedByValues: [String] = ["agent", "user", "client", "merge", "system"]
     public static let codingSessionBlockedKinds: [String] = ["rate_limit"]
     public static let codingSessionBlockedWindows: [String] = ["session", "weekly", "model"]
-    public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"]
+    public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "other"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let pinKindValues: [String] = ["issue", "session", "action"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"]
@@ -57,6 +57,13 @@ public enum DomainContract {
     public static let expToolSubjectKeys: [String] = ["name", "id", "", "id", "id", "id", "filename", "name", "id", "", "id", "id", "name", "id", "id", "", "id", "id", "issueId", "id", "issueId", "id", "", "id", "id", "id", "id", "id", "id", "", "email", "", "id", "issueId", "issueId", "issueId", "issueId", "title", "id", "id", "", "id", "id", "id", "id", "id", "name", "id", "id", "", "id", "", "", "", "title", "issueId", "title", "issueId", "title", "fullName", "", "", "question", "", "id", "id", "", "id", "issueId", "name", "id", "", "id", "name", "id", "", "id"]
     public static let expToolResults: [String] = ["action", "none", "list", "action", "none", "none", "none", "automation", "none", "list", "automation", "automation", "board", "none", "board", "list", "board", "board", "comment", "none", "list", "comment", "list", "none", "issue", "none", "none", "none", "none", "list", "none", "list", "none", "issue", "issue", "issue", "issue", "issue", "none", "issue", "list", "none", "issue", "issue", "issue", "issue", "none", "none", "none", "list", "none", "list", "list", "none", "none", "pr", "pr", "pr", "none", "none", "none", "list", "none", "none", "session", "none", "list", "session", "session", "none", "none", "list", "none", "none", "none", "list", "none"]
     public static let turnStateValues: [String] = ["started", "ended"]
+    public static let subagentStatusValues: [String] = ["started", "completed", "duplicate"]
+    public static let workflowAgentStateValues: [String] = ["queued", "running", "done", "error"]
+    public static let workflowStatusValues: [String] = ["running", "completed", "failed", "stopped"]
+    public static let backgroundTaskKindValues: [String] = ["shell", "workflow", "agent", "other"]
+    public static let steerWorkingVerbs: [String] = ["Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating"]
+    public static let steerWorkingTokenTickMs: Int = 2000
+    public static let steerWorkingPreviewMax: Int = 160
 
     public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000

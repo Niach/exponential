@@ -216,6 +216,7 @@
       "think",
       "fetch",
       "switch_mode",
+      "wait",
       "other"
     ]
   },
@@ -885,6 +886,28 @@
         "result": "none"
       }
     ]
+  },
+  "subagentStatus": {
+    "values": ["started", "completed", "duplicate"]
+  },
+  "workflowAgentState": {
+    "values": ["queued", "running", "done", "error"]
+  },
+  "workflowStatus": {
+    "values": ["running", "completed", "failed", "stopped"]
+  },
+  "backgroundTaskKind": {
+    "values": ["shell", "workflow", "agent", "other"]
+  },
+  "steerWorking": {
+    "verbs": [
+      "Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating",
+      "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling",
+      "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling",
+      "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating"
+    ],
+    "tokenTickMs": 2000,
+    "previewMax": 160
   },
   "turnState": {
     "values": ["started", "ended"]

@@ -225,6 +225,18 @@ export interface DomainContract {
    * latest-wins slot on every client; the "Working…" predicate reads it.
    */
   turnState: { values: readonly string[] }
+  // EXP-850/856: steer wire vocabulary — subagent edge statuses (incl. the
+  // `duplicate` warning edge), workflow card states, background task kinds
+  // and the claude-style working caption (verbs picked by turn start).
+  subagentStatus: { values: readonly string[] }
+  workflowAgentState: { values: readonly string[] }
+  workflowStatus: { values: readonly string[] }
+  backgroundTaskKind: { values: readonly string[] }
+  steerWorking: {
+    verbs: readonly string[]
+    tokenTickMs: number
+    previewMax: number
+  }
 }
 
 export const contract = contractJson as unknown as DomainContract
