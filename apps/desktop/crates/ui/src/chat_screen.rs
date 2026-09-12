@@ -51,6 +51,7 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
@@ -1043,6 +1044,31 @@ impl ChatScreenView {
             self.input
                 .update(cx, |state, cx| state.set_placeholder(next, window, cx));
         }
+    }
+
+    /// EXP-849 — the agent a LOGIN would unblock, for the one blocker that has
+    /// a one-click fix: a LOCAL run whose agent is installed on this machine
+    /// but signed out (`ToolCheck::signed_out`). `None` for every other
+    /// blocker, including a remote machine's sign-out — that login belongs to
+    /// that machine (its Devices row offers it).
+    fn sign_in_nudge(&self, cx: &mut App) -> Option<coding::CodingAgent> {
+        if self.remote_device().is_some() {
+            return None;
+        }
+        let launch = self.launch.as_ref()?;
+        // An external agent has no account of ours to sign into.
+        if launch.external_spec().is_some() {
+            return None;
+        }
+        let agent = match self.resume_active(cx) {
+            true => self
+                .resume_candidate()
+                .map(|(_, record)| record.agent)
+                .unwrap_or(launch.agent),
+            false => launch.agent,
+        };
+        let report = CodingHub::global_ref(cx).and_then(|hub| hub.read(cx).doctor.report.clone())?;
+        report.check_for(agent).signed_out().then_some(agent)
     }
 
     fn subject_kind(&self) -> SubjectKind {
@@ -2137,7 +2163,29 @@ impl Render for ChatScreenView {
             notes = notes.child(div().text_color(muted).child(notice.clone()));
         }
         if let Some(reason) = blocker.filter(|_| !self.launching && !self.sending) {
-            notes = notes.child(div().text_color(muted).child(reason));
+            // EXP-849: a blocked launch whose fix is a LOGIN offers the login.
+            // It used to be text only, which left the one actionable blocker
+            // reading like every unactionable one.
+            let sign_in = self.sign_in_nudge(cx);
+            notes = notes.child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1p5()
+                    .child(div().min_w_0().text_color(muted).child(reason))
+                    .children(sign_in.map(|agent| {
+                        Button::new("chat-sign-in")
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(registry::UI_SIGN_IN)
+                            .label(SharedString::from(format!("Sign in to {}", agent.label())))
+                            .on_click(move |_, _window, cx| {
+                                crate::agent_login::open_login_tab(agent, false, cx);
+                            })
+                    })),
+            );
         }
         if let Some(note) = no_session_note {
             notes = notes.child(div().text_color(muted).child(note));

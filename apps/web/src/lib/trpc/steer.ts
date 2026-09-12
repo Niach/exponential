@@ -791,12 +791,24 @@ export const steerRouter = router({
         // transcript into the target profile's config dir — never the
         // credential — and relaunches there as a continuation. A plain resume
         // still requires an ended run; only the switch may ride a live one.
+        // CLAUDE only (EXP-849 §E): codex's conversation lives inside the
+        // login's own rollout store, so there is no transcript to move. Both
+        // refusals name the way forward, because the caller is often an agent
+        // reading the message.
         const switching = Boolean(input.account)
-        if (session.status !== `ended` && !switching) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That run is still live`,
-          })
+        if (session.status !== `ended`) {
+          if (!switching) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `That run is still live — stop it first, or name an account to continue it on`,
+            })
+          }
+          if (session.agent !== `claude`) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `Only claude runs can change account while live — stop this ${session.agent ?? `agent`} run and start a new one on the other account`,
+            })
+          }
         }
         if (!session.deviceId || session.deviceId !== input.deviceId) {
           throw new TRPCError({

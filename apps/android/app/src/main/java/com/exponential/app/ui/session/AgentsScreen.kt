@@ -26,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -82,8 +83,10 @@ import kotlinx.coroutines.delay
  * desktop `accounts_section.rs`) — one row per agent account the machines
  * report, its machines as chips (a check where the account is the ACTIVE
  * login there), the freshest machine's usage windows, refreshed by itself
- * while the page is open. A chip of one of the caller's own machines opens
- * that machine's settings sheet, where the agent sign-in lives.
+ * while the page is open. EXP-849: a chip of one of the caller's own machines
+ * carries the ONE repair that machine owes the login — make it the machine's
+ * active one (`agent_profile_use`) or sign it in — plus the way into the
+ * machine's own settings sheet.
  */
 @Composable
 fun AgentsScreen(
@@ -271,9 +274,7 @@ fun AgentsScreen(
                                     refreshing = group.key in refreshingAccounts,
                                     commandStates = accountCommandStates,
                                     onRefresh = { viewModel.refreshAccount(group) },
-                                    onLogin = { row, switchAccount ->
-                                        viewModel.accountLogin(row, switchAccount)
-                                    },
+                                    onLogin = viewModel::accountLogin,
                                     onUseHere = viewModel::useAccountHere,
                                     onEnterCode = { row, code ->
                                         viewModel.accountLoginCode(row, code)
@@ -609,7 +610,7 @@ private fun AccountRow(
     refreshing: Boolean,
     commandStates: Map<String, DeviceCommandUiState>,
     onRefresh: () -> Unit,
-    onLogin: (AgentProfileUsageRow, Boolean) -> Unit,
+    onLogin: (AgentProfileUsageRow) -> Unit,
     onUseHere: (AgentProfileUsageRow) -> Unit,
     onEnterCode: (AgentProfileUsageRow, String) -> Unit,
     onOpenDevice: (String) -> Unit,
@@ -688,16 +689,24 @@ private fun AccountRow(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             group.rows.forEach { row ->
-                DeviceChip(
-                    row = row,
-                    device = devicesById[row.deviceId],
-                    busy = commandStates[row.key].let {
-                        it is DeviceCommandUiState.Sending || it is DeviceCommandUiState.Running
-                    },
-                    onLogin = { switchAccount -> onLogin(row, switchAccount) },
-                    onUseHere = { onUseHere(row) },
-                    onOpenDevice = { onOpenDevice(row.deviceId) },
-                )
+                // Keyed: the rows re-sort as health and usage move, and a chip's
+                // open menu must not carry over to whoever takes its slot.
+                key(row.key) {
+                    DeviceChip(
+                        row = row,
+                        device = devicesById[row.deviceId],
+                        busy = listOf(
+                            commandStates[row.key],
+                            commandStates[accountProfileUseKey(row)],
+                        ).any {
+                            it is DeviceCommandUiState.Sending ||
+                                it is DeviceCommandUiState.Running
+                        },
+                        onLogin = { onLogin(row) },
+                        onUseHere = { onUseHere(row) },
+                        onOpenDevice = { onOpenDevice(row.deviceId) },
+                    )
+                }
             }
         }
         // EXP-849: whatever sign-in this row started, captioned HERE — the link
@@ -706,23 +715,45 @@ private fun AccountRow(
         group.rows.forEach { row ->
             val state = commandStates[row.key]
             val codeState = commandStates[accountLoginCodeKey(row)]
-            if (state == null && codeState == null) return@forEach
-            Column {
-                Text(
-                    AgentAccountsRows.chipLabel(row),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-                LoginResultCaption(
-                    agent = row.agent,
-                    state = state,
-                    codeState = codeState,
-                    // The code goes back to the machine that is waiting for it;
-                    // only our OWN machines take one.
-                    canEnterCode = row.mine && row.online,
-                    onEnterCode = { code -> onEnterCode(row, code) },
-                )
-                if (codeState != null) CommandCaption(codeState)
+            // "Use this account here" keeps its own slot: its result is plain
+            // text, never a login publication, so it captions as a command.
+            val useHereState = commandStates[accountProfileUseKey(row)]
+            if (state == null && codeState == null && useHereState == null) return@forEach
+            // Keyed like the chips: a half-typed login code belongs to the row
+            // it was typed under, whatever the sort does next.
+            key(row.key) {
+                Column {
+                    Text(
+                        AgentAccountsRows.chipLabel(row),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Tertiary,
+                        ),
+                    )
+                    LoginResultCaption(
+                        agent = row.agent,
+                        state = state,
+                        codeState = codeState,
+                        // The code goes back to the machine that is waiting for
+                        // it; only our OWN machines take one.
+                        canEnterCode = row.mine && row.online,
+                        onEnterCode = { code -> onEnterCode(row, code) },
+                    )
+                    if (codeState != null) CommandCaption(codeState)
+                    if (useHereState is DeviceCommandUiState.Sending ||
+                        useHereState is DeviceCommandUiState.Running
+                    ) {
+                        Text(
+                            "Pointing the machine at this account…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Secondary,
+                            ),
+                        )
+                    } else {
+                        CommandCaption(useHereState)
+                    }
+                }
             }
         }
         if (usage != null && usage.windows.isNotEmpty()) {
@@ -755,16 +786,16 @@ private fun AccountRow(
  * EXP-829/EXP-849: one machine chip — the online dot, the machine (· profile),
  * and a CHECK when the account is the ACTIVE login on that machine. A chip of
  * one of the caller's own machines opens a MENU, not just the device sheet
- * (web `DeviceChip`): the repair that machine needs (Sign in / Re-login / Use
- * this account here / Switch account), plus Device settings. A teammate's
- * machine is read-only.
+ * (web `MachineAccountChip`): the ONE repair that machine needs (Use this
+ * account here / Sign in / Re-login / Sign in again), plus Device settings. A
+ * teammate's machine is read-only.
  */
 @Composable
 private fun DeviceChip(
     row: AgentProfileUsageRow,
     device: SteerDevice?,
     busy: Boolean,
-    onLogin: (Boolean) -> Unit,
+    onLogin: () -> Unit,
     onUseHere: () -> Unit,
     onOpenDevice: () -> Unit,
 ) {
@@ -830,18 +861,21 @@ private fun DeviceChip(
         chip()
         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             if (canLogin) {
-                // EXP-849: "Use this account here" is its OWN command
-                // (`agent_profile_use`) — pointing the machine at a login it
-                // already holds touches no credential. A sign-in is the
-                // `agent_login` path, and only the machine's CURRENT login
-                // offers "Switch account" (which signs it out first).
-                val machine = row.deviceLabel.ifBlank { row.deviceId }
-                val usable = row.signedIn && row.health != AgentHealth.SignedOut &&
+                // ONE action per state, web `MachineAccountChip` parity: a
+                // healthy login this machine is not using simply BECOMES its
+                // login (`agent_profile_use` — no credential touched, nothing
+                // signed out), with the sign-in under it for a login that
+                // turns out to be dead after all. Everything else is a
+                // profile-scoped `agent_login`, which lands in that profile's
+                // own config dir and so never signs the current one out (the
+                // destructive logout form stays on the device sheet's ambient
+                // button, where a codex token revoke is confirmed).
+                val usesHere = row.signedIn && !row.active &&
                     row.health != AgentHealth.NeedsRelogin
-                if (usable && !row.active) {
+                if (usesHere) {
                     GlassMenuItem(
                         text = { Text("Use this account here") },
-                        leadingIcon = { Icon(ExpIcons.uiCheck, contentDescription = null) },
+                        leadingIcon = { Icon(ExpIcons.uiSwap, contentDescription = null) },
                         enabled = !busy,
                         onClick = {
                             menuOpen = false
@@ -849,24 +883,18 @@ private fun DeviceChip(
                         },
                     )
                 }
-                val switchAccount = usable && row.active
-                val label = when {
-                    row.health == AgentHealth.NeedsRelogin -> "Re-login on $machine"
-                    !usable -> "Sign in on $machine"
-                    else -> "Switch account on $machine"
+                val signInLabel = when {
+                    !row.signedIn -> "Sign in"
+                    row.health == AgentHealth.NeedsRelogin -> "Re-login"
+                    else -> "Sign in again"
                 }
                 GlassMenuItem(
-                    text = { Text(label) },
-                    leadingIcon = {
-                        Icon(
-                            if (switchAccount) ExpIcons.uiSwap else ExpIcons.uiSignIn,
-                            contentDescription = null,
-                        )
-                    },
+                    text = { Text(signInLabel) },
+                    leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
                     enabled = !busy,
                     onClick = {
                         menuOpen = false
-                        onLogin(switchAccount)
+                        onLogin()
                     },
                 )
             }

@@ -1787,8 +1787,46 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     const error = await rejectionOf(
       caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
     )
-    expect((error as TRPCError).message).toBe(`That run is still live`)
+    expect((error as TRPCError).message).toBe(
+      `That run is still live — stop it first, or name an account to continue it on`
+    )
     expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // EXP-849 §E: codex keeps ONE login per session — its conversation lives
+  // inside that login's own store, so there is no transcript to move into
+  // another one. The switch is claude-only, refused with the way forward.
+  it(`refuses a live switch on a codex run`, async () => {
+    queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `codex` })
+
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        account: `work`,
+      })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `Only claude runs can change account while live — stop this codex run and start a new one on the other account`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // The same codex run, once it has ENDED, resumes onto another account like
+  // any other resume: nothing is live, so nothing is abandoned.
+  it(`allows an account on an ENDED codex run's resume`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null, agent: `codex` })
+    queueOwnDevice({ caps: [`resume-run`] })
+
+    await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+      account: `work`,
+    })
+
+    expect(lastStartBody()).toMatchObject({ account: `work` })
   })
 
   it(`refuses an account the machine never reported for the run's agent`, async () => {
@@ -1914,18 +1952,14 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
   // switch). Every other launch option still contradicts the run's registry.
   it(`are forbidden beside resumeSessionId — a resumed run keeps its recorded options`, async () => {
     const RESUME = `77777777-7777-4777-8777-777777777777`
-    for (const extra of [{ mcpServerIds: [MCP_A] }]) {
-      const error = await rejectionOf(
-        caller.startSession({
-          resumeSessionId: RESUME,
-          deviceId: `dev-1`,
-          ...extra,
-        })
-      )
-      expect((error as TRPCError).code, JSON.stringify(extra)).toBe(
-        `BAD_REQUEST`
-      )
-    }
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: RESUME,
+        deviceId: `dev-1`,
+        mcpServerIds: [MCP_A],
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })

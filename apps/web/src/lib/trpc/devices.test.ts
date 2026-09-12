@@ -162,6 +162,7 @@ import {
   devicesRouter,
   nextSharedTeamIds,
 } from "@/lib/trpc/devices"
+import { MAX_AGENT_PROFILES } from "@/db/schema"
 
 const caller = devicesRouter.createCaller({
   session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
@@ -1813,7 +1814,7 @@ describe(`devices.heartbeat — mcpReadiness (EXP-792)`, () => {
 })
 
 describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
-  it(`keeps at most 5 profiles, clamps every field and stays null-free`, () => {
+  it(`keeps at most MAX_AGENT_PROFILES profiles, clamps every field and stays null-free`, () => {
     const out = clampAgentAccounts({
       claude: {
         signedIn: true,
@@ -1841,16 +1842,18 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
           // No id: nothing could address it — dropped.
           { label: `ghost`, signedIn: true } as never,
           null,
-          { id: `p3`, signedIn: false },
-          { id: `p4`, signedIn: false },
-          { id: `p5`, signedIn: false },
-          { id: `p6-over-the-cap`, signedIn: false },
+          // Fills the cap to its edge and one past it — `system` + `work`
+          // already took two slots, so the last two of these are dropped.
+          ...Array.from({ length: MAX_AGENT_PROFILES }, (_, index) => ({
+            id: `p${index + 3}`,
+            signedIn: false,
+          })),
           { id: `x`.repeat(80), signedIn: false },
         ],
       },
     })
     expect(out.claude).toMatchObject({ signedIn: true, email: `danny@example.com` })
-    expect(out.claude!.profiles).toHaveLength(5)
+    expect(out.claude!.profiles).toHaveLength(MAX_AGENT_PROFILES)
     expect(out.claude!.profiles![0]).toEqual({
       id: `system`,
       label: `Default`,
@@ -1869,9 +1872,7 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     expect(out.claude!.profiles!.map((p) => p.id)).toEqual([
       `system`,
       `work`,
-      `p3`,
-      `p4`,
-      `p5`,
+      ...Array.from({ length: MAX_AGENT_PROFILES - 2 }, (_, i) => `p${i + 3}`),
     ])
     // Null-free apart from the usage windows' `resetsAt`, which the EXP-484
     // window shape carries as an explicit null on every client.
@@ -1914,5 +1915,27 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
       undefined,
     ])
     expect(out.codex).toEqual({ signedIn: true })
+  })
+
+  // EXP-849: a login past the device's usage-probe cap ships its identity with
+  // `unmonitored: true` and no usage. The clamp keeps the flag (the clients
+  // caption the row instead of drawing absent bars as 0%) and, like every
+  // other boolean here, stores `false` as absence.
+  it(`keeps unmonitored profiles and drops the false flag`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        profiles: [
+          { id: `system`, signedIn: true, active: true, unmonitored: false },
+          { id: `spare`, signedIn: true, unmonitored: true },
+          { id: `nothing-said`, signedIn: true, unmonitored: null },
+        ],
+      },
+    })
+    expect(out.claude!.profiles!.map((p) => p.unmonitored)).toEqual([
+      undefined,
+      true,
+      undefined,
+    ])
   })
 })

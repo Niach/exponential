@@ -123,8 +123,11 @@ class SessionAccountSwitchTest {
     }
 
     @Test
-    fun `the ambient login is never named on the wire`() {
-        assertNull(SessionAccountSwitch.wireAccount(option("system")))
+    fun `a switch names the account it targets, the ambient login included`() {
+        // The PRESENCE of `account` is what makes the server accept a resume of
+        // a LIVE run, so the ambient login is named here (unlike a fresh start,
+        // where `system` is the absence of the field).
+        assertEquals("system", SessionAccountSwitch.wireAccount(option("system")))
         assertEquals("work", SessionAccountSwitch.wireAccount(option("work")))
     }
 }

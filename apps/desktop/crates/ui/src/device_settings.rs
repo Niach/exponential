@@ -411,6 +411,16 @@ pub(crate) fn agent_account_rows<V: Render>(
             .text_color(foreground)
             .child(SharedString::from(account_line(account))),
     );
+    // EXP-849 (interface A): the Devices surface is the REPAIR surface, so the
+    // state `account_line` cannot express gets a badge beside it — a CLI still
+    // naming an account the provider has revoked reads as signed in everywhere
+    // else, and the fix is the login pill to its right.
+    if let Some(badge) = account
+        .map(|account| account.worst_health())
+        .and_then(|health| crate::usage_bar::health_badge(health, cx))
+    {
+        account_row = account_row.child(badge);
+    }
     if let Some(affordance) = affordance {
         // EXP-698: ONE pill, not a ghost button inside a pill wrapper.
         let icon = if affordance.switch {
@@ -1278,7 +1288,16 @@ impl DeviceSettingsView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), switch)
+                    // The dialog's pill is the AMBIENT login (the agent's own
+                    // tab in this dialog); per-profile sign-ins ride the
+                    // Devices row's account chips.
+                    api::devices::create_agent_login_command(
+                        &trpc,
+                        &device_id,
+                        agent.id(),
+                        switch,
+                        None,
+                    )
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

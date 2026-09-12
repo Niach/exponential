@@ -1106,8 +1106,9 @@ export interface DeviceAgentAccount {
    * `unknown`. Absent on pre-EXP-849 devices: derive it from `signedIn`
    * (true → `ok`, false → `signed_out`). */
   health?: DeviceAgentHealth
-  /** EXP-792 (EXP-747 B5): every profile on the device, ≤5; absent on
-   * pre-profile clients. The top-level fields stay the ACTIVE profile. */
+  /** EXP-792 (EXP-747 B5): every profile on the device, ≤`MAX_AGENT_PROFILES`;
+   * absent on pre-profile clients. The top-level fields stay the ACTIVE
+   * profile. */
   profiles?: DeviceAgentProfileEntry[]
 }
 export interface DeviceAgentProfileEntry {
@@ -1121,6 +1122,11 @@ export interface DeviceAgentProfileEntry {
   /** EXP-849: this profile's own health, same vocabulary + same fallback as
    * the account's. */
   health?: DeviceAgentHealth
+  /** EXP-849: this login's IDENTITY ships but its usage numbers are not
+   * collected — it sits past the device's usage-probe cap
+   * (`coding::agent_usage::MAX_USAGE_PROFILES`), so one heartbeat cannot fan
+   * out into a probe per login. Absent = monitored. */
+  unmonitored?: boolean
   usage?: DeviceAgentUsage
 }
 
@@ -1159,8 +1165,8 @@ export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
 // EXP-792 (EXP-747 B5): N accounts per agent ride the SAME jsonb value —
 // `signedIn`/`email`/`plan`/`checkedAt` stay the ACTIVE profile (old clients
 // see exactly the pre-profile payload), `profiles` lists every profile the
-// device holds (≤5, `system` = the ambient login). No new column: an unknown
-// devices column bricks older native sync.
+// device holds (≤`MAX_AGENT_PROFILES`, `system` = the ambient login). No new
+// column: an unknown devices column bricks older native sync.
 export const deviceAgentProfileSchema = z.object({
   id: z.string().max(64),
   label: z.string().max(64).nullish(),
@@ -1173,6 +1179,10 @@ export const deviceAgentProfileSchema = z.object({
   // build has no name for must lose the field in the clamp, not 400 the
   // whole register (`clampAgentAccounts` owns the vocabulary).
   health: z.string().max(32).nullish(),
+  // EXP-849: the device collects no usage for this login (it sits past its
+  // own probe cap) — the row is identity-only, and the clients say so rather
+  // than rendering an empty bar as "0%".
+  unmonitored: z.boolean().nullish(),
   usage: z
     .object({
       fetchedAt: z.string().max(64).nullish(),
@@ -1192,7 +1202,12 @@ export const deviceAgentProfileSchema = z.object({
     })
     .nullish(),
 })
-export const MAX_AGENT_PROFILES = 5
+/** EXP-849: how many profiles per agent one device may report. At least the
+ * desktop's usage-probe cap (`coding::agent_usage::MAX_USAGE_PROFILES` = 12),
+ * because a machine reports every login it holds — the ones past that cap ride
+ * along `unmonitored`, and silently dropping them here would hide logins the
+ * account pickers are supposed to offer. */
+export const MAX_AGENT_PROFILES = 12
 
 export const deviceAgentAccountsSchema = z.record(
   z.string(),

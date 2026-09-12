@@ -41,16 +41,18 @@ struct DeviceSettingsSheet: View {
     let viewModel: AgentsViewModel
     let deviceId: String
     let teams: [TeamEntity]
+    /// EXP-849: the agent tab to open on — a machine chip's "Sign in again"
+    /// names the agent whose login is broken, and this sheet owns the sign-in
+    /// link round-trip. Nil (the row menu's Edit) opens on the machine's
+    /// default agent, as before. Declared BEFORE `onOpenUsage` so a call site
+    /// can pass it and still leave the closure last (the memberwise init takes
+    /// its arguments in declaration order).
+    var initialAgent: String? = nil
     /// EXP-827: where the round Usage button goes — the Devices page's Accounts
     /// section (web `device-settings-dialog.tsx` `openUsage`). The sheet closes
     /// itself first; a host with nowhere to send the caller passes nothing and
     /// the button simply does not render.
     var onOpenUsage: (() -> Void)? = nil
-    /// EXP-849: the agent tab to open on — a machine chip's "Sign in again"
-    /// names the agent whose login is broken, and this sheet owns the sign-in
-    /// link round-trip. Nil (the row menu's Edit) opens on the machine's
-    /// default agent, as before.
-    var initialAgent: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId

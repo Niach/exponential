@@ -88,7 +88,31 @@ data class SessionAccountSwitchState(
     val deviceOnline: Boolean = false,
     val canResume: Boolean = false,
     val deviceLabel: String = "",
-)
+) {
+    /**
+     * Why [option] cannot be switched to right now, or null when it can — the
+     * run's half of [SessionAccountSwitch.refusal]; [turnState] is the screen's
+     * (EXP-848's live slot, which no flow here holds).
+     */
+    fun refusal(option: SessionAccountOption, turnState: String): String? =
+        SessionAccountSwitch.refusal(
+            option = option,
+            agent = agent,
+            mine = mine,
+            sessionEnded = sessionEnded,
+            deviceOnline = deviceOnline,
+            canResume = canResume,
+            turnState = turnState,
+        )
+
+    /**
+     * Whether ANY of the machine's logins could take this run right now — what
+     * decides if the rate-limit wall offers "Switch account" at all, so the
+     * notice never points at a dead end (iOS `canSwitchAnyAccount`).
+     */
+    fun canSwitchAny(turnState: String): Boolean =
+        options.any { refusal(it, turnState) == null }
+}
 
 /**
  * The steer screen's ViewModel — a façade over the app-held SteerConnection

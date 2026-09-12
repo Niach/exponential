@@ -37,8 +37,9 @@ use serde::{Deserialize, Serialize};
 ///   login, not a wait.
 /// * [`Health::SignedOut`] — the CLI names nobody.
 /// * [`Health::Unknown`] — signed in, never probed (or only ever failed for
-///   transport reasons). Absent on the wire reads as this, derived from
-///   `signedIn`.
+///   transport reasons), and what an unreadable token degrades to. A row with
+///   no `health` at all derives one from `signedIn` instead
+///   ([`Health::from_signed_in`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Health {
     Ok,
@@ -70,10 +71,13 @@ impl Health {
     }
 
     /// The fallback every reader takes when `health` is absent (an older
-    /// device, a row written before EXP-849).
+    /// device, a row written before EXP-849): the only thing such a payload
+    /// says is whether the CLI was signed in, and a signed-in CLI reads as
+    /// healthy — ×4 (`AgentHealthRules.derived`, web `agentHealth`). Claiming
+    /// `Unknown` here would badge every pre-EXP-849 machine as unverified.
     pub fn from_signed_in(signed_in: bool) -> Health {
         if signed_in {
-            Health::Unknown
+            Health::Ok
         } else {
             Health::SignedOut
         }
@@ -100,14 +104,17 @@ impl Health {
         }
     }
 
-    /// The short badge caption ×4 ("needs re-login" is deliberately distinct
-    /// from "signed out").
-    pub fn label(self) -> &'static str {
+    /// The badge an account row or chip carries, or `None` when there is
+    /// nothing to say: `ok` needs no badge, and `unknown` ("signed in, never
+    /// probed") is not a problem. The two negatives are DISTINCT on purpose
+    /// and byte-identical ×4 (`AgentHealthRules.badgeLabel`, web
+    /// `healthBadgeLabel`, iOS `badgeLabel`): "Signed out" is a login nobody
+    /// made, "Needs re-login" one that expired under you.
+    pub fn badge_label(self) -> Option<&'static str> {
         match self {
-            Health::Ok => "Signed in",
-            Health::NeedsRelogin => "Needs re-login",
-            Health::SignedOut => "Signed out",
-            Health::Unknown => "Unknown",
+            Health::NeedsRelogin => Some("Needs re-login"),
+            Health::SignedOut => Some("Signed out"),
+            Health::Ok | Health::Unknown => None,
         }
     }
 }
@@ -523,11 +530,12 @@ mod tests {
         // A newer build's value, or junk, degrades — never panics.
         assert_eq!(Health::parse("on_fire"), Health::Unknown);
         assert_eq!(Health::parse(""), Health::Unknown);
-        // Absent = derived from `signedIn`.
-        assert_eq!(Health::from_signed_in(true), Health::Unknown);
+        // Absent = derived from `signedIn`: signed in reads HEALTHY (×4), so
+        // a pre-EXP-849 machine is never badged as unverified.
+        assert_eq!(Health::from_signed_in(true), Health::Ok);
         assert_eq!(Health::from_signed_in(false), Health::SignedOut);
         let legacy: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
-        assert_eq!(legacy.health(), Health::Unknown);
+        assert_eq!(legacy.health(), Health::Ok);
         let legacy_out: AgentAccount = serde_json::from_str(r#"{"signedIn":false}"#).unwrap();
         assert_eq!(legacy_out.health(), Health::SignedOut);
         // "needs re-login" is the loudest: a broken machine outranks an
@@ -539,6 +547,11 @@ mod tests {
         assert_eq!(Health::Ok.worse(Health::SignedOut), Health::SignedOut);
         assert_eq!(Health::NeedsRelogin.worse(Health::Ok), Health::NeedsRelogin);
         assert_eq!(Health::Ok.worse(Health::Ok), Health::Ok);
+        // Only the two negatives badge; `ok`/`unknown` say nothing.
+        assert_eq!(Health::NeedsRelogin.badge_label(), Some("Needs re-login"));
+        assert_eq!(Health::SignedOut.badge_label(), Some("Signed out"));
+        assert_eq!(Health::Ok.badge_label(), None);
+        assert_eq!(Health::Unknown.badge_label(), None);
 
         // Absent on the wire when unset; present as its token when set.
         let mut account = AgentAccount {

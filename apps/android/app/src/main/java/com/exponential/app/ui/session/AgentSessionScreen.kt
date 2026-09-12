@@ -1223,18 +1223,7 @@ fun AgentSessionScreen(
                     // clears this notice by continuing the run over there.
                     // Absent unless a switch is actually possible, so the wall
                     // never offers a dead end.
-                    val switchable = accountSwitch.options.any { option ->
-                        SessionAccountSwitch.refusal(
-                            option = option,
-                            agent = accountSwitch.agent,
-                            mine = accountSwitch.mine,
-                            sessionEnded = accountSwitch.sessionEnded,
-                            deviceOnline = accountSwitch.deviceOnline,
-                            canResume = accountSwitch.canResume,
-                            turnState = activity.turnState,
-                        ) == null
-                    }
-                    if (switchable) {
+                    if (accountSwitch.canSwitchAny(activity.turnState)) {
                         GlassPill(
                             SessionAccountSwitch.WALL_SWITCH_LABEL,
                             onClick = { usageSheetOpen = true },
@@ -1527,15 +1516,7 @@ fun AgentSessionScreen(
                     switchOptions.forEach { option ->
                         SessionAccountRow(
                             option = option,
-                            refusal = SessionAccountSwitch.refusal(
-                                option = option,
-                                agent = accountSwitch.agent,
-                                mine = accountSwitch.mine,
-                                sessionEnded = accountSwitch.sessionEnded,
-                                deviceOnline = accountSwitch.deviceOnline,
-                                canResume = accountSwitch.canResume,
-                                turnState = activity.turnState,
-                            ),
+                            refusal = accountSwitch.refusal(option, activity.turnState),
                             switching = launchRunState is ActionRunState.Sending ||
                                 launchRunState is ActionRunState.Sent,
                             onSwitch = {

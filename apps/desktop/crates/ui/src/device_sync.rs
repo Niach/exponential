@@ -1001,51 +1001,22 @@ fn run_device_command(
     CommandDisposition::Completed
 }
 
-/// EXP-849 — the `agent_profile_use` body, shared with the LOCAL "use this
-/// account here" control ([`crate::device_settings`]): point the device's
-/// default login for `agent` at `profile`, then re-read that login's numbers
-/// so the heartbeat ships the moved `active` flag right away.
-///
-/// Refuses a profile that is not SIGNED IN: making a signed-out login the
-/// default would silently break every later start on this machine, and the
-/// fix ("sign in there") is a different command.
-pub(crate) fn use_agent_profile(
+/// EXP-849 — the device side of `agent_profile_use`, over the ONE shared body
+/// ([`coding::use_profile`]): point this machine's default login for `agent` at
+/// `profile` and re-read that login's numbers, so the heartbeat ships the moved
+/// `active` flag right away. The CLI daemon's handler and the LOCAL "use this
+/// account here" control run the same body, so the refusals are one sentence
+/// each wherever the switch was asked for.
+fn use_agent_profile(
     snapshot: &BeatSnapshot,
     agent: coding::CodingAgent,
     profile: &str,
 ) -> Result<coding::agent_usage::AgentStatusPayload, String> {
-    let profile = profile.trim();
-    if coding::agent_profiles::get(&snapshot.data_dir, agent, profile).is_none() {
-        return Err(format!("No such {} account on this machine.", agent.id()));
-    }
     let report = match &snapshot.doctor {
         Some(report) => report.clone(),
         None => coding::run_doctor(&snapshot.settings),
     };
-    // Identity as this machine sees it right now — the profile's own `auth
-    // status`, not a synced row that may be minutes old.
-    let stamp = coding::agent_accounts::now_iso();
-    let accounts = report.agent_accounts_with_profiles(&snapshot.settings, &snapshot.data_dir, &stamp);
-    let signed_in = accounts
-        .get(agent.id())
-        .map(|account| match account.profiles.iter().find(|row| row.id == profile) {
-            Some(row) => row.signed_in,
-            // A single-login machine has no profile rows: the ambient login IS
-            // the account row.
-            None => coding::agent_profiles::is_system(Some(profile)) && account.signed_in,
-        })
-        .unwrap_or(false);
-    if !signed_in {
-        return Err(format!(
-            "That {} account is not signed in on this machine — sign in there first.",
-            agent.id()
-        ));
-    }
-    coding::agent_profiles::set_active_profile(&snapshot.data_dir, agent, profile)
-        .map_err(|err| format!("Could not switch the {} account here: {err}", agent.id()))?;
-    // Past the shared TTL on purpose: the numbers the clients show for this
-    // machine are the ACTIVE login's, and it just changed.
-    Ok(coding::force_collect(
+    coding::use_profile(
         &snapshot.data_dir,
         &snapshot.settings,
         &report,
@@ -1053,11 +1024,37 @@ pub(crate) fn use_agent_profile(
         profile,
         now_unix_secs(),
     )
-    .unwrap_or_else(|_| {
-        // Rate-limited: the pointer moved all the same, so report what the
-        // cache holds rather than failing a switch that already happened.
-        coding::collect_if_due(&snapshot.data_dir, &snapshot.settings, &report, now_unix_secs())
-    }))
+}
+
+/// EXP-849 — the LOCAL "use this account here" (the Devices row's own chip on
+/// THIS machine): the same body the command runs, plus the hub mirror so every
+/// surface in this process sees the moved login before the next beat.
+pub(crate) fn use_agent_profile_here(
+    agent: coding::CodingAgent,
+    profile: &str,
+    cx: &mut App,
+) -> Result<(), String> {
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let hub = crate::coding_flow::CodingHub::global(cx);
+    let (settings, report) =
+        hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
+    let report = match report {
+        Some(report) => report,
+        None => coding::run_doctor(&settings),
+    };
+    let status = coding::use_profile(
+        &data_dir,
+        &settings,
+        &report,
+        agent,
+        profile,
+        now_unix_secs(),
+    )?;
+    hub.update(cx, |hub, cx| {
+        hub.agent_status = Some(status);
+        cx.notify();
+    });
+    Ok(())
 }
 
 /// EXP-792: the MCP command bodies' view of this beat.

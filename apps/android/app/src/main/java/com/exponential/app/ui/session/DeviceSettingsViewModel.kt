@@ -364,50 +364,20 @@ class DeviceSettingsViewModel @Inject constructor(
         )
     }
 
-    // Queue the command, then poll its row until terminal (the machine also
-    // re-reports its worktrees on completion, so the list updates through
-    // sync). An OFFLINE machine's command parks server-side — the row stays
-    // pending and the UI says "runs when it comes online" instead of spinning.
+    // Queue the command and follow it to a terminal state on the shared
+    // [runDeviceCommand] rails (the machine also re-reports its worktrees on
+    // completion, so the list updates through sync). Everything this adds is
+    // the keyed slot and the Done bookkeeping.
     private fun issueCommand(key: String, command: kotlinx.serialization.json.JsonObject, deviceOnline: Boolean) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Sending)
-            val created = runCatching { devicesApi.createCommand(accountId, command) }
-                .getOrElse { t ->
-                    if (t is CancellationException) throw t
-                    _commandStates.value = _commandStates.value +
-                        (key to DeviceCommandUiState.Failed(
-                            trpcErrorMessage(t, "The command could not be queued"),
-                        ))
-                    return@launch
-                }
-            if (!deviceOnline) {
-                _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Queued)
-                return@launch
-            }
-            _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Running)
-            val deadline = System.currentTimeMillis() + COMMAND_POLL_DEADLINE_MS
-            while (System.currentTimeMillis() < deadline) {
-                delay(COMMAND_POLL_INTERVAL_MS)
-                val row = runCatching { devicesApi.getCommand(accountId, created.id) }
-                    .getOrNull() ?: continue
-                when (row.status) {
-                    DeviceCommandDto.STATUS_DONE -> {
-                        markDone(key, row.result)
-                        return@launch
-                    }
-                    DeviceCommandDto.STATUS_FAILED -> {
-                        _commandStates.value = _commandStates.value +
-                            (key to DeviceCommandUiState.Failed(
-                                row.result ?: "The machine refused the command",
-                            ))
-                        return@launch
-                    }
+            runDeviceCommand(devicesApi, accountId, command, deviceOnline) { state ->
+                if (state is DeviceCommandUiState.Done) {
+                    markDone(key, state.message)
+                } else {
+                    _commandStates.value = _commandStates.value + (key to state)
                 }
             }
-            // Still pending after the deadline — the row is durable, so the
-            // honest caption is "queued", not a failure.
-            _commandStates.value = _commandStates.value + (key to DeviceCommandUiState.Queued)
         }
     }
 

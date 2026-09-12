@@ -305,6 +305,18 @@ function MachineAccountChip({
       setBusy(false)
     }
   }
+  // The login dialog is hosted elsewhere in the tree — hand off a tick after
+  // the menu closes (the Accounts section's rule).
+  const signIn = () =>
+    setTimeout(
+      () =>
+        requestAgentLogin({
+          device,
+          agent: chip.agent,
+          profileId: chip.profileId,
+        }),
+      0
+    )
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -320,19 +332,9 @@ function MachineAccountChip({
       <DropdownMenuContent align="start">
         <DropdownMenuItem
           disabled={busy}
-          // The login dialog is hosted elsewhere in the tree — hand off a
-          // tick after the menu closes (the Accounts section's rule).
           onSelect={() => {
-            if (switchesTo) {
-              void useHere()
-              return
-            }
-            const target = {
-              device,
-              agent: chip.agent,
-              profileId: chip.profileId,
-            }
-            setTimeout(() => requestAgentLogin(target), 0)
+            if (switchesTo) void useHere()
+            else signIn()
           }}
         >
           {switchesTo ? <SwapIcon /> : <SignInIcon />}
@@ -341,16 +343,7 @@ function MachineAccountChip({
         {/* A switch is the cheap repair; the sign-in stays available under it
             for a login that turns out to be dead after all. */}
         {switchesTo && (
-          <DropdownMenuItem
-            onSelect={() => {
-              const target = {
-                device,
-                agent: chip.agent,
-                profileId: chip.profileId,
-              }
-              setTimeout(() => requestAgentLogin(target), 0)
-            }}
-          >
+          <DropdownMenuItem onSelect={signIn}>
             <SignInIcon />
             Sign in again
           </DropdownMenuItem>
@@ -547,6 +540,13 @@ export function MyMachines({
             const blockerLine = updateQueued
               ? describeUpdateBlockers(blockersFor(device), usersById, now)
               : null
+            // EXP-849: the worst health of the accounts this machine holds —
+            // "needs re-login" is a DIFFERENT problem from "signed out", and
+            // the chips below say which account it is. Null when every login
+            // is fine (or the machine reported none).
+            const healthBadge = healthBadgeLabel(
+              deviceWorstHealth({ agentAccounts: device.agentAccounts }) ?? `ok`
+            )
             return (
               <ListRow
                 key={device.deviceId}
@@ -596,24 +596,12 @@ export function MyMachines({
                         Shared
                       </span>
                     )}
-                    {/* EXP-849: the worst health of the accounts this machine
-                        holds, bubbled to the row — "needs re-login" is a
-                        DIFFERENT problem from "signed out" and the chips
-                        below say which account it is. */}
-                    {healthBadgeLabel(
-                      deviceWorstHealth({
-                        agentAccounts: device.agentAccounts,
-                      }) ?? `ok`
-                    ) && (
+                    {healthBadge && (
                       <span
                         className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500"
                         title={`Sign in again from the account chip below.`}
                       >
-                        {healthBadgeLabel(
-                          deviceWorstHealth({
-                            agentAccounts: device.agentAccounts,
-                          }) ?? `ok`
-                        )}
+                        {healthBadge}
                       </span>
                     )}
                   </div>

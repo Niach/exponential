@@ -159,9 +159,16 @@ object SessionAccountSwitch {
     }
 
     /**
-     * What a start carries for [option]: the ambient login is NEVER named on
-     * the wire (`system` is the absence of an account).
+     * What the switch carries as `account` — the picked profile VERBATIM,
+     * `system` included.
+     *
+     * A fresh start omits the ambient login (`system` is the absence of an
+     * account there), but a switch may not: the server reads the PRESENCE of
+     * `account` as "this resume is a switch" and is the only thing that lets a
+     * resume ride a LIVE run, so an omitted field would be refused with "That
+     * run is still live". `system` is accepted there explicitly and skips the
+     * profile-membership check (web `session-account-switch.tsx` sends the
+     * profile id verbatim too).
      */
-    fun wireAccount(option: SessionAccountOption): String? =
-        option.profileId.takeIf { it != SYSTEM_PROFILE_ID }
+    fun wireAccount(option: SessionAccountOption): String = option.profileId
 }

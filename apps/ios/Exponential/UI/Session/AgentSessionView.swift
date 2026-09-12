@@ -796,8 +796,10 @@ struct AgentSessionView: View {
                     accountId: accountId,
                     sessionId: session.id,
                     deviceId: device.deviceId,
-                    // The ambient login is never named on the wire (`system` is
-                    // the absence of an account) — the ×4 `wireAccount` rule.
+                    // The picked profile VERBATIM, `system` included: the server
+                    // reads the PRESENCE of `account` as "this resume is a
+                    // switch", which is the only thing that lets a resume ride
+                    // a LIVE run — the ×4 `wireAccount` rule.
                     account: SessionAccountSwitch.wireAccount(option)
                 )
                 startWatcher.begin(

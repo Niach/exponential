@@ -33,6 +33,7 @@ import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
   SessionAccountRows,
   useSessionAccountSwitch,
+  WALL_SWITCH_LABEL,
 } from "@/components/session-account-switch"
 import {
   accountCaption,
@@ -655,13 +656,13 @@ export function AgentSessionView({
     dialog: killDialog,
   } = useKillSession(session, currentUserId, device.label, paused)
   const canKill = live && ownsLiveRow
-  /** EXP-724: "Compact context" in the mobile "…" menu — a live, connected
-   *  session whose agent has the command and is not already folding. */
   /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
    *  (with their bars) and switches between them — so it exists whenever the
    *  machine reported an account for this run, not only when numbers are
    *  fresh. */
   const hasAccountRows = accountSwitch.options.length > 0
+  /** EXP-724: "Compact context" in the mobile "…" menu — a live, connected
+   *  session whose agent has the command and is not already folding. */
   const canCompact =
     live &&
     connected &&
@@ -2156,7 +2157,7 @@ function RateLimitBanner({
           onClick={onSwitchAccount}
         >
           <UiSwapIcon className="size-3" />
-          Switch account
+          {WALL_SWITCH_LABEL}
         </Pill>
       )}
     </div>

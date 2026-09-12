@@ -9,6 +9,12 @@
 // dense rhythm, laid out as a grid so every account fits on one screen;
 // stale numbers keep the dimmed "as of …" treatment.
 //
+// EXP-849: the page is the DECISION surface (which login to run on), the
+// Devices list the setup/repair one — so a card badges its login's HEALTH
+// ("Needs re-login" is not "Signed out") while the repair controls live on the
+// machine that holds it, and the cards sit behind one tab per agent rather
+// than stacking codex's rows on top of claude's.
+//
 // "Refresh" queues `agent_usage_refresh` on one of MY machines that runs it
 // (cap `agent-usage-refresh`), never more often than the device's own
 // rate-limit floor. EXP-817: while the page is open it does that BY ITSELF
@@ -38,6 +44,7 @@ import {
 import {
   deviceCanRefreshUsage,
   deviceRowIsOnline,
+  steerDeviceFromRow,
 } from "@/lib/steer-devices"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { AddAccountDialog } from "@/components/add-account-dialog"
@@ -47,7 +54,6 @@ import {
   addAccountLoginTarget,
   clampProfileLabel,
 } from "@/lib/agent-account-add"
-import { steerDeviceFromRow } from "@/lib/steer-devices"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -370,8 +376,9 @@ function AccountCard({
 }: {
   group: AgentAccountUsageGroup
   now: Date
-  /** The caller's own synced devices rows by device id — a chip of one of
-   *  these may open the sign-in menu. */
+  /** The caller's own synced devices rows by device id — the candidates the
+   *  "+" can sign this account in on (EXP-849: the chips themselves are quiet
+   *  presence indicators, and every repair lives on the Devices rows). */
   ownDevices: Map<string, Device>
   currentUserId: string
   refreshing: boolean
@@ -419,7 +426,7 @@ function AccountCard({
     )
     const device = steerDeviceFromRow(row, { now, currentUserId })
     // The dialog is hosted elsewhere in the tree — open it after the menu
-    // closed (same handoff as `DeviceChip`).
+    // closed (the same tick-later handoff the Devices chips use).
     setTimeout(
       () => requestAgentLogin({ device, agent: group.agent, ...target }),
       0

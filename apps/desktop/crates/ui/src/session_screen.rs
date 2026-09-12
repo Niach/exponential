@@ -44,9 +44,10 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, notification::Notification, popover::Popover, v_flex,
-    ActiveTheme as _, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
 };
 
+use crate::account_switch::SwitchContext;
 use crate::coding_flow::LocalSessions;
 use crate::icons::registry;
 use crate::navigation::Screen;
@@ -511,6 +512,65 @@ impl SessionScreenView {
         )
     }
 
+    /// EXP-849 — this run IS the continuation of an earlier one (an ordinary
+    /// Resume, or a switch to another account): say so ONCE, with the
+    /// transcript's one-time cost, so a second context-window charge on a new
+    /// account is never a surprise. The ×4 sentences
+    /// (`crate::account_switch`); the run it continues is reachable from the
+    /// lists, which nest the chain.
+    fn render_continuation(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        // The synced row is the authority (it covers a run this machine does
+        // not host); the local registry answers a beat earlier, before the
+        // resumed row's Electric echo lands.
+        let continues = self
+            .inner
+            .read(cx)
+            .session_row()
+            .and_then(|row| row.resumed_from_id.clone())
+            .or_else(|| resumed_from_id(&self.session_id, cx))
+            .is_some_and(|id| !id.trim().is_empty());
+        if !continues {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        Some(
+            h_flex()
+                .w_full()
+                .flex_shrink_0()
+                .min_w_0()
+                .items_start()
+                .gap_1p5()
+                .px_3()
+                .py_1p5()
+                .border_b_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .child(
+                    Icon::new(registry::RUN_RESUME)
+                        .xsmall()
+                        .flex_shrink_0()
+                        .text_color(muted),
+                )
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(crate::account_switch::CONTINUATION_NOTE),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted.opacity(0.7))
+                                .child(crate::account_switch::CONTINUATION_COST_NOTE),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_header(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         // EXP-818: the issue this run is bound to — the ⋯ menu's "Open
         // issue" (the session lives beside a LIST now, so the issue is one
@@ -556,6 +616,10 @@ impl SessionScreenView {
         let device_id = inner
             .session_row()
             .and_then(|row| row.device_id.clone());
+        // EXP-849: read with the other `inner` facts — an account switch is
+        // refused mid-turn, and taking it later would hold this borrow across
+        // the settings read below.
+        let working = inner.working_now();
         // The pill only exists for a LIVE run's own meter (see the header
         // below) — resolving the machine's windows for a header that will not
         // show them is a settings read and a jsonb parse per repaint.
@@ -576,6 +640,21 @@ impl SessionScreenView {
             }
         });
 
+        // EXP-849: the usage readout is also the ACCOUNT control — which login
+        // this run is spending and, for claude between turns, which other one
+        // it could continue on. Built here (it needs the store and the run
+        // registry) and handed to the sheet as plain data.
+        let switch = shows_usage
+            .then(|| {
+                agent.map(|agent| SwitchContext {
+                    session_id: self.session_id.clone(),
+                    device_id: device_id.clone(),
+                    local,
+                    agent,
+                    working,
+                })
+            })
+            .flatten();
         h_flex()
             .w_full()
             .flex_shrink_0()
@@ -679,7 +758,13 @@ impl SessionScreenView {
                                 .tooltip("Usage"),
                             )
                             .content(move |_, _window, cx| {
-                                render_usage_sheet(agent, usage.as_ref(), windows.as_ref(), cx)
+                                render_usage_sheet(
+                                    agent,
+                                    usage.as_ref(),
+                                    windows.as_ref(),
+                                    switch.clone(),
+                                    cx,
+                                )
                             }),
                     )
                 },
@@ -955,9 +1040,10 @@ fn render_usage_sheet(
     agent: Option<coding::CodingAgent>,
     usage: Option<&steer::SessionUsage>,
     windows: Option<&coding::agent_usage::AgentUsage>,
+    switch: Option<crate::account_switch::SwitchContext>,
     cx: &App,
 ) -> AnyElement {
-    let mut sheet = v_flex().w(px(260.)).gap_3();
+    let mut sheet = v_flex().w(px(300.)).gap_3();
     let context = crate::usage_bar::render_context_block(usage, cx);
     let has_windows = windows.is_some_and(|windows| !windows.windows.is_empty());
     let has_context = context.is_some();
@@ -979,6 +1065,9 @@ fn render_usage_sheet(
                 .child("No usage reported yet."),
         );
     }
+    // EXP-849: the ACCOUNT block — which login is paying for this run, and
+    // (claude, between turns) the others it could continue on.
+    sheet = sheet.children(switch.and_then(|switch| switch.render(cx)));
     sheet.into_any_element()
 }
 
@@ -1011,6 +1100,10 @@ impl Render for SessionScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(cx);
         let issue_band = self.render_issue_band(cx);
+        // EXP-849: the continuation byline sits directly under the subject —
+        // above a finished run's summary, because it is about THIS run's
+        // history, not about its result.
+        let continuation = self.render_continuation(cx);
         let summary = self.render_summary(cx);
         // EXP-773: one column — the identity header, EXP-827's issue band, a
         // finished run's summary, then the transcript, whose own footer carries
@@ -1023,6 +1116,7 @@ impl Render for SessionScreenView {
             .track_focus(&self.focus_handle)
             .child(header)
             .children(issue_band)
+            .children(continuation)
             .children(summary)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }

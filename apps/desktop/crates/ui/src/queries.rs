@@ -1017,6 +1017,20 @@ pub(crate) fn device_label_for_id(cx: &App, device_id: &str) -> Option<String> {
         .filter(|label| !label.trim().is_empty())
 }
 
+/// EXP-849 — one machine's advertised capabilities off the synced `devices`
+/// rows, for a control that is only offered on a build that runs it (the
+/// account switch asks for `resume-run`). An unknown id has none.
+pub(crate) fn device_caps(cx: &App, device_id: &str) -> Vec<String> {
+    Store::global(cx)
+        .collections()
+        .devices
+        .read(cx)
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id))
+        .map(|row| row.cap_ids())
+        .unwrap_or_default()
+}
+
 /// EXP-849 — `session_id` plus every row that CONTINUES it, transitively
 /// (`resumed_from_id`). The resume chain is one run's history, so a guard that
 /// asks "is something else already working on this?" has to treat the whole

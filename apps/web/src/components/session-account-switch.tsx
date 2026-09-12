@@ -1,24 +1,31 @@
 // EXP-849 (phase 3): switching a RUN to another agent account, from the web.
 //
-// The session's usage readout is a CONTROL now: it opens the accounts the
-// run's own machine holds for the run's own agent — each with its live usage
-// bars — and switches to one. A switch is NOT a new wire verb: it is a
+// The session's usage readout is a CONTROL: it opens the accounts the run's own
+// machine holds for the run's own agent — each with its live usage bars — and
+// continues the run on one of them. A switch is NOT a new wire verb: it is a
 // RESUME of this run naming another profile
-// (`steer.startSession({ resumeSessionId, deviceId, account })`, interface B),
-// so the device re-enters the recorded run with the other login, the new
-// `coding_sessions` row carries `resumedFromId` and every list presents it as
-// a continuation. A live run is stopped first (a resume only ever re-enters an
-// ENDED run) — which is why the control also refuses mid-turn: ending a run
-// the agent is thinking in would throw that turn away.
+// (`steer.startSession({ resumeSessionId, deviceId, account })`, interface B)
+// sent while the run is still LIVE. The DEVICE does the rest: it ends the live
+// run (`ended_by: client`), moves the agent's transcript into the target
+// profile's config dir — never the credential — and relaunches there, stamping
+// `resumed_from_id` so every list reads the pair as one conversation. The
+// client never kills first: a kill-then-resume would leave a dead run behind
+// whenever the resume was refused.
 //
-// CLAUDE ONLY (the user's decision): codex keeps one account per session, and
-// no credential is ever copied, snapshotted or restored anywhere in this flow
-// — the device moves the transcript, never the login.
+// CLAUDE ONLY (EXP-849 §E): codex's conversation lives inside its login's own
+// rollout store, so there is nothing to move. And BETWEEN TURNS only — the
+// device has to stop the agent, so a switch mid-turn would throw away exactly
+// the output the reader is waiting for.
+//
+// Every string and every refusal here is hand-mirrored ×4 (Android
+// `domain/SessionAccountSwitch.kt`, iOS `Domain/SessionAccountSwitch.swift`,
+// desktop `ui/src/account_switch.rs`); `session-account-switch.test.ts` locks
+// them against the native sources.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
-import type { CodingSession, Device } from "@/db/schema"
+import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
@@ -28,14 +35,9 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   agentProfileUsageRows,
   healthBadgeLabel,
-  SYSTEM_PROFILE_ID,
   type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
-import {
-  deviceCanAgentLogin,
-  deviceCanResumeRun,
-  deviceRowIsOnline,
-} from "@/lib/steer-devices"
+import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
 import {
   findStartedRun,
   STARTED_RUN_DEADLINE_MS,
@@ -47,22 +49,54 @@ import { ListRow } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
 const SwapIcon = conceptIcon(`ui-swap`)
-const CheckIcon = conceptIcon(`ui-check`)
 
-/** The one-time cost of a switch, said once, where the switch happens: the
- *  other account re-reads the conversation before it can answer. */
-export const SWITCH_COST_NOTE = `A switch continues this run on the other account — the agent re-reads the conversation once, which spends tokens on the new account.`
+/** The only agent that can change account between messages (EXP-849 §E). */
+export const SWITCHABLE_AGENT = `claude`
+
+/** The sheet's section title, byte-identical ×4. */
+export const ACCOUNTS_SECTION_TITLE = `Accounts`
+
+/** The primary control on an account row. */
+export const SWITCH_LABEL = `Switch to this account`
+
+/** The rate-limit wall's PRIMARY button (EXP-849 interface D). */
+export const WALL_SWITCH_LABEL = `Switch account`
+
+/** What a switch costs, said once where the switch is offered: the agent
+ *  re-enters the recorded run under the other login, which re-reads the
+ *  transcript — one extra context read, not a per-message surcharge. */
+export const SWITCH_COST_NOTE = `Switching continues this run under the other account. The agent re-reads the transcript once, which costs tokens.`
+
+/** The continuation byline a resumed run's screen carries. */
+export const CONTINUATION_NOTE = `Continues an earlier run`
+
+/** What that continuation cost, said ONCE on the new run. */
+export const CONTINUATION_COST_NOTE = `The agent re-read the transcript once to pick it up — a one-time cost.`
+
+// ── Refusals ─────────────────────────────────────────────────────────────────
+// One sentence each, and the reason is always about the thing the person can
+// change. Shown ON the disabled control rather than hiding it, so the switch
+// never silently disappears mid-run.
+
+export const REASON_AGENT = `Only claude can switch accounts during a run.`
+export const REASON_NOT_MINE = `Only the person who started this run can switch its account.`
+export const REASON_ENDED = `This run has ended — resume it instead.`
+export const REASON_OFFLINE = `The machine is offline.`
+export const REASON_NO_CAP = `Update the app on that machine to switch accounts.`
+export const REASON_BUSY = `The agent is working — switching waits for the turn to finish.`
+export const REASON_SIGNED_OUT = `Sign in to this account on that machine first.`
+export const REASON_NEEDS_RELOGIN = `This account needs a re-login on that machine.`
+export const REASON_ALREADY = `This run is already on this account.`
 
 /** One account the run's machine holds for the run's agent. */
 export interface SessionAccountOption {
   profileId: string
-  /** The email, else the plan, else the profile's label. */
+  /** The identity line: the email, else the plan, else the profile's label. */
   label: string
-  profileLabel: string
   plan: string | null
   /** The machine's ACTIVE login for that agent. */
   active: boolean
-  /** This run is already on it. */
+  /** This run is KNOWN to be on it (usually unknowable — see below). */
   current: boolean
   row: AgentProfileUsageRow
   /** Why this account cannot be switched to right now, or null. */
@@ -71,63 +105,68 @@ export interface SessionAccountOption {
 
 /** EXP-849: the rules, as a pure function of the synced rows, so the reasons
  *  are the same sentences everywhere (and testable without a renderer).
- *  `null` = switchable. The ORDER matters: the most fundamental refusal wins,
- *  so a codex run never reads "the machine is offline". */
+ *  `null` = switchable. The ORDER matters and is the ×4 order: the most
+ *  fundamental refusal wins, so a codex run never reads "the machine is
+ *  offline".
+ *
+ *  `currentAccount` is the profile this run is KNOWN to be on, when the client
+ *  knows it — `coding_sessions.agent_account` is SERVER-ONLY (never in the
+ *  shape allowlist), so it is normally null, and the machine's own active
+ *  login is not a safe stand-in. */
 export function switchBlockedReason(input: {
   agent: string | null
-  ownRun: boolean
-  deviceRow: Pick<Device, `caps` | `lastSeenAt`> | null
-  online: boolean
+  mine: boolean
+  sessionEnded: boolean
+  deviceOnline: boolean
+  canResume: boolean
+  /** EXP-848's turn slot: `ended` is the default, so a viewer that has not
+   *  seen a `turn` event yet reads as idle. */
   turnEnded: boolean
-  option: { current: boolean; signedIn: boolean }
-  canAgentLogin: boolean
+  option: {
+    profileId: string
+    signedIn: boolean
+    health: DeviceAgentHealth
+  }
+  currentAccount?: string | null
 }): string | null {
-  if (!input.ownRun) return `Only the owner can steer this run.`
-  if (input.agent !== `claude`) {
-    return `Only claude can move a running conversation to another account.`
+  if (input.agent !== SWITCHABLE_AGENT) return REASON_AGENT
+  if (!input.mine) return REASON_NOT_MINE
+  if (input.sessionEnded) return REASON_ENDED
+  if (!input.deviceOnline) return REASON_OFFLINE
+  if (!input.canResume) return REASON_NO_CAP
+  if (!input.turnEnded) return REASON_BUSY
+  if (input.option.health === `needs_relogin`) return REASON_NEEDS_RELOGIN
+  if (!input.option.signedIn || input.option.health === `signed_out`) {
+    return REASON_SIGNED_OUT
   }
-  if (!input.deviceRow) return `This run's machine is no longer registered.`
-  if (!input.online) return `This run's machine is offline.`
-  if (!deviceCanResumeRun({ caps: input.deviceRow.caps ?? [] })) {
-    return `This machine runs an older Exponential app that cannot continue a run.`
-  }
-  if (!input.turnEnded) {
-    return `The agent is working — switch once it finishes its turn.`
-  }
-  if (input.option.current) return `This run is already on this account.`
-  if (!input.option.signedIn) {
-    return input.canAgentLogin
-      ? `Not signed in on this machine — sign in to it from Devices first.`
-      : `Not signed in on this machine, and this build cannot sign in remotely.`
+  if (input.currentAccount && input.currentAccount === input.option.profileId) {
+    return REASON_ALREADY
   }
   return null
 }
 
 export interface SessionAccountSwitch {
   /** The accounts the run's machine holds for the run's agent, the active one
-   *  first; empty when the machine reported none (or it is not ours). */
+   *  first; empty when the machine reported none (or it is not ours). The
+   *  readout offers the rows whenever there are any — a refused row keeps its
+   *  control and says why, which is the whole point of the reasons. */
   options: SessionAccountOption[]
-  /** Whether ANY account could be switched to — the readout only advertises
-   *  the switch when one could happen. */
-  canSwitch: boolean
   /** The profile a switch is in flight for, or null. */
   switchingTo: string | null
   switchTo: (profileId: string) => void
 }
 
-/** The switch, as a small state machine: a LIVE run is stopped first (the
- *  resume only re-enters an ended run), the synced row flipping to `ended`
- *  fires the resume, and the resumed row appearing opens it — exactly the
- *  hand-off `use-remote-start.ts` and the ended-run Resume button already
- *  use (`findStartedRun({ kind: 'resumed' })`). */
+/** The switch, as a small state machine: ONE mutation (the live run's own
+ *  resume, naming the account), then the wait for the continuation's row —
+ *  exactly the hand-off `use-remote-start.ts` and the ended-run Resume button
+ *  already use (`findStartedRun({ kind: 'resumed' })`), which opens the new
+ *  run's page when it syncs. */
 export function useSessionAccountSwitch(
   session: Pick<
     CodingSession,
     `id` | `userId` | `agent` | `agentAccount` | `deviceId` | `status`
   >,
   currentUserId: string,
-  /** EXP-848's turn slot: the switch is offered BETWEEN turns only — ending a
-   *  run the agent is thinking in would throw that turn away. */
   { turnEnded }: { turnEnded: boolean }
 ): SessionAccountSwitch {
   const now = useNow(30_000)
@@ -146,7 +185,6 @@ export function useSessionAccountSwitch(
 
   const [pending, setPending] = useState<{
     profileId: string
-    phase: `stopping` | `resuming`
     sentAt: number
   } | null>(null)
   const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -157,97 +195,62 @@ export function useSessionAccountSwitch(
     []
   )
 
-  const ownRun = session.userId === currentUserId
+  const mine = session.userId === currentUserId
   const online = deviceRow ? deviceRowIsOnline(deviceRow.lastSeenAt, now) : false
-  const canAgentLogin = deviceRow
-    ? deviceCanAgentLogin({ caps: deviceRow.caps ?? [] })
+  const canResume = deviceRow
+    ? deviceCanResumeRun({ caps: deviceRow.caps ?? [] })
     : false
-  const currentProfile = session.agentAccount ?? SYSTEM_PROFILE_ID
+  // Server-only column: normally absent on a synced row, so "which account is
+  // this run on" stays UNKNOWN rather than being guessed as the ambient one.
+  const currentAccount = session.agentAccount ?? null
 
   const options = useMemo<SessionAccountOption[]>(() => {
     if (!deviceRow || !session.agent) return []
     const rows = agentProfileUsageRows([deviceRow], currentUserId, () => online)
       .filter((row) => row.agent === session.agent)
       .sort((a, b) => Number(b.active) - Number(a.active))
-    return rows.map((row) => {
-      const current = row.profileId === currentProfile
-      return {
-        profileId: row.profileId,
-        label: row.email ?? row.plan ?? row.profileLabel,
-        profileLabel: row.profileLabel,
-        plan: row.plan,
-        active: row.active,
-        current,
-        row,
-        blockedReason: switchBlockedReason({
-          agent: session.agent,
-          ownRun,
-          deviceRow,
-          online,
-          turnEnded,
-          option: { current, signedIn: row.signedIn },
-          canAgentLogin,
-        }),
-      }
-    })
+    return rows.map((row) => ({
+      profileId: row.profileId,
+      label: row.email ?? row.plan ?? row.profileLabel,
+      plan: row.plan,
+      active: row.active,
+      current: currentAccount === row.profileId,
+      row,
+      blockedReason: switchBlockedReason({
+        agent: session.agent,
+        mine,
+        sessionEnded: session.status === `ended`,
+        deviceOnline: online,
+        canResume,
+        turnEnded,
+        option: {
+          profileId: row.profileId,
+          signedIn: row.signedIn,
+          health: row.health,
+        },
+        currentAccount,
+      }),
+    }))
   }, [
     deviceRow,
     session.agent,
+    session.status,
     currentUserId,
     online,
-    currentProfile,
-    ownRun,
+    currentAccount,
+    mine,
     turnEnded,
-    canAgentLogin,
+    canResume,
   ])
 
-  // Fire the resume the moment the stopped run's row reports `ended`.
+  // The continuation's own row: watched only while a switch is in flight.
   const watching = pending !== null
   const { data: sessionRows } = useLiveQuery(
     (query) => (watching ? query.from({ s: codingSessionCollection }) : undefined),
     [watching]
   )
-  const resume = async (profileId: string, sentAt: number) => {
-    try {
-      await trpc.steer.startSession.mutate(
-        {
-          resumeSessionId: session.id,
-          deviceId: session.deviceId!,
-          account: profileId,
-        },
-        { context: { skipErrorToast: true } }
-      )
-      setPending({ profileId, phase: `resuming`, sentAt })
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-      deadlineRef.current = setTimeout(() => {
-        setPending(null)
-        toast.error(`That machine never continued this run`, {
-          description: `Open the Exponential desktop app there to see why.`,
-        })
-      }, STARTED_RUN_DEADLINE_MS)
-    } catch (error) {
-      setPending(null)
-      toast.error(`Couldn't switch the account`, {
-        description: trpcErrorMessage(
-          error,
-          `The machine refused to continue this run on that account.`
-        ),
-      })
-    }
-  }
-
   useEffect(() => {
-    if (!pending || pending.phase !== `stopping`) return
-    if (session.status !== `ended`) return
-    void resume(pending.profileId, pending.sentAt)
-    // `resume` is stable enough for this edge (it closes over ids only).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, session.status])
-
-  // The continuation's own row: open it exactly once (clearing `pending`
-  // stops this effect from matching again).
-  useEffect(() => {
-    if (!pending || pending.phase !== `resuming`) return
+    if (!pending) return
     const match = findStartedRun(
       (sessionRows ?? []) as CodingSession[],
       { kind: `resumed`, fromId: session.id },
@@ -255,6 +258,8 @@ export function useSessionAccountSwitch(
       pending.sentAt - STARTED_RUN_SKEW_MS
     )
     if (!match) return
+    // Open it exactly once — clearing `pending` stops this effect matching
+    // again.
     if (deadlineRef.current) clearTimeout(deadlineRef.current)
     setPending(null)
     openSession(match)
@@ -266,32 +271,40 @@ export function useSessionAccountSwitch(
     if (!option || option.blockedReason) return
     if (!session.deviceId) return
     const sentAt = Date.now()
-    // A live run is stopped first; an already-ended one resumes straight away.
-    if (session.status === `ended`) {
-      setPending({ profileId, phase: `resuming`, sentAt })
-      void resume(profileId, sentAt)
-      return
-    }
-    setPending({ profileId, phase: `stopping`, sentAt })
-    trpc.steer.killSession
-      .mutate({ sessionId: session.id }, { context: { skipErrorToast: true } })
+    setPending({ profileId, sentAt })
+    trpc.steer.startSession
+      .mutate(
+        {
+          resumeSessionId: session.id,
+          deviceId: session.deviceId,
+          // The picked profile VERBATIM, `system` included: the server reads
+          // the PRESENCE of `account` as "this resume is a switch", and it is
+          // the only thing that lets a resume ride a LIVE run.
+          account: profileId,
+        },
+        { context: { skipErrorToast: true } }
+      )
+      .then(() => {
+        if (deadlineRef.current) clearTimeout(deadlineRef.current)
+        deadlineRef.current = setTimeout(() => {
+          setPending(null)
+          toast.error(`That machine never continued this run`, {
+            description: `Open the Exponential desktop app there to see why.`,
+          })
+        }, STARTED_RUN_DEADLINE_MS)
+      })
       .catch((error: unknown) => {
         setPending(null)
         toast.error(`Couldn't switch the account`, {
           description: trpcErrorMessage(
             error,
-            `This run could not be stopped, so it was left where it is.`
+            `The machine refused to continue this run on that account.`
           ),
         })
       })
   }
 
-  return {
-    options,
-    canSwitch: options.some((option) => option.blockedReason === null),
-    switchingTo: pending?.profileId ?? null,
-    switchTo,
-  }
+  return { options, switchingTo: pending?.profileId ?? null, switchTo }
 }
 
 /** The account rows the usage readout opens: the login, its plan, its live
@@ -307,6 +320,9 @@ export function SessionAccountRows({
   if (state.options.length === 0) return null
   return (
     <div className="space-y-1.5">
+      <p className="text-[11px] text-muted-foreground">
+        {ACCOUNTS_SECTION_TITLE}
+      </p>
       <div className="flex flex-col">
         {state.options.map((option) => (
           <SessionAccountRow
@@ -339,6 +355,14 @@ function SessionAccountRow({
   onSwitch: () => void
 }) {
   const health = healthBadgeLabel(option.row.health)
+  // The machine's CURRENT login — never a claim about which account THIS run
+  // is on (that stays server-side), which is why it reads "Active login".
+  const subtitle = [
+    option.plan && option.plan !== option.label ? option.plan : null,
+    option.active ? `Active login` : null,
+  ]
+    .filter(Boolean)
+    .join(` · `)
   return (
     <ListRow className="flex-col items-stretch gap-1.5 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -347,51 +371,40 @@ function SessionAccountRow({
             <span className="min-w-0 truncate" title={option.label}>
               {option.label}
             </span>
-            {option.plan && option.label !== option.plan && (
-              <span className="shrink-0 text-xs text-muted-foreground/60">
-                {option.plan}
-              </span>
-            )}
-            {option.current && (
-              <CheckIcon
-                className="size-3 shrink-0 text-emerald-400"
-                aria-label="This run's account"
-              />
-            )}
             {health && (
               <span className="shrink-0 text-[10px] font-medium text-amber-500">
                 {health}
               </span>
             )}
           </div>
+          {subtitle && (
+            <div className="truncate text-[11px] text-muted-foreground/70">
+              {subtitle}
+            </div>
+          )}
         </div>
-        {!option.current && (
-          <span title={option.blockedReason ?? undefined}>
-            <Button
-              variant="glass"
-              size="sm"
-              className="shrink-0"
-              disabled={option.blockedReason !== null || busy}
-              onClick={onSwitch}
-            >
-              {switching ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <SwapIcon />
-              )}
-              Switch to this account
-            </Button>
-          </span>
-        )}
+        <Button
+          variant="glass"
+          size="sm"
+          className="shrink-0"
+          disabled={option.blockedReason !== null || busy}
+          onClick={onSwitch}
+        >
+          {switching ? <LoaderCircle className="animate-spin" /> : <SwapIcon />}
+          {SWITCH_LABEL}
+        </Button>
       </div>
       {option.row.usage && option.row.usage.windows.length > 0 && (
         <div className={cn(option.current ? `` : `opacity-80`)}>
           <AgentUsageCards usage={option.row.usage} now={now} compact dense />
         </div>
       )}
-      {option.current && (
-        <p className="text-[11px] text-muted-foreground">
-          This run is on this account.
+      {/* The refusal sits UNDER the disabled control: it is nearly always
+          something the person can change (wait for the turn, sign in on the
+          machine), and a vanished control reads as a bug. */}
+      {option.blockedReason && (
+        <p className="text-[11px] text-muted-foreground/70">
+          {option.blockedReason}
         </p>
       )}
     </ListRow>

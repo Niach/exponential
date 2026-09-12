@@ -469,13 +469,35 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
         // EXP-637: resume an ended run out of the local run registry (EXP-662:
         // issue and batch sessions too) — no repo/inputs/options ride the
         // frame (the record has them), so this is the shortest arm of the four.
-        steer::RemoteStartSubject::Resume { session_id } => crate::action_run::resume_run(
-            session_id,
-            None,
-            true,
-            relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
-            cx,
-        ),
+        //
+        // EXP-849: …except the ACCOUNT. A resume that NAMES one is a mid-run
+        // "switch account": the server lets it ride a run that is still LIVE,
+        // and this machine is the one that ends that run (`ended_by: client`)
+        // before re-entering it under the other login.
+        steer::RemoteStartSubject::Resume { session_id } => {
+            let origin = relay_origin(cx, start.started_by.clone(), start.started_reason.clone());
+            match start.account.clone().filter(|id| !id.trim().is_empty()) {
+                Some(account) => {
+                    if !crate::account_switch::end_then_resume_on_account(
+                        session_id.clone(),
+                        account,
+                        None,
+                        origin,
+                        cx,
+                    ) {
+                        // Mid-turn: refused rather than truncating the very
+                        // output the requester is watching. The ×4 sentence
+                        // (`account_switch::REASON_BUSY`) is what that client's
+                        // own disabled row says.
+                        log::info!(
+                            "remote account switch for {session_id} ignored — \
+                             The agent is working — switching waits for the turn to finish."
+                        );
+                    }
+                }
+                None => crate::action_run::resume_run(session_id, None, true, origin, cx),
+            }
+        }
     }
 }
 

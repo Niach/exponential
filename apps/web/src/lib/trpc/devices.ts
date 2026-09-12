@@ -183,9 +183,10 @@ export function clampAgentAccounts(
     if (checkedAt) entry.checkedAt = checkedAt
     const health = clampAgentHealth(account.health)
     if (health) entry.health = health
-    // EXP-792 (EXP-747 B5): the device's profiles for this agent, ≤5. A
-    // profile without an id is dropped (nothing could address it); the
-    // top-level fields above stay the ACTIVE profile for older clients.
+    // EXP-792 (EXP-747 B5): the device's profiles for this agent,
+    // ≤`MAX_AGENT_PROFILES`. A profile without an id is dropped (nothing
+    // could address it); the top-level fields above stay the ACTIVE profile
+    // for older clients.
     const profiles: DeviceAgentProfileEntry[] = []
     for (const profile of account.profiles ?? []) {
       if (!profile || typeof profile.id !== `string` || !profile.id) continue
@@ -208,6 +209,10 @@ export function clampAgentAccounts(
       if (profileCheckedAt) item.checkedAt = profileCheckedAt
       const profileHealth = clampAgentHealth(profile.health)
       if (profileHealth) item.health = profileHealth
+      // EXP-849: the device collects no usage numbers for this login (past
+      // its own probe cap). Kept so the clients can caption the row instead
+      // of rendering its absent bars as zero; false is simply absent.
+      if (profile.unmonitored === true) item.unmonitored = true
       if (profile.usage) {
         item.usage = clampUsageEntry(profile.usage, new Date())
       }

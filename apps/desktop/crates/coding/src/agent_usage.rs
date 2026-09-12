@@ -1068,6 +1068,63 @@ pub fn force_collect(
     ))
 }
 
+/// EXP-849 — "use this account here": make `profile` this machine's DEFAULT
+/// login for `agent`, then re-read that login's numbers so the next heartbeat
+/// ships the moved `active` flag (and its usage) right away.
+///
+/// The ONE body behind all three entry points — the desktop's own control, the
+/// desktop's `agent_profile_use` command handler and the CLI daemon's — so the
+/// refusals are the same sentence wherever the switch was asked for. It is
+/// non-destructive by construction: a device-local pointer moves, and no
+/// credential is read, written, copied or revoked (`agent_login` stays the
+/// sign-in, and `codex logout` is never in this path).
+///
+/// `Err` is the sentence to show: an id this machine does not have, a login
+/// that is not signed in here (making it the default would break every later
+/// start, and the fix is a sign-in), or an unwritable index.
+pub fn use_profile(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    agent: CodingAgent,
+    profile: &str,
+    now: u64,
+) -> Result<AgentStatusPayload, String> {
+    let profile = profile.trim();
+    if crate::agent_profiles::get(data_dir, agent, profile).is_none() {
+        return Err(format!("No such {} account on this machine.", agent.id()));
+    }
+    // Identity as this machine sees it right now — the profile's own `auth
+    // status`, never a synced row that may be minutes old.
+    let stamp = now_iso();
+    let accounts = report.agent_accounts_with_profiles(settings, data_dir, &stamp);
+    let signed_in = accounts
+        .get(agent.id())
+        .map(|account| match account.profiles.iter().find(|row| row.id == profile) {
+            Some(row) => row.signed_in,
+            // A single-login machine has no profile rows: the ambient login IS
+            // the account row.
+            None => crate::agent_profiles::is_system(Some(profile)) && account.signed_in,
+        })
+        .unwrap_or(false);
+    if !signed_in {
+        return Err(format!(
+            "That {} account is not signed in on this machine — sign in there first.",
+            agent.id()
+        ));
+    }
+    crate::agent_profiles::set_active_profile(data_dir, agent, profile)
+        .map_err(|err| format!("Could not switch the {} account here: {err}", agent.id()))?;
+    // Past the shared TTL on purpose: the numbers the clients show for this
+    // machine are the ACTIVE login's, and it just changed. A rate-limited
+    // refusal reports what the cache holds instead — the pointer moved either
+    // way, so a switch that already happened must not read as a failure.
+    Ok(
+        force_collect(data_dir, settings, report, agent, profile, now)
+            .unwrap_or_else(|_| collect_if_due(data_dir, settings, report, now)),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // EXP-808 — which logins a pass touches
 // ---------------------------------------------------------------------------

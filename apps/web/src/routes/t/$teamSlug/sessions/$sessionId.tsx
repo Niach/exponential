@@ -21,6 +21,10 @@ import {
   deviceCollection,
 } from "@/lib/collections"
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
+import {
+  CONTINUATION_COST_NOTE,
+  CONTINUATION_NOTE,
+} from "@/components/session-account-switch"
 import { parseOrigin } from "@/lib/detail-origin"
 import { emptyFilters } from "@/lib/filters"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
@@ -320,7 +324,11 @@ function SessionStubHeader({
 
 /** EXP-849: the continuation chain — `resumed_from_id` links the run a
  * switch or resume came out of to the one that took over. One quiet line with
- * both ends, each opening that run. Absent when this run is neither. */
+ * both ends, each opening that run. Absent when this run is neither.
+ *
+ * The backward link carries the ×4 sentence (`CONTINUATION_NOTE`) plus the
+ * one-time transcript re-read it cost, said ONCE on the run that paid it — a
+ * second context charge on a new account must never be a surprise. */
 function SessionContinuationBand({ session }: { session: CodingSession }) {
   const openSession = useOpenSession()
   const { data: sessionRows } = useLiveQuery((query) =>
@@ -335,13 +343,18 @@ function SessionContinuationBand({ session }: { session: CodingSession }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground">
       {from && (
-        <button
-          type="button"
-          className="underline-offset-2 hover:underline"
-          onClick={() => openSession(from)}
-        >
-          {`Continued from an earlier run · started ${relativeTime(from.startedAt)}`}
-        </button>
+        <div className="flex min-w-0 flex-col items-start">
+          <button
+            type="button"
+            className="underline-offset-2 hover:underline"
+            onClick={() => openSession(from)}
+          >
+            {`${CONTINUATION_NOTE} · started ${relativeTime(from.startedAt)}`}
+          </button>
+          <span className="text-muted-foreground/70">
+            {CONTINUATION_COST_NOTE}
+          </span>
+        </div>
       )}
       {next && (
         <button

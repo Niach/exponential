@@ -12,6 +12,14 @@
 //! `CLIENT_LATEST_VERSION_*` pair behind the amber update nudge. That is
 //! instance config, not device state: it is fetched ONCE per section
 //! lifetime (the first render) rather than polled.
+//!
+//! EXP-849: this is also the REPAIR surface for agent logins. A row carries the
+//! worst health among the accounts its machine reported and one chip per
+//! account, whose menu does the one thing that account's state needs — sign in,
+//! sign in again, or "use this account here" (`agent_profile_use`: a
+//! device-local pointer, never a logout and never a credential copy). Deciding
+//! WHICH account a run should spend is the Accounts section's job
+//! (`accounts_section`), whose chips are deliberately quiet.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -19,7 +27,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
@@ -634,30 +642,45 @@ impl MachinesSection {
                                 )
                             })
                             .child(SharedString::from(status_line(device)))
-                            // EXP-849: a revoked login is louder than anything
-                            // else on this line — the machine looks fine and
-                            // every run on it would fail at the first request.
-                            .when(
-                                device_health(device)
-                                    == coding::agent_accounts::Health::NeedsRelogin,
-                                |this| {
-                                    this.child(
-                                        gpui_component::h_flex()
-                                            .flex_shrink_0()
-                                            .items_center()
-                                            .gap_1()
-                                            .text_color(theme::tokens::RED.to_hsla())
-                                            .child(
-                                                Icon::new(registry::UI_WARNING)
-                                                    .with_size(px(12.)),
-                                            )
-                                            .child(SharedString::from(
-                                                coding::agent_accounts::Health::NeedsRelogin
-                                                    .label(),
-                                            )),
-                                    )
-                                },
-                            )
+                            // EXP-849: the WORST health among the machine's
+                            // logins is louder than anything else on this line
+                            // — a revoked credential leaves the machine looking
+                            // fine while every run on it fails at the first
+                            // request. One badge, the ×4 strings.
+                            .children(crate::usage_bar::health_badge(
+                                device_health(device),
+                                cx,
+                            ))
+                            // EXP-849: the "claude not signed in" caption is
+                            // the one row state with a one-click fix — offer
+                            // it instead of only naming it. Own machines only:
+                            // a teammate's shared server is signed in from
+                            // ITS owner's client.
+                            .children(sign_in_target(device).map(|agent| {
+                                let device_id = device.device_id.clone();
+                                let device_label = device.device_label.clone();
+                                let own = device.device_id == own_device_id;
+                                Button::new(("machine-sign-in", index))
+                                    .ghost()
+                                    .cursor_pointer()
+                                    .xsmall()
+                                    .icon(registry::UI_SIGN_IN)
+                                    .label(SharedString::from(format!(
+                                        "Sign in to {}",
+                                        agent.label()
+                                    )))
+                                    .on_click(move |_, window, cx| {
+                                        crate::accounts_section::start_login(
+                                            device_id.clone(),
+                                            device_label.clone(),
+                                            own,
+                                            agent,
+                                            false,
+                                            window,
+                                            cx,
+                                        );
+                                    })
+                            }))
                             .when(updating, |this| {
                                 this.child(div().child(if queued {
                                     "Update queued"
@@ -665,7 +688,11 @@ impl MachinesSection {
                                     "Updating…"
                                 }))
                             }),
-                    ),
+                    )
+                    // EXP-849: the accounts this MACHINE holds, one chip each.
+                    // Devices is the repair surface: every chip of one of my
+                    // machines opens the one action its state needs.
+                    .children(Self::render_account_chips(index, device, own_device_id, cx)),
             )
             // EXP-698: a FIXED trailing COLUMN — ▶ and ⋯ each own a 32px
             // slot, so the two actions line up down the list. A row without a
@@ -685,6 +712,142 @@ impl MachinesSection {
                     }),
             )
             .into_any_element()
+    }
+}
+
+impl MachinesSection {
+    /// EXP-849 — the account chips on one Devices row, and the ONE action each
+    /// state needs: a login that is missing or broken is signed in again (the
+    /// agent CLI's own device-code flow — in a tab here for THIS machine, as an
+    /// `agent_login` command for another of mine), a healthy one that is not
+    /// the machine's active login simply BECOMES it (`agent_profile_use`, which
+    /// moves a device-local pointer and signs nobody out).
+    ///
+    /// Never a logout: signing codex out would revoke the account server-wide,
+    /// and never a credential copy either — the files stay where the CLI wrote
+    /// them. A teammate's shared machine is read-only: that login belongs to
+    /// its owner.
+    fn render_account_chips(
+        index: usize,
+        device: &api::devices::DeviceEntry,
+        own_device_id: &str,
+        cx: &gpui::App,
+    ) -> Option<gpui::AnyElement> {
+        let accounts = crate::device_settings::parse_agent_map::<coding::AgentAccount>(
+            device.agent_accounts.as_ref(),
+        );
+        let chips = crate::usage_bar::device_account_chips(&accounts);
+        if chips.is_empty() {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let own = device.device_id == own_device_id;
+        // A repair is only offered on MY machine: online (the command rides its
+        // heartbeat) with the `agent-login` cap, or this very machine, where the
+        // login runs in a tab right here. The same rule the sign-in pill uses.
+        let actionable = device.owner.is_none()
+            && (own
+                || (device.online && device.caps.iter().any(|cap| cap == "agent-login")));
+        let machine: SharedString = if device.device_label.trim().is_empty() {
+            device.device_id.clone().into()
+        } else {
+            device.device_label.clone().into()
+        };
+        let mut row = gpui_component::h_flex().w_full().min_w_0().flex_wrap().gap_1();
+        for (slot, chip) in chips.iter().enumerate() {
+            let Some(agent) = coding::CodingAgent::parse(&chip.agent) else {
+                continue;
+            };
+            let label = SharedString::from(format!(
+                "{} · {}",
+                agent.label(),
+                chip.email.clone().unwrap_or_else(|| if chip.signed_in {
+                    chip.plan.clone().unwrap_or_else(|| "signed in".to_string())
+                } else {
+                    chip.profile_label.clone()
+                })
+            ));
+            let check = (chip.signed_in && chip.active).then(|| {
+                Icon::new(registry::UI_CHECK)
+                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                    .text_color(theme::tokens::GREEN.to_hsla())
+            });
+            let badge = crate::usage_bar::health_badge(chip.health, cx);
+            let id = ("machine-account-chip", index * 64 + slot);
+            if !actionable {
+                row = row.child(
+                    crate::surface::glass_pill(
+                        id,
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .when(!device.online, |this| this.text_color(muted))
+                    .child(label)
+                    .children(check)
+                    .children(badge),
+                );
+                continue;
+            }
+            // ONE action per state, and the wording says which it is.
+            let broken = chip.health == coding::agent_accounts::Health::NeedsRelogin;
+            let use_here = chip.signed_in && !chip.active && !broken;
+            let action: SharedString = if !chip.signed_in {
+                "Sign in".into()
+            } else if broken || chip.active {
+                "Sign in again".into()
+            } else {
+                format!("Use this account on {machine}").into()
+            };
+            let device_id = device.device_id.clone();
+            let device_label = machine.to_string();
+            let profile_id = chip.profile_id.clone();
+            row = row.child(
+                crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
+                    .when(!device.online, |this| this.text_color(muted))
+                    .child(label)
+                    .children(check)
+                    .children(badge)
+                    .dropdown_menu(move |menu, _window, _cx| {
+                        let device_id = device_id.clone();
+                        let device_label = device_label.clone();
+                        let profile_id = profile_id.clone();
+                        let action = action.clone();
+                        menu.item(
+                            PopupMenuItem::new(action)
+                                .icon(Icon::new(if use_here {
+                                    registry::UI_CHECK
+                                } else {
+                                    registry::UI_SIGN_IN
+                                }))
+                                .on_click(move |_, window, cx| {
+                                    if use_here {
+                                        crate::accounts_section::use_account_here(
+                                            device_id.clone(),
+                                            device_label.clone(),
+                                            own,
+                                            agent,
+                                            profile_id.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    } else {
+                                        crate::accounts_section::sign_in_to_profile(
+                                            device_id.clone(),
+                                            device_label.clone(),
+                                            own,
+                                            agent,
+                                            profile_id.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    }
+                                }),
+                        )
+                    }),
+            );
+        }
+        Some(row.into_any_element())
     }
 }
 
@@ -791,6 +954,22 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
 /// out, so the row reads amber with the sign-in reason instead of "Online".
 fn sign_in_needed(device: &api::devices::DeviceEntry) -> bool {
     device.online && device.agents.is_empty() && !device.unauthed_agents.is_empty()
+}
+
+/// EXP-849 — which agent a one-click sign-in on this row would target: the
+/// FIRST installed-but-signed-out agent on one of MY machines.
+///
+/// Only one, even when both are signed out: a row is a row, and the second
+/// sign-in is one click away once the first is done (the machine's own
+/// Accounts chips cover the general case).
+fn sign_in_target(device: &api::devices::DeviceEntry) -> Option<coding::CodingAgent> {
+    if device.owner.is_some() {
+        return None;
+    }
+    device
+        .unauthed_agents
+        .iter()
+        .find_map(|agent| coding::CodingAgent::parse(agent))
 }
 
 /// EXP-849 (interface A) — the WORST health among this machine's agent

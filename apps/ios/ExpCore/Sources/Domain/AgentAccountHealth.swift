@@ -33,10 +33,6 @@ public enum AgentAccountHealth: String, Equatable, Sendable, CaseIterable {
     /// Signed in, never probed (or a report this build has no name for).
     case unknown
 
-    /// The wire value this build has a name for, else nil — what an
-    /// `agent_accounts` writer would send.
-    public var wireValue: String { rawValue }
-
     /// Attention order: the repairable state first, then the absent login,
     /// then "we don't know", then healthy. `worst` folds on this, so a device
     /// badge names the loudest thing about any of its logins.
@@ -64,17 +60,6 @@ public enum AgentAccountHealth: String, Equatable, Sendable, CaseIterable {
         case .needsRelogin: return "Needs re-login"
         case .signedOut: return "Signed out"
         case .ok, .unknown: return nil
-        }
-    }
-
-    /// The full sentence an account row prints when it states its health
-    /// outright (the badge is the short form). Locked ×4.
-    public var label: String {
-        switch self {
-        case .ok: return "Signed in"
-        case .needsRelogin: return "Needs re-login"
-        case .signedOut: return "Signed out"
-        case .unknown: return "Not checked yet"
         }
     }
 

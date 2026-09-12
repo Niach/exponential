@@ -16,8 +16,9 @@ import Foundation
 /// and the desktop's `ResumeRunRequest.account` gate: same refusals, same
 /// strings, same order.
 public struct SessionAccountOption: Equatable, Sendable, Identifiable {
-    /// What a start sends as `account` (`system` = the machine's ambient login,
-    /// which is never named on the wire — see `wireAccount`).
+    /// What a switch sends as `account` (`system` = the machine's ambient
+    /// login, named on the wire here unlike on a fresh start — see
+    /// `wireAccount`).
     public let profileId: String
     /// The row label (`Default` for the ambient login when the device sent
     /// none).
@@ -179,10 +180,18 @@ public enum SessionAccountSwitch {
         return nil
     }
 
-    /// What a start carries for `option`: the ambient login is NEVER named on
-    /// the wire (`system` is the absence of an account).
-    public static func wireAccount(_ option: SessionAccountOption) -> String? {
-        option.profileId == AgentAccountsRows.systemProfileId ? nil : option.profileId
+    /// What the switch carries as `account` — the picked profile VERBATIM,
+    /// `system` included.
+    ///
+    /// A fresh start omits the ambient login (`system` is the absence of an
+    /// account there), but a switch may not: the server reads the PRESENCE of
+    /// `account` as "this resume is a switch" and that is the only thing that
+    /// lets a resume ride a LIVE run, so an omitted field would come back as
+    /// "That run is still live". `system` is accepted there explicitly and
+    /// skips the profile-membership check (Android `wireAccount`, web
+    /// `session-account-switch.tsx` send it verbatim too).
+    public static func wireAccount(_ option: SessionAccountOption) -> String {
+        option.profileId
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

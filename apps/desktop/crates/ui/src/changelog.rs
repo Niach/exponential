@@ -61,7 +61,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Mobile parity**: Stop in the session header, a Watch pill instead of the Coding now card, suggestion chips on a new chat, pin buttons on iOS, pin on Android action rows, a Pinned section on the phone web sidebar, and flat rows under filled group headers on every list.
 - **Desktop polish**: an icon-only send button, a device settings dialog that fits, Usage as a round button next to Switch account, action icons in the automation picker, and dragging the window no longer selects text in a session.
 - **Leaner agent context**: issue lists returned to agents default to open work with short descriptions, and batch runs are told to share exploration instead of repeating it.
-- **pi retired**: the pi agent is gone; any ACP binary still runs through the external agent option."#,
+- **pi retired**: the pi agent is gone. Any ACP binary still runs through the external agent option, with two caveats: pi does not speak ACP natively, so it is not a drop-in there, and an external agent runs without the MCP bridge, plan mode, usage and account reporting, the slash-command catalog and remote start."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

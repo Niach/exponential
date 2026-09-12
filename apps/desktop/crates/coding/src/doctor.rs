@@ -112,16 +112,14 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 /// - `update-now` (FEED-36) — this build runs `update_now`: ends every live
 ///   session and applies a queued self-update right away (the CLI daemon;
 ///   the desktop advertises it too but updates through its own updater).
-/// - `agent-profile-use` (EXP-849) — this build runs `agent_profile_use`:
-///   point the machine's DEFAULT login for an agent at one of its account
-///   profiles ("use this account here"). Declared apart from `agent-login`
-///   because it is not a sign-in: it moves a device-local pointer and touches
-///   no credential, and a client must be able to offer the one without the
-///   other.
+///
+/// EXP-849's `agent_profile_use` ("use this account here") rides `agent-login`
+/// rather than a cap of its own: the server gates it on that cap, and a build
+/// that can drive a machine's logins can also point it at one of them.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 11 + 7 = 18.
-pub const DEVICE_CAPS: [&str; 11] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 10 + 7 = 17.
+pub const DEVICE_CAPS: [&str; 10] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -132,12 +130,7 @@ pub const DEVICE_CAPS: [&str; 11] = [
     "mcp",
     "agent-usage-refresh",
     "update-now",
-    AGENT_PROFILE_USE_CAP,
 ];
-
-/// EXP-849's "use this account here" cap, by name — the ONE place the literal
-/// lives, so a client gating the control never repeats the string.
-pub const AGENT_PROFILE_USE_CAP: &str = "agent-profile-use";
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run

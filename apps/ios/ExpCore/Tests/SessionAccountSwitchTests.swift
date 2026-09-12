@@ -131,11 +131,12 @@ final class SessionAccountSwitchTests: XCTestCase {
         XCTAssertEqual(try refusal("empty"), SessionAccountSwitch.reasonSignedOut)
     }
 
-    func testTheAmbientLoginIsNeverNamedOnTheWire() throws {
-        let ambient = try option("system")
-        let work = try option("work")
-        XCTAssertNil(SessionAccountSwitch.wireAccount(ambient))
-        XCTAssertEqual(SessionAccountSwitch.wireAccount(work), "work")
+    func testASwitchNamesTheAccountItTargetsTheAmbientLoginIncluded() throws {
+        // The PRESENCE of `account` is what makes the server accept a resume of
+        // a LIVE run, so the ambient login is named here (unlike a fresh start,
+        // where `system` is the absence of the field).
+        XCTAssertEqual(SessionAccountSwitch.wireAccount(try option("system")), "system")
+        XCTAssertEqual(SessionAccountSwitch.wireAccount(try option("work")), "work")
     }
 
     // The copy every client prints around a switch and the run it produced.

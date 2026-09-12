@@ -1330,16 +1330,33 @@ fn handle_remote_start(
 /// the start and carries the reason; the probe is best-effort, so an older
 /// server without it never blocks.
 fn issue_start_blocker(ctx: &Ctx, sessions: &Sessions, issue_id: &str) -> Option<String> {
+    issue_start_blocker_except(ctx, sessions, issue_id, None)
+}
+
+/// [`issue_start_blocker`], with ONE session exempted: the run a CONTINUATION
+/// replaces (EXP-849's account switch). The live row it is about to take over
+/// is the same piece of work, so counting it would make a switch impossible
+/// while the run it switches is still live — the desktop's
+/// `coding_flow::resume_blocker_for` exempts the same chain. Another machine's
+/// session on the issue still refuses.
+fn issue_start_blocker_except(
+    ctx: &Ctx,
+    sessions: &Sessions,
+    issue_id: &str,
+    except: Option<&str>,
+) -> Option<String> {
     if issue_is_coding_here(sessions, issue_id) {
         return Some(format!(
             "remote start for {issue_id} ignored — already coding this issue"
         ));
     }
     if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, issue_id) {
-        return Some(format!(
-            "remote start for {issue_id} ignored — live session on {} (one session per issue)",
-            live.device_label.as_deref().unwrap_or("another device")
-        ));
+        if except != Some(live.id.as_str()) {
+            return Some(format!(
+                "remote start for {issue_id} ignored — live session on {} (one session per issue)",
+                live.device_label.as_deref().unwrap_or("another device")
+            ));
+        }
     }
     None
 }
@@ -1579,6 +1596,45 @@ fn remote_action_start(
     spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
 
+/// EXP-849 — end the live run an account switch is taking over, so the resume
+/// can re-enter it under the other login: the agent cannot be in two processes
+/// in one worktree.
+///
+/// The engine's own end sequence runs, which flips the row to
+/// `ended_by: client` (never `merge`/`system`: nothing merged, and a person
+/// asked for this). A run that is MID-TURN is refused instead — the switch is
+/// a launch-time decision, and the turn slot is its authority. A run this
+/// daemon is not hosting (already ended, or never here) is a no-op: the resume
+/// below is then an ordinary one.
+fn end_for_account_switch(sessions: &Sessions, session_id: &str) -> anyhow::Result<()> {
+    let live = lock_sessions(sessions)
+        .iter()
+        .find(|live| live.session.session_id == session_id && !live.session.is_done())
+        .map(|live| live.session.clone());
+    let Some(live) = live else {
+        return Ok(());
+    };
+    if !live.is_idle() {
+        // The ×4 sentence (`SessionAccountSwitch.REASON_BUSY`), so the log says
+        // exactly what the requester's own disabled row says.
+        anyhow::bail!(
+            "account switch for {session_id} refused — \
+             The agent is working — switching waits for the turn to finish."
+        );
+    }
+    log::info!("account switch: ending live session {session_id} before the resume");
+    live.kill();
+    // ~10s: an engine teardown is sub-second. Past that the resume is refused
+    // rather than launched into a worktree something may still hold.
+    if live
+        .wait_timeout(std::time::Duration::from_secs(10))
+        .is_none()
+    {
+        anyhow::bail!("account switch for {session_id} refused — the run did not stop in time");
+    }
+    Ok(())
+}
+
 /// EXP-637 — RESUME an ended run of ANY kind out of the local run registry
 /// (EXP-662 added the issue and batch shapes). A record this daemon never
 /// wrote (or whose workspace is gone) is a hard refusal, logged: the requester
@@ -1602,13 +1658,25 @@ repo-less run, which is purged when it ends"
     if !record.resumable() {
         anyhow::bail!("run {session_id}'s workspace is gone and cannot be re-created");
     }
+    // EXP-849: a resume that NAMES an account is a mid-run "switch account" —
+    // the server lets such a frame ride a run that is still LIVE, and THIS
+    // machine is the one that ends it. Mid-turn it is refused instead: a switch
+    // then would truncate exactly the output the requester is watching.
+    let switching = account.as_deref().is_some_and(|id| !id.trim().is_empty());
+    if switching {
+        end_for_account_switch(sessions, &session_id)?;
+    }
+    // The run being continued never blocks its own continuation.
+    let except = switching.then(|| session_id.clone());
     // EXP-662: an issue/batch record resumes as a SESSION on those issues, so
     // it takes the same one-session-per-issue guards a fresh start does.
     let mut seeds = HashMap::new();
     match record.kind {
         coding::run_registry::RunKind::Issue => {
             if let Some(issue_id) = record.issue_id.clone() {
-                if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
+                if let Some(reason) =
+                    issue_start_blocker_except(ctx, sessions, &issue_id, except.as_deref())
+                {
                     anyhow::bail!(reason);
                 }
                 // Best-effort seed: it only feeds the FALLBACK prompt (the
@@ -1621,7 +1689,9 @@ repo-less run, which is purged when it ends"
         }
         coding::run_registry::RunKind::Batch => {
             for issue in &record.issues {
-                if let Some(reason) = issue_start_blocker(ctx, sessions, &issue.issue_id) {
+                if let Some(reason) =
+                    issue_start_blocker_except(ctx, sessions, &issue.issue_id, except.as_deref())
+                {
                     anyhow::bail!(reason);
                 }
             }
@@ -2108,71 +2178,34 @@ fn run_device_command(
             }
         }
         // EXP-849 — "use this account here": point this machine's default
-        // login for `agent` at `profileId`. Non-destructive (a device-local
-        // pointer; no credential is read, written or revoked) and NOT a
-        // sign-in — `agent_login` stays that command. The switch answers by
-        // re-reporting, so every client's check moves on this beat.
+        // login for `agent` at `profileId`, over the ONE shared body the
+        // desktop's handler and its local control also run
+        // ([`coding::use_profile`]). Non-destructive (a device-local pointer;
+        // no credential is read, written or revoked) and NOT a sign-in —
+        // `agent_login` stays that command. It answers by re-reporting, so
+        // every client's check moves on this beat.
         "agent_profile_use" => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system").trim();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    if coding::agent_profiles::get(&ctx.data_dir, agent, profile).is_none() {
-                        (false, format!("No such {} account on this machine.", agent.id()))
-                    } else {
-                        let report = coding::run_doctor(&settings);
-                        let stamp = coding::agent_accounts::now_iso();
-                        let accounts = report.agent_accounts_with_profiles(
-                            &settings,
-                            &ctx.data_dir,
-                            &stamp,
-                        );
-                        // A signed-OUT default would break every later start
-                        // here; the fix is a sign-in, which is another command.
-                        let signed_in = accounts
-                            .get(agent.id())
-                            .map(|account| {
-                                match account.profiles.iter().find(|row| row.id == profile) {
-                                    Some(row) => row.signed_in,
-                                    None => {
-                                        coding::agent_profiles::is_system(Some(profile))
-                                            && account.signed_in
-                                    }
-                                }
-                            })
-                            .unwrap_or(false);
-                        if !signed_in {
-                            (
-                                false,
-                                format!(
-                                    "That {} account is not signed in on this machine — sign in there first.",
-                                    agent.id()
-                                ),
-                            )
-                        } else if let Err(err) = coding::agent_profiles::set_active_profile(
-                            &ctx.data_dir,
-                            agent,
-                            profile,
-                        ) {
-                            (false, format!("Could not switch the {} account here: {err}", agent.id()))
-                        } else {
-                            let now = coding::run_registry::now_secs();
-                            // The reported numbers are the ACTIVE login's, and
-                            // it just changed — re-read past the shared TTL, and
-                            // fall back to the cache if the floor refuses (the
-                            // pointer moved either way).
-                            let payload = coding::force_collect(
-                                &ctx.data_dir, &settings, &report, agent, profile, now,
-                            )
-                            .unwrap_or_else(|_| {
-                                coding::collect_if_due(&ctx.data_dir, &settings, &report, now)
-                            });
+                    let report = coding::run_doctor(&settings);
+                    match coding::use_profile(
+                        &ctx.data_dir,
+                        &settings,
+                        &report,
+                        agent,
+                        profile,
+                        coding::run_registry::now_secs(),
+                    ) {
+                        Ok(payload) => {
                             if let Ok(mut slot) = slots.agent_status.lock() {
                                 *slot = Some(payload);
                             }
                             (true, format!("{} now runs as this account here.", agent.id()))
                         }
+                        Err(error) => (false, error),
                     }
                 }
             }

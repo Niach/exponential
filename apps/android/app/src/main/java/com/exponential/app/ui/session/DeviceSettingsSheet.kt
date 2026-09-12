@@ -135,9 +135,10 @@ fun DeviceSettingsSheet(
     var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
     // Codex's logout revokes the token server-side, so switching accounts
     // there is confirmed first (EXP-484); claude just re-runs its login.
-    // EXP-849: the confirm carries the PROFILE too — a switch targets one
-    // login on the machine, never "codex" as a whole.
-    var switchConfirm by remember { mutableStateOf<SwitchAccountTarget?>(null) }
+    // EXP-849: only the AMBIENT login button signs out before signing in — a
+    // profile chip's sign-in lands in that profile's own config dir — so the
+    // confirm names the agent and nothing else.
+    var switchConfirm by remember { mutableStateOf<String?>(null) }
 
     // Live reseeds. The name only re-seeds while the field is idle, the
     // defaults only while nothing of theirs is queued or in flight — otherwise
@@ -349,7 +350,7 @@ fun DeviceSettingsSheet(
                         canLogin = device.online && device.canAgentLogin && device.isMine,
                         onLogin = { switchAccount, profileId ->
                             if (switchAccount && agentTab == "codex") {
-                                switchConfirm = SwitchAccountTarget(agentTab, profileId)
+                                switchConfirm = agentTab
                             } else {
                                 viewModel.agentLogin(
                                     device.deviceId,
@@ -451,10 +452,10 @@ fun DeviceSettingsSheet(
         }
     }
 
-    switchConfirm?.let { target ->
+    switchConfirm?.let { agent ->
         AlertDialog(
             onDismissRequest = { switchConfirm = null },
-            title = { Text("Switch ${agentLabel(target.agent)} account?") },
+            title = { Text("Switch ${agentLabel(agent)} account?") },
             text = {
                 Text(
                     "Codex logout revokes the token server-side. You'll sign in " +
@@ -466,10 +467,9 @@ fun DeviceSettingsSheet(
                     onClick = {
                         viewModel.agentLogin(
                             device.deviceId,
-                            target.agent,
-                            true,
-                            device.online,
-                            target.profileId,
+                            agent,
+                            switchAccount = true,
+                            deviceOnline = device.online,
                         )
                         switchConfirm = null
                     },
@@ -765,12 +765,6 @@ private fun AgentAccountBlock(
 }
 
 /**
- * EXP-849: the switch a codex confirm is holding — the agent AND the login on
- * the machine it targets (`null` = the ambient one).
- */
-private data class SwitchAccountTarget(val agent: String, val profileId: String?)
-
-/**
  * EXP-849: one of the machine's logins for an agent, as a chip with its repair
  * menu. The chip says which login it is (its label, `Default` for the ambient
  * one), whether it is the machine's ACTIVE login, and its health; the menu is
@@ -851,30 +845,29 @@ private fun AgentProfileChip(
             if (usable && !profile.active) {
                 GlassMenuItem(
                     text = { Text("Use this account here") },
-                    leadingIcon = { Icon(ExpIcons.uiCheck, contentDescription = null) },
+                    leadingIcon = { Icon(ExpIcons.uiSwap, contentDescription = null) },
                     onClick = {
                         menuOpen = false
                         onUseHere(profile.id)
                     },
                 )
             }
-            val switching = usable && profile.active
+            // NEVER the logout-first form: a PROFILE sign-in lands in that
+            // profile's own config dir, so there is nothing to sign out (and a
+            // codex logout would revoke the token server-wide). The logout
+            // switch belongs to the AMBIENT login button above, which confirms
+            // first. Web `MachineAccountChip` parity.
             val entry = when {
                 health == AgentHealth.NeedsRelogin -> "Re-login"
                 !usable -> "Sign in"
-                else -> "Switch account"
+                else -> "Sign in again"
             }
             GlassMenuItem(
                 text = { Text(entry) },
-                leadingIcon = {
-                    Icon(
-                        if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,
-                        contentDescription = null,
-                    )
-                },
+                leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
                 onClick = {
                     menuOpen = false
-                    onLogin(switching, profile.id)
+                    onLogin(false, profile.id)
                 },
             )
         }

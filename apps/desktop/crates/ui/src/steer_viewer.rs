@@ -804,7 +804,7 @@ impl SteerSessionView {
     /// Authoritative through the FEED SLOT, never the local engine's
     /// `TurnSignal`: a remote viewer has no engine, and one rule that works
     /// for every `FeedSource` beats two that disagree.
-    fn working_now(&self) -> bool {
+    pub(crate) fn working_now(&self) -> bool {
         is_working(&WorkingFacts {
             empty_feed: self.feed.is_empty(),
             live: self.phase == ViewerPhase::Live,
@@ -5061,12 +5061,59 @@ impl SteerSessionView {
                 )
                 .child(
                     div()
+                        .flex_1()
                         .min_w_0()
                         .truncate()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(caption)),
                 )
+                // EXP-849: the wall's PRIMARY action. Waiting out a reset is
+                // the fallback, not the plan — if another account can take the
+                // work, offer it right here, and the switch clears this notice
+                // by ending the walled run (its successor has no wall).
+                .children(self.switch_account_control(cx))
+                .into_any_element(),
+        )
+    }
+
+    /// EXP-849 — "Switch account" over the rate-limit wall: the same account
+    /// rows the session's usage readout shows, in a popover off a primary
+    /// button. `None` when nothing could take the run (not claude, one login,
+    /// a remote run whose machine this client cannot resolve) — a button that
+    /// can only ever explain itself is worse than no button.
+    fn switch_account_control(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let agent = self.builtin_agent()?;
+        let context = crate::account_switch::SwitchContext {
+            session_id: self.session_id.to_string(),
+            device_id: self.session_row().and_then(|row| row.device_id.clone()),
+            local: self.is_local(),
+            agent,
+            // A walled run is stalled, not mid-turn (`working_now` vetoes on
+            // the wall), but ask anyway: the one authority stays the one
+            // authority.
+            working: self.working_now(),
+        };
+        // Ask once whether there is anything to offer, then let the popover
+        // re-render the rows itself: an `AnyElement` is consumed when it is
+        // painted, so the content closure has to build its own.
+        context.render(cx)?;
+        Some(
+            gpui_component::popover::Popover::new("steer-switch-account")
+                .p_2()
+                .trigger(
+                    Button::new("steer-switch-account-trigger")
+                        .primary()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(Icon::new(registry::UI_SWAP))
+                        .label(crate::account_switch::WALL_SWITCH_LABEL),
+                )
+                .content(move |_, _window, cx| {
+                    context
+                        .render(cx)
+                        .unwrap_or_else(|| gpui::Empty.into_any_element())
+                })
                 .into_any_element(),
         )
     }

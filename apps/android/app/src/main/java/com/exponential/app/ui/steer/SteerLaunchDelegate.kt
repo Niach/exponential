@@ -252,17 +252,15 @@ class SteerLaunchDelegate @Inject constructor(
      * command the list rows used to send, moved here with the affordance: the
      * desktop relaunches the pinned agent in the run's own worktree and
      * inserts a NEW session row, which this then hands to the host screen.
-     */
-    fun resumeRun(target: RunResumeTarget) = resumeRun(target, account = null)
-
-    /**
-     * EXP-849 phase 3: the same rails with an ACCOUNT named — the mid-session
-     * switch. The machine re-enters the recorded run under [account] (claude
-     * only) and inserts the continuation row, which lands in
+     *
+     * EXP-849 phase 3: [account] names a LOGIN to re-enter under — the
+     * mid-session switch, which is the same resume with an account on it
+     * (claude only). The machine ends the live run, re-enters the recorded one
+     * under that login and inserts the continuation row, which lands in
      * [startedSessionId] exactly like a resume's does, so the screen follows
-     * the new run. Null [account] is the plain Resume.
+     * the new run. Null = the plain Resume, on the run's own account.
      */
-    fun resumeRun(target: RunResumeTarget, account: String?) {
+    fun resumeRun(target: RunResumeTarget, account: String? = null) {
         val scope = scope ?: return
         scope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

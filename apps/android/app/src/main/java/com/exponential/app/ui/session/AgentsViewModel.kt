@@ -264,17 +264,21 @@ class AgentsViewModel @Inject constructor(
     /**
      * Ask [row]'s machine to run the agent's OWN sign-in flow for that login —
      * the machine publishes the URL (and codex's device code) back as the
-     * command result. [switchAccount] signs the current account out first, so
-     * it is offered only on the machine's ACTIVE login.
+     * command result.
+     *
+     * NEVER a switch: a profile-scoped sign-in lands in that profile's own
+     * config dir, so nothing has to be signed out first. The logout form
+     * (`switch`) belongs to the device sheet's AMBIENT login button, where a
+     * codex token revoke is confirmed first (web `MachineAccountChip` parity).
      */
-    fun accountLogin(row: AgentProfileUsageRow, switchAccount: Boolean) {
+    fun accountLogin(row: AgentProfileUsageRow) {
         issueAccountCommand(
             key = row.key,
             row = row,
             command = agentLoginCommand(
                 row.deviceId,
                 row.agent,
-                switchAccount,
+                switchAccount = false,
                 profileId = row.profileId,
             ),
         )
@@ -304,7 +308,7 @@ class AgentsViewModel @Inject constructor(
      */
     fun useAccountHere(row: AgentProfileUsageRow) {
         issueAccountCommand(
-            key = row.key,
+            key = accountProfileUseKey(row),
             row = row,
             command = agentProfileUseCommand(row.deviceId, row.agent, row.profileId),
         )
@@ -316,6 +320,9 @@ class AgentsViewModel @Inject constructor(
         command: kotlinx.serialization.json.JsonObject,
         onDone: () -> Unit = {},
     ) {
+        // Every one of these touches a machine's own logins — only the owner's
+        // commands are accepted, and the server re-checks.
+        if (!row.mine) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _accountsError.value = null
@@ -631,6 +638,13 @@ fun accountSections(
  * command's plain-text result is never parsed as a login publication.
  */
 internal fun accountLoginCodeKey(row: AgentProfileUsageRow): String = "code:${row.key}"
+
+/**
+ * EXP-849: one profile row's `agent_profile_use` key — its own namespace too,
+ * so "Use this account here" captions as a plain command outcome and is never
+ * read as the sign-in publication the `login:`-shaped slot carries.
+ */
+internal fun accountProfileUseKey(row: AgentProfileUsageRow): String = "use:${row.key}"
 
 /** How many finished rows the DAO pulls before the pure filter narrows them. */
 const val PAST_RUN_QUERY_LIMIT = 50
