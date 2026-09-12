@@ -759,7 +759,7 @@ export function nativeStem(path: RepoPath): string | undefined {
 
 /**
  * Names one native view answers to: its id plus its shot names with the lane
- * prefix stripped (`sg_board-filters` → `board-filters`, `01_board` → `board`).
+ * prefix stripped (`sg_sign-in` → `sign-in`, `01_board` → `board`).
  */
 function nativeTokens(view: View): string[] {
   const tokens = new Set<string>([view.id])

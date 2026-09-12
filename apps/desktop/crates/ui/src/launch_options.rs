@@ -316,26 +316,6 @@ pub(crate) fn launch_pills(
         .collect()
 }
 
-/// EXP-746 (D13): the pills for this machine's user-declared external ACP
-/// agents. No brand mark — an external agent has none — and the label is the
-/// spec's own, falling back to its id so a half-written entry still names
-/// itself.
-pub(crate) fn external_pills(externals: &[coding::ExternalAgentSpec]) -> Vec<AgentPill> {
-    externals
-        .iter()
-        .map(|spec| AgentPill {
-            label: SharedString::from(if spec.label.trim().is_empty() {
-                spec.id.clone()
-            } else {
-                spec.label.clone()
-            }),
-            icon: None,
-            dimmed: false,
-            note: None,
-        })
-        .collect()
-}
-
 /// The AUTOMATION strip's pills: the agent ids the BOUND device advertises.
 pub(crate) fn agent_id_pills(agent_ids: &[String]) -> Vec<AgentPill> {
     agent_ids
@@ -1025,15 +1005,6 @@ pub(crate) struct LaunchOptionsSection {
     /// EXP-696: `Some` while the run targets another machine — its agents
     /// and its published defaults replace the local doctor + hub everywhere.
     remote: Option<RemoteDefaults>,
-    /// EXP-746 (D13): this machine's user-declared external ACP agents, shown
-    /// as extra pills AFTER the builtin ones. Empty unless a surface sets
-    /// them ([`Self::set_externals`]) — an external agent is a LOCAL start
-    /// only (never remotely startable, and the server's `agent` vocabulary is
-    /// closed), so only the composer fills this, and only while it
-    /// targets this machine.
-    externals: Vec<coding::ExternalAgentSpec>,
-    /// The picked external agent's id; `None` = the builtin [`Self::agent`].
-    external: Option<String>,
     /// EXP-792: the team's MCP servers, already resolved against the TARGET
     /// machine by whichever surface owns the device pick
     /// ([`Self::set_mcp_servers`]). EMPTY hides the row — a team with no
@@ -1070,8 +1041,6 @@ impl LaunchOptionsSection {
             ultracode,
             plan_mode,
             remote: None,
-            externals: Vec::new(),
-            external: None,
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_seeded: false,
@@ -1135,25 +1104,6 @@ impl LaunchOptionsSection {
         }
     }
 
-    /// EXP-746 (D13): offer these external ACP agents beside the builtins.
-    /// A pick whose entry has gone (the settings list was edited under the
-    /// dialog) falls back to the builtin agent rather than launching a spec
-    /// that no longer exists.
-    pub(crate) fn set_externals(&mut self, externals: Vec<coding::ExternalAgentSpec>) {
-        if let Some(picked) = self.external.as_deref() {
-            if !externals.iter().any(|spec| spec.id == picked) {
-                self.external = None;
-            }
-        }
-        self.externals = externals;
-    }
-
-    /// The picked external agent, if the strip sits on one.
-    pub(crate) fn external_spec(&self) -> Option<&coding::ExternalAgentSpec> {
-        let picked = self.external.as_deref()?;
-        self.externals.iter().find(|spec| spec.id == picked)
-    }
-
     /// The settings the seeds come from: the TARGET machine's published
     /// defaults for a remote run, this install's own for a local one.
     fn seed_settings(&self, cx: &mut App) -> coding::Settings {
@@ -1190,12 +1140,6 @@ impl LaunchOptionsSection {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // D13: an external agent runs on THIS machine or nowhere — pointing
-        // the cluster at another one drops both the pills and the pick.
-        if remote.is_some() {
-            self.externals.clear();
-            self.external = None;
-        }
         self.remote = remote;
         // Same reason as an agent switch: profiles are per MACHINE too.
         self.account = None;
@@ -1278,7 +1222,6 @@ impl LaunchOptionsSection {
     /// resume also keeps the RECORDED agent, so only `model`/`effort` from
     /// here reach it, and only while the picker sits on that same agent.
     pub(crate) fn options(&self, resume_active: bool, cx: &App) -> LaunchOptions {
-        let external = self.external_spec().cloned();
         LaunchOptions {
             agent: self.agent,
             model: selected(&self.model, cx),
@@ -1286,18 +1229,9 @@ impl LaunchOptionsSection {
             // effort level); blank = omit the flag.
             effort: selected(&self.effort, cx),
             // Capability-clamped so a stale toggle can never leak onto an
-            // agent that doesn't support it — and an external agent supports
-            // neither (its argv is the spec's, verbatim).
-            ultracode: self.ultracode && self.agent.supports_ultracode() && external.is_none(),
-            plan_mode: self.plan_mode
-                && self.agent.supports_plan_mode()
-                && !resume_active
-                && external.is_none(),
-            // EXP-746 (D13): a picked external agent replaces the CLI the
-            // builtin `agent` names; `agent` still rides along because the
-            // launch paths (model/effort seeds, the wire's closed vocabulary)
-            // are keyed on it.
-            external,
+            // agent that doesn't support it.
+            ultracode: self.ultracode && self.agent.supports_ultracode(),
+            plan_mode: self.plan_mode && self.agent.supports_plan_mode() && !resume_active,
             // EXP-792/747 B7: the run's own picks, no longer hardcoded — the
             // launcher resolves the ids against the device's secret store
             // and the account against its profile dirs.
@@ -1333,57 +1267,31 @@ impl LaunchOptionsSection {
         };
     }
 
-    /// The Agent pin: the picked agent's label (an external agent's own
-    /// name when one is picked), a menu of the pickable builtins and the
-    /// local externals.
+    /// The Agent pin: the picked agent's label and a menu of the pickable
+    /// agents.
     pub(crate) fn agent_pin<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut LaunchOptionsSection,
         cx: &mut Context<V>,
     ) -> AnyElement {
-        let label = match self.external_spec() {
-            Some(spec) => spec.label.clone(),
-            None => self.agent.label().to_string(),
-        };
+        let label = self.agent.label().to_string();
         let agents = self.pickable(cx);
-        let externals = self.externals.clone();
         let current = self.agent;
-        let current_external = self.external.clone();
         let view = cx.entity().downgrade();
         inline_pin_trigger(SharedString::from(format!("{prefix}-agent")), label, cx)
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for agent in &agents {
                     let view = view.clone();
                     let agent = *agent;
-                    let checked = current_external.is_none() && current == agent;
+                    let checked = current == agent;
                     menu = menu.item(
                         PopupMenuItem::new(agent_label(agent.id()))
                             .checked(checked)
                             .on_click(move |_, window, cx| {
                                 if let Some(view) = view.upgrade() {
                                     view.update(cx, |view, cx| {
-                                        let section = access(view);
-                                        section.external = None;
-                                        section.set_agent(agent, window, cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                for spec in &externals {
-                    let view = view.clone();
-                    let id = spec.id.clone();
-                    let checked = current_external.as_deref() == Some(id.as_str());
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(spec.label.clone()))
-                            .checked(checked)
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let id = id.clone();
-                                    view.update(cx, |view, cx| {
-                                        access(view).external = Some(id);
+                                        access(view).set_agent(agent, window, cx);
                                         cx.notify();
                                     });
                                 }
@@ -1436,15 +1344,14 @@ impl LaunchOptionsSection {
             .into_any_element()
     }
 
-    /// The Plan switch; `None` for an agent without a plan mode (or an
-    /// external one — its argv is the spec's, verbatim).
+    /// The Plan switch; `None` for an agent without a plan mode.
     pub(crate) fn plan_toggle<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut LaunchOptionsSection,
         cx: &mut Context<V>,
     ) -> Option<AnyElement> {
-        if !self.agent.supports_plan_mode() || self.external.is_some() {
+        if !self.agent.supports_plan_mode() {
             return None;
         }
         Some(inline_switch(
@@ -1464,7 +1371,7 @@ impl LaunchOptionsSection {
         access: fn(&mut V) -> &mut LaunchOptionsSection,
         cx: &mut Context<V>,
     ) -> Option<AnyElement> {
-        if !self.agent.supports_ultracode() || self.external.is_some() {
+        if !self.agent.supports_ultracode() {
             return None;
         }
         Some(inline_switch(
@@ -1568,52 +1475,24 @@ impl LaunchOptionsSection {
                 .collect(),
             None => Vec::new(),
         };
-        // D13: the external pills sit AFTER the builtins, so a strip without
-        // any is byte-identical to the one every other surface renders.
-        let externals = self.externals.clone();
-        let active_ix = match self.external.as_deref() {
-            Some(picked) => externals
-                .iter()
-                .position(|spec| spec.id == picked)
-                .map(|ix| pickable.len() + ix)
-                .unwrap_or(0),
-            None => pickable
-                .iter()
-                .position(|agent| *agent == self.agent)
-                .unwrap_or(0),
-        };
+        let active_ix = pickable
+            .iter()
+            .position(|agent| *agent == self.agent)
+            .unwrap_or(0);
         let click_agents = pickable.clone();
-        let click_externals = externals.clone();
         let agent = self.agent;
         let effort_disabled = self.ultracode && agent.supports_ultracode();
 
-        let mut pills = launch_pills(&pickable, &unauthed, &no_session);
-        pills.extend(external_pills(&externals));
-        let builtin_count = pickable.len();
+        let pills = launch_pills(&pickable, &unauthed, &no_session);
         let mut group = AgentDefaultsGroup::new(
             prefix,
             agent,
             pills,
             Some(active_ix),
             move |view: &mut V, ix, window, cx| {
-                match ix.checked_sub(builtin_count) {
-                    // An external pill: the builtin pick stays where it is —
-                    // it is what the strip returns to when the external one
-                    // is deselected, and what the model/effort rows describe.
-                    Some(external_ix) => {
-                        if let Some(spec) = click_externals.get(external_ix) {
-                            access(view).external = Some(spec.id.clone());
-                            cx.notify();
-                        }
-                    }
-                    None => {
-                        if let Some(agent) = click_agents.get(ix).copied() {
-                            let section = access(view);
-                            section.external = None;
-                            section.set_agent(agent, window, cx);
-                            cx.notify();
-                        }
-                    }
+                if let Some(agent) = click_agents.get(ix).copied() {
+                    access(view).set_agent(agent, window, cx);
+                    cx.notify();
                 }
             },
             self.model.clone(),

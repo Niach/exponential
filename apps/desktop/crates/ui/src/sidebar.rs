@@ -60,7 +60,6 @@ use crate::coding_flow;
 use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
-use domain::IssueFilters;
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
@@ -364,8 +363,6 @@ pub(crate) fn rail_shared_for_window(
     let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
     let board_active = cx.new(|cx| BoardView::new(window, cx));
     let board_my = cx.new(|cx| BoardView::new(window, cx));
-    // EXP-525: My Issues hosts its Filter trigger in the Inbox tool strip.
-    board_my.update(cx, |board, _| board.set_external_filter(true));
     // DEV-ONLY (§11.4 headless verification, same family as
     // EXP_DEV_SERVER/EXP_DEV_SCREEN): pre-select the settings section so a
     // capture run lands on one pane without synthetic input. EXP-851 moved
@@ -2455,16 +2452,7 @@ impl ListPanel {
             }))
             .into_any_element();
         if tab == InboxTab::MyIssues {
-            // EXP-851: in the ListNav the rows are the SIMPLIFIED ones and
-            // the filters belong to the full screen the back row returns to,
-            // so no Filter trigger rides the strip there.
-            let trigger = (self.mode == ListMode::Screen).then(|| {
-                // EXP-525: the Filter trigger moved INTO the strip (web parity
-                // — no dedicated filter row above the list). EXP-818: icon-only.
-                self.board_my
-                    .update(cx, |board, cx| board.filter_trigger(cx))
-            });
-            let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], trigger, cx);
+            let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], None, cx);
             let body = match self.mode {
                 ListMode::Screen => self.my_issues_body(cx),
                 ListMode::Nav => self.render_my_issues_nav(cx),
@@ -2480,7 +2468,7 @@ impl ListPanel {
 
         let data = queries::inbox(cx);
         // "Mark all read" is the strip's trailing control (EXP-818: the same
-        // 32px glass icon button the Filter trigger is), only while there is
+        // 32px glass icon button), only while there is
         // something to mark.
         let mark_all_read = (data.total_unread > 0).then(|| {
             crate::controls::glass_icon_button(
@@ -3402,9 +3390,7 @@ impl ListPanel {
     }
 
     /// The board `ListNav` body: the board's issues as plain rows — status
-    /// glyph, identifier, title — with the open detail highlighted. No filter
-    /// bar: the filters belong to the full list screen the back row returns
-    /// to (spec C).
+    /// glyph, identifier, title — with the open detail highlighted.
     fn render_board_nav(
         &mut self,
         board_id: Option<String>,
@@ -3413,7 +3399,7 @@ impl ListPanel {
         let Some(board_id) = board_id else {
             return self.list_note("No board selected.", cx);
         };
-        let data = queries::board_board(cx, &board_id, &IssueFilters::empty());
+        let data = queries::board_board(cx, &board_id);
         if !data.is_ready {
             return self.list_skeleton(cx);
         }
@@ -3440,7 +3426,7 @@ impl ListPanel {
         else {
             return self.list_note("Nothing assigned.", cx);
         };
-        let data = queries::my_issues(cx, &team_id, &account.user_id, &IssueFilters::empty());
+        let data = queries::my_issues(cx, &team_id, &account.user_id);
         if !data.is_ready {
             return self.list_skeleton(cx);
         }

@@ -2,43 +2,13 @@ import { useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { useNavigate } from "@tanstack/react-router"
 import { CircleUser } from "lucide-react"
-import { ActiveFilterPills } from "@/components/active-filter-pills"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { EmptyState } from "@/components/empty-state"
-import { IssueFilterPopover } from "@/components/issue-filter-popover"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
-import { useTeamBySlug, useTeamLabels } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { emptyFilters, hasActiveFilters as filtersActive } from "@/lib/filters"
-import type { IssueFilters } from "@/lib/filters"
-
-// EXP-525: the filter trigger belongs in the Inbox page's TAB row, opposite
-// "Mark all read" — the standalone control row below it was an always-present
-// empty strip. The page owns the tabs, so the trigger renders there and the
-// view keeps only the pills; the labels come from the same cheap client-side
-// query the view's own data hook uses.
-export function MyIssuesFilterAction({
-  teamSlug,
-  filters,
-  onFiltersChange,
-}: {
-  teamSlug: string
-  filters: IssueFilters
-  onFiltersChange: (filters: IssueFilters) => void
-}) {
-  const team = useTeamBySlug(teamSlug)
-  const labels = useTeamLabels(team?.id)
-  return (
-    <IssueFilterPopover
-      filters={filters}
-      onFiltersChange={onFiltersChange}
-      labels={labels}
-    />
-  )
-}
 
 // Cross-board "My Issues": every issue assigned to the signed-in user across
 // all boards in the team, grouped by status like the board
@@ -46,18 +16,12 @@ export function MyIssuesFilterAction({
 // span boards, so the identifier column (always `{PREFIX}-{number}`) carries
 // the board context; clicking a row opens the full-page detail route.
 //
-// Lives as the "My Issues" tab of the Inbox page (EXP-186); filters stay in
-// the URL (?tab=my-issues&status=…&priority=…&labels=…) so a filtered view
-// is shareable and survives refresh.
+// Lives as the "My Issues" tab of the Inbox page (EXP-186).
 export function MyIssuesView({
   teamSlug,
-  filters,
-  onFiltersChange,
   bulkActionSlot,
 }: {
   teamSlug: string
-  filters: IssueFilters
-  onFiltersChange: (filters: IssueFilters) => void
   /** The tab row's right-hand cell, where the bulk-action bar renders. */
   bulkActionSlot: HTMLElement | null
 }) {
@@ -75,7 +39,7 @@ export function MyIssuesView({
     userMap,
     visibleGroups,
     team,
-  } = useMyIssuesData({ filters, userId, teamSlug })
+  } = useMyIssuesData({ userId, teamSlug })
 
   const permissions = useTeamPermissions(team)
 
@@ -114,13 +78,6 @@ export function MyIssuesView({
           />,
           bulkActionSlot
         )}
-      <div className="px-4 md:px-6">
-        <ActiveFilterPills
-          filters={filters}
-          onFiltersChange={onFiltersChange}
-          labels={labelList}
-        />
-      </div>
 
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
@@ -163,9 +120,6 @@ export function MyIssuesView({
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
             isLoading={!issuesReady}
-            hasAnyIssues={totalIssueCount > 0}
-            hasActiveFilters={filtersActive(filters)}
-            onClearFilters={() => onFiltersChange(emptyFilters)}
           />
         )}
       </div>

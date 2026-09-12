@@ -34,11 +34,11 @@ use api::{coding_sessions, issues, repositories, users};
 use terminal::pty::SpawnSpec;
 use terminal::tab::TabId;
 
-use crate::agent::{AgentKind, CodingAgent};
+use crate::agent::CodingAgent;
 use crate::argv::{
-    mcp_servers_env_json, shell_args, AgentMcp, LaunchOptions, McpServerWire,
-    CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS, MCP_SERVERS_ENV,
-    MCP_SESSION_ID_ENV, MCP_TOKEN_ENV, MCP_URL_ENV,
+    shell_args, AgentMcp, LaunchOptions, McpServerWire,
+    CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS,
+    MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
 };
 use crate::mcp_servers::{McpBlocker, ResolvedMcp};
 use crate::action_prompt::{
@@ -536,9 +536,8 @@ pub struct AcpLaunch {
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-792: the launch's team MCP servers, resolved (`exponential` is
     /// NOT among them — it stays [`Self::mcp`]). The adapters render them
-    /// into their own config (claude inline, codex `thread/start`); an
-    /// external agent already got them as [`crate::argv::MCP_SERVERS_ENV`]
-    /// on the spawn env. Empty for an agent shell and for every pick-less run.
+    /// into their own config (claude inline, codex `thread/start`). Empty for
+    /// an agent shell and for every pick-less run.
     pub servers: Vec<McpServerWire>,
     /// EXP-792: every device-held value the launcher put in the spawn env
     /// for those servers — the engine's redactor masks them out of the
@@ -608,6 +607,11 @@ pub enum DisabledReason {
     /// conversation lives in the login's own rollout store), a missing target
     /// profile, or a switch asked for while the agent is mid-turn.
     AccountSwitchRefused { message: String },
+    /// EXP-862: the recorded run used an external ACP agent, which this build
+    /// no longer runs. Its `agent` field names the settings default and means
+    /// nothing, so resuming would hand the conversation to a CLI that never
+    /// saw it.
+    ExternalAgentRetired,
 }
 
 impl DisabledReason {
@@ -626,6 +630,11 @@ impl DisabledReason {
             DisabledReason::SessionLimit { message } => message.clone(),
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
+            DisabledReason::ExternalAgentRetired => {
+                "That run used an external agent this version no longer supports. \
+Start a new run instead."
+                    .to_string()
+            }
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -846,9 +855,9 @@ fn path_segment(id: &str) -> Option<String> {
 fn write_acp_reaper_anchor(
     data_dir: &Path,
     session_id: &str,
-    agent: &AgentKind,
+    agent: CodingAgent,
 ) -> Option<PathBuf> {
-    if agent.builtin() != Some(CodingAgent::Claude) {
+    if agent != CodingAgent::Claude {
         return None;
     }
     let root = data_dir.join(HOOK_SETTINGS_DIR);
@@ -861,44 +870,28 @@ fn write_acp_reaper_anchor(
     Some(settings)
 }
 
-/// EXP-746: the launch's [`AgentKind`] — the picked external agent, else the
-/// builtin the options name.
-fn agent_kind(options: &LaunchOptions) -> AgentKind {
-    match &options.external {
-        Some(spec) => AgentKind::External(spec.clone()),
-        None => AgentKind::Builtin(options.agent),
-    }
-}
-
 /// EXP-746: can this launch actually run on the ACP engine? Both halves must
 /// hold — the AGENT speaks the protocol ([`ToolCheck::acp`], non-fatal and
 /// separate from the launch gate) and the HOST can drive one
-/// ([`CodingDeps::acp_available`]). An external agent is ACP by definition;
-/// it only needs the host.
+/// ([`CodingDeps::acp_available`]).
 ///
 /// EXP-752: plan mode is NOT an exception — a plan-mode launch resolves its
 /// transport exactly like any other.
 fn acp_ready(
     report: &crate::doctor::DoctorReport,
-    agent: &AgentKind,
+    agent: CodingAgent,
     deps: &CodingDeps,
 ) -> bool {
-    if !deps.acp_available {
-        return false;
-    }
-    match agent.builtin() {
-        Some(agent) => report.check_for(agent).acp == Some(true),
-        None => true,
-    }
+    deps.acp_available && report.check_for(agent).acp == Some(true)
 }
 
 /// EXP-758: the doctor's own explanation for [`acp_ready`] answering `false`,
-/// when it has one — the claude version-floor copy, codex's version floor. `None` for an external agent (never gated by a
-/// builtin's check) and for a host with no engine, where the reason is this
-/// BUILD rather than anything the CLI could tell the user.
-fn acp_note<'a>(report: &'a crate::doctor::DoctorReport, agent: &AgentKind) -> Option<&'a str> {
+/// when it has one — the claude version-floor copy, codex's version floor.
+/// `None` for a host with no engine, where the reason is this BUILD rather
+/// than anything the CLI could tell the user.
+fn acp_note<'a>(report: &'a crate::doctor::DoctorReport, agent: CodingAgent) -> Option<&'a str> {
     report
-        .check_for(agent.builtin()?)
+        .check_for(agent)
         .acp_note
         .as_deref()
         .filter(|note| !note.trim().is_empty())
@@ -910,7 +903,7 @@ fn acp_note<'a>(report: &'a crate::doctor::DoctorReport, agent: &AgentKind) -> O
 /// terminal tab nobody asked for.
 fn acp_gate(
     report: &crate::doctor::DoctorReport,
-    agent: &AgentKind,
+    agent: CodingAgent,
     deps: &CodingDeps,
 ) -> Option<DisabledReason> {
     if acp_ready(report, agent, deps) {
@@ -922,29 +915,18 @@ fn acp_gate(
     })
 }
 
-/// EXP-758: the step-0 doctor gate for `agent`, builtin or external.
-///
-/// An EXTERNAL agent is gated by its own command resolving at spawn time
-/// (`engine::adapters::external::resolve_on_path`), never by a builtin CLI
-/// the run never touches — but git still has to be there when the launch
-/// clones (`needs_git`). This is the rule [`prepare_resume_run`] already
-/// applied; the fresh launch paths keyed on the settings-default BUILTIN,
-/// which refused an external launch on a machine with no claude and passed
-/// one on a machine whose claude happened to be fine.
+/// EXP-758: the step-0 doctor gate for the launch's agent — the agent's own
+/// CLI check, plus git when the launch clones (`needs_git`).
 fn doctor_gate<'a>(
     report: &'a crate::doctor::DoctorReport,
-    agent: &AgentKind,
+    agent: CodingAgent,
     needs_git: bool,
 ) -> Option<&'a ToolCheck> {
-    match (agent.builtin(), needs_git) {
-        (Some(agent), true) => report.first_failure_for(agent),
-        (Some(agent), false) => {
-            let check = report.check_for(agent);
-            (!check.ok).then_some(check)
-        }
-        (None, true) => (!report.git.ok).then_some(&report.git),
-        (None, false) => None,
+    if needs_git {
+        return report.first_failure_for(agent);
     }
+    let check = report.check_for(agent);
+    (!check.ok).then_some(check)
 }
 
 /// Drop settings files past the TTL wherever they sit in the tree — per-pid
@@ -999,8 +981,8 @@ fn prune_hook_settings(root: &Path) {
 /// EXP-773: only the agent SHELL still writes a key file. A coding run is
 /// ACP-only, where claude gets `AgentMcp::ClaudeInline` — nothing lands in
 /// the cwd and the key rides the child env — so there is nothing to guard.
-fn guard_agent_mcp(agent: &AgentKind, cwd: &Path, shell: bool) -> Result<(), CodingError> {
-    if agent.builtin() == Some(CodingAgent::Claude) && shell {
+fn guard_agent_mcp(agent: CodingAgent, cwd: &Path, shell: bool) -> Result<(), CodingError> {
+    if agent == CodingAgent::Claude && shell {
         // EXP-474: the key never lands in a repo we cannot prove ignores it.
         crate::git_worktree::ensure_ignored(cwd, &[crate::mcp_json::MCP_JSON_FILE])?;
     }
@@ -1016,26 +998,14 @@ fn guard_agent_mcp(agent: &AgentKind, cwd: &Path, shell: bool) -> Result<(), Cod
 /// EXP-773: `shell` marks the `+` menu's agent SHELL — an interactive TUI,
 /// the only remaining consumer of claude's cwd `.exp-mcp.json`. Every coding
 /// run is the ACP engine, where claude takes the inline config instead.
-///
-/// EXP-758: on [`AgentKind`]. An EXTERNAL agent gets the env-only posture
-/// ([`AgentMcp::ExternalEnv`]) — it has no builtin config format to write, so
-/// stamping the settings-default builtin's sidecars into its worktree left it
-/// with no MCP wiring at all (and, for a claude default, a `.exp-mcp.json`
-/// nothing would read).
 fn wire_agent_mcp(
-    agent: &AgentKind,
+    agent: CodingAgent,
     cwd: &Path,
     base_url: &str,
     personal_key: &str,
     session_id: Option<&str>,
     shell: bool,
 ) -> Result<AgentMcp, CodingError> {
-    let Some(agent) = agent.builtin() else {
-        return Ok(AgentMcp::ExternalEnv {
-            url: mcp_url(base_url),
-            session_id: session_id.map(str::to_string),
-        });
-    };
     match agent {
         CodingAgent::Claude if !shell => {
             // EXP-746: no key file on the ACP arm — the engine passes inline
@@ -1064,35 +1034,18 @@ fn wire_agent_mcp(
 /// The spawn-env half of [`wire_agent_mcp`]: the MCP credential for codex
 /// rides the ENV (claude's rides `.exp-mcp.json`) — codex reads it through
 /// `bearer_token_env_var`.
-///
-/// EXP-758: an EXTERNAL agent takes an env-only shape too
-/// (url + key + the session header) — [`AgentMcp::ExternalEnv`] is the posture
-/// it was wired with, and the env is the only channel a binary we did not
-/// write can be handed a credential through.
 fn apply_mcp_env(
     spawn: SpawnSpec,
-    agent: &AgentKind,
-    base_url: &str,
+    agent: CodingAgent,
     personal_key: &str,
     session_id: Option<&str>,
     shell: bool,
 ) -> SpawnSpec {
-    let Some(agent) = agent.builtin() else {
-        let spawn = spawn
-            .env(MCP_URL_ENV, mcp_url(base_url))
-            .env(MCP_TOKEN_ENV, personal_key);
-        return match session_id {
-            Some(id) => spawn.env(MCP_SESSION_ID_ENV, id),
-            None => spawn,
-        };
-    };
     let spawn = match agent {
         // EXP-746: the ACP arm's inline `--mcp-config` reads the key from the
         // env (`${EXP_MCP_TOKEN}`); the agent shell keeps it in `.exp-mcp.json`.
         CodingAgent::Claude if !shell => with_claude_mcp_timeout(
-            spawn
-                .env(MCP_URL_ENV, mcp_url(base_url))
-                .env(MCP_TOKEN_ENV, personal_key),
+            spawn.env(MCP_TOKEN_ENV, personal_key),
             std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV),
         ),
         CodingAgent::Claude => {
@@ -1100,9 +1053,8 @@ fn apply_mcp_env(
         }
         CodingAgent::Codex => spawn.env(MCP_TOKEN_ENV, personal_key),
     };
-    // EXP-637: an external ACP agent has no MCP config of ours — it reads the
-    // run's session id from the env and sets `x-exp-session-id` itself.
-    // Harmless (and unread) on claude/codex, which carry it in their config.
+    // EXP-637: harmless (and unread) on claude/codex, which carry the session
+    // header in their own config.
     match session_id {
         Some(id) => spawn.env(MCP_SESSION_ID_ENV, id),
         None => spawn,
@@ -1112,19 +1064,15 @@ fn apply_mcp_env(
 /// EXP-792 (EXP-747 B2): the account PROFILE half of the spawn env — ONLY
 /// the agent's config-dir variable (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`)
 /// pointed at the profile's dir under `{data_dir}/agents/<agent>/<id>/`.
-/// Nothing at all for `None`/`system` (the ambient login), for an external
-/// agent, and for an id no profile answers to —
-/// a stale pick degrades to the ambient login rather than a spawn that
-/// cannot find its credentials.
+/// Nothing at all for `None`/`system` (the ambient login) and for an id no
+/// profile answers to — a stale pick degrades to the ambient login rather
+/// than a spawn that cannot find its credentials.
 pub fn apply_account_env(
     spawn: SpawnSpec,
-    agent: &AgentKind,
+    agent: CodingAgent,
     data_dir: &Path,
     account: Option<&str>,
 ) -> SpawnSpec {
-    let Some(agent) = agent.builtin() else {
-        return spawn;
-    };
     match crate::agent_profiles::config_env(data_dir, agent, account) {
         Some((key, value)) => spawn.env(key, value),
         None => spawn,
@@ -1157,19 +1105,13 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> Result<ResolvedMcp,
 /// EXP-792: the spawn-env half of the team servers, beside [`apply_mcp_env`]:
 /// every resolved secret under the launcher-minted name (`EXP_MCP_TOKEN_<n>`,
 /// `EXP_MCP_ENV_<n>_<NAME>`, a stdio server's own `<NAME>`) — the values the
-/// agents' `${VAR}` references and codex's env-named fields resolve to — plus,
-/// for the agents with no config of their own to carry the servers (an
-/// external ACP binary), the server list itself as
-/// [`MCP_SERVERS_ENV`]. Claude and codex get the list in their configs
-/// instead, so the list is never set for them.
-fn apply_mcp_server_env(spawn: SpawnSpec, agent: &AgentKind, resolved: &ResolvedMcp) -> SpawnSpec {
+/// agents' `${VAR}` references and codex's env-named fields resolve to. The
+/// server LIST itself never rides the env: claude and codex both carry it in
+/// their own config.
+fn apply_mcp_server_env(spawn: SpawnSpec, resolved: &ResolvedMcp) -> SpawnSpec {
     let mut spawn = spawn;
     for (name, value) in &resolved.env {
         spawn = spawn.env(name, value);
-    }
-    let env_carried = agent.builtin().is_none();
-    if env_carried && !resolved.servers.is_empty() {
-        spawn = spawn.env(MCP_SERVERS_ENV, mcp_servers_env_json(&resolved.servers));
     }
     spawn
 }
@@ -1254,25 +1196,20 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     options.plan_mode &= !resume_prompt;
     let options = &options;
     let agent = options.agent;
-    let agent_kind = agent_kind(options);
 
     // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
     // agent must resolve — a missing codex never blocks a claude launch).
     // Cheap relative to clone/mint and structural: the relay origin has no
     // button whose disabled state could have gated this.
-    //
-    // EXP-758: on [`AgentKind`], not on the settings-default builtin — an
-    // issue/batch launch always clones, so an external agent is gated on git
-    // alone (`doctor_gate`).
     let report = run_doctor(&deps.settings);
-    if let Some(failed) = doctor_gate(&report, &agent_kind, true) {
+    if let Some(failed) = doctor_gate(&report, agent, true) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
             failed.clone(),
         )));
     }
     // EXP-773: the ACP engine is the ONE coding transport — an agent that
     // cannot speak it says so here instead of falling back to a terminal tab.
-    if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
+    if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
     // EXP-792: the team MCP server pick — a server this machine cannot
@@ -1373,7 +1310,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(&agent_kind, &worktree, false)?;
+    guard_agent_mcp(agent, &worktree, false)?;
 
     // Step 5 — the seed prompt (both shapes: direct argv delivery when
     // small, PROMPT.md + seed line otherwise). EXP-662: this path ALWAYS
@@ -1453,7 +1390,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // A resume is `prepare_resume_run`'s business (EXP-662); this
             // path always starts a run of its own.
             None,
-            agent_kind.wire_id(),
+            agent.wire_id(),
             &attachment_ids,
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
@@ -1463,7 +1400,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             attribution(&batch_req.origin, deps),
             run_reason,
             None,
-            agent_kind.wire_id(),
+            agent.wire_id(),
             &attachment_ids,
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -1485,7 +1422,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         &deps.trpc,
         &session.id,
         wire_agent_mcp(
-            &agent_kind,
+            agent,
             &worktree,
             deps.trpc.base_url(),
             &personal_key,
@@ -1537,7 +1474,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // nothing) — a later resume reads it to decide whether the agent's
     // native reopen can work here at all. Best-effort: a failed write only
     // costs a future resume offer.
-    let _ = crate::worktree_agents::record_worktree_agent_id(&worktree, agent_kind.id());
+    let _ = crate::worktree_agents::record_worktree_agent_id(&worktree, agent.id());
 
     // Step 7's spawn spec — argv from [`crate::argv`]: explicit `--model`,
     // the native permission posture, and the prompt positional-last (bytes
@@ -1568,39 +1505,31 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // started session would otherwise park forever on the TUI's
     // directory-trust screen (codex resolves a linked worktree's trust
     // subject to the main clone, so the clone is the entry that matters).
-    // EXP-758: on the BUILTIN — an external agent has neither config, and
-    // seeding the settings-default builtin's trust for a run it never spawns
-    // is a write into the user's config on behalf of nobody.
     // EXP-792: the flags land in the run's account PROFILE config (its
     // `CLAUDE_CONFIG_DIR`/`CODEX_HOME`), never the ambient one.
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
-        agent_kind.builtin(),
+        Some(agent),
         options.account.as_deref(),
     );
-    if agent_kind.builtin() == Some(CodingAgent::Codex) {
+    if agent == CodingAgent::Codex {
         crate::codex_trust::ensure_trusted(&clone, profile_dir.as_deref());
     }
     // EXP-414: same pre-accept for claude, keyed by the spawn CWD — claude's
     // trust dialog is per-directory and every session gets a fresh worktree.
-    if agent_kind.builtin() == Some(CodingAgent::Claude) {
+    if agent == CodingAgent::Claude {
         // EXP-690: always seed `bypassPermissionsModeAccepted` — every run
         // bypasses, and even a plan-mode run is one Shift+Tab from it.
         crate::claude_trust::ensure_onboarded(&worktree, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's empty-`{}` claude anchor — the only file this
     // launch still writes outside the worktree.
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind);
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
     // EXP-443: the codex originator is stamped into its rollout metas before
     // the spawn. The claude session id is the ACP adapter's own to mint (it
     // doubles as the ACP session id the engine upserts), so nothing is
     // minted here.
-    //
-    // EXP-758: keyed on the BUILTIN — the pins are the builtin CLIs' own
-    // handles and mean nothing for an external agent (whose `agent` field
-    // carries the settings default).
-    let builtin = agent_kind.builtin();
-    let codex_originator = (builtin == Some(CodingAgent::Codex))
+    let codex_originator = (agent == CodingAgent::Codex)
         .then(|| crate::argv::codex_session_originator(&session.id));
 
     // EXP-662: record the SESSION exactly like `prepare_action` records a
@@ -1679,7 +1608,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             agent_native_session_id: None,
             acp_child_pid: None,
             host_pid: None,
-            external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
             extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
@@ -1704,16 +1632,9 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         )
         .env("CARGO_INCREMENTAL", "0");
     // The MCP credential env half of the wiring ([`apply_mcp_env`]).
-    spawn = apply_mcp_env(
-        spawn,
-        &agent_kind,
-        deps.trpc.base_url(),
-        &personal_key,
-        Some(&session.id),
-        false,
-    );
-    spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
-    spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
+    spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
+    spawn = apply_mcp_server_env(spawn, &team_mcp);
+    spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1735,7 +1656,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 automation_id: None,
                 // The server refuses a branch beside an issueId.
                 branch: None,
-                agent: agent_kind.wire_id().map(str::to_string),
+                agent: agent.wire_id().map(str::to_string),
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -1753,7 +1674,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 // The batch branch is minted client-side and already
                 // recorded by `start_batch`; nothing to re-assert.
                 branch: None,
-                agent: agent_kind.wire_id().map(str::to_string),
+                agent: agent.wire_id().map(str::to_string),
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -1896,18 +1817,15 @@ fn prepare_action(
     };
 
     // Step 0 — doctor: the selected agent always; git only when a clone is
-    // involved. EXP-758: on [`AgentKind`] (`doctor_gate`), so an EXTERNAL
-    // agent is gated by git alone when the run clones and by nothing at all
-    // when it does not — never by a builtin CLI it never spawns.
-    let agent_kind = agent_kind(&options);
+    // involved ([`doctor_gate`]).
     let report = run_doctor(&deps.settings);
-    if let Some(failed) = doctor_gate(&report, &agent_kind, repo.is_some()) {
+    if let Some(failed) = doctor_gate(&report, agent, repo.is_some()) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
             failed.clone(),
         )));
     }
     // EXP-773: an action run takes the same ACP gate as a session run.
-    if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
+    if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
     // EXP-792: the team MCP server pick, refused by name before any work.
@@ -2101,7 +2019,7 @@ fn prepare_action(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(&agent_kind, &cwd, false)?;
+    guard_agent_mcp(agent, &cwd, false)?;
 
     // Step 3 — the prompt (size-gated like a session's; the PROMPT.md
     // exclude write no-ops without a `.git`). The builtins render their
@@ -2209,7 +2127,7 @@ fn prepare_action(
             device_label: Some(&req.device_label),
             branch: run_branch.as_deref(),
             resumed_from_id: None,
-            agent: agent_kind.wire_id(),
+            agent: agent.wire_id(),
             attribution: attribution(&req.origin, deps),
             attachment_ids: &attachment_ids,
         },
@@ -2228,7 +2146,7 @@ fn prepare_action(
         &deps.trpc,
         &session.id,
         wire_agent_mcp(
-            &agent_kind,
+            agent,
             &cwd,
             deps.trpc.base_url(),
             &personal_key,
@@ -2240,19 +2158,17 @@ fn prepare_action(
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
     // marker, exactly like the issue path — a later resume reads it to
     // decide whether a native `--resume`/`--continue` can work here.
-    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent_kind.id());
+    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
 
     // Step 5 — the spawn spec: the selected agent, session argv. EXP-389:
     // pre-trust the run's directory first (the trunk clone for repo-backed
     // runs — a linked worktree resolves to it — or the scratch dir's PARENT,
     // which is stable per action across runs) so codex never parks on its
     // directory-trust screen.
-    // EXP-758: on the BUILTIN, like every other per-CLI step here.
-    let builtin = agent_kind.builtin();
     // EXP-792: trust lands in the run's account PROFILE config.
     let profile_dir =
-        crate::agent_profiles::account_dir(&deps.data_dir, builtin, options.account.as_deref());
-    if builtin == Some(CodingAgent::Codex) {
+        crate::agent_profiles::account_dir(&deps.data_dir, Some(agent), options.account.as_deref());
+    if agent == CodingAgent::Codex {
         let trust_root = trunk_clone
             .as_deref()
             .or_else(|| cwd.parent())
@@ -2260,15 +2176,15 @@ fn prepare_action(
         crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
     }
     // EXP-414: claude keys trust by the spawn cwd itself (worktree/scratch).
-    if builtin == Some(CodingAgent::Claude) {
+    if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's empty-`{}` claude anchor.
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind);
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
     // EXP-443: action runs share the trunk-clone cwd with each other and
     // with agent shells, exactly the collision the codex originator
     // disambiguates. claude's `--session-id` is the ACP adapter's to mint.
-    let codex_originator = (builtin == Some(CodingAgent::Codex))
+    let codex_originator = (agent == CodingAgent::Codex)
         .then(|| crate::argv::codex_session_originator(&session.id));
     let (tab_prefix, tab_title) = match &req.kind {
         ActionRunKind::Chat => chat_tab_title(
@@ -2280,16 +2196,9 @@ fn prepare_action(
         ),
     };
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent)).cwd(&cwd);
-    spawn = apply_mcp_env(
-        spawn,
-        &agent_kind,
-        deps.trpc.base_url(),
-        &personal_key,
-        Some(&session.id),
-        false,
-    );
-    spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
-    spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
+    spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
+    spawn = apply_mcp_server_env(spawn, &team_mcp);
+    spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2394,7 +2303,6 @@ fn prepare_action(
             agent_native_session_id: None,
             acp_child_pid: None,
             host_pid: None,
-            external_agent: options.external.clone(),
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
             extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
@@ -2436,7 +2344,7 @@ fn prepare_action(
             // EXP-637: the run branch, so a resurrected row still points at
             // the worktree the agent is working in.
             branch: run_branch.clone(),
-            agent: agent_kind.wire_id().map(str::to_string),
+            agent: agent.wire_id().map(str::to_string),
         },
         acp: AcpLaunch {
             prompt: rendered.clone(),
@@ -2588,6 +2496,13 @@ fn prepare_resume_run(
     deps: &CodingDeps,
 ) -> Result<Prepared, CodingError> {
     let record = &req.record;
+    // EXP-862: a run an older build put on an external ACP agent names no
+    // agent this build can start — `record.agent` is the settings default it
+    // was recorded beside. Refuse by name instead of handing the recorded ACP
+    // session id to a CLI that never saw the conversation.
+    if record.is_retired_external_agent() {
+        return Ok(Prepared::Disabled(DisabledReason::ExternalAgentRetired));
+    }
     let agent = record.agent;
     // EXP-849: what account this resume runs on. `Some(None)` is an explicit
     // ask for the AMBIENT login (switching back), which is why this is a
@@ -2612,13 +2527,6 @@ fn prepare_resume_run(
         ultracode: record.ultracode,
         // The plan already happened in the run being continued.
         plan_mode: false,
-        // EXP-746 (D13): a resume never switches agents, and that includes
-        // an EXTERNAL one — dropping the recorded spec here would relaunch
-        // the builtin `record.agent` (the settings default, which means
-        // nothing for an external record) and feed it the external agent's
-        // ACP session id. The recorded command and args are the pin; the
-        // spawn env comes from the CURRENT settings entry, never from the
-        // record (which never carried one).
         // EXP-792: the recorded server pick, re-resolved below against the
         // CURRENT secret store (a rotated token is picked up; a server that
         // lost its credential refuses the resume by name).
@@ -2628,12 +2536,10 @@ fn prepare_resume_run(
         // EXP-849: unless the caller asked to SWITCH accounts, which is what a
         // mid-session account change is (the gate is below).
         account: resume_account.clone(),
-        external: record.resolved_external_agent(&deps.settings.external_agents),
     };
-    let agent_kind = agent_kind(&options);
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
-        agent_kind.builtin(),
+        Some(agent),
         options.account.as_deref(),
     );
     // EXP-849 — refuse a switch the machine cannot honor, BEFORE anything is
@@ -2641,11 +2547,11 @@ fn prepare_resume_run(
     // conversation lives inside the login's own rollout store (and whose
     // login is one per session by contract — interface E).
     if switching {
-        if agent_kind.builtin() != Some(CodingAgent::Claude) {
+        if agent != CodingAgent::Claude {
             return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
                 message: format!(
                     "{} cannot continue a run on another account — start a new run on it instead.",
-                    agent_kind.label()
+                    agent.label()
                 ),
             }));
         }
@@ -2655,21 +2561,10 @@ fn prepare_resume_run(
             }));
         }
     }
-    // The builtin CLI this resume runs, if any. Everything keyed on the
-    // closed [`CodingAgent`] vocabulary — the doctor gate, the trust
-    // seeders, the three native resume handles, the argv identities — has
-    // nothing to do for an external agent.
-    let builtin = agent_kind.builtin();
-
     // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
-    // plus git when the run lives in a clone. An external agent is gated by
-    // its own command resolving at spawn time
-    // (`engine::adapters::external::resolve_on_path`), never by a builtin
-    // CLI the recorded run never touched.
-    // EXP-758: the rule this path already had, now shared with the two fresh
-    // launch paths ([`doctor_gate`]).
+    // plus git when the run lives in a clone ([`doctor_gate`]).
     let report = run_doctor(&deps.settings);
-    if let Some(failed) = doctor_gate(&report, &agent_kind, record.clone.is_some()) {
+    if let Some(failed) = doctor_gate(&report, agent, record.clone.is_some()) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
             failed.clone(),
         )));
@@ -2677,7 +2572,7 @@ fn prepare_resume_run(
     // EXP-773: same ACP gate as a fresh launch — a downgraded CLI or a host
     // with no engine refuses the resume with
     // the doctor's own reason instead of composing an argv nothing can run.
-    if let Some(reason) = acp_gate(&report, &agent_kind, deps) {
+    if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
     // EXP-792: the recorded team MCP server pick, against the store as it is
@@ -2797,10 +2692,10 @@ fn prepare_resume_run(
     // session with the resume prompt, exactly like a pruned transcript.
     let source_profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
-        builtin,
+        Some(agent),
         recorded_account.as_deref(),
     );
-    let claude_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Claude))
+    let claude_resume_id = (marker_allows_resume && agent == CodingAgent::Claude)
         .then(|| {
             record
                 .claude_session_id
@@ -2820,7 +2715,7 @@ fn prepare_resume_run(
                 })
         })
         .flatten();
-    let codex_resume_id = (marker_allows_resume && builtin == Some(CodingAgent::Codex))
+    let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex)
         .then(|| {
             acp_native.clone().or_else(|| {
                 deps.codex_sessions_root
@@ -2927,7 +2822,7 @@ fn prepare_resume_run(
     let personal_key = key_handle
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(&agent_kind, &cwd, false)?;
+    guard_agent_mcp(agent, &cwd, false)?;
 
     // Step 5 — a NEW session row in the recorded SUBJECT's shape, pointing
     // back at the run it continues.
@@ -2939,7 +2834,7 @@ fn prepare_resume_run(
             attribution(&req.origin, deps),
             run_reason,
             Some(&record.session_id),
-            agent_kind.wire_id(),
+            agent.wire_id(),
             &attachment_ids,
         ),
         RunKind::Batch => coding_sessions::start_batch(
@@ -2949,7 +2844,7 @@ fn prepare_resume_run(
             attribution(&req.origin, deps),
             run_reason,
             Some(&record.session_id),
-            agent_kind.wire_id(),
+            agent.wire_id(),
             &attachment_ids,
         ),
         _ => coding_sessions::start_action(
@@ -2964,7 +2859,7 @@ fn prepare_resume_run(
                 device_label: Some(&req.device_label),
                 branch: record.branch.as_deref(),
                 resumed_from_id: Some(&record.session_id),
-                agent: agent_kind.wire_id(),
+                agent: agent.wire_id(),
                 attribution: attribution(&req.origin, deps),
                 attachment_ids: &attachment_ids,
             },
@@ -2982,7 +2877,7 @@ fn prepare_resume_run(
         &deps.trpc,
         &session.id,
         wire_agent_mcp(
-            &agent_kind,
+            agent,
             &cwd,
             deps.trpc.base_url(),
             &personal_key,
@@ -2990,10 +2885,10 @@ fn prepare_resume_run(
             false,
         ),
     )?;
-    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent_kind.id());
+    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
-    if builtin == Some(CodingAgent::Codex) {
+    if agent == CodingAgent::Codex {
         let trust_root = record
             .clone
             .as_deref()
@@ -3001,15 +2896,15 @@ fn prepare_resume_run(
             .unwrap_or(&cwd);
         crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
     }
-    if builtin == Some(CodingAgent::Claude) {
+    if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's empty-`{}` claude anchor.
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, &agent_kind);
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
     // The ACP adapter mints claude's OWN `--session-id` (it doubles as the
     // ACP session id), so a pin minted here would name no transcript and
     // would outrank the real id in the replay's fallback chain.
-    let codex_originator = (builtin == Some(CodingAgent::Codex))
+    let codex_originator = (agent == CodingAgent::Codex)
         .then(|| crate::argv::codex_session_originator(&session.id));
     // EXP-662: a resumed SESSION is titled like a fresh one (`claude ·
     // EXP-42` / `claude · EXP-42 +1`) — the strip must not tell a resume
@@ -3032,16 +2927,9 @@ fn prepare_resume_run(
         }
     };
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent)).cwd(&cwd);
-    spawn = apply_mcp_env(
-        spawn,
-        &agent_kind,
-        deps.trpc.base_url(),
-        &personal_key,
-        Some(&session.id),
-        false,
-    );
-    spawn = apply_mcp_server_env(spawn, &agent_kind, &team_mcp);
-    spawn = apply_account_env(spawn, &agent_kind, &deps.data_dir, options.account.as_deref());
+    spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
+    spawn = apply_mcp_server_env(spawn, &team_mcp);
+    spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -3109,7 +2997,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
-            agent: agent_kind.wire_id().map(str::to_string),
+            agent: agent.wire_id().map(str::to_string),
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3121,7 +3009,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
-            agent: agent_kind.wire_id().map(str::to_string),
+            agent: agent.wire_id().map(str::to_string),
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3133,7 +3021,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: record.branch.clone(),
-            agent: agent_kind.wire_id().map(str::to_string),
+            agent: agent.wire_id().map(str::to_string),
         },
     };
     let issue_identifier = match record.kind {
@@ -3309,8 +3197,7 @@ pub fn prepare_agent_shell(
         .join()
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
     let agent_mcp = wire_agent_mcp(
-        // An agent shell is a picked BUILTIN by construction (EXP-325).
-        &AgentKind::Builtin(agent),
+        agent,
         &cwd,
         deps.trpc.base_url(),
         &personal_key,
@@ -3340,15 +3227,8 @@ pub fn prepare_agent_shell(
         .args(args)
         .cwd(&cwd);
     // Agent shells are always interactive TUIs (never the ACP engine).
-    spawn = apply_mcp_env(
-        spawn,
-        &AgentKind::Builtin(agent),
-        deps.trpc.base_url(),
-        &personal_key,
-        None,
-        true,
-    );
-    spawn = apply_account_env(spawn, &AgentKind::Builtin(agent), &deps.data_dir, options.account.as_deref());
+    spawn = apply_mcp_env(spawn, agent, &personal_key, None, true);
+    spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd with action runs — a distinct
         // originator keeps their rollouts out of every session's strict pass.
@@ -3538,7 +3418,6 @@ mod tests {
                 plan_mode: true,
                 mcp_server_ids: Vec::new(),
                 account: None,
-                external: None,
             },
             resume_prompt: false,
             prompt: None,
@@ -3546,15 +3425,6 @@ mod tests {
     }
 
     // ---- EXP-746: the transport decision ----
-
-    fn external_spec() -> crate::settings::ExternalAgentSpec {
-        crate::settings::ExternalAgentSpec {
-            id: "acme".to_string(),
-            label: "Acme ACP".to_string(),
-            command: "acme".to_string(),
-            ..Default::default()
-        }
-    }
 
     /// EXP-752: nothing about plan mode gates a launch — a plan-mode run is
     /// as ACP-ready as any other.
@@ -3583,21 +3453,21 @@ mod tests {
             codex: ready(crate::doctor::Tool::Codex),
             git: ready(crate::doctor::Tool::Git),
         };
-        let codex = AgentKind::Builtin(CodingAgent::Codex);
-        let claude = AgentKind::Builtin(CodingAgent::Claude);
-        assert!(acp_ready(&report, &codex, &deps));
-        assert!(acp_ready(&report, &claude, &deps));
+        let codex = CodingAgent::Codex;
+        let claude = CodingAgent::Claude;
+        assert!(acp_ready(&report, codex, &deps));
+        assert!(acp_ready(&report, claude, &deps));
         // A host with no engine is never ready, whatever the agent says.
         let mut hostless = make_deps(&base, &dir.0, Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
         }));
         hostless.acp_available = false;
-        assert!(!acp_ready(&report, &codex, &hostless));
-        assert!(!acp_ready(&report, &claude, &hostless));
-        assert!(acp_gate(&report, &claude, &deps).is_none());
+        assert!(!acp_ready(&report, codex, &hostless));
+        assert!(!acp_ready(&report, claude, &hostless));
+        assert!(acp_gate(&report, claude, &deps).is_none());
         assert!(matches!(
-            acp_gate(&report, &claude, &hostless),
+            acp_gate(&report, claude, &hostless),
             Some(DisabledReason::AcpUnavailable { .. })
         ));
         // The mode is no part of the gate (claude's plan default is ON, so
@@ -3754,10 +3624,10 @@ mod tests {
         git(&["commit", "--quiet", "-m", "reinclude"]);
 
         // The guard itself: unguardable repo, both callers.
-        guard_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &worktree, false)
+        guard_agent_mcp(CodingAgent::Claude, &worktree, false)
             .expect("a coding run has no file to guard");
         let direct =
-            guard_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &worktree, true).unwrap_err();
+            guard_agent_mcp(CodingAgent::Claude, &worktree, true).unwrap_err();
         assert!(matches!(direct, CodingError::Git(_)), "wrong error: {direct:?}");
 
         // And through `prepare`: the launch goes through and leaves no key
@@ -3853,67 +3723,33 @@ mod tests {
         assert!(acp.prompt.as_deref().unwrap().contains("Code review"));
     }
 
-    /// EXP-746 (D13): a run recorded under an EXTERNAL agent resumes into
-    /// THAT binary — the spec rides the options the engine builds its
-    /// adapter from, the builtin `record.agent` never gates it, and the new
-    /// row carries no agent (the server's vocabulary is closed). Its spawn
-    /// env comes from the CURRENT settings entry: runs.json never stores one.
+    /// EXP-862: external ACP agents are gone, so a run an older build
+    /// recorded on one refuses to resume by name. Its `agent` field carries
+    /// the settings default and means nothing, so relaunching it would hand
+    /// the recorded ACP session id to a CLI that never saw the conversation.
     #[test]
-    fn an_external_agent_resume_re_enters_the_recorded_external_agent() {
-        let dir = temp_dir("resume-external");
-        let (base, captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+    fn a_retired_external_agent_run_refuses_to_resume() {
+        let dir = temp_dir("resume-external-retired");
+        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
         });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        // The builtin the record names is not even installed: an external
-        // run never touched it, so it must not gate the resume.
-        deps.settings.claude_path = dir.0.join("no-such-claude").to_string_lossy().into_owned();
-        let mut spec = external_spec();
-        spec.env.insert("ACME_TOKEN".to_string(), "sk-live-1".to_string());
-        deps.settings.external_agents = vec![spec.clone()];
+        let deps = make_deps(&base, &dir.0, worktrees);
         let mut record = resume_record(&dir.0, "sess-old");
         record.transport = Some("acp".to_string());
         record.acp_session_id = Some("acp-9".to_string());
-        // What the registry hands back: the command pinned, no env.
-        record.external_agent = Some(crate::settings::ExternalAgentSpec {
-            env: Default::default(),
-            ..spec.clone()
-        });
+        record.extra.insert(
+            crate::run_registry::EXTERNAL_AGENT_KEY.to_string(),
+            serde_json::json!({"id": "acme", "command": "acme"}),
+        );
 
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        let acp = &prepared.acp;
-        assert_eq!(acp.options.external.as_ref(), Some(&spec));
-        assert_eq!(acp.resume, Some(ResumeSeed::Acp("acp-9".to_string())));
-        // No builtin identity is minted for it, and the reaper anchor is
-        // claude's alone.
-        assert_eq!(prepared.claude_session_id, None);
-        assert_eq!(prepared.codex_originator, None);
-        assert_eq!(acp.reaper_settings_path, None);
-        // The row records no agent at all rather than the settings default.
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests.iter().all(|request| !request.contains(r#""agent""#)),
-            "{requests:?}"
-        );
-        drop(requests);
-        // ... and the resumed run's own record keeps the spec, so a resume
-        // of the resume chains into the same binary — minus the env, which
-        // stays settings.json's and is re-resolved by id on the way back out.
-        let fresh = crate::run_registry::get(&dir.0, "sess-a").expect("record");
-        let recorded = fresh.external_agent.as_ref().expect("the spec");
-        assert_eq!(recorded.id, spec.id);
-        assert_eq!(recorded.command, spec.command);
-        assert!(recorded.env.is_empty(), "the token is not recorded");
-        assert_eq!(
-            fresh.resolved_external_agent(&deps.settings.external_agents),
-            Some(spec.clone())
-        );
+        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::ExternalAgentRetired) => {}
+            other => panic!("expected ExternalAgentRetired, got {other:?}"),
+        }
+        // Nothing server-side was created for a resume that cannot run.
+        assert!(crate::run_registry::get(&dir.0, "sess-a").is_none());
     }
 
     /// EXP-773 (was EXP-758 #11): a run whose agent lost its ACP readiness
@@ -3944,77 +3780,6 @@ mod tests {
         }
         // Nothing server-side was created for a launch that cannot run.
         assert!(crate::run_registry::get(&dir.0, "sess-a").is_none());
-    }
-
-    /// EXP-758 (#12): an EXTERNAL agent launch is gated on git alone rather
-    /// than on a claude that is not installed, its MCP posture is the
-    /// env-only external one (no `.exp-mcp.json`), and the
-    /// worktree marker records ITS id so no builtin is ever offered a resume
-    /// here.
-    #[test]
-    fn an_external_agent_launch_wires_its_own_mcp() {
-        let dir = temp_dir("external-launch");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        // Not installed: an external run never touches it.
-        deps.settings.claude_path = dir.0.join("no-such-claude").to_string_lossy().into_owned();
-        let spec = external_spec();
-        deps.settings.external_agents = vec![spec.clone()];
-        let mut req = request("EXP-42");
-        req.options.external = Some(spec.clone());
-        req.options.plan_mode = false;
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        // #12: the external MCP posture, and nothing of a builtin's.
-        let acp = &prepared.acp;
-        match &acp.mcp {
-            AgentMcp::ExternalEnv { url, session_id } => {
-                assert_eq!(url, &mcp_url(&base));
-                assert_eq!(session_id.as_deref(), Some("sess-1"));
-            }
-            other => panic!("expected the external MCP posture, got {other:?}"),
-        }
-        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
-        assert_eq!(acp.reaper_settings_path, None, "the anchor is claude's");
-        assert_eq!(prepared.claude_session_id, None);
-        assert_eq!(prepared.codex_originator, None);
-        // The credential reaches a binary we did not write the only way it
-        // can: the spawn env.
-        let env = |key: &str| {
-            prepared
-                .spawn
-                .env
-                .iter()
-                .find(|(name, _)| name == key)
-                .map(|(_, value)| value.as_str())
-        };
-        assert_eq!(env(MCP_TOKEN_ENV), Some("expu_seeded"));
-        assert_eq!(env(MCP_URL_ENV), Some(mcp_url(&base).as_str()));
-        assert_eq!(env(MCP_SESSION_ID_ENV), Some("sess-1"));
-        // #12: the marker names the EXTERNAL agent, so no builtin reads back
-        // out of it and none is offered "Resume previous session" here.
-        assert_eq!(
-            fs::read_to_string(worktree.join(crate::worktree_agents::AGENTS_FILE)).unwrap(),
-            "acme\n"
-        );
-        assert_eq!(
-            crate::worktree_agents::worktree_agents(&worktree),
-            Some(Vec::new())
-        );
     }
 
     /// EXP-773: a pre-773 record (no `transport`, or the retired `"pty"`)
@@ -4079,7 +3844,7 @@ mod tests {
         git(&["add", "."]);
         git(&["commit", "--quiet", "-m", "reinclude"]);
 
-        let err = wire_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &repo, "http://localhost:1", "expu_x", None, true)
+        let err = wire_agent_mcp(CodingAgent::Claude, &repo, "http://localhost:1", "expu_x", None, true)
             .unwrap_err();
         assert!(matches!(err, CodingError::Git(_)), "wrong error: {err:?}");
         assert!(!repo.join(crate::mcp_json::MCP_JSON_FILE).exists(), "key landed on disk");
@@ -4093,7 +3858,7 @@ mod tests {
         let cwd = dir.0.join("wt");
         fs::create_dir_all(&cwd).unwrap();
         let mcp = wire_agent_mcp(
-            &AgentKind::Builtin(CodingAgent::Claude),
+            CodingAgent::Claude,
             &cwd,
             "http://localhost:1/",
             "expu_x",
@@ -4112,17 +3877,16 @@ mod tests {
     #[test]
     fn apply_mcp_env_gives_claude_the_token_only_on_the_acp_arm() {
         let base = SpawnSpec::new("claude");
-        let shell = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Claude), "http://x/", "expu_k", Some("s"), true);
+        let shell = apply_mcp_env(base.clone(), CodingAgent::Claude, "expu_k", Some("s"), true);
         assert!(!shell.env.iter().any(|(k, _)| k == MCP_TOKEN_ENV), "the agent shell keeps the key in the file");
-        let acp = apply_mcp_env(base, &AgentKind::Builtin(CodingAgent::Claude), "http://x/", "expu_k", Some("s"), false);
+        let acp = apply_mcp_env(base, CodingAgent::Claude, "expu_k", Some("s"), false);
         assert!(acp.env.iter().any(|(k, v)| k == MCP_TOKEN_ENV && v == "expu_k"));
-        assert!(acp.env.iter().any(|(k, v)| k == MCP_URL_ENV && v == "http://x/api/mcp"));
         assert!(acp.env.iter().any(|(k, v)| k == MCP_SESSION_ID_ENV && v == "s"));
     }
 
     /// EXP-792 (EXP-747 B2): a profile pick sets the agent's config-dir
-    /// variable and NOTHING else; `None`/`system`, an external agent and
-    /// an unknown id set nothing.
+    /// variable and NOTHING else; `None`/`system` and an unknown id set
+    /// nothing.
     #[test]
     fn apply_account_env_sets_only_the_config_dir_var() {
         let data_dir = std::env::temp_dir().join(format!(
@@ -4134,9 +3898,9 @@ mod tests {
         let work = crate::agent_profiles::create(&data_dir, CodingAgent::Claude, "Work").unwrap();
         let codex_work = crate::agent_profiles::create(&data_dir, CodingAgent::Codex, "Work").unwrap();
         let base = SpawnSpec::new("agent").env("KEEP", "1");
-        let claude = AgentKind::Builtin(CodingAgent::Claude);
+        let claude = CodingAgent::Claude;
 
-        let picked = apply_account_env(base.clone(), &claude, &data_dir, Some(&work.id));
+        let picked = apply_account_env(base.clone(), claude, &data_dir, Some(&work.id));
         assert_eq!(picked.env.len(), 2, "{:?}", picked.env);
         assert_eq!(
             picked.env[1],
@@ -4145,28 +3909,13 @@ mod tests {
                 data_dir.join("agents").join("claude").join(&work.id).to_string_lossy().into_owned()
             )
         );
-        let codex = apply_account_env(
-            base.clone(),
-            &AgentKind::Builtin(CodingAgent::Codex),
-            &data_dir,
-            Some(&codex_work.id),
-        );
+        let codex = apply_account_env(base.clone(), CodingAgent::Codex, &data_dir, Some(&codex_work.id));
         assert_eq!(codex.env[1].0, "CODEX_HOME");
 
         for none in [None, Some("system"), Some(""), Some("deadbeef")] {
-            let spawn = apply_account_env(base.clone(), &claude, &data_dir, none);
+            let spawn = apply_account_env(base.clone(), claude, &data_dir, none);
             assert_eq!(spawn.env, base.env, "{none:?}");
         }
-        // An external agent is never profiled.
-        let external = AgentKind::External(crate::settings::ExternalAgentSpec {
-            id: "x".into(),
-            label: "x".into(),
-            command: "x".into(),
-            args: Vec::new(),
-            env: Default::default(),
-        });
-        let ext = apply_account_env(base.clone(), &external, &data_dir, Some(&work.id));
-        assert_eq!(ext.env, base.env);
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 
@@ -4185,14 +3934,14 @@ mod tests {
         };
         let base = SpawnSpec::new("agent");
         for shell in [true, false] {
-            let claude = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Claude), "http://x/", "expu_k", Some("s"), shell);
+            let claude = apply_mcp_env(base.clone(), CodingAgent::Claude, "expu_k", Some("s"), shell);
             // The host's own value wins when set; the test process may carry
             // one, so only the shape is pinned here — the pure helper below
             // pins the fill-the-gap rule.
             if std::env::var_os(CLAUDE_MCP_TOOL_TIMEOUT_ENV).is_none_or(|v| v.is_empty()) {
                 assert_eq!(timeout(&claude), Some(CLAUDE_MCP_TOOL_TIMEOUT_MS.to_string()), "shell={shell}");
             }
-            let codex = apply_mcp_env(base.clone(), &AgentKind::Builtin(CodingAgent::Codex), "http://x/", "expu_k", Some("s"), shell);
+            let codex = apply_mcp_env(base.clone(), CodingAgent::Codex, "expu_k", Some("s"), shell);
             assert_eq!(timeout(&codex), None, "shell={shell}");
         }
     }
@@ -4220,7 +3969,7 @@ mod tests {
     #[test]
     fn wire_agent_mcp_writes_the_key_file_in_a_repo_less_scratch_dir() {
         let dir = temp_dir("mcp-scratch");
-        let wired = wire_agent_mcp(&AgentKind::Builtin(CodingAgent::Claude), &dir.0, "http://localhost:1", "expu_x", None, true)
+        let wired = wire_agent_mcp(CodingAgent::Claude, &dir.0, "http://localhost:1", "expu_x", None, true)
             .unwrap();
         assert_eq!(wired, AgentMcp::ClaudeFile);
         assert!(dir.0.join(crate::mcp_json::MCP_JSON_FILE).exists());
@@ -4235,7 +3984,6 @@ mod tests {
             plan_mode: false,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         }
     }
 
@@ -4408,7 +4156,6 @@ mod tests {
                 plan_mode: false,
                 mcp_server_ids: Vec::new(),
                 account: None,
-                external: None,
             },
             prompt: None,
         }
@@ -4621,7 +4368,6 @@ mod tests {
             plan_mode: false,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
@@ -5318,7 +5064,6 @@ mod tests {
             agent_native_session_id: None,
             acp_child_pid: None,
             host_pid: None,
-            external_agent: None,
         }
     }
 
@@ -6558,7 +6303,6 @@ mod tests {
             plan_mode: false,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -6883,7 +6627,6 @@ mod tests {
                 plan_mode: false,
                 mcp_server_ids: Vec::new(),
                 account: None,
-                external: None,
             },
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),
@@ -6977,43 +6720,24 @@ mod tests {
         assert_eq!(reason.message(), "MCP server linear: not signed in on this machine");
     }
 
-    /// Every resolved pair lands in the spawn env for every agent; the
-    /// server LIST rides the env only for an external agent (claude
-    /// and codex carry it in their configs), and it never carries a value.
+    /// Every resolved pair lands in the spawn env; the server LIST never
+    /// does (claude and codex both carry it in their own config), and no
+    /// value ever reaches the env under a name the agent could print.
     #[test]
-    fn apply_mcp_server_env_lands_every_pair_and_the_list_only_where_the_env_carries_it() {
+    fn apply_mcp_server_env_lands_every_resolved_pair() {
         let resolved = resolved_two();
-        let cases = [
-            (AgentKind::Builtin(CodingAgent::Claude), false),
-            (AgentKind::Builtin(CodingAgent::Codex), false),
-            (AgentKind::External(external_spec()), true),
-        ];
-        for (agent, list_expected) in cases {
-            let spawn = apply_mcp_server_env(SpawnSpec::new("agent"), &agent, &resolved);
-            let env = |name: &str| {
-                spawn
-                    .env
-                    .iter()
-                    .find(|(key, _)| key == name)
-                    .map(|(_, value)| value.as_str())
-            };
-            assert_eq!(env("EXP_MCP_TOKEN_1"), Some("oauth-access-token-value-1"), "{agent:?}");
-            assert_eq!(env("GITHUB_TOKEN"), Some("ghp_typed_value_2"), "{agent:?}");
-            let listed = env(MCP_SERVERS_ENV);
-            assert_eq!(listed.is_some(), list_expected, "{agent:?}");
-            if let Some(json) = listed {
-                assert!(json.contains("${EXP_MCP_TOKEN_1}"));
-                assert!(json.contains("\"github\""));
-                assert!(!json.contains("oauth-access-token-value-1"));
-                assert!(!json.contains("ghp_typed_value_2"));
-            }
-        }
+        let spawn = apply_mcp_server_env(SpawnSpec::new("agent"), &resolved);
+        let env = |name: &str| {
+            spawn
+                .env
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(env("EXP_MCP_TOKEN_1"), Some("oauth-access-token-value-1"));
+        assert_eq!(env("GITHUB_TOKEN"), Some("ghp_typed_value_2"));
         // An empty pick adds nothing at all — the pre-792 env, byte for byte.
-        let bare = apply_mcp_server_env(
-            SpawnSpec::new("agent"),
-            &AgentKind::External(external_spec()),
-            &ResolvedMcp::default(),
-        );
+        let bare = apply_mcp_server_env(SpawnSpec::new("agent"), &ResolvedMcp::default());
         assert!(bare.env.is_empty());
     }
 

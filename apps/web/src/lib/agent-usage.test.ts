@@ -28,6 +28,7 @@ import {
   severity,
   usageGroups,
   usageIsFresh,
+  usageState,
   CONTEXT_SECTION_TITLE,
   USAGE_FRESH_MS,
 } from "./agent-usage"
@@ -598,6 +599,7 @@ describe(`accountUsageGroups`, () => {
     email: null,
     plan: null,
     usage: null,
+    unmonitored: false,
     checkedAt: null,
     ...overrides,
   })
@@ -944,5 +946,59 @@ describe(`chipAction / chipSwitchesTo`, () => {
     expect(chipAction(row({ signedIn: false }), false)).toBe(`Sign in`)
     expect(chipAction(row({ health: `needs_relogin` }), false)).toBe(`Re-login`)
     expect(chipAction(row({ active: true }), false)).toBe(`Sign in again`)
+  })
+})
+
+// EXP-862: every login's numbers are collected, so an empty bar means one of
+// three different things — and the row has to say which.
+describe(`usageState (EXP-862)`, () => {
+  const row = (over: Partial<AgentProfileUsageRow> = {}) => ({
+    signedIn: true,
+    unmonitored: false,
+    usage: {
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+      windows: [{ key: `session`, label: `Session`, percent: 12, resetsAt: null }],
+    },
+    ...over,
+  })
+
+  it(`reads numbers as ready, stale ones included`, () => {
+    expect(usageState(row())).toBe(`ready`)
+    expect(
+      usageState(
+        row({
+          usage: {
+            fetchedAt: `2020-01-01T00:00:00.000Z`,
+            stale: true,
+            windows: [
+              { key: `session`, label: `Session`, percent: 3, resetsAt: null },
+            ],
+          },
+        })
+      )
+    ).toBe(`ready`)
+  })
+
+  it(`reads a signed-in login with nothing read yet as checking`, () => {
+    expect(usageState(row({ usage: null }))).toBe(`checking`)
+    expect(
+      usageState(
+        row({
+          usage: { fetchedAt: `2026-09-12T10:00:00.000Z`, stale: false, windows: [] },
+        })
+      )
+    ).toBe(`checking`)
+  })
+
+  it(`keeps the machine's own "I collect nothing for this one" verdict`, () => {
+    expect(usageState(row({ unmonitored: true, usage: null }))).toBe(
+      `unmonitored`
+    )
+  })
+
+  it(`says nothing at all for a signed-out login`, () => {
+    expect(usageState(row({ signedIn: false }))).toBe(`none`)
+    expect(usageState(row({ signedIn: false, unmonitored: true }))).toBe(`none`)
   })
 })

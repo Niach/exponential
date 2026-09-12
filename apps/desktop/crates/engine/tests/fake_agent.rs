@@ -534,7 +534,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
                 plan_mode: false,
                 mcp_server_ids: Vec::new(),
                 account: None,
-                external: None,
             },
             mcp: coding::AgentMcp::ClaudeFile,
             session_id: session_id.to_string(),

@@ -6,10 +6,10 @@
 //! deleted (rework decision 6): every surface picks from these lists, so the
 //! argv can never carry a value the CLI rejects.
 
-use gpui::{App, AppContext as _, Entity, SharedString, Window};
+use gpui::{App, AppContext as _, Entity, SharedString, Styled as _, Window};
 use gpui_component::searchable_list::SearchableListItem;
 use gpui_component::select::SelectState;
-use gpui_component::IndexPath;
+use gpui_component::{ActiveTheme as _, Icon, IndexPath};
 
 /// One dropdown row: a display label + the argv value it stands for
 /// (`""` = omit the flag / inherit).
@@ -99,6 +99,74 @@ pub fn agent_icon(agent: coding::CodingAgent) -> crate::icons::ExpIcon {
         coding::CodingAgent::Claude => crate::icons::ExpIcon::Claude,
         coding::CodingAgent::Codex => crate::icons::ExpIcon::Codex,
     }
+}
+
+/// EXP-862 — THE agent picker, one component per client (web
+/// `components/agent-picker.tsx`, iOS `AgentPickerMenu`, Android
+/// `AgentPickerPill`): an ICON-ONLY trigger (the selected agent's brand mark
+/// plus a chevron) over a menu whose rows are the same brand mark and the
+/// agent's label. The words "Claude Code" / "Codex" appear ONLY in the menu
+/// and in the trigger's tooltip — a picker in a composer row says which agent
+/// is selected with the mark, not with a name that changes the row's width.
+///
+/// Consumers: the composer's options row, the device-settings "Default
+/// agent" row, Settings → Agents and the launch-options pane.
+///
+/// Returns an `AnyElement` because the trigger has to be a `Button` (upstream
+/// implements `DropdownMenu` for nothing else) and its popover wrapper is not
+/// a `Button` any more.
+pub(crate) fn agent_picker(
+    id: impl Into<gpui::ElementId>,
+    agents: &[coding::CodingAgent],
+    current: coding::CodingAgent,
+    on_pick: impl Fn(coding::CodingAgent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::AnyElement {
+    use gpui::{IntoElement as _, ParentElement as _};
+    use gpui_component::menu::DropdownMenu as _;
+
+    let glyph = crate::surface::PillSize::Sm.glyph();
+    let agents: Vec<coding::CodingAgent> = agents.to_vec();
+    let on_pick = std::rc::Rc::new(on_pick);
+    crate::pickers::chip_button(id, cx)
+        .tooltip(current.label())
+        .child(Icon::from(agent_icon(current)).size(gpui::px(glyph)))
+        .child(
+            Icon::from(crate::icons::registry::UI_CHEVRON_DOWN)
+                .size(gpui::px(glyph))
+                .text_color(cx.theme().muted_foreground),
+        )
+        .dropdown_menu(move |menu, _window, _cx| {
+            let on_pick = on_pick.clone();
+            agent_menu_items(menu, &agents, Some(current), move |agent, window, cx| {
+                on_pick(agent, window, cx)
+            })
+        })
+        .into_any_element()
+}
+
+/// The rows of [`agent_picker`]'s menu, on their own so any menu that offers
+/// agents (a device row's "..." menu, the add-account dialog) shows the SAME
+/// rows: brand mark plus label, the selected one checked.
+pub(crate) fn agent_menu_items(
+    menu: gpui_component::menu::PopupMenu,
+    agents: &[coding::CodingAgent],
+    current: Option<coding::CodingAgent>,
+    on_pick: impl Fn(coding::CodingAgent, &mut Window, &mut App) + 'static,
+) -> gpui_component::menu::PopupMenu {
+    let on_pick = std::rc::Rc::new(on_pick);
+    let mut menu = menu;
+    for agent in agents {
+        let agent = *agent;
+        let on_pick = on_pick.clone();
+        menu = menu.item(crate::pickers::option_item(
+            SharedString::from(agent.label()),
+            Icon::from(agent_icon(agent)),
+            current == Some(agent),
+            move |window, cx| on_pick(agent, window, cx),
+        ));
+    }
+    menu
 }
 
 /// Build a select over `choices`, preselecting `initial` by VALUE (falling

@@ -267,7 +267,7 @@ fn frames(name: &str) -> Vec<Value> {
 fn spec() -> engine::adapters::AdapterSpec {
     engine::adapters::AdapterSpec {
         kind: engine::adapters::AdapterKind::Codex,
-        agent: coding::AgentKind::Builtin(coding::CodingAgent::Codex),
+        agent: coding::CodingAgent::Codex,
         spawn: terminal::pty::SpawnSpec::new("codex"),
         options: coding::LaunchOptions {
             agent: coding::CodingAgent::Codex,
@@ -277,7 +277,6 @@ fn spec() -> engine::adapters::AdapterSpec {
             plan_mode: false,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         },
         mcp: coding::AgentMcp::CodexOverrides {
             url: "https://example.test/api/mcp".to_string(),

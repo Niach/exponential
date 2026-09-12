@@ -381,7 +381,7 @@ fn spec_env(
     }
     AdapterSpec {
         kind: AdapterKind::Claude,
-        agent: coding::AgentKind::Builtin(coding::CodingAgent::Claude),
+        agent: coding::CodingAgent::Claude,
         spawn,
         options: coding::LaunchOptions {
             agent: coding::CodingAgent::Claude,
@@ -391,7 +391,6 @@ fn spec_env(
             plan_mode,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         },
         mcp: coding::AgentMcp::ClaudeInline {
             url: "https://app.example/api/mcp".to_string(),

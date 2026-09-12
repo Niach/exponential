@@ -344,7 +344,6 @@ const sessionColumns = {
   prUrl: codingSessions.prUrl,
   prNumber: codingSessions.prNumber,
   prState: codingSessions.prState,
-  summary: codingSessions.summary,
   endedBy: codingSessions.endedBy,
   resumedFromId: codingSessions.resumedFromId,
   parentSessionId: codingSessions.parentSessionId,
@@ -2567,7 +2566,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_end`,
       {
-        description: `Report this run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did, whether you finished, stopped for a human or changed nothing. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
+        description: `Report this run's close-out, reported to whoever started this run (not stored on the run): a one-paragraph 'summary' of what you did, whether you finished, stopped for a human or changed nothing. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           summary: z.string().min(1).max(4_000),
@@ -2691,7 +2690,7 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, blocked (a real usage-wall refusal, see exponential_sessions_get), and once ended the run's own summary/endedBy. mine limits to runs you started or host.`,
+      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, blocked (a real usage-wall refusal, see exponential_sessions_get), and once ended who ended it. mine limits to runs you started or host.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
@@ -2757,7 +2756,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, and endedBy says who ended it. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {

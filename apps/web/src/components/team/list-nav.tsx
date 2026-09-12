@@ -6,7 +6,6 @@ import {
   originLabel,
   type DetailOrigin,
 } from "@/lib/detail-origin"
-import { emptyFilters } from "@/lib/filters"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useReviewsData } from "@/hooks/use-reviews-data"
@@ -27,7 +26,7 @@ import {
 } from "@/components/ui/tabs"
 
 // EXP-851: the sidebar's THIRD panel — the list a detail came from, in the
-// 16rem slot the main menu and the settings nav share. It slides in exactly
+// 17rem slot the main menu and the settings nav share. It slides in exactly
 // like settings does, carries the same back row (`SidebarBackRow`, labelled
 // with the list) and the list itself, simplified: a board's issue rows, the
 // inbox stream, the support threads, the Agent page's runs, the review queue.
@@ -139,7 +138,6 @@ function BoardListNav({
   boardSlug: string
 }) {
   const { visibleGroups, boardReady, board } = useBoardViewData({
-    filters: emptyFilters,
     boardSlug,
     teamSlug,
   })
@@ -168,7 +166,6 @@ function BoardListNav({
       teamSlug={teamSlug}
       boardSlug={boardSlug}
       activeIssueId={activeIssueId}
-      filterSearch={{}}
       from={`board:${boardSlug}`}
     />
   )
@@ -235,7 +232,6 @@ function InboxNavRows({ teamSlug }: { teamSlug: string }) {
 function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
   const { data: session } = useSession()
   const { visibleGroups, boardMap } = useMyIssuesData({
-    filters: emptyFilters,
     userId: session?.user?.id,
     teamSlug,
   })
@@ -265,7 +261,6 @@ function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
       boardSlug={``}
       boardSlugById={boardSlugById}
       activeIssueId={activeIssueId}
-      filterSearch={{}}
       from="inbox:my-issues"
     />
   )

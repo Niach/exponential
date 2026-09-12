@@ -535,7 +535,8 @@ describe(`shape column + trash contracts`, () => {
 
   // EXP-637: the close-out columns are synced, but `merged_own_pr` is
   // server-only — it exists so the merge-driven end paths can spare the
-  // session that merged its own PR, and no client acts on it.
+  // session that merged its own PR, and no client acts on it. EXP-862 took
+  // `summary` out with the rest of the stored close-out.
   it(`pins the coding-sessions columns and keeps the server-only ones out`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
@@ -568,7 +569,6 @@ describe(`shape column + trash contracts`, () => {
       `pr_url`,
       `pr_number`,
       `pr_state`,
-      `summary`,
       `ended_by`,
       `resumed_from_id`,
       `parent_session_id`,
@@ -582,6 +582,9 @@ describe(`shape column + trash contracts`, () => {
       `updated_at`,
     ])
     expect(columns).not.toContain(`outcome`)
+    // EXP-862: the agent's close-out is reported to whoever started the run,
+    // never stored on it and never synced.
+    expect(columns).not.toContain(`summary`)
     expect(columns).not.toContain(`merged_own_pr`)
     expect(columns).not.toContain(`host_user_id`)
     expect(columns).not.toContain(`board_deleted_at`)

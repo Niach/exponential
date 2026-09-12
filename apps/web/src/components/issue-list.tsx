@@ -21,7 +21,6 @@ import {
   Plus,
   ChevronRight,
   ListTodo,
-  SearchX,
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -93,13 +92,8 @@ interface IssueListProps {
   // True while the Electric issues collection is still loading its first
   // snapshot — renders skeleton rows instead of an empty state.
   isLoading?: boolean
-  // Distinguish "the board has no issues" from "filters hide everything".
-  hasAnyIssues?: boolean
-  hasActiveFilters?: boolean
-  onClearFilters?: () => void
-  // Rendered below the genuine "No issues yet" empty state only (never the
-  // filtered-empty one) — the board passes the member-only "Getting
-  // started" cards here (EXP-88).
+  // Rendered below the "No issues yet" empty state — the board passes the
+  // member-only "Getting started" cards here (EXP-88).
   emptyStateExtra?: React.ReactNode
   // Optional trailing per-row action cell. Rendered in its own
   // click-isolated grid column. Rows are memoized (REV-46), so the output
@@ -368,9 +362,6 @@ export function IssueList({
   canMutateIssue,
   canModerate = true,
   isLoading = false,
-  hasAnyIssues = false,
-  hasActiveFilters = false,
-  onClearFilters,
   emptyStateExtra,
   renderRowAction,
   bulkTeamId,
@@ -379,7 +370,7 @@ export function IssueList({
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   // Extra rows revealed per group id beyond GROUP_ROW_CAP via "Show more"
-  // (REV-46). Only ever grows; a stale entry after a filter change is just a
+  // (REV-46). Only ever grows; a stale entry after a data change is just a
   // higher cap for that group.
   const [extraRows, setExtraRows] = useState<Map<string, number>>(new Map())
   // The shift-range anchor is never rendered — a ref keeps toggleSelect
@@ -443,7 +434,7 @@ export function IssueList({
   const visibleFlatIssuesRef = useRef(visibleFlatIssues)
   visibleFlatIssuesRef.current = visibleFlatIssues
 
-  // Prune selected ids whose rows left the data set (filter change, delete
+  // Prune selected ids whose rows left the data set (delete
   // elsewhere, sync). Collapsing a group hides rows but keeps them selected.
   useEffect(() => {
     const present = new Set(
@@ -519,7 +510,7 @@ export function IssueList({
     [hasRowAction]
   )
 
-  // Cmd/Ctrl+A selects everything visible under the current filters; Escape
+  // Cmd/Ctrl+A selects every visible row; Escape
   // clears. Both keys are overlay-scoped: an Escape that dismisses a Radix
   // menu/dialog/popover must NOT also wipe the selection (Linear closes only
   // the menu), and select-all only fires with focus on the body or inside
@@ -611,22 +602,6 @@ export function IssueList({
       return <IssueListSkeleton />
     }
 
-    if (hasAnyIssues && hasActiveFilters) {
-      return (
-        <EmptyState
-          icon={SearchX}
-          title="No issues match your filters"
-          description="Try removing some filters to see more issues."
-        >
-          {onClearFilters && (
-            <Button size="sm" variant="outline" onClick={onClearFilters}>
-              Clear filters
-            </Button>
-          )}
-        </EmptyState>
-      )
-    }
-
     return (
       <div>
         <EmptyState
@@ -648,7 +623,7 @@ export function IssueList({
 
   return (
     // EXP-620: below md the list is the natives' 3dp-gapped card stack inside
-    // a 16px gutter (the same gutter IssueFilterBar uses above it); at md+ it
+    // a 16px gutter (the same gutter the header row uses above it); at md+ it
     // stays a flush, edge-to-edge table.
     <div
       ref={listRef}

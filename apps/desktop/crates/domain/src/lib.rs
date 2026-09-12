@@ -10,8 +10,6 @@
 //!   `packages/db-schema`, hydrated from the sync store's snake_case JSON;
 //! * [`hydrate`] — the tolerant `string → native` serde helpers (§5.5 — NOT
 //!   `BoolFromInt`; Electric booleans surface in many forms);
-//! * [`filters`] — VERBATIM port of `apps/web/src/lib/filters.ts` (§4.7:
-//!   IssueFilters, tab presets, `matches_filters`);
 //! * [`options`] — the status/priority icon+color option tables mirroring
 //!   `apps/web/src/lib/domain.ts` (§4.7; presentation as data — glyph names +
 //!   color tokens — so this crate stays gpui-free);
@@ -35,7 +33,6 @@ pub mod contract {
 pub mod board;
 pub mod client_version;
 pub mod enums;
-pub mod filters;
 pub mod hydrate;
 pub mod image_message;
 pub mod options;
@@ -46,6 +43,3 @@ pub mod statuses;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;
-pub use filters::{
-    active_filter_count, empty_filters, has_active_filters, matches_filters, IssueFilters,
-};

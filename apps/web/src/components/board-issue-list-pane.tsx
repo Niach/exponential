@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router"
 import type { IssueGroup } from "@/lib/board-view"
-import type { IssueFilterSearch } from "@/lib/filters"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 
@@ -20,7 +19,6 @@ export function BoardIssueListPane({
   boardSlug,
   boardSlugById,
   activeIssueId,
-  filterSearch,
   from,
 }: {
   groups: IssueGroup[]
@@ -31,9 +29,6 @@ export function BoardIssueListPane({
    * row's board here; `boardSlug` is the fallback. */
   boardSlugById?: Map<string, string>
   activeIssueId: string
-  /** The board's active filters, carried on every row link so the detail
-   * header's sequence keeps walking the same filtered list. */
-  filterSearch: IssueFilterSearch
   /** EXP-851: the `?from=` token every row hands the issue it opens, so the
    * detail keeps THIS list beside it (`lib/detail-origin.ts`). */
   from?: string
@@ -72,7 +67,7 @@ export function BoardIssueListPane({
                     boardSlug: boardSlugById?.get(issue.boardId) ?? boardSlug,
                     issueIdentifier: issue.identifier,
                   }}
-                  search={{ ...filterSearch, ...(from ? { from } : {}) }}
+                  search={from ? { from } : {}}
                 >
                   <IssueStatusIcon issue={issue} className="!h-3.5 !w-3.5" />
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">

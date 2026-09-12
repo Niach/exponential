@@ -197,7 +197,6 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "link-2" => ExpIcon::Link2,
         "list" => ExpIcon::List,
         "list-checks" => ExpIcon::ListChecks,
-        "list-filter" => ExpIcon::ListFilter,
         "list-ordered" => ExpIcon::ListOrdered,
         "list-todo" => ExpIcon::ListTodo,
         "list-tree" => ExpIcon::ListTree,
@@ -406,8 +405,6 @@ pub const NAV_CREATE_ISSUE: ExpIcon = ExpIcon::SquarePen;
 pub const NAV_DEVICES: ExpIcon = ExpIcon::Monitor;
 /// Registry concept `nav-files` -> Lucide `folder`.
 pub const NAV_FILES: ExpIcon = ExpIcon::Folder;
-/// Registry concept `nav-filter` -> Lucide `list-filter`.
-pub const NAV_FILTER: ExpIcon = ExpIcon::ListFilter;
 /// Registry concept `nav-getting-started` -> Lucide `sparkles`.
 pub const NAV_GETTING_STARTED: ExpIcon = ExpIcon::Sparkles;
 /// Registry concept `nav-inbox` -> Lucide `inbox`.

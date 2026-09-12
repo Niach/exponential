@@ -60,8 +60,8 @@ const TERM_POLL: Duration = Duration::from_millis(10);
 
 /// A live agent child: its stdout as lines, its stdin as a line writer, and
 /// the one-shot exit. Dropping this ENDS the child (and its process group on
-/// unix) unless it already exited: codex/external ACP children carry no
-/// `claude-hooks` reaper anchor, so this drop is what keeps them from
+/// unix) unless it already exited: a codex ACP child carries no
+/// `claude-hooks` reaper anchor, so this drop is what keeps it from
 /// escaping (EXP-300). EXP-758: the drop asks first (stdin EOF, SIGTERM,
 /// [`CHILD_TERM_GRACE`]) and only then kills.
 pub struct ChildLines {

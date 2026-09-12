@@ -10,10 +10,7 @@ import {
   useTeamLabels,
   useTeamUsers,
 } from "@/hooks/use-team-data"
-import type { IssueFilters } from "@/lib/filters"
 import {
-  buildFilteredIssues,
-  buildIssueLabelIdsMap,
   buildIssueLabelMap,
   buildVisibleIssueGroups,
 } from "@/lib/board-view"
@@ -21,15 +18,13 @@ import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { Issue, IssueLabel, Board } from "@/db/schema"
 
 // Cross-board "My Issues" board data: every issue assigned to the current
-// user across all boards in the team, reusing the board-view
-// grouping/filter machinery (mirrors use-board-view-data, minus the single
-// board scope). Pure client work over the already-synced issues shape.
+// user across all boards in the team, reusing the board-view grouping
+// machinery (mirrors use-board-view-data, minus the single board scope).
+// Pure client work over the already-synced issues shape.
 export function useMyIssuesData({
-  filters,
   userId,
   teamSlug,
 }: {
-  filters: IssueFilters
   userId: string | undefined
   teamSlug: string
 }) {
@@ -89,14 +84,7 @@ export function useMyIssuesData({
   const issueLabelList = (issueLabels ?? []) as IssueLabel[]
 
   return useMemo(() => {
-    const issueLabelIdsMap = buildIssueLabelIdsMap(issueLabelList)
     const issueLabelMap = buildIssueLabelMap(issueLabelList, labelList)
-    const filteredIssues = buildFilteredIssues(
-      issueList,
-      issueLabelIdsMap,
-      filters,
-      resolveStatus
-    )
 
     return {
       issueLabelMap,
@@ -112,16 +100,14 @@ export function useMyIssuesData({
       users,
       userMap,
       visibleGroups: buildVisibleIssueGroups(
-        filteredIssues,
+        issueList,
         statusOptions,
-        resolveStatus,
-        filters.statusTokens
+        resolveStatus
       ),
       statusOptions,
       team,
     }
   }, [
-    filters,
     issueLabelList,
     issueList,
     issuesReady,

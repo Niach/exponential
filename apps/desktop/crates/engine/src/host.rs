@@ -193,9 +193,7 @@ pub struct EngineExit {
 /// command renders as a LIVE card with a Stop button instead of a block of
 /// text that appears once it is over. Output stays exactly as local as the
 /// `ToolCallContent::Content` path it joins — the wire never carried a
-/// command's stdout and still does not. Our own claude/codex adapters
-/// never call these; an `ExternalAgent` (any ACP stdio binary) is what
-/// exercises them. `elicitation.form` is NOT optional — without it the
+/// command's stdout and still does not. `elicitation.form` is NOT optional — without it the
 /// claude port has to disallow `AskUserQuestion` and codex answers
 /// `requestUserInput` with `{}` immediately, silently discarding the agent's
 /// question.
@@ -288,9 +286,8 @@ const TERMINAL_ACTIVITY_STEP: Duration = Duration::from_secs(1);
 
 /// FEED-25: does this terminal event count as the agent being alive? An
 /// agent's `terminal/*` command bypasses the mapper entirely, so without this
-/// a claude `Bash` call with a raised `BASH_MAX_TIMEOUT_MS` — or an
-/// `ExternalAgent` parked in `terminal/wait_for_exit` — streams for half an
-/// hour and still reads as a wedged turn. Written bytes count, and so does
+/// a claude `Bash` call with a raised `BASH_MAX_TIMEOUT_MS` streams for half
+/// an hour and still reads as a wedged turn. Written bytes count, and so does
 /// the exit edge that closes the card (once per terminal, and a command
 /// finishing IS progress); a `bind` flush of nothing at all does not.
 pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
@@ -314,17 +311,17 @@ pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
 /// thread reaps; the engine reads it in the end sequence and, absent an
 /// explicit kill, ends the row with that code.
 ///
-/// It reaches the adapters as a field on `AdapterSpec` (E2/E3/E4 record into
-/// it; an adapter that owns no child never touches it, and the run then ends
-/// as `ended`).
+/// It reaches the adapters as a field on `AdapterSpec` (claude and codex
+/// record into it; an adapter that owns no child never touches it, and the
+/// run then ends as `ended`).
 #[derive(Clone)]
 pub struct ChildExitLink {
     slot: Arc<Mutex<Option<terminal::pty::ChildExit>>>,
     /// EXP-758: the child's pid, recorded at spawn. The lifecycle writes it
     /// onto the run record so a host that died without its end sequence
     /// (Cmd-Q, a crash) leaves a pid the next start can reap
-    /// (`coding::reaper::reap_recorded`) — codex/external children carry
-    /// no `claude-hooks` anchor, so this is the only handle on them.
+    /// (`coding::reaper::reap_recorded`) — a codex child carries no
+    /// `claude-hooks` anchor, so this is the only handle on it.
     pid: Arc<Mutex<Option<u32>>>,
     /// EXP-784: stdout lines the transport DROPPED over the child's life
     /// (`transport::STDOUT_LINES_CAP`), written by the exit forwarder just
@@ -963,8 +960,7 @@ pub(crate) struct SessionCtx {
     /// from it; and the ticker thread must not walk a transcript once a
     /// second either.
     pub(crate) workflows: Mutex<Vec<steer::WorkflowState>>,
-    /// The builtin agent, or the user's external ACP binary (D13).
-    pub(crate) agent: coding::AgentKind,
+    pub(crate) agent: coding::CodingAgent,
     /// REV2-17: the ONE redactor of this run — the session's launcher secrets
     /// (EXP-73 credential file, a token in the remote URL, the
     /// `.exp-mcp.json` key) plus the `expu_` key, on top of the static
@@ -2905,8 +2901,8 @@ mod tests {
         assert_eq!(elicitation_id(&request), "");
     }
 
-    /// A request-scoped ask (an external ACP agent, pre-session) carries the
-    /// WIRE id, never its `Debug` spelling.
+    /// A request-scoped ask (one that arrives before a session exists)
+    /// carries the WIRE id, never its `Debug` spelling.
     #[test]
     fn a_request_scoped_elicitation_carries_the_wire_request_id() {
         use agent_client_protocol::schema::v1::{ElicitationRequestScope, RequestId};

@@ -415,42 +415,6 @@
       }
     },
     {
-      "id": "board-filters",
-      "group": "issues",
-      "title": "Board filters",
-      "blurb": "The filter popover open over the board: status, assignee, priority and label facets, all URL-backed.",
-      "order": 2,
-      "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug",
-        "anchor": {
-          "text": "Priority",
-          "timeoutMs": 20000
-        },
-        "recipe": "openFilterPopover",
-        "settleMs": 400
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_board-filters",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_board-filters",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "tool",
-          "value": "board"
-        },
-        "env": {
-          "EXP_DEV_FILTER": "1"
-        },
-        "anchorDelayMs": 2500
-      },
-      "diffTolerance": 0.002
-    },
-    {
       "id": "issue-detail",
       "group": "issues",
       "title": "Issue detail",

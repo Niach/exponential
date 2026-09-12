@@ -314,7 +314,6 @@ mod tests {
             plan_mode: true,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         }
     }
 

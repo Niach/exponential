@@ -53,7 +53,6 @@ device dialogs.
 
 | Var | Values | Effect |
 | --- | --- | --- |
-| `EXP_DEV_FILTER` | `1` | **New.** Render the board's filter popover already open. (Before EXP-642 this set gpui-component's `default_open`, which marks the popover open without registering it — nothing appeared. It now opens for real.) |
 | `EXP_DEV_SELECT` | `APP-11,APP-13,APP-10` | **New.** Pre-select those issues on the board so the bulk-action bar renders. Identifiers, not uuids. Applied once, and only when EVERY named row has synced — a partial selection would photograph a different bar. |
 | `EXP_DEV_SEARCH_QUERY` | free text | **New.** Open the search palette with this query already typed and its results resolved. Pairs with `EXP_DEV_DIALOG=search`. |
 | `EXP_DEV_GETTING_STARTED_TAB` | `first-steps` \| `suggestions` | The Getting started screen's active tab (EXP-686 — the action suggestion seeds moved there from the Actions screen, which no longer has tabs; Devices and Automations are their own `EXP_DEV_SCREEN` values). |

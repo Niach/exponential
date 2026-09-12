@@ -100,7 +100,7 @@ export function InboxView({
   from,
 }: {
   teamSlug: string
-  /** EXP-851: the SIDEBAR's list nav — the same rows in the 16rem slot, no
+  /** EXP-851: the SIDEBAR's list nav — the same rows in the 17rem slot, no
    *  reading column, no empty-state illustration. */
   compact?: boolean
   /** The issue the open detail shows, by identifier (the highlighted row) —

@@ -13,7 +13,6 @@ final class IssueListViewModel {
     /// `teamUsers` (EXP-487).
     var teamMembers: [TeamMemberEntity] = []
     var board: BoardEntity?
-    var filters = IssueFilters()
     /// EXP-314: the team's `issue_statuses` rows (every synced team's rows land
     /// in the pool; `teamStatuses` scopes them to this board's team).
     var statusRows: [IssueStatusEntity] = []
@@ -186,16 +185,6 @@ final class IssueListViewModel {
         IssueStatusResolver.resolve(issue, team: teamStatuses)
     }
 
-    var filteredIssues: [IssueEntity] {
-        let team = teamStatuses
-        return issues.filter { issue in
-            let status = IssueStatusResolver.resolve(issue, team: team)
-            let priority = IssuePriority.from(issue.priority)
-            let issueLabelSet = Set(issueLabels.filter { $0.issueId == issue.id }.map(\.labelId))
-            return matchesFilters(status: status, priority: priority, issueLabelIds: issueLabelSet, filters: filters)
-        }
-    }
-
     /// The groups the list renders: the team's statuses in resolver order,
     /// then an APPENDED group for any issue whose resolved status is OUTSIDE
     /// that vocabulary (a constructed default while the team's issue_statuses
@@ -206,7 +195,7 @@ final class IssueListViewModel {
         let team = teamStatuses
         var groups = team
         var seen = Set(team.map(\.id))
-        for issue in filteredIssues {
+        for issue in issues {
             let status = IssueStatusResolver.resolve(issue, team: team)
             if seen.insert(status.id).inserted { groups.append(status) }
         }
@@ -221,15 +210,15 @@ final class IssueListViewModel {
     func issues(forGroup group: ResolvedIssueStatus) -> [IssueEntity] {
         let team = teamStatuses
         return IssueSorting.sorted(
-            filteredIssues.filter { IssueStatusResolver.resolve($0, team: team).id == group.id },
+            issues.filter { IssueStatusResolver.resolve($0, team: team).id == group.id },
             category: group.category
         )
     }
 
     /// EXP-523: a cheap value that changes exactly when the list's SHAPE does
     /// — which issues are visible, and which group each one lands in. Bound to
-    /// the List's `.animation(_:value:)` so a status change, a filter change or
-    /// an incoming sync MOVES rows instead of teleporting them.
+    /// the List's `.animation(_:value:)` so a status change or an incoming
+    /// sync MOVES rows instead of teleporting them.
     ///
     /// Deliberately a hash rather than the rows themselves: `issues(forGroup:)`
     /// sorts each group, and re-deriving all of that just to compare would
@@ -238,7 +227,7 @@ final class IssueListViewModel {
     var layoutSignature: Int {
         let team = teamStatuses
         var hasher = Hasher()
-        for issue in filteredIssues {
+        for issue in issues {
             hasher.combine(issue.id)
             hasher.combine(IssueStatusResolver.resolve(issue, team: team).id)
         }
@@ -269,37 +258,6 @@ final class IssueListViewModel {
         guard let teamId = board?.teamId else { return [] }
         let memberIds = Set(teamMembers.filter { $0.teamId == teamId }.map(\.userId))
         return users.filter { memberIds.contains($0.id) }
-    }
-
-    /// EXP-314: toggling goes through the resolved status so a stale
-    /// `builtin:<key>` token (picked before the statuses shape synced) is
-    /// recognized as the synced row it re-keyed into.
-    func toggleStatus(_ status: ResolvedIssueStatus) {
-        filters.toggleStatus(status)
-    }
-
-    func isStatusFiltered(_ status: ResolvedIssueStatus) -> Bool {
-        filters.selectsStatus(status)
-    }
-
-    func togglePriority(_ priority: IssuePriority) {
-        if filters.priorities.contains(priority) {
-            filters.priorities.remove(priority)
-        } else {
-            filters.priorities.insert(priority)
-        }
-    }
-
-    func toggleLabel(_ labelId: String) {
-        if filters.labelIds.contains(labelId) {
-            filters.labelIds.remove(labelId)
-        } else {
-            filters.labelIds.insert(labelId)
-        }
-    }
-
-    func clearFilters() {
-        filters = IssueFilters()
     }
 
     func toggleStatusCollapsed(_ groupId: String) {

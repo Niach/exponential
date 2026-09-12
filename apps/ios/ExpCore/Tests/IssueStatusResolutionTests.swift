@@ -346,63 +346,6 @@ final class IssueStatusResolutionTests: XCTestCase {
         )
     }
 
-    // MARK: - FILTER TOKENS (survive the fallback→synced re-key)
-
-    // A `builtin:<key>` group key stored while the statuses shape was still
-    // syncing must keep matching the SYNCED row it re-keys into.
-    func testBuiltinFilterTokenMatchesTheSyncedRowItRekeysInto() {
-        let team = IssueStatusResolver.teamStatuses(seededTeam())
-        let backlog = team.first { $0.builtinKey == .backlog }!
-        XCTAssertTrue(statusMatchesFilterToken(backlog, token: "builtin:backlog"))
-        XCTAssertTrue(statusMatchesFilterToken(backlog, token: "row-backlog"))
-        // …and only that row.
-        let done = team.first { $0.builtinKey == .done }!
-        XCTAssertFalse(statusMatchesFilterToken(done, token: "builtin:backlog"))
-        XCTAssertFalse(statusMatchesFilterToken(done, token: "row-backlog"))
-        // A CUSTOM row (no builtin key) never answers to a builtin token.
-        let custom = IssueStatusResolver.teamStatuses(
-            [row(id: "custom-1", category: .started, name: "Coding")]
-        )[0]
-        XCTAssertFalse(statusMatchesFilterToken(custom, token: "builtin:in_progress"))
-        XCTAssertTrue(statusMatchesFilterToken(custom, token: "custom-1"))
-        // A constructed fallback row still matches its own synthetic key.
-        let fallbackBacklog = IssueStatusResolver.builtinDefault(for: .backlog)
-        XCTAssertTrue(statusMatchesFilterToken(fallbackBacklog, token: "builtin:backlog"))
-        XCTAssertFalse(statusMatchesFilterToken(fallbackBacklog, token: "row-backlog"))
-    }
-
-    func testStatusFilterMatchingSurvivesTheSnapshotLandingMidSession() {
-        // Filter picked pre-sync, off the constructed fallback rows…
-        var filters = IssueFilters()
-        filters.toggleStatus(IssueStatusResolver.builtinDefault(for: .backlog))
-        XCTAssertEqual(filters.statusIds, ["builtin:backlog"])
-
-        // …then the shape lands and the issue resolves to the real row.
-        let team = IssueStatusResolver.teamStatuses(seededTeam())
-        let backlogIssue = IssueStatusResolver.resolve(issue(id: "i1", status: "backlog"), team: team)
-        let doneIssue = IssueStatusResolver.resolve(issue(id: "i2", status: "done"), team: team)
-        XCTAssertEqual(backlogIssue.id, "row-backlog")
-        XCTAssertTrue(matchesFilters(status: backlogIssue, priority: .none, issueLabelIds: [], filters: filters))
-        XCTAssertFalse(matchesFilters(status: doneIssue, priority: .none, issueLabelIds: [], filters: filters))
-
-        // Un-checking the SYNCED row clears the stale token instead of adding
-        // a second one for the same group.
-        filters.toggleStatus(backlogIssue)
-        XCTAssertTrue(filters.statusIds.isEmpty)
-    }
-
-    func testStatusFilterTogglesRealRowsByRowId() {
-        let team = IssueStatusResolver.teamStatuses(seededTeam())
-        let inReview = team.first { $0.builtinKey == .inReview }!
-        var filters = IssueFilters()
-        filters.toggleStatus(inReview)
-        XCTAssertEqual(filters.statusIds, ["row-in_review"])
-        XCTAssertTrue(filters.selectsStatus(inReview))
-        XCTAssertFalse(filters.selectsStatus(team.first { $0.builtinKey == .backlog }!))
-        filters.toggleStatus(inReview)
-        XCTAssertTrue(filters.statusIds.isEmpty)
-    }
-
     // MARK: - Wire tolerance
 
     func testEntityDecodesElectricWireRow() throws {

@@ -2309,19 +2309,16 @@ impl SteerSessionView {
     /// Which catalog this session's composer offers. A row that names no
     /// agent is a claude run (contract order).
     fn agent(&self) -> SessionAgent {
-        // EXP-746: a local run KNOWS its agent — including an external one,
-        // which the synced row cannot name at all (`coding_sessions.agent`
-        // takes contract values only, so an external run syncs `NULL`).
+        // EXP-746: a local run KNOWS its agent.
         if let Some(session) = self.source.session() {
             return match session.agent() {
-                coding::AgentKind::Builtin(coding::CodingAgent::Claude) => SessionAgent::Claude,
-                coding::AgentKind::Builtin(coding::CodingAgent::Codex) => SessionAgent::Codex,
-                coding::AgentKind::External(_) => SessionAgent::External,
+                coding::CodingAgent::Claude => SessionAgent::Claude,
+                coding::CodingAgent::Codex => SessionAgent::Codex,
             };
         }
-        // A REMOTE run has only its row to go on, and an EXTERNAL agent's row
-        // names no agent at all — the `config_state` it published (nothing on
-        // the PTY path does) is what tells the two apart.
+        // A REMOTE run has only its row to go on; a row that names no agent
+        // (an older or foreign build) is told apart by the `config_state` it
+        // published.
         let acp = self.feed.config().is_some();
         self.row
             .as_ref()

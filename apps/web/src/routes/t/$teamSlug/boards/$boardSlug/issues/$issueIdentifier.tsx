@@ -1,19 +1,13 @@
-import { useMemo } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import {
-  issueFiltersFromSearch,
-  parseIssueFilterSearch,
-  type IssueFilterSearch,
-} from "@/lib/filters"
 import type { Issue, IssueLabel } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueDetailView } from "@/components/issue-detail-view"
 
-type IssueSearch = IssueFilterSearch & { from?: string }
+type IssueSearch = { from?: string }
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -24,16 +18,10 @@ export const Route = createFileRoute(
   // Mirroring the sibling board-view route, which likewise carries no
   // beforeLoad.
   //
-  // Optional ?status/priority/labels mirror the board route's filter params —
-  // navigating from a filtered board carries them here so a return to the
-  // board lands on the same filtered view. All params are optional: links
-  // from the inbox (either tab) / search arrive bare.
-  //
   // EXP-851: `?from=` is the LIST this issue was opened from
   // (`lib/detail-origin.ts`) — the sidebar keeps it beside the issue, and
   // absent means the main menu stays.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
-    ...parseIssueFilterSearch(search),
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
   }),
@@ -46,12 +34,7 @@ function IssueDetailPage() {
 
   // The team/board/users lookups are the board view's, not a second copy
   // (EXP-791: the prev/next switcher that walked its sequence is gone).
-  const filters = useMemo(
-    () => issueFiltersFromSearch(search),
-    [search.status, search.priority, search.labels]
-  )
   const { board, boardReady, team, users } = useBoardViewData({
-    filters,
     boardSlug,
     teamSlug,
   })
@@ -139,7 +122,6 @@ function IssueDetailPage() {
       teamSlug={teamSlug}
       teamId={team.id}
       readOnly={!permissions.canMutateIssue(issue)}
-      filterSearch={search}
       origin={search.from}
     />
   )

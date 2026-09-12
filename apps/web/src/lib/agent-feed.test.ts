@@ -4,6 +4,7 @@ import {
   activeQuestionIds,
   mergeNarrationFragment,
   expToolCaption,
+  builtinExpTools,
   expToolDisplay,
   modeChip,
   parseConfigState,
@@ -1851,6 +1852,26 @@ describe(`expToolDisplay`, () => {
     // The contract names the subject field and the preview kind.
     expect(row.subjectKey).toBe(`title`)
     expect(row.result).toBe(`issue`)
+  })
+})
+
+// ── EXP-862: the built-in tools list (settings) ─────────────────────────────
+
+describe(`builtinExpTools`, () => {
+  it(`lists every contract tool with its wire name, title and blurb`, () => {
+    const tools = builtinExpTools()
+    expect(tools.length).toBe(contract.expToolDisplay.tools.length)
+    expect(tools).toContainEqual({
+      name: `exponential_issues_create`,
+      title: `Create issue`,
+      blurb: `Files an issue on a board, with description, labels and assignee.`,
+    })
+    for (const tool of tools) {
+      // The RAW wire name is the row's tooltip, so it carries the prefix.
+      expect(tool.name.startsWith(contract.expToolDisplay.prefix)).toBe(true)
+      expect(expToolDisplay(tool.name)?.title).toBe(tool.title)
+      expect(tool.blurb.length).toBeLessThanOrEqual(120)
+    }
   })
 })
 

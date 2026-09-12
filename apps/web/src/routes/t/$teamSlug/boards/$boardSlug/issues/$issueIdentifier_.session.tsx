@@ -6,7 +6,6 @@ import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { Button } from "@/components/ui/button"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { issueSessionTarget } from "@/hooks/use-open-session"
-import { emptyFilters } from "@/lib/filters"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { rowPrState, useSessionRow } from "@/hooks/use-agents-data"
 import { useSession } from "@/hooks/use-session"
@@ -60,7 +59,6 @@ function IssueSessionPage() {
   const currentUserId = authSession?.user?.id
 
   const { board, boardReady, team } = useBoardViewData({
-    filters: emptyFilters,
     boardSlug,
     teamSlug,
   })

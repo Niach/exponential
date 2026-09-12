@@ -202,7 +202,10 @@ pub fn run(
             // person who just signed out. Drop the LOGIN's entry so the next
             // collect asks afresh. EXP-849: the login's, not the agent's —
             // dropping every profile would blank its siblings' health and
-            // numbers for a sign-in that never touched them.
+            // numbers for a sign-in that never touched them. EXP-862: an
+            // entry-less login also skips the rotation queue, so the account
+            // this sign-in created is read on the very next collection pass
+            // rather than after a stagger window.
             match &login_profile {
                 Some(profile) => {
                     coding::usage_cache::forget_profile(&data_dir, agent.id(), profile)

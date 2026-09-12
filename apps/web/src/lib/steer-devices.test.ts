@@ -8,6 +8,7 @@ import {
   deviceAcpAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
+  deviceCanRemoveAccount,
   deviceCanSwitchAccount,
   deviceCanUpdateNow,
   deviceDefaultAgent,
@@ -519,6 +520,19 @@ describe(`deviceCanSwitchAccount`, () => {
     ).toBe(false)
     expect(deviceCanSwitchAccount({ caps: [] })).toBe(false)
     expect(deviceCanSwitchAccount({ caps: undefined as never })).toBe(false)
+  })
+})
+
+// EXP-862: removing a login is its own capability again — an older build
+// would leave the queued row pending forever, so the menu entry hides.
+describe(`deviceCanRemoveAccount`, () => {
+  it(`is true only when the machine advertises account-remove`, () => {
+    expect(deviceCanRemoveAccount({ caps: [`account-remove`] })).toBe(true)
+    expect(
+      deviceCanRemoveAccount({ caps: [`account-switch`, `agent-login`] })
+    ).toBe(false)
+    expect(deviceCanRemoveAccount({ caps: [] })).toBe(false)
+    expect(deviceCanRemoveAccount({ caps: undefined as never })).toBe(false)
   })
 })
 

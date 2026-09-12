@@ -2739,6 +2739,9 @@ const SERVER_ONLY_SESSION_COLUMNS = [
   `mergedOwnPr`,
   `boardDeletedAt`,
   `boardArchivedAt`,
+  // EXP-862: the close-out summary is reported to whoever started the run,
+  // never stored and never projected.
+  `summary`,
 ]
 
 describe(`exponential_statuses_list color`, () => {
@@ -2790,7 +2793,7 @@ describe(`exponential_sessions_list`, () => {
     for (const column of SERVER_ONLY_SESSION_COLUMNS) {
       expect(projection).not.toContain(column)
     }
-    for (const column of [`id`, `issueId`, `issueIdentifier`, `summary`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`]) {
+    for (const column of [`id`, `issueId`, `issueIdentifier`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`]) {
       expect(projection).toContain(column)
     }
 
@@ -2914,9 +2917,9 @@ describe(`exponential_sessions_list`, () => {
 
 describe(`exponential_sessions_get`, () => {
   it(`returns the projected row and checks membership for a teammate's run`, async () => {
-    dbRows.current = [{ id: RUN, userId: `user-2`, teamId: WS, status: `ended`, summary: `Shipped` }]
+    dbRows.current = [{ id: RUN, userId: `user-2`, teamId: WS, status: `ended`, endedBy: `agent` }]
     const result = await tool(`exponential_sessions_get`)({ id: RUN })
-    expect(parseOk(result)).toMatchObject({ id: RUN, summary: `Shipped` })
+    expect(parseOk(result)).toMatchObject({ id: RUN, endedBy: `agent` })
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
   })
 
@@ -3552,5 +3555,24 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
       .map((row) => row.name)
       .sort()
     expect(registered).toEqual(described)
+  })
+
+  // EXP-862: the same rows carry the SETTINGS copy — the built-in tools group
+  // of the MCP servers page (web + desktop) renders title + blurb, with the
+  // wire name only as a tooltip. A row without copy would render blank there,
+  // so every tool has both, they stay short enough for one line, and they keep
+  // the multi-client no-em-dash rule.
+  it(`gives every tool a title and a blurb`, () => {
+    for (const row of contract.expToolDisplay.tools) {
+      expect(row.title.trim().length, row.name).toBeGreaterThan(0)
+      expect(row.blurb.trim().length, row.name).toBeGreaterThan(0)
+      expect(row.title.length, row.name).toBeLessThanOrEqual(60)
+      expect(row.blurb.length, row.name).toBeLessThanOrEqual(120)
+      expect(`${row.title}${row.blurb}`.includes(`—`), row.name).toBe(false)
+    }
+    // Titles are the list's labels: two rows sharing one would read as a
+    // duplicate entry.
+    const titles = contract.expToolDisplay.tools.map((row) => row.title)
+    expect(new Set(titles).size).toBe(titles.length)
   })
 })

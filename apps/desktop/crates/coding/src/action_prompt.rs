@@ -484,7 +484,6 @@ mod tests {
             agent_native_session_id: None,
             acp_child_pid: None,
             host_pid: None,
-            external_agent: None,
         }
     }
 

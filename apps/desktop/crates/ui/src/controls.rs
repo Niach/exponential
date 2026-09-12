@@ -208,6 +208,89 @@ pub(crate) fn glass_icon_button(
         .border_color(t::glass::STROKE_CARD.to_hsla())
 }
 
+/// EXP-862 — the ONE GHOST icon button, the web `<Button variant="ghost"
+/// size="icon-sm">` twin (iOS `GhostIconButton`, Android `CircleIconButton(
+/// borderless = true)`).
+///
+/// A circle says "primary action" — play/start, send, the rail's New issue
+/// and Search, the mobile FAB, an "+" add. Everything else that is a glyph
+/// on a row (the ⋯ menu, close, the folder/file-list toggles, a fold
+/// chevron, trash/remove, a refresh) is THIS: a 32px square, no fill and no
+/// stroke at rest, the glyph at 70% foreground, and the flat row's own hover
+/// wash (`list_hover` == `glass::FILL_ROW`, EXP-811) under the pointer.
+///
+/// Signature-identical to [`glass_icon_button`] on purpose — the sites that
+/// stop being circles swap the ONE call and keep every chained
+/// `.tooltip()` / `.on_click()` / `.dropdown_menu()` they already had.
+///
+/// Like its glass sibling the paint rides a `ButtonCustomVariant` rather than
+/// a `ghost` base: the built-in variants paint their own hover fill after
+/// `refine_style`, and a second `.hover()` trips gpui's "hover style already
+/// set" assertion. A custom variant with a transparent colour also paints a
+/// TRANSPARENT border upstream (`ButtonVariant::border_color`), which is the
+/// borderless part of the recipe — nothing here needs to un-set a stroke.
+pub(crate) fn ghost_icon_button(
+    id: impl Into<gpui::ElementId>,
+    icon: Icon,
+    cx: &App,
+) -> gpui_component::button::Button {
+    use gpui_component::button::{ButtonCustomVariant, ButtonVariants as _};
+    let theme = cx.theme();
+    let foreground = theme.foreground;
+    // The hover colour is handed to the painter UNMIXED (`ButtonVariant::
+    // hovered` reads `colors.hover` straight, unlike the rest-state colour
+    // which goes through `mix_oklab(transparent, 0.2)`), so no
+    // `custom_variant_fill` pre-division here: this IS the row wash.
+    let variant = ButtonCustomVariant::new(cx)
+        .color(gpui::transparent_black())
+        .hover(theme.list_hover)
+        .active(theme.list_hover)
+        .foreground(foreground.opacity(0.7));
+    gpui_component::button::Button::new(id)
+        .custom(variant)
+        .with_size(Size::Small)
+        .size(px(CTL_MD_H))
+        .rounded(px(t::radius::MD))
+        .cursor_pointer()
+        .icon(icon)
+}
+
+/// The size of a back glyph on every client (EXP-862): 16px, the `icon-sm`
+/// rung's glyph, whether it sits in [`back_button`] or bare in a back ROW.
+const BACK_GLYPH: f32 = 16.;
+
+/// EXP-862 — the session header's Back: a borderless 32px [`ghost_icon_button`]
+/// carrying the 16px chevron. The arrow-in-a-circle is retired ×4; web's
+/// md+ session header wears `size="icon-sm"`, Android `TopBarBackButton`
+/// borderless, iOS keeps the system chevron.
+///
+/// The tooltip is part of the control, not the caller's: "Back" is the same
+/// word on every surface that has one.
+pub(crate) fn back_button(id: impl Into<gpui::ElementId>, cx: &App) -> gpui_component::button::Button {
+    ghost_icon_button(id, back_glyph(), cx).tooltip("Back")
+}
+
+/// The BARE back glyph (EXP-862), for the back ROWS where the whole row is
+/// the target (the settings nav's and the list nav's "‹ Boards"): a nested
+/// button inside a clickable row is a second hit target for the same action,
+/// so those rows take the glyph alone and keep their own click.
+pub(crate) fn back_glyph() -> Icon {
+    Icon::from(crate::icons::registry::UI_CHEVRON_LEFT)
+        .size(px(BACK_GLYPH))
+        .flex_shrink_0()
+}
+
+/// EXP-862 — the ONE switch: gpui-component's `Switch` with the web's pointer
+/// cursor. gpui-component defaults every control to `cursor_default`; a toggle
+/// the user clicks points on hover on all four clients, and a dozen call sites
+/// each remembering to say so is how half of them forgot.
+///
+/// `Switch::new` is forbidden outside this module (see
+/// `only_controls_constructs_switches`) — construct through this.
+pub(crate) fn web_switch(id: impl Into<gpui::ElementId>) -> gpui_component::switch::Switch {
+    gpui_component::switch::Switch::new(id).cursor_pointer()
+}
+
 /// A DESTRUCTIVE popup-menu item (EXP-697): label AND glyph in the theme's
 /// danger red, matching the iOS/Android glass menus where delete/remove always
 /// reads red. `PopupMenuItem` has no danger variant upstream, so the label
@@ -294,4 +377,54 @@ pub(crate) fn web_textarea(
     cx: &mut gpui::Context<TextareaState>,
 ) -> TextareaState {
     TextareaState::new(window, cx).auto_grow(min_rows, max_rows)
+}
+
+#[cfg(test)]
+mod tests {
+    /// EXP-862 — the structural half of [`super::web_switch`]: a `Switch`
+    /// built anywhere else is a switch that does not point on hover, and no
+    /// compiler can say so. A grep over the crate's own sources is the
+    /// cheapest honest check there is (the `text_selection_guard` rule uses
+    /// the same scan).
+    ///
+    /// This module is the one allowed constructor, so it is the one file the
+    /// scan skips.
+    #[test]
+    fn only_controls_constructs_switches() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders: Vec<String> = Vec::new();
+        let mut stack = vec![src.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("the crate's own sources are readable") {
+                let path = entry.expect("a readable dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                    continue;
+                }
+                if path.file_name().and_then(|name| name.to_str()) == Some("controls.rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("a readable source file");
+                let hits = text.matches("Switch::new(").count();
+                if hits > 0 {
+                    let name = path
+                        .strip_prefix(&src)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+                    offenders.push(format!("{name} ({hits})"));
+                }
+            }
+        }
+        offenders.sort();
+        assert!(
+            offenders.is_empty(),
+            "EXP-862: build switches through `controls::web_switch(id)` — \
+             `Switch::new(` still appears in: {}",
+            offenders.join(", ")
+        );
+    }
 }

@@ -350,10 +350,20 @@ impl LoginRun {
         // EXP-484: a SWITCH leaves the cache naming the previous account
         // (and its numbers) — drop the entry so the next beat polls afresh
         // instead of re-reporting the identity the user just replaced.
+        //
+        // EXP-862: the LOGIN's entry, not the agent's: a sign-in into a named
+        // profile must not blank its siblings' numbers and health. Dropping
+        // it is also what re-reads it at once — a login with no cache entry
+        // skips the rotation queue (`coding::agent_usage`), so the account
+        // this sign-in just created shows its usage on the very next pass
+        // instead of after a stagger window.
         let agent = self.agent;
+        let profile = self.profile_id.clone();
         let data_dir = crate::coding_flow::coding_data_dir(cx);
         cx.background_executor()
-            .spawn(async move { coding::usage_cache::forget(&data_dir, agent.id()) })
+            .spawn(async move {
+                coding::usage_cache::forget_profile(&data_dir, agent.id(), &profile)
+            })
             .detach();
         // The re-probe carries the beat with it: the collector's input IS
         // the doctor report, so `refresh_agent_usage` nudges the beat only

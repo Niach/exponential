@@ -38,10 +38,13 @@ pub(crate) fn icon_picker(
     } else {
         Icon::from(registry::UI_ICON_PLACEHOLDER).text_color(cx.theme().muted_foreground)
     };
+    // EXP-862: the icon and colour triggers and the name field share ONE row,
+    // so they share ONE height — the 32px control rung (`CTL_MD_H`, web h-9's
+    // desktop twin), down from the 36 this trigger used to pick alone.
     let mut trigger = Button::new(SharedString::from(format!("{id_prefix}-icon-trigger")))
         .outline()
         .cursor_pointer()
-        .size(px(36.))
+        .size(px(crate::controls::CTL_MD_H))
         .icon(glyph);
     if !has_pick {
         trigger = trigger.border_dashed();
@@ -77,6 +80,52 @@ pub(crate) fn icon_picker(
                 &selected,
                 move |name, window, cx| {
                     on_pick(Some(name), window, cx);
+                    popover.update(cx, |state, cx| state.dismiss(window, cx));
+                },
+                cx,
+            ))
+        })
+}
+
+/// EXP-862 — THE colour picker: [`icon_picker`]'s twin over the swatch grid.
+/// One rounded-square trigger showing the current colour, the 20-swatch grid
+/// in a popover, so the board form's ONE row reads `[icon] [colour] [name]`
+/// with the palette out of the way until it is asked for. Same shape on web
+/// (`ui/color-picker.tsx` over `ColorSwatchGrid`), iOS and Android.
+///
+/// Picking always reports a colour — a board has one, so there is no "none"
+/// row here (the difference from [`icon_picker`]'s `allows_none`).
+pub(crate) fn color_picker(
+    id_prefix: impl Into<SharedString>,
+    selected: &str,
+    on_pick: impl Fn(&'static str, &mut Window, &mut App) + Clone + 'static,
+    cx: &App,
+) -> impl IntoElement {
+    let id_prefix: SharedString = id_prefix.into();
+    let selected: SharedString = selected.to_string().into();
+    let fill =
+        crate::settings::parse_hex_color(&selected).unwrap_or(cx.theme().muted_foreground);
+    let trigger = Button::new(SharedString::from(format!("{id_prefix}-color-trigger")))
+        .outline()
+        .cursor_pointer()
+        .size(px(crate::controls::CTL_MD_H))
+        // The trigger IS a swatch: the grid's own 16px dot, centered in the
+        // same rounded square the icon trigger wears.
+        .child(div().size(px(16.)).rounded_full().bg(fill));
+    Popover::new(SharedString::from(format!("{id_prefix}-color-popover")))
+        .trigger(trigger)
+        .content(move |_, _, cx| {
+            let popover = cx.entity();
+            let id_prefix = id_prefix.clone();
+            let selected = selected.clone();
+            let on_pick = on_pick.clone();
+            // A popover's content box is unconstrained, so the wrapping grid
+            // needs a DEFINITE width — the icon grid's, one palette wide.
+            v_flex().w(px(266.)).p_1().child(color_swatch_grid(
+                id_prefix,
+                &selected,
+                move |color, window, cx| {
+                    on_pick(color, window, cx);
                     popover.update(cx, |state, cx| state.dismiss(window, cx));
                 },
                 cx,
@@ -138,11 +187,12 @@ fn icon_swatch_grid(
 /// Web `ColorSwatchGrid`: a wrapping row of rounded-full swatches; the
 /// selected one carries a ring (approximated as a padded border ring).
 pub(crate) fn color_swatch_grid(
-    id_prefix: &'static str,
+    id_prefix: impl Into<SharedString>,
     selected: &str,
     on_pick: impl Fn(&'static str, &mut Window, &mut App) + Clone + 'static,
     cx: &App,
 ) -> impl IntoElement {
+    let id_prefix: SharedString = id_prefix.into();
     let mut grid = h_flex().flex_wrap().gap_1p5();
     for color in SWATCH_COLORS {
         let fill = crate::settings::parse_hex_color(color).unwrap_or(cx.theme().muted_foreground);

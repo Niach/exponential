@@ -695,6 +695,10 @@ export interface AgentProfileUsageRow {
   email: string | null
   plan: string | null
   usage: DeviceAgentUsage | null
+  /** EXP-849: the device collects NO numbers for this login (it sits past
+   * the machine's own probe cap). The row captions itself instead of
+   * rendering absent bars as zero. */
+  unmonitored: boolean
   /** The "as of …" fallback when the usage is stale or absent. */
   checkedAt: string | null
 }
@@ -750,6 +754,9 @@ export function agentProfileUsageRows(
           email: account?.email || null,
           plan: account?.plan || null,
           usage: usageMap[agent] ?? null,
+          // A machine that reports no profiles reports one login, and it is
+          // always inside its own probe cap.
+          unmonitored: false,
           checkedAt:
             account?.checkedAt ??
             (device.agentUsageAt
@@ -778,12 +785,36 @@ export function agentProfileUsageRows(
           email: profile.email || null,
           plan: profile.plan || null,
           usage,
+          unmonitored: profile.unmonitored === true,
           checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
         })
       }
     }
   }
   return out
+}
+
+/** EXP-862: what an account row has to SAY about its numbers, so no surface
+ * has to invent a caption for an empty usage list:
+ *  - `ready` — numbers to render (stale or not: freshness is the bar's own
+ *    business, `usageIsFresh`);
+ *  - `checking` — a signed-in, monitored login this machine has not read yet.
+ *    Every login is read now (the first read skips the rotation queue), so
+ *    this is a beat or two, not a permanent state;
+ *  - `unmonitored` — the machine deliberately collects nothing for it (past
+ *    its own probe cap);
+ *  - `none` — nothing to report at all: the login is signed out, and its row
+ *    offers a sign-in instead of a bar.
+ *
+ * Mirrored on the desktop (`usage_bar.rs`, the web+desktop pair above). */
+export type UsageState = `ready` | `checking` | `unmonitored` | `none`
+
+export function usageState(
+  row: Pick<AgentProfileUsageRow, `signedIn` | `unmonitored` | `usage`>
+): UsageState {
+  if (!row.signedIn) return `none`
+  if (row.unmonitored) return `unmonitored`
+  return (row.usage?.windows.length ?? 0) > 0 ? `ready` : `checking`
 }
 
 /** The fullest window's percent, or 0 for a row with no usage at all. */

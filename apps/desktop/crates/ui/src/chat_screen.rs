@@ -460,11 +460,7 @@ impl ChatScreenView {
         if self.launch.is_some() || CodingHub::global_ref(cx).is_none() {
             return;
         }
-        let hub = CodingHub::global(cx);
         let mut launch = LaunchOptionsSection::new(window, cx);
-        // EXP-746 (D13): the local machine's external ACP agents join the
-        // pick; a settle onto ANOTHER machine clears them again.
-        launch.set_externals(hub.read(cx).settings.external_agents.clone());
         launch.reconcile_agent(window, cx);
         // A chat starts in build mode, always (EXP-772).
         launch.reseed_plan_for_subject(false, cx);
@@ -995,15 +991,10 @@ impl ChatScreenView {
                 settings: device.defaults.clone(),
                 accounts: device_agent_accounts(&device.row_id, cx),
             });
-        let local = CodingHub::global(cx).read(cx).settings.clone();
         let has_subject = !matches!(self.subject, Subject::None);
         let Some(launch) = self.launch.as_mut() else {
             return;
         };
-        launch.set_externals(match remote {
-            Some(_) => Vec::new(),
-            None => local.external_agents.clone(),
-        });
         launch.set_remote(remote, window, cx);
         // A reseed off a machine's defaults must not re-enter plan mode
         // for a chat (EXP-772).
@@ -1086,10 +1077,6 @@ impl ChatScreenView {
             return None;
         }
         let launch = self.launch.as_ref()?;
-        // An external agent has no account of ours to sign into.
-        if launch.external_spec().is_some() {
-            return None;
-        }
         let agent = match self.resume_active(cx) {
             true => self
                 .resume_candidate()
@@ -1155,11 +1142,7 @@ impl ChatScreenView {
                 match report.as_ref() {
                     None => return Some("Checking local tools…".into()),
                     Some(report) => {
-                        let failure = match launch.external_spec() {
-                            Some(_) => (!report.git.ok).then_some(&report.git),
-                            None => report.first_failure_for(gated_agent),
-                        };
-                        if let Some(failed) = failure {
+                        if let Some(failed) = report.first_failure_for(gated_agent) {
                             return Some(
                                 failed
                                     .error

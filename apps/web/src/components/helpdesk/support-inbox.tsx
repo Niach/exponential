@@ -110,7 +110,7 @@ export function SupportThreadList({
   teamSlug: string
   /** The conversation that is open, for the highlighted row. */
   activeThreadId?: string | null
-  /** The sidebar's 16rem slot: no reading column, tighter strip padding. */
+  /** The sidebar's 17rem slot: no reading column, tighter strip padding. */
   compact?: boolean
 }) {
   const [filter, setFilter] = useState<SupportFilter>(`open`)

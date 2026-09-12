@@ -81,11 +81,10 @@ pub mod trunk_state;
 pub mod usage_cache;
 pub mod worktree_agents;
 
-pub use agent::{AgentKind, CodingAgent};
+pub use agent::CodingAgent;
 pub use argv::{
     permission_args, shell_args, AgentMcp, LaunchOptions, McpServerWire, McpWireTransport,
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
-    MCP_URL_ENV,
 };
 pub use batch_launcher::{
     action_run_branch, action_slug, batch_branch_name, chat_run_branch, new_batch_id, new_run_id,
@@ -153,7 +152,7 @@ pub use remote_admin::{
     AgentDefaultsPatch, DefaultsPatch, RemoveWorktreeError,
 };
 pub use prompt::{render_prompt, render_resume_prompt};
-pub use settings::{ExternalAgentSpec, Settings};
+pub use settings::Settings;
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
 };

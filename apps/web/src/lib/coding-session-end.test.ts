@@ -62,7 +62,7 @@ beforeEach(() => {
 })
 
 describe(`endSessionByAgent`, () => {
-  it(`ends an automation-started run: stamps the close-out, the agent end path and clears needsInput`, async () => {
+  it(`ends an automation-started run: stamps the agent end path and clears needsInput`, async () => {
     selectResults.push([
       {
         id: SESSION,
@@ -83,9 +83,11 @@ describe(`endSessionByAgent`, () => {
     expect(updates[0]!.values).toMatchObject({
       status: `ended`,
       endedBy: `agent`,
-      summary: `Shipped the fix.`,
       needsInput: false,
     })
+    // EXP-862: the summary is REPORTED to whoever started the run (the MCP
+    // tool relays it), never written to the row.
+    expect(updates[0]!.values).not.toHaveProperty(`summary`)
     // Status-fenced so a close-out racing a kill can't resurrect the row.
     expect(whereShape(updates[0]!.where)).toEqual([
       `col:id`,

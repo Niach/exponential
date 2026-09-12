@@ -176,18 +176,6 @@ async function recipeOpenOnboardingDevices(page: Page, ctx: RecipeCtx): Promise<
 // ----------------------------------------------------------------- issues
 
 /**
- * Open the board's filter popover on its category list (Status · Priority ·
- * Labels). The trigger's accessible name grows a count badge once filters are
- * active, hence the prefix match.
- */
-async function recipeOpenFilterPopover(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: /^Filter/ })
-  await trigger.first().waitFor({ timeout: 20_000 })
-  await trigger.first().click()
-  await page.getByText(`Priority`, { exact: true }).first().waitFor({ timeout: 10_000 })
-}
-
-/**
  * Bring the issue's comment thread into frame. The composer is the last thing
  * in the timeline, so scrolling it into view puts the whole conversation on
  * screen; the phone layout keeps its composer in a floating bottom bar
@@ -635,7 +623,6 @@ export const RECIPES: Record<string, Recipe> = {
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
   openOnboardingDevices: recipeOpenOnboardingDevices,
-  openFilterPopover: recipeOpenFilterPopover,
   scrollToComments: recipeScrollToComments,
   openCreateIssue: recipeOpenCreateIssue,
   openSearch: recipeOpenSearch,

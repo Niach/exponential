@@ -14,8 +14,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _};
 use sync::Store;
 
-use domain::board::{build_filtered_issues, build_status_groups};
-use domain::filters::IssueFilters;
+use domain::board::build_status_groups;
 use domain::rows::{Issue, IssueStatusRow, Label};
 use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
 
@@ -47,8 +46,8 @@ pub struct BoardGroup {
     pub issues: Vec<Rc<Issue>>,
 }
 
-/// `use-board-view-data.ts`: one board's issues, filtered + grouped.
-pub fn board_board(cx: &App, board_id: &str, filters: &IssueFilters) -> BoardData {
+/// `use-board-view-data.ts`: one board's issues, grouped by status.
+pub fn board_board(cx: &App, board_id: &str) -> BoardData {
     let collections = Store::global(cx).collections();
     let issues = collections.issues_in_board(board_id, cx);
     let team_id = collections
@@ -56,32 +55,22 @@ pub fn board_board(cx: &App, board_id: &str, filters: &IssueFilters) -> BoardDat
         .read(cx)
         .get(board_id)
         .map(|board| board.team_id.clone());
-    board_data_from(cx, issues, team_id.as_deref(), filters)
+    board_data_from(cx, issues, team_id.as_deref())
 }
 
-/// `use-my-issues-data.ts`: the team's issues assigned to me, filtered +
-/// grouped like a board.
-pub fn my_issues(
-    cx: &App,
-    team_id: &str,
-    user_id: &str,
-    filters: &IssueFilters,
-) -> BoardData {
+/// `use-my-issues-data.ts`: the team's issues assigned to me, grouped like
+/// a board.
+pub fn my_issues(cx: &App, team_id: &str, user_id: &str) -> BoardData {
     let collections = Store::global(cx).collections();
     let issues: Vec<_> = collections
         .issues_in_team(team_id, cx)
         .into_iter()
         .filter(|issue| issue.assignee_id.as_deref() == Some(user_id))
         .collect();
-    board_data_from(cx, issues, Some(team_id), filters)
+    board_data_from(cx, issues, Some(team_id))
 }
 
-fn board_data_from(
-    cx: &App,
-    issues: Vec<Issue>,
-    team_id: Option<&str>,
-    filters: &IssueFilters,
-) -> BoardData {
+fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> BoardData {
     let collections = Store::global(cx).collections();
     let is_ready = collections.issues.read(cx).is_ready()
         && collections.boards.read(cx).is_ready()
@@ -114,9 +103,8 @@ fn board_data_from(
     let status_rows = team_id.map(|id| team_statuses(cx, id)).unwrap_or_default();
 
     let has_any_issues = !issues.is_empty();
-    let filtered = build_filtered_issues(issues, &label_ids_by_issue, &status_rows, filters);
     let today = today_local();
-    let groups = build_status_groups(filtered, &status_rows, &filters.status_keys, &today);
+    let groups = build_status_groups(issues, &status_rows, &[], &today);
 
     // Resolve label rows for the chips (web buildIssueLabelMap: unknown label
     // ids are skipped — referential integrity is a query-time concern, §5.4).
@@ -1264,8 +1252,120 @@ pub(crate) fn session_agent_caption(
 }
 
 // ---------------------------------------------------------------------------
+// The ONE session dot (EXP-862)
+// ---------------------------------------------------------------------------
+
+/// Everything a status DOT is allowed to know about a run (EXP-862).
+///
+/// Four surfaces painted this dot from four different derivations —
+/// `sessions_section`, the rail's `SessionRowState::dot`, the screen tabs and
+/// the steer viewer's `phase_tone` — and they disagreed about the two cases
+/// that matter: a run whose feed has gone quiet, and a finished run. The facts
+/// are a plain struct so each caller keeps its own sources (a synced row here,
+/// a live viewer phase there) and the MAPPING is shared.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SessionDotFacts {
+    /// The run is over (synced `ended`, or the viewer's Ended/Unauthorized).
+    pub(crate) ended: bool,
+    /// EXP-550: live, but its host machine is offline.
+    pub(crate) paused: bool,
+    /// The device-written attention flag: a plan approval / a question.
+    pub(crate) needs_input: bool,
+    /// The viewer's own "waiting on you" edge (a pending ask in the feed).
+    pub(crate) awaiting: bool,
+    /// FEED-26: a live run whose feed has gone quiet.
+    pub(crate) stale: bool,
+    /// The PR is merged — the run is done.
+    pub(crate) done: bool,
+    /// The PR is open and waiting on review.
+    pub(crate) review: bool,
+    /// The agent is working.
+    pub(crate) running: bool,
+    /// The viewer has not joined its room yet (no fact to show).
+    pub(crate) connecting: bool,
+}
+
+impl SessionDotFacts {
+    /// The facts a SYNCED row carries: its [`CodingSessionDisplay`] plus the
+    /// two states the row alone cannot say.
+    pub(crate) fn from_display(
+        display: CodingSessionDisplay,
+        ended: bool,
+        paused: bool,
+    ) -> Self {
+        Self {
+            ended,
+            paused,
+            needs_input: display == CodingSessionDisplay::NeedsInput,
+            done: display == CodingSessionDisplay::Done,
+            review: display == CodingSessionDisplay::Review,
+            running: display == CodingSessionDisplay::Running,
+            ..Self::default()
+        }
+    }
+}
+
+/// EXP-862 — the ONE session dot tone, byte-equal to the web's `PhaseDot` and
+/// the mobile `sessionStateColor`:
+///
+/// - ended or paused → the muted foreground at 40% (nothing is happening);
+/// - needs input, awaiting an answer or gone quiet → YELLOW. A stalled run
+///   reads the same as one asking a question on purpose: both mean "this is
+///   not progressing on its own", and a green dot over a stalled agent is the
+///   lie this mapping exists to kill;
+/// - done (the PR merged) → BLUE, review or running → GREEN, matching the
+///   issue-status palette;
+/// - connecting, or a row with nothing to say → NEUTRAL.
+pub(crate) fn session_dot_tone(facts: SessionDotFacts, muted: gpui::Hsla) -> gpui::Hsla {
+    if facts.ended || facts.paused {
+        return muted.opacity(0.4);
+    }
+    if facts.needs_input || facts.awaiting || facts.stale {
+        return theme::tokens::YELLOW.to_hsla();
+    }
+    if facts.done {
+        return theme::tokens::BLUE.to_hsla();
+    }
+    if facts.review || facts.running {
+        return theme::tokens::GREEN.to_hsla();
+    }
+    // `connecting` and the empty facts land here: a tone that claims nothing.
+    theme::tokens::NEUTRAL.to_hsla()
+}
+
+// ---------------------------------------------------------------------------
 // Live and past run projections (EXP-696 / EXP-746)
 // ---------------------------------------------------------------------------
+
+/// EXP-862 — this team's UNATTENDED runs, newest first: the Automations tab's
+/// "Recent automated runs" list and the Agent page's automated-runs origin
+/// (opening a finished automated run shows this list in the left column) read
+/// the same projection.
+///
+/// `started_reason` is the discriminator the server stamps — a manually
+/// started run of the same action never appears here — and it takes EVERY
+/// unattended run (`started_reason.is_some()`, byte-equal with
+/// web/iOS/Android; EXP-676: it is the ONLY finished-runs list).
+pub(crate) fn automated_runs(cx: &App, team_id: Option<&str>) -> Vec<domain::rows::CodingSession> {
+    let (Some(store), Some(team_id)) = (Store::try_global(cx), team_id) else {
+        return Vec::new();
+    };
+    let collection = store.collections().coding_sessions.clone();
+    let mut runs: Vec<domain::rows::CodingSession> = collection
+        .read(cx)
+        .iter()
+        .filter(|session| session.team_id.as_deref() == Some(team_id))
+        .filter(|session| session.started_reason.is_some())
+        .cloned()
+        .collect();
+    // ISO-8601 sorts lexicographically — newest first.
+    runs.sort_by(|a, b| {
+        crate::run_rows::run_started_at(b)
+            .cmp(&crate::run_rows::run_started_at(a))
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    runs
+}
 
 /// The user's live sessions hosted ELSEWHERE, newest start first.
 ///
@@ -3049,5 +3149,95 @@ mod tests {
         let picked = own_ended_runs(rows.iter(), "me", "t-1");
         let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
         assert_eq!(ids, vec!["here"]);
+    }
+
+    /// EXP-862 — the ONE dot mapping, as a table. Four surfaces used to derive
+    /// this tone independently and disagreed about the quiet cases; the table
+    /// is what "byte-equal to web and mobile" means here.
+    #[test]
+    fn the_session_dot_tone_is_one_table() {
+        let muted = gpui::hsla(0., 0., 0.6, 1.);
+        let ended = muted.opacity(0.4);
+        let yellow = theme::tokens::YELLOW.to_hsla();
+        let blue = theme::tokens::BLUE.to_hsla();
+        let green = theme::tokens::GREEN.to_hsla();
+        let neutral = theme::tokens::NEUTRAL.to_hsla();
+
+        let running = SessionDotFacts { running: true, ..Default::default() };
+        let cases: Vec<(&str, SessionDotFacts, gpui::Hsla)> = vec![
+            ("ended", SessionDotFacts { ended: true, ..Default::default() }, ended),
+            ("paused", SessionDotFacts { paused: true, ..Default::default() }, ended),
+            ("needs input", SessionDotFacts { needs_input: true, ..running }, yellow),
+            ("awaiting", SessionDotFacts { awaiting: true, ..running }, yellow),
+            // FEED-26: a quiet feed reads like a question, never like progress.
+            ("stale", SessionDotFacts { stale: true, ..running }, yellow),
+            ("done", SessionDotFacts { done: true, ..Default::default() }, blue),
+            ("review", SessionDotFacts { review: true, ..Default::default() }, green),
+            ("running", running, green),
+            ("connecting", SessionDotFacts { connecting: true, ..Default::default() }, neutral),
+            ("nothing known", SessionDotFacts::default(), neutral),
+        ];
+        for (name, facts, want) in cases {
+            assert_eq!(session_dot_tone(facts, muted), want, "{name}");
+        }
+
+        // Precedence: an ended run is grey whatever else it says, and a paused
+        // one does not go yellow because its feed stopped (of course it did).
+        assert_eq!(
+            session_dot_tone(
+                SessionDotFacts { ended: true, needs_input: true, running: true, ..Default::default() },
+                muted,
+            ),
+            ended,
+        );
+        assert_eq!(
+            session_dot_tone(SessionDotFacts { paused: true, stale: true, ..running }, muted),
+            ended,
+        );
+        // Yellow beats the outcome colours while the run is live.
+        assert_eq!(
+            session_dot_tone(SessionDotFacts { needs_input: true, review: true, ..Default::default() }, muted),
+            yellow,
+        );
+        // Done beats review — a merged PR is not waiting on anyone.
+        assert_eq!(
+            session_dot_tone(SessionDotFacts { done: true, review: true, ..Default::default() }, muted),
+            blue,
+        );
+    }
+
+    /// The synced-row shorthand every list uses: a display plus the two states
+    /// the row alone cannot say.
+    #[test]
+    fn dot_facts_read_a_synced_display() {
+        let muted = gpui::hsla(0., 0., 0.6, 1.);
+        assert_eq!(
+            session_dot_tone(
+                SessionDotFacts::from_display(CodingSessionDisplay::NeedsInput, false, false),
+                muted,
+            ),
+            theme::tokens::YELLOW.to_hsla(),
+        );
+        assert_eq!(
+            session_dot_tone(
+                SessionDotFacts::from_display(CodingSessionDisplay::Done, false, false),
+                muted,
+            ),
+            theme::tokens::BLUE.to_hsla(),
+        );
+        assert_eq!(
+            session_dot_tone(
+                SessionDotFacts::from_display(CodingSessionDisplay::Running, false, false),
+                muted,
+            ),
+            theme::tokens::GREEN.to_hsla(),
+        );
+        // EXP-550/EXP-746: an offline host or a finished row grey out.
+        for facts in [
+            SessionDotFacts::from_display(CodingSessionDisplay::Running, false, true),
+            SessionDotFacts::from_display(CodingSessionDisplay::Running, true, false),
+        ] {
+            assert_eq!(session_dot_tone(facts, muted), muted.opacity(0.4));
+        }
     }
 }

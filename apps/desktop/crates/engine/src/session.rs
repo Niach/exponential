@@ -42,7 +42,7 @@ pub struct EngineStart {
     /// The signed-in user's id — the kill-watch owner pin (EXP-105).
     pub own_user_id: Option<String>,
     /// The `expu_` personal key: the redactor's exact-match secret (REV2-17)
-    /// AND the codex/external MCP bearer that rides the spawn env.
+    /// AND the codex MCP bearer that rides the spawn env.
     pub personal_key: Option<String>,
     /// The relay room's subject; `None` for batch and action rooms.
     pub issue_id: Option<String>,
@@ -86,7 +86,7 @@ pub struct OpenTranscript {
 /// Everything needed to find an ended run's history, straight off its
 /// `runs.json` [`coding::run_registry::RunRecord`].
 pub struct HistoryHandle {
-    pub agent: coding::AgentKind,
+    pub agent: coding::CodingAgent,
     pub cwd: PathBuf,
     /// The recorded ACP session id (`session/load`), when the run took the
     /// ACP path at all.
@@ -103,8 +103,7 @@ pub struct EngineSession(Arc<Inner>);
 /// [`EngineSession::open_transcript`].
 pub(crate) struct Inner {
     pub(crate) ctx: Arc<SessionCtx>,
-    /// The builtin agent, or the user's external ACP binary (D13).
-    pub(crate) agent: coding::AgentKind,
+    pub(crate) agent: coding::CodingAgent,
     pub(crate) commands: flume::Sender<EngineCommand>,
 }
 
@@ -130,8 +129,7 @@ impl EngineSession {
             acp_session_id,
             native,
         } = handle;
-        let kind = AdapterKind::from_agent(&agent);
-        let builtin = agent.builtin();
+        let kind = AdapterKind::from_agent(agent);
         let child_exit = ChildExitLink::new();
         // The recorded ACP id is what `session/load` takes; a run recorded without
         // one falls back to the agent-native handle the adapter knows how to
@@ -142,27 +140,21 @@ impl EngineSession {
         };
         let adapter = Adapter::new(AdapterSpec {
             kind,
-            agent: agent.clone(),
+            agent,
             spawn: terminal::pty::SpawnSpec {
-                program: builtin
-                    .map(|agent| agent.default_binary().to_string())
-                    .unwrap_or_else(|| agent.id().to_string()),
+                program: agent.default_binary().to_string(),
                 args: Vec::new(),
                 cwd: Some(cwd.clone()),
                 env: Vec::new(),
             },
             options: coding::LaunchOptions {
-                agent: builtin.unwrap_or_default(),
+                agent,
                 model: String::new(),
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
                 mcp_server_ids: Vec::new(),
                 account: None,
-                external: match &agent {
-                    coding::AgentKind::External(spec) => Some(spec.clone()),
-                    coding::AgentKind::Builtin(_) => None,
-                },
             },
             // A replay never talks to MCP: it reads history and stops.
             mcp: coding::AgentMcp::ClaudeFile,
@@ -212,9 +204,8 @@ impl EngineSession {
         &self.0.ctx.session_id
     }
 
-    /// The builtin agent, or the external spec (D13).
-    pub fn agent(&self) -> &coding::AgentKind {
-        &self.0.agent
+    pub fn agent(&self) -> coding::CodingAgent {
+        self.0.agent
     }
 
     /// Display name for the session header and tab strip.
@@ -379,11 +370,11 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
          and drops it only after it registered the session"
     );
     let acp = start.prepared.acp.clone();
-    let agent = agent_kind(&start.prepared);
+    let agent = start.prepared.agent;
     let child_exit = ChildExitLink::new();
     let adapter = Adapter::new(AdapterSpec {
-        kind: AdapterKind::from_agent(&agent),
-        agent: agent.clone(),
+        kind: AdapterKind::from_agent(agent),
+        agent,
         spawn: start.prepared.spawn.clone(),
         options: acp.options.clone(),
         mcp: acp.mcp.clone(),
@@ -431,7 +422,7 @@ where
         kill,
         local_sink,
     } = start;
-    let agent = agent_kind(&prepared);
+    let agent = prepared.agent;
     let acp = prepared.acp.clone();
     let ctx = build_ctx(CtxSpec {
         session_id: prepared.session_id.clone(),
@@ -453,7 +444,7 @@ where
         foreign_host,
         publish,
         local_sink,
-        agent: agent.clone(),
+        agent,
         // EXP-792: the team servers' device-held values, masked like the key.
         mcp_secrets: acp.mcp_secrets.clone().into_vec(),
         replay: false,
@@ -465,15 +456,6 @@ where
         let _ = ctx.sink.set(sink);
     }
     spawn_engine(ctx, agent, parts.adapter, kill, host)
-}
-
-/// The builtin agent the launch names, or the external spec its options carry
-/// (D13 — `PreparedLaunch.agent` is always a builtin).
-fn agent_kind(prepared: &coding::PreparedLaunch) -> coding::AgentKind {
-    match prepared.acp.options.external.clone() {
-        Some(spec) => coding::AgentKind::External(spec),
-        None => coding::AgentKind::Builtin(prepared.agent),
-    }
 }
 
 struct CtxSpec {
@@ -489,7 +471,7 @@ struct CtxSpec {
     foreign_host: bool,
     publish: bool,
     local_sink: Option<LocalSink>,
-    agent: coding::AgentKind,
+    agent: coding::CodingAgent,
     /// EXP-792: every team-MCP secret the launcher put in the spawn env —
     /// exact-match entries for the redactor beside the `expu_` key.
     mcp_secrets: Vec<String>,
@@ -545,7 +527,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     let mapper = Mapper::new(MapperConfig {
         redactor: Arc::clone(&redactor),
         cwd: spec.run.worktree.clone(),
-        agent: AdapterKind::from_agent(&spec.agent).session_agent(),
+        agent: AdapterKind::from_agent(spec.agent).session_agent(),
         session_seed: spec.session_id.clone(),
     });
     Arc::new(SessionCtx {
@@ -594,7 +576,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
 /// of `SteerRuntime`'s two workers (D1).
 fn spawn_engine<A>(
     ctx: Arc<SessionCtx>,
-    agent: coding::AgentKind,
+    agent: coding::CodingAgent,
     adapter: A,
     kill: KillFeed,
     host: Arc<dyn EngineHost>,

@@ -1,5 +1,5 @@
 // EXP-456: the settings navigation as a sidebar panel. It occupies the same
-// 16rem slot as the main team nav — TeamSidebar slides it in over the main
+// 17rem slot as the main team nav — TeamSidebar slides it in over the main
 // panel while any /settings route is active — so the settings pages no longer
 // carry their own desktop nav column (the in-page nav remains mobile-only).
 import { useEffect, useState } from "react"

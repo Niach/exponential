@@ -190,7 +190,7 @@ export function TeamSidebar({
   const userLabel = session?.user?.name || session?.user?.email
   const userInitials = userLabel ? getInitials(userLabel) : `?`
 
-  // EXP-456 / EXP-851: the 16rem slot has THREE occupants — the main menu, the
+  // EXP-456 / EXP-851: the 17rem slot has THREE occupants — the main menu, the
   // settings nav, and the LIST NAV a detail brings along (`?from=`). Derived
   // from the URL (not click state) so every entry point (footer gear, mobile
   // topbar menu, a list row, deep links) drives the same swap, and a direct

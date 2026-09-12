@@ -140,7 +140,8 @@ pub struct PendingCommand {
     pub id: String,
     /// `worktree_remove` | `worktree_prune` | `agent_login` |
     /// `agent_login_code` | `mcp_oauth_start` | `mcp_oauth_code` |
-    /// `agent_usage_refresh`; unknown kinds are completed `ok: false`
+    /// `agent_usage_refresh` | `agent_profile_use` |
+    /// `agent_profile_remove`; unknown kinds are completed `ok: false`
     /// ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
     pub kind: String,
@@ -156,6 +157,9 @@ pub struct PendingCommand {
     /// "expiresAt"?}`. `agent_usage_refresh`: `{agent, profileId}` — force
     /// the usage collector past its shared TTL (never past the rate-limit
     /// floor; the reply names the next allowed time when hot).
+    /// `agent_profile_use` (EXP-849) and `agent_profile_remove` (EXP-862)
+    /// carry the same `{agent, profileId}`: make that login the machine's
+    /// default, or delete the machine's copy of it (never the account).
     #[serde(default)]
     pub payload: serde_json::Value,
 }
@@ -681,6 +685,41 @@ pub fn create_agent_profile_use_command(
         &Input {
             device_id,
             kind: "agent_profile_use",
+            agent,
+            profile_id,
+        },
+    )
+}
+
+/// `devices.createCommand` for an `agent_profile_remove` (EXP-862) — ask one
+/// of the CALLER's own machines to delete its copy of `profile_id`'s login for
+/// `agent`.
+///
+/// What goes is the machine's login: the profile's config dir (credentials
+/// included) and its index row. The ACCOUNT is untouched — no `codex logout`,
+/// which would revoke it server-wide, and nothing leaves the machine. It rides
+/// the `agent-login` and `account-remove` caps (the server gates on both: a
+/// build that cannot run it would leave the row pending forever), and the
+/// device refuses the ambient login and any profile a live run is using.
+pub fn create_agent_profile_remove_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    profile_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        profile_id: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_profile_remove",
             agent,
             profile_id,
         },

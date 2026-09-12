@@ -43,7 +43,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * the two platforms' `sg_*` sets to be identical):
  *
  *   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
- *   sg_board-filters · sg_board-empty ·
+ *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
  *   sg_chat · sg_chat-issues · sg_chat-action ·
@@ -237,22 +237,6 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- Board filters: the badge button in the pinned nav row opens the
-        // filter sheet. The trigger's "Filters" is a contentDescription and the
-        // sheet's is a Text, so hasText matches the sheet unambiguously; gate
-        // additionally on the three category rows.
-        composeRule.onNode(hasContentDescription("Filters")).performClick()
-        flow.waitFor(hasText("Filters"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Status"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Labels"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_board-filters")
-        // The sheet animates out over the board — let it finish before the next
-        // tap, or it lands on the dismissing scrim.
-        Espresso.pressBack()
-        flow.waitForGone(hasText("Clear all"), NAV_TIMEOUT)
-        flow.settle(longer = true)
-
         // --- Board empty state: the seed's second board is created empty for
         // exactly this shot, so nothing has to be deleted to reach the state.
         switchBoard(EMPTY_BOARD_NAME)
@@ -311,7 +295,7 @@ class StyleguideScreenshotsTest {
         flow.settle(longer = true)
 
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Filters"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
 
         // --- Create issue: the compose circle on the bottom bar only exists
@@ -323,11 +307,11 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_issue-create")
         composeRule.onNode(hasContentDescription("Cancel")).performClick()
-        flow.waitFor(hasContentDescription("Filters"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
 
         // --- Search: EXP-686 moved it off the bottom bar into the board
-        // header (next to Filters), so it is a PUSHED screen now — tagged,
+        // header, so it is a PUSHED screen now — tagged,
         // because "Search" also reads as the field's own placeholder. The
         // field is the only editable node on it, so hasSetTextAction
         // addresses it without a tag. Gate on a real hit — an unseeded
@@ -340,7 +324,7 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_search")
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Filters"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
 
         // --- My Issues: the My Work tab opens on the Inbox segment (EXP-58);

@@ -192,7 +192,7 @@ family, one `drive` per view:
 | `manual`   | —                                   | nothing: capture it by hand with `--manual <view-id>` |
 
 A view may add `desktop.env` on top for the cases that are a drive PLUS a flag —
-`EXP_DEV_FILTER=1` for the board's filter popover, `EXP_DEV_BOARD_ID` to point
+`EXP_DEV_BOARD_ID` to point
 the rail at a board other than the last-visited one, `EXP_DEV_SELECT` to
 pre-select the rows the bulk bar needs, `EXP_DEV_SEARCH_QUERY` to open the
 palette with a query already typed, `EXP_DEV_OPEN_SHELL=1` for a docked

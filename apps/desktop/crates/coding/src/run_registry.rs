@@ -275,26 +275,6 @@ pub struct RunRecord {
     pub acp_child_pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_pid: Option<u32>,
-    /// EXP-746 (D13): the external ACP agent this run used, when it was not
-    /// one of the three builtins. `agent` above then carries the settings
-    /// default and means nothing — an older host reading this record still
-    /// resumes something sane instead of failing to parse.
-    ///
-    /// Its `env` is the ONE field that never reaches this file: an external
-    /// agent's declared env is where a user puts that agent's TOKEN, and
-    /// settings.json is the single place it may live. Copied here it would
-    /// stay readable for the 10-day TTL after the user rotated it and deleted
-    /// the agent, and a replay would respawn the binary with the stale value.
-    /// So the spec is written env-less, a record that predates that rule
-    /// loses its env on load (see [`load_registry`]), and
-    /// [`RunRecord::resolved_external_agent`] re-attaches the LIVE env by id
-    /// wherever a resume or a replay spawns the binary again.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "serialize_external_agent"
-    )]
-    pub external_agent: Option<crate::settings::ExternalAgentSpec>,
     /// Unix seconds — the TTL prune's key.
     pub recorded_at: u64,
     /// Every field of this entry this build does not know — the desktop app
@@ -306,25 +286,12 @@ pub struct RunRecord {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
-/// EXP-746: write [`RunRecord::external_agent`] without its `env`. `serde`
-/// hands a field-level `serialize_with` the whole `Option`, and the `None`
-/// arm is unreachable behind the field's `skip_serializing_if`.
-fn serialize_external_agent<S>(
-    spec: &Option<crate::settings::ExternalAgentSpec>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match spec {
-        Some(spec) => crate::settings::ExternalAgentSpec {
-            env: BTreeMap::new(),
-            ..spec.clone()
-        }
-        .serialize(serializer),
-        None => serializer.serialize_none(),
-    }
-}
+/// EXP-862: the EXP-746 key an older build wrote for a run on a user-declared
+/// external ACP agent. Those agents are gone, so this build has no field for
+/// it: the key rides [`RunRecord::extra`] untouched (never in `DEAD_KEYS` —
+/// dropping it would make such a record look like an ordinary claude run) and
+/// [`RunRecord::is_retired_external_agent`] refuses to resume it.
+pub const EXTERNAL_AGENT_KEY: &str = "externalAgent";
 
 /// EXP-792: the [`RunRecord::extra`] key carrying the launch's team MCP
 /// server picks (`mcp_servers` row ids, pick order) — a resume re-resolves
@@ -423,28 +390,14 @@ pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, s
 
 impl RunRecord {
 
-    /// EXP-746: the external agent this run ran under, with its `env` taken
-    /// from the CURRENT settings (`configured`) instead of from disk — the
-    /// record carries none. `None` for every builtin run.
-    ///
-    /// An agent the user has since deleted (or whose id they changed) still
-    /// resumes on its recorded `command`/`args`, just without a declared env:
-    /// a rotated secret is never replayed out of a stale copy, and the run
-    /// fails loudly on the agent's own auth instead.
-    pub fn resolved_external_agent(
-        &self,
-        configured: &[crate::settings::ExternalAgentSpec],
-    ) -> Option<crate::settings::ExternalAgentSpec> {
-        let recorded = self.external_agent.as_ref()?;
-        let env = configured
-            .iter()
-            .find(|entry| entry.id == recorded.id)
-            .map(|entry| entry.env.clone())
-            .unwrap_or_default();
-        Some(crate::settings::ExternalAgentSpec {
-            env,
-            ..recorded.clone()
-        })
+    /// EXP-862: whether an older build recorded this run on an external ACP
+    /// agent ([`EXTERNAL_AGENT_KEY`]). Its `agent` field carries the settings
+    /// default and means nothing, so a resume would relaunch a builtin CLI
+    /// that never saw the conversation — the launcher refuses instead.
+    pub fn is_retired_external_agent(&self) -> bool {
+        self.extra
+            .get(EXTERNAL_AGENT_KEY)
+            .is_some_and(|value| !value.is_null())
     }
 
     /// EXP-773: whether this run was recorded on the ACP engine, i.e.
@@ -564,13 +517,12 @@ fn load_registry(data_dir: &Path) -> Registry {
                 for dead in DEAD_KEYS {
                     record.extra.remove(*dead);
                 }
-                // EXP-746: an external agent's env is settings.json's alone.
-                // A record written before that rule still carries it, so it
-                // is dropped on the way in — nothing downstream can spawn on
-                // a stale secret, and the next write purges it from the file.
-                if let Some(external) = record.external_agent.as_mut() {
-                    external.env.clear();
-                }
+                // EXP-862: a retired external agent's declared env is where
+                // the user kept that agent's TOKEN. The spec itself rides
+                // `extra` so a resume can refuse by name, but the secret is
+                // scrubbed on the way in and the next write purges it from
+                // the file.
+                scrub_external_agent_env(&mut record);
                 registry.records.push(record);
             }
             Err(err) => {
@@ -580,6 +532,20 @@ fn load_registry(data_dir: &Path) -> Registry {
         }
     }
     registry
+}
+
+/// EXP-862: blank the `env` map inside a retired [`EXTERNAL_AGENT_KEY`]
+/// entry, leaving the rest of the spec readable (a resume names it when it
+/// refuses). Pre-EXP-746 records are the only ones that ever carried a value.
+fn scrub_external_agent_env(record: &mut RunRecord) {
+    let Some(external) = record.extra.get_mut(EXTERNAL_AGENT_KEY) else {
+        return;
+    };
+    if let Some(entry) = external.as_object_mut() {
+        if entry.contains_key("env") {
+            entry.insert("env".to_string(), serde_json::json!({}));
+        }
+    }
 }
 
 fn load(data_dir: &Path) -> Vec<RunRecord> {
@@ -858,7 +824,6 @@ pub(crate) fn sample_record(session_id: &str) -> RunRecord {
             agent_native_session_id: None,
             acp_child_pid: None,
             host_pid: None,
-            external_agent: None,
     }
 }
 
@@ -955,13 +920,6 @@ mod tests {
         acp.transport = Some("acp".to_string());
         acp.acp_session_id = Some("acp-42".to_string());
         acp.agent_native_session_id = Some("claude-99".to_string());
-        acp.external_agent = Some(crate::settings::ExternalAgentSpec {
-            id: "acme".to_string(),
-            label: "Acme ACP".to_string(),
-            command: "acme".to_string(),
-            args: vec!["--acp".to_string()],
-            ..Default::default()
-        });
         record(&dir, acp.clone());
         let loaded = get(&dir, "sess-acp").expect("record");
         assert_eq!(loaded, acp);
@@ -975,7 +933,7 @@ mod tests {
             .iter()
             .find(|entry| entry["sessionId"] == "sess-pty")
             .expect("the pty record");
-        for key in ["transport", "acpSessionId", "agentNativeSessionId", "externalAgent"] {
+        for key in ["transport", "acpSessionId", "agentNativeSessionId"] {
             assert_eq!(pty.get(key), None, "{key} must not be serialized");
         }
         assert!(!get(&dir, "sess-pty").unwrap().is_acp());
@@ -989,64 +947,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-746: an external agent's `env` is settings.json's alone — it is
-    /// never written here, and a resume re-resolves the LIVE one by id.
+    /// EXP-862: external ACP agents are gone, but a `runs.json` an older
+    /// build wrote still names one. The spec rides `extra` so a resume can
+    /// refuse it by name instead of relaunching a builtin CLI that never saw
+    /// the conversation, and the agent's declared TOKEN is scrubbed on the
+    /// way in (settings.json was always its only home).
     #[test]
-    fn an_external_agent_env_never_reaches_the_registry() {
-        let dir = temp_dir("external-env");
-        let spec = crate::settings::ExternalAgentSpec {
-            id: "acme".to_string(),
-            label: "Acme ACP".to_string(),
-            command: "acme".to_string(),
-            args: vec!["--acp".to_string()],
-            env: BTreeMap::from([("ACME_TOKEN".to_string(), "sk-live-1".to_string())]),
-        };
-        let mut run = sample("sess-ext");
-        run.external_agent = Some(spec.clone());
-        record(&dir, run);
-
-        let raw = std::fs::read_to_string(registry_path(&dir)).unwrap();
-        assert!(!raw.contains("sk-live-1"), "the secret was written: {raw}");
-        let entries: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
-        let written = &entries[0]["externalAgent"];
-        assert_eq!(written["command"], "acme");
-        assert_eq!(written["args"], serde_json::json!(["--acp"]));
-        assert_eq!(written["env"], serde_json::json!({}));
-
-        // The command and args are pinned; the env comes back from the live
-        // settings entry ...
-        let loaded = get(&dir, "sess-ext").expect("record");
-        assert!(loaded.external_agent.as_ref().unwrap().env.is_empty());
-        assert_eq!(
-            loaded.resolved_external_agent(std::slice::from_ref(&spec)),
-            Some(spec.clone())
-        );
-        // ... an agent the user has since deleted resumes env-less rather
-        // than on a rotated token, and so does one whose id no longer
-        // matches.
-        let mut renamed = spec.clone();
-        renamed.id = "acme-2".to_string();
-        for configured in [Vec::new(), vec![renamed]] {
-            let resolved = loaded
-                .resolved_external_agent(&configured)
-                .expect("the recorded spec");
-            assert_eq!(resolved.command, "acme");
-            assert!(resolved.env.is_empty());
-        }
-        // A builtin run resolves to no external agent at all.
-        assert_eq!(
-            sample("sess-builtin").resolved_external_agent(std::slice::from_ref(&spec)),
-            None
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A record a build before that rule wrote still carries the secret on
-    /// disk: it is dropped on the way in, and a neighbour's write purges it
-    /// from the file for good.
-    #[test]
-    fn a_previously_recorded_external_agent_env_is_purged() {
-        let dir = temp_dir("external-env-legacy");
+    fn a_recorded_external_agent_is_kept_but_refused() {
+        let dir = temp_dir("external-retired");
         let now = now_secs();
         let json = format!(
             r#"[{{
@@ -1059,10 +967,18 @@ mod tests {
         std::fs::write(registry_path(&dir), json).unwrap();
 
         let loaded = get(&dir, "sess-1").expect("record");
-        let external = loaded.external_agent.as_ref().expect("the spec");
-        assert_eq!(external.command, "acme");
-        assert!(external.env.is_empty(), "the stale secret is dropped");
+        assert!(loaded.is_retired_external_agent());
+        assert_eq!(loaded.extra[EXTERNAL_AGENT_KEY]["command"], "acme");
+        assert_eq!(
+            loaded.extra[EXTERNAL_AGENT_KEY]["env"],
+            serde_json::json!({}),
+            "the stale secret is dropped"
+        );
+        // A builtin record names no external agent at all.
+        assert!(!sample("sess-builtin").is_retired_external_agent());
 
+        // A neighbour's write keeps the record (and purges the secret for
+        // good) rather than re-serializing it away.
         record(&dir, sample("sess-2"));
         let raw = std::fs::read_to_string(registry_path(&dir)).unwrap();
         assert!(!raw.contains("ACME_TOKEN"), "{raw}");

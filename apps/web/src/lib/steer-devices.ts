@@ -221,6 +221,16 @@ export function deviceCanSwitchAccount(
   return (device.caps ?? []).includes(`account-switch`)
 }
 
+/** EXP-862: the machine runs `agent_profile_remove` — it deletes its own copy
+ * of one agent login (never the account). An older build would leave the
+ * queued row pending forever, so requesters hide "Remove account" instead;
+ * the server refuses it on their behalf either way. */
+export function deviceCanRemoveAccount(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`account-remove`)
+}
+
 /** EXP-484: the machine runs the `agent_login` device command (the desktop
  * app and the CLI daemon both advertise it). Without the cap the queued row
  * would sit pending forever, so requesters hide Login/Switch account. */

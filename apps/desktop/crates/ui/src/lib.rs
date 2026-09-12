@@ -2,7 +2,7 @@
 //!
 //! A 1:1 mirror of the web app built out of gpui-component widgets: `sidebar`,
 //! `issue_list` (virtualized), `issue_detail`, `markdown_editor` +
-//! `mention_popover`, `filter_bar`/`pills`, `create_issue_dialog`,
+//! `mention_popover`, `create_issue_dialog`,
 //! `create_board`/`create_team`, `inbox`, `my_issues`, `settings/*`,
 //! `account`, `diff_view`, `actions_view`. Lands across Phases 1–5.
 //!
@@ -28,7 +28,6 @@ mod action_run;
 mod action_suggestions;
 mod actions;
 mod actions_view;
-mod active_filter_pills;
 mod automation_host;
 mod automations_view;
 mod app_title_bar;
@@ -64,8 +63,6 @@ pub mod diff;
 mod diff_pane;
 mod file_tree;
 mod file_viewer;
-mod filter_bar;
-mod filter_popover;
 mod getting_started;
 mod github_connect;
 mod icons;
@@ -198,7 +195,7 @@ pub fn init(cx: &mut App) {
     // Bulk select: cmd-a/ctrl-a select-all +
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);
-    // Create-flow dialog actions (§4.2): NewIssue (board filter bar),
+    // Create-flow dialog actions (§4.2): NewIssue (board view),
     // NewBoard (sidebar `+`), CreateTeam (team picker).
     create_issue_dialog::init(cx);
     create_board_dialog::init(cx);

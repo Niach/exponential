@@ -14,7 +14,6 @@ pub mod claude;
 pub mod claude_wire;
 pub mod codex;
 pub mod codex_wire;
-pub mod external;
 
 use std::path::PathBuf;
 
@@ -23,33 +22,28 @@ use agent_client_protocol::{Agent, Client, ConnectTo};
 use crate::host::ChildExitLink;
 use crate::session::{EngineError, ResumeHandle};
 
-/// Which adapter drives a run. Distinct from `coding::CodingAgent` because
-/// `External` is not a builtin (D13) and from `steer::SessionAgent` because
-/// that is the WIRE vocabulary.
+/// Which adapter drives a run. Distinct from `coding::CodingAgent` only
+/// because `steer::SessionAgent` is the WIRE vocabulary and this is the
+/// engine's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdapterKind {
     Claude,
     Codex,
-    External,
 }
 
 impl AdapterKind {
-    pub fn from_agent(agent: &coding::AgentKind) -> AdapterKind {
+    pub fn from_agent(agent: coding::CodingAgent) -> AdapterKind {
         match agent {
-            coding::AgentKind::Builtin(coding::CodingAgent::Claude) => AdapterKind::Claude,
-            coding::AgentKind::Builtin(coding::CodingAgent::Codex) => AdapterKind::Codex,
-            coding::AgentKind::External(_) => AdapterKind::External,
+            coding::CodingAgent::Claude => AdapterKind::Claude,
+            coding::CodingAgent::Codex => AdapterKind::Codex,
         }
     }
 
-    /// The relay-side identity. `External` is deliberately neutral: its
-    /// command catalog is whatever the agent itself advertises, and the codex
-    /// sigil guard stays codex-only.
+    /// The relay-side identity.
     pub fn session_agent(self) -> steer::SessionAgent {
         match self {
             AdapterKind::Claude => steer::SessionAgent::Claude,
             AdapterKind::Codex => steer::SessionAgent::Codex,
-            AdapterKind::External => steer::SessionAgent::External,
         }
     }
 
@@ -58,7 +52,6 @@ impl AdapterKind {
         match self {
             AdapterKind::Claude => "claude",
             AdapterKind::Codex => "codex",
-            AdapterKind::External => "external",
         }
     }
 }
@@ -68,7 +61,7 @@ impl AdapterKind {
 /// inherits the exact program/cwd/env the PTY launch would have used.
 pub struct AdapterSpec {
     pub kind: AdapterKind,
-    pub agent: coding::AgentKind,
+    pub agent: coding::CodingAgent,
     /// Program, cwd and env from `PreparedLaunch::spawn`; `args` is EMPTY on
     /// the Acp arm — the adapter composes the ACP argv itself.
     pub spawn: terminal::pty::SpawnSpec,
@@ -77,9 +70,8 @@ pub struct AdapterSpec {
     pub mcp: coding::AgentMcp,
     /// EXP-792: the launch's team MCP servers beside `exponential` — claude
     /// renders them into its inline `--mcp-config`, codex into the
-    /// `thread/start` config; an external agent reads them off the
-    /// spawn env (`EXP_MCP_SERVERS`) the launcher already set. Values are
-    /// `${VAR}` references, never credentials.
+    /// `thread/start` config. Values are `${VAR}` references, never
+    /// credentials.
     pub servers: Vec<coding::McpServerWire>,
     /// The worktree (`session/new { cwd }`).
     pub cwd: PathBuf,
@@ -95,15 +87,14 @@ pub struct AdapterSpec {
     /// has to do more than read history to become steerable (codex:
     /// `thread/resume` + its notification pumps) keys on it.
     pub replay: bool,
-    /// The `expu_` key — the codex/external MCP bearer.
+    /// The `expu_` key — the codex MCP bearer.
     pub personal_key: Option<String>,
     /// The claude `--settings <path>` reaper anchor (`{}`, no hooks). `None`
     /// for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
-    /// ours (`External`: the SDK transport owns it) never records, and the
-    /// run ends as `ended`.
+    /// ours never records, and the run ends as `ended`.
     pub exit: ChildExitLink,
 }
 
@@ -111,23 +102,19 @@ pub struct AdapterSpec {
 pub enum Adapter {
     Claude(claude::ClaudeAgent),
     Codex(codex::CodexAgent),
-    External(external::ExternalAgent),
 }
 
 impl Adapter {
     /// Build the adapter `spec.kind` names. Errors here are start-time
-    /// errors (a missing external binary, an agent with no adapter on this
-    /// build) and REFUSE the launch — EXP-773 left nothing to fall back to.
+    /// errors and REFUSE the launch — EXP-773 left nothing to fall back to.
     ///
     /// Claude spawns lazily (at `session/new`), so a missing `claude` surfaces
-    /// as a handshake failure through `EngineExit`; codex spawns HERE,
-    /// and external resolves its command here, so those come back as
-    /// `EngineError::Spawn` before anything was registered.
+    /// as a handshake failure through `EngineExit`; codex spawns HERE, so it
+    /// comes back as `EngineError::Spawn` before anything was registered.
     pub fn new(spec: AdapterSpec) -> Result<Adapter, EngineError> {
         Ok(match spec.kind {
             AdapterKind::Claude => Adapter::Claude(claude::ClaudeAgent::new(spec)?),
             AdapterKind::Codex => Adapter::Codex(codex::CodexAgent::new(spec)?),
-            AdapterKind::External => Adapter::External(external::ExternalAgent::new(spec)?),
         })
     }
 
@@ -135,7 +122,6 @@ impl Adapter {
         match self {
             Adapter::Claude(_) => AdapterKind::Claude,
             Adapter::Codex(_) => AdapterKind::Codex,
-            Adapter::External(_) => AdapterKind::External,
         }
     }
 }
@@ -149,7 +135,6 @@ impl ConnectTo<Client> for Adapter {
             match self {
                 Adapter::Claude(adapter) => adapter.connect_to(client).await,
                 Adapter::Codex(adapter) => adapter.connect_to(client).await,
-                Adapter::External(adapter) => adapter.connect_to(client).await,
             }
         }
     }
@@ -162,22 +147,20 @@ mod tests {
     #[test]
     fn every_agent_kind_maps_to_an_adapter_and_a_wire_agent() {
         assert_eq!(
-            AdapterKind::from_agent(&coding::AgentKind::Builtin(coding::CodingAgent::Claude)),
+            AdapterKind::from_agent(coding::CodingAgent::Claude),
             AdapterKind::Claude
         );
         assert_eq!(
-            AdapterKind::from_agent(&coding::AgentKind::Builtin(coding::CodingAgent::Codex)),
+            AdapterKind::from_agent(coding::CodingAgent::Codex),
             AdapterKind::Codex
         );
         assert_eq!(
-            AdapterKind::from_agent(&coding::AgentKind::External(
-                coding::ExternalAgentSpec::default()
-            )),
-            AdapterKind::External
+            AdapterKind::Claude.session_agent(),
+            steer::SessionAgent::Claude
         );
         assert_eq!(
-            AdapterKind::External.session_agent(),
-            steer::SessionAgent::External
+            AdapterKind::Codex.session_agent(),
+            steer::SessionAgent::Codex
         );
     }
 }

@@ -55,7 +55,7 @@ pub struct IssueHeader {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
     /// Search query of the Labels popover (EXP-282 — the searchable picker
-    /// follows `filter_popover::labels_view`: the OWNING view holds the
+    /// follows the labels-picker pattern: the OWNING view holds the
     /// `InputState`, the popover only renders it).
     label_query: Entity<InputState>,
     /// Search query of the move-to-board popover (EXP-316 — web

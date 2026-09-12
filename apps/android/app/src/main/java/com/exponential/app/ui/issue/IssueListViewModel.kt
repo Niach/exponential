@@ -28,17 +28,14 @@ import com.exponential.app.data.electric.elapsedTicker
 import com.exponential.app.data.electric.isCatchingUp
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
-import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
-import com.exponential.app.domain.matchesFilters
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.domain.sortIssuesForCategory
-import com.exponential.app.domain.toggleStatus
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.markdownImageUrls
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
@@ -75,13 +72,12 @@ data class IssueGroup(val status: ResolvedIssueStatus, val issues: List<IssueWit
 
 data class IssueWithLabels(val issue: IssueEntity, val labels: List<LabelEntity>)
 
-// Intermediate result of the heavy filter/group pipeline. Kept separate from
+// Intermediate result of the heavy group/sort pipeline. Kept separate from
 // IssueListState so the transient UI flags (busy/error/refreshing) can be
 // overlaid without rebuilding the grouped list.
 private data class GroupedIssueState(
     val board: BoardEntity? = null,
     val groups: List<IssueGroup> = emptyList(),
-    val filters: IssueFilters = IssueFilters(),
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
     val teamUsers: List<UserEntity> = emptyList(),
@@ -91,13 +87,12 @@ private data class GroupedIssueState(
 data class IssueListState(
     val board: BoardEntity? = null,
     val groups: List<IssueGroup> = emptyList(),
-    val filters: IssueFilters = IssueFilters(),
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
     // The board team's member users — the assignee-picker + @-mention
     // vocabulary (EXP-487). `users` stays account-wide for avatar display.
     val teamUsers: List<UserEntity> = emptyList(),
-    // The board team's statuses in canonical order — the picker/filter
+    // The board team's statuses in canonical order — the picker
     // vocabulary. Falls back to the constructed builtins until the
     // issue_statuses shape has synced.
     val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
@@ -133,9 +128,6 @@ class IssueListViewModel @Inject constructor(
     // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val _filters = MutableStateFlow(IssueFilters())
-    val filters: StateFlow<IssueFilters> = _filters
-
     private val _busy = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _refreshing = MutableStateFlow(false)
@@ -144,8 +136,6 @@ class IssueListViewModel @Inject constructor(
     /** Swap the list to another board in place (Issues tab root). */
     fun setBoard(boardId: String) {
         if (boardId == boardIdFlow.value) return
-        // Filters can reference another team's labels — start clean.
-        _filters.value = IssueFilters()
         boardIdFlow.value = boardId
     }
 
@@ -285,9 +275,9 @@ class IssueListViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // The heavy filter/group/sort pipeline. Recomputes only when one of its
-    // *meaningful* data inputs changes (board, issues, labels, joins,
-    // filters, or users). Transient UI flags (busy / error / refreshing) are
+    // The heavy group/sort pipeline. Recomputes only when one of its
+    // *meaningful* data inputs changes (board, issues, labels, joins or
+    // users). Transient UI flags (busy / error / refreshing) are
     // deliberately kept out so toggling them never rebuilds the grouped list.
     // (Issue-list search is gone — cross-board search lives in its own tab.)
     private val groupedState: Flow<GroupedIssueState> = combine(
@@ -296,7 +286,6 @@ class IssueListViewModel @Inject constructor(
             issuesForBoard,
             labelsForTeam,
             issueLabelsForTeam,
-            _filters,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             statusesForTeam,
             usersForTeam,
@@ -310,36 +299,31 @@ class IssueListViewModel @Inject constructor(
         val labels = values[2] as List<LabelEntity>
         @Suppress("UNCHECKED_CAST")
         val joins = values[3] as List<IssueLabelEntity>
-        val filters = values[4] as IssueFilters
         @Suppress("UNCHECKED_CAST")
-        val users = values[5] as List<UserEntity>
+        val users = values[4] as List<UserEntity>
         @Suppress("UNCHECKED_CAST")
-        val teamStatuses = values[6] as List<ResolvedIssueStatus>
+        val teamStatuses = values[5] as List<ResolvedIssueStatus>
         @Suppress("UNCHECKED_CAST")
-        val teamUsers = values[7] as List<UserEntity>
+        val teamUsers = values[6] as List<UserEntity>
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
 
         // status_id → anchor → constructed default (EXP-314); the resolved
-        // row's id is both the group key and the status-filter token.
+        // row's id is the group key.
         val statusByIssue = issues.associate { issue ->
             issue.id to IssueStatusResolver.resolve(issue, teamStatuses)
         }
 
-        val filteredAndDecorated = issues.mapNotNull { issue ->
-            val resolvedStatus = statusByIssue.getValue(issue.id)
-            val priority = IssuePriority.fromWire(issue.priority)
+        val decorated = issues.map { issue ->
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
-            if (!matchesFilters(resolvedStatus, priority, labelIds, filters)) return@mapNotNull null
-            val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
-            IssueWithLabels(issue, resolvedLabels)
+            IssueWithLabels(issue, labelIds.mapNotNull { labelsById[it] })
         }
 
         // One group per team status row, in canonical order; empty groups are
         // hidden. Canonical in-group order (EXP-38) now keys on the row's
         // CATEGORY — see sortIssuesForCategory in domain/IssueDomain.kt.
-        val byGroupKey = filteredAndDecorated.groupBy { statusByIssue.getValue(it.issue.id).id }
+        val byGroupKey = decorated.groupBy { statusByIssue.getValue(it.issue.id).id }
 
         fun groupOf(resolved: ResolvedIssueStatus) = IssueGroup(
             status = resolved,
@@ -355,7 +339,7 @@ class IssueListViewModel @Inject constructor(
         // an APPENDED group, in first-encounter order — an issue must never
         // silently vanish from its board. Same contract as web
         // (buildVisibleIssueGroups) and desktop (build_status_groups).
-        val extras = filteredAndDecorated
+        val extras = decorated
             .map { statusByIssue.getValue(it.issue.id) }
             .filter { it.id !in knownKeys }
             .distinctBy { it.id }
@@ -366,7 +350,6 @@ class IssueListViewModel @Inject constructor(
         GroupedIssueState(
             board = board,
             groups = grouped,
-            filters = filters,
             labels = labels,
             users = users,
             teamUsers = teamUsers,
@@ -383,7 +366,6 @@ class IssueListViewModel @Inject constructor(
         IssueListState(
             board = grouped.board,
             groups = grouped.groups,
-            filters = grouped.filters,
             labels = grouped.labels,
             users = grouped.users,
             teamUsers = grouped.teamUsers,
@@ -556,31 +538,6 @@ class IssueListViewModel @Inject constructor(
                 all.firstOrNull { it.id == pid }
             }.collect { _board.value = it }
         }
-    }
-
-    fun setFilters(filters: IssueFilters) {
-        _filters.value = filters
-    }
-
-    // Toggling goes through the resolved ROW (not a bare id) so a filter
-    // ticked before the issue_statuses shape synced keeps matching — and stops
-    // matching — after the fallback→synced re-key (EXP-314).
-    fun toggleStatus(status: ResolvedIssueStatus) {
-        _filters.value = _filters.value.toggleStatus(status)
-    }
-
-    fun togglePriority(priority: IssuePriority) {
-        val next = _filters.value.priorities.toMutableSet().apply { if (!add(priority)) remove(priority) }
-        _filters.value = _filters.value.copy(priorities = next)
-    }
-
-    fun toggleLabel(labelId: String) {
-        val next = _filters.value.labelIds.toMutableSet().apply { if (!add(labelId)) remove(labelId) }
-        _filters.value = _filters.value.copy(labelIds = next)
-    }
-
-    fun clearFilters() {
-        _filters.value = IssueFilters()
     }
 
     /**
