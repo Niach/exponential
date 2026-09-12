@@ -4,9 +4,11 @@
 - Subagentes con nombre: la etiqueta de un subagente lleva la tarea que se le dio, sus filas resumen las herramientas que usó, y una etiqueta Plan de solo lectura aparece mientras la ejecución sigue planificando
 - Tarjeta de workflow: una ejecución con varios agentes se muestra como una sola tarjeta con sus fases y sus agentes debajo, y una fila de sesión gana una segunda línea con aquello en lo que está trabajando
 - Cuentas que dicen la verdad: el estado de una cuenta de agente sale de una consulta de uso real, así que un inicio de sesión caído indica «Needs re-login» en lugar de «Signed in»
-- Devices es la página de reparación: allí vuelves a iniciar sesión en una cuenta de agente o eliges qué cuenta usa cada máquina
+- Devices es la página de reparación: cada máquina enumera las cuentas de agente que tiene, y una etiqueta ofrece la reparación adecuada, volver a entrar en una caducada o usar esta cuenta aquí en una que la máquina no está usando
 - Cambiar de cuenta a mitad de ejecución: una ejecución de Claude que llega a su límite puede seguir con otra cuenta desde la hoja de uso o el aviso de límite, como una ejecución nueva enlazada a la anterior
 - La máquina que tocaste: el botón de reproducción de una máquina abre el compositor con esa máquina ya seleccionada, y el compositor dice por qué una máquina no puede aceptar la ejecución
 - Volver a donde estabas: salir de una sesión te devuelve a la issue, el tablero o la bandeja de entrada desde donde la abriste, y una ejecución lanzada por otra aparece anidada debajo
 - Watch en lugar de Coding now: tu propia ejecución en curso sobre una issue es una píldora Watch en las propiedades de la issue y no una tarjeta aparte
-- Chats y anclajes: un chat nuevo ofrece sugerencias para empezar, y una issue, una sesión o una acción se puede anclar desde su propia pantalla
+- Sugerencias de chat: un chat nuevo ofrece fichas de sugerencias para empezar
+- Sin botones de anclaje en el teléfono: no hay barra lateral donde anclar, así que Pin desaparece de las issues, las sesiones y las acciones; los anclajes hechos en el escritorio siguen apareciendo en el selector de tableros
+- Los agentes retirados no vuelven: una máquina con una versión antigua que aún informa de un agente eliminado no genera ninguna fila, ninguna pestaña ni ninguna entrada en el selector

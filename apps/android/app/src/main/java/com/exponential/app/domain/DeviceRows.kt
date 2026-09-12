@@ -104,26 +104,48 @@ private fun parseStringList(raw: String?): List<String>? =
         }.getOrNull()
     }
 
-/** The stored `launch_defaults` jsonb object → the shared DTO; null/bad = null. */
+/**
+ * An advertised AGENT list (`agents`, `unauthed_agents`, `acp_agents`) → its
+ * list with every id this build has no agent for dropped (EXP-849). NULL stays
+ * null: an absent advertisement means "an older sender that runs claude", an
+ * empty one "nothing runnable", and collapsing the two would relax the gate.
+ */
+private fun parseAgentList(raw: String?): List<String>? =
+    parseStringList(raw)?.filter(AgentUsagePresentation::isContractAgent)
+
+/** The stored `launch_defaults` jsonb object → the shared DTO; null/bad = null.
+ *  EXP-849: a retired agent's defaults (and a `defaultAgent` naming one) drop
+ *  here, so no picker can seed itself off an agent this build cannot run. */
 fun parseLaunchDefaults(raw: String?): DeviceLaunchDefaults? =
     raw?.let {
         runCatching {
             deviceJson.decodeFromString(DeviceLaunchDefaults.serializer(), it)
         }.getOrNull()
+    }?.let { defaults ->
+        defaults.copy(
+            defaultAgent = defaults.defaultAgent?.takeIf(AgentUsagePresentation::isContractAgent),
+            agents = defaults.agents.filterKeys(AgentUsagePresentation::isContractAgent),
+        )
     }
 
 /**
  * EXP-484: the stored `agent_accounts` jsonb object → per-agent sign-in
  * status; null/bad = null (the Agents section then reads "unknown").
+ *
+ * EXP-849: keys this build has no agent for are DROPPED here, once, for every
+ * reader (`AgentUsagePresentation.isContractAgent`) — a machine still on an
+ * old build keeps heart-beating the retired `pi` entry, and it must never
+ * become a row, a tab, a chip or a picker entry.
  */
 fun parseAgentAccounts(raw: String?): Map<String, AgentAccount>? =
-    AgentUsagePresentation.parseAccounts(raw)
+    AgentUsagePresentation.parseAccounts(raw)?.filterKeys(AgentUsagePresentation::isContractAgent)
 
-/** The stored `agent_usage` jsonb object → per-agent usage; null/bad = null. */
+/** The stored `agent_usage` jsonb object → per-agent usage; null/bad = null.
+ *  Retired agent ids drop with the accounts (EXP-849). */
 fun parseAgentUsage(raw: String?): Map<String, AgentUsage>? =
     // The tolerant presentation parser: one malformed window drops that
     // window, never the whole map (the session view already parses this way).
-    AgentUsagePresentation.parseUsageMap(raw)
+    AgentUsagePresentation.parseUsageMap(raw)?.filterKeys(AgentUsagePresentation::isContractAgent)
 
 /**
  * One synced devices row as the [SteerDevice] every picker/list renders.
@@ -141,13 +163,13 @@ fun DeviceEntity.toSteerDevice(
 ): SteerDevice = SteerDevice(
     deviceId = deviceId,
     deviceLabel = label,
-    agents = parseStringList(agents),
-    unauthedAgents = parseStringList(unauthedAgents).orEmpty(),
+    agents = parseAgentList(agents),
+    unauthedAgents = parseAgentList(unauthedAgents).orEmpty(),
     caps = parseStringList(caps),
     // EXP-749: a NULL (or unparseable) column is "none" — every machine above
     // the version floor reports the set, so nothing is assumed for one that
     // did not.
-    acpAgents = parseStringList(acpAgents).orEmpty(),
+    acpAgents = parseAgentList(acpAgents).orEmpty(),
     launchDefaults = parseLaunchDefaults(launchDefaults),
     kind = kind,
     platform = platform,

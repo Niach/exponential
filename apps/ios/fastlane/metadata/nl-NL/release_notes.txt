@@ -4,9 +4,11 @@
 - Subagenten met een naam: de chip van een subagent draagt de taak die hij kreeg, zijn regels vatten de gebruikte tools samen, en een alleen-lezen Plan-chip verschijnt zolang de run nog plant
 - Workflow-kaart: een run met meerdere agenten verschijnt als één kaart met zijn fasen en de agenten eronder, en een sessieregel krijgt een tweede regel met waar de run nu aan werkt
 - Accounts die de waarheid vertellen: de gezondheid van een agent-account komt uit een echte verbruiksmeting, dus een dode login leest „Needs re-login” in plaats van „Signed in”
-- Devices is de reparatiepagina: daar log je een agent-account opnieuw in of kies je welk ingelogd account een machine gebruikt
+- Devices is de reparatiepagina: elke machine toont de agent-logins die hij heeft, en een chip biedt de juiste reparatie, opnieuw inloggen bij een verlopen login of dit account hier gebruiken bij een account dat de machine niet gebruikt
 - Wisselen van account tijdens een run: een Claude-run die zijn limiet raakt, kan vanuit het verbruiksscherm of de limietmelding verder op een ander account, als nieuwe run die aan de oude gekoppeld is
 - De machine die je tikte: de play-knop van een machine opent de composer met die machine al gekozen, en de composer zegt waarom een machine de run niet kan aannemen
 - Terug waar je vandaan kwam: een sessie verlaten brengt je terug naar de issue, het board of de inbox waar je hem opende, en een run die door een andere run is gestart, staat eronder genest
 - Watch in plaats van Coding now: je eigen lopende run op een issue is een Watch-pil in de eigenschappen van de issue en niet langer een eigen kaart
-- Chats en pins: een nieuwe chat biedt suggesties om mee te beginnen, en een issue, een sessie of een action kun je vanaf het eigen scherm vastpinnen
+- Chatsuggesties: een nieuwe chat biedt suggestie-chips om mee te beginnen
+- Geen pin-knoppen op de telefoon: er is geen zijbalk om aan vast te pinnen, dus Pin is weg bij issues, sessies en actions; pins die je op de desktop maakte, staan nog steeds in de board-wisselaar
+- Uitgefaseerde agenten blijven weg: een machine op een oudere versie die nog een verwijderde agent meldt, levert nooit een rij, een tabblad of een keuze in de kiezer op

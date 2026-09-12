@@ -49,7 +49,10 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { getActionIcon } from "@/lib/board-icons"
-import { PinToggleMenuItem } from "@/components/pin-toggle-button"
+import {
+  PinToggleMenuItem,
+  usePinToggleVisible,
+} from "@/components/pin-toggle-button"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
 // in EXP-574. EXP-686 split it across three routes: on a desktop viewport
@@ -76,8 +79,12 @@ export type ActionsPanelTab = `actions` | `automations` | `suggestions`
 
 // The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
-// pin is personal); Edit and Delete stay owner-only, like the IDE's row menu.
-function ActionMenu({
+// pin is personal), on a sidebar-width viewport only (EXP-858); Edit and
+// Delete stay owner-only, like the IDE's row menu. Both rules are
+// conditional, so the TRIGGER asks first whether anything would be in the
+// menu: a non-owner member on a phone viewport gets no `⋯` at all rather than
+// one that opens an empty popover.
+export function ActionMenu({
   action,
   isOwner,
   onEdit,
@@ -88,6 +95,8 @@ function ActionMenu({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const pinVisible = usePinToggleVisible()
+  if (!pinVisible && !isOwner) return null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

@@ -4,9 +4,11 @@
 - Podagenti se jménem: štítek podagenta nese úkol, který dostal, jeho řádky shrnují použité nástroje a štítek Plan jen pro čtení svítí, dokud běh ještě plánuje
 - Karta workflow: běh s více agenty se zobrazí jako jedna karta s fázemi a agenty pod nimi a řádek relace dostane druhý řádek s tím, na čem se právě pracuje
 - Účty, které říkají pravdu: stav účtu agenta pochází ze skutečného měření spotřeby, takže mrtvé přihlášení hlásí „Needs re-login“ místo „Signed in“
-- Devices je stránka oprav: tam se do účtu agenta přihlásíš znovu nebo vybereš, který přihlášený účet stroj používá
+- Devices je stránka oprav: každý stroj vypisuje přihlášení agentů, která drží, a štítek nabídne tu správnou opravu, nové přihlášení u vypršelého nebo použití účtu právě tady u toho, který stroj nepoužívá
 - Změna účtu uprostřed běhu: běh Claude, který narazí na limit, může pokračovat pod jiným účtem z přehledu spotřeby nebo z hlášky o limitu, jako nový běh navázaný na ten původní
 - Stroj, na který jsi klepl: tlačítko přehrání u stroje otevře pole s tímto strojem už vybraným a pole řekne, proč stroj běh vzít nemůže
 - Zpátky tam, odkud jsi přišel: odchod z relace tě vrátí na issue, board nebo do doručené pošty, odkud jsi ji otevřel, a běh spuštěný jiným během je vnořený pod ním
 - Watch místo Coding now: tvůj vlastní živý běh na issue je štítek Watch mezi vlastnostmi issue, ne samostatná karta
-- Chaty a připínání: nový chat nabídne návrhy, čím začít, a issue, relaci nebo action lze připnout z její vlastní obrazovky
+- Návrhy do chatu: nový chat nabídne štítky s návrhy, čím začít
+- Na telefonu žádná tlačítka připnutí: není tu postranní panel, kam připínat, takže Pin zmizel z issues, relací i actions; připnutí udělaná na počítači se dál ukazují v přepínači boardů
+- Vyřazení agenti zůstanou pryč: stroj na starším sestavení, který stále hlásí odebraného agenta, nikdy nevytvoří řádek, záložku ani položku ve výběru

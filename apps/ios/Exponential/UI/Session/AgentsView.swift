@@ -65,6 +65,9 @@ struct AgentsView: View {
     private struct DeviceSettingsTarget: Identifiable {
         let id: String
         var agent: String? = nil
+        /// The profile that agent's sign-in should target — the chip's own,
+        /// not whichever profile the machine happens to be using.
+        var profileId: String? = nil
     }
 
     var body: some View {
@@ -197,13 +200,6 @@ struct AgentsView: View {
                     // the surface that can repair a login.
                     AgentAccountsSection(viewModel: vm)
                         .id(Self.accountsAnchor)
-                    if let error = vm.accountActionError {
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                            .padding(.horizontal, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
                     if let deviceError {
                         Text(deviceError)
                             .font(.caption2)
@@ -236,8 +232,9 @@ struct AgentsView: View {
                     deviceId: target.id,
                     teams: teamState.teams,
                     // EXP-849: a machine chip's sign-in opens the sheet with
-                    // that agent's tab already up.
+                    // that agent's tab already up, and signs THAT profile in.
                     initialAgent: target.agent,
+                    initialProfileId: target.profileId,
                     // EXP-827: the sheet closes itself, then this page scrolls
                     // to Accounts — the one surface the usage bars live on.
                     onOpenUsage: { usageRequest = UUID() }
@@ -346,8 +343,16 @@ struct AgentsView: View {
                 }
             }
             // EXP-849: the machine's logins, with the repair actions on them.
-            DeviceAccountChips(viewModel: vm, device: device) { agent in
-                settingsTarget = DeviceSettingsTarget(id: device.deviceId, agent: agent)
+            // A sign-in routes to the settings sheet on the chip's OWN login:
+            // the agent picks the tab, the profile is what the sign-in
+            // targets (a machine with two claude profiles would otherwise
+            // re-login the active one, not the expired one that was tapped).
+            DeviceAccountChips(viewModel: vm, device: device) { row in
+                settingsTarget = DeviceSettingsTarget(
+                    id: device.deviceId,
+                    agent: row.agent,
+                    profileId: row.profileId
+                )
             }
         }
         .padding(.horizontal, 12)

@@ -48,6 +48,15 @@ struct DeviceSettingsSheet: View {
     /// can pass it and still leave the closure last (the memberwise init takes
     /// its arguments in declaration order).
     var initialAgent: String? = nil
+    /// EXP-849: the profile `initialAgent`'s sign-in targets — the login the
+    /// chip that opened this sheet named. Without it a machine holding two
+    /// logins for the same agent would re-login whichever one it is currently
+    /// USING, which on an expired sibling repairs the wrong profile. Ignored
+    /// once the machine stops reporting that profile, and only ever applies to
+    /// `initialAgent`'s tab; nil (the row menu's Edit) keeps the active-profile
+    /// default. Declared BEFORE `onOpenUsage` so a call site can pass it and
+    /// still leave the closure last.
+    var initialProfileId: String? = nil
     /// EXP-827: where the round Usage button goes — the Devices page's Accounts
     /// section (web `device-settings-dialog.tsx` `openUsage`). The sheet closes
     /// itself first; a host with nowhere to send the caller passes nothing and
@@ -870,8 +879,20 @@ struct DeviceSettingsSheet: View {
             // would take down the ambient login every other profile shares.
             // `system` (or an absent id) IS the ambient login — the device
             // parses both the same way.
-            profileId: activeProfileId(agent: agent)
+            profileId: loginProfileId(agent: agent)
         )
+    }
+
+    /// EXP-849: which profile a sign-in from this sheet runs in — the one the
+    /// chip that opened it named, as long as the machine still reports it, and
+    /// otherwise the machine's active login for the agent.
+    private func loginProfileId(agent: String) -> String? {
+        if let initialProfileId, agent == initialAgent,
+           liveDevice?.agentAccounts?[agent]?.profiles?
+               .contains(where: { $0.id == initialProfileId }) == true {
+            return initialProfileId
+        }
+        return activeProfileId(agent: agent)
     }
 
     /// EXP-849: the profile the machine reports as its CURRENT login for the

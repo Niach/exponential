@@ -38,9 +38,6 @@ struct IssueDetailView: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: IssueDetailViewModel?
-    /// EXP-778: the caller's issue pins in this issue's team — the `…` menu's
-    /// Pin/Unpin row. Built once the board (and so the team) has resolved.
-    @State private var pinStore: PinStore?
     @State private var showDeleteConfirm = false
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
@@ -364,13 +361,10 @@ struct IssueDetailView: View {
                 // is available to everyone; only the mutating items are
                 // moderator-gated (parity with Android).
                 .toolbar {
-                    // EXP-845: the pin BUTTON sits beside the `…` (the session
-                    // header's pattern) — the menu keeps its Pin/Unpin row, and
-                    // list rows carry no pin control at all.
+                    // EXP-858: no pin control here — pins land in a sidebar
+                    // and the phone has none. Desktop-made pins still show in
+                    // the board switcher's Pinned list.
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        if let pinStore {
-                            PinToolbarButton(store: pinStore, targetId: issue.id)
-                        }
                         GlassMenuBarButton(
                             icon: AppIcons.uiMore,
                             accessibilityLabel: "More",
@@ -463,17 +457,6 @@ struct IssueDetailView: View {
             // observations (onDisappear), popping back must resume them.
             viewModel?.startObserving()
         }
-        .task(id: viewModel?.board?.teamId) {
-            pinStore?.stop()
-            pinStore = nil
-            guard let teamId = viewModel?.board?.teamId else { return }
-            let store = PinStore(
-                accountId: accountId, teamId: teamId, kind: DomainContract.pinKindIssue,
-                db: deps.db, api: deps.pinsApi
-            )
-            store.start()
-            pinStore = store
-        }
         .onDisappear {
             // Belt-and-braces with EditorTextView.willMove(toWindow:) — no
             // first responder may outlive this screen (EXP-246).
@@ -507,10 +490,6 @@ struct IssueDetailView: View {
     @ViewBuilder
     private var toolbarMenuItems: some View {
         if let vm = viewModel, let issue = vm.issue {
-            // EXP-778: a personal pin — every member who can see the issue.
-            if let pinStore {
-                PinMenuItem(store: pinStore, targetId: issue.id)
-            }
             if let shareURL = vm.shareURL {
                 GlassMenuItem("Share", icon: AppIcons.uiShare) {
                     shareTarget = ShareTarget(url: shareURL, text: vm.shareText)

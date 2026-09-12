@@ -712,6 +712,16 @@ fn non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// EXP-849: belt-and-braces against a RETIRED agent id (`pi`) still sitting in
+/// a synced row. The server clamps every write (`lib/trpc/devices.ts`), but
+/// rows written before that clamp — or served by a self-hosted instance on an
+/// older image — must still never produce a usage row, an account chip, a tab
+/// or a health verdict for an agent this build has no name, icon or launcher
+/// for. Mirrors web `isContractAgent`.
+pub(crate) fn is_contract_agent(agent: &str) -> bool {
+    domain::contract::CODING_AGENT_VALUES.contains(&agent)
+}
+
 /// The rows the usage page renders for `devices`, grouped by agent later.
 ///
 /// `is_online` is injected rather than re-derived (the desktop's
@@ -742,10 +752,12 @@ pub(crate) fn agent_profile_usage_rows(
             })
             .unwrap_or_default();
         // The union of "has an account" and "reported usage": a machine that
-        // only managed one of the two still gets its row.
+        // only managed one of the two still gets its row — minus any id
+        // outside the contract (see [`is_contract_agent`]).
         let mut agents: std::collections::BTreeSet<&str> =
             accounts.keys().map(String::as_str).collect();
         agents.extend(usage_map.keys().map(String::as_str));
+        agents.retain(|agent| is_contract_agent(agent));
 
         let device_id = device.device_id.clone().unwrap_or_default();
         let device_label = device.label.clone().unwrap_or_default();
@@ -1643,6 +1655,53 @@ mod tests {
         // A machine that reported nothing at all contributes no rows.
         let quiet = device_row(serde_json::json!({ "id": "row-3", "device_id": "dev-3" }));
         assert!(agent_profile_usage_rows(&[quiet], "me", |_| true).is_empty());
+    }
+
+    /// EXP-849: a machine below the version floor keeps heart-beating the
+    /// RETIRED `pi` into both jsonb maps. The page has no name, icon or
+    /// launcher for it, so it never becomes a row — not from an account, not
+    /// from a usage entry, not even when it is all the machine reported (web
+    /// `isContractAgent`, same fixture).
+    #[test]
+    fn agent_profile_usage_rows_drop_a_retired_agent() {
+        let row = device_row(serde_json::json!({
+            "id": "row-1",
+            "device_id": "dev-1",
+            "label": "unraid",
+            "user_id": "me",
+            "last_seen_at": "2026-08-28T11:59:00.000Z",
+            "agent_accounts": {
+                "claude": { "signedIn": true, "email": "dev@acme.test" },
+                "pi": {
+                    "signedIn": true,
+                    "health": "needs_relogin",
+                    "profiles": [{ "id": "system", "signedIn": true, "active": true }],
+                },
+            },
+            "agent_usage": {
+                "claude": usage_json("2026-08-28T11:55:00.000Z", "session", 20),
+                "pi": usage_json("2026-08-28T11:55:00.000Z", "session", 99),
+            },
+        }));
+        let rows = agent_profile_usage_rows(&[row], "me", |_| true);
+        assert_eq!(
+            rows.iter().map(|row| row.agent.as_str()).collect::<Vec<_>>(),
+            vec!["claude"]
+        );
+
+        // …and a machine that ONLY knows the retired agent contributes none.
+        let only_pi = device_row(serde_json::json!({
+            "id": "row-2",
+            "device_id": "dev-2",
+            "user_id": "me",
+            "agent_accounts": { "pi": { "signedIn": true } },
+            "agent_usage": { "pi": usage_json("2026-08-28T11:55:00.000Z", "session", 5) },
+        }));
+        assert!(agent_profile_usage_rows(&[only_pi], "me", |_| true).is_empty());
+
+        assert!(is_contract_agent("claude"));
+        assert!(is_contract_agent("codex"));
+        assert!(!is_contract_agent("pi"));
     }
 
     /// EXP-747 B5: with profiles the page renders ONE row each — the profile's

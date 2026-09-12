@@ -216,6 +216,7 @@ import {
   deviceCanAgentLogin,
   deviceHasRunnableAgent,
   deviceRowIsOnline,
+  deviceUnauthedAgentIds,
   resumeWorktree,
   steerDeviceFromRow,
 } from "./steer-devices"
@@ -536,6 +537,50 @@ describe(`deviceAgentIds`, () => {
   it(`gates runnability on the same list`, () => {
     expect(deviceHasRunnableAgent(server())).toBe(false)
     expect(deviceHasRunnableAgent(server({ agents: [`claude`] }))).toBe(true)
+  })
+})
+
+// EXP-849 retired `pi`. The server clamps every register, but a row written
+// before that clamp — or one served by a self-hosted instance on an older
+// image — must still never reach a picker, and the COMPOSED shape is also
+// what `exponential_devices_list` serialises.
+describe(`retired agent ids (EXP-849)`, () => {
+  it(`strips pi from the composed row's three agent lists`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({
+        agents: [`claude`, `pi`],
+        unauthedAgents: [`pi`],
+        acpAgents: [`claude`, `pi`],
+      }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(mapped.agents).toEqual([`claude`])
+    expect(mapped.unauthedAgents).toEqual([])
+    expect(mapped.acpAgents).toEqual([`claude`])
+    expect(deviceAgentIds(mapped)).toEqual([`claude`])
+    expect(deviceUnauthedAgentIds(mapped)).toEqual([])
+    expect(deviceAcpAgentIds(mapped)).toEqual([`claude`])
+  })
+
+  it(`keeps an unreported acp list unknown, and a pi-only machine runs nothing`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({ agents: [`pi`], acpAgents: null }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(mapped.acpAgents).toBeNull()
+    expect(deviceAcpAgentIds(mapped)).toBeNull()
+    expect(deviceHasRunnableAgent(mapped)).toBe(false)
+  })
+
+  it(`never offers pi as the device default agent`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({
+        agents: [`claude`, `pi`],
+        launchDefaults: { defaultAgent: `pi`, agents: { pi: { model: `` } } },
+      }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(deviceDefaultAgent(mapped)).toBeNull()
   })
 })
 

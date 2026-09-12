@@ -133,8 +133,6 @@ fun IssueDetailScreen(
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val widgetSubmission by viewModel.widgetSubmission.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
-    // EXP-778: the pin toggle beside the top bar's "…".
-    val pinned by viewModel.pinned.collectAsStateWithLifecycle()
     val missing by viewModel.missing.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
@@ -343,19 +341,9 @@ fun IssueDetailScreen(
                         // Move to board. The MENU is available to everyone;
                         // only the mutating items are moderator-gated.
                         val url = shareUrl
-                        // EXP-778: the personal pin toggle sits beside the
-                        // "…" (web/desktop parity: a small pin next to the
-                        // title); state comes off the synced pins table.
-                        CircleIconButton(
-                            if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
-                            if (pinned) "Unpin" else "Pin",
-                            onClick = viewModel::togglePin,
-                            active = pinned,
-                            // EXP-850 (S10): the pin is a ghost glyph ×4 — no
-                            // circle, no fill, wherever a pin toggle renders.
-                            borderless = true,
-                            modifier = Modifier.padding(end = 4.dp),
-                        )
+                        // EXP-858: no pin toggle here — a pin only lands in a
+                        // sidebar, and the phone has none. Pins made on the
+                        // desktop still show in the board switcher's list.
                         // The Box stays: it anchors the dropdown to the button.
                         Box {
                             CircleIconButton(

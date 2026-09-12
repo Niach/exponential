@@ -5,11 +5,15 @@ import {
   agentHealth,
   agentProfileUsageRows,
   attentionRank,
+  chipAction,
+  chipSwitchesTo,
+  deviceAccountChips,
   deviceWorstHealth,
   healthBadgeLabel,
   worstHealth,
   sortAccountGroupsAttentionFirst,
   type AgentProfileUsageRow,
+  type ChipActionRow,
   accountLine,
   accountRow,
   contextPercent,
@@ -832,5 +836,113 @@ describe(`account health (EXP-849)`, () => {
       attentionRank({ signedIn: true, usage: null, health: `needs_relogin` })
     ).toBe(0)
     expect(attentionRank({ signedIn: false, usage: null })).toBe(0)
+  })
+})
+
+// EXP-849 retired `pi` from contract `codingAgent`. The server clamps what a
+// machine may write (lib/trpc/devices.ts), but a row written before that
+// clamp — or one served by a self-hosted instance on an older image — must
+// still never surface: no usage row, no account chip, no health verdict for
+// an agent this build has no name, icon or launcher for.
+describe(`retired agent ids (EXP-849)`, () => {
+  const piDevice = {
+    deviceId: `unraid`,
+    label: `unraid`,
+    userId: `me`,
+    agentAccounts: {
+      claude: { signedIn: true, email: `dev@acme.test` },
+      pi: {
+        signedIn: true,
+        email: `dev@acme.test`,
+        health: `needs_relogin` as const,
+        profiles: [{ id: `system`, signedIn: true, active: true }],
+      },
+    },
+    agentUsage: {
+      claude: {
+        fetchedAt: `2026-08-28T11:55:00.000Z`,
+        stale: false,
+        windows: [{ key: `session`, label: `5h`, percent: 20, resetsAt: null }],
+      },
+      pi: {
+        fetchedAt: `2026-08-28T11:55:00.000Z`,
+        stale: false,
+        windows: [{ key: `session`, label: `5h`, percent: 99, resetsAt: null }],
+      },
+    },
+    agentUsageAt: null,
+    lastSeenAt: new Date(`2026-08-28T11:59:00.000Z`),
+  }
+
+  it(`yields no usage row for a retired agent`, () => {
+    const rows = agentProfileUsageRows([piDevice], `me`, () => true)
+    expect(rows.map((row) => row.agent)).toEqual([`claude`])
+  })
+
+  it(`yields no account chip for a retired agent`, () => {
+    expect(
+      deviceAccountChips({ agentAccounts: piDevice.agentAccounts }).map(
+        (chip) => chip.agent
+      )
+    ).toEqual([`claude`])
+  })
+
+  it(`never badges a device off a retired agent's health`, () => {
+    // Without the filter the retired `pi` login would drag the whole machine
+    // to "Needs re-login" with no row to act on.
+    expect(deviceWorstHealth({ agentAccounts: piDevice.agentAccounts })).toBe(
+      `ok`
+    )
+  })
+
+  it(`reports nothing at all for a machine that ONLY knows the retired agent`, () => {
+    const onlyPi = {
+      ...piDevice,
+      agentAccounts: { pi: { signedIn: true } },
+      agentUsage: { pi: piDevice.agentUsage.pi },
+    }
+    expect(agentProfileUsageRows([onlyPi], `me`, () => true)).toEqual([])
+    expect(deviceAccountChips({ agentAccounts: onlyPi.agentAccounts })).toEqual(
+      []
+    )
+    expect(deviceWorstHealth({ agentAccounts: onlyPi.agentAccounts })).toBeNull()
+  })
+})
+
+// EXP-849: the ONE repair a machine's account chip offers. The cap input is
+// the machine's `account-switch` capability (`deviceCanSwitchAccount`): the
+// server refuses `agent_profile_use` without it, and a fleet at the 0.14.37
+// floor does not have it yet, so the rule must not offer the switch there.
+describe(`chipAction / chipSwitchesTo`, () => {
+  const row = (over: Partial<ChipActionRow> = {}): ChipActionRow => ({
+    signedIn: true,
+    active: false,
+    health: `ok`,
+    ...over,
+  })
+
+  it(`names the one action per state on a capable machine`, () => {
+    expect(chipAction(row({ signedIn: false, health: `signed_out` }), true)).toBe(
+      `Sign in`
+    )
+    expect(chipAction(row({ health: `needs_relogin` }), true)).toBe(`Re-login`)
+    expect(chipAction(row({ active: true }), true)).toBe(`Sign in again`)
+    expect(chipAction(row(), true)).toBe(`Use this account here`)
+  })
+
+  it(`switches only to a healthy login the machine is not already using`, () => {
+    expect(chipSwitchesTo(row(), true)).toBe(true)
+    expect(chipSwitchesTo(row({ active: true }), true)).toBe(false)
+    expect(chipSwitchesTo(row({ health: `needs_relogin` }), true)).toBe(false)
+    expect(chipSwitchesTo(row({ signedIn: false }), true)).toBe(false)
+  })
+
+  it(`falls back to a sign-in without the account-switch capability`, () => {
+    expect(chipSwitchesTo(row(), false)).toBe(false)
+    expect(chipAction(row(), false)).toBe(`Sign in again`)
+    // The other states are unchanged — only the switch needs the cap.
+    expect(chipAction(row({ signedIn: false }), false)).toBe(`Sign in`)
+    expect(chipAction(row({ health: `needs_relogin` }), false)).toBe(`Re-login`)
+    expect(chipAction(row({ active: true }), false)).toBe(`Sign in again`)
   })
 })

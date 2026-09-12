@@ -16,9 +16,6 @@ struct ActionsListView: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: ActionsViewModel?
-    /// EXP-778: the caller's action pins in the active team — the row menu's
-    /// Pin/Unpin entry (builtins are not pinnable and wear no menu anyway).
-    @State private var pinStore: PinStore?
     @State private var steerEnabled = false
     /// EXP-694: the action being edited (nil = closed). Owners edit, everyone
     /// else reads.
@@ -92,15 +89,7 @@ struct ActionsListView: View {
         // Reload when the active team changes (and on first mount).
         .task(id: teamState.activeTeam?.id) {
             ensureViewModel()
-            pinStore?.stop()
-            pinStore = nil
             if let teamId = teamState.activeTeam?.id {
-                let store = PinStore(
-                    accountId: accountId, teamId: teamId, kind: DomainContract.pinKindAction,
-                    db: deps.db, api: deps.pinsApi
-                )
-                store.start()
-                pinStore = store
                 await viewModel?.load(teamId: teamId)
             }
         }
@@ -654,11 +643,7 @@ struct ActionsListView: View {
             // non-owners get the sheet read-only rather than no entry at all.
             if !action.isBuiltin {
                 GlassMenu {
-                    // EXP-778: a personal pin into the sidebar. Never on a
-                    // builtin — those have no row to pin.
-                    if let pinStore {
-                        PinMenuItem(store: pinStore, targetId: action.id)
-                    }
+                    // EXP-858: no Pin row — the phone has no sidebar.
                     GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
                         editTarget = action
                     }

@@ -143,12 +143,18 @@ export function deviceIsOnline(device: SteerDevice): boolean {
   return device.online !== false
 }
 
+/** EXP-849: drop every id outside contract `codingAgent`. The server clamps
+ * what a machine registers, but a row written before that clamp — or served
+ * by a self-hosted instance on an older image — can still carry a RETIRED id
+ * (`pi`), and no client has a name, icon or launcher for it. */
+function contractAgents(list: readonly string[] | null | undefined): string[] {
+  return (list ?? []).filter((a) => contract.codingAgent.values.includes(a))
+}
+
 /** Agents the device can run — empty means the machine can run nothing right
  * now (EXP-409: every installed agent is installed but signed out). */
 export function deviceAgentIds(device: SteerDevice | undefined): string[] {
-  return (device?.agents ?? []).filter((a) =>
-    contract.codingAgent.values.includes(a)
-  )
+  return contractAgents(device?.agents)
 }
 
 /** EXP-749: the agents the device drives over ACP, contract-filtered like
@@ -160,7 +166,7 @@ export function deviceAcpAgentIds(
 ): string[] | null {
   const reported = device?.acpAgents
   if (reported === undefined || reported === null) return null
-  return reported.filter((a) => contract.codingAgent.values.includes(a))
+  return contractAgents(reported)
 }
 
 /** EXP-773: `agent` cannot start on this device — the machine reported an ACP
@@ -179,9 +185,7 @@ export function deviceAgentNotReady(
 
 /** EXP-409: agents installed but signed out on the device. */
 export function deviceUnauthedAgentIds(device: SteerDevice | undefined): string[] {
-  return (device?.unauthedAgents ?? []).filter((a) =>
-    contract.codingAgent.values.includes(a)
-  )
+  return contractAgents(device?.unauthedAgents)
 }
 
 /** EXP-409: online but with nothing runnable — every installed agent is
@@ -424,9 +428,12 @@ export function steerDeviceFromRow(
     deviceLabel: row.label,
     kind: row.kind === `server` ? `server` : `desktop`,
     platform: row.platform,
-    agents: row.agents,
-    unauthedAgents: row.unauthedAgents,
-    acpAgents: row.acpAgents,
+    // EXP-849: contract-filtered HERE, not just in the picker helpers — the
+    // composed shape is also what `exponential_devices_list` serialises, so a
+    // stale row must not hand a retired agent id to an MCP client either.
+    agents: contractAgents(row.agents),
+    unauthedAgents: contractAgents(row.unauthedAgents),
+    acpAgents: row.acpAgents === null ? null : contractAgents(row.acpAgents),
     caps: row.caps,
     launchDefaults: row.launchDefaults ?? undefined,
     agentAccounts: row.agentAccounts ?? undefined,

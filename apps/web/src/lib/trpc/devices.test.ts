@@ -959,6 +959,26 @@ describe(`devices.reportWorktrees`, () => {
     expect(h.state.deletes).toBe(1)
   })
 
+  // EXP-849: same ALWAYS-CLAMP contract as `register` — a machine below the
+  // version floor keeps reporting the retired `pi`, and the synced worktree
+  // row must never carry an id the clients have no vocabulary for.
+  it(`clamps a worktree's agents to the contract and keeps absent NULL`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }]]
+    await caller.reportWorktrees({
+      deviceId: `dev-1`,
+      worktrees: [
+        wt(`exp/EXP-1`, { agents: [`claude`, `pi`] }),
+        // Only the retired one: an EMPTY list, not a NULL (that means
+        // "pre-marker worktree, any agent may resume").
+        wt(`exp/EXP-2`, { agents: [`pi`] }),
+        wt(`exp/EXP-3`),
+      ],
+    })
+    expect(h.state.inserted[0]).toMatchObject({ agents: [`claude`] })
+    expect(h.state.inserted[1]).toMatchObject({ agents: [] })
+    expect(h.state.inserted[2]).toMatchObject({ agents: null })
+  })
+
   it(`bounds the report at 256 rows`, async () => {
     const rows = Array.from({ length: 257 }, (_, i) => wt(`exp/EXP-${i}`))
     await expect(
@@ -1311,6 +1331,110 @@ describe(`devices.register / heartbeat agent status (EXP-484)`, () => {
     expect(set).not.toHaveProperty(`agentAccounts`)
     expect(set).not.toHaveProperty(`agentUsage`)
     expect(set).not.toHaveProperty(`agentUsageAt`)
+  })
+})
+
+// EXP-849 retired `pi` from contract `codingAgent`, but the fleet below the
+// version floor keeps reporting it on EVERY field of its register and
+// heartbeat. The writes must still land (an old daemon that cannot register
+// is an invisible daemon) with the retired id stripped everywhere — the
+// stored row is what the four clients render pickers, chips and tabs from.
+describe(`retired agent ids (EXP-849)`, () => {
+  const heartbeatRow = () => [
+    [
+      {
+        id: `row-1`,
+        updateRequestedAt: null,
+        launchDefaults: null,
+        launchDefaultsUpdatedAt: null,
+      },
+    ],
+  ]
+
+  it(`register drops pi from every agent list it writes`, async () => {
+    const result = await caller.register({
+      deviceId: `dev-1`,
+      label: `unraid-runner`,
+      kind: `server`,
+      agents: [`claude`, `codex`, `pi`],
+      acpAgents: [`claude`, `pi`],
+      unauthedAgents: [`pi`],
+      caps: [`actions`, `agent-login`],
+      agentAccounts: {
+        claude: { signedIn: true },
+        pi: { signedIn: true, email: `danny@example.com` },
+      },
+      launchDefaults: {
+        defaultAgent: `pi`,
+        agents: { pi: { model: `` }, claude: { model: `fable` } },
+      },
+    })
+    expect(result).toMatchObject({ ok: true })
+    const inserted = h.state.inserted[0] as Record<string, unknown>
+    expect(inserted).toMatchObject({
+      agents: [`claude`, `codex`],
+      acpAgents: [`claude`],
+      unauthedAgents: [],
+      // Caps are free executor strings, not agent ids — untouched.
+      caps: [`actions`, `agent-login`],
+      agentAccounts: { claude: { signedIn: true } },
+      launchDefaults: { agents: { claude: { model: `fable` } } },
+    })
+    // A retired default agent leaves the row with NO default, not with `pi`.
+    expect(inserted.launchDefaults).not.toHaveProperty(`defaultAgent`)
+    expect(JSON.stringify(inserted)).not.toContain(`pi`)
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.agents).toEqual([`claude`, `codex`])
+    expect(upsert.set.acpAgents).toEqual([`claude`])
+    expect(upsert.set.unauthedAgents).toEqual([])
+    expect(upsert.set.agentAccounts).toEqual({ claude: { signedIn: true } })
+  })
+
+  it(`a register reporting ONLY pi lands as a machine that runs nothing`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `unraid-runner`,
+      kind: `server`,
+      agents: [`pi`],
+      acpAgents: [`pi`],
+    })
+    const inserted = h.state.inserted[0] as Record<string, unknown>
+    // Empty, never null: `acpAgents: []` is "nothing over ACP", and null
+    // would read as the pre-EXP-749 "unknown, assume everything".
+    expect(inserted.agents).toEqual([])
+    expect(inserted.acpAgents).toEqual([])
+  })
+
+  it(`heartbeat drops pi from the accounts and the usage map`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    const result = await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+      agentAccounts: {
+        claude: { signedIn: true, plan: `Max` },
+        pi: {
+          signedIn: true,
+          email: `danny@example.com`,
+          profiles: [{ id: `system`, signedIn: true, active: true }],
+        },
+      },
+      agentUsage: {
+        claude: {
+          fetchedAt: `2026-09-12T11:55:00Z`,
+          windows: [{ key: `session`, label: `5h`, percent: 12 }],
+        },
+        pi: {
+          fetchedAt: `2026-09-12T11:55:00Z`,
+          windows: [{ key: `session`, label: `5h`, percent: 99 }],
+        },
+      },
+    })
+    expect(result).toMatchObject({ ok: true })
+    const set = h.state.updates[0]?.set as Record<string, unknown>
+    expect(set.agentAccounts).toEqual({ claude: { signedIn: true, plan: `Max` } })
+    expect(Object.keys(set.agentUsage as object)).toEqual([`claude`])
+    expect(JSON.stringify(set)).not.toContain(`pi`)
   })
 })
 

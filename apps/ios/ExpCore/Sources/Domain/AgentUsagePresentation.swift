@@ -119,6 +119,17 @@ public enum AgentUsagePresentation {
     /// Numbers older than this are not current enough to draw. Locked ×4.
     public static let freshWindow: TimeInterval = 15 * 60
 
+    /// EXP-849: whether `agent` is one this build KNOWS (contract
+    /// `codingAgent`). Belt-and-braces against a RETIRED id (`pi`) still
+    /// sitting in a synced row: the server clamps every write now, but rows
+    /// written before that clamp — or served by a self-hosted instance on an
+    /// older image — must never become an account row, a usage tab, a chip or
+    /// a picker entry for an agent this build has no name, glyph or launcher
+    /// for. Web `isContractAgent`, Android `AgentUsagePresentation.isContractAgent`.
+    public static func isContractAgent(_ agent: String) -> Bool {
+        DomainContract.codingAgentValues.contains(agent)
+    }
+
     // MARK: - Parsing
 
     /// One agent's usage report from the stored jsonb string. Nil on absent or

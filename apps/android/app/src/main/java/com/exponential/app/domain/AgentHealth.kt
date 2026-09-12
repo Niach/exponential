@@ -99,7 +99,10 @@ object AgentHealthRules {
     fun deviceWorst(accounts: Map<String, AgentAccount>?): AgentHealth? {
         if (accounts.isNullOrEmpty()) return null
         val healths = mutableListOf<AgentHealth>()
-        for (account in accounts.values) {
+        // EXP-849: a retired agent's leftover entry is not this machine's
+        // problem — it can neither be repaired nor run, so it never badges.
+        for ((agent, account) in accounts) {
+            if (!AgentUsagePresentation.isContractAgent(agent)) continue
             val profiles = account.profiles.orEmpty()
             if (profiles.isEmpty()) {
                 healths += of(account)

@@ -1,6 +1,9 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.AgentHealth
+import com.exponential.app.domain.DeviceAccountChip
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -20,5 +23,28 @@ class AccountsHeaderIndexTest {
         // A shared server adds its own header plus its rows.
         assertEquals(7, accountsHeaderIndex(ownCount = 2, teamCount = 2))
         assertEquals(5, accountsHeaderIndex(ownCount = 0, teamCount = 1))
+    }
+
+    @Test
+    fun `a machine chip's command slot is scoped to its machine`() {
+        // EXP-849: the chip key is only `<agent>:<profileId>`, so two machines
+        // holding the SAME login would share one spinner and one error caption
+        // without the device scope.
+        val chip = DeviceAccountChip(
+            key = "claude:system",
+            agent = "claude",
+            profileId = "system",
+            profileLabel = "Default",
+            signedIn = true,
+            active = true,
+            email = "a@acme.test",
+            plan = null,
+            health = AgentHealth.Ok,
+        )
+        assertEquals("studio:claude:system", deviceAccountCommandKey("studio", chip))
+        assertNotEquals(
+            deviceAccountCommandKey("studio", chip),
+            deviceAccountCommandKey("buildbox", chip),
+        )
     }
 }

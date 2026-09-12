@@ -4,9 +4,11 @@
 - Underagenter med navn: en underagents brikke bærer oppgaven den fikk, radene oppsummerer verktøyene den brukte, og en Plan-brikke uten knapper vises så lenge kjøringen fortsatt planlegger
 - Workflow-kort: en kjøring med flere agenter vises som ett kort med fasene sine og agentene under, og en øktrad får en andre linje med det kjøringen jobber med akkurat nå
 - Kontoer som forteller sannheten: tilstanden til en agentkonto kommer fra en ekte forbruksmåling, så en død innlogging viser «Needs re-login» i stedet for «Signed in»
-- Devices er reparasjonssiden: der logger du inn på en agentkonto igjen, eller velger hvilken innlogget konto en maskin bruker
+- Devices er reparasjonssiden: hver maskin viser agentinnloggingene den har, og en brikke tilbyr riktig reparasjon, ny innlogging for en utløpt eller bruk denne kontoen her for en maskinen ikke bruker
 - Bytt konto midt i en kjøring: en Claude-kjøring som treffer grensen sin kan fortsette på en annen konto fra forbruksarket eller grensevarselet, som en ny kjøring knyttet til den gamle
 - Maskinen du trykket på: avspillingsknappen til en maskin åpner feltet med akkurat den maskinen valgt, og feltet sier hvorfor når en maskin ikke kan ta kjøringen
 - Tilbake dit du kom fra: forlater du en økt, havner du tilbake på issuet, boardet eller innboksen du åpnet den fra, og en kjøring startet av en annen kjøring ligger under den
 - Watch i stedet for Coding now: din egen pågående kjøring på et issue er en Watch-knapp blant issuets egenskaper, ikke et eget kort
-- Chatter og festing: en ny chat foreslår noe å begynne med, og et issue, en økt eller en action kan festes fra sin egen skjerm
+- Chatforslag: en ny chat tilbyr forslagsbrikker å starte fra
+- Ingen festeknapper på telefonen: det finnes ingen sidestolpe å feste til, så Pin er borte fra issues, økter og actions; fester du gjorde på maskinen, vises fortsatt i board-velgeren
+- Pensjonerte agenter blir borte: en maskin på en eldre versjon som fortsatt melder en fjernet agent, gir aldri en rad, en fane eller et valg i velgeren

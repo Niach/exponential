@@ -72,6 +72,17 @@ object AgentUsagePresentation {
     /** Usage older than this simply isn't rendered. */
     const val FRESH_WINDOW_MS = 15 * 60_000L
 
+    /**
+     * EXP-849: whether [agent] is an agent this build KNOWS (contract
+     * `codingAgent`). Belt-and-braces against a RETIRED id (`pi`) still
+     * sitting in a synced row: the server clamps every write now, but rows
+     * written before that clamp — or served by a self-hosted instance on an
+     * older image — must never produce an account row, a usage tab, a chip or
+     * a picker entry for an agent this build has no name, glyph or launcher
+     * for. Web `isContractAgent`.
+     */
+    fun isContractAgent(agent: String): Boolean = agent in DomainContract.codingAgentValues
+
     private val json = Json { ignoreUnknownKeys = true }
 
     // ── Parsing ──────────────────────────────────────────────────────────────

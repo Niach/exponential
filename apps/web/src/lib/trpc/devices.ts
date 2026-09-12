@@ -141,6 +141,19 @@ function clampLaunchDefaults(
   return out
 }
 
+// EXP-849: the three agent-ID LISTS `register` writes, under the same
+// ALWAYS-CLAMP contract as the launch defaults above. A fleet still on an
+// older build keeps heart-beating a RETIRED id (`pi`, dropped from contract
+// `codingAgent`) and must keep registering — minus that id. Register is the
+// sole writer of `agents`/`acp_agents`/`unauthed_agents`, so this is the one
+// place that keeps every picker, chip and tab on the four clients
+// contract-clean; the stored jsonb never carries a name a client has no
+// vocabulary for.
+function clampAgentIds(input: readonly string[] | undefined): string[] {
+  const agentIds = contract.codingAgent.values as readonly string[]
+  return (input ?? []).filter((agent) => agentIds.includes(agent))
+}
+
 // EXP-484 bounds: the device reports at most one entry per contract agent,
 // and a window list a bar can actually render.
 const MAX_STATUS_AGENTS = 3
@@ -478,10 +491,10 @@ export const devicesRouter = router({
           label: input.label,
           kind: input.kind,
           platform: input.platform ?? null,
-          agents: input.agents ?? [],
+          agents: clampAgentIds(input.agents),
           caps: input.caps ?? [],
-          unauthedAgents: input.unauthedAgents ?? [],
-          acpAgents: input.acpAgents ?? null,
+          unauthedAgents: clampAgentIds(input.unauthedAgents),
+          acpAgents: input.acpAgents ? clampAgentIds(input.acpAgents) : null,
           launchDefaults: input.launchDefaults
             ? clampLaunchDefaults(input.launchDefaults)
             : null,
@@ -497,10 +510,10 @@ export const devicesRouter = router({
           set: {
             kind: input.kind,
             platform: input.platform ?? null,
-            agents: input.agents ?? [],
+            agents: clampAgentIds(input.agents),
             caps: input.caps ?? [],
-            unauthedAgents: input.unauthedAgents ?? [],
-            acpAgents: input.acpAgents ?? null,
+            unauthedAgents: clampAgentIds(input.unauthedAgents),
+            acpAgents: input.acpAgents ? clampAgentIds(input.acpAgents) : null,
             // Seed-only-when-NULL: a re-register must never stomp
             // server-side edits (the device converges via heartbeat instead).
             ...(input.launchDefaults
@@ -825,7 +838,12 @@ export const devicesRouter = router({
       const now = new Date()
       await ctx.db.transaction(async (tx) => {
         for (const wt of reported) {
-          const agents = wt.agents ?? null
+          // EXP-849: the same ALWAYS-CLAMP contract as `register`'s agent
+          // lists — a worktree reported by a machine below the version floor
+          // must not park a RETIRED id in the synced row (the clients have no
+          // name or icon for one). Absent stays NULL; a list that clamps
+          // empty stays an empty list, like `clampAgentIds` everywhere else.
+          const agents = wt.agents ? clampAgentIds(wt.agents) : null
           await tx
             .insert(deviceWorktrees)
             .values({

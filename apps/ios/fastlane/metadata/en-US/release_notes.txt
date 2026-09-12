@@ -4,9 +4,11 @@
 - Subagents by name: a subagent chip carries the task it was given, its rows summarize the tools it used, and a read-only Plan chip shows while the run is still planning
 - Workflow card: a run with several agents renders as one card with its phases and the agents under it, and a session row carries a second line saying what the run is working on right now
 - Accounts that tell the truth: an agent account's health comes from a live usage probe, so a dead login reads Needs re-login instead of Signed in
-- Devices is the repair page: sign an agent account in again there, or pick which signed-in account a machine uses
+- Devices is the repair page: each machine lists the agent logins it holds, and a chip offers the right repair, re-login for an expired one or use this account here for one the machine is not using
 - Switch account mid-run: a Claude run that hits its limit can carry on with another account from the usage sheet or the rate-limit notice, as a new run linked to the old one
 - The machine you tapped: a machine's play button opens the composer with that machine already selected, and the composer says why when a machine cannot take the run
 - Back where you came from: leaving a session returns you to the issue, board or inbox you opened it from, and a run started by another run is nested under it
 - Watch instead of Coding now: your own live run on an issue is a Watch pill in the issue's properties rather than a card of its own
-- Chats and pins: a new chat offers suggestion chips to start from, and an issue, a session or an action can be pinned from its own screen
+- Chat suggestions: a new chat offers suggestion chips to start from
+- No pin buttons on the phone: there is no sidebar to pin to, so Pin is gone from issues, sessions and actions; pins made on the desktop still show in the board switcher
+- Retired agents stay gone: a machine on an older build that still reports a removed agent never produces a row, a tab or a picker entry

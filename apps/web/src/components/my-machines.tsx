@@ -17,6 +17,7 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   describeUpdateBlockers,
   deviceCanAgentLogin,
+  deviceCanSwitchAccount,
   deviceCanUpdateNow,
   deviceHasRunnableAgent,
   deviceIsMine,
@@ -39,6 +40,8 @@ import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
+  chipAction,
+  chipSwitchesTo,
   deviceAccountChips,
   deviceWorstHealth,
   healthBadgeLabel,
@@ -211,6 +214,11 @@ function MachineAccountChips({
   // `agent_login` cap — the same rule the sign-in pill uses.
   const canLogin =
     deviceIsMine(device) && online && deviceCanAgentLogin(device)
+  // …and "Use this account here" needs the SECOND cap the server checks
+  // (`account-switch`, desktop/CLI ≥ 0.14.38): below it the queued
+  // `agent_profile_use` is refused outright, so such a machine only gets the
+  // sign-in action.
+  const canSwitchAccount = canLogin && deviceCanSwitchAccount(device)
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {chips.map((chip) => (
@@ -219,6 +227,7 @@ function MachineAccountChips({
           device={device}
           chip={chip}
           canLogin={canLogin}
+          canSwitchAccount={canSwitchAccount}
         />
       ))}
     </div>
@@ -237,10 +246,12 @@ function MachineAccountChip({
   device,
   chip,
   canLogin,
+  canSwitchAccount,
 }: {
   device: SteerDevice
   chip: DeviceAccountChip
   canLogin: boolean
+  canSwitchAccount: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const health = healthBadgeLabel(chip.health)
@@ -273,14 +284,11 @@ function MachineAccountChip({
   // agent at a profile it already holds and re-heartbeats. Never a logout:
   // signing codex out would revoke the account server-wide, and never a
   // credential copy either (the files stay where the CLI wrote them).
-  const switchesTo = chip.signedIn && !chip.active && chip.health !== `needs_relogin`
-  const action = !chip.signedIn
-    ? `Sign in`
-    : chip.health === `needs_relogin`
-      ? `Re-login`
-      : chip.active
-        ? `Sign in again`
-        : `Use this account here`
+  // …and a machine whose build predates `account-switch` cannot run that
+  // command at all, so the shared rule folds the cap in and hands such a chip
+  // the sign-in action instead of an offer the server would refuse.
+  const switchesTo = chipSwitchesTo(chip, canSwitchAccount)
+  const action = chipAction(chip, canSwitchAccount)
   const useHere = async () => {
     if (busy) return
     setBusy(true)

@@ -122,7 +122,6 @@ fun ActionsScreen(
     val automationRuns by viewModel.automationRuns.collectAsStateWithLifecycle()
     val isTeamOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val automations by viewModel.automations.collectAsStateWithLifecycle()
-    val pinnedActionIds by viewModel.pinnedActionIds.collectAsStateWithLifecycle()
     val automationDevices by viewModel.automationDevices.collectAsStateWithLifecycle()
     val lastRunByAutomation by viewModel.lastRunByAutomation.collectAsStateWithLifecycle()
     val automationBusy by viewModel.automationBusy.collectAsStateWithLifecycle()
@@ -268,12 +267,6 @@ fun ActionsScreen(
                             items(state.actions, key = { it.id }) { action ->
                                 ActionRow(
                                     action = action,
-                                    // EXP-778: the personal pin, off the synced
-                                    // pins table — the same toggle the editor
-                                    // sheet's header carries, on the row that
-                                    // lists it.
-                                    pinned = action.id in pinnedActionIds,
-                                    onTogglePin = { viewModel.togglePin(action.id) },
                                     // EXP-583: an action only says HOW MANY
                                     // automations point at it — they are their
                                     // own rows on their own tab.
@@ -351,8 +344,6 @@ fun ActionsScreen(
 private fun ActionRow(
     action: ActionDto,
     automationCount: Int,
-    pinned: Boolean,
-    onTogglePin: () -> Unit,
     onRun: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -443,22 +434,6 @@ private fun ActionRow(
                         onClick = {
                             menuOpen = false
                             onEdit()
-                        },
-                    )
-                    // EXP-778: pinning an action was only reachable by opening
-                    // its editor — the row that shows it offers it now, like
-                    // every other pinnable row.
-                    GlassMenuItem(
-                        text = { Text(if (pinned) "Unpin" else "Pin") },
-                        leadingIcon = {
-                            Icon(
-                                if (pinned) ExpIcons.uiUnpin else ExpIcons.uiPin,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = {
-                            menuOpen = false
-                            onTogglePin()
                         },
                     )
                 }

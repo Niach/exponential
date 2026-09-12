@@ -98,11 +98,16 @@ public extension SteerDevice {
         self.init(
             deviceId: entity.deviceId,
             deviceLabel: entity.label,
-            agents: Self.decodeStringArray(entity.agents),
-            unauthedAgents: Self.decodeStringArray(entity.unauthedAgents) ?? [],
+            // EXP-849: every advertised AGENT list drops the ids this build
+            // has no agent for (a daemon below the floor still names `pi`).
+            // NULL stays nil: an absent advertisement means "an older sender
+            // that runs claude", an empty one "nothing runnable", and
+            // collapsing the two would relax the start gate.
+            agents: Self.decodeAgentArray(entity.agents),
+            unauthedAgents: Self.decodeAgentArray(entity.unauthedAgents) ?? [],
             // EXP-749: every build above the floor reports its ACP set, so a
             // NULL column is a stale row that can start nothing.
-            acpAgents: Self.decodeStringArray(entity.acpAgents) ?? [],
+            acpAgents: Self.decodeAgentArray(entity.acpAgents) ?? [],
             caps: Self.decodeStringArray(entity.caps) ?? [],
             kind: entity.kind,
             platform: entity.platform,
@@ -133,19 +138,38 @@ public extension SteerDevice {
         return try? JSONDecoder().decode([String].self, from: Data(json.utf8))
     }
 
-    private static func decodeLaunchDefaults(_ json: String?) -> DeviceLaunchDefaults? {
-        guard let json else { return nil }
-        return try? JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(json.utf8))
+    /// An advertised agent list with the retired ids dropped (EXP-849).
+    private static func decodeAgentArray(_ json: String?) -> [String]? {
+        decodeStringArray(json)?.filter(AgentUsagePresentation.isContractAgent)
     }
 
+    /// EXP-849: a retired agent's stored defaults (and a `defaultAgent`
+    /// naming one) drop here, so no picker can seed itself off an agent this
+    /// build cannot run.
+    private static func decodeLaunchDefaults(_ json: String?) -> DeviceLaunchDefaults? {
+        guard let json,
+              let decoded = try? JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(json.utf8))
+        else { return nil }
+        return DeviceLaunchDefaults(
+            defaultAgent: decoded.defaultAgent.flatMap {
+                AgentUsagePresentation.isContractAgent($0) ? $0 : nil
+            },
+            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) }
+        )
+    }
+
+    /// EXP-849: keys this build has no agent for are dropped once, here, for
+    /// every reader of the row.
     private static func decodeAgentAccounts(_ json: String?) -> [String: AgentAccount]? {
         guard let json else { return nil }
-        return try? JSONDecoder().decode([String: AgentAccount].self, from: Data(json.utf8))
+        return (try? JSONDecoder().decode([String: AgentAccount].self, from: Data(json.utf8)))?
+            .filter { AgentUsagePresentation.isContractAgent($0.key) }
     }
 
     private static func decodeAgentUsage(_ json: String?) -> [String: AgentUsage]? {
         guard let json else { return nil }
-        return try? JSONDecoder().decode([String: AgentUsage].self, from: Data(json.utf8))
+        return (try? JSONDecoder().decode([String: AgentUsage].self, from: Data(json.utf8)))?
+            .filter { AgentUsagePresentation.isContractAgent($0.key) }
     }
 }
 

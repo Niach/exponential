@@ -243,4 +243,41 @@ class DeviceRowsTest {
         val broken = entity { copy(acpAgents = "not json") }.toSteerDevice(nowMs, "me")
         assertEquals(emptyList<String>(), broken.acpAgentIds)
     }
+    // ── EXP-849: a retired agent id never survives the mapping ───────────────
+
+    @Test
+    fun `agent ids outside the contract drop out of every device column`() {
+        // A daemon below the version floor keeps advertising `pi` — and the
+        // client must never render an agent it has no name, glyph or launcher
+        // for, whatever a stale row says.
+        val stale = entity {
+            copy(
+                agents = """["claude","pi"]""",
+                unauthedAgents = """["pi"]""",
+                acpAgents = """["claude","pi"]""",
+                launchDefaults = """{"defaultAgent":"pi","agents":{"pi":{"model":"pi-1"},"claude":{"model":"opus"}}}""",
+                agentAccounts = """{"pi":{"signedIn":true,"email":"pi@acme.test"},"claude":{"signedIn":true}}""",
+                agentUsage = """{"pi":{"fetchedAt":"2026-08-28T11:00:00Z","windows":[]}}""",
+            )
+        }
+        val device = stale.toSteerDevice(nowMs, "me")
+        assertEquals(listOf("claude"), device.agents)
+        assertEquals(emptyList<String>(), device.unauthedAgents)
+        assertEquals(listOf("claude"), device.acpAgents)
+        assertNull("a default naming a retired agent is no default", device.launchDefaults?.defaultAgent)
+        assertEquals(setOf("claude"), device.launchDefaults?.agents?.keys)
+        assertEquals(setOf("claude"), device.agentAccounts?.keys)
+        assertEquals(emptyMap<String, Any>(), device.agentUsage)
+    }
+
+    @Test
+    fun `an ABSENT agents advertisement still means claude-only`() {
+        // The null/empty distinction survives the filter: absent = a
+        // pre-EXP-201 sender that runs claude, empty = nothing runnable.
+        val silent = entity { copy(agents = null) }
+        assertNull(silent.toSteerDevice(nowMs, "me").agents)
+        assertEquals(listOf("claude"), silent.toSteerDevice(nowMs, "me").runnableAgents)
+        val nothing = entity { copy(agents = """["pi"]""") }
+        assertEquals(emptyList<String>(), nothing.toSteerDevice(nowMs, "me").runnableAgents)
+    }
 }

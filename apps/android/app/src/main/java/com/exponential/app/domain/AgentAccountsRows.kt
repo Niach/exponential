@@ -1,5 +1,6 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
@@ -96,6 +97,28 @@ data class AgentAccountSection(
     val groups: List<AgentAccountUsageGroup>,
 )
 
+/**
+ * EXP-849: one account a MACHINE holds, for the machine row's chips (web
+ * `DeviceAccountChip`). The Devices surface is the SETUP/REPAIR surface, so
+ * every chip names the agent, the login, whether it is that machine's ACTIVE
+ * one and how healthy it is — the account-level view
+ * ([AgentAccountsRows.agentProfileUsageRows]) groups ACROSS machines and is
+ * the wrong shape for "what is wrong on this box".
+ */
+data class DeviceAccountChip(
+    /** `<agent>:<profileId>` — stable within one device row. */
+    val key: String,
+    val agent: String,
+    val profileId: String,
+    /** The profile's label (`Default` for the ambient login). */
+    val profileLabel: String,
+    val signedIn: Boolean,
+    val active: Boolean,
+    val email: String?,
+    val plan: String?,
+    val health: AgentHealth,
+)
+
 object AgentAccountsRows {
 
     /**
@@ -114,7 +137,7 @@ object AgentAccountsRows {
     const val EMPTY_STATE = "No machine has reported an agent account yet."
 
     /** The label for the system profile when the device sent none. */
-    private const val SYSTEM_PROFILE_LABEL = "Default"
+    const val SYSTEM_PROFILE_LABEL = "Default"
 
     /**
      * Which synced rows the section reads (web `AgentAccountsSection`): the
@@ -152,10 +175,15 @@ object AgentAccountsRows {
             val usageMap = parseAgentUsage(device.agentUsage).orEmpty()
             // The union of "has an account" and "reported usage": a machine
             // that only managed one of the two still gets its row.
+            // EXP-849: an agent this build has no name for (a retired `pi`
+            // still beating off an old daemon) is not a row, not a tab and
+            // not a chip. The jsonb parse already drops it; the set is
+            // filtered here too so a row built from a wire-decoded map can
+            // never smuggle one in.
             val agents = LinkedHashSet<String>().apply {
                 addAll(accounts.keys)
                 addAll(usageMap.keys)
-            }
+            }.filterTo(LinkedHashSet(), AgentUsagePresentation::isContractAgent)
             val mine = device.userId == currentUserId
             val online = isOnline(device.lastSeenAt)
             for (agent in agents) {
@@ -212,6 +240,89 @@ object AgentAccountsRows {
         }
         return out
     }
+
+    /**
+     * EXP-849: every account ONE machine holds, agent by agent in contract
+     * order, the ACTIVE login of each agent first — the chips a machine row
+     * draws in "My machines" (web `deviceAccountChips`). A machine that
+     * reported no profiles for an agent yields its single ambient account.
+     * An agent this build has no name for is dropped, never chipped.
+     */
+    fun deviceAccountChips(accounts: Map<String, AgentAccount>?): List<DeviceAccountChip> {
+        if (accounts.isNullOrEmpty()) return emptyList()
+        val out = mutableListOf<DeviceAccountChip>()
+        for (agent in DomainContract.codingAgentValues) {
+            val account = accounts[agent] ?: continue
+            val profiles = account.profiles.orEmpty().filter { it.id.isNotBlank() }
+            if (profiles.isEmpty()) {
+                out += DeviceAccountChip(
+                    key = "$agent:$SYSTEM_PROFILE_ID",
+                    agent = agent,
+                    profileId = SYSTEM_PROFILE_ID,
+                    profileLabel = SYSTEM_PROFILE_LABEL,
+                    signedIn = account.signedIn,
+                    active = true,
+                    email = nonEmpty(account.email),
+                    plan = nonEmpty(account.plan),
+                    health = AgentHealthRules.of(account),
+                )
+                continue
+            }
+            out += profiles.map { profile ->
+                DeviceAccountChip(
+                    key = "$agent:${profile.id}",
+                    agent = agent,
+                    profileId = profile.id,
+                    profileLabel = nonEmpty(profile.label)
+                        ?: if (profile.id == SYSTEM_PROFILE_ID) SYSTEM_PROFILE_LABEL else profile.id,
+                    signedIn = profile.signedIn,
+                    active = profile.active,
+                    email = nonEmpty(profile.email),
+                    plan = nonEmpty(profile.plan),
+                    health = AgentHealthRules.of(profile),
+                )
+            }.sortedByDescending { it.active }
+        }
+        return out
+    }
+
+    /**
+     * `Claude · dev@acme.test` — the chip's text on a MACHINE row: the agent,
+     * then the login (its email, else the bare plan an agent reports instead
+     * of an address, else the profile's label). Web `machineChipLabel`, iOS
+     * `DeviceAccountChips.caption`.
+     */
+    fun machineChipLabel(chip: DeviceAccountChip, agentLabel: (String) -> String): String {
+        val who = chip.email
+            ?: (if (chip.signedIn) (chip.plan ?: "signed in") else chip.profileLabel)
+        return "${agentLabel(chip.agent)} · $who"
+    }
+
+    /**
+     * EXP-849: the ONE repair a machine owes a login, as the chip menu's lead
+     * entry — a healthy login the machine is not using simply BECOMES its
+     * login (`agent_profile_use`, no credential touched), everything else is a
+     * sign-in. Byte-identical with web `MachineAccountChip`.
+     *
+     * [canSwitchAccount] is the machine's `account-switch` cap
+     * ([SteerDevice.canSwitchAccount]): the server REFUSES `agent_profile_use`
+     * without it (it shipped in desktop/CLI 0.14.38, above the fleet floor),
+     * so a machine that cannot take the pick never offers it — its logins fall
+     * through to the sign-in, which every `agent-login` build can run.
+     */
+    fun chipAction(chip: DeviceAccountChip, canSwitchAccount: Boolean): String = when {
+        !chip.signedIn -> "Sign in"
+        chip.health == AgentHealth.NeedsRelogin -> "Re-login"
+        chip.active || !canSwitchAccount -> "Sign in again"
+        else -> "Use this account here"
+    }
+
+    /** Whether [chipAction] is the non-destructive active-login pick. */
+    fun chipSwitchesTo(chip: DeviceAccountChip, canSwitchAccount: Boolean): Boolean =
+        canSwitchAccount &&
+            chip.signedIn &&
+            !chip.active &&
+            chip.health != AgentHealth.NeedsRelogin
 
     /** The fullest window's percent, or 0 for a row with no usage at all. */
     fun peakPercent(usage: AgentUsage?): Int =
