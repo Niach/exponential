@@ -20,6 +20,13 @@ use steer::{FeedItem, FeedItemId, FeedKind, FeedRowSpec};
 /// no feed item can ([`FeedItemId`]s count up from zero).
 pub(crate) const WORKING_ROW_ID: FeedItemId = u64::MAX;
 
+/// EXP-850 §3: the synthetic ORPHAN workflow card rows — the cards whose
+/// `Workflow` tool row is outside the rendered projection. They sit between
+/// the transcript and the working row, so their ids sit above every feed id
+/// and below [`WORKING_ROW_ID`] (the list sync's one requirement is that a
+/// key vector is ascending by id).
+pub(crate) const ORPHAN_ROW_BASE: FeedItemId = u64::MAX - 1024;
+
 /// One list row's identity plus a cheap HEIGHT HEURISTIC over its content.
 ///
 /// `id` is the feed row's stable key ([`FeedRowSpec::id`]); `fingerprint`

@@ -55,6 +55,17 @@ pub const JOURNAL_MAX_AGE: Duration = Duration::from_secs(60 * 24 * 60 * 60);
 /// `activity_synced` before closing the room.
 pub const HISTORY_OUTCOME: &str = "history";
 
+/// EXP-850 §3 review: how often ONE workflow id may reach the file while it
+/// runs. A card republishes up to once a second and serializes to kilobytes
+/// (32 phases, 64 agents, four preview strings each), so a workflow that runs
+/// for an hour would write megabytes of near-identical frames and push the
+/// rest of the run past [`JOURNAL_FILE_CAP`] — after which nothing is
+/// recorded at all. The file is latest-wins per id on read
+/// ([`read_journal`]), so dropping the frames in between costs a replay
+/// nothing but freshness. A TERMINAL status and the FIRST frame of an id are
+/// always written.
+const WORKFLOW_JOURNAL_INTERVAL: Duration = Duration::from_secs(10);
+
 /// Frames [`publish_history`] sends between yields, and how long it yields.
 ///
 /// EXP-781: a replay pushes a whole journal as fast as the socket accepts it,
@@ -99,6 +110,11 @@ pub struct JournalWriter {
     written: u64,
     /// EXP-783: lines on disk — the wire sequence the next event gets.
     lines: u64,
+    /// EXP-850 §3: when each workflow id last reached the file — the
+    /// [`WORKFLOW_JOURNAL_INTERVAL`] throttle's clock. Kept in
+    /// first-appearance order and capped at [`HISTORY_WORKFLOW_CAP`], like
+    /// every other fold of this slot.
+    workflow_writes: Vec<(String, std::time::Instant)>,
     /// Past the cap (or after a write error): every further append is a no-op.
     stopped: bool,
 }
@@ -131,6 +147,7 @@ impl JournalWriter {
             file: BufWriter::new(file),
             written,
             lines,
+            workflow_writes: Vec::new(),
             stopped: false,
         })
     }
@@ -138,7 +155,16 @@ impl JournalWriter {
     /// Append one already-redacted event. Best-effort by design: a full disk
     /// must never stall the publisher's pump loop.
     pub fn append(&mut self, event: &ActivityEvent) {
+        self.append_at(event, std::time::Instant::now());
+    }
+
+    /// [`JournalWriter::append`] with the clock passed in — the throttle's
+    /// seam, so its rule is testable without sleeping ten seconds.
+    fn append_at(&mut self, event: &ActivityEvent, now: std::time::Instant) {
         if self.stopped {
+            return;
+        }
+        if !self.record_workflow(event, now) {
             return;
         }
         if self.written >= JOURNAL_FILE_CAP {
@@ -167,6 +193,38 @@ impl JournalWriter {
         }
         self.written += line.len() as u64;
         self.lines += 1;
+    }
+
+    /// EXP-850 §3: whether this `workflow` frame is due. Anything else is
+    /// always written. `true` = write it.
+    fn record_workflow(&mut self, event: &ActivityEvent, now: std::time::Instant) -> bool {
+        let ActivityEvent::Workflow(workflow) = event else {
+            return true;
+        };
+        // A card that finished is the one a replay must not be missing.
+        if workflow.status.is_terminal() {
+            self.workflow_writes.retain(|(id, _)| *id != workflow.id);
+            return true;
+        }
+        match self
+            .workflow_writes
+            .iter_mut()
+            .find(|(id, _)| *id == workflow.id)
+        {
+            Some((_, last)) => {
+                if now.duration_since(*last) < WORKFLOW_JOURNAL_INTERVAL {
+                    return false;
+                }
+                *last = now;
+            }
+            None => {
+                self.workflow_writes.push((workflow.id.clone(), now));
+                while self.workflow_writes.len() > HISTORY_WORKFLOW_CAP {
+                    self.workflow_writes.remove(0);
+                }
+            }
+        }
+        true
     }
 
     /// Test/observability surface: bytes recorded so far.
@@ -856,6 +914,76 @@ mod tests {
 
         let events = read_journal(&dir, "sess-1").unwrap();
         assert_eq!(events, vec![ActivityEvent::narration("kept")]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-850 §3 review — a running workflow republishes its whole card up
+    /// to once a second. Written in full, one long workflow burns the file
+    /// cap and the REST of the run is never recorded. The writer keeps at
+    /// most one frame per id per [`WORKFLOW_JOURNAL_INTERVAL`], always the
+    /// first and always a terminal one, and touches no other kind.
+    #[test]
+    fn a_running_workflow_is_coalesced_to_one_frame_per_interval() {
+        let dir = temp_dir("workflow-throttle");
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        let card = |id: &str, status: crate::WorkflowStatus, agents: usize| {
+            ActivityEvent::workflow(crate::WorkflowState {
+                id: id.to_string(),
+                name: "wire-probe".to_string(),
+                status,
+                agents: (0..agents)
+                    .map(|index| crate::WorkflowAgent {
+                        index: index as u32,
+                        label: format!("agent {index}"),
+                        ..crate::WorkflowAgent::default()
+                    })
+                    .collect(),
+                ..crate::WorkflowState::default()
+            })
+        };
+        let start = std::time::Instant::now();
+        // One frame a second for two minutes, two workflows at a time, with a
+        // narration row between them so the ordinary kinds are visible.
+        for tick in 0..120u64 {
+            let now = start + Duration::from_secs(tick);
+            writer.append_at(&card("wf-1", crate::WorkflowStatus::Running, 8), now);
+            writer.append_at(&card("wf-2", crate::WorkflowStatus::Running, 8), now);
+            writer.append_at(&ActivityEvent::narration(&format!("row {tick}")), now);
+        }
+        // The terminal frame is never throttled, whenever it lands.
+        writer.append_at(
+            &card("wf-1", crate::WorkflowStatus::Completed, 8),
+            start + Duration::from_secs(120),
+        );
+        drop(writer);
+
+        let events = read_journal(&dir, "sess-1").unwrap();
+        let rows = events
+            .iter()
+            .filter(|event| matches!(event, ActivityEvent::Narration { .. }))
+            .count();
+        assert_eq!(rows, 120, "no ordinary kind is touched");
+        // On disk: 12 frames an id (t=0, then every 10 s) plus the terminal
+        // one, not 240.
+        let written: Vec<String> = fs::read_to_string(journal_path(&dir, "sess-1").unwrap())
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains(r#""kind":"workflow""#))
+            .map(str::to_string)
+            .collect();
+        assert_eq!(written.len(), 25, "{}", written.len());
+        // …and the fold still replays exactly one card per id, the newest.
+        let cards: Vec<&crate::WorkflowState> = events
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Workflow(workflow) => Some(workflow),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0].id, "wf-1");
+        assert_eq!(cards[0].status, crate::WorkflowStatus::Completed);
+        assert_eq!(cards[1].id, "wf-2");
         let _ = fs::remove_dir_all(&dir);
     }
 

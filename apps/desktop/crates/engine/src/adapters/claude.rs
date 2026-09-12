@@ -644,6 +644,28 @@ fn settle_turns(state: &mut State, settle: DeferredSettle) {
     }
 }
 
+/// EXP-850 §3 review: keep at most [`steer::journal::JOURNAL_WORKFLOW_CAP`]
+/// cards, oldest first, exactly like the journal and the relay room — a run
+/// that starts workflows all day otherwise grows three maps for the life of
+/// the process. Dropping a card drops its id maps with it: the `task_id`
+/// mappings that pointed at it and the launching tool ids they named.
+fn evict_workflows(state: &mut State) {
+    while state.workflows.len() > steer::journal::JOURNAL_WORKFLOW_CAP {
+        let dropped = state.workflows.remove(0);
+        let orphans: Vec<String> = state
+            .workflow_of_task
+            .iter()
+            .filter(|(_, id)| **id == dropped.id)
+            .map(|(task_id, _)| task_id.clone())
+            .collect();
+        for task_id in orphans {
+            state.workflow_of_task.remove(&task_id);
+            state.task_tool_ids.remove(&task_id);
+        }
+        state.task_tool_ids.retain(|_, tool_id| *tool_id != dropped.id);
+    }
+}
+
 /// The tasks that may still hold back a settlement: LIVE, spawned by the turn
 /// now running, and younger than [`TASK_MAX_LIFETIME`]. Everything else is a
 /// task the CLI stopped talking about, and waiting on one of those is the
@@ -707,6 +729,13 @@ struct TaskEntry {
     /// id matched a workflow agent's `agentId`. Stamped on every edge so the
     /// completed one nests under the card too.
     workflow_id: Option<String>,
+    /// EXP-850 §2: a task that is NOT an agent (`task_type` `local_bash`: a
+    /// backgrounded Bash or a Monitor, the main thread's or a subagent's) is
+    /// tracked for the turn-settle deferral only. It rides the
+    /// `background_tasks` strip and never publishes a subagent edge; live
+    /// runs showed every such task as a loose "agent · done" row and even a
+    /// subagent tab.
+    silent: bool,
 }
 
 /// EXP-850 §3: one `Workflow` run as the adapter folds it — the progress
@@ -747,6 +776,21 @@ impl WorkflowRun {
             .values()
             .find(|agent| agent.agent_id.as_deref() == Some(agent_id))
     }
+}
+
+/// EXP-850 §3: the card's NAME. A `task_started` without a `workflow_name`
+/// (a script the CLI never named) used to open a card called `""`, which
+/// web, iOS and Android drop entirely — so the run showed no card at all.
+/// The description is the next best thing the frame carries, and the word
+/// `workflow` is the floor.
+fn workflow_card_name(workflow_name: Option<&str>, description: Option<&str>) -> String {
+    for candidate in [workflow_name, description] {
+        let Some(candidate) = candidate else { continue };
+        if !candidate.trim().is_empty() {
+            return candidate.to_string();
+        }
+    }
+    "workflow".to_string()
 }
 
 /// EXP-850 §3: at most one card frame per workflow per this long while it is
@@ -1616,13 +1660,25 @@ impl ClaudeSession {
             return string("description");
         }
         let task_id = string("task_id").or_else(|| string("taskId"))?;
-        let described = self
-            .lock()
+        let state = self.lock();
+        let clean = |text: &str| Some(text.trim().to_string()).filter(|text| !text.is_empty());
+        let described = state
             .background_tasks
             .iter()
             .find(|task| task.id == task_id)
-            .map(|task| task.description.trim().to_string())
-            .filter(|description| !description.is_empty());
+            .and_then(|task| clean(&task.description))
+            // The list frame may already have dropped a finished task (the
+            // wait for a workflow that just completed): fall back to the
+            // workflow's description or name, then to the task's own title.
+            .or_else(|| {
+                let id = state.workflow_of_task.get(&task_id)?;
+                let run = state.workflows.iter().find(|run| run.id == *id)?;
+                run.description
+                    .as_deref()
+                    .and_then(clean)
+                    .or_else(|| clean(&format!("Workflow {}", run.name)))
+            })
+            .or_else(|| state.tasks.get(&task_id).and_then(|task| task.title.as_deref().and_then(clean)));
         Some(described.unwrap_or(task_id))
     }
 
@@ -2111,12 +2167,10 @@ impl ClaudeSession {
                     if !state.workflows.iter().any(|run| run.id == id) {
                         state.workflows.push(WorkflowRun {
                             id: id.clone(),
-                            name: system
-                                .extra
-                                .get("workflow_name")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string(),
+                            name: workflow_card_name(
+                                system.extra.get("workflow_name").and_then(Value::as_str),
+                                description.as_deref(),
+                            ),
                             description: description.clone(),
                             status: steer::WorkflowStatus::Running,
                             phases: BTreeMap::new(),
@@ -2124,6 +2178,11 @@ impl ClaudeSession {
                             summary: None,
                             published_at: None,
                         });
+                        // EXP-850 §3 review: the card map is capped like the
+                        // journal's — a long run that starts a hundred
+                        // workflows keeps the newest 16, and the id maps of
+                        // the ones it drops go with them.
+                        evict_workflows(&mut state);
                     }
                     drop(state);
                     self.publish_workflow(cx, &id, true);
@@ -2146,11 +2205,16 @@ impl ClaudeSession {
                 // label and its type.
                 let workflow_agent = state.workflows.iter().find_map(|run| {
                     run.agent_by_id(&task_id)
-                        .map(|agent| (run.id.clone(), agent.label.clone(), agent.state))
+                        .map(|agent| (run.id.clone(), agent.label.clone(), agent.state, run.status))
                 });
                 let live_copy = match &workflow_agent {
-                    Some((_, _, agent_state)) => {
-                        !agent_state.is_finished()
+                    // EXP-856 review: an agent is only a LIVE copy while its
+                    // workflow itself still runs. A stopped or killed
+                    // workflow leaves its agents frozen mid-`running`, and
+                    // without this a legitimate later resume of that id would
+                    // publish a false `duplicate` warning.
+                    Some((_, _, agent_state, status)) => {
+                        *status == steer::WorkflowStatus::Running && !agent_state.is_finished()
                     }
                     // An ordinary subagent that never finished: the CLI reuses
                     // its id for the resumed copy.
@@ -2168,14 +2232,14 @@ impl ClaudeSession {
                 let workflow_id = workflow_agent.as_ref().map(|(id, ..)| id.clone());
                 let label = workflow_agent
                     .as_ref()
-                    .map(|(_, label, _)| label.clone())
+                    .map(|(_, label, ..)| label.clone())
                     .filter(|label| !label.is_empty())
                     .or_else(|| title.clone())
                     .or_else(|| description.clone())
                     .filter(|label| !label.trim().is_empty())
                     .unwrap_or_else(|| task_id.clone());
                 let title = match &workflow_agent {
-                    Some((_, agent_label, _)) if !agent_label.is_empty() => {
+                    Some((_, agent_label, ..)) if !agent_label.is_empty() => {
                         Some(agent_label.clone())
                     }
                     _ => title.clone(),
@@ -2183,6 +2247,9 @@ impl ClaudeSession {
                 let agent_type = subagent_type
                     .clone()
                     .or_else(|| workflow_id.as_ref().map(|_| "agent".to_string()));
+                // EXP-850 §2: only an AGENT task gets subagent edges. An
+                // older CLI sends no `task_type` at all, which stays an agent.
+                let silent = !task_type.is_empty() && task_type != "local_agent" && !workflow;
                 state.tasks.insert(
                     task_id.clone(),
                     TaskEntry {
@@ -2195,10 +2262,11 @@ impl ClaudeSession {
                         started_at: Instant::now(),
                         last_status: Some("started".to_string()),
                         workflow_id: workflow_id.clone(),
+                        silent,
                     },
                 );
                 drop(state);
-                if workflow {
+                if workflow || silent {
                     return;
                 }
                 // EXP-856: the warning goes out BEFORE the ordinary started
@@ -2298,6 +2366,13 @@ impl ClaudeSession {
                 let mut changed = false;
                 {
                     let mut state = self.lock();
+                    if !state.workflows.iter().any(|run| run.id == id) {
+                        // Review: no card holds this id (an evicted workflow,
+                        // or a progress frame for something else entirely) —
+                        // leave no mapping behind, or `workflow_of_task` grows
+                        // for the rest of the run over ids nothing reads.
+                        return;
+                    }
                     state.workflow_of_task.insert(task_id.clone(), id.clone());
                     let Some(run) = state.workflows.iter_mut().find(|run| run.id == id) else {
                         return;
@@ -2412,7 +2487,11 @@ impl ClaudeSession {
                 let (tool_use_id, subagent_type, title, repeat, agent_workflow) =
                     match state.tasks.get_mut(&task_id) {
                         Some(task) => {
-                            let repeat = task.last_status.as_deref() == Some(status.as_str());
+                            // A silent (non-agent) task moves the strip, never
+                            // a subagent row: `repeat` folds it into the
+                            // "nothing to publish" branch below.
+                            let repeat = task.silent
+                                || task.last_status.as_deref() == Some(status.as_str());
                             task.live = !terminal;
                             task.last_status = Some(status.clone());
                             (
@@ -4744,6 +4823,7 @@ mod tests {
             started_at: Instant::now() - age,
             last_status: None,
             workflow_id: None,
+            silent: false,
         }
     }
 
@@ -4789,6 +4869,63 @@ mod tests {
             Some("agent".to_string())
         );
         assert_eq!(task_agent_type(None, None), None);
+    }
+
+    /// EXP-850 §3 review — a card called `""` is dropped by web, iOS and
+    /// Android, so a `task_started` without a `workflow_name` used to show no
+    /// card at all. The description is the fallback, the word `workflow` the
+    /// floor.
+    #[test]
+    fn a_workflow_card_is_never_nameless() {
+        assert_eq!(
+            workflow_card_name(Some("Nightly sweep"), Some("Probe the wire")),
+            "Nightly sweep"
+        );
+        assert_eq!(workflow_card_name(Some("  "), Some("Probe the wire")), "Probe the wire");
+        assert_eq!(workflow_card_name(None, Some("Probe the wire")), "Probe the wire");
+        assert_eq!(workflow_card_name(Some(""), Some("   ")), "workflow");
+        assert_eq!(workflow_card_name(None, None), "workflow");
+    }
+
+    /// EXP-850 §3 review — the adapter's card map is capped like the journal
+    /// and the relay room, and an evicted card takes its `task_id` mappings
+    /// with it. Without this a run that starts workflows all day grows three
+    /// maps for the life of the process.
+    #[test]
+    fn the_workflow_map_is_capped_and_evicts_its_id_maps() {
+        let mut state = State::default();
+        let total = steer::journal::JOURNAL_WORKFLOW_CAP + 4;
+        for index in 0..total {
+            let id = format!("toolu_{index}");
+            let task_id = format!("task-{index}");
+            state.workflows.push(WorkflowRun {
+                id: id.clone(),
+                name: "wire-probe".to_string(),
+                description: None,
+                status: steer::WorkflowStatus::Running,
+                phases: BTreeMap::new(),
+                agents: BTreeMap::new(),
+                summary: None,
+                published_at: None,
+            });
+            state.workflow_of_task.insert(task_id.clone(), id.clone());
+            state.task_tool_ids.insert(task_id, id);
+            evict_workflows(&mut state);
+        }
+
+        assert_eq!(state.workflows.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+        // The NEWEST cards survive, in first-appearance order.
+        assert_eq!(state.workflows.first().map(|run| run.id.as_str()), Some("toolu_4"));
+        assert_eq!(
+            state.workflows.last().map(|run| run.id.as_str()),
+            Some(format!("toolu_{}", total - 1).as_str())
+        );
+        // …and the dropped cards left no id mappings behind.
+        assert_eq!(state.workflow_of_task.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+        assert_eq!(state.task_tool_ids.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+        assert!(!state.workflow_of_task.contains_key("task-0"));
+        assert!(!state.task_tool_ids.contains_key("task-0"));
+        assert_eq!(state.workflow_of_task.get("task-4").map(String::as_str), Some("toolu_4"));
     }
 
     /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on

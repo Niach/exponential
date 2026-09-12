@@ -18,6 +18,7 @@ vi.mock(`@tanstack/react-router`, () => ({
 }))
 
 import {
+  issueSessionTarget,
   sessionNavigation,
   useOpenSession,
   type OpenSessionOptions,
@@ -123,7 +124,35 @@ describe(`useOpenSession origin`, () => {
         boardSlug: `web`,
         issueIdentifier: `MET-12`,
       },
+      // EXP-856: `run` names the session, so the page steers the run that was
+      // clicked and not merely the issue's newest own one.
+      search: { from: `issue:web:MET-12`, run: `s1` },
+    })
+  })
+
+  // EXP-856: a run the caller KNOWS belongs to another issue never lands on
+  // this issue's URL — it would silently show a different run.
+  it(`sends a run of another issue to the flat session route`, () => {
+    mockState.pathname = `/t/acme/boards/web/issues/MET-12`
+    run({ id: `s7`, issueId: `i2` }, { originIssueId: `i1` })
+    expect(mockState.navigate).toHaveBeenCalledWith({
+      to: SESSION_ROUTE,
+      params: { teamSlug: `acme`, sessionId: `s7` },
       search: { from: `issue:web:MET-12` },
+    })
+  })
+
+  it(`keeps the issue route when the caller's issue id matches`, () => {
+    mockState.pathname = `/t/acme/boards/web/issues/MET-12`
+    run({ id: `s8`, issueId: `i1` }, { originIssueId: `i1` })
+    expect(mockState.navigate).toHaveBeenCalledWith({
+      to: ISSUE_SESSION_ROUTE,
+      params: {
+        teamSlug: `acme`,
+        boardSlug: `web`,
+        issueIdentifier: `MET-12`,
+      },
+      search: { from: `issue:web:MET-12`, run: `s8` },
     })
   })
 
@@ -140,7 +169,7 @@ describe(`useOpenSession origin`, () => {
         boardSlug: `web`,
         issueIdentifier: `MET-12`,
       },
-      search: { from: `issue:web:MET-12` },
+      search: { from: `issue:web:MET-12`, run: `s9` },
     })
   })
 
@@ -216,7 +245,73 @@ describe(`sessionNavigation`, () => {
         boardSlug: `web`,
         issueIdentifier: `MET-12`,
       },
+      search: { from: `issue:web:MET-12`, run: `s1` },
+    })
+  })
+
+  // EXP-856: `run` rides even when there is no origin token to carry.
+  it(`names the run with no token at all`, () => {
+    expect(
+      sessionNavigation(
+        `acme`,
+        session,
+        { kind: `issue`, boardSlug: `web`, identifier: `MET-12` },
+        `i1`
+      ).search
+    ).toEqual({ from: `issue:web:MET-12`, run: `s1` })
+  })
+
+  it(`falls back to the flat route on an issue id mismatch`, () => {
+    expect(
+      sessionNavigation(
+        `acme`,
+        session,
+        { kind: `issue`, boardSlug: `web`, identifier: `MET-12` },
+        `i2`
+      )
+    ).toEqual({
+      to: SESSION_ROUTE,
+      params: { teamSlug: `acme`, sessionId: `s1` },
       search: { from: `issue:web:MET-12` },
     })
+  })
+})
+
+// EXP-856: which run the issue-scoped session route steers.
+describe(`issueSessionTarget`, () => {
+  const row = (id: string, userId: string, startedAt: string) => ({
+    id,
+    userId,
+    startedAt,
+  })
+  const rows = [
+    row(`old`, `me`, `2026-09-01T10:00:00Z`),
+    row(`new`, `me`, `2026-09-02T10:00:00Z`),
+    row(`theirs`, `them`, `2026-09-03T10:00:00Z`),
+  ]
+
+  it(`steers the run the URL names`, () => {
+    expect(issueSessionTarget(rows, `old`, `me`)?.id).toBe(`old`)
+  })
+
+  // A teammate's run on this issue is still THIS issue's run — the page
+  // renders the owner-only stub for it (EXP-312), which is the honest answer.
+  it(`names a teammate's run too`, () => {
+    expect(issueSessionTarget(rows, `theirs`, `me`)?.id).toBe(`theirs`)
+  })
+
+  it(`falls back to the newest own run without a name`, () => {
+    expect(issueSessionTarget(rows, undefined, `me`)?.id).toBe(`new`)
+  })
+
+  // The rows are the ISSUE's own, so an id that is not among them belongs to
+  // another issue: the fallback, never a blank page.
+  it(`falls back when the name is not this issue's run`, () => {
+    expect(issueSessionTarget(rows, `elsewhere`, `me`)?.id).toBe(`new`)
+  })
+
+  it(`is null when the caller has no run here`, () => {
+    expect(issueSessionTarget(rows, undefined, `nobody`)).toBeNull()
+    expect(issueSessionTarget([], `old`, `me`)).toBeNull()
   })
 })

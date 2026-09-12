@@ -1594,7 +1594,7 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(
             lines.map(\.text),
             [
-                "↻ Sleep in the background",
+                "Sleep in the background",
                 "Waiting on Sleep in the background",
                 // A detail-less wait row falls back to the tool's own name.
                 "Waiting on Monitor",

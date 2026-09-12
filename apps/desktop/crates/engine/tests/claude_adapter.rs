@@ -2400,6 +2400,15 @@ async fn background_tasks_and_wait_rows_reach_the_wire() {
             && event["toolKind"] == "execute")
         .expect("the backgrounded Bash stays an execute row");
     assert_eq!(background_bash["name"], serde_json::json!("Bash"));
+    // §2: a backgrounded shell task (`task_type: local_bash`, the Bash and the
+    // Monitor) rides the strip ONLY. It is not an agent, so it never becomes
+    // a subagent edge (a live run showed every such task as a loose
+    // "agent · done" row and a subagent tab).
+    let shell_edges: Vec<&Value> = wire
+        .iter()
+        .filter(|event| event["kind"] == "subagent")
+        .collect();
+    assert!(shell_edges.is_empty(), "shell tasks publish no subagent edge: {shell_edges:?}");
 
     // §5: the adapter measures the turn's output tokens (claude's
     // `thinking_tokens` deltas plus the assistant messages' `output_tokens`)
@@ -2473,6 +2482,42 @@ async fn a_second_copy_of_a_live_agent_publishes_a_duplicate_edge() {
         cards.last().expect("a final card")["status"],
         serde_json::json!("completed")
     );
+}
+
+/// EXP-856 review — the same reproduction with the WORKFLOW stopped before
+/// the second `task_started` arrives. A stopped workflow leaves its agents
+/// frozen mid-`running`, so the "is the first copy still live" test used to
+/// answer yes forever and warned about a duplicate that was really a
+/// legitimate resume. No warning here; the started edge still flows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_agent_of_a_stopped_workflow_publishes_no_duplicate() {
+    let _session = one_session_at_a_time();
+    let work = workdir("duplicate-agent-stopped");
+    let run = drive(
+        "duplicate-agent-stopped",
+        &work.0,
+        "Run a workflow whose agent messages you, then reply to it.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let agent = "a55b7012793deae02";
+    let wire = run.wire();
+    assert!(
+        !wire
+            .iter()
+            .any(|event| event["kind"] == "subagent" && event["status"] == "duplicate"),
+        "a stopped workflow's agent is not a live copy"
+    );
+    let statuses: Vec<String> = wire
+        .iter()
+        .filter(|event| event["kind"] == "subagent" && event["id"] == agent)
+        .filter_map(|event| event["status"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(statuses.first().map(String::as_str), Some("started"), "{statuses:?}");
 }
 
 // ---------------------------------------------------------------------------

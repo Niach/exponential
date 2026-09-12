@@ -215,7 +215,11 @@ pub struct Mapper {
     /// actually went out — an identical re-emit says nothing, exactly like
     /// `config_state`.
     last_background_tasks: Option<ActivityEvent>,
-    last_workflows: HashMap<String, ActivityEvent>,
+    /// Keyed by workflow id and kept in first-appearance order, capped at
+    /// [`steer::journal::JOURNAL_WORKFLOW_CAP`] like every other fold of this
+    /// slot (the journal, the relay room, the local feed) — a mapper lives
+    /// for the whole run and a map that only grows is a leak.
+    last_workflows: Vec<(String, ActivityEvent)>,
     compacting_since: Option<Instant>,
     /// Disambiguates two synthetic ids whose text is identical.
     ordinal: u32,
@@ -410,7 +414,7 @@ impl Mapper {
             turn_tokens: 0,
             turn_tokens_published_at: None,
             last_background_tasks: None,
-            last_workflows: HashMap::new(),
+            last_workflows: Vec::new(),
             compacting_since: None,
             ordinal: 0,
         }
@@ -957,10 +961,20 @@ impl Mapper {
         }
         let id = workflow.id.clone();
         let event = ActivityEvent::workflow(workflow);
-        if self.last_workflows.get(&id) == Some(&event) {
-            return;
+        match self.last_workflows.iter_mut().find(|(held, _)| *held == id) {
+            Some((_, last)) => {
+                if *last == event {
+                    return;
+                }
+                *last = event.clone();
+            }
+            None => {
+                self.last_workflows.push((id.clone(), event.clone()));
+                while self.last_workflows.len() > steer::journal::JOURNAL_WORKFLOW_CAP {
+                    self.last_workflows.remove(0);
+                }
+            }
         }
-        self.last_workflows.insert(id.clone(), event.clone());
         // The card patches the `tool` row with the SAME id, so the local feed
         // hangs it off that row exactly like a diff.
         emit(out, event, Some(id));
@@ -4262,6 +4276,37 @@ mod exp850_tests {
         mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-3", "melting")), &mut bad);
         mapper.on_update(&slot(WORKFLOW_META_KEY, card("", "running")), &mut bad);
         assert!(bad.wire.is_empty(), "{:?}", bad.wire);
+    }
+
+    /// EXP-850 §3 review: the per-id dedupe map is capped like every other
+    /// fold of this slot. A mapper lives for the whole run, so an uncapped
+    /// map of whole card payloads is a leak; the OLDEST id goes, and its only
+    /// cost is that a re-sent identical card for it publishes once more.
+    #[test]
+    fn the_workflow_dedupe_map_is_capped_at_the_journal_cap() {
+        let mut mapper = mapper();
+        let card = |id: &str| {
+            json!({ "id": id, "name": "wire-probe", "status": "running", "phases": [], "agents": [] })
+        };
+        let total = steer::journal::JOURNAL_WORKFLOW_CAP + 4;
+        for index in 0..total {
+            let mut out = MapOut::default();
+            mapper.on_update(&slot(WORKFLOW_META_KEY, card(&format!("wf-{index}"))), &mut out);
+            assert_eq!(out.wire.len(), 1);
+        }
+        assert_eq!(mapper.last_workflows.len(), steer::journal::JOURNAL_WORKFLOW_CAP);
+        assert_eq!(
+            mapper.last_workflows.first().map(|(id, _)| id.as_str()),
+            Some("wf-4")
+        );
+        // A card still held is still deduped…
+        let mut repeat = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-4")), &mut repeat);
+        assert!(repeat.wire.is_empty(), "{:?}", repeat.wire);
+        // …and an evicted one simply publishes again.
+        let mut evicted = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-0")), &mut evicted);
+        assert_eq!(evicted.wire.len(), 1);
     }
 
     /// EXP-850 §5: the turn slot stamps `startedAt`, counts tokens forward

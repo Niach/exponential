@@ -92,7 +92,9 @@ use crate::icons::registry;
 use crate::slash_commands;
 use crate::composer_images::{self, PendingImages};
 use crate::native_dialog::{self, AlertSpec};
-use crate::transcript_rows::{self, facet, plan_list_sync, ItemFacets, ListOp, RowKey};
+use crate::transcript_rows::{
+    self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE,
+};
 
 /// How long a body may run before it folds behind "Show more" (web
 /// `clampable`: >600 chars or >6 lines).
@@ -117,6 +119,16 @@ const WORKING_PULSE: Duration = Duration::from_millis(1400);
 /// EXP-850 §3: the fold key of one workflow agent's nested events.
 fn agent_fold_key(workflow_id: &str, index: u32) -> String {
     format!("{workflow_id}#{index}")
+}
+
+/// EXP-850 §3: an orphan card row's content identity — its ROW id is an
+/// index (the cards are keyed positionally at the tail), so the workflow it
+/// actually shows rides the fingerprint instead.
+fn orphan_fingerprint(workflow_id: &str) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::hash::DefaultHasher::new();
+    workflow_id.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// EXP-776: how far beyond the viewport the transcript list renders and
@@ -430,6 +442,11 @@ pub(crate) struct SteerSessionView {
     /// the list was last told) and `active` (the answerable cards, read by
     /// the header and the rows instead of being rebuilt per call).
     rows: Vec<FeedRowSpec>,
+    /// EXP-850 §3: the workflow cards with no tool row in the projection (the
+    /// call scrolled out of the window, or the feed trimmed it), rendered as
+    /// their own rows at the tail — between the transcript and the working
+    /// row, in feed order. Web, iOS and Android render the same orphans.
+    orphan_workflows: Vec<String>,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
     /// Whether the synthetic trailing "Working…" row is present — the list's
@@ -623,6 +640,7 @@ impl SteerSessionView {
                 list
             },
             rows: Vec::new(),
+            orphan_workflows: Vec::new(),
             row_keys: Vec::new(),
             active: HashSet::new(),
             working: false,
@@ -1123,9 +1141,16 @@ impl SteerSessionView {
         // ones, and §9 floats an unanswered card under everything that
         // followed it. Both are pure ([`crate::session_rows`]) and both run
         // on the projection, so the list diff sees one settled order.
+        let held = self.feed.workflow_ids();
         if focus.is_none() {
-            crate::session_rows::hide_workflow_agent_rows(&mut self.rows, self.feed.items());
+            crate::session_rows::hide_workflow_agent_rows(&mut self.rows, self.feed.items(), &held);
             crate::session_rows::pending_last(&mut self.rows, self.feed.items());
+            // §3: a card whose `Workflow` row is outside the window (or gone
+            // with the feed's trim) still renders — at the tail, never lost.
+            self.orphan_workflows =
+                crate::session_rows::orphan_workflow_ids(&self.rows, self.feed.items(), &held);
+        } else {
+            self.orphan_workflows.clear();
         }
         // EXP-850 §12: the per-turn file cards, derived once per frame.
         self.file_cards = crate::session_rows::file_cards(self.feed.items());
@@ -1154,8 +1179,27 @@ impl SteerSessionView {
             let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec));
             keys.push(RowKey { id, fingerprint });
         }
+        // §3: the orphan cards, in feed order, keyed above every feed id and
+        // below the working row's so the list sync keeps its ascending order.
+        for (ix, id) in self.orphan_workflows.iter().enumerate() {
+            let gap = f32::from(self.row_gap(self.rows.len() + ix));
+            let fingerprint = transcript_rows::fold_gap(orphan_fingerprint(id), gap);
+            let workflow = self.feed.workflow_for(id);
+            let fingerprint = transcript_rows::fold_extra(
+                fingerprint,
+                workflow.map_or(0, |workflow| {
+                    (workflow.agents.len() as u64) << 32
+                        | (workflow.done_agents() as u64) << 16
+                        | workflow.status as u64
+                }),
+            );
+            keys.push(RowKey {
+                id: ORPHAN_ROW_BASE + ix as steer::FeedItemId,
+                fingerprint,
+            });
+        }
         if self.working {
-            let gap = f32::from(self.row_gap(self.rows.len()));
+            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len()));
             // EXP-850 §5: the working row's text is no longer a constant (a
             // verb, a ticking duration, a workflow's caption), so its
             // fingerprint folds in what it will say.
@@ -3700,7 +3744,20 @@ impl SteerSessionView {
             cx.notify();
         }
         let Some(spec) = self.rows.get(ix) else {
-            return self.transcript_row(ix, self.render_working_row(cx));
+            // §3: past the transcript sit the orphan workflow cards, then the
+            // synthetic "Working…" line.
+            let orphan = self
+                .orphan_workflows
+                .get(ix - self.rows.len())
+                .and_then(|id| self.feed.workflow_for(id))
+                .cloned();
+            return match orphan {
+                Some(workflow) => {
+                    let card = self.render_workflow_card(&workflow, window, cx);
+                    self.transcript_row(ix, card)
+                }
+                None => self.transcript_row(ix, self.render_working_row(cx)),
+            };
         };
         let live = self.phase == ViewerPhase::Live;
         let last_row = self.rows.len().saturating_sub(1);
@@ -3731,31 +3788,10 @@ impl SteerSessionView {
     ) -> AnyElement {
         match row {
             FeedRow::Single(item) => self.render_item(item, active, window, cx),
-            // EXP-850 §3: a `Workflow` call that got grouped into a tool run
-            // still renders its CARD — under the group row rather than
-            // buried inside "N tool calls".
-            FeedRow::ToolRun { id, items } => {
-                let group = self.render_tool_run(*id, items, live_tail, cx);
-                let workflows: Vec<steer::WorkflowState> = items
-                    .iter()
-                    .filter_map(|item| self.workflow_of(item).cloned())
-                    .collect();
-                if workflows.is_empty() {
-                    group
-                } else {
-                    let cards: Vec<AnyElement> = workflows
-                        .iter()
-                        .map(|workflow| self.render_workflow_card(workflow, window, cx))
-                        .collect();
-                    v_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_1()
-                        .child(group)
-                        .children(cards)
-                        .into_any_element()
-                }
-            }
+            // EXP-850 §3: a `Workflow` call never reaches a tool RUN — the
+            // grouping keeps it a row of its own (`is_workflow_call`), which
+            // renders as the card.
+            FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => {
                 self.render_subagent(*id, items, window, cx)
@@ -4572,26 +4608,17 @@ impl SteerSessionView {
                     .xsmall()
                     .text_color(muted),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(format!(
-                        "Workflow {}",
-                        workflow.name.trim()
-                    ))),
-            )
-            .when(running, |this| this.child(Spinner::new().xsmall()))
+            // The title IS the shared caption (`Workflow {name} · {done}/{total}
+            // agents done · {phase}`), the same string the web, iOS and Android
+            // cards lead with and the list rows sync.
             .child(
                 div()
                     .min_w_0()
                     .truncate()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(SharedString::from(crate::workflow_card::card_status(
-                        workflow,
-                    ))),
-            );
+                    .text_color(cx.theme().foreground)
+                    .child(SharedString::from(steer::workflow_caption(workflow))),
+            )
+            .when(running, |this| this.child(Spinner::new().xsmall()));
         let mut column = v_flex()
             .w_full()
             .min_w_0()
@@ -4658,6 +4685,23 @@ impl SteerSessionView {
         // agent rows fold away.
         for warning in self.workflow_duplicates(&workflow.id) {
             column = column.child(self.render_duplicate_row(&warning, cx));
+        }
+        // The run's summary closes the card once it is over (web parity).
+        if workflow.status.is_terminal() {
+            let status = crate::workflow_card::card_status(workflow);
+            if !status.is_empty() {
+                column = column.child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .pt_1()
+                        .border_t_1()
+                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                        .text_2xs()
+                        .text_color(muted)
+                        .child(SharedString::from(status)),
+                );
+            }
         }
         column.into_any_element()
     }

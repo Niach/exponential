@@ -72,6 +72,8 @@ import {
   parseWorkflow,
   rowIsPendingCard,
   runningWorkflow,
+  nestedWorkflowId,
+  orphanWorkflowIds,
   workflowPhaseCounts,
   workflowSubagentIds,
 } from "./agent-feed"
@@ -2252,5 +2254,74 @@ describe(`workflow agents are never tabs (§3/§4)`, () => {
     expect(summary.workflowId).toBeUndefined()
     expect(summary.duplicateDetail).toBeUndefined()
     expect(summary.done).toBe(true)
+  })
+})
+
+// EXP-850 §3 / EXP-856: the card outlives its tool row, and an edge tagged
+// with a card nobody holds keeps its ordinary row.
+describe(`orphanWorkflowIds`, () => {
+  const tool = (id: number, over: Record<string, unknown> = {}) =>
+    ({ id, kind: `tool`, name: `Workflow`, ...over }) as {
+      id: number
+      kind: string
+      workflowId?: string
+    }
+  const held = (...ids: string[]) =>
+    new Map(ids.map((id) => [id, { id }])) as ReadonlyMap<string, unknown>
+
+  it(`is empty while every card's tool row is rendered`, () => {
+    const rows = groupFeedRows([tool(1, { workflowId: `w1` })])
+    expect(orphanWorkflowIds(rows, held(`w1`))).toEqual([])
+  })
+
+  it(`names the card whose tool row fell out of the window`, () => {
+    // The row is BELOW the window start — exactly what eviction looks like.
+    const feed = [tool(1, { workflowId: `w1` }), tool(2, { workflowId: `w2` })]
+    const rows = groupFeedRows(feed, 1)
+    expect(orphanWorkflowIds(rows, held(`w1`, `w2`))).toEqual([`w1`])
+  })
+
+  it(`names every card when nothing of the run is rendered`, () => {
+    expect(orphanWorkflowIds([], held(`w1`, `w2`))).toEqual([`w1`, `w2`])
+  })
+
+  it(`counts a tool row nested in a run or a subagent group as rendered`, () => {
+    const rows = groupFeedRows([tool(1), tool(2, { workflowId: `w1` })])
+    // The workflow row is its own `single` (§3), so this asserts the scan
+    // reaches grouped items too.
+    expect(
+      orphanWorkflowIds(
+        [{ kind: `toolRun`, id: 1, items: [{ id: 2, kind: `tool`, workflowId: `w1` }] }],
+        held(`w1`)
+      )
+    ).toEqual([])
+    expect(orphanWorkflowIds(rows, held(`w1`))).toEqual([])
+  })
+
+  it(`holds nothing when there are no cards`, () => {
+    expect(orphanWorkflowIds(groupFeedRows([tool(1)]), new Map())).toEqual([])
+  })
+})
+
+describe(`nestedWorkflowId`, () => {
+  const agents = new Map([[`a1`, `w1`]])
+  const held = new Map([[`w1`, {}]]) as ReadonlyMap<string, unknown>
+
+  it(`nests an edge whose card this client holds`, () => {
+    expect(nestedWorkflowId({ subagentId: `a1` }, agents, held)).toBe(`w1`)
+    expect(nestedWorkflowId({ workflowId: `w1` }, agents, held)).toBe(`w1`)
+  })
+
+  it(`keeps the ordinary row when the card never arrived`, () => {
+    // EXP-856: hiding on the TAG alone drops the duplicate warning with it.
+    expect(nestedWorkflowId({ workflowId: `w9` }, agents, held)).toBeNull()
+    expect(
+      nestedWorkflowId({ subagentId: `a1`, workflowId: `w1` }, agents, new Map())
+    ).toBeNull()
+  })
+
+  it(`never nests an ordinary subagent`, () => {
+    expect(nestedWorkflowId({ subagentId: `a2` }, agents, held)).toBeNull()
+    expect(nestedWorkflowId({}, agents, held)).toBeNull()
   })
 })

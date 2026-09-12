@@ -2495,23 +2495,31 @@ private fun BackgroundWorkStrip(tasks: List<BackgroundTask>, waits: List<String>
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         tasks.forEach { task ->
-            Text(
-                backgroundTaskLabel(task.description),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            StripLine(icon = ExpIcons.uiRepeat, text = backgroundTaskLabel(task.description))
         }
         waits.forEach { detail ->
-            Text(
-                waitingLabel(detail),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            StripLine(icon = ExpIcons.uiClock, text = waitingLabel(detail))
         }
+    }
+}
+
+/** One strip line: the concept glyph every client draws (repeat for a background task, clock for a wait) and the bare text. */
+@Composable
+private fun StripLine(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

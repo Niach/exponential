@@ -5,6 +5,7 @@ import { AgentSessionView } from "@/components/agent-session"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { Button } from "@/components/ui/button"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import { issueSessionTarget } from "@/hooks/use-open-session"
 import { emptyFilters } from "@/lib/filters"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { rowPrState, useSessionRow } from "@/hooks/use-agents-data"
@@ -19,18 +20,26 @@ import type { CodingSession, Issue } from "@/db/schema"
 // header's back returns to the issue, and the run is one hop from the work it
 // belongs to.
 //
-// Which run: the issue's NEWEST OWN one (live or ended) — the same rule the
-// issue detail's Watch pill follows (`issue-coding-rows.tsx`). EXP-312 keeps
-// live runs owner-only, so a teammate's run never mounts a view here.
+// Which run: the one `?run=` NAMES when it belongs to this issue (EXP-856 —
+// the issue can have several, and the row that was clicked is the one the
+// reader meant), otherwise the issue's NEWEST OWN one (live or ended), the
+// same rule the issue detail's Watch pill follows (`issue-coding-rows.tsx`).
+// EXP-312 keeps live runs owner-only, so a teammate's run never mounts a view
+// here.
 //
 // A NON-NESTED route (`$issueIdentifier_`): the issue page is a leaf, not a
 // layout, so this is its sibling under the same URL prefix.
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier_/session`
 )({
-  validateSearch: (search: Record<string, unknown>): { from?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { from?: string; run?: string } => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    // EXP-856: the session id this page was opened ON. Ignored when it names
+    // a run of another issue (the query below only holds this issue's).
+    run: typeof search.run === `string` && search.run ? search.run : undefined,
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -45,7 +54,7 @@ export const Route = createFileRoute(
 
 function IssueSessionPage() {
   const { teamSlug, boardSlug, issueIdentifier } = Route.useParams()
-  const { from } = Route.useSearch()
+  const { from, run } = Route.useSearch()
   const navigate = useNavigate()
   const { data: authSession } = useSession()
   const currentUserId = authSession?.user?.id
@@ -72,8 +81,9 @@ function IssueSessionPage() {
   )
   const issue = ((issues ?? []) as Issue[])[0] ?? null
 
-  // Every run this issue has had; the newest of the CALLER's own is the one
-  // this page steers.
+  // Every run this issue has had — the query IS the belonging check, so a
+  // `?run=` naming another issue's session simply finds nothing here and the
+  // page falls back to the newest of the CALLER's own.
   const { data: sessionRows, isReady: sessionsReady } = useLiveQuery(
     (query) =>
       issue
@@ -83,20 +93,20 @@ function IssueSessionPage() {
         : undefined,
     [issue?.id]
   )
-  const newestOwn = useMemo(() => {
-    const rows = ((sessionRows ?? []) as CodingSession[]).filter(
-      (row) => row.userId === currentUserId
-    )
-    if (rows.length === 0) return null
-    return rows.reduce((newest, row) =>
-      new Date(row.startedAt) > new Date(newest.startedAt) ? row : newest
-    )
-  }, [sessionRows, currentUserId])
+  const target = useMemo(
+    () =>
+      issueSessionTarget(
+        (sessionRows ?? []) as CodingSession[],
+        run,
+        currentUserId
+      ),
+    [sessionRows, run, currentUserId]
+  )
 
   const { row, session, isReady } = useSessionRow(
     team?.id,
     currentUserId,
-    newestOwn?.id
+    target?.id
   )
 
   const goBack = useCallback(() => {
@@ -124,7 +134,7 @@ function IssueSessionPage() {
     )
   }
 
-  if (!newestOwn || !session || !row) {
+  if (!target || !session || !row) {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <MobileDetailHeader title={issue.identifier} onBack={goBack} />
@@ -144,9 +154,9 @@ function IssueSessionPage() {
 
   const identity = sessionIdentity(row)
 
-  // EXP-312: only the owner may steer a run — `newestOwn` already filters to
-  // the caller's, so this is the belt to that braces (a row that changed hands
-  // mid-render renders the badge instead of minting a ticket).
+  // EXP-312: only the owner may steer a run — this is the gate, not a belt:
+  // `?run=` may name a TEAMMATE's run on this issue, which renders the synced
+  // badge instead of minting a ticket.
   if (session.userId !== currentUserId) {
     return (
       <div className="flex h-full min-h-0 flex-col">

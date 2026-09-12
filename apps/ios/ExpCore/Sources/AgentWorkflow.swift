@@ -273,8 +273,8 @@ extension AgentFeed {
     /// the LIST; this names the one value the strip keys on.)
     public static let toolKindWait = "wait"
 
-    /// The `↻ ` prefix one background-task line carries. Byte-identical ×4.
-    public static let backgroundTaskPrefix = "↻ "
+    // A background-task line is the bare description; the repeat glyph is
+    // drawn by the view (the same concept every client draws), never text.
     /// The lead of an open wait row's line. Byte-identical ×4.
     public static let waitingOnPrefix = "Waiting on "
 
@@ -290,7 +290,7 @@ extension AgentFeed {
             AgentStripLine(
                 id: "task:\(task.id)",
                 kind: .backgroundTask,
-                text: "\(backgroundTaskPrefix)\(task.description)"
+                text: task.description
             )
         }
         var seen = Set(lines.map(\.text))

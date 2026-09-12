@@ -1880,6 +1880,53 @@ export function backgroundStripLines(input: {
   return lines
 }
 
+/** EXP-850 §3: the workflow cards this client holds whose `Workflow` tool row
+ *  is NOT among the rendered rows — evicted by the feed's byte budget, or
+ *  simply above the window (`steerFeed.window`). The card is the only place a
+ *  running workflow's agents and its duplicate warnings are shown, so it may
+ *  not vanish with its row: the renderer appends one card per id returned
+ *  here at the TAIL of the transcript (Android `orphanWorkflows`).
+ *
+ *  Order is the `workflows` map's own (insertion = first frame seen). */
+export function orphanWorkflowIds<
+  T extends { id: number; kind: string; workflowId?: string },
+>(
+  rows: readonly FeedRow<T>[],
+  workflows: ReadonlyMap<string, unknown>
+): string[] {
+  if (workflows.size === 0) return []
+  const shown = new Set<string>()
+  for (const row of rows) {
+    const items = row.kind === `single` ? [row.item] : row.items
+    for (const item of items) {
+      if (item.kind === `tool` && item.workflowId) shown.add(item.workflowId)
+    }
+  }
+  return [...workflows.keys()].filter((id) => !shown.has(id))
+}
+
+/** EXP-850 §3/§4: the workflow card a subagent's rows belong INSIDE — its
+ *  agents' runs and the `duplicate` warnings tagged with its id render there,
+ *  never as loose rows in the transcript.
+ *
+ *  `null` when this client holds no such card (the frame never arrived, or it
+ *  was dropped): the edge then keeps its ORDINARY subagent group row, with the
+ *  duplicate warning inline on it — a warning nobody can see is the one thing
+ *  EXP-856 exists to prevent. Android `nestWorkflowRows` is the same rule. */
+export function nestedWorkflowId(
+  edge: { subagentId?: string; workflowId?: string },
+  workflowAgents: ReadonlyMap<string, string>,
+  workflows: ReadonlyMap<string, unknown>
+): string | null {
+  const id =
+    edge.workflowId ??
+    (edge.subagentId === undefined
+      ? undefined
+      : workflowAgents.get(edge.subagentId))
+  if (id === undefined) return null
+  return workflows.has(id) ? id : null
+}
+
 /** EXP-856 §4: the subagents that belong to a workflow, by id — their edges
  *  nest under the card and never open a steerable tab. */
 export function workflowSubagentIds(

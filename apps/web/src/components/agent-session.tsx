@@ -69,7 +69,9 @@ import {
   FEED_WINDOW_STEP,
   isAnswerLocked,
   looksLikeMarkdown,
+  nestedWorkflowId,
   optionForHotkey,
+  orphanWorkflowIds,
   optionHotkey,
   pendingAnswerable,
   opensInlineField,
@@ -860,6 +862,18 @@ export function AgentSessionView({
     return byWorkflow
   }, [feed, workflowAgents])
 
+  /** EXP-850 §3: cards whose `Workflow` tool row this window does not hold —
+   *  evicted, or above the rendered rows. They land at the TAIL of the
+   *  transcript, because a card is the ONLY place a running workflow's agents
+   *  and its duplicate warnings are shown (Android parity). */
+  const orphanWorkflows = useMemo(
+    () =>
+      orphanWorkflowIds(rows, workflows)
+        .map((id) => workflows.get(id))
+        .filter((workflow): workflow is WorkflowState => workflow !== undefined),
+    [rows, workflows]
+  )
+
   /** §12: which render row each file card sits behind. A card anchored below
    *  the rendered window is dropped (its turn is off screen). */
   const cardsByRow = useMemo(() => {
@@ -1228,10 +1242,19 @@ export function AgentSessionView({
                     }
                     if (row.kind === `subagent`) {
                       // EXP-850 §3: a workflow's agents live INSIDE its card,
-                      // never as a loose group row in the transcript. A file
-                      // card anchored here still renders (§12): the turn it
-                      // closes happened whether or not its row is drawn.
-                      if (workflowAgents.has(row.subagentId)) {
+                      // never as a loose group row in the transcript — but
+                      // ONLY when this client HOLDS that card (EXP-856): an
+                      // edge tagged with a workflow whose frame never arrived
+                      // keeps its ordinary row, warning and all. A file card
+                      // anchored here still renders (§12): the turn it closes
+                      // happened whether or not its row is drawn.
+                      if (
+                        nestedWorkflowId(
+                          { subagentId: row.subagentId },
+                          workflowAgents,
+                          workflows
+                        )
+                      ) {
                         return cards ? wrap(null) : null
                       }
                       return wrap(<SubagentGroupRow items={row.items} />)
@@ -1304,9 +1327,10 @@ export function AgentSessionView({
                           />
                         )
                       case `subagent`:
+                        // Same rule as the group row above: nested only when
+                        // the card that would hold it exists.
                         if (
-                          item.workflowId !== undefined ||
-                          workflowAgents.has(item.subagentId)
+                          nestedWorkflowId(item, workflowAgents, workflows)
                         ) {
                           return cards ? wrap(null) : null
                         }
@@ -1325,14 +1349,40 @@ export function AgentSessionView({
                         )
                     }
                   })}
+                  {/* EXP-850 §3: a card whose `Workflow` tool row is not in
+                      the rendered window still has to be seen — it lands at
+                      the tail as a row of its own rather than taking its
+                      agents and its warnings down with it (×4). */}
+                  {orphanWorkflows.map((workflow, index) => (
+                    <div
+                      key={`workflow-${workflow.id}`}
+                      className={transcriptGapClass(
+                        index > 0
+                          ? `tool`
+                          : rows.length === 0
+                            ? null
+                            : rowClass(rows[rows.length - 1]),
+                        `tool`
+                      )}
+                    >
+                      <WorkflowCard
+                        workflow={workflow}
+                        agentEvents={workflowAgentEvents.get(workflow.id)}
+                        duplicates={workflowDuplicates.get(workflow.id)}
+                        className={TRANSCRIPT_TOOL_TEXT}
+                      />
+                    </div>
+                  ))}
                   {/* EXP-389: the agent-is-busy footer under the newest
                       event (mobile parity) — main conversation only. */}
                   {working && (
                     <div
                       className={transcriptGapClass(
-                        rows.length === 0
-                          ? null
-                          : rowClass(rows[rows.length - 1]),
+                        orphanWorkflows.length > 0
+                          ? `tool`
+                          : rows.length === 0
+                            ? null
+                            : rowClass(rows[rows.length - 1]),
                         `tool`
                       )}
                     >

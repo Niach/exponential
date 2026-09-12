@@ -60,24 +60,57 @@ fn row_is_pending(row: &FeedRowSpec, items: &[FeedItem]) -> bool {
 // §3/§4 — a workflow's agents are never loose rows
 // ---------------------------------------------------------------------------
 
-/// Drop the subagent rows whose agent belongs to a WORKFLOW (§3: "agents of a
-/// workflow are never subagent tabs", §4: their edges nest under the card).
-/// The card itself renders them, so leaving the row in would print each agent
-/// twice.
-pub(crate) fn hide_workflow_agent_rows(rows: &mut Vec<FeedRowSpec>, items: &[FeedItem]) {
-    rows.retain(|row| !row_is_workflow_agent(row, items));
+/// Drop the subagent rows whose agent belongs to a WORKFLOW the feed HOLDS a
+/// card for (§3: "agents of a workflow are never subagent tabs", §4: their
+/// edges nest under the card). The card itself renders them, so leaving the
+/// row in would print each agent twice.
+///
+/// `held` is `feed.workflow_ids()`. Hiding on the edge's `workflowId` alone
+/// would swallow the agent entirely when the card is gone (evicted past the
+/// cap, or a `workflow` frame that never arrived) — web, iOS and Android all
+/// gate the same way.
+pub(crate) fn hide_workflow_agent_rows(
+    rows: &mut Vec<FeedRowSpec>,
+    items: &[FeedItem],
+    held: &[&str],
+) {
+    rows.retain(|row| !row_is_workflow_agent(row, items, held));
 }
 
-fn row_is_workflow_agent(row: &FeedRowSpec, items: &[FeedItem]) -> bool {
+fn row_is_workflow_agent(row: &FeedRowSpec, items: &[FeedItem], held: &[&str]) -> bool {
     matches!(row, FeedRowSpec::Subagent { .. })
         && row
             .item_indices()
             .iter()
             .filter_map(|&ix| items.get(ix))
             .any(|item| match &item.kind {
-                FeedKind::Subagent { workflow_id, .. } => workflow_id.is_some(),
+                FeedKind::Subagent { workflow_id, .. } => workflow_id
+                    .as_deref()
+                    .is_some_and(|id| held.contains(&id)),
                 _ => false,
             })
+}
+
+/// §3 — the workflow cards with NO tool row in the rendered projection: the
+/// `Workflow` call scrolled out of the window, or the feed trimmed it away.
+/// The card is the run's only trace of that workflow, so it renders as its
+/// own row at the transcript tail instead of vanishing (web/iOS/Android do
+/// the same). Ids come back in the feed's first-appearance order.
+pub(crate) fn orphan_workflow_ids(
+    rows: &[FeedRowSpec],
+    items: &[FeedItem],
+    held: &[&str],
+) -> Vec<String> {
+    let rendered: Vec<&str> = rows
+        .iter()
+        .flat_map(|row| row.item_indices().iter())
+        .filter_map(|&ix| items.get(ix))
+        .filter_map(|item| item.call_id())
+        .collect();
+    held.iter()
+        .filter(|id| !rendered.contains(*id))
+        .map(|id| (*id).to_string())
+        .collect()
 }
 
 /// Every feed item tagged with `subagent_id`, by index — what a workflow
@@ -194,19 +227,20 @@ pub(crate) fn format_duration(ms: i64) -> String {
     format!("{}h {:02}m", minutes / 60, minutes % 60)
 }
 
-/// `812` / `2.0k` / `1.2M` — the ×4 token format, rounded to one decimal and
-/// promoted when the rounding fills the unit (999_990 reads `1.0M`, never
-/// `1000.0k`).
+/// `812` / `2.0k` / `1.2M` — the ×4 token format: one decimal from a
+/// thousand up, TRUNCATED, never rounded up past a count the agent has not
+/// reached (web `formatTokenCount`, iOS `AgentFeed.workingTokens`, Android
+/// `formatWorkingTokens`). 1250 reads `1.2k` and 999_990 `999.9k`.
 pub(crate) fn format_tokens(tokens: u64) -> String {
     if tokens < 1_000 {
         return tokens.to_string();
     }
-    let thousands = (tokens as f64 / 1_000.0 * 10.0).round() / 10.0;
-    if thousands < 1_000.0 {
-        return format!("{thousands:.1}k");
-    }
-    let millions = (tokens as f64 / 1_000_000.0 * 10.0).round() / 10.0;
-    format!("{millions:.1}M")
+    let (tenths, unit) = if tokens < 1_000_000 {
+        (tokens / 100, "k")
+    } else {
+        (tokens / 100_000, "M")
+    };
+    format!("{}.{}{unit}", tenths / 10, tenths % 10)
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +507,12 @@ mod tests {
     }
 
     fn specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
-        steer::group_feed_row_specs(items)
+        steer::group_feed_row_specs(items, &[])
+    }
+
+    /// The same projection with the feed's workflow ids in hand (§3).
+    fn specs_with(items: &[FeedItem], workflows: &[&str]) -> Vec<FeedRowSpec> {
+        steer::group_feed_row_specs(items, workflows)
     }
 
     /// §9: an unresolved card moves after every later row, and its answered
@@ -509,6 +548,41 @@ mod tests {
         );
     }
 
+    /// §3 review: a card whose `Workflow` row is outside the rendered
+    /// projection (scrolled out of the window, or trimmed off the feed) is
+    /// an ORPHAN — rendered as its own row at the tail rather than lost. A
+    /// card whose row IS on screen is not.
+    #[test]
+    fn a_card_without_its_tool_row_is_an_orphan() {
+        let items = vec![
+            narration(1),
+            tool(2, Some(ToolKind::Other), true, None),
+            narration(3),
+            tool(4, Some(ToolKind::Other), true, None),
+        ];
+        let held = ["call-2", "call-4"];
+
+        // The whole feed: both `Workflow` rows are on screen, no orphans.
+        let rows = specs_with(&items, &held);
+        assert!(orphan_workflow_ids(&rows, &items, &held).is_empty());
+
+        // A window that starts past the first call orphans exactly that card.
+        let windowed = steer::group_feed_row_specs_from(&items, 2, &held);
+        assert_eq!(
+            orphan_workflow_ids(&windowed, &items, &held),
+            vec!["call-2".to_string()]
+        );
+
+        // A card whose row the feed never held at all is an orphan too, and
+        // the order is the feed's own.
+        let held = ["call-9", "call-2", "call-8"];
+        let rows = specs_with(&items, &held);
+        assert_eq!(
+            orphan_workflow_ids(&rows, &items, &held),
+            vec!["call-9".to_string(), "call-8".to_string()]
+        );
+    }
+
     /// §3/§4: a workflow agent's row never renders on the main line (the card
     /// holds it); an ordinary subagent's does.
     #[test]
@@ -519,10 +593,19 @@ mod tests {
             subagent(3, "a-2", None),
         ];
         let mut rows = specs(&items);
-        hide_workflow_agent_rows(&mut rows, &items);
+        hide_workflow_agent_rows(&mut rows, &items, &["toolu_wf"]);
         assert_eq!(
             rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(),
             vec![1, 3]
+        );
+
+        // Review: with NO card held for that workflow the agent's row is the
+        // only trace of it left, so it stays on the main line (×4).
+        let mut rows = specs(&items);
+        hide_workflow_agent_rows(&mut rows, &items, &[]);
+        assert_eq!(
+            rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(),
+            vec![1, 2, 3]
         );
     }
 
@@ -633,13 +716,18 @@ mod tests {
         assert_eq!(format_duration(3_599_000), "59m 59s");
         assert_eq!(format_duration(3_780_000), "1h 03m");
 
+        // Truncated, never rounded — the ×4 rule.
         assert_eq!(format_tokens(0), "0");
         assert_eq!(format_tokens(812), "812");
         assert_eq!(format_tokens(999), "999");
         assert_eq!(format_tokens(1_000), "1.0k");
+        assert_eq!(format_tokens(1_250), "1.2k");
+        assert_eq!(format_tokens(1_960), "1.9k");
         assert_eq!(format_tokens(2_000), "2.0k");
         assert_eq!(format_tokens(12_345), "12.3k");
-        assert_eq!(format_tokens(999_990), "1.0M");
+        assert_eq!(format_tokens(999_990), "999.9k");
+        assert_eq!(format_tokens(1_000_000), "1.0M");
+        assert_eq!(format_tokens(1_250_000), "1.2M");
         assert_eq!(format_tokens(1_200_000), "1.2M");
     }
 
@@ -775,7 +863,7 @@ mod tests {
         });
         feed.apply(event(WORKFLOW_FRAME));
         // The tool row is still ONE row; the card hangs off its call id.
-        let rows = steer::group_feed_row_specs(feed.items());
+        let rows = feed.row_specs();
         assert_eq!(rows.len(), 1);
         let call_id = match &feed.items()[0].kind {
             FeedKind::Tool { call_id, .. } => call_id.clone().expect("the row keeps its id"),
@@ -820,7 +908,7 @@ mod tests {
             ]
         );
         // The wait row stays an ordinary tool row in the transcript (§1).
-        assert_eq!(steer::group_feed_row_specs(feed.items()).len(), 1);
+        assert_eq!(feed.row_specs().len(), 1);
         // …and it leaves the strip the moment it settles.
         feed.apply(steer::ActivityEvent::tool_update(
             "toolu_1",
@@ -864,9 +952,26 @@ mod tests {
             warnings[0].workflow_id.as_deref(),
             Some("toolu_017Lh63mYhRJ3MrA4A1PXytt")
         );
-        let mut rows = steer::group_feed_row_specs(feed.items());
-        hide_workflow_agent_rows(&mut rows, feed.items());
+        // Review: the row nests under the card only once the feed HOLDS one
+        // — until then the edge is the only trace of that agent.
+        let mut loose = feed.row_specs();
+        hide_workflow_agent_rows(&mut loose, feed.items(), &feed.workflow_ids());
+        assert_eq!(loose.len(), 2, "no card yet, so the edge stays on the line");
+        feed.apply(steer::ActivityEvent::workflow(steer::WorkflowState {
+            id: "toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string(),
+            name: "wire-probe".to_string(),
+            status: steer::WorkflowStatus::Running,
+            ..steer::WorkflowState::default()
+        }));
+        let mut rows = feed.row_specs();
+        hide_workflow_agent_rows(&mut rows, feed.items(), &feed.workflow_ids());
         assert_eq!(rows.len(), 1, "the agent's row belongs to the card");
+        // …and with no `Workflow` tool row in the projection the card is an
+        // ORPHAN, rendered at the tail rather than lost.
+        assert_eq!(
+            orphan_workflow_ids(&rows, feed.items(), &feed.workflow_ids()),
+            vec!["toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()]
+        );
         // A workflow agent is never a steerable TAB either.
         assert!(steer::feed::visible_subagent_tabs(&feed.subagents(), None).is_empty());
     }

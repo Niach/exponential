@@ -126,7 +126,10 @@ pub(crate) fn agent_meta(agent: &WorkflowAgent) -> String {
 }
 
 /// The ONE detail line an agent row carries: its error when it failed, its
-/// result preview when it finished, the tool it is in while it runs.
+/// result preview when it finished, the tool it is in while it runs — and
+/// NOTHING while it is queued (web, iOS and Android all show a queued agent
+/// no detail; a stale `lastTool` from a previous incarnation read as work
+/// happening).
 pub(crate) fn agent_detail(agent: &WorkflowAgent) -> Option<String> {
     let pick = |text: &Option<String>| {
         text.as_deref()
@@ -137,9 +140,10 @@ pub(crate) fn agent_detail(agent: &WorkflowAgent) -> Option<String> {
     match agent.state {
         WorkflowAgentState::Error => pick(&agent.error).or_else(|| pick(&agent.result_preview)),
         WorkflowAgentState::Done => pick(&agent.result_preview),
-        WorkflowAgentState::Running | WorkflowAgentState::Queued => {
+        WorkflowAgentState::Running => {
             pick(&agent.last_tool_summary).or_else(|| pick(&agent.last_tool))
         }
+        WorkflowAgentState::Queued => None,
     }
 }
 
@@ -296,7 +300,14 @@ mod tests {
         failed.result_preview = Some("ok".to_string());
         assert_eq!(agent_detail(&failed).as_deref(), Some("exit 1"));
 
+        // A QUEUED agent says nothing, even when the frame still carries the
+        // tool its previous incarnation was in (parity: web/iOS/Android show
+        // a queued agent no detail at all).
         assert_eq!(agent_detail(&agent(4, None, WorkflowAgentState::Queued)), None);
+        let mut queued = agent(5, None, WorkflowAgentState::Queued);
+        queued.last_tool = Some("Bash".to_string());
+        queued.last_tool_summary = Some("cargo test -p ui".to_string());
+        assert_eq!(agent_detail(&queued), None);
     }
 
     /// §3: the summary replaces the progress line once the workflow is over.

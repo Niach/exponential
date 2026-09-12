@@ -258,4 +258,5 @@ fun workingCaption(
 fun waitingLabel(detail: String): String = "Waiting on $detail"
 
 /** EXP-850 (S2): what one background task says in that same strip. */
-fun backgroundTaskLabel(description: String): String = "↻ $description"
+/** The bare description: the repeat glyph is drawn by the strip (the same concept every client draws), never text. */
+fun backgroundTaskLabel(description: String): String = description

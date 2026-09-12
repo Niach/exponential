@@ -2248,11 +2248,16 @@ impl Render for ChatScreenView {
                     .items_center()
                     .p_6()
                     .gap_6()
+                    // Both stacks must NOT shrink: inside the scroll column a
+                    // flex-shrinkable child gets squeezed to the viewport and
+                    // its trailing rows (options, the blocker note) painted
+                    // under the Running band that follows.
                     .child(
                         v_flex()
                             .w_full()
                             .max_w(px(PROMPT_MAX_W))
                             .min_w_0()
+                            .flex_shrink_0()
                             .gap_2()
                             .children(suggestions)
                             .child(
@@ -2267,6 +2272,7 @@ impl Render for ChatScreenView {
                             .w_full()
                             .max_w(px(PROMPT_MAX_W))
                             .min_w_0()
+                            .flex_shrink_0()
                             .child(self.sessions_running.clone())
                             .child(self.sessions_past.clone()),
                     ),

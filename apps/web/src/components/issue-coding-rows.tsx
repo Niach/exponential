@@ -443,7 +443,7 @@ function AgentRow({
           <button
             type="button"
             aria-label="Open coding session"
-            onClick={() => openSession(ownLatest)}
+            onClick={() => openSession(ownLatest, { originIssueId: issue.id })}
             className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
           >
             {glyph}
@@ -472,7 +472,7 @@ function AgentRow({
             size="sm"
             mode="action"
             primary
-            onClick={() => openSession(ownLatest)}
+            onClick={() => openSession(ownLatest, { originIssueId: issue.id })}
           >
             <WatchIcon />
             Watch

@@ -291,6 +291,23 @@ impl FeedItem {
     pub fn is_tool(&self) -> bool {
         matches!(self.kind, FeedKind::Tool { .. })
     }
+
+    /// EXP-850 §3: this tool call's id, when it has one — the key a workflow
+    /// card is matched on (the card's `id` IS the `Workflow` call's id).
+    pub fn call_id(&self) -> Option<&str> {
+        match &self.kind {
+            FeedKind::Tool { call_id, .. } => call_id.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// EXP-850 §3: whether this row IS a workflow's `Workflow` call, given
+    /// the ids the feed holds cards for. Such a row renders as the CARD, so
+    /// it is never folded into a collapsed "N tool calls" run (×4).
+    pub fn is_workflow_call(&self, workflow_ids: &[&str]) -> bool {
+        self.call_id()
+            .is_some_and(|id| workflow_ids.contains(&id))
+    }
 }
 
 /// An interactive question card. `question_id` is the wire identity every
@@ -1341,25 +1358,34 @@ impl SteerFeed {
 
     /// The feed grouped into render rows ([`group_feed_rows`]).
     pub fn rows(&self) -> Vec<FeedRow<'_>> {
-        group_feed_rows(&self.items)
+        group_feed_rows(&self.items, &self.workflow_ids())
+    }
+
+    /// EXP-850 §3: the ids this feed holds workflow cards for — the grouping's
+    /// "never fold this tool row" set (at most `JOURNAL_WORKFLOW_CAP` of them).
+    pub fn workflow_ids(&self) -> Vec<&str> {
+        self.workflows
+            .iter()
+            .map(|workflow| workflow.id.as_str())
+            .collect()
     }
 
     /// The same grouping as [`Self::rows`], as OWNED index specs
     /// ([`group_feed_row_specs`]) — what a renderer caches between frames.
     pub fn row_specs(&self) -> Vec<FeedRowSpec> {
-        group_feed_row_specs(&self.items)
+        group_feed_row_specs(&self.items, &self.workflow_ids())
     }
 
     /// EXP-783: the same specs over `items[start..]` only, with ABSOLUTE
     /// indices — the transcript window. `start = 0` is [`Self::row_specs`].
     pub fn row_specs_from(&self, start: usize) -> Vec<FeedRowSpec> {
-        group_feed_row_specs_from(&self.items, start)
+        group_feed_row_specs_from(&self.items, start, &self.workflow_ids())
     }
 
     /// [`Self::row_specs_from`] into a caller-owned buffer, so a renderer that
     /// reprojects every frame reuses one allocation.
     pub fn row_specs_from_into(&self, start: usize, out: &mut Vec<FeedRowSpec>) {
-        group_feed_row_specs_into(&self.items, start, out);
+        group_feed_row_specs_into(&self.items, start, &self.workflow_ids(), out);
     }
 
     /// The index of the first item at or after `id` — what a renderer turns
@@ -1610,8 +1636,8 @@ impl FeedItem {
 /// [`active_question_ids`] over it) is never restructured, so answerability is
 /// unaffected. Grouped items are pulled out of their in-place position into
 /// the row their group opened (web `groupFeedRows`).
-pub fn group_feed_rows(items: &[FeedItem]) -> Vec<FeedRow<'_>> {
-    group_feed_row_specs(items)
+pub fn group_feed_rows<'a>(items: &'a [FeedItem], workflow_ids: &[&str]) -> Vec<FeedRow<'a>> {
+    group_feed_row_specs(items, workflow_ids)
         .iter()
         .map(|spec| spec.resolve(items))
         .collect()
@@ -1712,8 +1738,8 @@ impl FeedRowSpec {
 }
 
 /// The grouping behind [`group_feed_rows`], as index specs.
-pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
-    group_feed_row_specs_from(items, 0)
+pub fn group_feed_row_specs(items: &[FeedItem], workflow_ids: &[&str]) -> Vec<FeedRowSpec> {
+    group_feed_row_specs_from(items, 0, workflow_ids)
 }
 
 /// EXP-783 — the same grouping restricted to `items[start..]`, emitting
@@ -1726,14 +1752,23 @@ pub fn group_feed_row_specs(items: &[FeedItem]) -> Vec<FeedRowSpec> {
 /// rather than by an item the reader cannot see. Extending the window upward
 /// therefore re-keys that boundary row, which the list sync renders as a
 /// replacement of one row alongside the front splice.
-pub fn group_feed_row_specs_from(items: &[FeedItem], start: usize) -> Vec<FeedRowSpec> {
+pub fn group_feed_row_specs_from(
+    items: &[FeedItem],
+    start: usize,
+    workflow_ids: &[&str],
+) -> Vec<FeedRowSpec> {
     let mut rows = Vec::new();
-    group_feed_row_specs_into(items, start, &mut rows);
+    group_feed_row_specs_into(items, start, workflow_ids, &mut rows);
     rows
 }
 
 /// [`group_feed_row_specs_from`] into a caller-owned buffer (cleared first).
-pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Vec<FeedRowSpec>) {
+pub fn group_feed_row_specs_into(
+    items: &[FeedItem],
+    start: usize,
+    workflow_ids: &[&str],
+    rows: &mut Vec<FeedRowSpec>,
+) {
     rows.clear();
     // Row index of the open group, keyed by ask / subagent id.
     let mut ask_rows: HashMap<String, usize> = HashMap::new();
@@ -1779,7 +1814,10 @@ pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Ve
             i += 1;
             continue;
         }
-        if !item.is_tool() {
+        // EXP-850 §3: the `Workflow` call renders as its own CARD, so it is
+        // never folded into a collapsed "N tool calls" run — neither as the
+        // run's opener nor as a member of one (web `groupFeedRows`).
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -1791,6 +1829,7 @@ pub fn group_feed_row_specs_into(items: &[FeedItem], start: usize, rows: &mut Ve
         while end + 1 < items.len()
             && items[end + 1].is_tool()
             && items[end + 1].subagent_id().is_none()
+            && !items[end + 1].is_workflow_call(workflow_ids)
         {
             end += 1;
         }
@@ -4114,6 +4153,53 @@ mod exp850_tests {
         feed.apply(ActivityEvent::turn_at(TurnState::Started, Some(2_000), None));
         assert_eq!(feed.turn_started_at(), Some(2_000));
         assert_eq!(feed.turn_tokens(), None);
+    }
+
+    /// EXP-850 §3 review — a `Workflow` call renders as its CARD, so the
+    /// grouping never folds it into a collapsed "N tool calls" run: it is
+    /// neither a run's opener nor a member of one, and it SPLITS the run it
+    /// sat in (web `groupFeedRows`, ×4).
+    #[test]
+    fn a_workflow_call_splits_a_tool_run() {
+        let mut feed = SteerFeed::new();
+        let call = |name: &str, id: &str| ActivityEvent::Tool {
+            name: name.to_string(),
+            detail: None,
+            id: Some(id.to_string()),
+            tool_kind: None,
+            subagent_id: None,
+            at: None,
+        };
+        feed.apply(call("Bash", "tc-1"));
+        feed.apply(call("Workflow", "toolu_wf"));
+        feed.apply(call("Bash", "tc-2"));
+
+        // With no card for that id it is an ordinary call: one run of three.
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { ref items, .. } if items.len() == 3));
+
+        // The card arrives: three rows, the middle one the card's own.
+        feed.apply(card("toolu_wf", WorkflowStatus::Running, vec![]));
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0], FeedRowSpec::Single { .. }));
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 1, .. }));
+        assert!(matches!(rows[2], FeedRowSpec::Single { .. }));
+
+        // …and a run either side of it still collapses.
+        let mut feed = SteerFeed::new();
+        feed.apply(call("Bash", "tc-1"));
+        feed.apply(call("Read", "tc-2"));
+        feed.apply(call("Workflow", "toolu_wf"));
+        feed.apply(call("Bash", "tc-3"));
+        feed.apply(call("Read", "tc-4"));
+        feed.apply(card("toolu_wf", WorkflowStatus::Running, vec![]));
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { ref items, .. } if items == &[0, 1]));
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 2, .. }));
+        assert!(matches!(rows[2], FeedRowSpec::ToolRun { ref items, .. } if items == &[3, 4]));
     }
 
     /// EXP-856: the duplicate edge is a MARKER row that survives the card

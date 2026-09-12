@@ -118,7 +118,7 @@ struct AgentBottomStrip: View {
 
     private func glyph(_ line: AgentStripLine) -> String {
         switch line.kind {
-        case .backgroundTask: AppIcons.uiRefresh
+        case .backgroundTask: AppIcons.uiRepeat
         case .wait: AppIcons.uiClock
         }
     }

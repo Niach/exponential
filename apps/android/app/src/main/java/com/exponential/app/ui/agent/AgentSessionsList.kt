@@ -269,7 +269,9 @@ private fun AgentSessionRow(
                 // the device (today the running workflow's caption) — the
                 // SECOND line, above the device byline. The server clears it
                 // on every end path, so an ended row never keeps a stale one.
-                session.agentCaption?.takeIf { it.isNotBlank() }?.let { caption ->
+                // Only a live row (web/desktop rule): a merged run never shows
+                // what it "is doing", whatever the column still says.
+                session.agentCaption?.takeIf { it.isNotBlank() && state != CodingSessionDisplayState.Done }?.let { caption ->
                     Text(
                         caption,
                         style = MaterialTheme.typography.bodySmall,

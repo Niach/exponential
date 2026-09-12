@@ -113,11 +113,14 @@ function SessionPage() {
       void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
       return
     }
+    // EXP-856: the board and the issue keep the `from` token, exactly like the
+    // issue-scoped session route does — dropping it landed the destination on
+    // the sidebar's main menu instead of the list it came out of.
     if (origin?.kind === `board`) {
       void navigate({
         to: `/t/$teamSlug/boards/$boardSlug`,
         params: { teamSlug, boardSlug: origin.boardSlug },
-        search: {},
+        search: from ? { from } : {},
       })
       return
     }
@@ -129,12 +132,12 @@ function SessionPage() {
           boardSlug: origin.boardSlug,
           issueIdentifier: origin.identifier,
         },
-        search: {},
+        search: from ? { from } : {},
       })
       return
     }
     void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
-  }, [navigate, teamSlug, origin])
+  }, [navigate, teamSlug, origin, from])
   // EXP-827: the linked issue opens on its own route beside the same list.
   // The origin rides along so the issue's own Back still knows it.
   const openIssue = useCallback(() => {

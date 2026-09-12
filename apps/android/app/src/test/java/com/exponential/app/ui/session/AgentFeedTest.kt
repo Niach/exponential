@@ -1657,7 +1657,7 @@ class AgentFeedTest {
         assertEquals("shell", task.kind)
         assertEquals("Sleep in the background", task.description)
         assertEquals("toolu_01MCRoRaXN1cvEsHJzDEg2B3", task.toolId)
-        assertEquals("↻ Sleep in the background", backgroundTaskLabel(task.description))
+        assertEquals("Sleep in the background", backgroundTaskLabel(task.description))
         val closed = running.applying(event("""{"kind":"background_tasks","tasks":[]}"""))
         assertTrue(closed.backgroundTasks.isEmpty())
     }
