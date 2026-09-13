@@ -1022,6 +1022,98 @@ fn drained_messages_start_in_order_under_the_turn_slot_bound() {
     harness.session.kill("killed");
 }
 
+/// EXP-861: a message sent right ON the idle edge — after `dispatch` opened
+/// the gate, before the loop read its `DrainQueue` — never jumps ahead of
+/// the messages already held: the gate drains them first, oldest first, then
+/// starts the new one, so the transcript keeps send order and no held line
+/// sits out an extra turn. (The interleaving is a race; the test fires the
+/// third message off the signal's own wake so it lands as close to the edge
+/// as a thread can, and the assertion holds for EVERY interleaving.)
+#[test]
+fn a_message_on_the_idle_edge_starts_behind_the_held_ones() {
+    let harness = start_fake("queue-edge");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    harness.session.send_prompt("steered".to_string());
+    until("the first turn", || prompts() >= 1);
+    for text in ["one", "two"] {
+        harness.session.steer(text.to_string());
+    }
+    until("two held messages", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 2))
+    });
+    // Armed BEFORE the release: the waiter fires inside `set_idle(true)`,
+    // i.e. before the dispatching thread gets to request the drain.
+    let edge = signal.subscribe();
+    harness.state.released.store(true, Ordering::SeqCst);
+    edge.recv_timeout(BUDGET).expect("the idle edge");
+    harness.session.steer("three".to_string());
+
+    until("every message reaches the agent", || prompts() >= 4);
+    until("the idle edge", || signal.is_idle());
+    let seen = harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    assert_eq!(seen, vec!["steered", "one", "two", "three"]);
+    let rows: Vec<String> = events_of(&harness.sink, "user_message")
+        .iter()
+        .filter_map(|event| event["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(rows, vec!["steered", "one", "two", "three"]);
+    // Nothing is left behind for a later edge.
+    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    assert_eq!(slot["messages"].as_array().map(Vec::len), Some(0));
+    harness.session.kill("killed");
+}
+
+/// EXP-861: a run that ends with messages still held does NOT close the bar
+/// on its way out — the last `queue` frame lists them, so a client can move
+/// the text somewhere the person can still reach it (the web's composer
+/// draft) on the `ended` edge instead of losing it. The held lines never
+/// became rows: they were not delivered.
+#[test]
+fn a_run_ending_with_held_messages_keeps_them_in_its_last_queue_frame() {
+    let harness = start_fake("queue-end");
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    // The seed: an empty slot from the very first moment, so a resumed
+    // run's inherited history never replays a predecessor's full bar.
+    until("the seeded slot", || {
+        events_of(&harness.sink, "queue")
+            .first()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.is_empty()))
+    });
+    harness.session.send_prompt("hang".to_string());
+    until("the turn to start", || prompts() >= 1);
+    for text in ["one", "two"] {
+        harness.session.steer(text.to_string());
+    }
+    until("two held messages", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 2))
+    });
+
+    harness.session.kill("killed");
+    until("the exit", || harness.session.is_done());
+    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    let texts: Vec<&str> = slot["messages"]
+        .as_array()
+        .expect("a message list")
+        .iter()
+        .filter_map(|message| message["text"].as_str())
+        .collect();
+    assert_eq!(texts, vec!["one", "two"]);
+    assert_eq!(prompts(), 1, "a held message never reached the agent");
+    assert!(
+        !events_of(&harness.sink, "user_message")
+            .iter()
+            .any(|event| event["text"] == "one" || event["text"] == "two"),
+        "an undelivered message has no row"
+    );
+}
+
 /// The dispatch-loop regression test: a client handler that forgot to spawn
 /// would never dispatch this cancel, and the agent would sit in "hang".
 #[test]

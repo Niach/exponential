@@ -34,6 +34,7 @@ import {
   isAnswerLocked,
   looksLikeMarkdown,
   pushEcho,
+  takeQueuedEchoes,
   resumesAfterCompaction,
   rowClass,
   subagentIdOf,
@@ -114,6 +115,20 @@ describe(`local-echo dedupe`, () => {
     expect(echoes).toHaveLength(ECHO_CAP)
     expect(consumeEcho(echoes, `msg 0`, 10)).toBe(false)
     expect(consumeEcho(echoes, `msg ${ECHO_CAP + 2}`, 10)).toBe(true)
+  })
+})
+
+// EXP-861: a `queue` frame naming an echoed text takes the echo back (the
+// strip is the message's home until delivery); the rest stay.
+describe(`takeQueuedEchoes`, () => {
+  it(`removes the echoes a queue names, keyed to their rows, and keeps the rest`, () => {
+    const echoes: EchoEntry[] = []
+    pushEcho(echoes, `held  `, 0, 7)
+    pushEcho(echoes, `kept`, 1, 8)
+    const taken = takeQueuedEchoes(echoes, [{ id: `m1`, text: ` held` }])
+    expect(taken).toEqual([{ text: `held`, at: 0, rowId: 7 }])
+    expect(echoes).toEqual([{ text: `kept`, at: 1, rowId: 8 }])
+    expect(takeQueuedEchoes(echoes, [])).toEqual([])
   })
 })
 
@@ -2148,7 +2163,7 @@ describe(`parseQueue`, () => {
 
   it(`an empty list is a real answer, a broken payload is not`, () => {
     expect(parseQueue({ kind: `queue`, messages: [] })).toEqual([])
-    expect(parseQueue({ kind: `queue` })).toBeNull()
+    expect(parseQueue({ kind: `queue` })).toEqual([])
     expect(parseQueue({ kind: `queue`, messages: `nope` })).toBeNull()
     expect(parseQueue(null)).toBeNull()
   })

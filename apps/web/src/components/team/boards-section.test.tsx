@@ -107,6 +107,42 @@ describe(`BoardSettingsPage rename`, () => {
     expect(mockState.updateMutate).toHaveBeenCalledTimes(1)
   })
 
+  // A teammate renaming the board while the page is open: the flush compares
+  // against the row as it stands NOW, so a draft that already matches the
+  // remote name writes nothing, an untouched field never rolls it back, and
+  // a real local edit still lands.
+  it(`does not rewrite a remote rename the draft already matches`, () => {
+    const view = render(<BoardSettingsPage board={board()} team={team} />)
+    fireEvent.change(nameField(), { target: { value: `Platform` } })
+    view.rerender(
+      <BoardSettingsPage board={board({ name: `Platform` })} team={team} />
+    )
+    view.unmount()
+    expect(mockState.updateMutate).not.toHaveBeenCalled()
+  })
+
+  it(`never rolls a remote rename back to the name the field was seeded with`, () => {
+    const view = render(<BoardSettingsPage board={board()} team={team} />)
+    // Typed away and back: the field reads the old name, but the row moved on.
+    fireEvent.change(nameField(), { target: { value: `Apps 2` } })
+    fireEvent.change(nameField(), { target: { value: `Apps` } })
+    view.rerender(<BoardSettingsPage board={board({ name: `Infra` })} team={team} />)
+    view.unmount()
+    expect(mockState.updateMutate).not.toHaveBeenCalled()
+  })
+
+  it(`still flushes a real local edit over a remote rename`, () => {
+    const view = render(<BoardSettingsPage board={board()} team={team} />)
+    fireEvent.change(nameField(), { target: { value: `Platform` } })
+    view.rerender(<BoardSettingsPage board={board({ name: `Infra` })} team={team} />)
+    view.unmount()
+    expect(mockState.updateMutate).toHaveBeenCalledTimes(1)
+    expect(mockState.updateMutate).toHaveBeenCalledWith({
+      boardId: `board-a`,
+      name: `Platform`,
+    })
+  })
+
   it(`writes nothing when the draft is unchanged or empty`, () => {
     const view = render(<BoardSettingsPage board={board()} team={team} />)
     fireEvent.change(nameField(), { target: { value: `Platform` } })

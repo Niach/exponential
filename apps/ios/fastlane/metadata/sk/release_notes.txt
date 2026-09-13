@@ -1,3 +1,12 @@
+- Správy vo fronte: správa odoslaná, keď agent ešte pracuje, čaká v lište Queued nad poľom na písanie, a keď ju odoberieš, text sa vráti do rozpísaného konceptu
+- Stop, ktorý dorazí: Stop v bežiacej relácii teraz naozaj preruší prebiehajúci ťah namiesto toho, aby sa cestou stratil, a zahodí, čo čaká vo fronte za ním
+- Tichšie tlačidlá: plný krúžok si nechá len tá jedna akcia, kvôli ktorej obrazovka je; odobrať, zavrieť, obnoviť, šípky aj ponuky ... sú teraz obyčajné ikonky
+- Výbery ukazujú, čo vyberajú: výber agenta nesie značku Claude Code alebo Codex na tlačidle aj vedľa každého mena a ponuky zariadení začínajú ikonou notebooku či servera
+- Stránka Agent drží tvoje behy: minulé behy sa zložia za počet, ktorý môžeš otvoriť, a keď nič nebeží, pole na písanie sedí uprostred stránky
+- Prihlasuj sa tam, kde je účet: v nastaveniach zariadenia zostáva názov, zdieľanie a predvolené hodnoty agenta, zatiaľ čo prihlásenie, voľba aktívneho účtu a jeho odobranie sú teraz na odznakoch účtu
+- Pridanie účtu: Add account sedí v záhlaví Accounts a prihlási nový účet na zariadení, a plus pri účte prihlási ten istý účet na ďalšom zariadení
+- Board na jednom riadku: ikona, farba a názov zdieľajú pri zakladaní boardu jediný riadok a výber farby sa otvorí ako list so vzorkami
+- Filtre issues sú preč: tlačidlo filtra a jeho štítky zmizli z boardu aj z doručených, hľadanie pokryje, na čo slúžili, a zoskupenie aj pásy stavov zostávajú
 - Pokračovať e-mailom alebo prístupovým kľúčom: prihlás sa šesťmiestnym kódom, ktorý ti príde e-mailom, alebo cez Face ID či Touch ID; všetky možnosti sú v jednom zozname a neznámy e-mail sa jednoducho stane novým účtom
 - Ukazovateľ práce skončí, keď skončí agent: sleduje teraz skutočný ťah agenta namiesto spojenia, ukazuje, čo práve robí, aj s časom a tokenmi, a Stop je v záhlaví relácie
 - Karty nástrojov Exponential: keď agent zavolá Exponential, história ukáže jednoduchý popis ako „Creating issue“ alebo „Opened pull request“ a po dokončení náhľad výsledku

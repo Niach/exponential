@@ -1,3 +1,12 @@
+- Meddelanden i kö: skickar du något medan agenten fortfarande arbetar väntar det i en Queued-rad ovanför skrivfältet, och tar du bort det hamnar texten i utkastet igen
+- Stop som når fram: Stop i en pågående session avbryter nu den aktuella turen i stället för att tappas bort på vägen, och rensar det som står i kö bakom
+- Lugnare knappar: bara den enda åtgärd en skärm finns för behåller en fylld cirkel; ta bort, stäng, uppdatera, pilarna och ...-menyerna är nu enkla tecken
+- Väljare som visar vad de väljer: agentväljaren bär märket för Claude Code eller Codex på knappen och bredvid varje namn, och enhetsmenyer inleds med en laptop- eller serverikon
+- Agent-sidan håller dina körningar: tidigare körningar viks ihop bakom en siffra du kan öppna, och när inget kör sitter skrivfältet mitt på sidan
+- Logga in där kontot finns: enhetsinställningarna håller namn, delning och agentens standardval, medan inloggning, valet av aktivt konto och borttagning nu sitter på kontobrickorna
+- Lägg till ett konto: Add account sitter i Accounts-rubriken och loggar in ett nytt konto på en enhet, och ett plus vid ett konto loggar in samma konto på en annan enhet
+- Ett board på en rad: ikonen, färgen och namnet delar en enda rad när du skapar ett board, och färgväljaren öppnas som ett blad med färgrutor
+- Issue-filtren är borta: filterknappen och dess pills är borta från board och inkorg, sökningen täcker vad de användes till, och gruppering och statusband blir kvar
 - Fortsätt med e-post eller med en nyckel: logga in med en 6-siffrig kod som skickas till dig, eller med Face ID eller Touch ID; alla val står i en enda lista, och en okänd e-postadress blir helt enkelt ett nytt konto
 - Arbetsindikatorn slutar när agenten slutar: den följer nu agentens riktiga tur i stället för anslutningen, visar vad den gör med tid och tokens, och Stop sitter i sessionens rubrik
 - Kort för Exponential-verktyg: när agenten anropar Exponential visar loggen en enkel text som ”Creating issue” eller ”Opened pull request”, och sedan en förhandstitt på resultatet

@@ -1605,23 +1605,19 @@ fun ActivityFeedState.applyActivityEvent(
             )
         }
     }
-    // EXP-861: the device's held messages, ONE latest-wins list — an EMPTY
-    // array clears the bar (nothing is queued any more); only a frame with no
-    // `messages` array at all leaves the previous list standing. An entry
-    // without an id cannot be revoked, so it is skipped rather than shown.
+    // EXP-861: the device's held messages, ONE latest-wins list replaced
+    // WHOLE by every frame — an empty array, or a frame with no `messages`
+    // array at all, clears the bar (iOS rule). An entry without an id cannot
+    // be revoked, so it is skipped rather than shown.
     "queue" -> {
         val raw = event["messages"] as? JsonArray
-        if (raw == null) {
-            this
-        } else {
-            copy(
-                queue = raw.orEmptyList { message ->
-                    val id = message.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
-                    val text = message.str("text") ?: return@orEmptyList null
-                    QueuedMessage(id = id, text = text)
-                },
-            )
-        }
+        copy(
+            queue = raw.orEmptyList { message ->
+                val id = message.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
+                val text = message.str("text") ?: return@orEmptyList null
+                QueuedMessage(id = id, text = text)
+            },
+        )
     }
     // EXP-850 (S3): one card per workflow, latest-wins PER ID. Never a feed
     // row — the screen patches it onto the `tool` row carrying the same id.

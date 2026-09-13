@@ -1,3 +1,12 @@
+- Messaggi in coda: un messaggio inviato mentre l'agente lavora resta in una barra Queued sopra il campo di scrittura, e rimuoverlo riporta il testo nella tua bozza
+- Stop che arriva all'agente: in una sessione dal vivo Stop interrompe davvero il turno in corso invece di perdersi per strada, e scarta quel che è rimasto in coda
+- Pulsanti più discreti: solo l'azione principale di una schermata tiene un cerchio pieno; rimuovi, chiudi, aggiorna, le frecce e i menu ... ora sono semplici glifi
+- Selettori che mostrano ciò che scelgono: il selettore dell'agente porta il segno di Claude Code o Codex sul pulsante e accanto a ogni nome, e i menu dei dispositivi si aprono con un'icona di portatile o di server
+- La pagina Agent tiene i tuoi run: i run passati si ripiegano dietro un conteggio che puoi aprire, e quando non gira nulla il campo di scrittura sta al centro della pagina
+- Accedi dove sta l'account: le impostazioni del dispositivo tengono nome, condivisione e valori predefiniti dell'agente, mentre accesso, scelta dell'account attivo e rimozione vivono ora sulle etichette dell'account
+- Aggiungere un account: Add account sta nell'intestazione Accounts e accede con un nuovo account su un dispositivo, e un più accanto a un account lo accede su un altro dispositivo
+- Una board in una riga: icona, colore e nome condividono una sola riga quando crei una board, e il selettore di colore si apre come un foglio di campioni
+- I filtri degli issue sono spariti: il pulsante filtro e le sue pastiglie lasciano board e posta in arrivo, la ricerca copre quello che facevano, e raggruppamento e bande di stato restano
 - Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un unico elenco, e un'email sconosciuta diventa semplicemente un nuovo account
 - L'indicatore di lavoro finisce quando finisce l'agente: ora segue il turno reale dell'agente invece della connessione, mostra cosa sta facendo con durata e token, e Stop sta nell'intestazione della sessione
 - Schede degli strumenti Exponential: quando l'agente chiama Exponential, la cronologia mostra una didascalia semplice come «Creating issue» o «Opened pull request», e poi un'anteprima del risultato

@@ -415,7 +415,10 @@ async function main() {
       // Full-history re-publish, exactly like the desktop does on reconnect:
       // reset first so the relay's replay log never doubles.
       send({ t: `activity_reset` })
-      for (const event of FEED) send({ t: `activity`, event })
+      // EXP-783: `seq` is required on every activity frame since the round-11
+      // cleanup made it non-optional; a frame without it is dropped by the hub
+      // (`seq: invalid_type`) and the steering feed never appears.
+      FEED.forEach((event, seq) => send({ t: `activity`, event, seq }))
     },
   })
 

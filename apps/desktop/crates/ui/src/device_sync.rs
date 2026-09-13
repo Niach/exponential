@@ -1083,11 +1083,15 @@ fn remove_agent_profile(
 
 /// EXP-862 — the accounts the runs this app hosts are using right now. The
 /// in-process session row does not carry the account, the run RECORD does
-/// (`runs.json`), so the live ids are resolved through the registry.
+/// (`runs.json`), so the live ids are resolved through the registry — ONE
+/// load for the whole pass (`run_registry::all`), never one parse per live
+/// session. Order follows `session_ids`, and a duplicated id resolves to its
+/// first record, exactly as a per-id `run_registry::get` would.
 fn live_run_accounts(data_dir: &std::path::Path, session_ids: &[String]) -> Vec<String> {
+    let records = coding::run_registry::all(data_dir);
     session_ids
         .iter()
-        .filter_map(|id| coding::run_registry::get(data_dir, id))
+        .filter_map(|id| records.iter().find(|record| record.session_id == *id))
         .filter_map(|record| record.account())
         .collect()
 }
@@ -1280,6 +1284,79 @@ mod tests {
         // which only happens when completeCommand never landed.
         inflight.lock().unwrap().remove("cmd-1");
         assert!(claim_login(&inflight, "cmd-1"));
+    }
+
+    fn run_record(dir: &std::path::Path, session_id: &str, account: Option<&str>) -> coding::run_registry::RunRecord {
+        coding::run_registry::RunRecord {
+            session_id: session_id.to_string(),
+            account_id: "acct-1".to_string(),
+            agent: coding::CodingAgent::Claude,
+            kind: coding::run_registry::RunKind::Issue,
+            action_id: String::new(),
+            action_name: String::new(),
+            team_id: "team-1".to_string(),
+            issue_id: Some("issue-1".to_string()),
+            issue_identifier: Some("EXP-42".to_string()),
+            batch_id: None,
+            issues: Vec::new(),
+            cwd: dir.join(session_id),
+            clone: None,
+            repo: None,
+            repository_id: None,
+            board_id: None,
+            branch: Some("exp/EXP-42".to_string()),
+            base_branch: Some("master".to_string()),
+            claude_session_id: None,
+            codex_originator: None,
+            inputs: Vec::new(),
+            model: String::new(),
+            effort: String::new(),
+            ultracode: false,
+            fix: None,
+            started_reason: None,
+            resumed_from_id: None,
+            transport: None,
+            acp_session_id: None,
+            agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
+            recorded_at: coding::run_registry::now_secs(),
+            extra: coding::run_registry::account_extra(account),
+        }
+    }
+
+    /// EXP-862 review nit: the live accounts come off ONE registry load per
+    /// pass, and the result is what a per-id `get` produced — `session_ids`
+    /// order, ambient (account-less) runs and unknown ids skipped, and a
+    /// re-recorded run (`record` upserts by id) resolving to its NEWEST
+    /// account.
+    #[test]
+    fn live_run_accounts_resolve_through_one_registry_load() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!(
+            "exp-ui-live-accounts-{}-{stamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp data dir");
+        coding::run_registry::record(&dir, run_record(&dir, "sess-a", Some("work")));
+        coding::run_registry::record(&dir, run_record(&dir, "sess-b", None));
+        coding::run_registry::record(&dir, run_record(&dir, "sess-c", Some("personal")));
+        // A mid-run account switch re-records the same id (EXP-866): the
+        // upsert leaves ONE row, and it carries the new account.
+        coding::run_registry::record(&dir, run_record(&dir, "sess-a", Some("shadow")));
+
+        let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            live_run_accounts(&dir, &ids(&["sess-c", "sess-b", "sess-a", "sess-missing"])),
+            vec!["personal".to_string(), "shadow".to_string()]
+        );
+        assert!(live_run_accounts(&dir, &[]).is_empty());
+        assert!(live_run_accounts(&dir, &ids(&["sess-b"])).is_empty(), "the ambient login is no account");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The agent status rides a beat only when it CHANGED — `agent_usage_at`

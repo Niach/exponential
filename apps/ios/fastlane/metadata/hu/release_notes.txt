@@ -1,3 +1,12 @@
+- Sorban álló üzenetek: az ügynök munkája közben küldött üzenet a szerkesztőmező fölötti Queued sávban vár, és ha eltávolítod, a szöveg visszakerül a piszkozatba
+- A Stop célba ér: egy élő munkamenetben a Stop most tényleg megszakítja a futó kört, ahelyett hogy útközben elveszne, és eldobja azt, ami mögötte sorban áll
+- Csendesebb gombok: kitöltött kört csak az az egy művelet kap, amiért a képernyő van; az eltávolítás, a bezárás, a frissítés, a nyilak és a ... menük mostantól egyszerű jelek
+- A választók megmutatják, mit választanak: az ügynökválasztó a Claude Code vagy a Codex jelét viseli a gombon és minden név mellett, az eszközmenük pedig laptop- vagy szerverikonnal kezdenek
+- Az Agent oldal tartja a futásaidat: a korábbi futások egy szám mögé hajtódnak össze, amit kinyithatsz, és ha semmi sem fut, a szerkesztőmező az oldal közepén ül
+- Ott jelentkezz be, ahol a fiók van: az eszközbeállításokban marad a név, a megosztás és az ügynök alapértékei, a bejelentkezés, az aktív fiók választása és az eltávolítás pedig a fiókcímkékre került
+- Fiók hozzáadása: az Add account az Accounts fejlécében ül, és új fiókot léptet be egy eszközön, a fióknál lévő plusz pedig ugyanazt lépteti be egy másik eszközön
+- Egy board egy sorban: board létrehozásakor az ikon, a szín és a név egyetlen soron osztozik, a színválasztó pedig mintalapként nyílik meg
+- Az issue-szűrők eltűntek: a szűrőgomb és a pirulái elhagyták a boardot és a beérkezetteket, a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
 - Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen listában van, és egy ismeretlen e-mail-cím egyszerűen új fiók lesz
 - A munkajelzés akkor ér véget, amikor az ügynök: mostantól az ügynök valódi körét követi a kapcsolat helyett, mutatja, mit csinál, idővel és tokenekkel, a Stop pedig a munkamenet fejlécében van
 - Exponential eszközkártyák: amikor az ügynök az Exponentialt hívja, az előzmény egyszerű feliratot mutat, például „Creating issue” vagy „Opened pull request”, majd a végén az eredmény előnézetét

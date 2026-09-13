@@ -694,17 +694,27 @@ impl LoginDevice {
         }
     }
 
-    /// `Claude Code account 2` — one past the logins the machine reports for
-    /// the agent (the ambient one counts as the first), clamped at the
-    /// server's 64 (web `nextProfileLabel`).
+    /// `Claude Code account 2` — the smallest N ≥ 2 whose label the machine
+    /// does not already report for the agent (the ambient login is the
+    /// unnamed first), clamped at the server's 64 (web `nextProfileLabel`).
+    /// Counting profiles instead would re-mint "account 3" after "account 2"
+    /// was removed, and the login-landed rule then closes the sheet at open.
     fn next_profile_label(&self, agent: CodingAgent) -> String {
-        let held = self
+        let taken: std::collections::HashSet<&str> = self
             .accounts
             .get(agent.id())
-            .map(|account| account.profiles.len())
-            .unwrap_or(0)
-            .max(1);
-        format!("{} account {}", agent.label(), held + 1)
+            .map(|account| {
+                account
+                    .profiles
+                    .iter()
+                    .filter_map(|profile| profile.label.as_deref())
+                    .collect()
+            })
+            .unwrap_or_default();
+        (2u32..)
+            .map(|n| format!("{} account {}", agent.label(), n))
+            .find(|label| !taken.contains(label.as_str()))
+            .expect("an unbounded range always yields a free label")
             .chars()
             .take(64)
             .collect()
@@ -1509,6 +1519,58 @@ mod tests {
         }
     }
 
+    fn labelled(id: &str, label: &str) -> coding::AgentProfileEntry {
+        coding::AgentProfileEntry {
+            label: Some(label.to_string()),
+            ..profile(id, true)
+        }
+    }
+
+    /// The next label is the smallest FREE "account N" (N ≥ 2), not one past
+    /// the profile count: after "account 2" was removed, `[system, account 3]`
+    /// must mint "account 2" again — never a label that already exists, which
+    /// the login-landed rule would treat as done before the login ran.
+    #[test]
+    fn a_new_profile_takes_the_smallest_free_label() {
+        let gap = device(
+            vec![
+                profile(coding::SYSTEM_PROFILE, true),
+                labelled("0a1b2c3d", "Claude Code account 3"),
+            ],
+            true,
+        );
+        match gap.add_account_target(CodingAgent::Claude) {
+            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
+            other => panic!("expected a new profile, got {other:?}"),
+        }
+
+        let full = device(
+            vec![
+                profile(coding::SYSTEM_PROFILE, true),
+                labelled("0a1b2c3d", "Claude Code account 2"),
+                labelled("4e5f6a7b", "Claude Code account 3"),
+            ],
+            true,
+        );
+        match full.add_account_target(CodingAgent::Claude) {
+            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 4"),
+            other => panic!("expected a new profile, got {other:?}"),
+        }
+
+        // Exact, case-sensitive: a differently-cased label does not reserve N.
+        let cased = device(
+            vec![
+                profile(coding::SYSTEM_PROFILE, true),
+                labelled("0a1b2c3d", "claude code account 2"),
+            ],
+            true,
+        );
+        match cased.add_account_target(CodingAgent::Claude) {
+            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
+            other => panic!("expected a new profile, got {other:?}"),
+        }
+    }
+
     /// EXP-862 — where a new login lands (web `addAccountLoginTarget`): the
     /// AMBIENT login while it is still free (nothing to keep beside it),
     /// otherwise a profile of its own, named one past the logins the device
@@ -1532,11 +1594,12 @@ mod tests {
             LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
             other => panic!("expected a new profile, got {other:?}"),
         }
-        // One past the logins on record, the ambient one included.
+        // The first free N past the labels on record (the ambient one is the
+        // unnamed first).
         let two = device(
             vec![
                 profile(coding::SYSTEM_PROFILE, true),
-                profile("0a1b2c3d", true),
+                labelled("0a1b2c3d", "Claude Code account 2"),
             ],
             true,
         );

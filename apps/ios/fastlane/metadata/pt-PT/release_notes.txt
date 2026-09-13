@@ -1,3 +1,12 @@
+- Mensagens em fila: uma mensagem enviada enquanto o agente ainda trabalha fica numa barra Queued por cima do campo de escrita, e ao removê-la o texto volta para o rascunho
+- Stop que chega ao agente: numa sessão em direto, o Stop interrompe agora mesmo o turno em curso em vez de se perder pelo caminho, e descarta o que ficou em fila
+- Botões mais discretos: só a ação principal de cada ecrã mantém um círculo cheio; remover, fechar, atualizar, as setas e os menus ... são agora glifos simples
+- Seletores que mostram o que escolhem: o seletor de agente traz a marca do Claude Code ou do Codex no botão e ao lado de cada nome, e os menus de dispositivos abrem com um ícone de portátil ou de servidor
+- A página Agent guarda as suas execuções: as execuções passadas dobram-se atrás de um número que pode abrir, e sem nada a correr o campo de escrita fica a meio da página
+- Inicie sessão onde está a conta: as definições do dispositivo ficam com o nome, a partilha e os valores por omissão do agente, enquanto o início de sessão, a escolha da conta ativa e a remoção passam para as etiquetas de conta
+- Adicionar uma conta: Add account está no cabeçalho Accounts e inicia sessão com uma conta nova num dispositivo, e um mais junto a uma conta inicia a mesma noutro dispositivo
+- Um quadro numa só linha: ao criar um quadro, o ícone, a cor e o nome partilham uma única linha, e o seletor de cor abre como uma folha de amostras
+- Os filtros de issues desapareceram: o botão de filtro e as suas pastilhas saíram do quadro e da caixa de entrada, a pesquisa cobre o que faziam, e o agrupamento e as faixas de estado ficam
 - Continuar com o email, ou com uma chave de acesso: entre com um código de 6 dígitos enviado por email, ou com Face ID ou Touch ID; todas as opções estão numa só lista, e um email desconhecido passa simplesmente a ser uma conta nova
 - O indicador de trabalho acaba quando o agente acaba: segue agora o turno real do agente em vez da ligação, mostra o que está a fazer com a duração e os tokens, e o Stop está no cabeçalho da sessão
 - Cartões de ferramentas Exponential: quando o agente chama o Exponential, o histórico mostra uma legenda simples como «Creating issue» ou «Opened pull request», e depois uma pré-visualização do resultado

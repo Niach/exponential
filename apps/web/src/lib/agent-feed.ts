@@ -21,6 +21,9 @@ import designTokens from "../../../../packages/design-tokens/tokens.json" with {
 export interface EchoEntry {
   text: string
   at: number
+  /** The feed row the echo painted, when it painted one — so the row can be
+   *  taken back if the engine turns out to have HELD the message. */
+  rowId?: number
 }
 
 /** At most this many un-matched echoes are remembered. */
@@ -150,9 +153,36 @@ export function trimFeed<T extends { kind: string }>(
 
 /** Record a just-sent message so its transcript-derived `user_message` event
  *  is not appended a second time. Mutates `echoes` in place. */
-export function pushEcho(echoes: EchoEntry[], text: string, now: number): void {
-  echoes.push({ text: text.trim(), at: now })
+export function pushEcho(
+  echoes: EchoEntry[],
+  text: string,
+  now: number,
+  rowId?: number
+): void {
+  echoes.push(rowId === undefined ? { text: text.trim(), at: now } : { text: text.trim(), at: now, rowId })
   if (echoes.length > ECHO_CAP) echoes.splice(0, echoes.length - ECHO_CAP)
+}
+
+/** EXP-861: the engine gates on ITS turn state, the echo on this viewer's —
+ *  so a message sent while another viewer's turn was running is echoed here
+ *  AND held by the device. Once a `queue` frame names it, the Queued strip
+ *  is the text's only home until delivery: the echo (and the row it
+ *  painted) is taken back, or an echo older than ECHO_TTL_MS at delivery
+ *  would let the real row render a second time. Mutates `echoes` in place;
+ *  returns the entries taken. */
+export function takeQueuedEchoes(
+  echoes: EchoEntry[],
+  queued: QueuedMessage[]
+): EchoEntry[] {
+  if (echoes.length === 0 || queued.length === 0) return []
+  const held = new Set(queued.map((entry) => entry.text.trim()))
+  const taken: EchoEntry[] = []
+  for (let i = echoes.length - 1; i >= 0; i--) {
+    if (!held.has(echoes[i].text)) continue
+    taken.unshift(echoes[i])
+    echoes.splice(i, 1)
+  }
+  return taken
 }
 
 /** Whether an incoming `user_message` matches a recent local echo. Consumes
@@ -1209,6 +1239,9 @@ export const QUEUE_REMOVE_LABEL = `Remove from queue`
  *  dropped: there is nothing to revoke, nothing to show. */
 export function parseQueue(event: unknown): QueuedMessage[] | null {
   if (!isEventRecord(event)) return null
+  // A frame with no `messages` at all clears the slot (latest-wins whole, as
+  // on iOS and Android); a malformed value still leaves the slot untouched.
+  if (event.messages === undefined) return []
   if (!Array.isArray(event.messages)) return null
   const messages: QueuedMessage[] = []
   for (const raw of event.messages) {

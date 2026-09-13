@@ -1,3 +1,12 @@
+- Nachrichten in der Warteschlange: schickst du etwas, während der Agent noch arbeitet, wartet es in einer Queued-Leiste über dem Eingabefeld, und beim Entfernen landet der Text wieder in deinem Entwurf
+- Stop kommt jetzt an: Stop in einer laufenden Session unterbricht den aktuellen Zug wirklich, statt unterwegs verloren zu gehen, und verwirft dabei alles, was noch in der Warteschlange steht
+- Ruhigere Schaltflächen: nur die eine Aktion, für die ein Bildschirm da ist, behält einen gefüllten Kreis; Entfernen, Schließen, Aktualisieren, die Pfeile und die ...-Menüs sind jetzt schlichte Symbole
+- Auswahlfelder zeigen, was sie auswählen: die Agentenauswahl trägt das Zeichen von Claude Code oder Codex auf dem Knopf und neben jedem Namen, und Gerätemenüs führen ein Laptop- oder Server-Symbol
+- Die Agent-Seite hält deine Läufe: vergangene Läufe klappen hinter einer Zahl zusammen, die du öffnen kannst, und wenn nichts läuft, sitzt das Eingabefeld in der Mitte der Seite
+- Anmelden dort, wo das Konto ist: die Geräteeinstellungen behalten Name, Freigabe und Agenten-Standards, während Anmelden, die Wahl des aktiven Logins und das Entfernen jetzt auf den Konto-Chips sitzen
+- Konto hinzufügen: „Add account“ sitzt in der Accounts-Kopfzeile und meldet ein neues Login auf einem Gerät an, und ein Plus an einem Konto meldet dasselbe auf einem weiteren Gerät an
+- Ein Board in einer Zeile: Symbol, Farbe und Name teilen sich beim Anlegen eines Boards eine einzige Zeile, und die Farbauswahl öffnet sich als Blatt mit Farbfeldern
+- Issue-Filter sind weg: der Filterknopf und seine Pillen haben Board und Posteingang verlassen, die Suche deckt ab, wofür sie da waren, und Gruppierung und Statusbänder bleiben
 - Weiter mit E-Mail oder mit einem Passkey: melde dich mit einem 6-stelligen Code an, der dir zugeschickt wird, oder mit Face ID oder Touch ID; alle Wege stehen in einer einzigen Liste, und eine unbekannte E-Mail wird einfach zu einem neuen Konto
 - Der Arbeitshinweis endet, wenn der Agent fertig ist: er folgt jetzt dem echten Zug des Agenten statt der Verbindung, zeigt die laufende Tätigkeit mit Dauer und Tokens, und „Stop“ sitzt in der Kopfzeile der Session
 - Karten für Exponential-Werkzeuge: ruft der Agent Exponential auf, zeigt der Verlauf eine schlichte Beschriftung wie „Creating issue“ oder „Opened pull request“ und danach eine Vorschau des Ergebnisses

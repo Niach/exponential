@@ -73,16 +73,23 @@ export function addAccountLoginTarget(
   return { newProfileLabel: clampProfileLabel(label) }
 }
 
-/** `Claude account 2` — one past the profiles the machine reports for the
- * agent (the ambient login counts as the first). */
+/** `Claude account 2` — the smallest N ≥ 2 whose `<agent> account N` is not
+ * already the label of a profile the machine reports for the agent (exact,
+ * case-sensitive). Counting profiles instead re-issued a label that still
+ * existed after an earlier one was removed (`[system, "account 3"]` →
+ * "account 3"), and `agentLoginLanded` then saw the sign-in as already
+ * landed. iOS/Android `nextProfileLabel`, same rule. */
 export function nextProfileLabel(
   row: Pick<Device, `agentAccounts`>,
   agent: string,
   agentLabel: string
 ): string {
-  const profiles = row.agentAccounts?.[agent]?.profiles
-  const count = profiles && profiles.length > 0 ? profiles.length : 1
-  return clampProfileLabel(`${agentLabel} account ${count + 1}`)
+  const taken = new Set(
+    (row.agentAccounts?.[agent]?.profiles ?? []).map((profile) => profile.label ?? ``)
+  )
+  let n = 2
+  while (taken.has(`${agentLabel} account ${n}`)) n += 1
+  return clampProfileLabel(`${agentLabel} account ${n}`)
 }
 
 export function clampProfileLabel(label: string): string {

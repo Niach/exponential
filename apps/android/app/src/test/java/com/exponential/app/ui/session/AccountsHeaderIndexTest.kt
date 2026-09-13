@@ -58,4 +58,31 @@ class AccountsHeaderIndexTest {
             accountCommandKey("studio", "claude", "work"),
         )
     }
+
+    @Test
+    fun `two machines' sign-ins for the same agent never share a slot`() {
+        // A login's poll outlives its sheet: keyed per agent alone, machine
+        // A's late link landed in machine B's sheet.
+        assertNotEquals(
+            agentLoginCommandKey("a", "claude", null),
+            agentLoginCommandKey("b", "claude", null),
+        )
+        // …nor two logins on one machine, nor a new profile and the ambient one.
+        assertNotEquals(
+            agentLoginCommandKey("a", "claude", "work"),
+            agentLoginCommandKey("a", "claude", "system"),
+        )
+        assertNotEquals(
+            agentLoginCommandKey("a", "claude", null, newProfileLabel = "dev@acme.test"),
+            agentLoginCommandKey("a", "claude", null),
+        )
+        // Null profile = the ambient login, the same slot as naming it.
+        assertEquals(
+            agentLoginCommandKey("a", "claude", "system"),
+            agentLoginCommandKey("a", "claude", null),
+        )
+        // The code slot is the same sign-in under its own prefix.
+        assertEquals("login:a:claude:work", agentLoginCommandKey("a", "claude", "work"))
+        assertEquals("login-code:a:claude:work", agentLoginCodeCommandKey("a", "claude", "work"))
+    }
 }

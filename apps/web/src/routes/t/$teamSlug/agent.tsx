@@ -102,6 +102,55 @@ function AgentPage() {
   // seed, hence the latch: the effect below ignores a search that is exactly
   // the action we just wrote.
   const mirroredActionRef = useRef<string | null>(null)
+  // The URL keys the mirror compares against and carries along, read through
+  // a ref so `mirrorAction` keeps ONE identity across search changes: the
+  // composer's effect below re-fires on the action it holds, never on the
+  // router's search object — otherwise a fresh `?issues=` seed would trip a
+  // mirror write of the old action first (child effects run before the
+  // parent's), navigating the seed away for one frame.
+  const searchRef = useRef(search)
+  searchRef.current = search
+  // Set while a fresh seed is on its way into the composer: the mirror is
+  // held off until the composer reports consumption, then applied ONCE from
+  // the action it settled on — so the seed's clearing navigation is never
+  // raced by a mirror write, and the pinned row still lights up afterwards.
+  const seedPendingRef = useRef(false)
+  const wantedActionRef = useRef<string | null>(null)
+
+  const mirrorAction = useCallback(
+    (actionId: string | null) => {
+      mirroredActionRef.current = actionId
+      const current = searchRef.current
+      // Already what the URL says (the common case on every re-render).
+      if ((current.action ?? null) === actionId) return
+      void navigate({
+        to: `/t/$teamSlug/agent`,
+        params: { teamSlug },
+        search: {
+          ...(current.from ? { from: current.from } : {}),
+          ...(actionId ? { action: actionId } : {}),
+        },
+        replace: true,
+      })
+    },
+    [navigate, teamSlug]
+  )
+
+  const onActionChange = useCallback(
+    (actionId: string | null) => {
+      wantedActionRef.current = actionId
+      if (seedPendingRef.current) return
+      mirrorAction(actionId)
+    },
+    [mirrorAction]
+  )
+
+  const onSeedConsumed = useCallback(() => {
+    setSeed(null)
+    seedPendingRef.current = false
+    mirrorAction(wantedActionRef.current)
+  }, [mirrorAction])
+
   useEffect(() => {
     if (!urlSeed) return
     const mirrorOnly =
@@ -113,6 +162,7 @@ function AgentPage() {
       !urlSeed.text &&
       !urlSeed.icon
     if (mirrorOnly) return
+    seedPendingRef.current = true
     setSeed(urlSeed)
     void navigate({
       to: `/t/$teamSlug/agent`,
@@ -123,24 +173,6 @@ function AgentPage() {
       replace: true,
     })
   }, [urlSeed, navigate, teamSlug, search.from])
-
-  const mirrorAction = useCallback(
-    (actionId: string | null) => {
-      mirroredActionRef.current = actionId
-      // Already what the URL says (the common case on every re-render).
-      if ((search.action ?? null) === actionId) return
-      void navigate({
-        to: `/t/$teamSlug/agent`,
-        params: { teamSlug },
-        search: {
-          ...(search.from ? { from: search.from } : {}),
-          ...(actionId ? { action: actionId } : {}),
-        },
-        replace: true,
-      })
-    },
-    [navigate, teamSlug, search.from, search.action]
-  )
 
   // EXP-862: with nothing running and nothing past, the composer is the whole
   // page — it centres in the column instead of hanging off the top edge (the
@@ -175,8 +207,8 @@ function AgentPage() {
               remote={remote}
               users={teamUsers}
               seed={seed}
-              onSeedConsumed={() => setSeed(null)}
-              onActionChange={mirrorAction}
+              onSeedConsumed={onSeedConsumed}
+              onActionChange={onActionChange}
             />
           ) : (
             <p className="text-center text-sm text-muted-foreground">

@@ -696,24 +696,57 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
     }
 
-    // `nextProfileLabel` numbers one past the reported logins (web/Android).
-    func testNextProfileLabelNumbersOnePastTheReportedProfiles() {
+    private func accountWithProfiles(_ labels: [String]) -> AgentAccount {
+        account(
+            signedIn: true,
+            profiles: [AgentAccountProfile(id: "system", label: "Default", signedIn: true)]
+                + labels.enumerated().map { i, label in
+                    AgentAccountProfile(id: "p\(i + 1)", label: label, signedIn: true)
+                }
+        )
+    }
+
+    // `nextProfileLabel` picks the smallest free number ≥ 2 (web/Android).
+    func testNextProfileLabelStartsAtTwoWithOnlyTheAmbientLogin() {
         XCTAssertEqual(
             AgentAccountsRows.nextProfileLabel(nil, agentLabel: "Claude Code"),
             "Claude Code account 2"
         )
         XCTAssertEqual(
+            AgentAccountsRows.nextProfileLabel(accountWithProfiles([]), agentLabel: "Codex"),
+            "Codex account 2"
+        )
+    }
+
+    func testNextProfileLabelSkipsTheNumbersStillInUse() {
+        XCTAssertEqual(
             AgentAccountsRows.nextProfileLabel(
-                account(
-                    signedIn: true,
-                    profiles: [
-                        AgentAccountProfile(id: "system", signedIn: true),
-                        AgentAccountProfile(id: "p1", signedIn: true),
-                    ]
-                ),
+                accountWithProfiles(["Codex account 2", "Codex account 3"]),
                 agentLabel: "Codex"
             ),
-            "Codex account 3"
+            "Codex account 4"
+        )
+    }
+
+    // "account 2" was removed: counting would say "account 3", which is
+    // already a usable profile, and the sign-in sheet would land at open.
+    func testNextProfileLabelReusesAGapInsteadOfReissuingATakenLabel() {
+        XCTAssertEqual(
+            AgentAccountsRows.nextProfileLabel(
+                accountWithProfiles(["Claude Code account 3"]),
+                agentLabel: "Claude Code"
+            ),
+            "Claude Code account 2"
+        )
+    }
+
+    func testNextProfileLabelMatchesLabelsExactly() {
+        XCTAssertEqual(
+            AgentAccountsRows.nextProfileLabel(
+                accountWithProfiles(["claude code account 2", "Codex account 2"]),
+                agentLabel: "Claude Code"
+            ),
+            "Claude Code account 2"
         )
     }
 

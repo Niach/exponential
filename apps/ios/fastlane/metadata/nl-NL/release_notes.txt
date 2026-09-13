@@ -1,3 +1,12 @@
+- Berichten in de wachtrij: stuur je iets terwijl de agent nog werkt, dan wacht het in een Queued-balk boven het invoerveld, en verwijder je het, dan komt de tekst terug in je concept
+- Stop die aankomt: Stop in een lopende sessie onderbreekt nu echt de lopende beurt in plaats van onderweg te verdwijnen, en gooit weg wat er nog in de wachtrij staat
+- Rustigere knoppen: alleen de ene actie waar een scherm voor is houdt een gevulde cirkel; verwijderen, sluiten, verversen, de pijltjes en de ...-menu's zijn nu gewone tekens
+- Kiezers die tonen wat ze kiezen: de agentkiezer draagt het merk van Claude Code of Codex op de knop en naast elke naam, en apparaatmenu's beginnen met een laptop- of servericoon
+- De Agent-pagina houdt je runs vast: eerdere runs vouwen achter een teller die je kunt openen, en draait er niets, dan staat het invoerveld midden op de pagina
+- Inloggen waar het account is: apparaatinstellingen houden naam, delen en agent-standaarden, terwijl inloggen, het actieve account kiezen en verwijderen nu op de account-chips zitten
+- Een account toevoegen: Add account staat in de Accounts-kop om een nieuw account op een apparaat in te loggen, en een plus bij een account logt datzelfde op een ander apparaat in
+- Een board op één regel: het icoon, de kleur en de naam delen één regel als je een board maakt, en de kleurkiezer opent als een blad met stalen
+- Issue-filters zijn weg: de filterknop en zijn pillen zijn uit het board en de inbox verdwenen, zoeken dekt waar ze voor waren, en groeperen en de statusbanden blijven
 - Doorgaan met e-mail of met een passkey: log in met een 6-cijferige code die je gemaild krijgt, of met Face ID of Touch ID; alle opties staan in één lijst, en een onbekend e-mailadres wordt gewoon een nieuw account
 - De werk-indicator stopt wanneer de agent stopt: hij volgt nu de echte beurt van de agent in plaats van de verbinding, toont wat hij doet met de duur en de tokens, en Stop staat in de kop van de sessie
 - Kaarten voor Exponential-tools: roept de agent Exponential aan, dan toont het verloop een eenvoudig bijschrift als „Creating issue” of „Opened pull request”, en daarna een voorproefje van het resultaat

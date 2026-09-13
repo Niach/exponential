@@ -1377,6 +1377,23 @@ fn issue_resume_record(
     coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
 }
 
+/// EXP-862 — the accounts the runs this daemon hosts are using right now
+/// (`agent_profile_remove` refuses to delete one a live run is on). The live
+/// row does not carry the account, the run RECORD does (`runs.json`), so the
+/// live ids resolve through the registry — ONE load for the whole pass
+/// (`run_registry::all`), never one parse per session. Order follows
+/// `session_ids`; unknown ids and ambient (account-less) runs are skipped,
+/// exactly as a per-id `run_registry::get` produced. Mirrored by the IDE's
+/// `device_sync::live_run_accounts`.
+fn live_run_accounts(data_dir: &Path, session_ids: &[String]) -> Vec<String> {
+    let records = coding::run_registry::all(data_dir);
+    session_ids
+        .iter()
+        .filter_map(|id| records.iter().find(|record| record.session_id == *id))
+        .filter_map(|record| record.account())
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn remote_issue_start(
     ctx: &Ctx,
@@ -2223,15 +2240,17 @@ fn run_device_command(
                 Some(agent) => {
                     let report = coding::run_doctor(&settings);
                     // The accounts the runs THIS daemon hosts are on: the
-                    // live row does not carry one, its run record does.
-                    let live_accounts: Vec<String> = lock_sessions(sessions)
+                    // live row does not carry one, its run record does. The
+                    // ids are copied out under the sessions lock and the
+                    // registry read AFTER it is released — one `runs.json`
+                    // load, never a file parse per session with the mutex
+                    // held.
+                    let live_ids: Vec<String> = lock_sessions(sessions)
                         .iter()
                         .filter(|live| !live.session.is_done())
-                        .filter_map(|live| {
-                            coding::run_registry::get(&ctx.data_dir, &live.session.session_id)
-                        })
-                        .filter_map(|record| record.account())
+                        .map(|live| live.session.session_id.clone())
                         .collect();
+                    let live_accounts = live_run_accounts(&ctx.data_dir, &live_ids);
                     match coding::agent_usage::remove_profile(
                         &ctx.data_dir,
                         &settings,
@@ -3586,6 +3605,40 @@ mod tests {
         );
         assert_eq!(issue_resume_record(&dir, "acct-1", "issue-2", true), None);
         assert_eq!(issue_resume_record(&dir, "acct-2", "issue-1", true), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-862 review nit: the accounts a live run is on come off ONE
+    /// registry load per `agent_profile_remove`, and the result is what a
+    /// per-id `get` produced — `session_ids` order, ambient (account-less)
+    /// runs and unknown ids skipped, a re-recorded run (`record` upserts by
+    /// id, the EXP-866 mid-run switch) resolving to its NEWEST account.
+    #[test]
+    fn live_run_accounts_resolve_through_one_registry_load() {
+        let dir = std::env::temp_dir().join(format!("exp-cli-live-accounts-{}", uuid::Uuid::new_v4()));
+        let cwd = dir.join("worktree");
+        std::fs::create_dir_all(&cwd).expect("temp worktree");
+        let with_account = |session_id: &str, account: Option<&str>| {
+            let mut record = issue_record(&cwd, session_id, "issue-1");
+            record.set_account(account);
+            record
+        };
+        coding::run_registry::record(&dir, with_account("sess-a", Some("work")));
+        coding::run_registry::record(&dir, with_account("sess-b", None));
+        coding::run_registry::record(&dir, with_account("sess-c", Some("personal")));
+        coding::run_registry::record(&dir, with_account("sess-a", Some("shadow")));
+
+        let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            live_run_accounts(&dir, &ids(&["sess-c", "sess-b", "sess-a", "sess-missing"])),
+            vec!["personal".to_string(), "shadow".to_string()]
+        );
+        assert!(live_run_accounts(&dir, &[]).is_empty());
+        assert!(
+            live_run_accounts(&dir, &ids(&["sess-b"])).is_empty(),
+            "the ambient login is no account"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

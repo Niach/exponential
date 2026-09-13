@@ -1,3 +1,12 @@
+- Queued messages: a message you send while the agent is still working waits in a Queued bar above the composer, and removing it puts the text back into your draft
+- Stop that reaches the agent: Stop in a live session now interrupts the running turn instead of getting lost on the way, and it clears whatever is queued behind it
+- Quieter buttons: only the one action a screen is for keeps a filled circle, so remove, close, refresh, the chevrons and the ... menus are plain glyphs now
+- Pickers that show what they pick: the agent picker carries the Claude Code or Codex mark on the button and beside each name, and device menus lead with a laptop or a server icon
+- The Agent page holds your runs: past runs fold behind a count you can open, and with nothing running the prompt sits in the middle of the page instead of under the nav bar
+- Sign in where the account is: device settings keeps the device name, sharing and agent defaults, while signing in, choosing the active login and removing one now live on the account chips
+- Add an account: Add account sits in the Accounts header to sign a new login in on a device, and a plus on an account signs that same one in on another device
+- A board in one row: the icon, the color and the name share a single row when you create a board, and the color picker opens as a sheet of swatches
+- Issue filters are gone: the filter button and its pills left the board and the inbox, search covers what they did, and grouping and the status bands stay
 - Continue with email, or with a passkey: sign in with a 6-digit code mailed to you, or with Face ID or Touch ID; every option is one Continue list, and an unknown email simply becomes a new account
 - Working ends when the agent does: the working indicator follows the agent's real turn instead of the connection, showing what it is doing with the elapsed time and tokens, and Stop sits in the session header
 - Exponential tool cards: when the agent calls Exponential, the transcript shows a plain caption like Creating issue or Opened pull request, and a preview of the result once it is done

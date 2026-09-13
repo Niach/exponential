@@ -1,3 +1,12 @@
+- Poruke u redu čekanja: poruka poslana dok agent još radi čeka u traci Queued iznad polja za pisanje, a kad je ukloniš, tekst se vraća u skicu
+- Stop koji stigne: u sesiji uživo Stop sada doista prekida potez koji traje umjesto da se izgubi putem i odbacuje ono što čeka iza njega
+- Tiši gumbi: puni kružić zadržava samo ona jedna radnja zbog koje zaslon postoji; uklanjanje, zatvaranje, osvježavanje, strelice i izbornici ... sada su obični znakovi
+- Izbornici pokazuju što biraju: izbor agenta nosi znak Claude Codea ili Codexa na gumbu i uz svako ime, a izbornici uređaja počinju ikonom prijenosnika ili poslužitelja
+- Stranica Agent drži tvoja izvođenja: prošla se izvođenja sklapaju iza broja koji možeš otvoriti, a kad ništa ne radi, polje za pisanje stoji na sredini stranice
+- Prijavi se ondje gdje je račun: postavke uređaja zadržavaju ime, dijeljenje i zadane vrijednosti agenta, dok su prijava, izbor aktivnog računa i uklanjanje sada na oznakama računa
+- Dodavanje računa: Add account stoji u zaglavlju Accounts i prijavljuje novi račun na uređaju, a plus uz račun prijavljuje isti račun na drugom uređaju
+- Board u jednom retku: pri stvaranju boarda ikona, boja i naziv dijele jedan redak, a izbor boje otvara se kao list s uzorcima
+- Filtri issuea su nestali: gumb filtra i njegove pilule napustili su board i pristiglo, pretraga pokriva ono za što su služili, a grupiranje i trake statusa ostaju
 - Nastavi e-poštom ili pristupnim ključem: prijavi se šesteroznamenkastim kodom koji stigne e-poštom ili putem Face ID-a odnosno Touch ID-a; sve mogućnosti stoje u jednom popisu, a nepoznata adresa jednostavno postaje novi račun
 - Oznaka rada prestaje kad prestane agent: sada prati stvarni potez agenta umjesto veze, pokazuje što radi zajedno s vremenom i tokenima, a Stop je u zaglavlju sesije
 - Kartice Exponentialovih alata: kad agent pozove Exponential, povijest prikazuje jednostavan opis poput „Creating issue“ ili „Opened pull request“, a nakon dovršetka i pretpregled rezultata

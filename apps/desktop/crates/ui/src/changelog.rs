@@ -46,22 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-ui-refinement",
-    date: "2026-09-12",
-    title: "A quieter interface: ghost buttons, pickers that show what they pick, and settings that flatten out",
-    summary: "Secondary buttons lose their circles, agent and device pickers carry icons, the Agent page holds the running and past runs, board settings get a page each, API keys became Security, and issue filters are gone.",
-    body: r#"- **Circles mean the main action**: only the one action a surface is for keeps a round button: start a run, send, New issue, Search, add. Everything secondary is a plain glyph that fills on hover, including the ... menus, close, folder and file toggles, chevrons, remove and refresh. Back is that same quiet button in the same place on every screen, and a back row in a list or in settings is the whole row.
-- **Pickers that show what they pick**: the agent picker is one control everywhere, showing the Claude Code or Codex mark on the button and both the mark and the name in its menu. Device pickers lead with a laptop or a server icon, and every menu whose value carries an icon now shows that icon on its options too.
-- **The Agent page is the composer**: the runs that are going sit in a band above the prompt, past runs are folded behind a count you can open, and with nothing running the prompt sits in the middle of the page instead of at the top.
-- **Device settings hold settings**: the dialog is the device name, your default device, team sharing and the per-agent defaults, and it opens at the size of its content. Signing in and choosing which account the device uses moved onto the account chips, where the account is.
-- **Add, switch and remove an account**: Add account sits in the Accounts header next to Add device, and an account chip offers exactly what applies to it: Sign in when it is signed out, Set as default, or Remove account. Removing clears that login from that one device; the account itself is untouched.
-- **Security**: the API keys settings page is now Security and holds your API keys and your passkeys, which moved off the Account page. Old links land there on their own.
-- **A settings page per board**: team settings list your boards one by one, the way the desktop app already did. Each board is its own page, with New board under the list and Archived boards after it.
-- **Changes you can size and scope**: the diff pane drags wider and remembers its width, and opening a file or an edit from the transcript scopes it to that turn, with one click back to the whole branch.
-- **Status headers in the sidebar**: the board and My issues lists in the sidebar group under the same status bands as the full list: the status glyph, its name, a count, and a click to fold.
-- **Automated runs together**: opening a finished automated run shows the other automated runs beside it, and Back returns to Automations.
-- **Issue filters are gone**: the filter bar left the board and the inbox on web, desktop, iOS and Android. Search covers what it was mostly used for, and grouping, sorting and the status bands stay.
-- **External agents are gone**: the desktop app and the CLI no longer run an arbitrary ACP binary. Claude Code and Codex are the agents; a recorded run that used an external one cannot be resumed, so start a new run instead."#,
+    id: "2026-09-queued-messages-and-one-session-header",
+    date: "2026-09-13",
+    title: "Messages that wait their turn, Stop that reaches the machine, and one session header",
+    summary: "A message sent while the agent is working waits in a Queued bar until the turn ends, Stop from the web and the phone now interrupts the run, the desktop session header and usage sheet match the web, the sidebar issue list gets bulk edits, and a run that switched accounts no longer stays marked rate limited.",
+    body: r#"- **Queued messages**: send while the agent is still working or compacting and the message waits in a Queued bar above the composer, on web, desktop, iOS and Android. Its × removes it from the queue, an empty draft takes the text back, and Stop drops the queue with the turn. The message shows in the transcript the moment the agent takes it.
+- **Stop reaches the machine**: Stop pressed on the web or the phone now interrupts the running turn on the machine. Every client had been sending it; the relay was dropping it.
+- **One session header**: the desktop session header lost its Back button, centers the run's identity like the web, carries a quieter Plan chip and the web's usage and open-issue icons, and the issue band is the real issue header with Open issue in the Watch slot.
+- **One usage sheet**: the usage overlay has the same structure on web and desktop: the active account once, Context, the windows, the other accounts, and one footer note.
+- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, pinned rows unpin on hover, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
+- **Switching accounts clears the wall**: a run ended by an account switch no longer keeps Rate limited on its row for good, and a resumed run no longer re-arms a rate limit from its replayed transcript."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

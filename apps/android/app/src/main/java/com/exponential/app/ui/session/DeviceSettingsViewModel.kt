@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.trpcErrorMessage
@@ -62,18 +63,50 @@ sealed interface DeviceCommandUiState {
 const val PRUNE_COMMAND_KEY = "__prune__"
 
 /**
- * One agent's sign-in command key in [DeviceSettingsViewModel.commandStates]
- * (EXP-484) — the prefix is what tells a `Done` result apart from a worktree
- * command's plain-text summary, so its payload is parsed as a login URL.
+ * WHICH sign-in a login slot belongs to: device × agent × login, the
+ * [accountCommandKey] shape. A new profile has no id yet, so its asked-for
+ * label names it; neither = the ambient login. Keyed this finely because a
+ * login's poll (up to 90s) outlives its sheet: keyed per agent alone, an
+ * abandoned sign-in on one machine landed its link in another machine's sheet.
  */
-fun agentLoginCommandKey(agent: String): String = "login:$agent"
+internal fun agentLoginSlot(
+    deviceId: String,
+    agent: String,
+    profileId: String?,
+    newProfileLabel: String? = null,
+): String = accountCommandKey(
+    deviceId,
+    agent,
+    profileId ?: newProfileLabel?.let { "new:$it" } ?: SYSTEM_PROFILE_ID,
+)
 
 /**
- * One agent's sign-in CODE command key (EXP-765). Its own prefix keeps the
+ * One sign-in's command key in [DeviceSettingsViewModel.commandStates]
+ * (EXP-484), per [agentLoginSlot] — the prefix is what tells a `Done` result
+ * apart from a worktree command's plain-text summary, so its payload is parsed
+ * as a login URL.
+ */
+fun agentLoginCommandKey(
+    deviceId: String,
+    agent: String,
+    profileId: String?,
+    newProfileLabel: String? = null,
+): String = LOGIN_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId, newProfileLabel)
+
+/**
+ * The same sign-in's CODE command key (EXP-765). Its own prefix keeps the
  * `login:` parsing honest: a `login-code:` result is plain text, never a login
  * publication.
  */
-fun agentLoginCodeCommandKey(agent: String): String = "login-code:$agent"
+fun agentLoginCodeCommandKey(
+    deviceId: String,
+    agent: String,
+    profileId: String?,
+    newProfileLabel: String? = null,
+): String = LOGIN_CODE_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId, newProfileLabel)
+
+/** The prefix [agentLoginCommandKey] builds. */
+private const val LOGIN_KEY_PREFIX = "login:"
 
 /** The prefix [agentLoginCodeCommandKey] builds — see [DeviceSettingsViewModel.issueCommand]. */
 private const val LOGIN_CODE_KEY_PREFIX = "login-code:"
@@ -294,9 +327,9 @@ class DeviceSettingsViewModel @Inject constructor(
         /**
          * EXP-827/EXP-849: WHICH login on the machine this lands on — one of
          * `agentAccounts[agent].profiles` (`system` = the ambient login). Null
-         * = the ambient one. The command KEY stays per agent: one sign-in at a
-         * time per agent is all a machine runs, and the published link belongs
-         * to the agent's card either way.
+         * = the ambient one. The command KEY is per device × agent × login
+         * ([agentLoginCommandKey]), so an abandoned sign-in's late result never
+         * lands in another sheet.
          */
         profileId: String? = null,
         /**
@@ -307,7 +340,7 @@ class DeviceSettingsViewModel @Inject constructor(
         newProfileLabel: String? = null,
     ) {
         issueCommand(
-            key = agentLoginCommandKey(agent),
+            key = agentLoginCommandKey(deviceId, agent, profileId, newProfileLabel),
             command = agentLoginCommand(
                 deviceId,
                 agent,
@@ -331,9 +364,12 @@ class DeviceSettingsViewModel @Inject constructor(
         agent: String,
         code: String,
         deviceOnline: Boolean,
+        /** The sign-in this code belongs to — the same login [agentLogin] targeted. */
+        profileId: String? = null,
+        newProfileLabel: String? = null,
     ) {
         issueCommand(
-            key = agentLoginCodeCommandKey(agent),
+            key = agentLoginCodeCommandKey(deviceId, agent, profileId, newProfileLabel),
             command = agentLoginCodeCommand(deviceId, agent, code),
             deviceOnline = deviceOnline,
         )
@@ -366,14 +402,14 @@ class DeviceSettingsViewModel @Inject constructor(
 
     /**
      * Land a command's Done state. EXP-765: a completed `login-code:` also
-     * retires that agent's `login:` state — the machine has the code, so the
+     * retires that sign-in's `login:` state — the machine has the code, so the
      * link it published belongs to a sign-in that is finishing, and leaving it
      * on screen would invite a second, stale attempt.
      */
     private fun markDone(key: String, message: String?) {
         var next = _commandStates.value + (key to DeviceCommandUiState.Done(message))
         if (key.startsWith(LOGIN_CODE_KEY_PREFIX)) {
-            next = next - agentLoginCommandKey(key.removePrefix(LOGIN_CODE_KEY_PREFIX))
+            next = next - (LOGIN_KEY_PREFIX + key.removePrefix(LOGIN_CODE_KEY_PREFIX))
         }
         _commandStates.value = next
     }

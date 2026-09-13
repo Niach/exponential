@@ -1,3 +1,12 @@
+- Mensajes en cola: un mensaje enviado mientras el agente trabaja espera en una barra Queued sobre el campo de escritura, y al quitarlo el texto vuelve a tu borrador
+- Stop que llega al agente: en una sesión en vivo, Stop ahora interrumpe de verdad el turno en curso en lugar de perderse por el camino, y descarta lo que quede en cola
+- Botones más discretos: solo la acción principal de cada pantalla mantiene un círculo relleno; quitar, cerrar, actualizar, las flechas y los menús ... son ahora glifos sencillos
+- Selectores que muestran lo que eligen: el selector de agente lleva la marca de Claude Code o Codex en el botón y junto a cada nombre, y los menús de dispositivos abren con un icono de portátil o de servidor
+- La página Agent sostiene tus ejecuciones: las pasadas se pliegan tras un contador que puedes abrir, y cuando no hay nada en marcha el campo de escritura queda en el centro de la página
+- Entra donde está la cuenta: los ajustes del dispositivo guardan el nombre, el uso compartido y los valores por defecto del agente, mientras que entrar, elegir la cuenta activa y quitarla viven ahora en las etiquetas de cuenta
+- Añadir una cuenta: Add account está en la cabecera de Accounts para entrar con una cuenta nueva en un dispositivo, y un más sobre una cuenta la inicia en otro
+- Un board en una fila: el icono, el color y el nombre comparten una sola fila al crear un board, y el selector de color se abre como una hoja de muestras
+- Los filtros de issues ya no están: el botón de filtro y sus pastillas se van del board y de la bandeja de entrada, la búsqueda cubre lo que hacían, y la agrupación y las bandas de estado se quedan
 - Continuar con el correo, o con una clave de acceso: entra con un código de 6 dígitos enviado por correo, o con Face ID o Touch ID; todas las opciones están en una sola lista, y un correo desconocido simplemente crea una cuenta nueva
 - El indicador de trabajo termina cuando termina el agente: ahora sigue el turno real del agente en lugar de la conexión, muestra lo que está haciendo con el tiempo y los tokens, y Stop está en la cabecera de la sesión
 - Tarjetas de herramientas de Exponential: cuando el agente llama a Exponential, el historial muestra un texto sencillo como «Creating issue» u «Opened pull request», y después una vista previa del resultado

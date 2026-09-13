@@ -2306,12 +2306,18 @@ impl SteerSessionView {
             && has_content
     }
 
-    fn composer_visible(&self) -> bool {
-        // EXP-746: a replay is a transcript — there is nothing to type at.
-        if self.source.read_only()
+    /// Whether the run can still take input at all: a live row, not a
+    /// replay or journal. EXP-746: a replay is a transcript — there is
+    /// nothing to type at. The composer AND the queue strip both hang off
+    /// this; only the composer additionally yields to a pending card.
+    fn run_open(&self) -> bool {
+        !(self.source.read_only()
             || self.row_ended()
-            || matches!(self.phase, ViewerPhase::Ended { .. })
-        {
+            || matches!(self.phase, ViewerPhase::Ended { .. }))
+    }
+
+    fn composer_visible(&self) -> bool {
+        if !self.run_open() {
             return false;
         }
         // EXP-820: a pending card takes the composer's place — free text is
@@ -3475,6 +3481,14 @@ pub(crate) fn keyboard_drives_card(
     slash_open: bool,
 ) -> bool {
     card_pending && !inline_open && (!composer_visible || (draft_empty && !slash_open))
+}
+
+/// EXP-861 — whether the queue strip renders: something is held AND the run
+/// is still open. Deliberately NOT a function of the composer's visibility
+/// (a pending card hides the composer, never the strip) — Android
+/// `AgentSessionScreen` and iOS `AgentSessionView` apply the same rule.
+pub(crate) fn queue_strip_visible(run_open: bool, queued: usize) -> bool {
+    run_open && queued > 0
 }
 
 /// EXP-820 — whether a multi-question ask is OVER, so its stepper stops
@@ -6895,7 +6909,11 @@ impl Render for SteerSessionView {
         // above the composer, under everything else. EXP-861: the queue bar
         // goes between it and the composer — the last thing above the field.
         let tasks = self.render_task_strip(cx);
-        let queue = composer_visible
+        // The strip follows the RUN, not the composer: with a question or
+        // plan card pending (EXP-820 hides the field) a held message is still
+        // revocable — it would otherwise go out the moment the card is
+        // answered, with no × to catch it. Android/iOS show it the same way.
+        let queue = queue_strip_visible(self.run_open(), self.feed.queue().len())
             .then(|| self.render_queue_strip(cx))
             .flatten();
         // EXP-850 §11: the diff PANE splits this column — transcript left,
@@ -7373,6 +7391,18 @@ mod tests {
         assert!(keyboard_drives_card(true, false, true, true, false), "composer shown, empty");
         assert!(!keyboard_drives_card(true, false, true, false, false), "composer has a draft");
         assert!(!keyboard_drives_card(true, false, true, true, true), "slash menu open");
+    }
+
+    /// EXP-861 — the queue strip shows whenever a message is held on a live
+    /// run; a pending card (which hides the composer) never hides it, so a
+    /// queued line can still be revoked before the answer releases it.
+    #[test]
+    fn the_queue_strip_follows_the_run_not_the_composer() {
+        assert!(queue_strip_visible(true, 1));
+        assert!(queue_strip_visible(true, 3));
+        assert!(!queue_strip_visible(true, 0), "nothing held");
+        assert!(!queue_strip_visible(false, 1), "run ended / replay");
+        assert!(!queue_strip_visible(false, 0));
     }
 
     fn option(label: &str, free_text: bool) -> QuestionOption {

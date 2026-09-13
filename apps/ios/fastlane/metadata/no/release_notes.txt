@@ -1,3 +1,12 @@
+- Meldinger i kø: sender du noe mens agenten fortsatt jobber, venter det i en Queued-linje over skrivefeltet, og fjerner du det, går teksten tilbake i utkastet
+- Stop som når fram: Stop i en økt som kjører avbryter nå den pågående turen i stedet for å bli borte på veien, og rydder bort det som står i kø bak
+- Roligere knapper: bare den ene handlingen en skjerm er til for beholder en fylt sirkel; fjern, lukk, oppdater, pilene og ...-menyene er nå enkle tegn
+- Velgere som viser hva de velger: agentvelgeren bærer merket til Claude Code eller Codex på knappen og ved siden av hvert navn, og enhetsmenyer starter med et laptop- eller serverikon
+- Agent-siden holder kjøringene dine: tidligere kjøringer brettes bak et tall du kan åpne, og når ingenting kjører, ligger skrivefeltet midt på siden
+- Logg inn der kontoen er: enhetsinnstillingene holder navn, deling og agentens standarder, mens innlogging, valg av aktiv konto og fjerning nå ligger på kontobrikkene
+- Legg til en konto: Add account ligger i Accounts-overskriften og logger en ny konto inn på en enhet, og en pluss ved en konto logger den samme inn på en annen enhet
+- Et board på én linje: ikonet, fargen og navnet deler én linje når du oppretter et board, og fargevelgeren åpner seg som et ark med fargeprøver
+- Issue-filtre er borte: filterknappen og pillene er borte fra board og innboks, søk dekker det de ble brukt til, og gruppering og statusbånd blir
 - Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én liste, og en ukjent e-post blir rett og slett en ny konto
 - Arbeidsindikatoren stopper når agenten stopper: den følger nå agentens virkelige tur i stedet for tilkoblingen, viser hva den gjør med tid og tokens, og Stop ligger i overskriften til økten
 - Kort for Exponential-verktøy: når agenten kaller Exponential, viser loggen en enkel tekst som «Creating issue» eller «Opened pull request», og etterpå en forhåndsvisning av resultatet

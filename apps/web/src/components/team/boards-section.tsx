@@ -53,6 +53,14 @@ export function BoardSettingsPage({
   // settings DIALOG this page replaced flushed on close. Keyed by board id
   // so a nav between boards can never write one board's draft onto another.
   const draftRef = useRef<{ boardId: string; name: string } | null>(null)
+  // The board's LATEST synced name, kept per board id: the unmount flush
+  // compares the draft against what the row says NOW, not what it said at
+  // mount — a teammate's rename while the page is open must not be undone
+  // by a draft that merely restates the old name. Left alone once the page
+  // swaps board (that render already carries the next board), so the flush
+  // for the board being left still reads that board's name.
+  const syncedRef = useRef<{ boardId: string; name: string } | null>(null)
+  if (syncedRef.current?.boardId === board.id) syncedRef.current.name = board.name
   const [busyRepo, setBusyRepo] = useState(false)
   const [repoError, setRepoError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -62,8 +70,9 @@ export function BoardSettingsPage({
 
   useEffect(() => {
     const boardId = board.id
-    const original = board.name
-    setName(original)
+    const seeded = board.name
+    syncedRef.current = { boardId, name: seeded }
+    setName(seeded)
     setBusyRepo(false)
     setRepoError(null)
     draftRef.current = null
@@ -72,7 +81,12 @@ export function BoardSettingsPage({
       if (!draft || draft.boardId !== boardId) return
       draftRef.current = null
       const trimmed = draft.name.trim()
-      if (!trimmed || trimmed === original) return
+      const synced =
+        syncedRef.current?.boardId === boardId ? syncedRef.current.name : seeded
+      // A draft only writes when it differs from the row as it stands NOW
+      // and from the name the field was seeded with: typing the old name
+      // back is not a rename, and must not roll back a teammate's.
+      if (!trimmed || trimmed === synced || trimmed === seeded) return
       void trpc.boards.update.mutate({ boardId, name: trimmed })
     }
     // Reset keyed on the target board only — remote edits while the page is
