@@ -132,6 +132,14 @@ pub struct AgentCacheEntry {
     /// never. Claude has no keep-alive here (deferred to EXP-852).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refreshed_at_secs: Option<u64>,
+    /// When the ENDPOINT is next owed a poll while a PARTIAL live publisher
+    /// (claude's `rate_limit_event`) answers for this login. Unix seconds;
+    /// `None` = owed now. Live applies stamp `fetched_at_secs` and
+    /// `next_poll_at_secs` on every frame, so they cannot schedule this —
+    /// without it the windows no frame carries (the model-scoped weekly)
+    /// froze for the whole run. See [`live_endpoint_due`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_due_at_secs: Option<u64>,
     /// Fields a newer build wrote that this one does not know — carried
     /// verbatim through every rewrite (the [`crate::run_registry`] promise).
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -272,6 +280,34 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
     }
     now >= entry.next_poll_at_secs
         && now.saturating_sub(entry.fetched_at_secs) >= SHARED_TTL_SECS
+}
+
+/// While a live session reports only SOME windows, how often the endpoint is
+/// still read for the rest. Slower than [`MIN_POLL_SECS`]: the frames already
+/// keep the session and weekly numbers moving.
+pub const LIVE_ENDPOINT_POLL_SECS: u64 = 600;
+
+/// Whether a login a PARTIAL live publisher answers for is owed an endpoint
+/// poll for the windows the frames never carry.
+pub fn live_endpoint_due(entry: &AgentCacheEntry, now: u64) -> bool {
+    entry.endpoint_due_at_secs.is_none_or(|due| now >= due)
+}
+
+/// After an endpoint attempt: the next owed one, never before this cadence nor
+/// before any backoff the attempt earned (a 401, a refused keychain, a 429,
+/// every window maxed) — the live applies that follow reset those fields, this
+/// stamp keeps them.
+pub fn schedule_live_endpoint(entry: &mut AgentCacheEntry, now: u64) {
+    let due = [
+        Some(now + LIVE_ENDPOINT_POLL_SECS),
+        Some(entry.next_poll_at_secs),
+        entry.credential_denied_until_secs,
+        entry.rate_limited_until_secs,
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+    entry.endpoint_due_at_secs = due;
 }
 
 /// EXP-849 — is this login's codex keep-alive due? (Never a reason to poll on
@@ -492,6 +528,7 @@ pub fn force_due(entry: &mut AgentCacheEntry, now: u64) -> Result<(), u64> {
     }
     entry.next_poll_at_secs = 0;
     entry.fetched_at_secs = 0;
+    entry.endpoint_due_at_secs = None;
     entry.credential_denied_until_secs = None;
     Ok(())
 }
