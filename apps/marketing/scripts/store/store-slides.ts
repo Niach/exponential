@@ -101,7 +101,16 @@ export type Slide = {
   noPop?: boolean
   /** Play's 1024×500 feature graphic, not a phone screenshot. */
   featureGraphic?: boolean
+  /** Per form: a horizontal band of the raw (normalized y + h) spliced out of
+   *  the device screen, as if the view were scrolled by `h` under its fixed
+   *  header. The content below moves up and the raw's bottom `h` scrolls into
+   *  the part of the device the canvas already clips, so `h` must stay within
+   *  that clipped fraction (~0.12 on both iOS forms) or black shows at the
+   *  bottom. The pop-out still crops the untouched raw. */
+  scrollCut?: Partial<Record<Form, ScrollCut>>
 }
+
+export type ScrollCut = { y: number; h: number }
 
 const PHONES: Form[] = [`ios-phone`, `ios-tablet`, `android-phone`]
 
@@ -151,6 +160,14 @@ export const SLIDES: Slide[] = [
     headline: [`Local agents.`, `Your machines.`],
     sub: `Watch a run live — and steer it from anywhere`,
     forms: PHONES,
+    // The transcript is bottom-anchored: the iPad raw has a ~22% empty band
+    // under the header and the phone's unanswered question sits in the clipped
+    // bottom of the device. Scroll both by the clipped fraction so the question
+    // card lands on-canvas under its pop-out (EXP-862 layout, 2026-09-13 raws).
+    scrollCut: {
+      "ios-phone": { y: 0.1115, h: 0.1195 },
+      "ios-tablet": { y: 0.06, h: 0.125 },
+    },
   },
   {
     id: `review`,

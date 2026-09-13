@@ -67,17 +67,22 @@ export const HAND_RECTS: Record<string, Rect> = {
   "board:android-phone": { x: 0.024, y: 0.33, w: 0.951, h: 0.0735 },
   "board:ios-tablet": { x: 0.007, y: 0.226, w: 0.986, h: 0.157 },
 
-  // The Claude Code / Codex agent picker, plus the Model + Effort rows
-  // right under it — the picker alone is a ~12:1 sliver.
-  "start-coding:ios-phone": { x: 0.0315, y: 0.578, w: 0.937, h: 0.177 },
-  "start-coding:android-phone": { x: 0.0289, y: 0.5165, w: 0.942, h: 0.156 },
-  "start-coding:ios-tablet": { x: 0.007, y: 0.06, w: 0.986, h: 0.16 },
+  // RE-MEASURED 2026-09-13 after EXP-862 moved the Agent page composer to the
+  // top (running runs in a band below it, past runs folded behind a count):
+  // the prompt card with its issue chip and #/play/+ controls, plus the
+  // machine / agent / login / model chip row under it. The "Not ready …"
+  // doctor line below the chips stays out. Android reads its sidecar.
+  "start-coding:ios-phone": { x: 0.024, y: 0.132, w: 0.952, h: 0.19 },
+  "start-coding:android-phone": { x: 0.0239, y: 0.0858, w: 0.9522, h: 0.259 },
+  "start-coding:ios-tablet": { x: 0.007, y: 0.066, w: 0.986, h: 0.137 },
 
-  // The agent's unanswered question card with its two numbered options.
-  // The tablet rect also takes the prose question that sets it up.
-  "steering:ios-phone": { x: 0.0174, y: 0.609, w: 0.965, h: 0.209 },
-  "steering:android-phone": { x: 0.0289, y: 0.559, w: 0.951, h: 0.212 },
-  "steering:ios-tablet": { x: 0.007, y: 0.7205, w: 0.986, h: 0.161 },
+  // The agent's unanswered question card with its two numbered options, and
+  // nothing above it: starting mid-transcript repeated the results table's
+  // header row in the card. iOS rects are against the RAW; the slide's
+  // `scrollCut` moves the source up on the device so the card lands on it.
+  "steering:ios-phone": { x: 0.03, y: 0.717, w: 0.94, h: 0.203 },
+  "steering:android-phone": { x: 0.0146, y: 0.7433, w: 0.9707, h: 0.2279 },
+  "steering:ios-tablet": { x: 0.15, y: 0.8205, w: 0.7, h: 0.135 },
 
   // The floating Merge action bar (dismiss / Merge / open on GitHub), which
   // sits over the diff at the bottom of the review screen.

@@ -12,7 +12,7 @@
 
 import type { CSSProperties, ReactNode } from "react"
 import type { Rect } from "./store-crops"
-import type { Slide, StyleSetId } from "./store-slides"
+import type { ScrollCut, Slide, StyleSetId } from "./store-slides"
 import type { Form } from "./raw-store"
 
 /** Output canvas px per CSS px. Fixed: the CLI always lays out at canvas/2. */
@@ -60,6 +60,7 @@ function Frame({
   ringColor,
   shadow,
   notch,
+  cut,
   style,
 }: {
   screenW: number
@@ -72,6 +73,7 @@ function Frame({
   ringColor: string
   shadow: string
   notch: boolean
+  cut?: ScrollCut
   style?: CSSProperties
 }) {
   // Aspect is always preserved; if the screen box and the raw ever disagree the
@@ -102,7 +104,37 @@ function Frame({
           background: `#050505`,
         }}
       >
-        {src ? (
+        {src && cut ? (
+          <>
+            {/* Header strip, then the content below the cut band moved up. */}
+            <div
+              style={{
+                position: `absolute`,
+                left: 0,
+                top: 0,
+                width: `100%`,
+                height: `${cut.y * screenH}px`,
+                backgroundImage: `url(${src})`,
+                backgroundSize: `${screenW}px ${screenH}px`,
+                backgroundPosition: `0 0`,
+                backgroundRepeat: `no-repeat`,
+              }}
+            />
+            <div
+              style={{
+                position: `absolute`,
+                left: 0,
+                top: `${cut.y * screenH}px`,
+                width: `100%`,
+                height: `${(1 - cut.y - cut.h) * screenH}px`,
+                backgroundImage: `url(${src})`,
+                backgroundSize: `${screenW}px ${screenH}px`,
+                backgroundPosition: `0 ${-(cut.y + cut.h) * screenH}px`,
+                backgroundRepeat: `no-repeat`,
+              }}
+            />
+          </>
+        ) : src ? (
           <img
             src={src}
             style={{ width: `100%`, height: `100%`, objectFit: `contain`, display: `block` }}
@@ -404,7 +436,7 @@ function aurora(input: RenderInput) {
             bezel="linear-gradient(160deg, #2a2a30, #0b0b0e)"
             ringColor="rgba(255,255,255,0.16)"
             shadow={frameShadow}
-            notch={c.form !== `android-phone`}
+            notch={c.form === `ios-phone`}
           />
         </div>
       ) : null}
@@ -469,7 +501,10 @@ const ZINC_FRAME_SHADOW = [
    a real backdrop blur over whatever it overlaps (the device, usually), a bright
    hairline, and a shadow deep enough to read as lifted rather than inlaid. */
 const ZINC_POP_CARD = {
-  background: `rgba(255,255,255,0.10)`,
+  // A lit glass sheen over an OPAQUE zinc base: a translucent card let the
+  // rows it covers bleed through its padding and any transparent crop edge
+  // (Android start-coding), which reads as garbled text.
+  background: `linear-gradient(155deg, rgba(255,255,255,0.16), rgba(255,255,255,0.06)), #1C1C20`,
   border: `1px solid rgba(255,255,255,0.26)`,
   backdropFilter: `blur(32px) saturate(140%)`,
   WebkitBackdropFilter: `blur(32px) saturate(140%)`,
@@ -502,13 +537,21 @@ function zinc(input: RenderInput) {
     const cropPxW = c.pop.w * c.rawWidth
     const displayW = Math.min(c.w * 0.88, (cropPxW / CSS_SCALE) * MAX_POP_UPSCALE)
     const cardH = (displayW * (c.pop.h * c.rawHeight)) / cropPxW
-    const sourceMid = deviceTop + (c.pop.y + c.pop.h / 2) * screenH
+    // With a scroll cut the source sits `cut.h` higher on the device screen.
+    const cut = c.slide.scrollCut?.[c.form]
+    const mid = c.pop.y + c.pop.h / 2
+    const shownMid = cut && mid > cut.y + cut.h ? mid - cut.h : mid
+    const sourceMid = deviceTop + shownMid * screenH
     // The lower bound is the card's BOTTOM, not its top: clamping the top pulled
     // tall cards up off their source and left a strip of the original peeking
     // out underneath, which is the duplicate-looking artefact this is here to
     // avoid in the first place.
+    // The upper bound is the device's top edge, which already clears the
+    // headline block on every form. It was 0.42h, which parked cards cropped
+    // from the top of the screen (the EXP-862 Agent composer) a card-height
+    // below their source, so the source showed twice.
     return Math.round(
-      Math.min(Math.max(sourceMid - cardH / 2, c.h * 0.42), c.h * 0.97 - cardH)
+      Math.min(Math.max(sourceMid - cardH / 2, deviceTop), c.h * 0.97 - cardH)
     )
   })()
 
@@ -587,7 +630,8 @@ function zinc(input: RenderInput) {
             bezel={ZINC_GLASS}
             ringColor="rgba(255,255,255,0.28)"
             shadow={ZINC_FRAME_SHADOW}
-            notch={c.form !== `android-phone`}
+            notch={c.form === `ios-phone`}
+            cut={c.slide.scrollCut?.[c.form]}
           />
         </div>
       ) : null}
@@ -719,7 +763,7 @@ function colorblock(input: RenderInput) {
             bezel="#F4F4F5"
             ringColor="rgba(0,0,0,0.12)"
             shadow="0 50px 100px rgba(0,0,0,0.6)"
-            notch={c.form !== `android-phone`}
+            notch={c.form === `ios-phone`}
           />
         </div>
       ) : null}
