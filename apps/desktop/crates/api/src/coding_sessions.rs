@@ -1287,10 +1287,10 @@ mod tests {
     #[test]
     fn decodes_the_run_close_out() {
         // EXP-637: `exponential_sessions_end` writes `endedBy`; absent = None.
-        // The `outcome` (EXP-686) and `summary` (EXP-862) keys are
+        // The `outcome` (EXP-686) and `summary` (EXP-864) keys are
         // deliberately still in this fixture: a server that predates either
-        // removal must stay decodable, so an unknown key can never become an
-        // error.
+        // column drop must stay decodable, so an unknown key can never become
+        // an error.
         let session: CodingSession = serde_json::from_str(
             r#"{"id":"sess-1","status":"ended","endedBy":"agent","outcome":"done","summary":"Shipped it."}"#,
         )
@@ -1299,7 +1299,6 @@ mod tests {
 
         let session: CodingSession = serde_json::from_str(r#"{"id":"sess-2"}"#).unwrap();
         assert_eq!(session.ended_by, None);
-        assert_eq!(session.summary, None);
     }
 
     #[test]
