@@ -1106,15 +1106,18 @@ export const codingSessionsRouter = router({
         : null
 
       const wasBlocked = existing.blocked != null
+      // EXP-866: a SET still needs a live row (a wall never resurrects an
+      // ended one), but a CLEAR lands regardless of status — the device's
+      // teardown clear races the exit hook that ends the row, and a run
+      // ended by an account switch used to keep "Rate limited" on its row
+      // in every list for good.
+      const statusGate = blocked
+        ? inArray(codingSessions.status, [`running`, `in_review`])
+        : undefined
       const updated = await ctx.db
         .update(codingSessions)
         .set({ blocked })
-        .where(
-          and(
-            eq(codingSessions.id, input.id),
-            inArray(codingSessions.status, [`running`, `in_review`])
-          )
-        )
+        .where(and(eq(codingSessions.id, input.id), statusGate))
         .returning({ id: codingSessions.id })
 
       const didUpdate = updated.length > 0

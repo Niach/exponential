@@ -168,6 +168,11 @@ final class AgentSessionModel {
     private(set) var backgroundTasks: [AgentBackgroundTask] = [] {
         didSet { rebuildStripLines() }
     }
+    /// EXP-861: the messages the device is holding until the current turn or
+    /// compaction ends — a latest-wins slot (the FULL queue, oldest first; an
+    /// empty list closes the strip above the composer). Lives on the device,
+    /// so a reconnecting or second viewer gets it from the join replay.
+    private(set) var queued: [QueuedMessage] = []
     /// EXP-850 §1/§2: the strip above the composer, derived ONCE per change
     /// (EXP-582: an O(feed) projection read from a view body is what pinned
     /// the main thread during a replay).
@@ -1111,6 +1116,12 @@ final class AgentSessionModel {
             }
         }
         sendText(#"{"t":"input","data":"\r"}"#)
+        // EXP-861: sent mid-turn or mid-compaction, the DEVICE queues it
+        // instead of starting a turn — no local echo then: the next `queue`
+        // frame shows it in the strip, and the real `user_message` row lands
+        // when it is delivered. The raw slot values decide, not the full
+        // working predicate (×4 parity).
+        if turn.state == .started || compacting != nil { return true }
         // Local echo (EXP-78): show the sent message immediately; its
         // transcript-derived `user_message` event is deduped via the FIFO.
         recentEchoes.append((text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date()))
@@ -1252,6 +1263,18 @@ final class AgentSessionModel {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let json = String(data: data, encoding: .utf8) else { return }
         sendText(json)
+    }
+
+    /// EXP-861: revoke a queued message. Fire-and-forget — the device's next
+    /// `queue` frame is the confirmation — but the line leaves the strip at
+    /// once, and its text goes back into an EMPTY draft so it can be edited
+    /// and re-sent (the CLI's "edit queued message"); a draft in progress is
+    /// never overwritten.
+    func unqueue(_ id: String) {
+        guard let index = queued.firstIndex(where: { $0.id == id }) else { return }
+        let message = queued.remove(at: index)
+        send(frame: ["t": "unqueue", "id": id])
+        if trimmedDraft.isEmpty { draftText = message.text }
     }
 
     /// Lock a card and arm ITS OWN expiry that frees it again (flagged
@@ -1990,6 +2013,9 @@ final class AgentSessionModel {
         // ended run must not leave a strip or a running card standing.
         backgroundTasks = []
         workflows = []
+        // EXP-861: the queue is device state that only a live run can hold —
+        // the join replay carries the current one right after `turn`.
+        queued = []
     }
 
     /// Close the strip and disarm its backstop. Idempotent — every path that
@@ -2348,6 +2374,12 @@ final class AgentSessionModel {
             // closes the strip above the composer.
             guard !prependingPage else { return }
             backgroundTasks = tasks
+        case let .queue(messages):
+            // EXP-861: the FULL current queue, latest-wins (replace whole) —
+            // an empty array clears the strip. Present-tense state, so an
+            // older page folding through says nothing about it.
+            guard !prependingPage else { return }
+            queued = messages
         case let .workflow(workflow):
             // EXP-850 §3: latest-wins PER ID. The card patches onto the tool
             // row with the same id, so the projection has to be redone.

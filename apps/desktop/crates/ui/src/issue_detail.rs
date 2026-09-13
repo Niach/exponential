@@ -1855,7 +1855,7 @@ impl IssueDetailView {
         let (top_row, chip_row, agent_row) = header.update(cx, |header, cx| {
             (
                 header.top_row(issue, cx),
-                header.chip_row(issue, cx),
+                header.chip_row(issue, None, cx),
                 header.agent_row(issue, cx),
             )
         });

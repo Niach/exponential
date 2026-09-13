@@ -620,6 +620,10 @@ class AgentSessionViewModel @Inject constructor(
      *  Fire-and-forget like [setMode]; the feed shows the agent stopping. */
     fun interrupt() = connection.interrupt()
 
+    /** EXP-861: revoke a message the device is holding for the next turn —
+     *  the queue bar's X. Fire-and-forget; the next `queue` event confirms. */
+    fun unqueue(id: String) = connection.unqueue(id)
+
     /** EXP-783: whether the DEVICE still holds transcript below the oldest row
      *  this client has, and the ask that fetches the next page of it. */
     fun canLoadEarlier(): Boolean = connection.canLoadEarlier()
@@ -674,6 +678,9 @@ class AgentSessionViewModel @Inject constructor(
     fun switchAccount(option: SessionAccountOption) {
         val row = session.value ?: return
         val deviceId = row.deviceId ?: return
+        // EXP-866: the wall belongs to the login being left — drop it NOW,
+        // not when the continuation's first frame happens to arrive.
+        connection.clearRateLimit()
         steerLaunch.resumeRun(
             RunResumeTarget(
                 sessionId = codingSessionId,

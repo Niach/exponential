@@ -858,14 +858,14 @@ fn an_elicitation_is_a_stepper_keyed_on_its_tool_call() {
     harness.session.kill("killed");
 }
 
-/// EXP-746: a viewer steering mid-turn sends a second `session/prompt`. It is
-/// a TURN like any other here, so the run stays busy until the follow-up
-/// answers — an idle edge at the first turn's answer would tell every client
-/// the agent is between turns and would let an `AfterTurn` kill (EXP-637)
-/// SIGKILL the agent in the middle of the steered answer.
+/// EXP-861: a message that arrives while a turn is running is HELD — the
+/// `queue` slot names it, no `user_message` row appears, the agent sees
+/// nothing — and starts as its own turn the moment the running one answers.
+/// (Before EXP-861 a mid-turn steer was a second `session/prompt` the CLI
+/// folded or queued itself, invisible and irrevocable.)
 #[test]
-fn a_mid_turn_steer_keeps_the_run_busy_until_the_follow_up_answers() {
-    let harness = start_fake("steer-turn");
+fn a_mid_turn_message_is_held_and_starts_when_the_turn_ends() {
+    let harness = start_fake("queue-hold");
     let signal = harness.session.turn_signal();
     let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
     let answered = |text: &str| {
@@ -878,58 +878,147 @@ fn a_mid_turn_steer_keeps_the_run_busy_until_the_follow_up_answers() {
             .any(|prompt| prompt == text)
     };
 
-    harness.session.send_prompt("await-steer".to_string());
-    until("the first turn", || prompts() >= 1);
-    harness.session.steer("steered".to_string());
-    until("the first turn's answer", || answered("await-steer"));
-
-    // The steered turn is still running: the signal must not have flipped,
-    // and must stay put while the follow-up works.
-    let deadline = Instant::now() + Duration::from_millis(400);
-    while Instant::now() < deadline {
-        assert!(!signal.is_idle(), "the steered turn is still running");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-
-    harness.state.released.store(true, Ordering::SeqCst);
-    until("the idle edge", || signal.is_idle());
-    assert!(answered("steered"));
-    harness.session.kill("killed");
-}
-
-/// EXP-784: `TURN_SLOTS` prompts may be in flight; the next one is accepted
-/// (its row and the idle edge publish at once) but its `session/prompt` is
-/// only SENT once a slot frees — and the command loop never waits for it.
-#[test]
-fn a_third_prompt_waits_for_a_turn_slot() {
-    assert_eq!(engine::host::TURN_SLOTS, 2, "the test below assumes two slots");
-    let harness = start_fake("turn-slots");
-    let signal = harness.session.turn_signal();
-    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
-
-    // Two turns the fake holds until released, then a third that would end
-    // immediately if it reached the agent.
     harness.session.send_prompt("steered".to_string());
-    harness.session.steer("steered".to_string());
-    until("two turns in flight", || prompts() >= 2);
+    until("the first turn", || prompts() >= 1);
     harness.session.steer("stream".to_string());
+    until("the queue slot", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 1))
+    });
+    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    assert_eq!(slot["messages"][0]["text"], "stream");
+    assert!(slot["messages"][0]["id"].as_str().is_some_and(|id| !id.is_empty()));
+
+    // Held: the agent has ONE prompt, the run stays busy, and the held
+    // message has no row of its own yet.
     let deadline = Instant::now() + Duration::from_millis(400);
     while Instant::now() < deadline {
-        assert_eq!(prompts(), 2, "the third prompt waits for a slot");
-        assert!(!signal.is_idle());
+        assert_eq!(prompts(), 1, "a held message never reaches the agent mid-turn");
+        assert!(!signal.is_idle(), "the first turn is still running");
         std::thread::sleep(Duration::from_millis(20));
     }
-    // The loop stayed responsive: the user's row for the queued prompt is
-    // already on the wire.
-    let users = events_of(&harness.sink, "user_message");
     assert!(
-        users.iter().any(|event| event["text"] == "stream"),
-        "the queued prompt's own row is published at once: {users:?}"
+        !events_of(&harness.sink, "user_message")
+            .iter()
+            .any(|event| event["text"] == "stream"),
+        "a held message has no user row until it is delivered"
     );
 
     harness.state.released.store(true, Ordering::SeqCst);
-    until("the third turn reaches the agent", || prompts() >= 3);
+    until("the first turn's answer", || answered("steered"));
+    until("the held message reaches the agent", || prompts() >= 2);
+    // The bar closed and the row appeared, in that order.
+    let last_slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    assert_eq!(last_slot["messages"].as_array().map(Vec::len), Some(0));
+    until("the delivered message's row", || {
+        events_of(&harness.sink, "user_message")
+            .iter()
+            .any(|event| event["text"] == "stream")
+    });
     until("the idle edge", || signal.is_idle());
+    assert!(answered("stream"));
+    harness.session.kill("killed");
+}
+
+/// EXP-861: the × on the bar — an `unqueue` drops the held message, the
+/// slot says so, and the agent never sees it.
+#[test]
+fn an_unqueue_drops_a_held_message() {
+    let harness = start_fake("queue-revoke");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    harness.session.send_prompt("steered".to_string());
+    until("the first turn", || prompts() >= 1);
+    harness.session.steer("stream".to_string());
+    harness.session.steer("keep me".to_string());
+    until("two held messages", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 2))
+    });
+    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    let first = slot["messages"][0]["id"].as_str().expect("an id").to_string();
+    harness.session.unqueue(&first);
+    // An unknown id changes nothing (and republishes nothing).
+    harness.session.unqueue("no-such-id");
+    until("the slot without it", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 1))
+    });
+    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    assert_eq!(slot["messages"][0]["text"], "keep me");
+
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the kept message reaches the agent", || prompts() >= 2);
+    until("the idle edge", || signal.is_idle());
+    assert_eq!(prompts(), 2, "the revoked message never reached the agent");
+    harness.session.kill("killed");
+}
+
+/// EXP-861: a Stop drops the queue with the turn — the same `cancel_queued`
+/// meaning the CLI's own queue had — so nothing typed behind a turn the
+/// person just killed sneaks in as the next one.
+#[test]
+fn a_stop_drops_the_held_messages() {
+    let harness = start_fake("queue-stop");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    harness.session.send_prompt("hang".to_string());
+    until("the turn to start", || prompts() >= 1);
+    harness.session.steer("stream".to_string());
+    until("the held message", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 1))
+    });
+    harness.session.cancel_turn();
+    until("the adapter's cancel", || {
+        harness.state.cancelled.load(Ordering::SeqCst)
+    });
+    until("the idle edge", || signal.is_idle());
+    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
+    assert_eq!(slot["messages"].as_array().map(Vec::len), Some(0));
+    // Nothing drained after the cancel: the agent saw the one prompt only.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(prompts(), 1);
+    harness.session.kill("killed");
+}
+
+/// EXP-784/EXP-861: `TURN_SLOTS` still bounds how many `session/prompt`s are
+/// open at once — the drain starts every held message as its own turn, and
+/// past two of them the rest park inside their tasks until a slot frees.
+/// Every drained message announces its row at drain time, in order.
+#[test]
+fn drained_messages_start_in_order_under_the_turn_slot_bound() {
+    assert_eq!(engine::host::TURN_SLOTS, 2, "the test below assumes two slots");
+    let harness = start_fake("queue-drain");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    harness.session.send_prompt("steered".to_string());
+    until("the first turn", || prompts() >= 1);
+    for text in ["one", "two", "three"] {
+        harness.session.steer(text.to_string());
+    }
+    until("three held messages", || {
+        events_of(&harness.sink, "queue")
+            .last()
+            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 3))
+    });
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("every held message reaches the agent", || prompts() >= 4);
+    until("the idle edge", || signal.is_idle());
+    let seen = harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    assert_eq!(seen, vec!["steered", "one", "two", "three"]);
+    let rows: Vec<String> = events_of(&harness.sink, "user_message")
+        .iter()
+        .filter_map(|event| event["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(rows, vec!["steered", "one", "two", "three"]);
     harness.session.kill("killed");
 }
 

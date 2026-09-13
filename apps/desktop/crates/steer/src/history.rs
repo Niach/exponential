@@ -250,10 +250,10 @@ fn count_lines(path: &Path) -> u64 {
 /// (`config_state`, `usage`, `rate_limit`, `turn`, `workflow`,
 /// `background_tasks`, `diff`; EXP-784 added the third, EXP-848 the fourth,
 /// EXP-850 the keyed workflow block and the background-task strip).
-const SLOT_COUNT: usize = 6;
+const SLOT_COUNT: usize = 7;
 /// The slots replayed BEFORE the keyed workflow cards (`config_state`,
 /// `usage`, `rate_limit`, `turn`); `background_tasks` and `diff` follow them.
-const SLOTS_BEFORE_WORKFLOWS: usize = 4;
+const SLOTS_BEFORE_WORKFLOWS: usize = 5;
 
 /// EXP-850 §3: how many workflow cards one file's fold keeps — the in-memory
 /// journal's [`crate::journal::JOURNAL_WORKFLOW_CAP`], mirrored so a replay
@@ -266,8 +266,10 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
         ActivityEvent::Usage { .. } => Some(1),
         ActivityEvent::RateLimit { .. } => Some(2),
         ActivityEvent::Turn { .. } => Some(3),
-        ActivityEvent::BackgroundTasks { .. } => Some(4),
-        ActivityEvent::Diff { .. } => Some(5),
+        // EXP-861: the queue slot, right after `turn`.
+        ActivityEvent::Queue { .. } => Some(4),
+        ActivityEvent::BackgroundTasks { .. } => Some(5),
+        ActivityEvent::Diff { .. } => Some(6),
         _ => None,
     }
 }
@@ -304,7 +306,7 @@ pub fn read_journal_seq(
     let file = File::open(&path).ok()?;
     let mut events: Vec<(u64, ActivityEvent)> = Vec::new();
     let mut slots: [Option<(u64, ActivityEvent)>; SLOT_COUNT] =
-        [None, None, None, None, None, None];
+        [None, None, None, None, None, None, None];
     // EXP-850 §3: the keyed `workflow` fold — the newest line per workflow id,
     // in first-appearance order, capped like the in-memory journal.
     let mut workflows: Vec<(String, u64, ActivityEvent)> = Vec::new();

@@ -109,6 +109,11 @@ pub const COMPACTING_LABEL: &str = "Compacting context…";
 /// The feed marker left behind by `compaction ended` — byte-identical ×4.
 pub const COMPACTED_LABEL: &str = "Context compacted";
 
+/// EXP-861: the queue bar's accessibility name — byte-identical ×4.
+pub const QUEUE_STRIP_TITLE: &str = "Queued";
+/// EXP-861: the × on a queued line — byte-identical ×4.
+pub const QUEUE_REMOVE_LABEL: &str = "Remove from queue";
+
 // ---------------------------------------------------------------------------
 // Feed items
 // ---------------------------------------------------------------------------
@@ -416,6 +421,9 @@ pub struct SteerFeed {
     turn_tokens: Option<u64>,
     /// EXP-850 §2: the background-task strip, latest-wins whole.
     background_tasks: Vec<crate::frames::BackgroundTask>,
+    /// EXP-861: the messages the device holds queued behind the running
+    /// turn, latest-wins whole (empty = nothing queued, the bar closes).
+    queue: Vec<crate::frames::QueuedMessage>,
     /// EXP-850 §3: the workflow cards, latest-wins PER ID, in
     /// first-appearance order. A SIDE map rather than a feed item: the card
     /// renders on the `tool` row with the same id (`workflow_for`), so
@@ -501,6 +509,18 @@ impl SteerFeed {
     /// them (empty = nothing running, so the strip closes).
     pub fn background_tasks(&self) -> &[crate::frames::BackgroundTask] {
         &self.background_tasks
+    }
+
+    /// EXP-861: the messages the device holds queued behind the running
+    /// turn, oldest first; empty = nothing queued.
+    pub fn queue(&self) -> &[crate::frames::QueuedMessage] {
+        &self.queue
+    }
+
+    /// EXP-861: drop one queued message locally — the optimistic half of an
+    /// `unqueue`; the device's next `queue` frame is the truth.
+    pub fn remove_queued(&mut self, id: &str) {
+        self.queue.retain(|message| message.id != id);
     }
 
     /// EXP-850 §3: every workflow card this feed holds, in first-appearance
@@ -1161,6 +1181,9 @@ impl SteerFeed {
             // EXP-850 §2: latest-wins whole, exactly like `config_state` — an
             // EMPTY list is the publisher saying nothing runs any more.
             ActivityEvent::BackgroundTasks { tasks, .. } => self.background_tasks = tasks,
+            // EXP-861: latest-wins whole — an EMPTY list is the engine saying
+            // nothing is held any more.
+            ActivityEvent::Queue { messages, .. } => self.queue = messages,
             // EXP-850 §3: latest-wins PER ID. The newest frame for an id
             // replaces its predecessor in place (the card keeps its position
             // among the others); a new id appends.
@@ -1290,6 +1313,8 @@ impl SteerFeed {
         self.config = None;
         self.usage = None;
         self.rate_limit = None;
+        // EXP-861: the replay carries the queue slot too, in the same burst.
+        self.queue.clear();
         // EXP-848: a swap with no `turn` in its replay means nobody has said
         // the agent is working, which is exactly `Ended`.
         self.turn_state = crate::frames::TurnState::default();
@@ -2585,6 +2610,33 @@ mod tests {
         feed.apply(ActivityEvent::turn(crate::frames::TurnState::Ended));
         assert_eq!(feed.turn_state(), crate::frames::TurnState::Ended);
         assert!(feed.is_empty());
+    }
+
+    // ── EXP-861: the queue slot ────────────────────────────────────────────
+
+    #[test]
+    fn queue_is_a_slot_that_replaces_whole_and_clears_on_empty() {
+        let mut feed = SteerFeed::new();
+        assert!(feed.queue().is_empty());
+        let held = |id: &str, text: &str| crate::frames::QueuedMessage {
+            id: id.to_string(),
+            text: text.to_string(),
+        };
+        feed.apply(ActivityEvent::queue(vec![held("m1", "first")]));
+        assert_eq!(feed.queue().len(), 1);
+        assert!(feed.is_empty(), "never a row");
+        feed.apply(ActivityEvent::queue(vec![held("m1", "first"), held("m2", "second")]));
+        assert_eq!(feed.queue().len(), 2);
+        // The optimistic half of an unqueue drops one line locally.
+        feed.remove_queued("m1");
+        assert_eq!(feed.queue().len(), 1);
+        assert_eq!(feed.queue()[0].id, "m2");
+        feed.remove_queued("no-such-id");
+        assert_eq!(feed.queue().len(), 1);
+        feed.apply(ActivityEvent::queue(Vec::new()));
+        assert!(feed.queue().is_empty());
+        assert_eq!(QUEUE_STRIP_TITLE, "Queued");
+        assert_eq!(QUEUE_REMOVE_LABEL, "Remove from queue");
     }
 
     // ── EXP-784: the rate-limit slot ───────────────────────────────────────

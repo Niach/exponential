@@ -839,9 +839,15 @@ impl IssueHeader {
     /// the launcher first (EXP-426), property-ish chips next and the
     /// navigation-ish Board last. Wraps inside the detail view's
     /// `centered_column`, which supplies the definite width `flex_wrap` needs.
+    ///
+    /// EXP-863: `trailing` is the SESSION screen's slot — its "Open issue"
+    /// pill takes the place of the launcher / Watch cluster (a run's own
+    /// screen has nothing to start or watch), so both stand down when it is
+    /// `Some`. The detail view passes `None` and keeps the launcher rule.
     pub(crate) fn chip_row(
         &mut self,
         issue: &Issue,
+        trailing: Option<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         // EXP-50: a team with exactly one human member has no assignment
@@ -862,7 +868,7 @@ impl IssueHeader {
         let local_running = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
             .unwrap_or(false);
-        let coding_visible = self.start_coding.read(cx).is_visible(cx);
+        let coding_visible = trailing.is_none() && self.start_coding.read(cx).is_visible(cx);
         let live = crate::issue_detail::has_live_coding_session(&issue.id, cx);
         let start_coding = coding_visible && (local_running || !live);
         // EXP-818: a live run this process does NOT host takes the control's
@@ -873,9 +879,11 @@ impl IssueHeader {
             .flatten();
         // EXP-760: which of the two trailing actions show, and which one is
         // the emphasised (white) one.
+        // EXP-863: on the session screen the header's own Merge pill already
+        // shows, so the tray's Merge stands down with the launcher cluster.
         let styles = header_action_styles(
             start_coding,
-            issue.pr_state.as_deref() == Some("open"),
+            trailing.is_none() && issue.pr_state.as_deref() == Some("open"),
         );
         self.start_coding
             .update(cx, |control, cx| control.set_demoted(styles.demote_start, cx));
@@ -897,7 +905,7 @@ impl IssueHeader {
             // EXP-760: BOTH header actions live at the tray's right edge now
             // — Start coding and, while the PR is open, Merge. The stale
             // merge card below the tray is gone.
-            .when(styles.any() || coding_slot.is_some(), |tray| {
+            .when(styles.any() || coding_slot.is_some() || trailing.is_some(), |tray| {
                 tray.child(
                     h_flex()
                         .ml_auto()
@@ -908,6 +916,7 @@ impl IssueHeader {
                             row.child(self.start_coding.clone())
                         })
                         .children(coding_slot)
+                        .children(trailing)
                         .when(styles.merge, |row| row.child(self.merge_button(issue, cx))),
                 )
             });
@@ -1003,6 +1012,30 @@ use gpui::prelude::FluentBuilder as _;
 // ---------------------------------------------------------------------------
 // Pieces
 // ---------------------------------------------------------------------------
+
+/// EXP-863 — the issue title as a READ-ONLY block, the same 2xl semibold
+/// rung and [`DETAIL_GUTTER`] inset as the detail view's editable title
+/// (`IssueDetailView::render_title`), for a host that shows the header
+/// without owning a title input (the session screen's issue band).
+pub(crate) fn title_row(issue: &Issue) -> gpui::AnyElement {
+    let title = issue.title.trim();
+    let title = SharedString::from(if title.is_empty() {
+        "Untitled issue".to_string()
+    } else {
+        title.to_string()
+    });
+    div()
+        .w_full()
+        .min_w_0()
+        .px(px(DETAIL_GUTTER))
+        .pt_3()
+        .pb_1()
+        .text_2xl()
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .line_height(gpui::rems(2.))
+        .child(title)
+        .into_any_element()
+}
 
 /// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
 /// with the issue-row context menu's Labels submenu (§4.2).

@@ -592,28 +592,51 @@ pub(crate) fn format_usage_cost(usage: Option<&steer::SessionUsage>) -> Option<S
     Some(format!("${cost:.2}"))
 }
 
+/// EXP-863 — a section title of the session usage sheet ("Context", the
+/// agent's window group, "Accounts"): the web's 11px muted medium caption,
+/// the same rung on every section so the sheet reads as ONE list.
+pub(crate) fn sheet_section_title(label: impl Into<SharedString>, cx: &App) -> gpui::Div {
+    use crate::controls::WebText as _;
+    div()
+        .text_2xs()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(cx.theme().muted_foreground)
+        .child(label.into())
+}
+
 /// The "Context" block of the session usage sheet: the heading, the
-/// used/size line with the same meter the windows draw, and the cost when
-/// there is one. `None` when the run has no usage to show.
+/// used/size line with the cost right-aligned on it (EXP-863, web parity),
+/// then the same meter the windows draw. `None` when the run has no usage to
+/// show.
 pub(crate) fn render_context_block(
     usage: Option<&steer::SessionUsage>,
     cx: &App,
 ) -> Option<AnyElement> {
     let percent = context_percent(usage)?;
     let muted = cx.theme().muted_foreground;
-    let mut block = v_flex()
+    let block = v_flex()
         .w_full()
         .gap_2()
+        .child(sheet_section_title(CONTEXT_SECTION_TITLE, cx))
         .child(
-            div()
+            gpui_component::h_flex()
+                .w_full()
+                .items_baseline()
+                .justify_between()
+                .gap_2()
                 .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(CONTEXT_SECTION_TITLE)),
-        )
-        .child(
-            div()
-                .text_xs()
-                .child(SharedString::from(format_context_usage(usage))),
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .child(SharedString::from(format_context_usage(usage))),
+                )
+                .children(format_usage_cost(usage).map(|cost| {
+                    div()
+                        .flex_shrink_0()
+                        .text_color(muted)
+                        .child(SharedString::from(cost))
+                })),
         )
         .child(
             div()
@@ -629,14 +652,6 @@ pub(crate) fn render_context_block(
                         .bg(severity_color(severity(percent), cx)),
                 ),
         );
-    if let Some(cost) = format_usage_cost(usage) {
-        block = block.child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(cost)),
-        );
-    }
     Some(block.into_any_element())
 }
 

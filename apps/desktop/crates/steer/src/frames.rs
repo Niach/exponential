@@ -125,6 +125,14 @@ pub enum ClientFrame<'a> {
         text: Option<String>,
     },
     Kill,
+    /// EXP-790 (viewer role): Stop the turn in flight without ending the run
+    /// — the engine cancels it AND drops the messages it holds queued
+    /// (EXP-861). Every client has sent these bytes since EXP-790.
+    Interrupt,
+    /// EXP-861 (viewer role): revoke ONE queued message by the id the
+    /// [`ActivityEvent::Queue`] slot named. Fire-and-forget: the next
+    /// `queue` frame is the confirmation.
+    Unqueue { id: String },
     /// EXP-746 (viewer role): change ONE live agent option the publisher
     /// advertised in [`ActivityEvent::ConfigState`]. Fire-and-forget — the
     /// publisher's next `config_state` IS the confirmation, so there is no
@@ -536,7 +544,34 @@ pub enum ActivityEvent {
     /// predecessor. `id` is the `Workflow` tool call's own id, so clients
     /// patch the card onto that tool row instead of appending a second one.
     Workflow(crate::workflow::WorkflowState),
+    /// EXP-861: the user messages the DEVICE holds queued behind a running
+    /// turn or a compaction, in FULL and in order (oldest first; an empty
+    /// list = nothing queued, the bar closes). LATEST-WINS state like
+    /// [`ActivityEvent::Turn`] — never a transcript row: each message
+    /// arrives as an ordinary [`ActivityEvent::UserMessage`] the moment the
+    /// engine delivers it. A viewer revokes one with
+    /// [`ClientFrame::Unqueue`]; the next frame here is the confirmation.
+    Queue {
+        messages: Vec<QueuedMessage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
 }
+
+/// EXP-861: one held message of the [`ActivityEvent::Queue`] slot.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct QueuedMessage {
+    /// The engine's own id for the held message — what `unqueue` names.
+    pub id: String,
+    /// The message as the person wrote it (image embeds as the
+    /// `![image](/api/attachments/<id>)` tokens), cut to [`QUEUE_TEXT_MAX`].
+    pub text: String,
+}
+
+/// EXP-861: the relay's caps on the `queue` slot (`QUEUE_MAX` /
+/// `QUEUE_TEXT_MAX` in protocol.ts) — a frame over either is dropped whole.
+pub const QUEUE_MAX: usize = 20;
+pub const QUEUE_TEXT_MAX: usize = 8192;
 
 /// EXP-850 §2: one entry of the [`ActivityEvent::BackgroundTasks`] list.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -930,6 +965,12 @@ impl ActivityEvent {
         ActivityEvent::BackgroundTasks { tasks, at: None }
     }
 
+    /// EXP-861: the queue slot; an EMPTY list is the engine saying nothing
+    /// is held any more (the bar closes), never silence.
+    pub fn queue(messages: Vec<QueuedMessage>) -> Self {
+        ActivityEvent::Queue { messages, at: None }
+    }
+
     /// EXP-850 §3: one workflow card's whole state.
     pub fn workflow(state: crate::workflow::WorkflowState) -> Self {
         ActivityEvent::Workflow(state)
@@ -1053,6 +1094,11 @@ impl ActivityEvent {
             ActivityEvent::BackgroundTasks { tasks, .. } => {
                 tasks.iter_mut().map(|task| &mut task.description).collect()
             }
+            // EXP-861: the person's own words, still through the redactor
+            // (a pasted token is a pasted token); the ids are machine fields.
+            ActivityEvent::Queue { messages, .. } => {
+                messages.iter_mut().map(|message| &mut message.text).collect()
+            }
             ActivityEvent::Workflow(workflow) => {
                 let mut fields = vec![&mut workflow.name];
                 fields.extend(workflow.description.as_mut());
@@ -1091,6 +1137,7 @@ impl ActivityEvent {
             | ActivityEvent::ToolUpdate { at, .. }
             | ActivityEvent::RateLimit { at, .. }
             | ActivityEvent::BackgroundTasks { at, .. }
+            | ActivityEvent::Queue { at, .. }
             | ActivityEvent::Turn { at, .. } => at,
             ActivityEvent::Workflow(workflow) => &mut workflow.at,
         }
@@ -1417,6 +1464,11 @@ pub enum ServerFrame {
     /// EXP-746: switch to one of the modes the publisher advertised.
     SetMode { id: String },
     Kill,
+    /// EXP-790/EXP-861: a viewer's Stop — cancel the running turn and drop
+    /// the queued messages; the run itself continues.
+    Interrupt,
+    /// EXP-861: a viewer revoking one queued message.
+    Unqueue { id: String },
     Bye {
         #[serde(default)]
         outcome: Option<String>,
@@ -2962,6 +3014,36 @@ mod tests {
             ServerFrame::Input { data: "ls\r".into() }
         );
         assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill);
+        // EXP-790/EXP-861: the viewer's Stop and a queue revoke, relay →
+        // publisher; the send side spells the same bytes every client does.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"interrupt"}"#).unwrap(),
+            ServerFrame::Interrupt
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"unqueue","id":"m1"}"#).unwrap(),
+            ServerFrame::Unqueue {
+                id: "m1".to_string()
+            }
+        );
+        assert_eq!(ClientFrame::Interrupt.to_json(), r#"{"t":"interrupt"}"#);
+        assert_eq!(
+            ClientFrame::Unqueue {
+                id: "m1".to_string()
+            }
+            .to_json(),
+            r#"{"t":"unqueue","id":"m1"}"#
+        );
+        // The queue slot round-trips with the relay's field names.
+        let queue = ActivityEvent::queue(vec![QueuedMessage {
+            id: "m1".to_string(),
+            text: "first".to_string(),
+        }]);
+        let json = serde_json::to_value(&queue).unwrap();
+        assert_eq!(json["kind"], "queue");
+        assert_eq!(json["messages"][0]["id"], "m1");
+        assert_eq!(json["messages"][0]["text"], "first");
+        assert_eq!(serde_json::from_value::<ActivityEvent>(json).unwrap(), queue);
         // EXP-746: the relay forwards a viewer's chip change verbatim; the
         // BLANK value ("CLI default") is a legitimate payload, not a
         // malformed one.

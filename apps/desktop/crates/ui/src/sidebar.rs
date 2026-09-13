@@ -8,7 +8,8 @@
 //!   rendered OUTSIDE the `DockArea`, full window height. EXP-723 made it the
 //!   web sidebar's twin and removed the collapse entirely (no icon strip, no
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
-//!   ([`RailView::render_header`]). Middle (scrolling): the tool-window
+//!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
+//!   EXP-863). Middle (scrolling): the tool-window
 //!   selectors — **Inbox / Support / Devices / Actions / Automations /
 //!   Reviews / Agent**, the team's boards, the **Sessions** section (EXP-791:
 //!   one row per open session tab or live run of the caller's — the rail is
@@ -43,8 +44,9 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
     h_flex,
-    menu::DropdownMenu as _,
+    menu::{ContextMenuExt as _, DropdownMenu as _},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
     spinner::Spinner,
@@ -61,7 +63,10 @@ use crate::coding_flow;
 use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
-use crate::issue_list::IssueQuery;
+use crate::issue_list::{
+    build_row_context_menu, control_cell, render_bulk_bar, row_id, selection_range,
+    status_dropdown, BulkSelectionHost, IssueQuery,
+};
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
     GettingStartedTab, Navigation, Screen,
@@ -533,6 +538,12 @@ type SupportKey = (String, SupportFilter);
 /// FEED-3: hover-reveal group name for the expanded rail's board rows — the
 /// gear that jumps to the board's settings page shows only under the cursor.
 const BOARD_ROW_GROUP: &str = "rail-board-row";
+/// EXP-863: the Pinned rows' hover group — reveals the trailing Unpin button
+/// (the board rows' gear recipe).
+const PIN_ROW_GROUP: &str = "rail-pin-row";
+/// EXP-863: the `ListNav` issue rows' hover group — reveals the leading
+/// bulk-select checkbox (the big list's `issue-row` group).
+const NAV_ROW_GROUP: &str = "list-nav-issue-row";
 
 /// EXP-282: one row of the EXPANDED rail — icon + label, left-aligned, glass
 /// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
@@ -860,9 +871,6 @@ pub struct RailView {
     /// Scroll position of the rail's middle zone (tools + board icons) —
     /// small windows with many boards must not push Settings/Account off.
     rail_scroll: ScrollHandle,
-    /// EXP-285: the rail spans the titlebar strip now — its top 34px are a
-    /// window-drag region (the vendored `TitleBar` `should_move` pattern).
-    should_move: bool,
     /// EXP-791: the Sessions section lists this window's open session tabs,
     /// so the rail repaints when the screens panel's tabs change. Resolved
     /// lazily on the first render (the panel is built after the rail), the
@@ -937,7 +945,6 @@ impl RailView {
             shared,
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
-            should_move: false,
             observe_screens: None,
             collapsed_sessions: HashSet::new(),
             live_facts: Vec::new(),
@@ -1349,7 +1356,35 @@ impl RailView {
                 }
                 _ => continue,
             };
-            out.push(row_el.into_any_element());
+            // EXP-863: hover reveals Unpin on the row's right — the board
+            // rows' gear recipe. The click stops at the button, so the row
+            // underneath never navigates.
+            let unpin = {
+                let team_id = team_id.clone();
+                let target_id = target_id.to_string();
+                div()
+                    .invisible()
+                    .group_hover(PIN_ROW_GROUP, |style| style.visible())
+                    .flex_shrink_0()
+                    .child(
+                        Button::new(("rail-pin-unpin", index))
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(Icon::from(registry::UI_UNPIN))
+                            .tooltip("Unpin")
+                            .on_click(move |_: &ClickEvent, _window, cx| {
+                                cx.stop_propagation();
+                                crate::pins::toggle_pin(
+                                    team_id.clone(),
+                                    kind,
+                                    target_id.clone(),
+                                    cx,
+                                );
+                            }),
+                    )
+            };
+            out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
         }
         out
     }
@@ -1735,130 +1770,149 @@ impl RailView {
 
     /// The rail's section rule — full width, like the web sidebar's.
     fn divider(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        div()
-            .w_full()
-            .h(px(1.))
-            .my_1()
-            .flex_shrink_0()
-            .bg(cx.theme().sidebar_border)
-            .into_any_element()
+        left_column_divider(cx)
     }
+}
 
-    /// EXP-723: the rail's header row, the desktop mirror of the web
-    /// `SidebarHeader` (`apps/web/src/components/team/sidebar.tsx`): the team
-    /// switcher taking the width, then icon-only Search and New issue.
-    ///
-    /// Both icon buttons call their openers DIRECTLY through `cx.listener`
-    /// rather than dispatching `OpenSearch`/`NewIssue`: a rail button that
-    /// dispatches an App-global action fires from inside the window's own
-    /// update, and the handler's re-entrant active-window lookup makes the
-    /// click silently no-op (EXP-17 — the gear was dead for exactly this).
-    /// The ⌘K / keymap bindings still route through the actions.
-    fn render_header(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let active_team = active_team_id(&self.nav, cx);
-        let teams: Vec<(String, String, bool)> = Store::global(cx)
-            .collections()
-            .teams_sorted(cx)
-            .into_iter()
-            .map(|team| {
-                let active = Some(team.id.as_str()) == active_team.as_deref();
-                (team.id, team.name, active)
-            })
-            .collect();
-        // The trigger names the ACTIVE team; nothing synced yet degrades to
-        // the app letter (`team_avatar`'s own fallback) and an empty label.
-        let team_name: SharedString = teams
-            .iter()
-            .find(|(_, _, active)| *active)
-            .map(|(_, name, _)| SharedString::from(name.clone()))
-            .unwrap_or_default();
-        // EXP-449: `active_board_id` falls back to the team's first board, so
-        // this is `None` only when nothing is in scope at all.
-        let board_id = active_board_id(&self.nav, cx);
+/// The left column's section rule — full width, like the web sidebar's. The
+/// rail's own dividers and the one under the FIXED header (`Shell`) are the
+/// same line.
+pub(crate) fn left_column_divider(cx: &App) -> gpui::AnyElement {
+    div()
+        .w_full()
+        .h(px(1.))
+        .my_1()
+        .flex_shrink_0()
+        .bg(cx.theme().sidebar_border)
+        .into_any_element()
+}
 
-        let switcher = Button::new("rail-team-switcher")
-            .ghost().cursor_pointer()
-            .small()
-            .w_full()
-            .h(px(40.))
-            .px_1p5()
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_2()
-                    .items_center()
-                    .child(crate::user_avatar::team_avatar(&team_name, 28.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .truncate()
-                            .child(team_name.clone()),
-                    )
-                    .child(
-                        Icon::new(registry::NAV_TEAM_SWITCHER)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(cx.theme().muted_foreground),
-                    ),
-            )
-            .dropdown_menu_with_anchor(gpui::Anchor::TopLeft, move |menu, _window, _cx| {
-                // Flat checked rows (the menu builder has no submenus); always
-                // shown, even with a single team (EXP-434: no teams=1 special
-                // case anywhere).
-                let mut menu = menu;
-                for (id, name, active) in &teams {
-                    menu = menu.menu_with_check(
-                        SharedString::from(name.clone()),
-                        *active,
-                        Box::new(SwitchTeam {
-                            team_id: id.clone(),
-                        }),
-                    );
-                }
-                menu.separator()
-                    .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
-                    .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
-            });
+/// EXP-723: the sidebar's header row, the desktop mirror of the web
+/// `SidebarHeader` (`apps/web/src/components/team/sidebar.tsx`): the team
+/// switcher taking the width, then icon-only Search and New issue.
+///
+/// EXP-863: it is the LEFT COLUMN's header, not the rail's — the `Shell`
+/// renders it ONCE, fixed, above whichever occupant (rail / settings nav /
+/// `ListNav`) is sliding underneath, so the switcher, Search and New issue
+/// never move. Hence a free fn over the window's navigation and no listener
+/// on any view: both buttons call their openers directly with the `window`
+/// the click hands them.
+///
+/// Both icon buttons call their openers DIRECTLY rather than dispatching
+/// `OpenSearch`/`NewIssue`: a sidebar button that dispatches an App-global
+/// action fires from inside the window's own update, and the handler's
+/// re-entrant active-window lookup makes the click silently no-op (EXP-17 —
+/// the gear was dead for exactly this). The ⌘K / keymap bindings still route
+/// through the actions.
+pub(crate) fn render_left_column_header(
+    nav: &Entity<Navigation>,
+    cx: &mut App,
+) -> impl IntoElement {
+    let active_team = active_team_id(nav, cx);
+    let teams: Vec<(String, String, bool)> = Store::global(cx)
+        .collections()
+        .teams_sorted(cx)
+        .into_iter()
+        .map(|team| {
+            let active = Some(team.id.as_str()) == active_team.as_deref();
+            (team.id, team.name, active)
+        })
+        .collect();
+    // The trigger names the ACTIVE team; nothing synced yet degrades to
+    // the app letter (`team_avatar`'s own fallback) and an empty label.
+    let team_name: SharedString = teams
+        .iter()
+        .find(|(_, _, active)| *active)
+        .map(|(_, name, _)| SharedString::from(name.clone()))
+        .unwrap_or_default();
+    // EXP-449: `active_board_id` falls back to the team's first board, so
+    // this is `None` only when nothing is in scope at all.
+    let board_id = active_board_id(nav, cx);
 
-        h_flex()
-            .w_full()
-            .gap_1()
-            .items_center()
-            .child(div().flex_1().min_w_0().child(switcher))
-            .child(
-                // EXP-771: an icon-only ACTION button is a CIRCLE on every
-                // client (an icon PICKER trigger or a swatch cell stays a
-                // rounded square at the theme radius — `board_form`) — the
-                // shared `web_icon_sm` 32px capsule, not a hand-sized box.
-                Button::new("rail-search")
-                    .ghost()
+    let switcher = Button::new("rail-team-switcher")
+        .ghost().cursor_pointer()
+        .small()
+        .w_full()
+        .h(px(40.))
+        .px_1p5()
+        .child(
+            h_flex()
+                .w_full()
+                .gap_2()
+                .items_center()
+                .child(crate::user_avatar::team_avatar(&team_name, 28.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .truncate()
+                        .child(team_name.clone()),
+                )
+                .child(
+                    Icon::new(registry::NAV_TEAM_SWITCHER)
+                        .xsmall()
+                        .flex_shrink_0()
+                        .text_color(cx.theme().muted_foreground),
+                ),
+        )
+        .dropdown_menu_with_anchor(gpui::Anchor::TopLeft, move |menu, _window, _cx| {
+            // Flat checked rows (the menu builder has no submenus); always
+            // shown, even with a single team (EXP-434: no teams=1 special
+            // case anywhere).
+            let mut menu = menu;
+            for (id, name, active) in &teams {
+                menu = menu.menu_with_check(
+                    SharedString::from(name.clone()),
+                    *active,
+                    Box::new(SwitchTeam {
+                        team_id: id.clone(),
+                    }),
+                );
+            }
+            menu.separator()
+                .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
+                .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
+        });
+
+    h_flex()
+        .w_full()
+        .gap_1()
+        .items_center()
+        .child(div().flex_1().min_w_0().child(switcher))
+        .child(
+            // EXP-771: an icon-only ACTION button is a CIRCLE on every
+            // client (an icon PICKER trigger or a swatch cell stays a
+            // rounded square at the theme radius — `board_form`) — the
+            // shared `web_icon_sm` 32px capsule, not a hand-sized box.
+            Button::new("rail-search")
+                .ghost()
+                .web_icon_sm()
+                .flex_shrink_0()
+                .icon(registry::NAV_SEARCH)
+                .tooltip("Search")
+                .on_click(|_: &ClickEvent, window, cx| {
+                    crate::search_sheet::open_search(window, cx)
+                }),
+        )
+        .when_some(board_id, |row, board_id| {
+            row.child(
+                // EXP-771: the primary twin of the Search circle above.
+                Button::new("rail-new-issue")
+                    .primary()
                     .web_icon_sm()
                     .flex_shrink_0()
-                    .icon(registry::NAV_SEARCH)
-                    .tooltip("Search")
-                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                        crate::search_sheet::open_search(window, cx)
-                    })),
+                    .icon(registry::NAV_CREATE_ISSUE)
+                    .tooltip("New issue")
+                    .on_click(move |_: &ClickEvent, window, cx| {
+                        crate::create_issue_dialog::open(window, cx, board_id.clone());
+                    }),
             )
-            .when_some(board_id, |row, board_id| {
-                row.child(
-                    // EXP-771: the primary twin of the Search circle above.
-                    Button::new("rail-new-issue")
-                        .primary()
-                        .web_icon_sm()
-                        .flex_shrink_0()
-                        .icon(registry::NAV_CREATE_ISSUE)
-                        .tooltip("New issue")
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            crate::create_issue_dialog::open(window, cx, board_id.clone());
-                        })),
-                )
-            })
-    }
+        })
+}
 
+impl RailView {
     /// EXP-723: the footer's "What's new" card — the desktop mirror of the
     /// web `WhatsNewCard`. Renders while the per-install `changelogSeenId`
     /// differs from [`crate::changelog::LATEST`]'s id; the ✕ marks it seen
@@ -2117,19 +2171,6 @@ impl Render for RailView {
             }
         };
 
-        // EXP-285: the rail spans the full window height — its top 34px sit
-        // in the window-decoration band as a drag/zoom region. EXP-862: that
-        // strip is the LEFT COLUMN's, not the rail's — the settings nav and
-        // the `ListNav` render the same one (`left_column_top_strip`), which
-        // is also where the "only where the macOS lights float over it" rule
-        // lives.
-        let top_strip = crate::app_title_bar::left_column_top_strip(
-            "rail-titlebar-strip",
-            |this: &mut Self| &mut this.should_move,
-            window,
-            cx,
-        );
-
         // Settings gear — the SINGLE settings entry point (EXP-282 dropped
         // the duplicate account-menu item). Navigates directly for the same
         // EXP-17 reason as the search button above; the keymap still
@@ -2160,15 +2201,15 @@ impl Render for RailView {
                 crate::session_bar::open_new_shell(window, cx);
             }));
 
+        // EXP-863: the rail starts UNDER the left column's fixed header —
+        // the titlebar strip, the team switcher row and the rule beneath
+        // them are the `Shell`'s (`render_left_column`), shared with the
+        // settings nav and the `ListNav`, so the rail neither pads its top
+        // nor renders a header of its own.
         v_flex()
             .w(px(crate::shell::LEFT_COLUMN_WIDTH))
             .flex_shrink_0()
             .h_full()
-            // EXP-285: top padding comes from the 34px titlebar strip — the
-            // rail spans the full window height, flush at y=0. EXP-760: where
-            // that strip is not rendered (no traffic lights to hold room for)
-            // the first row takes the same 8px inset as the bottom instead.
-            .when(top_strip.is_none(), |rail| rail.pt_2())
             .pb_2()
             .px_2()
             .gap_1()
@@ -2183,9 +2224,6 @@ impl Render for RailView {
             // ground the Shell ROOT paints under the whole window, with no
             // edge where it meets the content.
             .text_color(cx.theme().sidebar_foreground)
-            .children(top_strip)
-            .child(self.render_header(cx))
-            .child(self.divider(cx))
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (EXP-699, the
             // mobile tab-bar order; EXP-791 added Agent and Sessions):
@@ -2367,15 +2405,36 @@ pub struct ListPanel {
     /// the ones the Devices page carried until now. Built on first show.
     sessions_running: Option<Entity<crate::sessions_section::RunningSessionsSection>>,
     sessions_past: Option<Entity<crate::sessions_section::PastSessionsSection>>,
-    /// [`ListMode::Nav`] only (EXP-862): the top strip's window-drag latch —
-    /// the `ListNav` is an occupant of the left column, so it holds the macOS
-    /// traffic lights exactly like the rail and the settings nav do.
-    should_move: bool,
     /// [`ListMode::Nav`] only (EXP-862): the status groups folded away in the
     /// issue lists, by `group_key` — the big list's own `collapsed` set. Per
     /// panel, never persisted.
     nav_collapsed: HashSet<String>,
+    /// [`ListMode::Nav`] only (EXP-863): the issue rows' bulk selection — the
+    /// big list's `selected` + `select_anchor`, with the same click grammar
+    /// (Cmd/Ctrl toggles, Shift extends, the hover checkbox toggles). Cleared
+    /// when the column's origin changes; pruned each render to rows that
+    /// still exist.
+    nav_selected: HashSet<String>,
+    nav_select_anchor: Option<String>,
+    /// One bulk mutation in flight at a time (the bar's buttons disable).
+    nav_bulk_busy: bool,
+    /// The issue ids the CURRENT render listed, in list order — every row
+    /// (`nav_issue_ids`, the bulk bar's universe: a folded group's rows stay
+    /// selected) and the unfolded ones (`nav_visible_ids`, the Shift-range
+    /// universe). Empty while the column shows a list without issue rows.
+    nav_issue_ids: Vec<String>,
+    nav_visible_ids: Vec<String>,
     _subscriptions: Vec<Subscription>,
+}
+
+impl BulkSelectionHost for ListPanel {
+    fn set_bulk_busy(&mut self, busy: bool) {
+        self.nav_bulk_busy = busy;
+    }
+
+    fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        self.nav_clear_selection(cx);
+    }
 }
 
 
@@ -2469,8 +2528,12 @@ impl ListPanel {
             support_poll_seq: 0,
             sessions_running: None,
             sessions_past: None,
-            should_move: false,
             nav_collapsed: HashSet::new(),
+            nav_selected: HashSet::new(),
+            nav_select_anchor: None,
+            nav_bulk_busy: false,
+            nav_issue_ids: Vec::new(),
+            nav_visible_ids: Vec::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -3514,6 +3577,76 @@ impl ListPanel {
         .detach();
     }
 
+    // -- ListNav bulk selection (EXP-863) -------------------------------------
+
+    /// Toggle one row (checkbox / Cmd/Ctrl-click) and re-anchor on it.
+    fn nav_toggle_selected(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if !self.nav_selected.remove(&issue_id) {
+            self.nav_selected.insert(issue_id.clone());
+        }
+        self.nav_select_anchor = Some(issue_id);
+        cx.notify();
+    }
+
+    /// Shift-click: ADD the contiguous visible slice between the anchor and
+    /// the target — the anchor stays put for further extensions (the big
+    /// list's rule). Without a usable anchor it degrades to a plain toggle.
+    fn nav_extend_selection_to(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        let Some((from, to)) = selection_range(
+            &self.nav_visible_ids,
+            self.nav_select_anchor.as_deref(),
+            &issue_id,
+        ) else {
+            return self.nav_toggle_selected(issue_id, cx);
+        };
+        for id in &self.nav_visible_ids[from..=to] {
+            self.nav_selected.insert(id.clone());
+        }
+        cx.notify();
+    }
+
+    fn nav_clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.nav_selected.is_empty() && self.nav_select_anchor.is_none() {
+            return;
+        }
+        self.nav_selected.clear();
+        self.nav_select_anchor = None;
+        cx.notify();
+    }
+
+    /// The bulk bar over the `ListNav`'s selection, or `None` while nothing
+    /// is selected (or the column lists no issue rows / no team is in
+    /// scope). The ids come off the CURRENT render's rows, in list order and
+    /// pruned to rows that still exist — the big list's `bulk_bar` rule.
+    fn nav_bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        if self.nav_selected.is_empty() || self.nav_issue_ids.is_empty() {
+            return None;
+        }
+        let ids: Vec<String> = self
+            .nav_issue_ids
+            .iter()
+            .filter(|id| self.nav_selected.contains(id.as_str()))
+            .cloned()
+            .collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let team_id = active_team_id(&self.nav, cx)?;
+        // Icon-only and allowed to fold: the column is 264px wide.
+        Some(render_bulk_bar(team_id, ids, self.nav_bulk_busy, false, true, cx))
+    }
+
+    /// EXP-863: the scope team's resolved status vocabulary, ONCE per render
+    /// — every row's inline status menu and context menu read this snapshot
+    /// (the big list's `team_statuses`).
+    fn nav_team_statuses(&self, cx: &App) -> std::rc::Rc<Vec<domain::statuses::ResolvedStatus>> {
+        std::rc::Rc::new(
+            active_team_id(&self.nav, cx)
+                .map(|team_id| queries::team_status_options(cx, &team_id))
+                .unwrap_or_else(domain::statuses::default_resolved_statuses),
+        )
+    }
+
     // -- ListNav bodies (EXP-851) --------------------------------------------
 
     /// The `ListNav`'s back row — the SETTINGS nav's row, shared
@@ -3595,6 +3728,26 @@ impl ListPanel {
         groups: &[queries::BoardGroup],
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
+        // EXP-863: the selection's universe for this render — every listed
+        // id (the bulk bar's, folded groups included) and the unfolded ones
+        // (the Shift-range's); a selected id whose row left the data set
+        // (deleted elsewhere, moved board) drops out, the big list's prune.
+        self.nav_issue_ids = groups
+            .iter()
+            .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
+            .collect();
+        self.nav_visible_ids = groups
+            .iter()
+            .filter(|group| !self.nav_collapsed.contains(&group.status.group_key))
+            .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
+            .collect();
+        if !self.nav_selected.is_empty() {
+            let present: HashSet<&str> = self.nav_issue_ids.iter().map(String::as_str).collect();
+            self.nav_selected.retain(|id| present.contains(id.as_str()));
+        }
+        let statuses = self.nav_team_statuses(cx);
+        let any_selected = !self.nav_selected.is_empty();
+
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         // The row ids number the ISSUES, so folding a group never renumbers
         // the rows below it into each other's element state.
@@ -3611,7 +3764,7 @@ impl ListPanel {
                 continue;
             }
             for issue in &group.issues {
-                rows.push(self.nav_issue_row(index, &group.status, issue, cx));
+                rows.push(self.nav_issue_row(index, issue, &statuses, any_selected, cx));
                 index += 1;
             }
         }
@@ -3680,26 +3833,55 @@ impl ListPanel {
             .into_any_element()
     }
 
-    /// One plain `ListNav` issue row (spec C: status glyph, identifier,
-    /// title; the open detail highlighted). Clicking navigates to that
-    /// detail — the `ListNav` stays, because the origin is inherited from the
-    /// detail already open (`navigation::derive_origin`).
+    /// One `ListNav` issue row (spec C: status glyph, identifier, title; the
+    /// open detail highlighted). A plain click navigates to that detail —
+    /// the `ListNav` stays, because the origin is inherited from the detail
+    /// already open (`navigation::derive_origin`).
+    ///
+    /// EXP-863: the big list's row grammar at the column's density — a
+    /// hover-revealed bulk-select checkbox (pinned visible while ANY row is
+    /// selected), the status glyph as the INLINE status menu
+    /// (`issue_list::status_dropdown` in its click-swallowing cell, so
+    /// picking a status never navigates), Cmd/Ctrl-click toggles, Shift-click
+    /// extends, and the right-click menu is the main list's
+    /// (`build_row_context_menu`).
     fn nav_issue_row(
         &self,
         index: usize,
-        status: &domain::statuses::ResolvedStatus,
         issue: &std::rc::Rc<domain::rows::Issue>,
+        statuses: &std::rc::Rc<Vec<domain::statuses::ResolvedStatus>>,
+        any_selected: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let screen = Screen::IssueDetail {
             issue_id: issue.id.clone(),
         };
         let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
+        let selected = self.nav_selected.contains(&issue.id);
+        let toggle_id = issue.id.clone();
         let lead = h_flex()
             .flex_shrink_0()
-            .gap_1p5()
+            .gap_1()
             .items_center()
-            .child(crate::icons::resolved_status_icon(status, cx).xsmall())
+            .child(
+                control_cell(row_id("nav-select-cell", &issue.id))
+                    .w_4()
+                    .when(!any_selected, |cell| {
+                        cell.invisible().group_hover(NAV_ROW_GROUP, |style| style.visible())
+                    })
+                    .child(
+                        Checkbox::new(row_id("nav-select", &issue.id))
+                            .checked(selected)
+                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                                this.nav_toggle_selected(toggle_id.clone(), cx);
+                            })),
+                    ),
+            )
+            .child(
+                control_cell(row_id("nav-status-cell", &issue.id))
+                    .w_6()
+                    .child(status_dropdown(issue, statuses, cx)),
+            )
             .child(
                 div()
                     .text_xs()
@@ -3714,11 +3896,37 @@ impl ListPanel {
         } else {
             SharedString::from(title.to_string())
         };
-        rail_row_lead(("list-nav-issue", index), lead, title, active, None, None, cx)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.open_from_list(screen.clone(), window, cx);
-            }))
-            .into_any_element()
+        let click_id = issue.id.clone();
+        let menu_issue = issue.clone();
+        let menu_statuses = statuses.clone();
+        // A bulk-selected row wears the same active fill as the open one —
+        // both mean "this row is where you are" (EXP-426).
+        rail_row_lead(
+            ("list-nav-issue", index),
+            lead,
+            title,
+            active || selected,
+            None,
+            None,
+            cx,
+        )
+        .group(NAV_ROW_GROUP)
+        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+            let modifiers = event.modifiers();
+            if modifiers.secondary() {
+                this.nav_toggle_selected(click_id.clone(), cx);
+                return;
+            }
+            if modifiers.shift {
+                this.nav_extend_selection_to(click_id.clone(), cx);
+                return;
+            }
+            this.open_from_list(screen.clone(), window, cx);
+        }))
+        .context_menu(move |menu, window, cx| {
+            build_row_context_menu(menu, &menu_issue, &menu_statuses, window, cx)
+        })
+        .into_any_element()
     }
 
     /// The Reviews `ListNav` body: the open-PR queue's rows, each opening its
@@ -3911,30 +4119,50 @@ impl Render for ListPanel {
                             self.nav_inbox_tab = tab;
                         }
                         self.last_origin = Some(origin);
+                        // EXP-863: the selection is per list, like the big
+                        // list's (`set_query` clears it on a scope change).
+                        self.nav_selected.clear();
+                        self.nav_select_anchor = None;
                     }
                 }
+                // EXP-863: the issue bodies refill these; any other list
+                // leaves them empty, which hides the bulk bar.
+                self.nav_issue_ids.clear();
+                self.nav_visible_ids.clear();
                 match origin.or_else(|| self.last_origin.clone()) {
                     Some(origin) => {
-                        // EXP-862: the `ListNav` is an occupant of the LEFT
-                        // COLUMN, so it holds the macOS traffic lights exactly
-                        // like the rail and the settings nav do — one recipe,
-                        // and the same 8px inset where there is no strip.
-                        let top_strip = crate::app_title_bar::left_column_top_strip(
-                            "list-nav-titlebar-strip",
-                            |this: &mut Self| &mut this.should_move,
-                            window,
-                            cx,
-                        );
+                        // EXP-863: the column's titlebar strip and header are
+                        // the `Shell`'s, fixed above this pane — the ListNav
+                        // starts at its back row.
                         let back = self.nav_back_row(&origin, cx);
                         let body = self.render_nav_body(&origin, window, cx);
+                        // EXP-863: the bulk bar FLOATS over the bottom of the
+                        // rows while a selection exists (EXP-289's no-jump
+                        // rule — the rows never move for it).
+                        let bulk_bar = self.nav_bulk_bar(cx);
                         v_flex()
                             .flex_1()
                             .min_h_0()
                             .min_w_0()
-                            .when(top_strip.is_none(), |nav| nav.pt_2())
-                            .children(top_strip)
                             .child(back)
-                            .child(body)
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .min_w_0()
+                                    .relative()
+                                    .child(body)
+                                    .children(bulk_bar.map(|bar| {
+                                        h_flex()
+                                            .absolute()
+                                            .bottom_2()
+                                            .left_0()
+                                            .right_0()
+                                            .justify_center()
+                                            .px_2()
+                                            .child(bar)
+                                    })),
+                            )
                             .into_any_element()
                     }
                     None => div().into_any_element(),

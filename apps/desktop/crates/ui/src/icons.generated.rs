@@ -197,6 +197,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "link-2" => ExpIcon::Link2,
         "list" => ExpIcon::List,
         "list-checks" => ExpIcon::ListChecks,
+        "list-end" => ExpIcon::ListEnd,
         "list-ordered" => ExpIcon::ListOrdered,
         "list-todo" => ExpIcon::ListTodo,
         "list-tree" => ExpIcon::ListTree,
@@ -675,6 +676,8 @@ pub const UI_PIN: ExpIcon = ExpIcon::Pin;
 pub const UI_PRIVATE: ExpIcon = ExpIcon::Lock;
 /// Registry concept `ui-properties` -> Lucide `sliders-horizontal`.
 pub const UI_PROPERTIES: ExpIcon = ExpIcon::SlidersHorizontal;
+/// Registry concept `ui-queued` -> Lucide `list-end`.
+pub const UI_QUEUED: ExpIcon = ExpIcon::ListEnd;
 /// Registry concept `ui-redock` -> Lucide `arrow-down-left`.
 pub const UI_REDOCK: ExpIcon = ExpIcon::ArrowDownLeft;
 /// Registry concept `ui-refresh` -> Lucide `refresh-cw`.

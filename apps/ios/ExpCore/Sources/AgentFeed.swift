@@ -194,6 +194,23 @@ public struct AgentCompaction: Equatable, Sendable {
     }
 }
 
+/// EXP-861: one message the DEVICE is holding until the agent's turn (or a
+/// compaction) ends — sent mid-turn, it queues instead of interrupting, like
+/// the Claude Code CLI. The `queue` activity kind carries the FULL current
+/// queue (oldest first) as a latest-wins slot beside `turn` and
+/// `background_tasks`, never a transcript row; the real `user_message` row
+/// arrives when the device delivers it. `text` is the message as the person
+/// wrote it (image embeds as markdown tokens), drawn on ONE truncated line.
+public struct QueuedMessage: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let text: String
+
+    public init(id: String, text: String) {
+        self.id = id
+        self.text = text
+    }
+}
+
 // MARK: - Live agent configuration (EXP-746)
 
 /// One selectable value of an `AgentConfigOption` (ACP
@@ -843,6 +860,13 @@ public enum AgentFeed {
     public static let compactingLabel = "Compacting context…"
     /// The persistent marker row a finished compaction appends.
     public static let compactedLabel = "Context compacted"
+    /// EXP-861, byte-identical ×4 (web `QUEUE_STRIP_TITLE`, Android
+    /// `AgentFeed.kt`, desktop `feed.rs`): the accessibility label of the
+    /// queued-messages strip above the composer.
+    public static let queueStripTitle = "Queued"
+    /// EXP-861: the label of each queued line's X, which revokes the message
+    /// (`{"t":"unqueue","id"}`) and hands its text back to an empty draft.
+    public static let queueRemoveLabel = "Remove from queue"
     /// Backstop for a `started` whose `ended` never arrives (a publisher that
     /// died mid-compaction, a dropped frame): the strip clears itself after
     /// this long rather than sticking forever. Same 180s ×4.

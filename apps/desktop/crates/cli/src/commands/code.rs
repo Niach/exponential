@@ -284,6 +284,10 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
         // place); a scrolling printer would repeat the whole list on every
         // change, so it stays silent here.
         steer::ActivityEvent::BackgroundTasks { .. } => {}
+        // EXP-861: the queue bar is a SCREEN affordance too; a line printer
+        // prints the message when the engine delivers it (its own
+        // `user_message` row), not while it waits.
+        steer::ActivityEvent::Queue { .. } => {}
         // EXP-850 §3: the card redraws in place on a screen too — a line
         // printer prints the shared caption ONLY when it changes.
         steer::ActivityEvent::Workflow(workflow) => {

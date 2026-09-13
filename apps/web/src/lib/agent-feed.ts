@@ -1181,6 +1181,47 @@ export function parseRateLimit(event: unknown): SessionRateLimitState | null {
   return state
 }
 
+// ── Queued messages (EXP-861) ────────────────────────────────────────────────
+// A message sent while the agent is mid-turn (or compacting) is held by the
+// DEVICE and delivered when the turn ends; every client renders the queue in a
+// strip above the composer. `kind: "queue"` is a latest-wins slot carrying the
+// FULL queue (empty = clear), never a transcript row.
+
+/** One held message, as the person wrote it. */
+export interface QueuedMessage {
+  id: string
+  text: string
+}
+
+/** The wire caps: at most 20 entries, ids ≤128 bytes, text ≤8192. */
+export const QUEUE_MAX_MESSAGES = 20
+const QUEUE_ID_MAX = 128
+const QUEUE_TEXT_MAX = 8192
+
+/** The strip's accessibility label — byte-identical ×4. */
+export const QUEUE_STRIP_TITLE = `Queued`
+/** The per-line X — byte-identical ×4. */
+export const QUEUE_REMOVE_LABEL = `Remove from queue`
+
+/** Fold a `queue` event — the FULL current queue, so an empty array clears the
+ *  strip. Null = an unreadable payload (the slot then stands, the
+ *  `background_tasks` rule). An entry without an id or with empty text is
+ *  dropped: there is nothing to revoke, nothing to show. */
+export function parseQueue(event: unknown): QueuedMessage[] | null {
+  if (!isEventRecord(event)) return null
+  if (!Array.isArray(event.messages)) return null
+  const messages: QueuedMessage[] = []
+  for (const raw of event.messages) {
+    if (messages.length >= QUEUE_MAX_MESSAGES) break
+    if (!isEventRecord(raw)) continue
+    const id = typeof raw.id === `string` ? raw.id.trim().slice(0, QUEUE_ID_MAX) : ``
+    const text = typeof raw.text === `string` ? raw.text.slice(0, QUEUE_TEXT_MAX) : ``
+    if (!id || !text.trim()) continue
+    messages.push({ id, text })
+  }
+  return messages
+}
+
 /** The composer's ONE chip (EXP-772): the session mode. */
 export interface ConfigChip {
   /** The literal `mode` — the chip row has a single member now. */

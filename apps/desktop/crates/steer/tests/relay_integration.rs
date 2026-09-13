@@ -298,6 +298,8 @@ fn recording_hooks_with(
         attachments: None,
         commands: None,
         config: None,
+        interrupt: None,
+        unqueue: None,
     }
 }
 

@@ -77,9 +77,11 @@ const SLOT_CONFIG_STATE: usize = 0;
 const SLOT_USAGE: usize = 1;
 const SLOT_RATE_LIMIT: usize = 2;
 const SLOT_TURN: usize = 3;
-const SLOT_BACKGROUND_TASKS: usize = 4;
-const SLOT_DIFF: usize = 5;
-const SLOT_COUNT: usize = 6;
+/// EXP-861: the queued-messages slot, replayed right after `turn`.
+const SLOT_QUEUE: usize = 4;
+const SLOT_BACKGROUND_TASKS: usize = 5;
+const SLOT_DIFF: usize = 6;
+const SLOT_COUNT: usize = 7;
 
 /// EXP-850 §3: how many workflow cards one session keeps. A run that starts
 /// more than this many workflows loses the OLDEST (its card is finished and
@@ -96,6 +98,7 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
         ActivityEvent::Usage { .. } => Some(SLOT_USAGE),
         ActivityEvent::RateLimit { .. } => Some(SLOT_RATE_LIMIT),
         ActivityEvent::Turn { .. } => Some(SLOT_TURN),
+        ActivityEvent::Queue { .. } => Some(SLOT_QUEUE),
         ActivityEvent::BackgroundTasks { .. } => Some(SLOT_BACKGROUND_TASKS),
         ActivityEvent::Diff { .. } => Some(SLOT_DIFF),
         _ => None,
@@ -292,7 +295,13 @@ impl ActivityJournal {
         // cards sit between `turn` and `background_tasks`, and the diff stays
         // last.
         let mut tail: Vec<(u64, &ActivityEvent)> = Vec::new();
-        for slot in [SLOT_CONFIG_STATE, SLOT_USAGE, SLOT_RATE_LIMIT, SLOT_TURN] {
+        for slot in [
+            SLOT_CONFIG_STATE,
+            SLOT_USAGE,
+            SLOT_RATE_LIMIT,
+            SLOT_TURN,
+            SLOT_QUEUE,
+        ] {
             if let Some(event) = self.slots[slot].as_ref() {
                 tail.push((self.slot_seqs[slot], event));
             }

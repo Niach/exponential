@@ -112,7 +112,7 @@ pub use feed::{
 };
 pub use frames::{
     rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, BackgroundTask,
-    BackgroundTaskKind, ClientFrame,
+    BackgroundTaskKind, ClientFrame, QueuedMessage, QUEUE_MAX, QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
     StartRepoGroup, SteerRole, SubagentStatus, ToolKind, ToolPreview, ToolUpdateStatus, TurnState,
     ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,

@@ -212,6 +212,14 @@ struct AgentSessionView: View {
                     // commands, directly above the composer. Absent when
                     // there is nothing running.
                     AgentBottomStrip(lines: model.visibleStripLines)
+                    // EXP-861: the messages the device holds until the turn
+                    // ends, each with an X that revokes it. Absent when
+                    // nothing is queued or the run is over.
+                    if !model.queued.isEmpty, !model.isOver {
+                        AgentQueueStrip(messages: model.queued) { id in
+                            model.unqueue(id)
+                        }
+                    }
                     bottomBar(model)
                 } else {
                     Spacer()

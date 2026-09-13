@@ -77,7 +77,9 @@ use gpui_component::{
 };
 use steer::activity::SessionAgent;
 use steer::commands::parse_command;
-use steer::feed::{COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT};
+use steer::feed::{
+    COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT, QUEUE_REMOVE_LABEL, QUEUE_STRIP_TITLE,
+};
 use steer::{
     answer_key, build_steer_image_message, parse_steer_message,
     summarize_subagent_row, transcript_gap, AnswerStatus, FeedItem,
@@ -5195,6 +5197,94 @@ impl SteerSessionView {
         Some(column.into_any_element())
     }
 
+    /// EXP-861: the messages the device holds queued behind the running turn
+    /// (or an open compaction) — one line each, directly above the composer,
+    /// each with a × that revokes it and hands the text back to an empty
+    /// draft. The same strip recipe as the background tasks; absent while
+    /// nothing is held.
+    fn render_queue_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let queued = self.feed.queue();
+        if queued.is_empty() {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let mut column = v_flex()
+            .id("steer-queue-strip")
+            .w_full()
+            .flex_shrink_0()
+            .gap_0p5()
+            .px_3()
+            .py_1p5()
+            .border_t_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new(QUEUE_STRIP_TITLE).build(window, cx));
+        for (index, message) in queued.iter().enumerate() {
+            let id = message.id.clone();
+            let text = message.text.clone();
+            let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            column = column.child(
+                tool_text(h_flex())
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .items_center()
+                    .text_color(muted)
+                    .child(
+                        Icon::new(registry::UI_QUEUED)
+                            .xsmall()
+                            .text_color(muted.opacity(0.7)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(line)),
+                    )
+                    .child(
+                        crate::controls::ghost_icon_button(
+                            ("steer-unqueue", index),
+                            Icon::new(registry::UI_CLOSE).xsmall(),
+                            cx,
+                        )
+                        .tooltip(QUEUE_REMOVE_LABEL)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.unqueue(&id, &text, window, cx);
+                        })),
+                    ),
+            );
+        }
+        Some(column.into_any_element())
+    }
+
+    /// EXP-861: the × on a queued line. Local run → the engine drops it;
+    /// remote → the `unqueue` frame. The line goes at once (the device's next
+    /// `queue` frame is the truth), and an EMPTY draft takes the text back so
+    /// it can be edited and re-sent — the CLI's "edit queued message".
+    fn unqueue(&mut self, id: &str, text: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match &self.source {
+            FeedSource::Local { session } => session.unqueue(id),
+            FeedSource::Replay { .. } | FeedSource::Journal { .. } => return,
+            FeedSource::Remote { handle } => {
+                if !handle
+                    .as_ref()
+                    .is_some_and(|handle| handle.send_unqueue(id))
+                {
+                    self.notice = Some(SharedString::from("The session is no longer connected"));
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        self.feed.remove_queued(id);
+        if self.input.read(cx).value().trim().is_empty() {
+            let draft = text.to_string();
+            self.input
+                .update(cx, |state, cx| state.set_value(draft, window, cx));
+        }
+        cx.notify();
+    }
+
     /// One `askId` group as a stepper card: the answered steps (re-openable
     /// while the ask is open, EXP-820), then the current one — or, while a
     /// next step is still owed, the waiting line.
@@ -6802,8 +6892,12 @@ impl Render for SteerSessionView {
             .flatten();
         let composer = composer_visible.then(|| self.render_composer(cx));
         // EXP-850 §1/§2: the background-task / waiting strip sits directly
-        // above the composer, under everything else.
+        // above the composer, under everything else. EXP-861: the queue bar
+        // goes between it and the composer — the last thing above the field.
         let tasks = self.render_task_strip(cx);
+        let queue = composer_visible
+            .then(|| self.render_queue_strip(cx))
+            .flatten();
         // EXP-850 §11: the diff PANE splits this column — transcript left,
         // diff right. On a view too narrow for both the pane takes the whole
         // width (the transcript is one toggle away).
@@ -6830,6 +6924,7 @@ impl Render for SteerSessionView {
                 .children(compacting)
                 .children(rate_limit)
                 .children(tasks)
+                .children(queue)
                 .children(composer)
         });
         v_flex()
@@ -7423,6 +7518,9 @@ mod tests {
     #[test]
     fn the_compaction_copy_mirrors_the_web_labels() {
         assert_eq!(COMPACTING_LABEL, "Compacting context…");
+        // EXP-861: the queue bar's two captions, byte-identical ×4 too.
+        assert_eq!(QUEUE_STRIP_TITLE, "Queued");
+        assert_eq!(QUEUE_REMOVE_LABEL, "Remove from queue");
         assert_eq!(COMPACTED_LABEL, "Context compacted");
     }
 

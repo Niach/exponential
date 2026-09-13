@@ -50,7 +50,6 @@ import {
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import { Button } from "@/components/ui/button"
 import { ListRow } from "@/components/ui/glass-rows"
-import { cn } from "@/lib/utils"
 
 const SwapIcon = conceptIcon(`ui-swap`)
 
@@ -69,7 +68,7 @@ export const WALL_SWITCH_LABEL = `Switch account`
 /** What a switch costs, said once where the switch is offered: the agent
  *  re-enters the recorded run under the other login, which re-reads the
  *  transcript — one extra context read, not a per-message surcharge. */
-export const SWITCH_COST_NOTE = `Switching continues this run under the other account. The agent re-reads the transcript once, which costs tokens.`
+export const SWITCH_COST_NOTE = `The run continues under the other account. Re-reading the transcript once costs tokens.`
 
 /** The continuation byline a resumed run's screen carries. */
 export const CONTINUATION_NOTE = `Continues an earlier run`
@@ -162,6 +161,54 @@ export interface SessionAccountSwitch {
   switchTo: (profileId: string) => void
 }
 
+/** EXP-863: which option is the account the run is ON — the desktop's
+ *  `SwitchTarget.current` rule, in the order the client can know it: the
+ *  synced `agent_account` (server-only, so rarely), else the login whose
+ *  email the machine's usage report names for this agent, else the machine's
+ *  active login for it. -1 = unknown (every row is then "another account"). */
+export function activeAccountIndex(
+  options: readonly {
+    current: boolean
+    active: boolean
+    row: { email: string | null }
+  }[],
+  reportedEmail: string | null | undefined
+): number {
+  const known = options.findIndex((option) => option.current)
+  if (known >= 0) return known
+  const email = reportedEmail?.trim() ?? ``
+  if (email) {
+    const byEmail = options.findIndex((option) => option.row.email === email)
+    if (byEmail >= 0) return byEmail
+  }
+  return options.findIndex((option) => option.active)
+}
+
+/** The refusals that are about the RUN, not about one login — when every
+ *  other account is refused for the same one of these, the overlay says it
+ *  once in its footer instead of under each row. */
+const GLOBAL_SWITCH_REASONS: readonly string[] = [
+  REASON_AGENT,
+  REASON_NOT_MINE,
+  REASON_ENDED,
+  REASON_OFFLINE,
+  REASON_NO_CAP,
+  REASON_BUSY,
+]
+
+/** EXP-863: the ONE footer sentence when switching is refused for every
+ *  listed account by the same run-level reason, else null (the footer then
+ *  carries `SWITCH_COST_NOTE`). Row-specific refusals (signed out, needs a
+ *  re-login) never become the footer: they stay under their row. */
+export function globalSwitchBlocker(
+  options: readonly Pick<SessionAccountOption, `blockedReason`>[]
+): string | null {
+  if (options.length === 0) return null
+  const first = options[0].blockedReason
+  if (!first || !GLOBAL_SWITCH_REASONS.includes(first)) return null
+  return options.every((option) => option.blockedReason === first) ? first : null
+}
+
 /** The switch, as a small state machine: ONE mutation (the live run's own
  *  resume, naming the account), then the wait for the continuation's row —
  *  exactly the hand-off `use-remote-start.ts` and the ended-run Resume button
@@ -173,7 +220,16 @@ export function useSessionAccountSwitch(
     `id` | `userId` | `agent` | `agentAccount` | `deviceId` | `status`
   >,
   currentUserId: string,
-  { turnEnded }: { turnEnded: boolean }
+  {
+    turnEnded,
+    onBeforeSwitch,
+  }: {
+    turnEnded: boolean
+    /** EXP-866: runs right before the switch mutation goes out — the view
+     *  drops its live rate-limit slot there, so the wall this switch is the
+     *  way out of does not linger over the run that is about to end. */
+    onBeforeSwitch?: () => void
+  }
 ): SessionAccountSwitch {
   const now = useNow(30_000)
   const openSession = useOpenSession()
@@ -283,6 +339,7 @@ export function useSessionAccountSwitch(
     if (!session.deviceId) return
     const sentAt = Date.now()
     setPending({ profileId, sentAt })
+    onBeforeSwitch?.()
     trpc.steer.startSession
       .mutate(
         {
@@ -318,36 +375,39 @@ export function useSessionAccountSwitch(
   return { options, switchingTo: pending?.profileId ?? null, switchTo }
 }
 
-/** The account rows the usage readout opens: the login, its plan, its live
- *  usage bars, and "Switch to this account" — disabled WITH the reason, never
- *  hidden (a control that vanishes reads as a feature that is not there). */
+/** The account rows the usage overlay lists (EXP-863: the OTHER accounts —
+ *  the caller filters the active one out and owns the section title and the
+ *  footer note): the login, its plan, its live usage bars, and "Switch to this
+ *  account" — disabled WITH the reason, never hidden (a control that vanishes
+ *  reads as a feature that is not there). `omitReason` is the sentence the
+ *  footer already says, so no row repeats it. */
 export function SessionAccountRows({
-  state,
+  options,
+  switchingTo,
+  onSwitch,
   now,
+  omitReason = null,
 }: {
-  state: SessionAccountSwitch
+  options: readonly SessionAccountOption[]
+  switchingTo: string | null
+  onSwitch: (profileId: string) => void
   now: Date
+  omitReason?: string | null
 }) {
-  if (state.options.length === 0) return null
+  if (options.length === 0) return null
   return (
-    <div className="space-y-1.5">
-      <p className="text-[11px] text-muted-foreground">
-        {ACCOUNTS_SECTION_TITLE}
-      </p>
-      <div className="flex flex-col">
-        {state.options.map((option) => (
-          <SessionAccountRow
-            key={option.profileId}
-            option={option}
-            now={now}
-            switching={state.switchingTo === option.profileId}
-            busy={state.switchingTo !== null}
-            onSwitch={() => state.switchTo(option.profileId)}
-          />
-        ))}
-      </div>
-      {/* The one-time cost, said where the switch happens. */}
-      <p className="text-[11px] text-muted-foreground/70">{SWITCH_COST_NOTE}</p>
+    <div className="flex flex-col">
+      {options.map((option) => (
+        <SessionAccountRow
+          key={option.profileId}
+          option={option}
+          now={now}
+          switching={switchingTo === option.profileId}
+          busy={switchingTo !== null}
+          hideReason={option.blockedReason === omitReason}
+          onSwitch={() => onSwitch(option.profileId)}
+        />
+      ))}
     </div>
   )
 }
@@ -357,23 +417,22 @@ function SessionAccountRow({
   now,
   switching,
   busy,
+  hideReason,
   onSwitch,
 }: {
   option: SessionAccountOption
   now: Date
   switching: boolean
   busy: boolean
+  hideReason: boolean
   onSwitch: () => void
 }) {
   const health = healthBadgeLabel(option.row.health)
-  // The machine's CURRENT login — never a claim about which account THIS run
-  // is on (that stays server-side), which is why it reads "Active login".
-  const subtitle = [
-    option.plan && option.plan !== option.label ? option.plan : null,
-    option.active ? `Active login` : null,
-  ]
-    .filter(Boolean)
-    .join(` · `)
+  // The plan, when the identity line is the email. EXP-863: no "Active login"
+  // caption any more — the active account is the overlay's header, never a
+  // listed row.
+  const subtitle =
+    option.plan && option.plan !== option.label ? option.plan : null
   return (
     <ListRow interactive className="flex-col items-stretch gap-1.5 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -408,14 +467,15 @@ function SessionAccountRow({
         </Button>
       </div>
       {option.row.usage && option.row.usage.windows.length > 0 && (
-        <div className={cn(option.current ? `` : `opacity-80`)}>
+        <div className="opacity-80">
           <AgentUsageCards usage={option.row.usage} now={now} compact dense />
         </div>
       )}
       {/* The refusal sits UNDER the disabled control: it is nearly always
           something the person can change (wait for the turn, sign in on the
-          machine), and a vanished control reads as a bug. */}
-      {option.blockedReason && (
+          machine), and a vanished control reads as a bug. A run-level reason
+          the footer already states is not repeated here (EXP-863). */}
+      {option.blockedReason && !hideReason && (
         <p className="text-[11px] text-muted-foreground/70">
           {option.blockedReason}
         </p>

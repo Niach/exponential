@@ -286,6 +286,10 @@ pub struct Shell {
     /// EXP-456/EXP-851: the left column's occupant-swap transition state.
     left_anim: LeftColumnAnim,
     _left_anim_task: Option<Task<()>>,
+    /// EXP-863: the left column's titlebar strip is the SHELL's now (the
+    /// fixed header rides it), so its window-drag latch (the vendored
+    /// `TitleBar` `should_move` pattern) lives here, not on the occupants.
+    left_strip_should_move: bool,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -523,6 +527,7 @@ impl Shell {
             list_nav,
             left_anim,
             _left_anim_task: None,
+            left_strip_should_move: false,
             login,
             onboarding,
             ordinal,
@@ -566,6 +571,16 @@ impl Shell {
     /// or (mid-swap) both riding a sliding strip inside a width-morphing
     /// clip.
     ///
+    /// EXP-863: the column's TOP is fixed. The macOS titlebar strip
+    /// (`left_column_top_strip`, or the 8px inset where the traffic lights
+    /// do not land), the header row (team switcher · Search · New issue,
+    /// `sidebar::render_left_column_header`) and the rule under it render
+    /// ONCE here, and only the pane beneath them swaps: the rail, the
+    /// settings nav and the `ListNav` all start at their first own row. The
+    /// three occupants used to render their own copies of the strip, and
+    /// the rail its header, so opening Settings or a detail slid the
+    /// switcher off-screen with the rows.
+    ///
     /// EXP-767: the column paints NOTHING — no ramp of its own, no wash, no
     /// edge. The Shell ROOT paints the one window ground (`Shell::render`)
     /// and the sidebar sits on it implicitly, exactly like the web's. This
@@ -584,40 +599,77 @@ impl Shell {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let _ = (window, cx);
-        let column = div()
-            .h_full()
-            .flex_shrink_0()
+        // EXP-285/EXP-862: the column spans the full window height, flush at
+        // y=0 — its top 34px are the decoration band the macOS traffic lights
+        // float over, a drag/zoom region. EXP-760: where that strip is not
+        // rendered (no lights to hold room for) the header takes the same 8px
+        // inset the column's bottom has instead.
+        let top_strip = crate::app_title_bar::left_column_top_strip(
+            "left-column-titlebar-strip",
+            |this: &mut Self| &mut this.left_strip_should_move,
+            window,
+            cx,
+        );
+        let nav = navigation::nav_for_window(window, cx);
+        let header = crate::sidebar::render_left_column_header(&nav, cx);
+
+        // The SWAPPING pane under the fixed header: the occupant, or
+        // (mid-swap) both occupants on a sliding strip inside this clip.
+        let anim = self.left_anim;
+        let pane = div()
+            .w_full()
+            .flex_1()
+            .min_h_0()
             .relative()
             .overflow_hidden();
+        let pane = if !anim.swapping {
+            pane.child(self.left_child(anim.occupant))
+        } else {
+            // Swap in flight: BOTH occupants ride an absolute [outgoing |
+            // incoming] strip that slides left by one column width — the
+            // same wipe in every direction, which is what made a THIRD
+            // occupant (EXP-851's ListNav) a pure data change. EXP-862: with
+            // one width there is no clip to morph around it either.
+            let strip = h_flex()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .w(px(2. * LEFT_COLUMN_WIDTH))
+                .child(self.left_child(anim.from_occupant))
+                .child(self.left_child(anim.occupant));
+            // The SLIDE rides the strip; the pane stays put as its clip (a
+            // transition on the pane would walk the whole sidebar
+            // off-screen).
+            let strip =
+                gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
+                    .ease(theme::motion::standard())
+                    .slide_x(px(0.), px(-LEFT_COLUMN_WIDTH))
+                    .apply(strip, left_slide_id(anim.epoch));
+            pane.child(strip)
+        };
 
-        let anim = self.left_anim;
-        let column = column.w(px(LEFT_COLUMN_WIDTH));
-        if !anim.swapping {
-            return column
-                .child(self.left_child(anim.occupant))
-                .into_any_element();
-        }
-
-        // Swap in flight: BOTH occupants ride an absolute [outgoing |
-        // incoming] strip that slides left by one column width — the same
-        // wipe in every direction, which is what made a THIRD occupant
-        // (EXP-851's ListNav) a pure data change. EXP-862: with one width
-        // there is no clip to morph around it either.
-        let strip = h_flex()
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .w(px(2. * LEFT_COLUMN_WIDTH))
-            .child(self.left_child(anim.from_occupant))
-            .child(self.left_child(anim.occupant));
-        // The SLIDE rides the strip; the column stays put as its clip (a
-        // transition on the column would walk the whole sidebar off-screen).
-        let strip = gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
-            .ease(theme::motion::standard())
-            .slide_x(px(0.), px(-LEFT_COLUMN_WIDTH))
-            .apply(strip, left_slide_id(anim.epoch));
-        column.child(strip).into_any_element()
+        v_flex()
+            .h_full()
+            .w(px(LEFT_COLUMN_WIDTH))
+            .flex_shrink_0()
+            .overflow_hidden()
+            .text_color(cx.theme().sidebar_foreground)
+            .when(top_strip.is_none(), |column| column.pt_2())
+            .children(top_strip)
+            // The header wears the rail's horizontal inset (the occupants
+            // keep their own), and the rail's rule under it (the ListNav's
+            // and the settings nav's back rows sit right beneath the line).
+            .child(
+                v_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .px_2()
+                    .gap_1()
+                    .child(header)
+                    .child(crate::sidebar::left_column_divider(cx)),
+            )
+            .child(pane)
+            .into_any_element()
     }
 
     /// One occupant of the left column, in a sized wrapper (load-bearing for

@@ -75,8 +75,7 @@ public enum SessionAccountSwitch {
     /// re-enters the recorded run under the other login, which re-reads the
     /// transcript — one extra context read, not a per-message surcharge.
     public static let costNote =
-        "Switching continues this run under the other account. The agent re-reads the "
-        + "transcript once, which costs tokens."
+        "The run continues under the other account. Re-reading the transcript once costs tokens."
 
     /// The continuation byline a resumed run's screen carries.
     public static let continuationNote = "Continues an earlier run"

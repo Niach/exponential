@@ -992,6 +992,84 @@ describe(`sending`, () => {
     const { store } = makeStore()
     expect(store.sendMessage(`too early`)).toBe(false)
   })
+
+  // EXP-861: sent mid-turn, the DEVICE queues the message — the strip shows
+  // it and the real `user_message` row arrives when it is delivered, so no
+  // echo (an echo's dedupe would swallow that row). The frames still go out.
+  it(`appends no echo while the turn is started`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `turn`, state: `started` } })
+    await vi.advanceTimersByTimeAsync(100)
+    const before = socket.sent.length
+    expect(store.sendMessage(`later please`)).toBe(true)
+    expect(socket.sent.length).toBe(before + 2)
+    expect(store.getSnapshot().feed).toEqual([])
+    // The delivered row is NOT deduped away as an echo.
+    socket.frame({ t: `activity`, event: { kind: `turn`, state: `ended` } })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `user_message`, text: `later please` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([
+      expect.objectContaining({ kind: `user_message`, text: `later please` }),
+    ])
+    store.dispose()
+  })
+
+  it(`appends no echo while compacting`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `compaction`, phase: `started` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.sendMessage(`after the fold`)).toBe(true)
+    expect(store.getSnapshot().feed).toEqual([])
+    store.dispose()
+  })
+
+  it(`still echoes when idle and not compacting`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `turn`, state: `started` } })
+    socket.frame({ t: `activity`, event: { kind: `turn`, state: `ended` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.sendMessage(`now`)).toBe(true)
+    expect(store.getSnapshot().feed.at(-1)).toMatchObject({
+      kind: `user_message`,
+      text: `now`,
+    })
+    store.dispose()
+  })
+
+  it(`unqueue sends the exact frame and drops the entry from the slot`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `queue`,
+        messages: [
+          { id: `m1`, text: `one` },
+          { id: `m2`, text: `two` },
+        ],
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.sent.length = 0
+    expect(store.unqueue(`m1`)).toBe(true)
+    expect(socket.sent).toEqual([`{"t":"unqueue","id":"m1"}`])
+    expect(store.getSnapshot().queue).toEqual([{ id: `m2`, text: `two` }])
+    store.dispose()
+  })
+
+  it(`unqueue returns false with no open socket`, () => {
+    const { store } = makeStore()
+    expect(store.unqueue(`m1`)).toBe(false)
+  })
 })
 
 // EXP-672: answers go out ONLY as the semantic `answer` frame, naming the
@@ -1547,6 +1625,100 @@ describe(`rate_limit slot (EXP-784)`, () => {
 
 // EXP-848: `turn` is the FIFTH latest-wins slot — idle (`ended`) by default so
 // nothing pulses before the first edge, and replayed so a late joiner learns it.
+// EXP-861: the device-held message queue — a latest-wins slot like the turn.
+describe(`queue slot (EXP-861)`, () => {
+  const queueEvent = (messages: unknown) => ({
+    t: `activity`,
+    event: { kind: `queue`, messages, at: 1_700_000_000_000 },
+  })
+
+  it(`defaults empty, replaces the whole list, clears on an empty array, never a row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    expect(store.getSnapshot().queue).toEqual([])
+    socket.frame(queueEvent([{ id: `m1`, text: `one` }]))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toEqual([{ id: `m1`, text: `one` }])
+    socket.frame(
+      queueEvent([
+        { id: `m2`, text: `two` },
+        { id: `m3`, text: `three` },
+      ])
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toEqual([
+      { id: `m2`, text: `two` },
+      { id: `m3`, text: `three` },
+    ])
+    expect(store.getSnapshot().feed).toEqual([])
+    socket.frame(queueEvent([]))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toEqual([])
+    store.dispose()
+  })
+
+  it(`an unreadable payload keeps the list standing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(queueEvent([{ id: `m1`, text: `one` }]))
+    socket.frame({ t: `activity`, event: { kind: `queue` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toHaveLength(1)
+    store.dispose()
+  })
+
+  it(`a replay reset clears it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(queueEvent([{ id: `m1`, text: `one` }]))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(REPLAY_MAX_MS + 100)
+    expect(store.getSnapshot().queue).toEqual([])
+    store.dispose()
+  })
+
+  it(`a replay that restates the queue lands it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity_reset` })
+    socket.frame(queueEvent([{ id: `m9`, text: `held` }]))
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(REPLAY_MAX_MS + 100)
+    expect(store.getSnapshot().queue).toEqual([{ id: `m9`, text: `held` }])
+    store.dispose()
+  })
+
+  it(`the run ending drops it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(queueEvent([{ id: `m1`, text: `one` }]))
+    await vi.advanceTimersByTimeAsync(100)
+    store.noteSessionStatus(`ended`)
+    socket.frame({ t: `bye`, outcome: `ended` })
+    socket.serverClose(1000)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toEqual([])
+    store.dispose()
+  })
+
+  // EXP-866: the view drops the wall the moment a switch is requested.
+  it(`clearRateLimit empties the rate_limit slot`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `rate_limit`, status: `rejected`, resetsAt: 1 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toMatchObject({ status: `rejected` })
+    store.clearRateLimit()
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    store.dispose()
+  })
+})
+
 describe(`turn slot (EXP-848)`, () => {
   const turnEvent = (state: string) => ({
     t: `activity`,

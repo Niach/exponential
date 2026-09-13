@@ -31,9 +31,14 @@ import { useKillSession } from "@/hooks/use-kill-session"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
+  ACCOUNTS_SECTION_TITLE,
+  activeAccountIndex,
+  globalSwitchBlocker,
   SessionAccountRows,
+  SWITCH_COST_NOTE,
   useSessionAccountSwitch,
   WALL_SWITCH_LABEL,
+  type SessionAccountSwitch,
 } from "@/components/session-account-switch"
 import {
   accountCaption,
@@ -42,6 +47,7 @@ import {
   formatContextCompact,
   formatContextUsage,
   formatUsageCost,
+  healthBadgeLabel,
   CONTEXT_SECTION_TITLE,
 } from "@/lib/agent-usage"
 import type { SessionDevice } from "@/lib/session-device"
@@ -76,6 +82,9 @@ import {
   pendingAnswerable,
   opensInlineField,
   planModeChipLabel,
+  QUEUE_REMOVE_LABEL,
+  QUEUE_STRIP_TITLE,
+  type QueuedMessage,
   rateLimitBanner,
   rowClass,
   sessionIsWorking,
@@ -94,6 +103,7 @@ import {
   type RowClass,
   type SessionConfigState,
   type SessionRateLimitState,
+  type SessionUsageState,
   type BackgroundStripLine,
   type SubagentSummary,
   type TranscriptGapToken,
@@ -180,6 +190,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { FileDiffList } from "@/components/diff-view"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
@@ -206,6 +221,8 @@ const UiUsageIcon = conceptIcon(`ui-usage`)
 const CodingDiffIcon = conceptIcon(`coding-diff`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
+const UiQueuedIcon = conceptIcon(`ui-queued`)
+const UiCloseIcon = conceptIcon(`ui-close`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
@@ -364,6 +381,7 @@ export function AgentSessionView({
     turnStartedAt,
     turnTokens,
     backgroundTasks,
+    queue,
     workflows,
     runningWorkflow,
     answerStates,
@@ -391,6 +409,12 @@ export function AgentSessionView({
    *  header returns to the session. */
   const [diffTurn, setDiffTurn] = useState<number | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
+  /** EXP-866: an account switch has been requested for THIS run — the live
+   *  rate-limit notice stands down for good (the slot is cleared too, but a
+   *  late frame from the ending run must not bring the wall back over a run
+   *  that is being left). Reset when the view moves to another session. */
+  const [switchRequested, setSwitchRequested] = useState(false)
+  useEffect(() => setSwitchRequested(false), [session.id])
   const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
    *  subagent id focuses that agent's stream. Falls back to Main whenever the
@@ -643,6 +667,12 @@ export function AgentSessionView({
    *  The Usage sheet and the rate-limit notice both open these rows. */
   const accountSwitch = useSessionAccountSwitch(session, currentUserId, {
     turnEnded: turnState === `ended`,
+    // EXP-866: the wall this switch is the way out of goes NOW, not when the
+    // continuation's page replaces this one.
+    onBeforeSwitch: () => {
+      store.clearRateLimit()
+      setSwitchRequested(true)
+    },
   })
   const usageNow = useNow(30_000)
   const isMobile = useIsMobile()
@@ -790,20 +820,32 @@ export function AgentSessionView({
    *  EXP-849's account switch, so a run that reports those but no context
    *  window keeps a glyph-only pill — losing the `…` menu must not lose the
    *  account rows with it. */
+  // EXP-863: the overlay is a POPOVER anchored to the pill (the desktop's
+  // structure, byte-for-byte in its sections), controlled so the rate-limit
+  // notice's "Switch account" can open it too.
   const contextPill =
     sessionEnded || (!contextLabel && !agentUsage && !hasAccountRows) ? null : (
-      <Pill
-        size="sm"
-        mode="action"
-        className="shrink-0"
-        onClick={() => setUsageOpen(true)}
-        aria-label="Usage"
-        title="Usage"
-        data-testid="session-context-pill"
-      >
-        <UiUsageIcon className="size-3" />
-        {contextLabel && <span className="font-mono">{contextLabel}</span>}
-      </Pill>
+      <Popover open={usageOpen} onOpenChange={setUsageOpen}>
+        <PopoverTrigger asChild>
+          <Pill
+            size="sm"
+            mode="action"
+            className="shrink-0"
+            aria-label="Usage"
+            title="Usage"
+            data-testid="session-context-pill"
+          >
+            <UiUsageIcon className="size-3" />
+            {contextLabel && <span className="font-mono">{contextLabel}</span>}
+          </Pill>
+        </PopoverTrigger>
+        <SessionUsagePopover
+          sessionUsage={sessionUsage}
+          agentUsage={agentUsage}
+          accountSwitch={accountSwitch}
+          now={usageNow}
+        />
+      </Popover>
     )
 
   /** EXP-850 §5/§7: while a workflow runs, the header caption IS the
@@ -1500,16 +1542,19 @@ export function AgentSessionView({
           )}
           {/* EXP-784: the agent's rate-limit window, while it reports one —
               the slot clears on an empty/`ok` status and the banner goes. */}
-          {rateLimit && (
+          {rateLimit && !switchRequested && (
             <RateLimitBanner
               state={rateLimit}
               // EXP-849: a spent window is a WALL, and the one thing that
               // clears it right now is another account — so that is the
               // notice's PRIMARY button (it opens the account rows; the
               // continuation's own slot is empty, so the notice goes with the
-              // old run). Hidden only when this run could never switch.
+              // old run). Hidden only when this run could never switch — or
+              // has no pill to anchor the overlay to (EXP-863).
               onSwitchAccount={
-                hasAccountRows ? () => setUsageOpen(true) : undefined
+                hasAccountRows && contextPill !== null
+                  ? () => setUsageOpen(true)
+                  : undefined
               }
             />
           )}
@@ -1527,6 +1572,19 @@ export function AgentSessionView({
           {/* EXP-850 §1/§2: monitors and background shell commands, right
               above the composer. */}
           <BackgroundStrip lines={stripLines} />
+
+          {/* EXP-861: the messages the device is holding for the next turn,
+              each with an X that revokes it (and hands the text back to an
+              empty draft, the CLI's "edit queued message"). */}
+          <QueueStrip
+            messages={queue}
+            onRemove={(entry) => {
+              store.unqueue(entry.id)
+              if (store.getDraftSnapshot().text.trim() === ``) {
+                store.setDraftText(entry.text)
+              }
+            }}
+          />
 
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
@@ -1575,65 +1633,112 @@ export function AgentSessionView({
       </div>
 
       {killDialog}
-
-      {/* EXP-688: usage is a SHEET on mobile, not a hairline under the header
-          — every window the machine reports, grouped the way the agent's own
-          app groups them. */}
-      {(agentUsage || sessionUsage || hasAccountRows) && (
-        <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
-          <DialogContent
-            className="sm:max-w-sm"
-            aria-describedby={undefined}
-          >
-            <DialogHeader>
-              <DialogTitle>Usage</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              {/* Above the cards, without the agent prefix — the natives'
-                  Usage sheets do the same (hand-mirrored strings, EXP-484). */}
-              {agentUsage?.account && (
-                <p className="text-[11px] text-muted-foreground">
-                  {accountCaption(agentUsage.account)}
-                </p>
-              )}
-              {/* EXP-746: THIS run's context window and spend, a SIBLING of
-                  the machine's rate-limit cards — a token count has no percent
-                  window of its own, and folding it into `usageGroups` would
-                  break the ×4 fixture lock. */}
-              {sessionUsage && (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] text-muted-foreground">
-                    {CONTEXT_SECTION_TITLE}
-                  </p>
-                  <div className="flex items-baseline justify-between gap-2 text-xs">
-                    <span>{formatContextUsage(sessionUsage)}</span>
-                    {formatUsageCost(sessionUsage) && (
-                      <span className="text-muted-foreground">
-                        {formatUsageCost(sessionUsage)}
-                      </span>
-                    )}
-                  </div>
-                  <Progress
-                    value={contextPercent(sessionUsage) ?? 0}
-                    className="h-1"
-                  />
-                </div>
-              )}
-              {agentUsage && (
-                <AgentUsageCards usage={agentUsage.usage} now={usageNow} />
-              )}
-              {/* EXP-849: the accounts on this run's machine — their own bars
-                  and "Switch to this account" (claude, own machine, between
-                  turns; disabled with the reason otherwise). A switch opens
-                  the continuation run's page by itself. */}
-              {hasAccountRows && (
-                <SessionAccountRows state={accountSwitch} now={usageNow} />
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
+  )
+}
+
+/** EXP-863: the usage overlay, the SAME structure as the desktop's popover.
+ *  Hairline dividers between sections, a muted section title above each:
+ *
+ *  1. header — the ACTIVE account's caption, once (the only place it appears);
+ *  2. "Context" — `147k / 1000k (14%)`, the cost right-aligned, then the meter
+ *     (EXP-746: THIS run's window, a sibling of the machine's cards — a token
+ *     count has no percent window of its own, and folding it into
+ *     `usageGroups` would break the ×4 fixture lock);
+ *  3. the active account's windows — the three cards, as before;
+ *  4. "Accounts" — ONLY the other accounts, each with its switch and its
+ *     row-specific refusal; hidden when there is none;
+ *  5. ONE footer note — the run-level blocker when every other account is
+ *     refused for the same one, else the one-time cost. */
+function SessionUsagePopover({
+  sessionUsage,
+  agentUsage,
+  accountSwitch,
+  now,
+}: {
+  sessionUsage: SessionUsageState | null
+  agentUsage: ReturnType<typeof useSessionAgentUsage>
+  accountSwitch: SessionAccountSwitch
+  now: Date
+}) {
+  const { options } = accountSwitch
+  // The desktop's `SwitchTarget.current` rule: the run's own account when
+  // the client knows it, else the login the machine's report names, else the
+  // machine's active login. Unknown = every row is another account.
+  const activeIx = activeAccountIndex(options, agentUsage?.account?.email)
+  const active = activeIx >= 0 ? options[activeIx] : null
+  const others = options.filter((_, ix) => ix !== activeIx)
+  // Above the cards, without the agent prefix — the natives' Usage sheets do
+  // the same (hand-mirrored strings, EXP-484). An account row stands in when
+  // the machine's report carries no account (or is stale).
+  const header = agentUsage?.account
+    ? accountCaption(agentUsage.account)
+    : active
+      ? [
+          active.label,
+          active.plan && active.plan !== active.label ? active.plan : null,
+          healthBadgeLabel(active.row.health),
+        ]
+          .filter(Boolean)
+          .join(` · `)
+      : null
+  const activeUsage = agentUsage?.usage ?? active?.row.usage ?? null
+  const cost = sessionUsage ? formatUsageCost(sessionUsage) : null
+  // ONE footer sentence: the blocker every other row shares, else the cost.
+  const blocker = globalSwitchBlocker(others)
+  const footer = others.length > 0 ? (blocker ?? SWITCH_COST_NOTE) : null
+  const section = `border-t border-border/60 px-3 py-2.5`
+  const title = `text-[11px] uppercase tracking-wide text-muted-foreground`
+  return (
+    <PopoverContent
+      align="end"
+      collisionPadding={8}
+      className="w-80 p-0"
+      aria-label="Usage"
+      data-testid="session-usage-popover"
+    >
+      <div className="px-3 py-2.5">
+        <p className="truncate text-xs" title={header ?? undefined}>
+          {header ?? `Usage`}
+        </p>
+      </div>
+      {sessionUsage && (
+        <div className={cn(section, `space-y-1.5`)}>
+          <p className={title}>{CONTEXT_SECTION_TITLE}</p>
+          <div className="flex items-baseline justify-between gap-2 text-xs">
+            <span className="tabular-nums">{formatContextUsage(sessionUsage)}</span>
+            {cost && <span className="text-muted-foreground">{cost}</span>}
+          </div>
+          <Progress value={contextPercent(sessionUsage) ?? 0} className="h-1" />
+        </div>
+      )}
+      {activeUsage && (
+        <div className={section}>
+          <AgentUsageCards usage={activeUsage} now={now} compact />
+        </div>
+      )}
+      {/* EXP-849: the OTHER accounts on this run's machine — their own bars
+          and "Switch to this account" (claude, own machine, between turns;
+          disabled with the reason otherwise). A switch opens the
+          continuation run's page by itself. */}
+      {others.length > 0 && (
+        <div className={cn(section, `space-y-1.5`)}>
+          <p className={title}>{ACCOUNTS_SECTION_TITLE}</p>
+          <SessionAccountRows
+            options={others}
+            switchingTo={accountSwitch.switchingTo}
+            onSwitch={accountSwitch.switchTo}
+            now={now}
+            omitReason={blocker}
+          />
+        </div>
+      )}
+      {footer && (
+        <div className={section}>
+          <p className="text-[11px] text-muted-foreground/70">{footer}</p>
+        </div>
+      )}
+    </PopoverContent>
   )
 }
 
@@ -1797,6 +1902,52 @@ function BackgroundStrip({ lines }: { lines: BackgroundStripLine[] }) {
           <span className="min-w-0 truncate" title={line.text}>
             {line.text}
           </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** EXP-861: the strip directly below the background one — one line per
+ *  message the device is holding for the next turn (the queue is on the
+ *  DEVICE; this is its latest-wins mirror), each with an X that revokes it.
+ *  Absent when nothing is queued. The composer is never disabled by it. */
+function QueueStrip({
+  messages,
+  onRemove,
+}: {
+  messages: QueuedMessage[]
+  onRemove: (entry: QueuedMessage) => void
+}) {
+  if (messages.length === 0) return null
+  return (
+    <div
+      className="flex flex-col gap-0.5 border-t border-border/60 px-3 py-1.5"
+      aria-label={QUEUE_STRIP_TITLE}
+      data-testid="session-queue-strip"
+    >
+      {messages.map((entry) => (
+        <div
+          key={entry.id}
+          className={cn(
+            `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
+            TRANSCRIPT_TOOL_TEXT
+          )}
+        >
+          <UiQueuedIcon className="size-3 shrink-0" />
+          <span className="min-w-0 flex-1 truncate" title={entry.text}>
+            {entry.text}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0"
+            aria-label={QUEUE_REMOVE_LABEL}
+            title={QUEUE_REMOVE_LABEL}
+            onClick={() => onRemove(entry)}
+          >
+            <UiCloseIcon className="size-3" />
+          </Button>
         </div>
       ))}
     </div>

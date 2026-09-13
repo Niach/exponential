@@ -442,18 +442,9 @@ impl IssueListView {
     /// parity). Without a usable anchor it degrades to a plain toggle.
     fn extend_selection_to(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
         let ids = self.visible_issue_ids();
-        let anchor_ix = self
-            .select_anchor
-            .as_deref()
-            .and_then(|anchor| ids.iter().position(|id| id == anchor));
-        let target_ix = ids.iter().position(|id| *id == issue_id);
-        let (Some(anchor_ix), Some(target_ix)) = (anchor_ix, target_ix) else {
+        let Some((from, to)) = selection_range(&ids, self.select_anchor.as_deref(), &issue_id)
+        else {
             return self.toggle_selected(issue_id, cx);
-        };
-        let (from, to) = if anchor_ix <= target_ix {
-            (anchor_ix, target_ix)
-        } else {
-            (target_ix, anchor_ix)
         };
         for id in &ids[from..=to] {
             self.selected.insert(id.clone());
@@ -796,80 +787,151 @@ impl IssueListView {
             return None;
         }
         let team_id = self.bulk_team_id(cx)?;
-        Some(self.render_bulk_bar(team_id, ids, cx))
-    }
-
-    /// The bulk action bar's element (web `bulk-action-bar.tsx`): N selected ·
-    /// clear · Status · Priority · Assignee · Labels · Start coding · Delete
-    /// (nested confirm). Property edits keep the selection alive — only delete
-    /// clears it (FIX F3); every mutation chunks at 200 ids (FIX F4) and lands
-    /// via the Electric echo.
-    ///
-    /// EXP-698 round 5: the ONE bar shape of every client — an opaque
-    /// [`crate::surface::glass_bar`] capsule with `icon + label` buttons, the
-    /// web bar's labels included. The capsule is ONE fixed-height line and
-    /// never wraps (a second line would move the list rows under it), so a
-    /// panel narrower than [`bulk_bar_label_min_width`] — the default ~650px
-    /// tool panel among them — collapses the buttons to icon-only and leans
-    /// on the tooltips they all carry.
-    fn render_bulk_bar(
-        &self,
-        team_id: String,
-        ids: Vec<String>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let count = ids.len();
-        let busy = self.bulk_busy;
-        let list = cx.entity().downgrade();
-        let danger = cx.theme().danger;
-        // Hidden on a solo team (see `assignee_menu` below), and then not
-        // counted toward the label threshold either (EXP-827).
-        let users = queries::team_users(cx, &team_id);
-        let has_assignee = users.len() > 1;
         // Read straight off the probe, not off `self.wide`: the parent asks
         // for this element BEFORE this view's own render runs, so the field
-        // would be one frame stale on the first selection.
+        // would be one frame stale on the first selection. Hidden on a solo
+        // team (see `render_bulk_bar`'s assignee menu), and then not counted
+        // toward the label threshold either (EXP-827).
+        let has_assignee = queries::team_users(cx, &team_id).len() > 1;
         let labels = self.measured_width.get() >= bulk_bar_label_min_width(has_assignee);
-        // `.label()` takes a value, so the collapse is a small helper rather
-        // than a `when` chain on six buttons.
-        let with_label = move |button: Button, label: &'static str| {
-            if labels {
-                button.label(label)
-            } else {
-                button
-            }
-        };
+        Some(render_bulk_bar(team_id, ids, self.bulk_busy, labels, false, cx))
+    }
+}
 
-        let status_menu = {
-            let ids = ids.clone();
-            let list = list.clone();
-            let team_id = team_id.clone();
-            with_label(
-                Button::new("bulk-status")
-                    .ghost()
-                    .web_sm()
-                    .icon(Icon::from(ExpIcon::ListTodo)),
-                "Status",
-            )
-                .tooltip("Status")
-                .disabled(busy)
-                .dropdown_menu(move |menu, _window, cx| {
-                    // The team's own vocabulary (EXP-314), minus the
-                    // duplicate-category rows (`StatusMenuScope::Assignable`):
-                    // bulk marking has no canonical-issue picker, and
-                    // status='duplicate' without duplicate_of_id breaks the
-                    // pairing invariant (the single-issue path intercepts via
-                    // apply_status_selection's picker).
-                    let statuses = queries::team_status_options(cx, &team_id);
+/// EXP-863: the view a bulk bar acts FOR — the full-width list and the left
+/// column's `ListNav` (`sidebar::ListPanel`) both keep a selection, and the
+/// bar's mutations (`spawn_bulk_op`) flip the host's busy flag and clear its
+/// selection after a delete. One trait so the ~400-line bar exists once.
+pub(crate) trait BulkSelectionHost: Sized + 'static {
+    fn set_bulk_busy(&mut self, busy: bool);
+    fn clear_selection(&mut self, cx: &mut gpui::Context<Self>);
+}
+
+impl BulkSelectionHost for IssueListView {
+    fn set_bulk_busy(&mut self, busy: bool) {
+        self.bulk_busy = busy;
+    }
+
+    fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        IssueListView::clear_selection(self, cx);
+    }
+}
+
+/// The bulk action bar's element (web `bulk-action-bar.tsx`): N selected ·
+/// clear · Status · Priority · Assignee · Labels · Start coding · Delete
+/// (nested confirm). Property edits keep the selection alive — only delete
+/// clears it (FIX F3); every mutation chunks at 200 ids (FIX F4) and lands
+/// via the Electric echo.
+///
+/// EXP-698 round 5: the ONE bar shape of every client — an opaque
+/// [`crate::surface::glass_bar`] capsule with `icon + label` buttons, the
+/// web bar's labels included. The capsule is ONE fixed-height line and
+/// never wraps (a second line would move the list rows under it), so a
+/// panel narrower than [`bulk_bar_label_min_width`] — the default ~650px
+/// tool panel among them — collapses the buttons to icon-only (`labels =
+/// false`) and leans on the tooltips they all carry.
+///
+/// EXP-863: `wrap` is the 264px `ListNav`'s escape hatch — even icon-only
+/// the row is wider than that column, and the bar FLOATS over the nav's
+/// rows there too, so letting the capsule fold onto a second line moves
+/// nothing underneath it.
+pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
+    team_id: String,
+    ids: Vec<String>,
+    busy: bool,
+    labels: bool,
+    wrap: bool,
+    cx: &mut gpui::Context<V>,
+) -> gpui::AnyElement {
+    let count = ids.len();
+    let list = cx.entity().downgrade();
+    let danger = cx.theme().danger;
+    // Hidden on a solo team (see `assignee_menu` below).
+    let users = queries::team_users(cx, &team_id);
+    let has_assignee = users.len() > 1;
+
+    // `.label()` takes a value, so the collapse is a small helper rather
+    // than a `when` chain on six buttons.
+    let with_label = move |button: Button, label: &'static str| {
+        if labels {
+            button.label(label)
+        } else {
+            button
+        }
+    };
+
+    let status_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        let team_id = team_id.clone();
+        with_label(
+            Button::new("bulk-status")
+                .ghost()
+                .web_sm()
+                .icon(Icon::from(ExpIcon::ListTodo)),
+            "Status",
+        )
+            .tooltip("Status")
+            .disabled(busy)
+            .dropdown_menu(move |menu, _window, cx| {
+                // The team's own vocabulary (EXP-314), minus the
+                // duplicate-category rows (`StatusMenuScope::Assignable`):
+                // bulk marking has no canonical-issue picker, and
+                // status='duplicate' without duplicate_of_id breaks the
+                // pairing invariant (the single-issue path intercepts via
+                // apply_status_selection's picker).
+                let statuses = queries::team_status_options(cx, &team_id);
+                let ids = ids.clone();
+                let list = list.clone();
+                status_menu(
+                    menu,
+                    &statuses,
+                    "",
+                    StatusMenuScope::Assignable,
+                    Rc::new(move |pick: StatusPick, _window, cx| {
+                        let pick = pick.clone();
+                        spawn_bulk_op(
+                            list.clone(),
+                            cx,
+                            ids.clone(),
+                            false,
+                            "issues.bulkUpdate",
+                            move |trpc, chunk| {
+                                let mut input =
+                                    api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
+                                pick.apply_to_bulk(&mut input);
+                                api::issues::issues_bulk_update(trpc, &input).map(|_| ())
+                            },
+                        );
+                    }),
+                    cx,
+                )
+            })
+    };
+
+    let priority_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        with_label(
+            Button::new("bulk-priority")
+                .ghost()
+                .web_sm()
+                .icon(Icon::from(ExpIcon::SignalHigh)),
+            "Priority",
+        )
+            .tooltip("Priority")
+            .disabled(busy)
+            .dropdown_menu(move |menu, _window, cx| {
+                let mut menu = menu.check_side(Side::Right);
+                for option in &ISSUE_PRIORITY_OPTIONS {
                     let ids = ids.clone();
                     let list = list.clone();
-                    status_menu(
-                        menu,
-                        &statuses,
-                        "",
-                        StatusMenuScope::Assignable,
-                        Rc::new(move |pick: StatusPick, _window, cx| {
-                            let pick = pick.clone();
+                    let value = option.value;
+                    menu = menu.item(option_item(
+                        SharedString::from(option.label),
+                        option_icon(option, cx),
+                        false,
+                        move |_window, cx| {
                             spawn_bulk_op(
                                 list.clone(),
                                 cx,
@@ -879,364 +941,323 @@ impl IssueListView {
                                 move |trpc, chunk| {
                                     let mut input =
                                         api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                    pick.apply_to_bulk(&mut input);
+                                    input.priority = Some(value);
                                     api::issues::issues_bulk_update(trpc, &input).map(|_| ())
                                 },
                             );
-                        }),
-                        cx,
-                    )
-                })
-        };
-
-        let priority_menu = {
-            let ids = ids.clone();
-            let list = list.clone();
-            with_label(
-                Button::new("bulk-priority")
-                    .ghost()
-                    .web_sm()
-                    .icon(Icon::from(ExpIcon::SignalHigh)),
-                "Priority",
-            )
-                .tooltip("Priority")
-                .disabled(busy)
-                .dropdown_menu(move |menu, _window, cx| {
-                    let mut menu = menu.check_side(Side::Right);
-                    for option in &ISSUE_PRIORITY_OPTIONS {
-                        let ids = ids.clone();
-                        let list = list.clone();
-                        let value = option.value;
-                        menu = menu.item(option_item(
-                            SharedString::from(option.label),
-                            option_icon(option, cx),
-                            false,
-                            move |_window, cx| {
-                                spawn_bulk_op(
-                                    list.clone(),
-                                    cx,
-                                    ids.clone(),
-                                    false,
-                                    "issues.bulkUpdate",
-                                    move |trpc, chunk| {
-                                        let mut input =
-                                            api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                        input.priority = Some(value);
-                                        api::issues::issues_bulk_update(trpc, &input).map(|_| ())
-                                    },
-                                );
-                            },
-                        ));
-                    }
-                    menu
-                })
-        };
-
-        // Hidden on a solo team — one member can only self-assign, so the
-        // affordance is noise. The fetched list feeds the menu directly (no
-        // second query on open).
-        let assignee_menu = {
-            let ids = ids.clone();
-            let list = list.clone();
-            has_assignee.then(|| {
-                with_label(
-                    Button::new("bulk-assignee")
-                        .ghost()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_ASSIGNEE)),
-                    "Assignee",
-                )
-                    .tooltip("Assignee")
-                    .disabled(busy)
-                    .dropdown_menu(move |menu, _window, _cx| {
-                        let mut menu = menu.scrollable(true).max_h(px(320.));
-                        menu = menu.item(
-                            PopupMenuItem::new("Unassign")
-                                .icon(Icon::new(registry::UI_CLOSE))
-                                .on_click({
-                                    let ids = ids.clone();
-                                    let list = list.clone();
-                                    move |_, _, cx| {
-                                        spawn_bulk_op(
-                                            list.clone(),
-                                            cx,
-                                            ids.clone(),
-                                            false,
-                                            "issues.bulkUpdate",
-                                            |trpc, chunk| {
-                                                let mut input =
-                                                    api::issues::IssuesBulkUpdateInput::new(
-                                                        chunk.to_vec(),
-                                                    );
-                                                input.assignee_id = api::Patch::Null;
-                                                api::issues::issues_bulk_update(trpc, &input)
-                                                    .map(|_| ())
-                                            },
-                                        );
-                                    }
-                                }),
-                        );
-                        for user in &users {
-                            let name = crate::comments::author_label(Some(user));
-                            let ids = ids.clone();
-                            let list = list.clone();
-                            let user_id = user.id.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(name))
-                                    .icon(Icon::new(registry::UI_ASSIGNEE))
-                                    .on_click(move |_, _, cx| {
-                                        let user_id = user_id.clone();
-                                        spawn_bulk_op(
-                                            list.clone(),
-                                            cx,
-                                            ids.clone(),
-                                            false,
-                                            "issues.bulkUpdate",
-                                            move |trpc, chunk| {
-                                                let mut input =
-                                                    api::issues::IssuesBulkUpdateInput::new(
-                                                        chunk.to_vec(),
-                                                    );
-                                                input.assignee_id =
-                                                    api::Patch::Set(user_id.clone());
-                                                api::issues::issues_bulk_update(trpc, &input)
-                                                    .map(|_| ())
-                                            },
-                                        );
-                                    }),
-                            );
-                        }
-                        menu
-                    })
+                        },
+                    ));
+                }
+                menu
             })
-        };
+    };
 
-        let labels_menu = {
-            let ids = ids.clone();
-            let list = list.clone();
-            let team_id = team_id.clone();
+    // Hidden on a solo team — one member can only self-assign, so the
+    // affordance is noise. The fetched list feeds the menu directly (no
+    // second query on open).
+    let assignee_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        has_assignee.then(|| {
             with_label(
-                Button::new("bulk-labels")
+                Button::new("bulk-assignee")
                     .ghost()
                     .web_sm()
-                    .icon(Icon::from(ExpIcon::Tag)),
-                "Labels",
+                    .icon(Icon::new(registry::UI_ASSIGNEE)),
+                "Assignee",
             )
-                .tooltip("Labels")
-                .disabled(busy)
-                .dropdown_menu(move |menu, _window, cx| {
-                    let mut menu = menu
-                        .scrollable(true)
-                        .max_h(px(320.))
-                        .check_side(Side::Right);
-                    let labels = queries::team_labels(cx, &team_id);
-                    if labels.is_empty() {
-                        return menu.item(PopupMenuItem::label("No labels in this team"));
-                    }
-                    // Tri-state per web: checked when the label is on ALL
-                    // selected issues; toggling removes from all, else adds
-                    // to all.
-                    let selected_set: HashSet<&str> =
-                        ids.iter().map(String::as_str).collect();
-                    let mut counts: HashMap<String, usize> = HashMap::new();
-                    for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
-                        if selected_set.contains(link.issue_id.as_str()) {
-                            *counts.entry(link.label_id.clone()).or_default() += 1;
-                        }
-                    }
-                    for label in labels {
-                        let on_all =
-                            counts.get(&label.id).copied().unwrap_or(0) == ids.len();
-                        let dot = label
-                            .color
-                            .as_deref()
-                            .and_then(parse_hex_color)
-                            .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                        let name = SharedString::from(label.name.clone());
-                        let ids = ids.clone();
-                        let list = list.clone();
-                        let label_id = label.id.clone();
-                        menu = menu.item(
-                            PopupMenuItem::element(move |_, cx| {
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(
-                                        div().size_2().rounded_full().flex_shrink_0().bg(dot),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_color(cx.theme().popover_foreground)
-                                            .child(name.clone()),
-                                    )
-                            })
-                            .checked(on_all)
-                            .on_click(move |_, _, cx| {
-                                let label_id = label_id.clone();
-                                let op = if on_all {
-                                    "issueLabels.bulkRemove"
-                                } else {
-                                    "issueLabels.bulkAdd"
-                                };
-                                spawn_bulk_op(
-                                    list.clone(),
-                                    cx,
-                                    ids.clone(),
-                                    false,
-                                    op,
-                                    move |trpc, chunk| {
-                                        if on_all {
-                                            api::labels::issue_labels_bulk_remove(
-                                                trpc, &label_id, chunk,
-                                            )
-                                            .map(|_| ())
-                                        } else {
-                                            api::labels::issue_labels_bulk_add(
-                                                trpc, &label_id, chunk,
-                                            )
-                                            .map(|_| ())
-                                        }
-                                    },
-                                );
-                            }),
-                        );
-                    }
-                    menu
-                })
-        };
-
-        // Bulk "Start coding": ONE batch coding session over the selection —
-        // opens the Agent page composer with the selected issues
-        // pre-checked (one repo per run is enforced there).
-        let start_coding = {
-            let ids = ids.clone();
-            let list = list.clone();
-            let team_id = team_id.clone();
-            // EXP-367: no agent CLI installed → disabled with the reason,
-            // never hidden (same copy as every Start-coding affordance).
-            let no_agent = crate::coding_flow::no_agent_reason(cx);
-            // The ONE emphasised control of the bar (web `Start coding` is
-            // the primary button there too).
-            with_label(
-                crate::surface::glass_pill_button_primary(
-                    "bulk-start-coding",
-                    // `Md` == the web `size="sm"` control box (32) the ghost
-                    // buttons beside it wear; `Sm` would sit 8px shorter than
-                    // its own row.
-                    crate::surface::PillSize::Md,
-                )
-                .icon(Icon::new(registry::ACTION_RUN)),
-                "Start coding",
-            )
-                .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
-                .disabled(busy || no_agent.is_some())
-                .on_click(move |_, window, cx| {
-                    // EXP-825: the composer takes the selection over — the
-                    // multiselect clears right away (web parity), and the
-                    // seed carries the issues.
-                    let _ = list.update(cx, |this, cx| this.clear_selection(cx));
-                    let _ = &team_id;
-                    crate::navigation::navigate_to_chat(
-                        window,
-                        cx,
-                        crate::navigation::ChatSeed::issues(ids.clone()),
-                    );
-                })
-        };
-
-        let delete_menu = {
-            let ids = ids.clone();
-            let list = list.clone();
-            with_label(
-                Button::new("bulk-delete")
-                    .ghost()
-                    .web_sm()
-                    .icon(Icon::new(registry::UI_DELETE).text_color(danger))
-                    // Destructive: the whole control reads danger, web parity.
-                    .text_color(danger),
-                "Delete",
-            )
-                .tooltip("Delete selected")
+                .tooltip("Assignee")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, _cx| {
-                    // Nested confirm (destructive actions confirm first).
-                    let label = if ids.len() == 1 {
-                        "Confirm delete 1 issue".to_string()
-                    } else {
-                        format!("Confirm delete {} issues", ids.len())
-                    };
+                    let mut menu = menu.scrollable(true).max_h(px(320.));
+                    menu = menu.item(
+                        PopupMenuItem::new("Unassign")
+                            .icon(Icon::new(registry::UI_CLOSE))
+                            .on_click({
+                                let ids = ids.clone();
+                                let list = list.clone();
+                                move |_, _, cx| {
+                                    spawn_bulk_op(
+                                        list.clone(),
+                                        cx,
+                                        ids.clone(),
+                                        false,
+                                        "issues.bulkUpdate",
+                                        |trpc, chunk| {
+                                            let mut input =
+                                                api::issues::IssuesBulkUpdateInput::new(
+                                                    chunk.to_vec(),
+                                                );
+                                            input.assignee_id = api::Patch::Null;
+                                            api::issues::issues_bulk_update(trpc, &input)
+                                                .map(|_| ())
+                                        },
+                                    );
+                                }
+                            }),
+                    );
+                    for user in &users {
+                        let name = crate::comments::author_label(Some(user));
+                        let ids = ids.clone();
+                        let list = list.clone();
+                        let user_id = user.id.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(SharedString::from(name))
+                                .icon(Icon::new(registry::UI_ASSIGNEE))
+                                .on_click(move |_, _, cx| {
+                                    let user_id = user_id.clone();
+                                    spawn_bulk_op(
+                                        list.clone(),
+                                        cx,
+                                        ids.clone(),
+                                        false,
+                                        "issues.bulkUpdate",
+                                        move |trpc, chunk| {
+                                            let mut input =
+                                                api::issues::IssuesBulkUpdateInput::new(
+                                                    chunk.to_vec(),
+                                                );
+                                            input.assignee_id =
+                                                api::Patch::Set(user_id.clone());
+                                            api::issues::issues_bulk_update(trpc, &input)
+                                                .map(|_| ())
+                                        },
+                                    );
+                                }),
+                        );
+                    }
+                    menu
+                })
+        })
+    };
+
+    let labels_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        let team_id = team_id.clone();
+        with_label(
+            Button::new("bulk-labels")
+                .ghost()
+                .web_sm()
+                .icon(Icon::from(ExpIcon::Tag)),
+            "Labels",
+        )
+            .tooltip("Labels")
+            .disabled(busy)
+            .dropdown_menu(move |menu, _window, cx| {
+                let mut menu = menu
+                    .scrollable(true)
+                    .max_h(px(320.))
+                    .check_side(Side::Right);
+                let labels = queries::team_labels(cx, &team_id);
+                if labels.is_empty() {
+                    return menu.item(PopupMenuItem::label("No labels in this team"));
+                }
+                // Tri-state per web: checked when the label is on ALL
+                // selected issues; toggling removes from all, else adds
+                // to all.
+                let selected_set: HashSet<&str> =
+                    ids.iter().map(String::as_str).collect();
+                let mut counts: HashMap<String, usize> = HashMap::new();
+                for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
+                    if selected_set.contains(link.issue_id.as_str()) {
+                        *counts.entry(link.label_id.clone()).or_default() += 1;
+                    }
+                }
+                for label in labels {
+                    let on_all =
+                        counts.get(&label.id).copied().unwrap_or(0) == ids.len();
+                    let dot = label
+                        .color
+                        .as_deref()
+                        .and_then(parse_hex_color)
+                        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+                    let name = SharedString::from(label.name.clone());
                     let ids = ids.clone();
                     let list = list.clone();
-                    menu.item(
-                        PopupMenuItem::new(SharedString::from(label))
-                            .icon(Icon::new(registry::UI_DELETE))
-                            .on_click(move |_, _, cx| {
-                                spawn_bulk_op(
-                                    list.clone(),
-                                    cx,
-                                    ids.clone(),
-                                    true,
-                                    "issues.bulkDelete",
-                                    |trpc, chunk| {
-                                        api::issues::issues_bulk_delete(trpc, chunk).map(|_| ())
-                                    },
-                                );
-                            }),
-                    )
-                })
-        };
+                    let label_id = label.id.clone();
+                    menu = menu.item(
+                        PopupMenuItem::element(move |_, cx| {
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    div().size_2().rounded_full().flex_shrink_0().bg(dot),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().popover_foreground)
+                                        .child(name.clone()),
+                                )
+                        })
+                        .checked(on_all)
+                        .on_click(move |_, _, cx| {
+                            let label_id = label_id.clone();
+                            let op = if on_all {
+                                "issueLabels.bulkRemove"
+                            } else {
+                                "issueLabels.bulkAdd"
+                            };
+                            spawn_bulk_op(
+                                list.clone(),
+                                cx,
+                                ids.clone(),
+                                false,
+                                op,
+                                move |trpc, chunk| {
+                                    if on_all {
+                                        api::labels::issue_labels_bulk_remove(
+                                            trpc, &label_id, chunk,
+                                        )
+                                        .map(|_| ())
+                                    } else {
+                                        api::labels::issue_labels_bulk_add(
+                                            trpc, &label_id, chunk,
+                                        )
+                                        .map(|_| ())
+                                    }
+                                },
+                            );
+                        }),
+                    );
+                }
+                menu
+            })
+    };
 
-        // EXP-289: the board floats this element over the bottom of the
-        // list while a selection exists, so the list rows never move (the
-        // no-jump invariant).
-        // EXP-439: content-sized (no `w_full`) — the capsule is centred over
-        // the list, not stretched across it.
-        // EXP-698 round 5: the cluster wears the OPAQUE bar capsule (EXP-642
-        // had it on the translucent tray) so it reads as the one object
-        // acting on the selection — the web `BulkActionBar` card and the two
-        // mobile bars, same shape. It stays `flex_shrink_0`: the capsule is
-        // one line by construction, and the label gate above — not a
-        // squeeze — is what makes it fit.
-        crate::surface::glass_bar(cx)
-            .id("bulk-action-bar")
-            .flex_shrink_0()
-            .child(
-                Button::new("bulk-clear")
-                    .ghost()
-                    .web_icon_sm()
-                    .icon(Icon::new(registry::UI_CLOSE))
-                    .tooltip("Clear selection")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.clear_selection(cx);
-                    })),
+    // Bulk "Start coding": ONE batch coding session over the selection —
+    // opens the Agent page composer with the selected issues
+    // pre-checked (one repo per run is enforced there).
+    let start_coding = {
+        let ids = ids.clone();
+        let list = list.clone();
+        let team_id = team_id.clone();
+        // EXP-367: no agent CLI installed → disabled with the reason,
+        // never hidden (same copy as every Start-coding affordance).
+        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        // The ONE emphasised control of the bar (web `Start coding` is
+        // the primary button there too).
+        with_label(
+            crate::surface::glass_pill_button_primary(
+                "bulk-start-coding",
+                // `Md` == the web `size="sm"` control box (32) the ghost
+                // buttons beside it wear; `Sm` would sit 8px shorter than
+                // its own row.
+                crate::surface::PillSize::Md,
             )
-            .child(
-                // The bare COUNT, like web/iOS/Android — the ✕ beside it and
-                // the actions after it already say what it counts.
-                div()
-                    .px_1()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .whitespace_nowrap()
-                    .child(SharedString::from(count.to_string())),
-            )
-            .child(status_menu)
-            .child(priority_menu)
-            .when_some(assignee_menu, |this, btn| this.child(btn))
-            .child(labels_menu)
-            .child(start_coding)
-            // The hairline before the destructive action (web's separator).
-            .child(
-                div()
-                    .w_px()
-                    .h(px(20.))
-                    .mx_1()
-                    .flex_shrink_0()
-                    .bg(theme::tokens::glass::STROKE_CARD.to_hsla()),
-            )
-            .child(delete_menu)
-            .into_any_element()
-    }
+            .icon(Icon::new(registry::ACTION_RUN)),
+            "Start coding",
+        )
+            .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
+            .disabled(busy || no_agent.is_some())
+            .on_click(move |_, window, cx| {
+                // EXP-825: the composer takes the selection over — the
+                // multiselect clears right away (web parity), and the
+                // seed carries the issues.
+                let _ = list.update(cx, |this, cx| this.clear_selection(cx));
+                let _ = &team_id;
+                crate::navigation::navigate_to_chat(
+                    window,
+                    cx,
+                    crate::navigation::ChatSeed::issues(ids.clone()),
+                );
+            })
+    };
+
+    let delete_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        with_label(
+            Button::new("bulk-delete")
+                .ghost()
+                .web_sm()
+                .icon(Icon::new(registry::UI_DELETE).text_color(danger))
+                // Destructive: the whole control reads danger, web parity.
+                .text_color(danger),
+            "Delete",
+        )
+            .tooltip("Delete selected")
+            .disabled(busy)
+            .dropdown_menu(move |menu, _window, _cx| {
+                // Nested confirm (destructive actions confirm first).
+                let label = if ids.len() == 1 {
+                    "Confirm delete 1 issue".to_string()
+                } else {
+                    format!("Confirm delete {} issues", ids.len())
+                };
+                let ids = ids.clone();
+                let list = list.clone();
+                menu.item(
+                    PopupMenuItem::new(SharedString::from(label))
+                        .icon(Icon::new(registry::UI_DELETE))
+                        .on_click(move |_, _, cx| {
+                            spawn_bulk_op(
+                                list.clone(),
+                                cx,
+                                ids.clone(),
+                                true,
+                                "issues.bulkDelete",
+                                |trpc, chunk| {
+                                    api::issues::issues_bulk_delete(trpc, chunk).map(|_| ())
+                                },
+                            );
+                        }),
+                )
+            })
+    };
+
+    // EXP-289: the board floats this element over the bottom of the
+    // list while a selection exists, so the list rows never move (the
+    // no-jump invariant).
+    // EXP-439: content-sized (no `w_full`) — the capsule is centred over
+    // the list, not stretched across it.
+    // EXP-698 round 5: the cluster wears the OPAQUE bar capsule (EXP-642
+    // had it on the translucent tray) so it reads as the one object
+    // acting on the selection — the web `BulkActionBar` card and the two
+    // mobile bars, same shape. It stays `flex_shrink_0`: the capsule is
+    // one line by construction, and the label gate above — not a
+    // squeeze — is what makes it fit.
+    crate::surface::glass_bar(cx)
+        .id("bulk-action-bar")
+        .flex_shrink_0()
+        // EXP-863: the narrow ListNav folds the capsule (see the fn docs).
+        .when(wrap, |bar| bar.flex_wrap().justify_center().max_w_full())
+        .child(
+            Button::new("bulk-clear")
+                .ghost()
+                .web_icon_sm()
+                .icon(Icon::new(registry::UI_CLOSE))
+                .tooltip("Clear selection")
+                .on_click(cx.listener(|this: &mut V, _: &ClickEvent, _, cx| {
+                    this.clear_selection(cx);
+                })),
+        )
+        .child(
+            // The bare COUNT, like web/iOS/Android — the ✕ beside it and
+            // the actions after it already say what it counts.
+            div()
+                .px_1()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .whitespace_nowrap()
+                .child(SharedString::from(count.to_string())),
+        )
+        .child(status_menu)
+        .child(priority_menu)
+        .when_some(assignee_menu, |this, btn| this.child(btn))
+        .child(labels_menu)
+        .child(start_coding)
+        // The hairline before the destructive action (web's separator).
+        .child(
+            div()
+                .w_px()
+                .h(px(20.))
+                .mx_1()
+                .flex_shrink_0()
+                .bg(theme::tokens::glass::STROKE_CARD.to_hsla()),
+        )
+        .child(delete_menu)
+        .into_any_element()
 }
 
 // Fluent `when` helper (gpui's FluentBuilder) — imported via prelude below.
@@ -1249,8 +1270,8 @@ use gpui::prelude::FluentBuilder as _;
 /// (FIX F3, Linear semantics). Failures log and stop the chunk loop; the
 /// rows simply keep their old state (no echo), matching the list's silent
 /// inline-mutation behavior.
-fn spawn_bulk_op(
-    list: WeakEntity<IssueListView>,
+fn spawn_bulk_op<V: BulkSelectionHost>(
+    list: WeakEntity<V>,
     cx: &mut App,
     ids: Vec<String>,
     clear_on_ok: bool,
@@ -1265,7 +1286,7 @@ fn spawn_bulk_op(
         return;
     };
     let _ = list.update(cx, |this, cx| {
-        this.bulk_busy = true;
+        this.set_bulk_busy(true);
         cx.notify();
     });
     cx.spawn(async move |cx| {
@@ -1279,12 +1300,11 @@ fn spawn_bulk_op(
             })
             .await;
         let _ = list.update(cx, |this, cx| {
-            this.bulk_busy = false;
+            this.set_bulk_busy(false);
             match result {
                 Ok(()) => {
                     if clear_on_ok {
-                        this.selected.clear();
-                        this.select_anchor = None;
+                        this.clear_selection(cx);
                     }
                 }
                 Err(err) => log::warn!("[ui] {op} failed: {err}"),
@@ -1293,6 +1313,20 @@ fn spawn_bulk_op(
         });
     })
     .detach();
+}
+
+/// EXP-863: the contiguous slice of `ids` a Shift-click ADDS — from the
+/// anchor to `target`, in either direction, as inclusive indices into `ids`.
+/// `None` when either end is not in the list (the caller degrades to a plain
+/// toggle). Pure, and shared by the full list and the `ListNav`.
+pub(crate) fn selection_range(
+    ids: &[String],
+    anchor: Option<&str>,
+    target: &str,
+) -> Option<(usize, usize)> {
+    let anchor_ix = ids.iter().position(|id| Some(id.as_str()) == anchor)?;
+    let target_ix = ids.iter().position(|id| id == target)?;
+    Some((anchor_ix.min(target_ix), anchor_ix.max(target_ix)))
 }
 
 impl Render for IssueListView {
@@ -1545,7 +1579,7 @@ impl Render for IssueListView {
 
 /// A fixed control cell that swallows clicks so opening the control never
 /// triggers the row navigation (§4.6 — the web wrapper's `stopPropagation`).
-fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex_shrink_0()
@@ -1591,7 +1625,11 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
 /// issue's RESOLVED status and the menu lists the team's own vocabulary;
 /// picking a duplicate-category status is intercepted into the duplicate
 /// picker (L27), never a direct status write.
-fn status_dropdown(issue: &Issue, statuses: &[ResolvedStatus], cx: &App) -> impl IntoElement {
+pub(crate) fn status_dropdown(
+    issue: &Issue,
+    statuses: &[ResolvedStatus],
+    cx: &App,
+) -> impl IntoElement {
     let resolved = resolve_in(issue, statuses);
     let current_key = resolved.group_key.clone();
     let statuses = statuses.to_vec();
@@ -1787,7 +1825,7 @@ fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User
 /// then Status / Assignee / Priority / Labels /
 /// Move-to-board / Set-due-date submenus, then the Delete-issue confirm
 /// submenu. Mutations are the §4.1 un-gated form.
-fn build_row_context_menu(
+pub(crate) fn build_row_context_menu(
     menu: PopupMenu,
     issue: &Issue,
     statuses: &Rc<Vec<ResolvedStatus>>,
@@ -2486,7 +2524,7 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
 }
 
 /// Stable per-issue element id: `{kind}-{issue_id}`.
-fn row_id(kind: &str, issue_id: &str) -> ElementId {
+pub(crate) fn row_id(kind: &str, issue_id: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{issue_id}")))
 }
 
@@ -2511,6 +2549,22 @@ mod tests {
         // The screenshot case: a 691px panel on a solo team keeps its labels.
         assert!(px(691.) >= bulk_bar_label_min_width(false));
         assert!(px(691.) < bulk_bar_label_min_width(true));
+    }
+
+    /// EXP-863: the Shift-click range — anchor to target in either
+    /// direction, inclusive; either end missing degrades to `None` (the
+    /// caller toggles instead). Shared by the full list and the ListNav.
+    #[test]
+    fn selection_range_runs_from_the_anchor_in_either_direction() {
+        let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(selection_range(&ids, Some("b"), "d"), Some((1, 3)));
+        assert_eq!(selection_range(&ids, Some("d"), "b"), Some((1, 3)));
+        assert_eq!(selection_range(&ids, Some("c"), "c"), Some((2, 2)));
+        // No anchor, an anchor that scrolled out of the data set, or a target
+        // that is not visible: nothing to extend over.
+        assert_eq!(selection_range(&ids, None, "a"), None);
+        assert_eq!(selection_range(&ids, Some("zz"), "a"), None);
+        assert_eq!(selection_range(&ids, Some("a"), "zz"), None);
     }
 
     #[test]

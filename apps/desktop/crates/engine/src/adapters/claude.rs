@@ -472,6 +472,12 @@ struct State {
     /// window between a prompt spawning its task and `start` returning). The
     /// interrupt is delivered as soon as there IS a process to send it to.
     interrupt_pending: bool,
+    /// EXP-866: `replay_history` is walking a transcript off disk. A
+    /// rate-limit notice met THERE is history — the wall that ended the run
+    /// this one continues (an account switch, a resume) — and must not be
+    /// re-armed as a live wall on the continuation, which then showed
+    /// "rate limited" until the next real assistant token cleared it.
+    replaying_history: bool,
     /// One settle channel per in-flight `session/prompt`, oldest first: claude
     /// emits one `result` per turn, so the front of the queue owns the next.
     turns: VecDeque<flume::Sender<TurnOutcome>>,
@@ -2613,8 +2619,16 @@ impl ClaudeSession {
             }
             // Counts as delivered: the turn's `result` repeats the notice
             // and must not forward it as a narration either.
-            self.lock().delivered_text = true;
-            self.on_rate_limit_notice(cx, &text);
+            let replaying = {
+                let mut state = self.lock();
+                state.delivered_text = true;
+                state.replaying_history
+            };
+            // EXP-866: a notice inside a replayed transcript is the wall the
+            // PREVIOUS run hit, not this one's — swallowed, never re-armed.
+            if !replaying {
+                self.on_rate_limit_notice(cx, &text);
+            }
             return;
         }
         // EXP-831: a tool call is as much an answer as text — a run that
@@ -3539,6 +3553,8 @@ impl ClaudeSession {
             return;
         };
         let Ok(text) = std::fs::read_to_string(&path) else { return };
+        // EXP-866: everything below is history — see `replaying_history`.
+        self.lock().replaying_history = true;
         for line in text.lines() {
             if line.trim().is_empty() {
                 continue;
@@ -3555,6 +3571,7 @@ impl ClaudeSession {
                 frame => self.on_frame(cx, frame),
             }
         }
+        self.lock().replaying_history = false;
     }
 }
 

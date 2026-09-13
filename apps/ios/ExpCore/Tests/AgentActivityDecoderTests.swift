@@ -234,6 +234,38 @@ final class AgentActivityDecoderTests: XCTestCase {
         )
     }
 
+    // MARK: - EXP-861: queue
+
+    func testQueueDecodesTheFullQueueInOrderAndItsClear() throws {
+        // The wire shape verbatim: the FULL queue, oldest first, `at` ignored.
+        let event = try decode(#"""
+        {"kind":"queue","messages":[{"id":"m1","text":"also check the tests"},
+         {"id":"m2","text":"![image](/api/attachments/att-1) and this"}],"at":123}
+        """#)
+        guard case let .queue(messages) = try XCTUnwrap(event)
+        else { return XCTFail("not queue") }
+        XCTAssertEqual(messages, [
+            QueuedMessage(id: "m1", text: "also check the tests"),
+            QueuedMessage(id: "m2", text: "![image](/api/attachments/att-1) and this"),
+        ])
+
+        // An EMPTY array = nothing queued: the strip clears.
+        guard case let .queue(empty) = try XCTUnwrap(
+            try decode(#"{"kind":"queue","messages":[],"at":124}"#)
+        ) else { return XCTFail("not queue") }
+        XCTAssertTrue(empty.isEmpty)
+    }
+
+    func testAQueueRowWithoutAnIdOrTextIsSkippedAndAMissingListReadsEmpty() throws {
+        guard case let .queue(messages) = try XCTUnwrap(try decode(#"""
+        {"kind":"queue","messages":[{"id":"m1"},{"text":"orphan"},{"id":"m3","text":"kept"}]}
+        """#)) else { return XCTFail("not queue") }
+        XCTAssertEqual(messages, [QueuedMessage(id: "m3", text: "kept")])
+        guard case let .queue(none) = try XCTUnwrap(try decode(#"{"kind":"queue"}"#))
+        else { return XCTFail("not queue") }
+        XCTAssertTrue(none.isEmpty)
+    }
+
     // MARK: - EXP-850 §3: workflow
 
     func testTheWorkflowCardDecodesPhasesAgentsAndTelemetry() throws {

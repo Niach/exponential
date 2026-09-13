@@ -70,6 +70,10 @@ import {
   type QuestionLike,
   backgroundStripLines,
   parseBackgroundTasks,
+  parseQueue,
+  QUEUE_MAX_MESSAGES,
+  QUEUE_REMOVE_LABEL,
+  QUEUE_STRIP_TITLE,
   parseWorkflow,
   rowIsPendingCard,
   runningWorkflow,
@@ -2121,6 +2125,57 @@ describe(`parseBackgroundTasks`, () => {
         ],
       })
     ).toEqual([{ id: `a`, kind: `other`, description: `Run it`, toolId: undefined }])
+  })
+})
+
+// EXP-861: the device-held message queue, a latest-wins slot like the tasks.
+describe(`parseQueue`, () => {
+  it(`folds the wire list in order`, () => {
+    expect(
+      parseQueue({
+        kind: `queue`,
+        messages: [
+          { id: `m1`, text: `first` },
+          { id: `m2`, text: `second ![image](/api/attachments/abc)` },
+        ],
+        at: 123,
+      })
+    ).toEqual([
+      { id: `m1`, text: `first` },
+      { id: `m2`, text: `second ![image](/api/attachments/abc)` },
+    ])
+  })
+
+  it(`an empty list is a real answer, a broken payload is not`, () => {
+    expect(parseQueue({ kind: `queue`, messages: [] })).toEqual([])
+    expect(parseQueue({ kind: `queue` })).toBeNull()
+    expect(parseQueue({ kind: `queue`, messages: `nope` })).toBeNull()
+    expect(parseQueue(null)).toBeNull()
+  })
+
+  it(`drops entries without an id or text and caps the list at the wire max`, () => {
+    expect(
+      parseQueue({
+        messages: [
+          { id: ``, text: `no id` },
+          { id: `m1` },
+          { id: `m2`, text: `   ` },
+          { text: `no id at all` },
+          { id: `m3`, text: `kept` },
+        ],
+      })
+    ).toEqual([{ id: `m3`, text: `kept` }])
+    const many = Array.from({ length: QUEUE_MAX_MESSAGES + 5 }, (_, ix) => ({
+      id: `m${ix}`,
+      text: `t${ix}`,
+    }))
+    expect(parseQueue({ messages: many })).toHaveLength(QUEUE_MAX_MESSAGES)
+  })
+
+  // The ×4 strings — the natives lock the same bytes.
+  it(`keeps the shared captions`, () => {
+    expect(QUEUE_STRIP_TITLE).toBe(`Queued`)
+    expect(QUEUE_REMOVE_LABEL).toBe(`Remove from queue`)
   })
 })
 
