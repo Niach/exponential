@@ -58,6 +58,12 @@ function useSidebar() {
   return context
 }
 
+/** EXP-870: the sidebar context when a provider is mounted, else null — for
+ *  detail views that may render outside the team layout (stories, tests). */
+function useSidebarIfMounted() {
+  return React.useContext(SidebarContext)
+}
+
 function SidebarProvider({
   defaultOpen = true,
   open: openProp,
@@ -226,7 +232,9 @@ function Sidebar({
       <div
         data-slot="sidebar-gap"
         className={cn(
-          `relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear`,
+          // EXP-870: the shared motion tokens, so the width change a list panel
+          // brings (17rem ↔ 20rem) moves with the rail and panel slots inside.
+          `relative w-(--sidebar-width) bg-transparent transition-[width] duration-standard ease-standard motion-reduce:transition-none`,
           `group-data-[collapsible=offcanvas]:w-0`,
           `group-data-[side=right]:rotate-180`,
           variant === `floating` || variant === `inset`
@@ -237,7 +245,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex`,
+          `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-standard ease-standard motion-reduce:transition-none md:flex`,
           side === `left`
             ? `left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]`
             : `right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]`,
@@ -738,4 +746,5 @@ export {
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,
+  useSidebarIfMounted,
 }

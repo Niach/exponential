@@ -1,6 +1,6 @@
-// EXP-456: the settings navigation as a sidebar panel. It occupies the same
-// 17rem slot as the main team nav — TeamSidebar slides it in over the main
-// panel while any /settings route is active — so the settings pages no longer
+// EXP-456: the settings navigation as a sidebar panel. EXP-870: it occupies
+// the 17rem panel slot beside the compact rail while any /settings route is
+// active — so the settings pages no longer
 // carry their own desktop nav column (the in-page nav remains mobile-only).
 import { Fragment, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"

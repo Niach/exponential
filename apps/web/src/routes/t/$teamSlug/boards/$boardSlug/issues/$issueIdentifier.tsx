@@ -1,11 +1,20 @@
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { useMemo } from "react"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import { issueCollection, issueLabelCollection } from "@/lib/collections"
+import {
+  codingSessionCollection,
+  issueCollection,
+  issueLabelCollection,
+} from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
+import { issueSessionTarget } from "@/hooks/use-open-session"
+import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import type { Issue, IssueLabel } from "@/db/schema"
+import { useWorkTabs } from "@/hooks/use-work-tabs"
+import type { CodingSession, Issue, IssueLabel } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueDetailView } from "@/components/issue-detail-view"
+import { WorkFaceToggle } from "@/components/team/work-face-toggle"
 
 type IssueSearch = { from?: string }
 
@@ -74,6 +83,34 @@ function IssueDetailPage() {
 
   const permissions = useTeamPermissions(team)
 
+  // EXP-870: the Run face — the run this issue's work tab is bound to, else
+  // the issue's newest run of mine (`issueSessionTarget`, the Watch pill's
+  // rule). No such run = the toggle's Run side is disabled.
+  const navigate = useNavigate()
+  const { data: authSession } = useSession()
+  const { data: runRows } = useLiveQuery(
+    (query) =>
+      issue
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => eq(s.issueId, issue.id))
+        : undefined,
+    [issue?.id]
+  )
+  const { tabs } = useWorkTabs(team?.id)
+  const boundRunId = issue
+    ? tabs.find((tab) => tab.kind === `issue` && tab.issueId === issue.id)
+    : undefined
+  const runTarget = useMemo(
+    () =>
+      issueSessionTarget(
+        (runRows ?? []) as CodingSession[],
+        boundRunId?.kind === `issue` ? (boundRunId.runId ?? undefined) : undefined,
+        authSession?.user?.id
+      ),
+    [runRows, boundRunId, authSession?.user?.id]
+  )
+
   if (!team || !board) {
     // Ready-and-empty boards means the slug is dead (trashed board, rename,
     // stale bookmark) — same recovery the board route offers (REV2-59).
@@ -123,6 +160,21 @@ function IssueDetailPage() {
       teamId={team.id}
       readOnly={!permissions.canMutateIssue(issue)}
       origin={search.from}
+      faceToggle={
+        <WorkFaceToggle
+          face="issue"
+          onRun={
+            runTarget
+              ? () =>
+                  void navigate({
+                    to: `/t/$teamSlug/sessions/$sessionId`,
+                    params: { teamSlug, sessionId: runTarget.id },
+                    search: search.from ? { from: search.from } : {},
+                  })
+              : undefined
+          }
+        />
+      }
     />
   )
 }

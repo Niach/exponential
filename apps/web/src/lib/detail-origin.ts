@@ -12,19 +12,16 @@
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews`,
-// `automations` (EXP-862) — plus the legacy `issue:<board>:<identifier>`
-// (a detail that IS a list
-// context: its board's list) and `sessions` (the old spelling of `agent`).
+// `automations` (EXP-862) — plus two legacy spellings that still parse:
+// `sessions` (the old `agent`) and `issue:<board>:<identifier>`, which reads
+// as its board's list since EXP-870 made a run ONE URL (`/sessions/$id`) and
+// retired the issue-scoped session route that origin existed for.
 // Pure, so every combination is a test.
 
 /** The list a detail sits beside / returns to. */
 export type DetailOrigin =
   | { kind: `inbox`; tab?: `my-issues` }
   | { kind: `board`; boardSlug: string }
-  /** An issue DETAIL — its board's list, with the issue itself active. Start
-   *  coding from an issue keeps this, so the run lands on the issue's own
-   *  session route (EXP-851 §B). */
-  | { kind: `issue`; boardSlug: string; identifier: string }
   | { kind: `support` }
   | { kind: `reviews` }
   /** The Agent page's Running/Past list. */
@@ -76,8 +73,8 @@ export function screenFromPath(pathname: string): OriginScreen {
   if (rest === `/automations`) return { kind: `automations` }
   if (rest === `/support`) return { kind: `support` }
   if (rest === `/reviews`) return { kind: `reviews` }
-  if (/^\/sessions\/[^/]+/.test(rest)) return { kind: `session` }
-  const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)(\/session)?$/)
+  if (/^\/sessions\/[^/]+$/.test(rest)) return { kind: `session` }
+  const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
   if (issue) {
     return { kind: `issue`, boardSlug: issue[1], identifier: issue[2] }
   }
@@ -92,9 +89,9 @@ export function isContextFree(screen: OriginScreen | null): boolean {
 }
 
 /** The origin IN FORCE on `screen` — what a detail opened from here inherits.
- * A list screen IS the origin; an ISSUE detail is its own origin (EXP-851:
- * start coding from an issue keeps the issue, so the run opens on the issue's
- * session route); a session hands on the origin IT carries. */
+ * A list screen IS the origin; a detail (an issue, a session) hands on the
+ * origin IT carries, and one without a list hands on nothing (EXP-870:
+ * desktop `derive_origin` parity — a pinned issue's run keeps the rail). */
 export function capturedOrigin(
   screen: OriginScreen | null,
   carried: DetailOrigin | null = null
@@ -106,11 +103,9 @@ export function capturedOrigin(
     case `board`:
       return { kind: `board`, boardSlug: screen.boardSlug }
     case `issue`:
-      return {
-        kind: `issue`,
-        boardSlug: screen.boardSlug,
-        identifier: screen.identifier,
-      }
+      // EXP-870: an issue opened with no list (a pinned row, search) hands on
+      // none either — desktop `derive_origin` parity.
+      return carried
     case `support`:
       return { kind: `support` }
     case `reviews`:
@@ -118,7 +113,7 @@ export function capturedOrigin(
     case `automations`:
       return { kind: `automations` }
     case `session`:
-      return carried ?? { kind: `agent` }
+      return carried
     case `agent`:
       return carried ?? { kind: `agent` }
     case `other`:
@@ -155,8 +150,6 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return origin.tab === `my-issues` ? `inbox:my-issues` : `inbox`
     case `board`:
       return `board:${origin.boardSlug}`
-    case `issue`:
-      return `issue:${origin.boardSlug}:${origin.identifier}`
     case `support`:
       return `support`
     case `reviews`:
@@ -170,7 +163,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
 
 /** The inverse. Anything unrecognised is "no origin" — a link is a shortcut,
  * not a guarantee (`lib/launch-seed.ts`'s rule). `sessions` is the legacy
- * spelling of `agent` (EXP-818 links still in the wild). */
+ * spelling of `agent` (EXP-818 links still in the wild), and EXP-870 reads a
+ * legacy `issue:<board>:<identifier>` as that board's list. */
 export function parseOrigin(
   value: string | null | undefined
 ): DetailOrigin | null {
@@ -184,9 +178,7 @@ export function parseOrigin(
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
   const issue = value.match(/^issue:([^:]+):([^:]+)$/)
-  if (issue) {
-    return { kind: `issue`, boardSlug: issue[1], identifier: issue[2] }
-  }
+  if (issue) return { kind: `board`, boardSlug: issue[1] }
   return null
 }
 
@@ -208,16 +200,55 @@ export function originLabel(
     case `automations`:
       return `Automations`
     case `board`:
-    case `issue`:
       return boardName || `Board`
   }
 }
 
 /** The board a list nav renders, when it renders one. */
 export function originBoardSlug(origin: DetailOrigin): string | null {
-  return origin.kind === `board` || origin.kind === `issue`
-    ? origin.boardSlug
-    : null
+  return origin.kind === `board` ? origin.boardSlug : null
+}
+
+/** EXP-870: the ONE "back to the list" navigation — the list nav's back row,
+ * the session route's Back, the issue's phone back and the md+ back chevron a
+ * Cmd+B-hidden sidebar brings back all land here. `null` for no origin: each
+ * caller owns its own fallback (a session goes to the Agent page, an issue to
+ * its board). Pure, so the destinations are a test. */
+export function originListNavigation(
+  teamSlug: string,
+  origin: DetailOrigin | null
+): {
+  to: string
+  params: Record<string, string>
+  search: Record<string, string>
+} | null {
+  if (!origin) return null
+  switch (origin.kind) {
+    case `board`:
+      return {
+        to: `/t/$teamSlug/boards/$boardSlug`,
+        params: { teamSlug, boardSlug: origin.boardSlug },
+        search: {},
+      }
+    case `inbox`:
+      return {
+        to: `/t/$teamSlug/inbox`,
+        params: { teamSlug },
+        search: origin.tab === `my-issues` ? { tab: `my-issues` } : {},
+      }
+    case `support`:
+      return { to: `/t/$teamSlug/support`, params: { teamSlug }, search: {} }
+    case `reviews`:
+      return { to: `/t/$teamSlug/reviews`, params: { teamSlug }, search: {} }
+    case `agent`:
+      return { to: `/t/$teamSlug/agent`, params: { teamSlug }, search: {} }
+    case `automations`:
+      return {
+        to: `/t/$teamSlug/automations`,
+        params: { teamSlug },
+        search: {},
+      }
+  }
 }
 
 /** Which of the sidebar's three panels occupies the slot. */
@@ -230,8 +261,8 @@ export type SidebarOccupant =
  * nav. Board/inbox/support/agent/reviews are LIST screens and keep the main
  * menu. */
 function isDetailRest(rest: string): boolean {
-  if (/^\/boards\/[^/]+\/issues\/[^/]+(\/session)?$/.test(rest)) return true
-  if (/^\/sessions\/[^/]+(\/issue)?$/.test(rest)) return true
+  if (/^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest)) return true
+  if (/^\/sessions\/[^/]+$/.test(rest)) return true
   if (/^\/reviews\/[^/]+$/.test(rest)) return true
   if (/^\/support\/[^/]+$/.test(rest)) return true
   return false
@@ -255,4 +286,28 @@ export function sidebarOccupant(
   if (!isDetailRest(rest)) return { kind: `main` }
   const origin = parseOrigin(from)
   return origin ? { kind: `list`, origin } : { kind: `main` }
+}
+
+/** EXP-870: how deep an occupant sits — the main menu 0, a list nav 1,
+ * settings 2. The slide reads direction off it. */
+export function occupantDepth(kind: SidebarOccupant[`kind`]): number {
+  return kind === `main` ? 0 : kind === `list` ? 1 : 2
+}
+
+/**
+ * EXP-870: where one of the two sliding panels sits, in panel widths — `0` in
+ * the slot, `-1` tucked under the rail's edge (deeper than what is up: it
+ * enters FROM the rail going forward and slides back under it on return), `1`
+ * pushed out to the right (shallower than what is up: a list nav settings
+ * slid in over). Directional, so going deeper and coming back never look the
+ * same.
+ */
+export function panelOffset(
+  panel: `list` | `settings`,
+  occupant: SidebarOccupant[`kind`]
+): -1 | 0 | 1 {
+  const depth = occupantDepth(panel)
+  const current = occupantDepth(occupant)
+  if (depth === current) return 0
+  return depth > current ? -1 : 1
 }

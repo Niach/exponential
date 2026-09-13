@@ -6,6 +6,8 @@ import {
   isContextFree,
   originBoardSlug,
   originLabel,
+  originListNavigation,
+  panelOffset,
   parseOrigin,
   screenFromPath,
   sidebarOccupant,
@@ -20,11 +22,6 @@ import {
 
 const inbox: DetailOrigin = { kind: `inbox` }
 const board: DetailOrigin = { kind: `board`, boardSlug: `web` }
-const issue: DetailOrigin = {
-  kind: `issue`,
-  boardSlug: `web`,
-  identifier: `MET-12`,
-}
 
 describe(`screenFromPath`, () => {
   it(`names every list and detail screen, and calls the rest context-free`, () => {
@@ -38,9 +35,6 @@ describe(`screenFromPath`, () => {
     expect(screenFromPath(`/t/acme/support`)).toEqual({ kind: `support` })
     expect(screenFromPath(`/t/acme/reviews`)).toEqual({ kind: `reviews` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
-    expect(screenFromPath(`/t/acme/sessions/s1/issue`)).toEqual({
-      kind: `session`,
-    })
     expect(screenFromPath(`/t/acme/boards/web`)).toEqual({
       kind: `board`,
       boardSlug: `web`,
@@ -50,12 +44,11 @@ describe(`screenFromPath`, () => {
       boardSlug: `web`,
       identifier: `MET-12`,
     })
-    // The issue's own session route is still that issue's context.
-    expect(
-      screenFromPath(`/t/acme/boards/web/issues/MET-12/session`)
-    ).toEqual({ kind: `issue`, boardSlug: `web`, identifier: `MET-12` })
-    // Full pages and anything outside a team are context-free.
+    // Full pages and anything outside a team are context-free — EXP-870's two
+    // legacy redirect routes included (they never render a page of their own).
     for (const path of [
+      `/t/acme/boards/web/issues/MET-12/session`,
+      `/t/acme/sessions/s1/issue`,
       `/t/acme/devices`,
       `/t/acme/reviews/MET-3`,
       `/t/acme/settings/general`,
@@ -96,9 +89,13 @@ describe(`deriveOrigin`, () => {
     ).toEqual(inbox)
     // Inbox → a running session: the inbox stays.
     expect(deriveOrigin(issueScreen, inbox, { kind: `session` })).toEqual(inbox)
-    // Board → issue → Watch: the ISSUE is the origin (EXP-851: the run lands
-    // on the issue's own session route).
-    expect(deriveOrigin(issueScreen, issue, { kind: `session` })).toEqual(issue)
+    // Board → issue → Watch: the issue's board list stays beside the run
+    // (EXP-870: one run URL, the issue is no origin of its own).
+    expect(
+      deriveOrigin(issueScreen, capturedOrigin(issueScreen, board), {
+        kind: `session`,
+      })
+    ).toEqual(board)
     // The Agent page is a list context (the sessions column's own center).
     expect(
       deriveOrigin(screenFromPath(`/t/acme/agent`), { kind: `agent` }, {
@@ -159,26 +156,27 @@ describe(`capturedOrigin`, () => {
       kind: `automations`,
     })
     expect(
-      capturedOrigin(screenFromPath(`/t/acme/automations`), issue)
+      capturedOrigin(screenFromPath(`/t/acme/automations`), board)
     ).toEqual({ kind: `automations` })
     // The Agent page hands on the origin the composer was opened with — that
     // is how "start coding from an issue" survives the launcher hop.
-    expect(capturedOrigin(screenFromPath(`/t/acme/agent`), issue)).toEqual(
-      issue
+    expect(capturedOrigin(screenFromPath(`/t/acme/agent`), board)).toEqual(
+      board
     )
     // A session hands on the origin it CARRIES…
     expect(
       capturedOrigin(screenFromPath(`/t/acme/sessions/s1`), inbox)
     ).toEqual(inbox)
-    // …and falls back to the Agent list.
-    expect(capturedOrigin(screenFromPath(`/t/acme/sessions/s1`))).toEqual({
-      kind: `agent`,
-    })
-    // EXP-851: an ISSUE is always its own origin, whatever it was opened
-    // with — a run started here belongs to the issue.
+    // …and nothing when it carries none.
+    expect(capturedOrigin(screenFromPath(`/t/acme/sessions/s1`))).toBeNull()
+    // EXP-870: an issue hands on the list it carries, and none without one
+    // (a pinned issue's run keeps the rail, desktop parity).
     expect(
       capturedOrigin(screenFromPath(`/t/acme/boards/web/issues/MET-12`), inbox)
-    ).toEqual(issue)
+    ).toEqual(inbox)
+    expect(
+      capturedOrigin(screenFromPath(`/t/acme/boards/web/issues/MET-12`))
+    ).toBeNull()
     // A full page carries nothing of its own.
     expect(capturedOrigin(screenFromPath(`/t/acme/devices`))).toBeNull()
     expect(capturedOrigin(screenFromPath(`/t/acme/devices`), board)).toEqual(
@@ -193,7 +191,6 @@ describe(`formatOrigin / parseOrigin`, () => {
       inbox,
       { kind: `inbox`, tab: `my-issues` },
       board,
-      issue,
       { kind: `support` },
       { kind: `reviews` },
       { kind: `agent` },
@@ -208,6 +205,9 @@ describe(`formatOrigin / parseOrigin`, () => {
     expect(formatOrigin(null)).toBeUndefined()
     // EXP-818's spelling of the Agent list still parses.
     expect(parseOrigin(`sessions`)).toEqual({ kind: `agent` })
+    // EXP-870: the retired issue origin reads as its board's list.
+    expect(parseOrigin(`issue:web:MET-12`)).toEqual(board)
+    expect(formatOrigin(parseOrigin(`issue:web:MET-12`))).toBe(`board:web`)
     // Junk is no origin at all.
     expect(parseOrigin(``)).toBeNull()
     expect(parseOrigin(`board:`)).toBeNull()
@@ -225,14 +225,12 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originLabel({ kind: `agent` })).toBe(`Agent`)
     expect(originLabel({ kind: `automations` })).toBe(`Automations`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
-    expect(originLabel(issue, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
     expect(originLabel(board)).toBe(`Board`)
   })
 
   it(`names the board a list nav renders`, () => {
     expect(originBoardSlug(board)).toBe(`web`)
-    expect(originBoardSlug(issue)).toBe(`web`)
     expect(originBoardSlug(inbox)).toBeNull()
     expect(originBoardSlug({ kind: `agent` })).toBeNull()
     expect(originBoardSlug({ kind: `automations` })).toBeNull()
@@ -253,9 +251,7 @@ describe(`sidebarOccupant`, () => {
   it(`shows the list nav on a detail that carries an origin`, () => {
     for (const path of [
       `/t/acme/boards/web/issues/MET-12`,
-      `/t/acme/boards/web/issues/MET-12/session`,
       `/t/acme/sessions/s1`,
-      `/t/acme/sessions/s1/issue`,
       `/t/acme/reviews/MET-12`,
       `/t/acme/support/t1`,
     ]) {
@@ -281,6 +277,9 @@ describe(`sidebarOccupant`, () => {
       `/t/acme/reviews`,
       `/t/acme/devices`,
       `/t/acme/boards/web`,
+      // EXP-870: the legacy redirects are not details.
+      `/t/acme/boards/web/issues/MET-12/session`,
+      `/t/acme/sessions/s1/issue`,
       `/onboarding`,
     ]) {
       expect(sidebarOccupant(path, `inbox`), path).toEqual({ kind: `main` })
@@ -293,5 +292,64 @@ describe(`sidebarOccupant`, () => {
     expect(sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `junk`)).toEqual({
       kind: `main`,
     })
+  })
+})
+
+// EXP-870: the one back-to-the-list destination.
+describe(`originListNavigation`, () => {
+  it(`names every list's own route`, () => {
+    expect(originListNavigation(`acme`, board)).toEqual({
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug: `acme`, boardSlug: `web` },
+      search: {},
+    })
+    expect(originListNavigation(`acme`, inbox)).toEqual({
+      to: `/t/$teamSlug/inbox`,
+      params: { teamSlug: `acme` },
+      search: {},
+    })
+    expect(
+      originListNavigation(`acme`, { kind: `inbox`, tab: `my-issues` })
+    ).toEqual({
+      to: `/t/$teamSlug/inbox`,
+      params: { teamSlug: `acme` },
+      search: { tab: `my-issues` },
+    })
+    for (const kind of [`support`, `reviews`, `agent`, `automations`] as const) {
+      expect(originListNavigation(`acme`, { kind })).toEqual({
+        to: `/t/$teamSlug/${kind}`,
+        params: { teamSlug: `acme` },
+        search: {},
+      })
+    }
+  })
+
+  it(`leaves the no-origin fallback to the caller`, () => {
+    expect(originListNavigation(`acme`, null)).toBeNull()
+    // A legacy issue token goes back to its board.
+    expect(
+      originListNavigation(`acme`, parseOrigin(`issue:web:MET-12`))?.params
+    ).toEqual({ teamSlug: `acme`, boardSlug: `web` })
+  })
+})
+
+// EXP-870: the directional slide — deeper panels wait under the rail's edge,
+// shallower ones are pushed out right.
+describe(`panelOffset`, () => {
+  it(`puts the occupant in the slot`, () => {
+    expect(panelOffset(`list`, `list`)).toBe(0)
+    expect(panelOffset(`settings`, `settings`)).toBe(0)
+  })
+
+  it(`tucks both panels under the rail while the main menu is up`, () => {
+    expect(panelOffset(`list`, `main`)).toBe(-1)
+    expect(panelOffset(`settings`, `main`)).toBe(-1)
+  })
+
+  it(`slides by direction between the list nav and settings`, () => {
+    // Forward (list → settings): settings enters from the rail, the list is
+    // pushed right…
+    expect(panelOffset(`settings`, `list`)).toBe(-1)
+    expect(panelOffset(`list`, `settings`)).toBe(1)
   })
 })

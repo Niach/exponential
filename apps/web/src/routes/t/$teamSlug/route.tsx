@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
 import { useEffect, useState } from "react"
+import type * as React from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { rememberLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
@@ -18,8 +19,14 @@ import { TeamSidebar } from "@/components/team/sidebar"
 import {
   MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
-  MAIN_PANEL_CLASS,
+  mainPanelClass,
+  WORK_TABS_BAND_CLASS,
 } from "@/components/team/app-shell"
+import { WorkTabsStrip } from "@/components/team/work-tabs-strip"
+import { WorkTabsSync } from "@/components/team/work-tabs-sync"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
+import { useWorkTabs } from "@/hooks/use-work-tabs"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -115,8 +122,9 @@ function TeamLayout() {
   useEffect(() => {
     rememberLastVisited(teamSlug, boardSlug)
   }, [teamSlug, boardSlug])
-  // The steer-store reaper runs here, on every breakpoint — the sidebar's
-  // Sessions group never mounts on phones, so it cannot own the sockets.
+  // The steer-store reaper runs here, on every breakpoint — no sidebar or
+  // work-tab surface is mounted on phones, so none of them can own the
+  // sockets.
   useSteerSessionReaper(team?.id, user?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
@@ -133,8 +141,20 @@ function TeamLayout() {
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
 
+  // EXP-870: the sidebar is the rail alone (17rem) or the compact 3rem rail
+  // plus a 17rem panel beside it — the provider's width follows the URL, and
+  // the shadcn gap/container animate it on the shared motion tokens.
+  const occupant = useSidebarOccupant()
+  const sidebarWidth = occupant.kind === `main` ? `17rem` : `20rem`
+  // EXP-870: browser-like work tabs above the card, md+ only.
+  const isMobile = useIsMobile()
+  const { tabs } = useWorkTabs(team?.id)
+  const showWorkTabs = !isMobile && Boolean(team) && tabs.length > 0
+
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      style={{ "--sidebar-width": sidebarWidth } as React.CSSProperties}
+    >
       {/* Team-scoped `#IDENTIFIER` + `@email` resolution for pill
           rendering, the editor/composer autocompletes and the duplicate-of
           picker. */}
@@ -179,8 +199,20 @@ function TeamLayout() {
                 whole page (flex children default to min-width:auto);
                 `overflow-x-clip` contains stragglers inside the content
                 region. */}
+            {team && !isMobile && (
+              <WorkTabsSync teamId={team.id} userId={user?.id} boards={boards} />
+            )}
             <div className={MAIN_COLUMN_CLASS}>
-              <main className={MAIN_PANEL_CLASS}>
+              {showWorkTabs && team && (
+                <div className={WORK_TABS_BAND_CLASS}>
+                  <WorkTabsStrip
+                    teamId={team.id}
+                    teamSlug={teamSlug}
+                    boards={boards}
+                  />
+                </div>
+              )}
+              <main className={mainPanelClass({ tabs: showWorkTabs })}>
                 {/* EXP-533: above the mobile topbar (which is `md:hidden` and
                     hides itself on detail routes), so the "showing cached
                     data" notice is the first thing in the content column on
@@ -196,8 +228,8 @@ function TeamLayout() {
                   <Outlet />
                 </div>
               </main>
-              {/* EXP-818: no dock band under the card any more — the
-                  sidebar's Sessions group and the Agent page list the runs. */}
+              {/* EXP-818: no dock band under the card — EXP-870 put every
+                  live run in a work tab above it instead. */}
             </div>
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,
