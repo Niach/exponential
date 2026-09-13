@@ -173,6 +173,9 @@ function AutomationRow({
     <ListRow
       interactive={canEdit}
       onClick={canEdit ? onEdit : undefined}
+      // A clickable row is a button to assistive tech; its own name keeps
+      // the "..." menu's label from being folded into the row's.
+      aria-label={canEdit ? (action?.name ?? `Automation`) : undefined}
       data-testid={`automation-${automation.id}`}
     >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
