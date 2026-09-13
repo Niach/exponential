@@ -2743,7 +2743,7 @@ impl Render for ScreensPanel {
             // panel sits right of the window's left column (EXP-862: ONE
             // width for every occupant of it) and carries its own `px_2`.
             let available = (window.viewport_size().width
-                - px(crate::shell::left_column_width())
+                - px(crate::shell::window_left_column_width(window, cx))
                 - px(2. * crate::shell::PANEL_MARGIN + 16.))
             .max(px(160.));
             div()

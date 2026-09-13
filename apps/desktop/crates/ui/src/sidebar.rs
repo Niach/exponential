@@ -566,6 +566,9 @@ pub(crate) enum RailBadge {
     /// EXP-791: a Sessions row whose agent is working — the plain spinner
     /// (not the Source Control refresh glyph: nothing is being pulled).
     Working,
+    /// EXP-870: a count pill in the badge colour — the Agent entry's live
+    /// runs (the web `NavCountBadge`).
+    Count(usize, Hsla),
 }
 
 /// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
@@ -599,7 +602,67 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
                     .color(cx.theme().muted_foreground),
             )
             .into_any_element(),
+        RailBadge::Count(count, color) => h_flex()
+            .flex_shrink_0()
+            .h(px(14.))
+            .min_w(px(14.))
+            .px(px(3.))
+            .justify_center()
+            .items_center()
+            .rounded_full()
+            .bg(color)
+            .text_color(theme::tokens::BACKGROUND.to_hsla())
+            .text_size(px(10.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(SharedString::from(if count > 99 {
+                "99+".to_string()
+            } else {
+                count.to_string()
+            }))
+            .into_any_element(),
     }
+}
+
+/// EXP-870: the COMPACT rail's entry — a 32px square holding the row's lead
+/// glyph, the label demoted to a tooltip and the badge riding the top-right
+/// corner. The expanded [`rail_row_lead`]'s twin: same fills, same hover, so
+/// the icon column reads as the rail with its labels folded away.
+fn rail_compact_button(
+    id: impl Into<gpui::ElementId>,
+    lead: gpui::AnyElement,
+    label: impl Into<SharedString>,
+    active: bool,
+    badge: Option<RailBadge>,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let label: SharedString = label.into();
+    div()
+        .id(id)
+        .relative()
+        .size(px(32.))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(cx.theme().radius)
+        .cursor_pointer()
+        .when(active, |this| {
+            this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+        })
+        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .child(lead)
+        .when_some(badge, |this, badge| {
+            this.child(
+                div()
+                    .absolute()
+                    .top(px(3.))
+                    .right(px(3.))
+                    .child(rail_badge_element(badge, 10., cx)),
+            )
+        })
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+        })
 }
 
 /// EXP-791: the rail's Sessions rows, in order — this window's OPEN session
@@ -871,6 +934,11 @@ pub struct RailView {
     /// Scroll position of the rail's middle zone (tools + board icons) —
     /// small windows with many boards must not push Settings/Account off.
     rail_scroll: ScrollHandle,
+    /// EXP-870: whether the rail renders as the 48px ICON column — true
+    /// while a list or the settings nav sits beside it (the rail never
+    /// leaves the window any more; it folds its labels away instead).
+    /// Re-derived at the top of every render from the window's occupant.
+    compact: bool,
     /// EXP-791: the Sessions section lists this window's open session tabs,
     /// so the rail repaints when the screens panel's tabs change. Resolved
     /// lazily on the first render (the panel is built after the rail), the
@@ -945,6 +1013,7 @@ impl RailView {
             shared,
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
+            compact: false,
             observe_screens: None,
             collapsed_sessions: HashSet::new(),
             live_facts: Vec::new(),
@@ -1259,16 +1328,31 @@ impl RailView {
                         issue_id: issue.id.clone(),
                     };
                     let active = active_screen.as_ref() == Some(&screen);
-                    let lead = div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(SharedString::from(issue.identifier.clone()))
-                        .into_any_element();
+                    // EXP-870: the identifier does not fit the compact
+                    // square — the issue glyph stands in, the tooltip names it.
+                    let lead = if self.compact {
+                        Icon::new(registry::NAV_ISSUES)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(muted)
+                            .into_any_element()
+                    } else {
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(issue.identifier.clone()))
+                            .into_any_element()
+                    };
+                    let title = if self.compact {
+                        format!("{} {}", issue.identifier, issue.title)
+                    } else {
+                        issue.title.clone()
+                    };
                     let issue_id = issue.id.clone();
                     let board_id = issue.board_id.clone();
-                    rail_row_lead(("rail-pin", index), lead, issue.title.clone(), active, None, None, cx)
+                    self.entry(("rail-pin", index), lead, title, active, None, cx)
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             // EXP-851: a RAIL row opens a detail with no list
                             // beside it — the rail stays. The board still
@@ -1315,12 +1399,13 @@ impl RailView {
                     );
                     let dot = div()
                         .flex_shrink_0()
-                        .size_1p5()
+                        .when(self.compact, |dot| dot.size_2())
+                        .when(!self.compact, |dot| dot.size_1p5())
                         .rounded_full()
                         .bg(state.dot(display, muted))
                         .into_any_element();
                     let open_id = row.id.clone();
-                    rail_row_lead(("rail-pin", index), dot, title, active, None, None, cx)
+                    self.entry(("rail-pin", index), dot, title, active, None, cx)
                         .when(state == SessionRowState::Paused, |row| row.opacity(0.6))
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             crate::session_screen::open_session_from_rail(&open_id, window, cx);
@@ -1340,7 +1425,7 @@ impl RailView {
                         .into_any_element();
                     let action_id = action.id.clone();
                     let active = active_chat_action == Some(action.id.as_str());
-                    rail_row_lead(("rail-pin", index), lead, name, active, None, None, cx)
+                    self.entry(("rail-pin", index), lead, name, active, None, cx)
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             // `ActionsView::run`: no agent CLI, nothing to
                             // run — the composer would refuse anyway.
@@ -1384,7 +1469,11 @@ impl RailView {
                             }),
                     )
             };
-            out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
+            if self.compact {
+                out.push(row_el.into_any_element());
+            } else {
+                out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
+            }
         }
         out
     }
@@ -1437,6 +1526,26 @@ impl RailView {
     /// `tooltip` is `Some` only where the row has something the label cannot
     /// say — Source Control's "synced 3m ago" / failure reason. Everywhere
     /// else a tooltip would just repeat the visible label.
+    /// EXP-870: one rail entry in the rail's CURRENT shape — the labelled
+    /// 28px row, or the compact column's 32px icon square with the label as
+    /// its tooltip. Every nav/board/pinned entry goes through here so the two
+    /// shapes can never list different destinations.
+    fn entry(
+        &self,
+        id: impl Into<gpui::ElementId>,
+        lead: gpui::AnyElement,
+        label: impl Into<SharedString>,
+        active: bool,
+        badge: Option<RailBadge>,
+        cx: &App,
+    ) -> gpui::Stateful<gpui::Div> {
+        if self.compact {
+            rail_compact_button(id, lead, label, active, badge, cx)
+        } else {
+            rail_row_lead(id, lead, label, active, None, badge, cx)
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn rail_tool_icon(
         &self,
@@ -1457,10 +1566,20 @@ impl RailView {
             (screen, Some(current)) => *screen == current,
             _ => false,
         };
-        rail_row(id, icon, label, active, badge, cx)
-            .when_some(tooltip, |row, text| {
-                row.tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+        // EXP-870: the compact square already wears its label as a tooltip;
+        // a richer caller tooltip (Source Control's sync stamp) replaces it.
+        let lead = icon.xsmall().flex_shrink_0().into_any_element();
+        let label: SharedString = match (&tooltip, self.compact) {
+            (Some(text), true) => text.clone(),
+            _ => label.into(),
+        };
+        let compact = self.compact;
+        self.entry(id, lead, label, active, badge, cx)
+            .when(!compact, |row| {
+                row.when_some(tooltip, |row, text| {
+                    row.tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+                    })
                 })
             })
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -1502,7 +1621,8 @@ impl RailView {
         active: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        rail_row(id, icon, label, active, badge, cx)
+        let lead = icon.xsmall().flex_shrink_0().into_any_element();
+        self.entry(id, lead, label, active, badge, cx)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                 // EXP-851: the rail is not a list — an entry never lends one
                 // (the Agent page especially: reached from here it shows its
@@ -1625,16 +1745,22 @@ impl RailView {
             }
         };
 
+        // EXP-870: the compact rail's trigger is the avatar alone.
+        let compact = self.compact;
         Button::new("rail-account")
             .ghost().cursor_pointer()
             .small()
+            .when(compact, |button| {
+                button.size(px(32.)).child(make_avatar(
+                    gpui_component::Size::Small,
+                    avatar_image.clone(),
+                ))
+            })
             // The trigger is a full-width row — the Button's own inner layout
             // is centered and unreachable, so the row is a `w_full` child that
             // left-aligns inside it.
-            .w_full()
-            .h(px(36.))
-            .px_1p5()
-            .child(
+            .when(!compact, |button| {
+                button.w_full().h(px(36.)).px_1p5().child(
                 h_flex()
                     .w_full()
                     .gap_2()
@@ -1657,7 +1783,8 @@ impl RailView {
                             .flex_shrink_0()
                             .text_color(cx.theme().muted_foreground),
                     ),
-            )
+                )
+            })
             .tooltip(full_name.clone())
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
                 // EXP-723: the WEB account menu, item for item. No "Settings"
@@ -1719,9 +1846,10 @@ impl RailView {
             let settings_board_id = board.id.clone();
             // EXP-282: the board's own color tints the glyph whether the
             // row is active or not — `active` only adds the row fill.
-            rail_row(
+            let compact = self.compact;
+            self.entry(
                 ("rail-board", index),
-                icon,
+                icon.xsmall().flex_shrink_0().into_any_element(),
                 SharedString::from(board.name.clone()),
                 active,
                 None,
@@ -1738,7 +1866,7 @@ impl RailView {
                     },
                 );
             }))
-            .when(owner, |row| {
+            .when(owner && !compact, |row| {
                 row.child(
                     div()
                         .invisible()
@@ -1993,6 +2121,10 @@ impl RailView {
 
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-870: a list or the settings nav beside the rail folds it into
+        // the icon column — strictly derived, never a user toggle.
+        self.compact =
+            crate::shell::window_left_occupant(window, cx) != crate::shell::LeftOccupant::Rail;
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
@@ -2041,12 +2173,16 @@ impl Render for RailView {
         let agents = active_team_id(&self.nav, cx)
             .map(|id| queries::agents_running(cx, &id))
             .unwrap_or_default();
+        // EXP-870: a COUNT of them now (web parity), in the same palette.
         let agent_badge = agents.running.then(|| {
-            RailBadge::Dot(if agents.needs_input {
-                theme::tokens::YELLOW.to_hsla()
-            } else {
-                theme::tokens::GREEN.to_hsla()
-            })
+            RailBadge::Count(
+                agents.count,
+                if agents.needs_input {
+                    theme::tokens::YELLOW.to_hsla()
+                } else {
+                    theme::tokens::GREEN.to_hsla()
+                },
+            )
         });
         // Support tool (EXP-180): rendered ONLY while the active team's
         // synced row carries helpdesk_enabled = true. The badge lights on
@@ -2088,7 +2224,7 @@ impl Render for RailView {
         // EXP-525: the section reads like the web sidebar — a "Boards" group
         // label with a trailing `+`.
         let boards_header: Option<gpui::AnyElement> =
-            active_team.clone().map(|team_id| {
+            active_team.clone().filter(|_| !self.compact).map(|team_id| {
                 self.section_label("Boards", cx)
                     .child(
                         Button::new("rail-new-board")
@@ -2113,13 +2249,20 @@ impl Render for RailView {
             v_flex()
                 .w_full()
                 .gap_1()
+                .when(self.compact, |section| section.items_center())
                 .child(self.divider(cx))
-                .child(self.section_label("Pinned", cx))
+                .when(!self.compact, |section| {
+                    section.child(self.section_label("Pinned", cx))
+                })
                 .children(pinned_rows)
                 .into_any_element()
         });
         // EXP-791: the Sessions section — hidden while nothing is up.
-        let session_rows = self.render_session_rows(window, cx);
+        let session_rows = if self.compact {
+            Vec::new()
+        } else {
+            self.render_session_rows(window, cx)
+        };
         let sessions_section: Option<gpui::AnyElement> = (!session_rows.is_empty()).then(|| {
             v_flex()
                 .w_full()
@@ -2200,6 +2343,104 @@ impl Render for RailView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 crate::session_bar::open_new_shell(window, cx);
             }));
+
+        if self.compact {
+            // EXP-870: the ICON column. Same destinations in the same order
+            // as the expanded rail below, minus everything that needs a
+            // label to mean anything (section labels, the What's-new card,
+            // Getting started, the sync caption, Files/Source Control's
+            // "This device" heading); the footer stacks vertically.
+            return v_flex()
+                .w(px(crate::shell::COMPACT_RAIL_WIDTH))
+                .flex_shrink_0()
+                .h_full()
+                .pb_2()
+                .gap_1()
+                .items_center()
+                .text_color(cx.theme().sidebar_foreground)
+                .child(crate::scroll_pane::v_scroll_pane(
+                    "rail-scroll-compact",
+                    &self.rail_scroll,
+                    v_flex()
+                        .w_full()
+                        .px_2()
+                        .gap_1()
+                        .items_center()
+                        .child(self.rail_tool_icon(
+                            "rail-inbox",
+                            Icon::new(registry::NAV_INBOX),
+                            ToolWindow::Inbox,
+                            "Inbox",
+                            None,
+                            inbox_badge,
+                            cx,
+                        ))
+                        .children(support_icon)
+                        .child(self.rail_screen_entry(
+                            "rail-devices",
+                            Icon::from(icons::registry::NAV_DEVICES),
+                            "Devices",
+                            Screen::Devices,
+                            None,
+                            cx,
+                        ))
+                        .child(self.rail_screen_entry(
+                            "rail-actions",
+                            Icon::from(icons::registry::NAV_ACTIONS),
+                            "Actions",
+                            Screen::Actions,
+                            None,
+                            cx,
+                        ))
+                        .child(self.rail_screen_entry(
+                            "rail-automations",
+                            Icon::from(icons::registry::NAV_AUTOMATIONS),
+                            "Automations",
+                            Screen::Automations,
+                            None,
+                            cx,
+                        ))
+                        .child(self.rail_screen_entry(
+                            "rail-reviews",
+                            Icon::from(ExpIcon::GitPullRequest),
+                            "Reviews",
+                            Screen::Reviews,
+                            has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
+                            cx,
+                        ))
+                        .child(self.rail_agent_entry(
+                            agent_badge,
+                            active_chat_action.as_deref(),
+                            cx,
+                        ))
+                        .children(pinned_section)
+                        .child(self.divider(cx))
+                        .children(board_icons)
+                        .child(self.divider(cx))
+                        .child(self.rail_tool_icon(
+                            "rail-files",
+                            Icon::new(registry::NAV_FILES),
+                            ToolWindow::Files,
+                            "Files",
+                            None,
+                            None,
+                            cx,
+                        ))
+                        .child(self.rail_tool_icon(
+                            "rail-source-control",
+                            Icon::from(ExpIcon::GitMerge),
+                            ToolWindow::SourceControl,
+                            "Source Control",
+                            Some(sc_tooltip),
+                            sc_badge,
+                            cx,
+                        )),
+                ))
+                .child(self.render_account_button(cx))
+                .child(terminal_entry)
+                .child(settings_entry)
+                .into_any_element();
+        }
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -2344,6 +2585,7 @@ impl Render for RailView {
                     .child(terminal_entry)
                     .child(settings_entry),
             )
+            .into_any_element()
     }
 }
 
@@ -4153,6 +4395,7 @@ impl Render for ListPanel {
                             .min_h_0()
                             .min_w_0()
                             .child(back)
+                            .child(crate::settings::nav_back_rule(cx))
                             .child(
                                 v_flex()
                                     .flex_1()

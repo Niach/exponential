@@ -216,7 +216,7 @@ impl Render for AppTitleBar {
             // clears the cluster on its own (EXP-723 removed the collapsed
             // rail and with it the Shell's traffic-light tongue). Fullscreen
             // hides the lights, so nothing is reserved for them either way.
-            let rail_w = crate::shell::left_column_width();
+            let rail_w = crate::shell::window_left_column_width(window, cx);
             let left_inset = BAR_INSET;
             let fullscreen_inset = if window.is_fullscreen() { 12. } else { 0. };
             let right_reserve = if cfg!(target_os = "macos") {
