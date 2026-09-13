@@ -59,10 +59,17 @@ mod team_general;
 mod tools;
 mod widget;
 
+/// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
+/// same 40px as the team switcher above it. It was a ~28px text row, which
+/// read as a caption rather than the column's one way back.
+pub(crate) const NAV_BACK_ROW_H: f32 = 40.;
+
 /// EXP-851: the left column's BACK row — the settings nav's header row,
 /// shared with the `ListNav` (`sidebar::ListPanel::nav_back_row`) so the two
 /// occupants of that column wear the same affordance. Returns the row WITHOUT
-/// a click handler: where back goes is the caller's business.
+/// a click handler: where back goes is the caller's business. EXP-870: web
+/// `SidebarBackRow` geometry — an 8px inset, a 40px row, then the rule
+/// ([`nav_back_rule`]) under it.
 pub(crate) fn nav_back_row(
     id: &'static str,
     label: impl Into<gpui::SharedString>,
@@ -71,8 +78,9 @@ pub(crate) fn nav_back_row(
     h_flex()
         .id(id)
         .mx_2()
+        .mt_1()
+        .h(px(NAV_BACK_ROW_H))
         .px_2()
-        .py_1()
         .gap_2()
         .items_center()
         .rounded(cx.theme().radius)
@@ -91,6 +99,17 @@ pub(crate) fn nav_back_row(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(label.into()),
         )
+}
+
+/// EXP-870: the rule under [`nav_back_row`] (web: the `Separator` after
+/// `SidebarBackRow`), at the fixed header's inset.
+pub(crate) fn nav_back_rule(cx: &App) -> gpui::AnyElement {
+    div()
+        .w_full()
+        .px_2()
+        .flex_shrink_0()
+        .child(crate::sidebar::left_column_divider(cx))
+        .into_any_element()
 }
 
 use gpui::{
@@ -925,6 +944,7 @@ impl Render for SettingsNavPanel {
             // switcher, Search, New issue) are the `Shell`'s, above this
             // pane — the nav starts at its back row.
             .child(back_row)
+            .child(nav_back_rule(cx))
             .child(
                 div()
                     .id("settings-nav")

@@ -2,9 +2,8 @@ import { useMemo } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import type { CodingSession, Board } from "@/db/schema"
-import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { sessionDisplayState } from "@/lib/coding-session-display"
-import { useNow } from "@/hooks/use-now"
+import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 
 // Shared nav-count hooks for the sidebar badges (desktop) and the mobile
 // tab bar dots. Both count purely client-side over already-synced shapes.
@@ -66,12 +65,10 @@ export function useReviewsOpenPrCount(
 }
 
 // Live count of the signed-in user's OWN live coding sessions in the team —
-// running AND in_review (EXP-194: an agent awaiting review is exactly
-// what the dot should pull attention to). Own-only to match the owner-only Agents list: a
-// teammate's session must not light a badge over a list that shows nothing.
-// Staleness guard (EXP-153): heartbeat-dead rows don't count. `needsInput`
-// (EXP-214) is true while any live session sits on a plan-approval /
-// AskUserQuestion picker — the badges escalate to amber for it.
+// `useMyLiveRuns` (EXP-870: the same set the work tabs auto-add). The Agent
+// entry shows the COUNT on both rail states. `needsInput` (EXP-214) is true
+// while any live session sits on a plan-approval / AskUserQuestion picker —
+// the badges escalate to amber for it.
 export function useAgentsRunningCount(
   teamId?: string,
   currentUserId?: string
@@ -79,28 +76,10 @@ export function useAgentsRunningCount(
   count: number
   needsInput: boolean
 } {
-  const { data } = useLiveQuery(
-    (query) =>
-      teamId && currentUserId
-        ? query
-            .from({ sessions: codingSessionCollection })
-            .where(({ sessions }) =>
-              and(
-                eq(sessions.teamId, teamId),
-                eq(sessions.userId, currentUserId),
-                inArray(sessions.status, [`running`, `in_review`])
-              )
-            )
-        : undefined,
-    [teamId, currentUserId]
-  )
-  const now = useNow()
-  const live = ((data ?? []) as CodingSession[]).filter(
-    (s) => !isCodingSessionStale(s.updatedAt, now)
-  )
+  const { runs } = useMyLiveRuns(teamId, currentUserId)
   return {
-    count: live.length,
-    needsInput: live.some(
+    count: runs.length,
+    needsInput: runs.some(
       (s) => sessionDisplayState(s, null) === `needs_input`
     ),
   }

@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-rail-that-stays-and-run-tabs`,
+    date: `2026-09-13`,
+    title: `A sidebar that never leaves, and every run in a tab beside its issue`,
+    summary: `Opening an issue from a list folds the sidebar into an icon rail instead of replacing it, an issue and its coding run share one tab, and every run you have going always has a tab, on the desktop app and the web.`,
+    body: `- **The rail stays**: opening an issue, a run or Settings from a list slides that list in beside an icon rail, so Inbox, Agent, your boards and pinned items stay one click away. Back slides the other way.
+- **One tab per piece of work**: an issue and its coding run are one tab with an Issue and Run switch in the header, and a run without an issue gets a tab of its own. The web now has tabs too.
+- **Runs always have a tab**: every run you have going gets a tab at the front of the strip, with a spinner while the agent works, amber when it waits on you and green once its PR is open. Close one and it stays closed until the run needs you again.
+- **Pinned items open in place**: a pinned issue, run or action opens full width without swapping the sidebar.
+- **The list opens every time**: on the desktop app, the first issue you open after launch or after switching teams now opens beside its board list.
+- **The same sidebar on both**: the team switcher stays at the top on the web too, the back row is the same size on both, Agent shows how many runs are going, and the web team menu gains Join team.`,
+  },
+  {
     id: `2026-09-queued-messages-and-one-session-header`,
     date: `2026-09-13`,
     title: `Messages that wait their turn, Stop that reaches the machine, and one session header`,

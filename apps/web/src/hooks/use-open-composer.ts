@@ -5,12 +5,17 @@ import {
   useParams,
   useSearch,
 } from "@tanstack/react-router"
-import { searchFromSeed, type LaunchSeed } from "@/lib/launch-seed"
+import {
+  searchFromSeed,
+  type AgentSearch,
+  type LaunchSeed,
+} from "@/lib/launch-seed"
 import {
   capturedOrigin,
   formatOrigin,
   parseOrigin,
   screenFromPath,
+  type DetailOrigin,
 } from "@/lib/detail-origin"
 
 // EXP-825: "start something" is a NAVIGATION now — every play button (issue
@@ -21,10 +26,33 @@ import {
 //
 // EXP-851: the composer also carries the ORIGIN the click came from
 // (`?from=`), so the Agent page keeps that list nav beside it and the run it
-// launches inherits it — starting from an issue detail lands the run on that
-// issue's own session route.
+// launches inherits it — starting from an issue detail keeps that issue's
+// board list beside the run.
+//
+// EXP-870: a context-free caller (a PINNED action) passes `origin: null` —
+// the composer then opens full-width with no list nav, exactly like a pinned
+// issue or session does, instead of inheriting whatever list was up.
 
-export function useOpenComposer(): (seed: Partial<LaunchSeed>) => void {
+/** The composer's search params for a seed and an origin — pure, so the
+ *  "no origin, no `from`" rule is a test. */
+export function composerSearch(
+  seed: Partial<LaunchSeed>,
+  origin: DetailOrigin | null
+): AgentSearch & { from?: string } {
+  const token = formatOrigin(origin)
+  return { ...searchFromSeed(seed), ...(token ? { from: token } : {}) }
+}
+
+export interface OpenComposerOptions {
+  /** The list the click came from; `null` = context-free. Omit the KEY to
+   *  derive it from the URL. */
+  origin?: DetailOrigin | null
+}
+
+export function useOpenComposer(): (
+  seed: Partial<LaunchSeed>,
+  options?: OpenComposerOptions
+) => void {
   const navigate = useNavigate()
   // Loose match: every caller lives under `/t/$teamSlug`, but the hook must
   // not throw in a story/test that mounts one outside the team layout.
@@ -39,17 +67,20 @@ export function useOpenComposer(): (seed: Partial<LaunchSeed>) => void {
   })
 
   return useCallback(
-    (seed: Partial<LaunchSeed>) => {
+    (seed: Partial<LaunchSeed>, options?: OpenComposerOptions) => {
       if (!teamSlug) {
         console.warn(`useOpenComposer: no teamSlug in scope, ignoring`)
         return
       }
       const screen = screenFromPath(location ?? ``)
-      const token = formatOrigin(capturedOrigin(screen, parseOrigin(from)))
+      const origin =
+        options && `origin` in options
+          ? (options.origin ?? null)
+          : capturedOrigin(screen, parseOrigin(from))
       void navigate({
         to: `/t/$teamSlug/agent`,
         params: { teamSlug },
-        search: { ...searchFromSeed(seed), ...(token ? { from: token } : {}) },
+        search: composerSearch(seed, origin),
       })
     },
     [navigate, teamSlug, location, from]

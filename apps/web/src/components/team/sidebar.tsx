@@ -9,33 +9,33 @@ import {
 import { conceptIcon } from "@/lib/icons.generated"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
-import {
-  useUnreadNotificationCount,
-  useUnreadSupportCount,
-} from "@/hooks/use-unread-notifications"
-import { isAdminUser } from "@/lib/auth/app-user"
-import { useSignOut } from "@/hooks/use-sign-out"
-import { cn, getInitials } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
 import type { Board, Team } from "@/db/schema"
-import {
-  useReviewsOpenPrCount,
-  useAgentsRunningCount,
-} from "@/hooks/use-nav-counts"
 import { useTeamMemberships } from "@/hooks/use-team-data"
+import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
+import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { TeamListNav } from "@/components/team/list-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
+import {
+  AgentRunningBadge,
+  InboxUnreadBadge,
+  ReviewsOpenBadge,
+  SupportUnreadBadge,
+  TeamSidebarRail,
+  UserAvatar,
+  UserMenuItems,
+} from "@/components/team/sidebar-rail"
 import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { sidebarOccupant } from "@/lib/detail-origin"
+import { panelOffset } from "@/lib/detail-origin"
 import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
 import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -67,24 +67,21 @@ import {
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
-const NavAboutIcon = conceptIcon(`settings-about`)
-const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
-const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
-const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const NavSupportIcon = conceptIcon(`nav-support`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiCheckIcon = conceptIcon(`ui-check`)
+const UiInviteIcon = conceptIcon(`ui-invite`)
 
 // EXP-862: the sidebar's COMPACT density — 28px rows at the list's own type
 // size. Every arm of the 17rem slot runs at it (the list nav's rows and the
@@ -92,55 +89,15 @@ const UiCheckIcon = conceptIcon(`ui-check`)
 // label to 12px, which is a different decision.
 const SIDEBAR_ROW_COMPACT = `h-7 text-sm`
 
-// EXP-699: nav badges are dots, never counts — same colors and logic as
-// the mobile tab bars on all four clients.
-function NavDot({ className }: { className: string }) {
-  return (
-    <span
-      className={cn(
-        `pointer-events-none absolute right-2 top-1/2 size-2 -translate-y-1/2 rounded-full`,
-        className
-      )}
-    />
-  )
-}
+// EXP-870: one motion for every width and slide in the column — the shared
+// motion tokens (styles.css, packages/design-tokens).
+const SLOT_MOTION = `duration-standard ease-standard motion-reduce:transition-none`
 
-// Unread notifications from the per-user shape.
-function InboxUnreadBadge() {
-  const unread = useUnreadNotificationCount()
-  if (unread === 0) return null
-  return <NavDot className="bg-primary" />
-}
-
-// Unread helpdesk activity in THIS team, for the Support entry.
-function SupportUnreadBadge({ teamId }: { teamId?: string }) {
-  const unread = useUnreadSupportCount(teamId)
-  if (unread === 0) return null
-  return <NavDot className="bg-primary" />
-}
-
-// Any open PR across the team's boards.
-function ReviewsOpenBadge({
-  boards,
-  teamId,
-}: {
-  boards: Board[] | undefined
-  teamId?: string
-}) {
-  const count = useReviewsOpenPrCount(boards, teamId)
-  if (count === 0) return null
-  return <NavDot className="bg-green-500" />
-}
-
-// Any of MY live coding sessions in the team, for the Agent entry — the
-// sessions list lives there (EXP-818), so the dot moved off Devices with it.
-// Amber while any session waits on a plan approval / question (EXP-214).
-function AgentRunningBadge({ teamId }: { teamId?: string }) {
-  const { data: session } = useSession()
-  const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
-  if (count === 0) return null
-  return <NavDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
-}
+const OFFSET_CLASS = {
+  [-1]: `-translate-x-full`,
+  0: `translate-x-0`,
+  1: `translate-x-full`,
+} as const
 
 interface TeamSidebarProps {
   teamSlug: string
@@ -159,6 +116,7 @@ export function TeamSidebar({
   const navigate = useNavigate()
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
+  const [joinTeamOpen, setJoinTeamOpen] = useState(false)
   const permissions = useTeamPermissions(team)
   const { isOwner, canCreate } = permissions
   // EXP-449: the header's New-issue button works from any team route — it
@@ -173,30 +131,17 @@ export function TeamSidebar({
   // load, and we render the authed chrome throughout rather than flash a
   // logged-out state.
 
-  const handleSignOut = useSignOut()
-
   // Name-less accounts (Apple sign-in stores an empty name) fall back to the
-  // email for initials instead of a bare "?".
+  // email instead of a bare "?".
   const userLabel = session?.user?.name || session?.user?.email
-  const userInitials = userLabel ? getInitials(userLabel) : `?`
 
-  // EXP-456 / EXP-851: the 17rem slot has THREE occupants — the main menu, the
-  // settings nav, and the LIST NAV a detail brings along (`?from=`). Derived
-  // from the URL (not click state) so every entry point (footer gear, mobile
-  // topbar menu, a list row, deep links) drives the same swap, and a direct
-  // load lands settled with no first-paint animation. Pathname, not
-  // useMatchRoute: the matches lag the (eagerly updated) location during a
-  // pending navigation, and the back-target effect below must see the SAME
-  // snapshot or it records a settings URL as the return target.
+  // EXP-456 / EXP-851 / EXP-870: the column's layout is a function of the URL
+  // (`useSidebarOccupant`) — the MAIN menu alone, or the rail compacted to
+  // icons beside the settings nav or the LIST NAV a detail brings along
+  // (`?from=`). Every entry point (footer gear, mobile topbar menu, a list
+  // row, deep links) drives the same swap, and a direct load lands settled.
   const router = useRouter()
   const locationHref = useRouterState({ select: (s) => s.location.href })
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const fromToken = useRouterState({
-    select: (s) => {
-      const value = (s.location.search as { from?: unknown }).from
-      return typeof value === `string` ? value : null
-    },
-  })
   // EXP-862: the composer's seeded ACTION (`/t/$teamSlug/agent?action=`). The
   // pinned row for that action is what reads as active then, so the Agent
   // entry must NOT — two highlighted rows would both claim the same page.
@@ -206,15 +151,20 @@ export function TeamSidebar({
       return typeof value === `string` && value !== `` ? value : null
     },
   })
-  const occupant = sidebarOccupant(pathname, fromToken)
-  const agentPage = pathname.endsWith(`/agent`)
+  const agentPage = useRouterState({
+    select: (s) => s.location.pathname.endsWith(`/agent`),
+  })
+  const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
-  // Whichever overlay is up pushes the main menu out left.
-  const overlayUp = occupant.kind !== `main`
+  // EXP-870: a panel is up → the rail compacts to its icon column instead of
+  // leaving. Strictly derived, never a toggle.
+  const compact = occupant.kind !== `main`
 
   // Last non-settings location — the back button returns exactly here (with
-  // its search params), not merely to the team index.
+  // its search params), not merely to the team index. Read in the same
+  // router-state snapshot as the occupant, or a pending navigation would
+  // record a settings URL as the return target.
   const lastNonSettingsHref = useRef<string | null>(null)
   useEffect(() => {
     if (!inSettings) lastNonSettingsHref.current = locationHref
@@ -241,385 +191,410 @@ export function TeamSidebar({
       {/* No right hairline: since EXP-723 the content column is a 10px-inset
           rounded card whose own stroke is the divider (sidebar-on-ground). */}
       <Sidebar className="border-r-0!">
-        <div className="relative h-full w-full overflow-hidden">
-          {/* Main nav panel — slides out left while settings is active. Stays
-              mounted so the reverse animation plays; inert removes its tab
-              stops and hides it from assistive tech meanwhile. */}
-          <div
-            inert={overlayUp}
-            className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
-              overlayUp ? `-translate-x-full` : `translate-x-0`
-            }`}
-          >
-            <SidebarHeader className="p-2">
-              {/* EXP-449: Linear-style header row — team picker plus icon-only
-                  Search and New-issue actions (moved out of the nav list / the
-                  board page's filter bar). */}
-              <div className="flex items-center gap-1">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton
-                      className="min-w-0 flex-1 h-10"
-                      aria-label="Team switcher"
+        <div className="flex h-full w-full flex-col overflow-hidden">
+          {/* EXP-870: the header is FIXED above both the rail and the panel —
+              the team picker, Search and New issue stay put in every state
+              (desktop parity), instead of sliding out with the main menu. */}
+          <SidebarHeader className="p-2">
+            {/* EXP-449: Linear-style header row — team picker plus icon-only
+                Search and New-issue actions. */}
+            <div className="flex items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton
+                    className="min-w-0 flex-1 h-10"
+                    aria-label="Team switcher"
+                  >
+                    <TeamAvatar name={team?.name ?? teamSlug} size={28} />
+                    <span className="text-sm font-semibold truncate">
+                      {team?.name ?? teamSlug}
+                    </span>
+                    <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  {myTeams.map((ws) => (
+                    <DropdownMenuItem
+                      key={ws.id}
+                      onClick={() =>
+                        navigate({
+                          to: `/t/$teamSlug`,
+                          params: { teamSlug: ws.slug },
+                        })
+                      }
                     >
-                      <TeamAvatar name={team?.name ?? teamSlug} size={28} />
-                      <span className="text-sm font-semibold truncate">
-                        {team?.name ?? teamSlug}
-                      </span>
-                      <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
-                    </SidebarMenuButton>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56">
-                    {myTeams.map((ws) => (
-                      <DropdownMenuItem
-                        key={ws.id}
-                        onClick={() =>
-                          navigate({
-                            to: `/t/$teamSlug`,
-                            params: { teamSlug: ws.slug },
-                          })
-                        }
-                      >
-                        <TeamAvatar name={ws.name} size={20} />
-                        <span className="truncate">{ws.name}</span>
-                        {ws.slug === teamSlug && (
-                          <UiCheckIcon className="ml-auto h-4 w-4" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-                    {/* Any signed-in user can create teams (EXP-188) — the
-                        server's only gate is the free-tier owned-team cap. */}
-                    <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
-                      <UiAddIcon className="h-4 w-4" />
-                      New team
+                      <TeamAvatar name={ws.name} size={20} />
+                      <span className="truncate">{ws.name}</span>
+                      {ws.slug === teamSlug && (
+                        <UiCheckIcon className="ml-auto h-4 w-4" />
+                      )}
                     </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {team && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                        aria-label="Search"
-                        onClick={onOpenSearch}
+                  ))}
+                  <DropdownMenuSeparator />
+                  {/* Any signed-in user can create teams (EXP-188) — the
+                      server's only gate is the free-tier owned-team cap. */}
+                  <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
+                    <UiAddIcon className="h-4 w-4" />
+                    New team
+                  </DropdownMenuItem>
+                  {/* EXP-870: desktop parity — the IDE's team menu joins by
+                      invite link too. */}
+                  <DropdownMenuItem onClick={() => setJoinTeamOpen(true)}>
+                    <UiInviteIcon className="h-4 w-4" />
+                    Join team
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {team && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label="Search"
+                      onClick={onOpenSearch}
+                    >
+                      <NavSearchIcon className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Search</TooltipContent>
+                </Tooltip>
+              )}
+              {canCreate && boardTarget && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      asChild
+                      variant="default"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      aria-label="New issue"
+                    >
+                      <Link
+                        to="/t/$teamSlug/boards/$boardSlug"
+                        params={{ teamSlug, boardSlug: boardTarget.slug }}
+                        search={(prev) => ({ ...prev, new: 1 })}
                       >
-                        <NavSearchIcon className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Search</TooltipContent>
-                  </Tooltip>
-                )}
-                {canCreate && boardTarget && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        asChild
-                        variant="default"
-                        size="icon"
-                        className="size-8 shrink-0"
-                        aria-label="New issue"
-                      >
-                        <Link
-                          to="/t/$teamSlug/boards/$boardSlug"
-                          params={{ teamSlug, boardSlug: boardTarget.slug }}
-                          search={(prev) => ({ ...prev, new: 1 })}
-                        >
-                          <NavCreateIssueIcon className="size-4" />
-                        </Link>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>New issue</TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
-            </SidebarHeader>
-    
-            <Separator />
-    
-            <SidebarContent>
-              <SidebarGroup>
-                <SidebarGroupContent>
-                  {/* EXP-699: mobile order — Inbox, Support, Devices,
-                      Actions, Automations (an Actions segment on mobile),
-                      Reviews. */}
-                  <SidebarMenu>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                        <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
-                          <NavInboxIcon className="h-4 w-4" />
-                          <span>Inbox</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      <InboxUnreadBadge />
-                    </SidebarMenuItem>
-                    {team?.helpdeskEnabled === true && (
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                          <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
-                            <NavSupportIcon className="h-4 w-4" />
-                            <span>Support</span>
-                          </Link>
-                        </SidebarMenuButton>
-                        <SupportUnreadBadge teamId={team?.id} />
-                      </SidebarMenuItem>
-                    )}
-                    {/* EXP-686: Devices · Actions · Automations, the three
-                        surfaces the old Agents entry bundled. */}
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                        <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
-                          <NavDevicesIcon className="h-4 w-4" />
-                          <span>Devices</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                        <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
-                          <NavActionsIcon className="h-4 w-4" />
-                          <span>Actions</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                        <Link
-                          to="/t/$teamSlug/automations"
-                          params={{ teamSlug }}
-                        >
-                          <NavAutomationsIcon className="h-4 w-4" />
-                          <span>Automations</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                        <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
-                          <NavReviewsIcon className="h-4 w-4" />
-                          <span>Reviews</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      <ReviewsOpenBadge boards={boards} teamId={team?.id} />
-                    </SidebarMenuItem>
-                    {/* EXP-818: the Agent page — the composer over the
-                        caller's running and past runs (the IDE rail's Agent
-                        entry). EXP-862: the RUNNING runs are listed there and
-                        nowhere else in the sidebar. */}
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        asChild
-                        className={cn(
-                          SIDEBAR_ROW_COMPACT,
-                          // A pinned action is driving the composer: its row
-                          // owns the highlight (EXP-862).
-                          agentPage &&
-                            composerActionId !== null &&
-                            `data-[status=active]:bg-transparent data-[status=active]:font-normal data-[status=active]:text-sidebar-foreground`
-                        )}
-                      >
-                        <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
-                          <NavAgentIcon className="h-4 w-4" />
-                          <span>Agent</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      <AgentRunningBadge teamId={team?.id} />
-                    </SidebarMenuItem>
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-    
-              {/* EXP-778: the caller's pinned issues / sessions / actions in
-                  this team — favourites above the boards, hidden when empty. */}
-              {team && <SidebarPinned teamId={team.id} teamSlug={teamSlug} />}
+                        <NavCreateIssueIcon className="size-4" />
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New issue</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          </SidebarHeader>
 
-              <SidebarGroup>
-                <SidebarGroupLabel>Boards</SidebarGroupLabel>
-                <SidebarGroupAction
-                  onClick={() => setCreateBoardOpen(true)}
-                  title="Create board"
-                  aria-label="Create board"
-                >
-                  <UiAddIcon className="h-4 w-4" />
-                </SidebarGroupAction>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {!boards || boards.length === 0 ? (
-                      <SidebarMenuItem>
-                        <SidebarMenuButton disabled className={SIDEBAR_ROW_COMPACT}>
-                          <NavBoardsIcon className="h-4 w-4" />
-                          <span className="text-muted-foreground">
-                            No boards yet
-                          </span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ) : (
-                      boards.map((board) => {
-                        const TypeIcon = getBoardIcon(board)
-                        return (
-                          <SidebarMenuItem key={board.id}>
+          <Separator />
+
+          <div className="flex min-h-0 flex-1">
+            {/* EXP-870: the RAIL slot — the full main menu (17rem) or its
+                48px icon column beside a panel. Both stay mounted and
+                cross-fade while the slot's width animates; `inert` takes the
+                hidden one out of the tab order and the accessibility tree. */}
+            <div
+              className={cn(
+                `relative shrink-0 overflow-hidden transition-[width]`,
+                SLOT_MOTION,
+                compact ? `w-12` : `w-[17rem]`
+              )}
+            >
+              <div
+                inert={compact}
+                className={cn(
+                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-opacity`,
+                  SLOT_MOTION,
+                  compact ? `opacity-0` : `opacity-100`
+                )}
+              >
+                <SidebarContent>
+                  <SidebarGroup>
+                    <SidebarGroupContent>
+                      {/* EXP-699: mobile order — Inbox, Support, Devices,
+                          Actions, Automations (an Actions segment on mobile),
+                          Reviews. */}
+                      <SidebarMenu>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
+                              <NavInboxIcon className="h-4 w-4" />
+                              <span>Inbox</span>
+                            </Link>
+                          </SidebarMenuButton>
+                          <InboxUnreadBadge placement="row" />
+                        </SidebarMenuItem>
+                        {team?.helpdeskEnabled === true && (
+                          <SidebarMenuItem>
                             <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
-                              <Link
-                                to="/t/$teamSlug/boards/$boardSlug"
-                                params={{
-                                  teamSlug,
-                                  boardSlug: board.slug,
-                                }}
-                              >
-                                <TypeIcon
-                                  className="h-4 w-4 shrink-0"
-                                  style={{ color: board.color }}
-                                />
-                                <span>{board.name}</span>
+                              <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
+                                <NavSupportIcon className="h-4 w-4" />
+                                <span>Support</span>
                               </Link>
                             </SidebarMenuButton>
-                            {isOwner && (
-                              <SidebarMenuAction
-                                asChild
-                                showOnHover
-                                title="Board settings"
-                              >
-                                <Link
-                                  to="/t/$teamSlug/settings/boards/$boardId"
-                                  params={{ teamSlug, boardId: board.id }}
-                                  aria-label={`Settings for ${board.name}`}
-                                >
-                                  <NavSettingsIcon />
-                                </Link>
-                              </SidebarMenuAction>
-                            )}
+                            <SupportUnreadBadge teamId={team?.id} placement="row" />
                           </SidebarMenuItem>
-                        )
-                      })
-                    )}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-              {/* EXP-862: no Sessions group here. A RUNNING run is listed on
-                  the Agent page (and in the list nav beside an open one) —
-                  one list, not a standing copy in the main menu. */}
-            </SidebarContent>
-    
-            <SidebarFooter>
-              {/* EXP-164: dismissable "What's new" teaser for the latest changelog
-                  entry — hidden again until the next release once dismissed. */}
-              <WhatsNewCard onOpen={() => setWhatsNewOpen(true)} />
-              <SidebarMenu>
-                {/* EXP-771: the ONLY way into the feedback widget now that the
-                    in-app mount is headless. Cloud-only — self-hosted renders
-                    nothing here. */}
-                <FeedbackButton />
-                {/* EXP-88: re-entry point for the Getting started cards once the
-                    board's inline block is gone (issues exist / dismissed). */}
-                <GettingStartedButton />
-              </SidebarMenu>
-              {/* EXP-238: settings entry lives down here next to the user block,
-                  like the IDE's rail gear — it opens the unified settings page
-                  (team sections + the Personal group). */}
-              <div className="flex items-center gap-1">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton
-                      className="min-w-0 flex-1"
-                      aria-label="User menu"
-                    >
-                      <Avatar className="h-6 w-6">
-                        {session?.user?.image && (
-                          <AvatarImage src={session.user.image} />
                         )}
-                        <AvatarFallback
-                          className="text-xs"
-                          userId={session?.user?.id}
+                        {/* EXP-686: Devices · Actions · Automations, the three
+                            surfaces the old Agents entry bundled. */}
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
+                              <NavDevicesIcon className="h-4 w-4" />
+                              <span>Devices</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
+                              <NavActionsIcon className="h-4 w-4" />
+                              <span>Actions</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <Link
+                              to="/t/$teamSlug/automations"
+                              params={{ teamSlug }}
+                            >
+                              <NavAutomationsIcon className="h-4 w-4" />
+                              <span>Automations</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
+                              <NavReviewsIcon className="h-4 w-4" />
+                              <span>Reviews</span>
+                            </Link>
+                          </SidebarMenuButton>
+                          <ReviewsOpenBadge
+                            boards={boards}
+                            teamId={team?.id}
+                            placement="row"
+                          />
+                        </SidebarMenuItem>
+                        {/* EXP-818: the Agent page — the composer over the
+                            caller's running and past runs (the IDE rail's
+                            Agent entry). EXP-870: its badge is the live-run
+                            COUNT, and the runs themselves are work tabs. */}
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            asChild
+                            className={cn(
+                              SIDEBAR_ROW_COMPACT,
+                              // A pinned action is driving the composer: its
+                              // row owns the highlight (EXP-862).
+                              agentPage &&
+                                composerActionId !== null &&
+                                `data-[status=active]:bg-transparent data-[status=active]:font-normal data-[status=active]:text-sidebar-foreground`
+                            )}
+                          >
+                            <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
+                              <NavAgentIcon className="h-4 w-4" />
+                              <span>Agent</span>
+                            </Link>
+                          </SidebarMenuButton>
+                          <AgentRunningBadge teamId={team?.id} placement="row" />
+                        </SidebarMenuItem>
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+
+                  {/* EXP-778: the caller's pinned issues / sessions / actions
+                      in this team — favourites above the boards, hidden when
+                      empty. */}
+                  {team && <SidebarPinned teamId={team.id} teamSlug={teamSlug} />}
+
+                  <SidebarGroup>
+                    <SidebarGroupLabel>Boards</SidebarGroupLabel>
+                    <SidebarGroupAction
+                      onClick={() => setCreateBoardOpen(true)}
+                      title="Create board"
+                      aria-label="Create board"
+                    >
+                      <UiAddIcon className="h-4 w-4" />
+                    </SidebarGroupAction>
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        {!boards || boards.length === 0 ? (
+                          <SidebarMenuItem>
+                            <SidebarMenuButton disabled className={SIDEBAR_ROW_COMPACT}>
+                              <NavBoardsIcon className="h-4 w-4" />
+                              <span className="text-muted-foreground">
+                                No boards yet
+                              </span>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ) : (
+                          boards.map((board) => {
+                            const TypeIcon = getBoardIcon(board)
+                            return (
+                              <SidebarMenuItem key={board.id}>
+                                <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                                  <Link
+                                    to="/t/$teamSlug/boards/$boardSlug"
+                                    params={{
+                                      teamSlug,
+                                      boardSlug: board.slug,
+                                    }}
+                                  >
+                                    <TypeIcon
+                                      className="h-4 w-4 shrink-0"
+                                      style={{ color: board.color }}
+                                    />
+                                    <span>{board.name}</span>
+                                  </Link>
+                                </SidebarMenuButton>
+                                {isOwner && (
+                                  <SidebarMenuAction
+                                    asChild
+                                    showOnHover
+                                    title="Board settings"
+                                  >
+                                    <Link
+                                      to="/t/$teamSlug/settings/boards/$boardId"
+                                      params={{ teamSlug, boardId: board.id }}
+                                      aria-label={`Settings for ${board.name}`}
+                                    >
+                                      <NavSettingsIcon />
+                                    </Link>
+                                  </SidebarMenuAction>
+                                )}
+                              </SidebarMenuItem>
+                            )
+                          })
+                        )}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                  {/* EXP-870: no Sessions group — every live run of mine is a
+                      work tab above the content card. */}
+                </SidebarContent>
+
+                <SidebarFooter>
+                  {/* EXP-164: dismissable "What's new" teaser for the latest
+                      changelog entry — hidden again until the next release
+                      once dismissed. */}
+                  <WhatsNewCard onOpen={() => setWhatsNewOpen(true)} />
+                  <SidebarMenu>
+                    {/* EXP-771: the ONLY way into the feedback widget now that
+                        the in-app mount is headless. Cloud-only — self-hosted
+                        renders nothing here. */}
+                    <FeedbackButton />
+                    {/* EXP-88: re-entry point for the Getting started cards
+                        once the board's inline block is gone. */}
+                    <GettingStartedButton />
+                  </SidebarMenu>
+                  {/* EXP-238: settings entry lives down here next to the user
+                      block, like the IDE's rail gear. */}
+                  <div className="flex items-center gap-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <SidebarMenuButton
+                          className="min-w-0 flex-1"
+                          aria-label="User menu"
                         >
-                          {userInitials}
-                        </AvatarFallback>
-                      </Avatar>
-                      {/* First name only (EXP-311) — the full name + email live in
-                          account settings; nameless accounts fall back to email. */}
-                      <span className="truncate text-sm">
-                        {userLabel ? firstName(userLabel) : `Loading...`}
-                      </span>
-                      <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
+                          <UserAvatar />
+                          {/* First name only (EXP-311) — the full name + email
+                              live in account settings. */}
+                          <span className="truncate text-sm">
+                            {userLabel ? firstName(userLabel) : `Loading...`}
+                          </span>
+                          <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
+                        </SidebarMenuButton>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="top" align="start" className="w-56">
+                        <UserMenuItems onWhatsNew={() => setWhatsNewOpen(true)} />
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <SidebarMenuButton
+                      asChild
+                      className="w-auto shrink-0"
+                      aria-label="Settings"
+                      tooltip="Settings"
+                    >
+                      <Link to="/t/$teamSlug/settings" params={{ teamSlug }}>
+                        <NavSettingsIcon className="h-4 w-4" />
+                      </Link>
                     </SidebarMenuButton>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent side="top" align="start" className="w-56">
-                    {isAdminUser(session?.user) && (
-                      <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
-                        <NavAdminIcon className="mr-2 h-4 w-4" />
-                        Admin
-                      </DropdownMenuItem>
-                    )}
-                    {/* Re-entry point once the footer card is dismissed. */}
-                    <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
-                      <NavChangelogIcon className="mr-2 h-4 w-4" />
-                      What&apos;s new
-                    </DropdownMenuItem>
-                    {/* EXP-262: version-less About page with the third-party
-                        licence notices. */}
-                    <DropdownMenuItem onClick={() => navigate({ to: `/about` })}>
-                      <NavAboutIcon className="mr-2 h-4 w-4" />
-                      About
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleSignOut}>
-                      <NavSignOutIcon className="mr-2 h-4 w-4" />
-                      Sign out
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <SidebarMenuButton
-                  asChild
-                  className="w-auto shrink-0"
-                  aria-label="Settings"
-                  tooltip="Settings"
-                >
-                  <Link to="/t/$teamSlug/settings" params={{ teamSlug }}>
-                    <NavSettingsIcon className="h-4 w-4" />
-                  </Link>
-                </SidebarMenuButton>
+                  </div>
+                </SidebarFooter>
               </div>
-            </SidebarFooter>
-          </div>
 
-          {/* Settings panel — slides in from the right edge of the slot. */}
-          <div
-            inert={!inSettings}
-            className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
-              inSettings ? `translate-x-0` : `translate-x-full`
-            }`}
-          >
-            <SettingsSidebar
-              teamSlug={teamSlug}
-              permissions={permissions}
-              onBack={handleSettingsBack}
-            />
-          </div>
+              <div
+                inert={!compact}
+                className={cn(
+                  `absolute inset-y-0 left-0 flex w-12 flex-col transition-opacity`,
+                  SLOT_MOTION,
+                  compact ? `opacity-100` : `pointer-events-none opacity-0`
+                )}
+              >
+                <TeamSidebarRail
+                  teamSlug={teamSlug}
+                  team={team}
+                  boards={boards}
+                  onWhatsNew={() => setWhatsNewOpen(true)}
+                />
+              </div>
+            </div>
 
-          {/* EXP-851: the LIST NAV — the list an open detail came from, in the
-              same slot with the same slide. Mounted only while one is up: its
-              lists run live queries and tRPC polls, and an off-screen Support
-              poll every 30s is not free. */}
-          <div
-            inert={!listOrigin}
-            className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
-              listOrigin ? `translate-x-0` : `translate-x-full`
-            }`}
-          >
-            {listOrigin && (
-              <TeamListNav
-                // Keyed by the origin so switching lists remounts instead of
-                // carrying the previous list's tab/fold state over.
-                key={`${listOrigin.kind}:${
-                  `boardSlug` in listOrigin ? listOrigin.boardSlug : ``
-                }`}
-                teamSlug={teamSlug}
-                team={team}
-                boards={boards}
-                origin={listOrigin}
-              />
-            )}
+            {/* EXP-870: the PANEL slot — 0 wide with the main menu, 17rem
+                beside the compact rail. Its two panels slide by DIRECTION
+                (`panelOffset`): going deeper a panel comes out from under the
+                rail's edge, coming back it slides back under it. */}
+            <div
+              className={cn(
+                `relative shrink-0 overflow-hidden transition-[width]`,
+                SLOT_MOTION,
+                compact ? `w-[17rem] border-l border-glass-stroke` : `w-0`
+              )}
+            >
+              <div
+                inert={!inSettings}
+                className={cn(
+                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
+                  SLOT_MOTION,
+                  OFFSET_CLASS[panelOffset(`settings`, occupant.kind)]
+                )}
+              >
+                <SettingsSidebar
+                  teamSlug={teamSlug}
+                  permissions={permissions}
+                  onBack={handleSettingsBack}
+                />
+              </div>
+
+              {/* EXP-851: the LIST NAV — the list an open detail came from.
+                  Mounted only while one is up: its lists run live queries and
+                  tRPC polls, and an off-screen Support poll every 30s is not
+                  free. */}
+              <div
+                inert={!listOrigin}
+                className={cn(
+                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
+                  SLOT_MOTION,
+                  OFFSET_CLASS[panelOffset(`list`, occupant.kind)]
+                )}
+              >
+                {listOrigin && (
+                  <TeamListNav
+                    // Keyed by the origin so switching lists remounts instead
+                    // of carrying the previous list's tab/fold state over.
+                    key={`${listOrigin.kind}:${
+                      `boardSlug` in listOrigin ? listOrigin.boardSlug : ``
+                    }`}
+                    teamSlug={teamSlug}
+                    team={team}
+                    boards={boards}
+                    origin={listOrigin}
+                  />
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </Sidebar>
@@ -636,6 +611,7 @@ export function TeamSidebar({
         open={createTeamOpen}
         onOpenChange={setCreateTeamOpen}
       />
+      <JoinTeamDialog open={joinTeamOpen} onOpenChange={setJoinTeamOpen} />
     </>
   )
 }

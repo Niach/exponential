@@ -14,6 +14,7 @@ import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { Button } from "@/components/ui/button"
 import { conceptIcon } from "@/lib/icons.generated"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { WorkFaceToggle } from "@/components/team/work-face-toggle"
 import {
   codingSessionCollection,
   deviceCollection,
@@ -22,7 +23,7 @@ import {
   CONTINUATION_COST_NOTE,
   CONTINUATION_NOTE,
 } from "@/components/session-account-switch"
-import { parseOrigin } from "@/lib/detail-origin"
+import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import {
   findStartedRun,
@@ -48,7 +49,8 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 // Agent-session screen. EXP-851: the view fills the whole content panel on
 // every breakpoint — no shell, no list beside it. The list the run came from
 // is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`), which is what
-// leaves the transcript column room for the diff pane.
+// leaves the transcript column room for the diff pane. EXP-870: this is the
+// ONE run URL — an issue's run too, whose issue is the work tab's other face.
 //
 // EXP-312: a LIVE session is visible and steerable by its OWNER alone (the
 // relay ticket mint refuses everyone else). A teammate's session id therefore
@@ -88,70 +90,31 @@ function SessionPage() {
   )
 
   // EXP-818: Back returns to the ORIGIN the run was opened from — the inbox,
-  // a board, the issue whose Watch started this (where the Watch button is
-  // waiting again) — and to the Agent page when there was no list context
-  // (a deep link, a full-page screen). Still a deliberate navigation, not the
-  // browser's history: EXP-827 removed that for good reason (the sidebar's
-  // Sessions rows navigate from anywhere), the destination is just no longer
-  // hard-coded. The browser's own back is untouched.
+  // a board, the Automations list — and to the Agent page when there was no
+  // list context (a deep link, a pinned row, a full-page screen). Still a
+  // deliberate navigation, not the browser's history (EXP-827). EXP-870: the
+  // destination is `originListNavigation`, the list nav's own back row.
   const origin = useMemo(() => parseOrigin(from), [from])
   const goBack = useCallback(() => {
-    if (origin?.kind === `inbox`) {
-      void navigate({
-        to: `/t/$teamSlug/inbox`,
+    void navigate(
+      (originListNavigation(teamSlug, origin) ?? {
+        to: `/t/$teamSlug/agent`,
         params: { teamSlug },
-        search: origin.tab === `my-issues` ? { tab: `my-issues` } : {},
-      })
-      return
-    }
-    if (origin?.kind === `support`) {
-      void navigate({ to: `/t/$teamSlug/support`, params: { teamSlug } })
-      return
-    }
-    if (origin?.kind === `reviews`) {
-      void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
-      return
-    }
-    // EXP-862: an AUTOMATED run opened from the Automations list goes back to
-    // it (the mobile viewport's own route redirects to the Actions tab).
-    if (origin?.kind === `automations`) {
-      void navigate({ to: `/t/$teamSlug/automations`, params: { teamSlug } })
-      return
-    }
-    // EXP-856: the board and the issue keep the `from` token, exactly like the
-    // issue-scoped session route does — dropping it landed the destination on
-    // the sidebar's main menu instead of the list it came out of.
-    if (origin?.kind === `board`) {
-      void navigate({
-        to: `/t/$teamSlug/boards/$boardSlug`,
-        params: { teamSlug, boardSlug: origin.boardSlug },
-        search: from ? { from } : {},
-      })
-      return
-    }
-    if (origin?.kind === `issue`) {
-      void navigate({
-        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-        params: {
-          teamSlug,
-          boardSlug: origin.boardSlug,
-          issueIdentifier: origin.identifier,
-        },
-        search: from ? { from } : {},
-      })
-      return
-    }
-    void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
-  }, [navigate, teamSlug, origin, from])
-  // EXP-827: the linked issue opens on its own route beside the same list.
-  // The origin rides along so the issue's own Back still knows it.
+      }) as never
+    )
+  }, [navigate, teamSlug, origin])
+  // EXP-870: the run's linked issue is the same work tab's ISSUE face — its
+  // canonical URL, beside the same list (`from` rides along).
+  const issueBoardSlug = row?.board?.slug ?? null
+  const issueIdentifier = row?.issue?.identifier ?? null
   const openIssue = useCallback(() => {
+    if (!issueBoardSlug || !issueIdentifier) return
     void navigate({
-      to: `/t/$teamSlug/sessions/$sessionId/issue`,
-      params: { teamSlug, sessionId },
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: { teamSlug, boardSlug: issueBoardSlug, issueIdentifier },
       search: from ? { from } : {},
     })
-  }, [navigate, teamSlug, sessionId, from])
+  }, [navigate, teamSlug, issueBoardSlug, issueIdentifier, from])
 
   if (!team || !currentUserId || !isReady) {
     return (
@@ -211,8 +174,8 @@ function SessionPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The run may END while this page is open — the view stays mounted and
-          read-only (its own tab in the strip vanishes, because `running`
-          excludes ended rows). Nothing navigates away underneath the user.
+          read-only, and its work tab stays until closed (EXP-870).
+          Nothing navigates away underneath the user.
           EXP-773: a finished run carries its close-out under the header — the
           byline the Past lists used to expand, and Resume on the machine that
           still holds the worktree. The feed connects to the relay exactly like
@@ -233,7 +196,12 @@ function SessionPage() {
           </>
         }
         issue={row.issue ?? null}
-        onOpenIssue={row.issue ? openIssue : undefined}
+        onOpenIssue={row.issue && row.board ? openIssue : undefined}
+        faceToggle={
+          row.issue && row.board ? (
+            <WorkFaceToggle face="run" onIssue={openIssue} />
+          ) : undefined
+        }
         onBack={goBack}
       />
     </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import type * as React from "react"
 import { Files, Link2 } from "lucide-react"
 import { toast } from "sonner"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -39,7 +40,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
-import { parseOrigin } from "@/lib/detail-origin"
+import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -92,6 +93,9 @@ interface IssueDetailViewProps {
   /** The session→issue hop draws its own back-to-run header, so the issue's
    *  phone header would be a second bar on the same line. */
   showMobileHeader?: boolean
+  /** EXP-870: the md+ header's `Issue | Run` toggle (`WorkFaceToggle`) — the
+   *  issue and its run are one work tab with two faces. */
+  faceToggle?: React.ReactNode
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -151,6 +155,7 @@ export function IssueDetailView({
   readOnly = false,
   origin,
   showMobileHeader = true,
+  faceToggle,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
@@ -825,6 +830,19 @@ export function IssueDetailView({
     />
   )
 
+  // EXP-851 / EXP-870: back returns to the LIST this issue was opened from
+  // (`originListNavigation`, the list nav's own back row), else the issue's
+  // board. The phone header uses it.
+  const goBackToList = () => {
+    void navigate(
+      (originListNavigation(teamSlug, parseOrigin(origin)) ?? {
+        to: `/t/$teamSlug/boards/$boardSlug`,
+        params: { teamSlug, boardSlug: board.slug },
+        search: {},
+      }) as never
+    )
+  }
+
   // EXP-851 phone header: the shared `MobileDetailHeader`, the native layout —
   // round back on the left, the IDENTIFIER centred, the `…` on the right. The
   // board-glyph breadcrumb is gone (the sidebar's list nav says where you
@@ -833,30 +851,7 @@ export function IssueDetailView({
     <MobileDetailHeader
       title={<span className="font-mono">{issue.identifier}</span>}
       backLabel="Back"
-      onBack={() => {
-        const from = parseOrigin(origin)
-        if (from?.kind === `inbox`) {
-          void navigate({
-            to: `/t/$teamSlug/inbox`,
-            params: { teamSlug },
-            search: from.tab === `my-issues` ? { tab: `my-issues` } : {},
-          })
-          return
-        }
-        if (from?.kind === `reviews`) {
-          void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
-          return
-        }
-        void navigate({
-          to: `/t/$teamSlug/boards/$boardSlug`,
-          params: {
-            teamSlug,
-            boardSlug:
-              from?.kind === `board` ? from.boardSlug : board.slug,
-          },
-          search: {},
-        })
-      }}
+      onBack={goBackToList}
       menu={
         // EXP-698 r5: no prev/next on phones — the natives have none either.
         <div className="flex shrink-0 items-center">
@@ -1066,6 +1061,7 @@ export function IssueDetailView({
               <div className="mx-auto flex max-w-3xl items-start gap-2">
                 <div className="min-w-0 flex-1">{titleField}</div>
                 <div className="flex shrink-0 items-center gap-1 pt-4 pr-4">
+                  {faceToggle}
                   {pinToggle}
                   {actionsMenu}
                 </div>

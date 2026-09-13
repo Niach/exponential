@@ -9,8 +9,9 @@ import {
 
 // EXP-456 / EXP-851: the row the two SLID-IN sidebar panels wear — settings
 // and the list nav. ONE component, so the back affordance can't drift into
-// two shapes: `h-10` matches the team-switcher row, so the top edge never
-// jumps mid-slide, and the whole row is the target.
+// two shapes, and the whole row is the target. EXP-870: the panels sit UNDER
+// the fixed team-picker header now, beside the compact rail; the row keeps
+// its `h-10` (the desktop's 40px back row matches it).
 
 const UiBackIcon = conceptIcon(`ui-back`)
 

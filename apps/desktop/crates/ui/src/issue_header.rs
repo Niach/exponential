@@ -802,12 +802,13 @@ impl IssueHeader {
     /// (EXP-723 retired the Subscribe toggle on every client;
     /// auto-subscription and the `issue_subscribers` shape stay. EXP-760
     /// folded copy-link and delete into the menu. EXP-791 retired the
-    /// prev/next switcher on the left; the row's leading slot is the detail
-    /// view's — it puts the "back to issue" control there while a run is
-    /// slid in over the issue.)
+    /// prev/next switcher.) EXP-870: `leading` is the tab's `Issue | Run`
+    /// face control (`screens::face_toggle`), just left of the pin — the
+    /// web header's order.
     pub(crate) fn top_row(
         &mut self,
         issue: &Issue,
+        leading: Option<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         h_flex()
@@ -818,6 +819,7 @@ impl IssueHeader {
             .px(px(DETAIL_GUTTER))
             .pt_2()
             .child(div().flex_1().min_w_0())
+            .children(leading)
             // EXP-778: the personal pin toggle — a pinned issue lands in the
             // rail's Pinned section. Needs the team (the board's) to address
             // the toggle; a not-yet-synced board hides it for a repaint.

@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import type * as React from "react"
 import { Link, useLocation, useParams, useSearch } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -9,7 +10,13 @@ import {
   sessionDisplayState,
   sessionRowIsWorking,
 } from "@/lib/coding-session-display"
-import type { CodingSession, Issue, Pin } from "@/db/schema"
+import type {
+  Board,
+  CodingSession,
+  Issue,
+  Pin,
+  SyncedAction,
+} from "@/db/schema"
 import {
   actionCollection,
   codingSessionCollection,
@@ -60,15 +67,22 @@ export function SidebarPinned({
   return <PinnedRows pins={pins} teamId={teamId} teamSlug={teamSlug} />
 }
 
-function PinnedRows({
-  pins,
-  teamId,
-  teamSlug,
-}: {
-  pins: Pin[]
-  teamId: string
-  teamSlug: string
-}) {
+/** One pin whose target resolved — the rows and the compact rail's icons
+ *  render the same list. */
+type ResolvedPin =
+  | { kind: `issue`; pin: Pin; issue: Issue; board: Board; active: boolean }
+  | {
+      kind: `session`
+      pin: Pin
+      session: CodingSession
+      issue: Issue | undefined
+      active: boolean
+    }
+  | { kind: `action`; pin: Pin; action: SyncedAction; active: boolean }
+
+/** EXP-870: resolve the caller's pins against the synced targets, once, for
+ *  both rail states. A pin with no synced target yields nothing. */
+function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
   const boards = useTeamBoards(teamId)
   const sessionIds = useMemo(
     () => pins.flatMap((pin) => (pin.sessionId ? [pin.sessionId] : [])),
@@ -84,7 +98,7 @@ function PinnedRows({
     [sessionIds]
   )
   // The pinned issues plus the pinned sessions' issues — ONE query, so a
-  // session row can name its identifier the way the Sessions group does.
+  // session row can name its identifier.
   const issueIds = useMemo(() => {
     const ids = new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))
     for (const session of sessions ?? []) {
@@ -123,31 +137,97 @@ function PinnedRows({
     },
   })
   const seededActionId = onAgentPage ? composerActionId : null
+
+  return useMemo(() => {
+    const boardsById = new Map((boards ?? []).map((board) => [board.id, board]))
+    const issuesById = new Map(
+      ((issues ?? []) as Issue[]).map((issue) => [issue.id, issue])
+    )
+    const sessionsById = new Map(
+      ((sessions ?? []) as CodingSession[]).map((session) => [session.id, session])
+    )
+    const actionsById = new Map(
+      ((actions ?? []) as SyncedAction[]).map((action) => [action.id, action])
+    )
+    return pins.flatMap((pin): ResolvedPin[] => {
+      if (pin.kind === `issue` && pin.issueId) {
+        const issue = issuesById.get(pin.issueId)
+        const board = issue ? boardsById.get(issue.boardId) : undefined
+        if (!issue || !board) return []
+        return [
+          {
+            kind: `issue`,
+            pin,
+            issue,
+            board,
+            active: routeIssueIdentifier === issue.identifier,
+          },
+        ]
+      }
+      if (pin.kind === `session` && pin.sessionId) {
+        const session = sessionsById.get(pin.sessionId)
+        if (!session) return []
+        return [
+          {
+            kind: `session`,
+            pin,
+            session,
+            issue: session.issueId ? issuesById.get(session.issueId) : undefined,
+            active: routeSessionId === session.id,
+          },
+        ]
+      }
+      if (pin.kind === `action` && pin.actionId) {
+        const action = actionsById.get(pin.actionId)
+        if (!action) return []
+        return [
+          { kind: `action`, pin, action, active: seededActionId === action.id },
+        ]
+      }
+      return []
+    })
+  }, [
+    pins,
+    boards,
+    issues,
+    sessions,
+    actions,
+    routeIssueIdentifier,
+    routeSessionId,
+    seededActionId,
+  ])
+}
+
+/** A pinned session's display — its identity, dot state and caption. */
+function pinnedSessionDisplay(session: CodingSession, issue: Issue | undefined) {
+  const identity = sessionIdentity({ session, issue })
+  const pinPrState = rowPrState(session, issue)
+  const title = identity.identifier
+    ? identity.subject
+    : (session.actionName ?? (session.issueId ? identity.subject : `Batch run`))
+  return {
+    identity,
+    title,
+    state: sessionDisplayState(session, pinPrState),
+    working: sessionRowIsWorking(session, pinPrState),
+    // A pinned run may be over: an ended row gets the Past list's steady grey
+    // dot, never a live one.
+    ended: session.status === `ended` || session.status === `merged`,
+  }
+}
+
+function PinnedRows({
+  pins,
+  teamId,
+  teamSlug,
+}: {
+  pins: Pin[]
+  teamId: string
+  teamSlug: string
+}) {
+  const resolved = useResolvedPins(pins, teamId)
   const openSession = useOpenSession()
   const openComposer = useOpenComposer()
-
-  const boardsById = useMemo(
-    () => new Map((boards ?? []).map((board) => [board.id, board])),
-    [boards]
-  )
-  const issuesById = useMemo(
-    () => new Map(((issues ?? []) as Issue[]).map((issue) => [issue.id, issue])),
-    [issues]
-  )
-  const sessionsById = useMemo(
-    () =>
-      new Map(
-        ((sessions ?? []) as CodingSession[]).map((session) => [
-          session.id,
-          session,
-        ])
-      ),
-    [sessions]
-  )
-  const actionsById = useMemo(
-    () => new Map((actions ?? []).map((action) => [action.id, action])),
-    [actions]
-  )
 
   const unpin = (pin: Pin) => {
     const targetId = pin.issueId ?? pin.sessionId ?? pin.actionId
@@ -155,18 +235,17 @@ function PinnedRows({
     void trpc.pins.toggle.mutate({ teamId, kind: pin.kind, targetId })
   }
 
-  const items = pins.flatMap((pin) => {
-    if (pin.kind === `issue` && pin.issueId) {
-      const issue = issuesById.get(pin.issueId)
-      const board = issue ? boardsById.get(issue.boardId) : undefined
-      if (!issue || !board) return []
-      return [
+  const items = resolved.map((entry) => {
+    if (entry.kind === `issue`) {
+      const { pin, issue, board } = entry
+      return (
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
             asChild
             className={PINNED_ROW_COMPACT}
-            isActive={routeIssueIdentifier === issue.identifier}
+            isActive={entry.active}
           >
+            {/* EXP-870: no `from` — a pinned issue opens full-width. */}
             <Link
               to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
               params={{
@@ -183,29 +262,21 @@ function PinnedRows({
             </Link>
           </SidebarMenuButton>
           <UnpinAction label={issue.identifier} onClick={() => unpin(pin)} />
-        </SidebarMenuItem>,
-      ]
+        </SidebarMenuItem>
+      )
     }
-    if (pin.kind === `session` && pin.sessionId) {
-      const session = sessionsById.get(pin.sessionId)
-      if (!session) return []
-      const issue = session.issueId ? issuesById.get(session.issueId) : undefined
-      const identity = sessionIdentity({ session, issue })
-      const pinPrState = rowPrState(session, issue)
-      const state = sessionDisplayState(session, pinPrState)
-      const working = sessionRowIsWorking(session, pinPrState)
-      // A pinned run may be over (the Sessions group lists live ones only):
-      // an ended row gets the Past list's steady grey dot, never a live one.
-      const ended = session.status === `ended` || session.status === `merged`
-      const title = identity.identifier
-        ? identity.subject
-        : (session.actionName ?? (session.issueId ? identity.subject : `Batch run`))
+    if (entry.kind === `session`) {
+      const { pin, session, issue } = entry
+      const { identity, title, state, working, ended } = pinnedSessionDisplay(
+        session,
+        issue
+      )
       // EXP-850 §8: the live run's own caption, the row's second line.
       const caption = sessionAgentCaption(session)
-      return [
+      return (
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
-            isActive={routeSessionId === session.id}
+            isActive={entry.active}
             className={cn(PINNED_ROW_COMPACT, caption && `h-auto py-1`)}
             // EXP-851: a pinned row is context-free — the main menu stays.
             onClick={() => openSession(session, { origin: null })}
@@ -233,29 +304,27 @@ function PinnedRows({
             </span>
           </SidebarMenuButton>
           <UnpinAction label={title} onClick={() => unpin(pin)} />
-        </SidebarMenuItem>,
-      ]
+        </SidebarMenuItem>
+      )
     }
-    if (pin.kind === `action` && pin.actionId) {
-      const action = actionsById.get(pin.actionId)
-      if (!action) return []
-      const ActionIcon = getActionIcon(action)
-      return [
-        <SidebarMenuItem key={pin.id}>
-          <SidebarMenuButton
-            className={PINNED_ROW_COMPACT}
-            isActive={seededActionId === action.id}
-            onClick={() => openComposer({ actionId: action.id })}
-            title={`Run ${action.name}`}
-          >
-            <ActionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{action.name}</span>
-          </SidebarMenuButton>
-          <UnpinAction label={action.name} onClick={() => unpin(pin)} />
-        </SidebarMenuItem>,
-      ]
-    }
-    return []
+    const { pin, action } = entry
+    const ActionIcon = getActionIcon(action)
+    return (
+      <SidebarMenuItem key={pin.id}>
+        <SidebarMenuButton
+          className={PINNED_ROW_COMPACT}
+          isActive={entry.active}
+          // EXP-870: context-free like the pinned issue and session rows —
+          // the composer opens full-width, no list nav.
+          onClick={() => openComposer({ actionId: action.id }, { origin: null })}
+          title={`Run ${action.name}`}
+        >
+          <ActionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{action.name}</span>
+        </SidebarMenuButton>
+        <UnpinAction label={action.name} onClick={() => unpin(pin)} />
+      </SidebarMenuItem>
+    )
   })
 
   if (items.length === 0) return null
@@ -266,6 +335,86 @@ function PinnedRows({
         <SidebarMenu>{items}</SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
+  )
+}
+
+/** EXP-870: the compact rail's pinned icons — the same resolved pins as the
+ *  rows, one 32px icon each with the name in a tooltip. Context-free like
+ *  the rows: nothing here ever brings a list nav along. */
+export function SidebarPinnedIcons({
+  teamId,
+  teamSlug,
+  renderItem,
+  separator,
+}: {
+  teamId: string
+  teamSlug: string
+  /** Drawn above the icons, only when there are any. */
+  separator?: React.ReactNode
+  /** The rail's own button shell (size, tooltip, active fill). */
+  renderItem: (item: {
+    key: string
+    label: string
+    active: boolean
+    icon: React.ReactNode
+    link?: {
+      to: string
+      params: Record<string, string>
+    }
+    onClick?: () => void
+  }) => React.ReactNode
+}) {
+  const pins = useTeamPins(teamId)
+  const resolved = useResolvedPins(pins, teamId)
+  const openSession = useOpenSession()
+  const openComposer = useOpenComposer()
+  if (resolved.length === 0) return null
+  return (
+    <>
+      {separator}
+      {resolved.map((entry) => {
+        if (entry.kind === `issue`) {
+          return renderItem({
+            key: entry.pin.id,
+            label: `${entry.issue.identifier} ${entry.issue.title}`,
+            active: entry.active,
+            icon: <NavIssuesIcon className="size-4" />,
+            link: {
+              to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+              params: {
+                teamSlug,
+                boardSlug: entry.board.slug,
+                issueIdentifier: entry.issue.identifier,
+              },
+            },
+          })
+        }
+        if (entry.kind === `session`) {
+          const { identity, title, state, working, ended } =
+            pinnedSessionDisplay(entry.session, entry.issue)
+          return renderItem({
+            key: entry.pin.id,
+            label: identity.identifier ? `${identity.identifier} ${title}` : title,
+            active: entry.active,
+            icon: (
+              <span className="flex size-4 items-center justify-center">
+                <RunningIndicator state={state} paused={ended} working={working} />
+              </span>
+            ),
+            onClick: () => openSession(entry.session, { origin: null }),
+          })
+        }
+        const ActionIcon = getActionIcon(entry.action)
+        return renderItem({
+          key: entry.pin.id,
+          label: entry.action.name,
+          active: entry.active,
+          icon: <ActionIcon className="size-4" />,
+          onClick: () =>
+            openComposer({ actionId: entry.action.id }, { origin: null }),
+        })
+      })}
+    </>
   )
 }
 

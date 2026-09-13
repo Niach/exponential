@@ -6,15 +6,12 @@
 //! ACP engine ends that split. A run this process hosts is an in-process
 //! [`engine::EngineSession`], not a terminal, so it renders in the CENTER pane
 //! like every other detail screen. EXP-769: a PTY-hosted run renders in the
-//! center too (`Screen::Terminal`), and both kinds tab in the bottom session
-//! bar.
+//! center too (`Screen::Terminal`). EXP-870: a run is a TOP tab — the Run
+//! face of its issue's tab (`Issue | Run` in the header), or a Run-only tab
+//! for an issue-less run — and every live run of mine always has one.
 //!
 //! [`open_session`] is the ONE entry point (the start dialog, the issue's
-//! coding-now card, Devices → Running / Past, a Sessions row in the rail).
-//! EXP-791: an ISSUE-bound run opens INSIDE its issue's detail — the
-//! transcript slides in over the issue (`navigation::navigate_steering`,
-//! `IssueDetailView::open_steering`) instead of leaving the page; every
-//! other run (batch, action, chat) navigates here.
+//! coding-now card, Devices → Running / Past, a pinned run).
 //!
 //! Three feed sources, one renderer ([`SteerSessionView`]): the in-process
 //! engine (`Local`), the relay viewer (`Remote` — another machine, or another
@@ -27,7 +24,7 @@
 //! carries navigation), then the read-only Plan chip, Pin, Context, Diff,
 //! Merge and Stop in a right-aligned group; under it, for an issue-bound
 //! run, the issue's own header (EXP-863: `IssueHeader`'s rows over a
-//! read-only title, with "Open issue" in the tray's trailing slot). The
+//! read-only title; EXP-870: the header's face control flips back to the issue). The
 //! transcript view keeps everything that
 //! is about the conversation itself (the feed, the banners, the diff pane the
 //! Diff pill toggles, the composer), which is why it renders headerless here
@@ -69,8 +66,8 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     open_session_inner(session_id, Origin::Derive, window, cx);
 }
 
-/// EXP-851: [`open_session`] from a RAIL row (the Sessions section, a pinned
-/// run) — the rail is not a list, so the run opens with no `ListNav` beside
+/// EXP-851: [`open_session`] from a RAIL row (a pinned run) — the rail is
+/// not a list, so the run opens with no `ListNav` beside
 /// it instead of inheriting whatever the main view was showing.
 pub(crate) fn open_session_from_rail(session_id: &str, window: &mut Window, cx: &mut App) {
     open_session_inner(session_id, Origin::Rail, window, cx);
@@ -604,7 +601,11 @@ impl SessionScreenView {
         )
     }
 
-    fn render_header(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_header(
+        &mut self,
+        face: Option<AnyElement>,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         // EXP-778: the pin toggle needs the run's team; a local start ahead
         // of its synced echo has no row yet and simply shows no toggle.
         let pin_team_id = self
@@ -763,7 +764,9 @@ impl SessionScreenView {
             .py_1p5()
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            .child(div().flex_1().min_w_0())
+            // EXP-870: the tab's `Issue | Run` control leads the header, where
+            // the web session header carries it.
+            .child(h_flex().flex_1().min_w_0().items_center().children(face))
             .child(identity)
             .child(
                 h_flex()
@@ -981,28 +984,14 @@ impl SessionScreenView {
             .get(&issue_id)
             .cloned()?;
         let header = self.ensure_header(&issue_id, window, cx);
-        let open_id = issue_id.clone();
-        let open_issue_pill = crate::surface::glass_pill_button(
-            "session-open-issue",
-            crate::surface::PillSize::Sm,
-            cx,
-        )
-        .icon(
-            gpui_component::Icon::new(registry::NAV_ISSUES)
-                .with_size(px(crate::surface::PillSize::Sm.glyph())),
-        )
-        .label("Open issue")
-        .on_click(move |_, window, cx| {
-            open_issue(&open_id, window, cx);
-        })
-        .into_any_element();
         // The header entity's rows are built through `entity.update` from
         // this render (the detail view's `render_header` precedent) — they
-        // never call back into this view synchronously.
+        // never call back into this view synchronously. The empty trailing
+        // slot keeps the chip row's session mode (no launcher, no Merge).
         let (top_row, chip_row) = header.update(cx, |header, cx| {
             (
-                header.top_row(&issue, cx),
-                header.chip_row(&issue, Some(open_issue_pill), cx),
+                header.top_row(&issue, None, cx),
+                header.chip_row(&issue, Some(gpui::Empty.into_any_element()), cx),
             )
         });
         Some(
@@ -1022,17 +1011,6 @@ impl SessionScreenView {
                 .into_any_element(),
         )
     }
-}
-
-/// Open `issue_id`'s detail — the issue band's click and its pill.
-fn open_issue(issue_id: &str, window: &mut Window, cx: &mut App) {
-    crate::navigation::navigate(
-        window,
-        cx,
-        Screen::IssueDetail {
-            issue_id: issue_id.to_string(),
-        },
-    );
 }
 
 /// EXP-818: the session header's Stop — a small glass pill with the stop
@@ -1279,7 +1257,10 @@ impl Focusable for SessionScreenView {
 
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let header = self.render_header(cx);
+        let face = self
+            .issue_id(cx)
+            .and_then(|issue_id| crate::screens::face_toggle(&issue_id, window, cx));
+        let header = self.render_header(face, cx);
         let issue_band = self.render_issue_band(window, cx);
         // EXP-849: the continuation byline sits directly under the subject —
         // it is about THIS run's history, not about its result.

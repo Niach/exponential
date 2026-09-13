@@ -4,7 +4,9 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { GitPullRequest } from "lucide-react"
 import type { Board, CodingSession, Team } from "@/db/schema"
 import {
+  originBoardSlug,
   originLabel,
+  originListNavigation,
   type DetailOrigin,
 } from "@/lib/detail-origin"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
@@ -29,9 +31,9 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 
-// EXP-851: the sidebar's THIRD panel — the list a detail came from, in the
-// 17rem slot the main menu and the settings nav share. It slides in exactly
-// like settings does, carries the same back row (`SidebarBackRow`, labelled
+// EXP-851: the sidebar's list panel — the list a detail came from. EXP-870:
+// it sits in the 17rem panel slot beside the compact rail (never replacing
+// it), sharing that slot and its directional slide with the settings nav. It carries the same back row (`SidebarBackRow`, labelled
 // with the list) and the list itself, simplified: a board's issue rows, the
 // inbox stream, the support threads, the Agent page's runs, the review queue.
 // Which panel is up is a pure function of the URL (`sidebarOccupant`), so a
@@ -55,41 +57,16 @@ export function TeamListNav({
   origin: DetailOrigin
 }) {
   const navigate = useNavigate()
-  const boardSlug =
-    origin.kind === `board` || origin.kind === `issue` ? origin.boardSlug : null
+  const boardSlug = originBoardSlug(origin)
   const board = boardSlug
     ? (boards?.find((row) => row.slug === boardSlug) ?? null)
     : null
 
+  // EXP-870: the one back-to-the-list destination (`originListNavigation`),
+  // shared with the session route's Back and the md+ back chevron.
   const goBack = () => {
-    switch (origin.kind) {
-      case `board`:
-      case `issue`:
-        void navigate({
-          to: `/t/$teamSlug/boards/$boardSlug`,
-          params: { teamSlug, boardSlug: origin.boardSlug },
-          search: {},
-        })
-        return
-      case `inbox`:
-        void navigate({
-          to: `/t/$teamSlug/inbox`,
-          params: { teamSlug },
-          search: origin.tab === `my-issues` ? { tab: `my-issues` } : {},
-        })
-        return
-      case `support`:
-        void navigate({ to: `/t/$teamSlug/support`, params: { teamSlug } })
-        return
-      case `reviews`:
-        void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
-        return
-      case `agent`:
-        void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
-        return
-      case `automations`:
-        void navigate({ to: `/t/$teamSlug/automations`, params: { teamSlug } })
-    }
+    const target = originListNavigation(teamSlug, origin)
+    if (target) void navigate(target as never)
   }
 
   return (
@@ -99,7 +76,7 @@ export function TeamListNav({
           scrollport, and two nested `overflow-auto` boxes make the sidebar
           scroll twice. */}
       <div className="flex min-h-0 flex-1 flex-col">
-        {(origin.kind === `board` || origin.kind === `issue`) && (
+        {origin.kind === `board` && (
           <BoardListNav teamSlug={teamSlug} boardSlug={origin.boardSlug} />
         )}
         {origin.kind === `inbox` && (

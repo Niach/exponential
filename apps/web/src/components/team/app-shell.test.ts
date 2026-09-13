@@ -4,6 +4,8 @@ import {
   MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
   MAIN_PANEL_CLASS,
+  mainPanelClass,
+  WORK_TABS_BAND_CLASS,
 } from "@/components/team/app-shell"
 
 const TOKENS = MAIN_PANEL_CLASS.split(/\s+/).filter((token) => token.length > 0)
@@ -82,6 +84,40 @@ describe(`MAIN_PANEL_CLASS`, () => {
     expect(MAIN_PANEL_CLASS).not.toContain(`h-[calc(`)
     expect(MAIN_PANEL_CLASS).not.toContain(`h-dvh`)
     expect(TOKENS).toContain(`flex-1`)
+  })
+})
+
+// EXP-870: the work-tabs strip sits above the card on md+.
+describe(`mainPanelClass`, () => {
+  const tokens = (value: string) => value.split(/\s+/).filter(Boolean)
+
+  it(`starts the card flush under the strip, 10px down without it`, () => {
+    expect(tokens(mainPanelClass({ tabs: true }))).toContain(`md:mt-0`)
+    expect(tokens(mainPanelClass({ tabs: true }))).not.toContain(`md:mt-[10px]`)
+    expect(tokens(mainPanelClass({ tabs: false }))).toContain(`md:mt-[10px]`)
+    expect(MAIN_PANEL_CLASS).toBe(mainPanelClass({ tabs: false }))
+  })
+
+  // The strip never changes the card's other rules: both variants keep every
+  // card property md:-gated and never trap fixed descendants.
+  it(`keeps the card rules in both variants`, () => {
+    for (const value of [mainPanelClass({ tabs: true }), mainPanelClass({ tabs: false })]) {
+      for (const token of tokens(value)) {
+        const name = base(token)
+        if ([`m-`, `mt-`, `mb-`, `mx-`, `rounded`, `border`, `bg-`].some((p) => name.startsWith(p))) {
+          expect(token.startsWith(`md:`) ? token : `${token} must be md:-gated`).toBe(token)
+        }
+        expect(name.startsWith(`translate-`) || name.startsWith(`backdrop-`)).toBe(false)
+      }
+      expect(value).toContain(`md:mb-[10px]`)
+    }
+  })
+
+  // Phones keep their tab bar: the band exists from md up only.
+  it(`shows the band from md up only`, () => {
+    expect(tokens(WORK_TABS_BAND_CLASS)).toContain(`hidden`)
+    expect(tokens(WORK_TABS_BAND_CLASS)).toContain(`md:flex`)
+    expect(WORK_TABS_BAND_CLASS).toContain(`md:px-[10px]`)
   })
 })
 

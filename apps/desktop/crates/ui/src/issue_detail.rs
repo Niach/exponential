@@ -104,8 +104,9 @@ pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
 // context-negation guard (`!Input && !MarkdownEditor && …`) missed the
 // EXP-261 WYSIWYG editor's renamed key context, so typing `k` in a
 // description jumped issues and ate the letter. Bare-letter shortcuts are
-// one stale negation away from that failure by construction — the switcher
-// keeps its clickable header arrows only.
+// one stale negation away from that failure by construction. EXP-791 then
+// retired the header arrows and EXP-870 settled it: no issue stepping at all
+// — the ListNav beside the detail is how you move between issues.
 
 // ---------------------------------------------------------------------------
 // §4.5 editor seam
@@ -473,9 +474,9 @@ impl IssueDetailView {
             });
 
         self.sync_from_issue(window, cx);
-        // Land keyboard focus on the detail root so the scoped J/K switcher
-        // bindings are live immediately (clicking into an editor moves focus
-        // and the guarded bindings go quiet — by design).
+        // Land keyboard focus on the detail root so its scoped bindings are
+        // live immediately (clicking into an editor moves focus and the
+        // guarded bindings go quiet — by design).
         window.focus(&self.focus_handle, cx);
         cx.notify();
     }
@@ -1773,7 +1774,7 @@ impl IssueDetailView {
                                             // focus; dropping it would leave
                                             // the window focused on an input
                                             // that no longer renders and the
-                                            // scoped J/K switcher dead until
+                                            // detail's bindings dead until
                                             // the next click.
                                             window.focus(&this.focus_handle, cx);
                                             cx.notify();
@@ -1848,13 +1849,14 @@ impl IssueDetailView {
     fn render_header(
         &mut self,
         issue: &Issue,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let header = self.header.clone();
+        let face = crate::screens::face_toggle(&issue.id, window, cx);
         let (top_row, chip_row, agent_row) = header.update(cx, |header, cx| {
             (
-                header.top_row(issue, cx),
+                header.top_row(issue, face, cx),
                 header.chip_row(issue, None, cx),
                 header.agent_row(issue, cx),
             )
@@ -1876,8 +1878,7 @@ impl IssueDetailView {
 
 impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // Terminal-dock pattern: key context + tracked focus. (The bare-letter
-        // J/K switcher bindings are gone — EXP-268; the header arrows remain.)
+        // Terminal-dock pattern: key context + tracked focus.
         // EXP-282: no base fill — the view sits directly on the window's page
         // gradient (`colors.list` is transparent since EXP-269, so the old
         // `.bg()` was a no-op that only obscured the intent).

@@ -46,7 +46,6 @@ function run(
 }
 
 const SESSION_ROUTE = `/t/$teamSlug/sessions/$sessionId`
-const ISSUE_SESSION_ROUTE = `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier/session`
 
 describe(`useOpenSession`, () => {
   beforeEach(() => {
@@ -113,74 +112,40 @@ describe(`useOpenSession origin`, () => {
     })
   })
 
-  // EXP-851: the issue's own run lives on the issue's URL.
-  it(`opens an issue's run on the issue's session route`, () => {
+  // EXP-870: ONE run URL — an issue's own run opened from the issue detail
+  // lands on `/sessions/$id`, beside the issue's board list.
+  it(`opens an issue's run on the flat route beside its board list`, () => {
+    mockState.pathname = `/t/acme/boards/web/issues/MET-12`
+    mockState.search = { from: `board:web` }
+    run({ id: `s1`, issueId: `i1` })
+    expect(mockState.navigate).toHaveBeenCalledWith({
+      to: SESSION_ROUTE,
+      params: { teamSlug: `acme`, sessionId: `s1` },
+      search: { from: `board:web` },
+    })
+  })
+
+  // EXP-870: a pinned issue (no token) hands on no list — the rail stays,
+  // desktop parity.
+  it(`brings no list along from an issue without a token`, () => {
     mockState.pathname = `/t/acme/boards/web/issues/MET-12`
     run({ id: `s1`, issueId: `i1` })
     expect(mockState.navigate).toHaveBeenCalledWith({
-      to: ISSUE_SESSION_ROUTE,
-      params: {
-        teamSlug: `acme`,
-        boardSlug: `web`,
-        issueIdentifier: `MET-12`,
-      },
-      // EXP-856: `run` names the session, so the page steers the run that was
-      // clicked and not merely the issue's newest own one.
-      search: { from: `issue:web:MET-12`, run: `s1` },
-    })
-  })
-
-  // EXP-856: a run the caller KNOWS belongs to another issue never lands on
-  // this issue's URL — it would silently show a different run.
-  it(`sends a run of another issue to the flat session route`, () => {
-    mockState.pathname = `/t/acme/boards/web/issues/MET-12`
-    run({ id: `s7`, issueId: `i2` }, { originIssueId: `i1` })
-    expect(mockState.navigate).toHaveBeenCalledWith({
       to: SESSION_ROUTE,
-      params: { teamSlug: `acme`, sessionId: `s7` },
-      search: { from: `issue:web:MET-12` },
+      params: { teamSlug: `acme`, sessionId: `s1` },
     })
   })
 
-  it(`keeps the issue route when the caller's issue id matches`, () => {
-    mockState.pathname = `/t/acme/boards/web/issues/MET-12`
-    run({ id: `s8`, issueId: `i1` }, { originIssueId: `i1` })
-    expect(mockState.navigate).toHaveBeenCalledWith({
-      to: ISSUE_SESSION_ROUTE,
-      params: {
-        teamSlug: `acme`,
-        boardSlug: `web`,
-        issueIdentifier: `MET-12`,
-      },
-      search: { from: `issue:web:MET-12`, run: `s8` },
-    })
-  })
-
-  // …and the launcher hop keeps it: the composer carries `?from=issue:…`, so
-  // the run it starts still lands on the issue.
-  it(`keeps the issue through the Agent page`, () => {
+  // …and a legacy `issue:` token carried through the launcher reads as the
+  // board.
+  it(`reads a legacy issue token through the Agent page as its board`, () => {
     mockState.pathname = `/t/acme/agent`
     mockState.search = { from: `issue:web:MET-12` }
     run({ id: `s9`, issueId: `i1` })
     expect(mockState.navigate).toHaveBeenCalledWith({
-      to: ISSUE_SESSION_ROUTE,
-      params: {
-        teamSlug: `acme`,
-        boardSlug: `web`,
-        issueIdentifier: `MET-12`,
-      },
-      search: { from: `issue:web:MET-12`, run: `s9` },
-    })
-  })
-
-  // An action/batch/chat run started from an issue is NOT that issue's run.
-  it(`sends an issue-less run to the flat session route`, () => {
-    mockState.pathname = `/t/acme/boards/web/issues/MET-12`
-    run({ id: `s2`, actionName: `Chat` })
-    expect(mockState.navigate).toHaveBeenCalledWith({
       to: SESSION_ROUTE,
-      params: { teamSlug: `acme`, sessionId: `s2` },
-      search: { from: `issue:web:MET-12` },
+      params: { teamSlug: `acme`, sessionId: `s9` },
+      search: { from: `board:web` },
     })
   })
 
@@ -233,51 +198,16 @@ describe(`sessionNavigation`, () => {
       search: { from: `support` },
     })
     expect(
-      sessionNavigation(`acme`, session, {
-        kind: `issue`,
-        boardSlug: `web`,
-        identifier: `MET-12`,
-      })
-    ).toEqual({
-      to: ISSUE_SESSION_ROUTE,
-      params: {
-        teamSlug: `acme`,
-        boardSlug: `web`,
-        issueIdentifier: `MET-12`,
-      },
-      search: { from: `issue:web:MET-12`, run: `s1` },
-    })
-  })
-
-  // EXP-856: `run` rides even when there is no origin token to carry.
-  it(`names the run with no token at all`, () => {
-    expect(
-      sessionNavigation(
-        `acme`,
-        session,
-        { kind: `issue`, boardSlug: `web`, identifier: `MET-12` },
-        `i1`
-      ).search
-    ).toEqual({ from: `issue:web:MET-12`, run: `s1` })
-  })
-
-  it(`falls back to the flat route on an issue id mismatch`, () => {
-    expect(
-      sessionNavigation(
-        `acme`,
-        session,
-        { kind: `issue`, boardSlug: `web`, identifier: `MET-12` },
-        `i2`
-      )
+      sessionNavigation(`acme`, session, { kind: `board`, boardSlug: `web` })
     ).toEqual({
       to: SESSION_ROUTE,
       params: { teamSlug: `acme`, sessionId: `s1` },
-      search: { from: `issue:web:MET-12` },
+      search: { from: `board:web` },
     })
   })
 })
 
-// EXP-856: which run the issue-scoped session route steers.
+// EXP-856 / EXP-870: which run an issue's Run face steers.
 describe(`issueSessionTarget`, () => {
   const row = (id: string, userId: string, startedAt: string) => ({
     id,

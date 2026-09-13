@@ -27,7 +27,7 @@
  */
 const MAIN_PANEL_BASE = [
   `flex-1 flex flex-col min-h-screen min-w-0`,
-  `md:mx-[10px] md:mt-[10px] md:min-h-0`,
+  `md:mx-[10px] md:min-h-0`,
   `md:rounded-xl md:border md:border-glass-stroke-card md:bg-glass-panel`,
   `md:overflow-hidden`,
 ].join(` `)
@@ -38,7 +38,26 @@ const MAIN_PANEL_BASE = [
  * Tailwind's shorthand/longhand ordering is not a contract worth betting a
  * layout on.
  */
-export const MAIN_PANEL_CLASS = `${MAIN_PANEL_BASE} md:mb-[10px]`
+export function mainPanelClass({ tabs }: { tabs: boolean }): string {
+  // EXP-870: with the work-tabs strip above it, the strip's band IS the top
+  // inset — the card starts flush under it instead of 10px lower.
+  return `${MAIN_PANEL_BASE} ${tabs ? `md:mt-0` : `md:mt-[10px]`} md:mb-[10px]`
+}
+
+/** The card with no work tabs above it — 10px inset on all four sides. */
+export const MAIN_PANEL_CLASS = mainPanelClass({ tabs: false })
+
+/**
+ * EXP-870: the WORK TABS band — browser-like tabs on the bare ground above the
+ * card, md+ only (phones never show it), IDE parity with the desktop's title
+ * band. A PX height for the same reason the card's insets are px (the md+
+ * root font); it lines up with the card's 10px side inset.
+ */
+export const WORK_TABS_BAND_CLASS = [
+  `hidden md:flex`,
+  `md:h-[44px] shrink-0 min-w-0 items-center`,
+  `md:px-[10px]`,
+].join(` `)
 
 /**
  * The team layout's content COLUMN: the card's slot in the `SidebarProvider`

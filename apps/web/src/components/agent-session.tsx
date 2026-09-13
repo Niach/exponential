@@ -211,7 +211,6 @@ const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
-const UiBackIcon = conceptIcon(`ui-back`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
@@ -338,6 +337,7 @@ export function AgentSessionView({
   banner,
   issue = null,
   onOpenIssue,
+  faceToggle,
   onBack,
 }: {
   session: CodingSession
@@ -358,6 +358,10 @@ export function AgentSessionView({
    *  to the issue while the sessions list stays. */
   issue?: Issue | null
   onOpenIssue?: () => void
+  /** EXP-870: the md+ header's `Issue | Run` toggle (`WorkFaceToggle`) — the
+   *  run's linked issue is the same work tab's other face. When present it
+   *  replaces the issue band's "Open issue" pill on md+. */
+  faceToggle?: React.ReactNode
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
 }) {
@@ -1116,17 +1120,9 @@ export function AgentSessionView({
         </>
       ) : (
         <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
-          {/* EXP-862: a 32px borderless ghost with the 16px chevron — the
-              ONE back control ×4 (desktop `controls::back_button`). */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            aria-label="Back"
-            onClick={onBack}
-          >
-            <UiBackIcon />
-          </Button>
+          {/* EXP-870: no back control on md+ — the compact rail and the list
+              nav's back row are the way out (desktop parity). */}
+          {faceToggle && <div className="shrink-0 pl-1">{faceToggle}</div>}
           <div className="flex min-w-0 flex-1 flex-col items-center">
             <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
               <PhaseDot
@@ -1167,7 +1163,10 @@ export function AgentSessionView({
       )}
 
       {issue && (
-        <SessionIssueBand issue={issue} onOpen={onOpenIssue} />
+        <SessionIssueBand
+          issue={issue}
+          onOpen={isMobile || !faceToggle ? onOpenIssue : undefined}
+        />
       )}
 
       {banner}
@@ -3947,9 +3946,9 @@ function MessageComposer({
 
 /** EXP-827: the issue a run is attached to, one line under the session
  *  header — status glyph, mono identifier, title, priority — with an "Open
- *  issue" pill that swaps the pane for the issue detail (the sessions list on
- *  the left stays; `routes/t/$teamSlug/sessions/$sessionId_.issue.tsx`). The
- *  duplicate band on the issue page is the visual twin. */
+ *  issue" pill on phones. EXP-870: on md+ the header's `Issue | Run` toggle
+ *  flips to the issue face (its canonical URL) instead. The duplicate band on
+ *  the issue page is the visual twin. */
 function SessionIssueBand({
   issue,
   onOpen,

@@ -35,7 +35,6 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = `17rem`
 const SIDEBAR_WIDTH_MOBILE = `18rem`
 const SIDEBAR_WIDTH_ICON = `3rem`
-const SIDEBAR_KEYBOARD_SHORTCUT = `b`
 
 type SidebarContextProps = {
   state: `expanded` | `collapsed`
@@ -94,28 +93,13 @@ function SidebarProvider({
   )
 
   // Helper to toggle the sidebar. On mobile the sidebar drawer is retired
-  // (EXP-189: the MobileTabBar is the navigation), so toggling is a no-op —
-  // this also keeps Cmd+B from opening the dead drawer.
+  // (EXP-189: the MobileTabBar is the navigation), so toggling is a no-op.
+  // EXP-870: no keyboard shortcut toggles the sidebar at all.
   const toggleSidebar = React.useCallback(() => {
     if (isMobile) return
     setOpen((open) => !open)
   }, [isMobile, setOpen])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
-        event.preventDefault()
-        toggleSidebar()
-      }
-    }
-
-    window.addEventListener(`keydown`, handleKeyDown)
-    return () => window.removeEventListener(`keydown`, handleKeyDown)
-  }, [toggleSidebar])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -226,7 +210,9 @@ function Sidebar({
       <div
         data-slot="sidebar-gap"
         className={cn(
-          `relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear`,
+          // EXP-870: the shared motion tokens, so the width change a list panel
+          // brings (17rem ↔ 20rem) moves with the rail and panel slots inside.
+          `relative w-(--sidebar-width) bg-transparent transition-[width] duration-standard ease-standard motion-reduce:transition-none`,
           `group-data-[collapsible=offcanvas]:w-0`,
           `group-data-[side=right]:rotate-180`,
           variant === `floating` || variant === `inset`
@@ -237,7 +223,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex`,
+          `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-standard ease-standard motion-reduce:transition-none md:flex`,
           side === `left`
             ? `left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]`
             : `right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]`,

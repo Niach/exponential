@@ -120,7 +120,7 @@
     },
     {
       "route": "/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier/session",
-      "reason": "EXP-851: an issue's own coding run on the issue's URL (the board's list nav stays, Back returns to the issue). Same AgentSessionView composition as steering, which photographs the seeded showcase run on /sessions/$sessionId; a second recipe would need that run re-seeded issue-first."
+      "reason": "legacy redirect (EXP-870)"
     },
     {
       "route": "/t/$teamSlug/support/$threadId",
@@ -128,7 +128,7 @@
     },
     {
       "route": "/t/$teamSlug/sessions/$sessionId/issue",
-      "reason": "EXP-827: a run's linked issue opened inside the Agent shell from the session's issue band. Same IssueDetailView composition as issue-detail beside the steering sessions list; a recipe would need a seeded issue-linked live run, which steering already covers."
+      "reason": "legacy redirect (EXP-870)"
     },
     {
       "route": "/admin",
@@ -974,7 +974,7 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-740 gave a session its own full-page route — EXP-818 renders it inside the Agent shell (the sessions list on the left), so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
+        "web": "EXP-740 gave a session its own full-page route and EXP-870 made it the ONE run URL (an issue's run included — the issue is its work tab's other face), so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION.",
         "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase run in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {

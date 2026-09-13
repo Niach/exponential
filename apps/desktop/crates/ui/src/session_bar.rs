@@ -1,8 +1,8 @@
 //! The bottom **session bar** (EXP-769) — ONE fixed strip under the working
 //! panel carrying the tabs of the user's PTY terminals, then the `+` button.
 //! Nothing else. EXP-791: it used to be the desktop twin of the web
-//! `AgentDock` and carried the coding-session tabs too; those are rows of
-//! the rail's Sessions section now, the Chat button became the rail's Agent
+//! `AgentDock` and carried the coding-session tabs too; those are top tabs
+//! now (EXP-870: a run is its issue's Run face), the Chat button became the rail's Agent
 //! entry, and the bar takes NO height while no terminal is open (the shell
 //! keeps it mounted — its manager, key bindings and registry live on).
 //!
@@ -69,7 +69,6 @@ use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{self, Screen};
-use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
 /// The bar's height — the web strip's `h-9`.
@@ -91,6 +90,9 @@ actions!(
         NextTerminalTab,
         /// Switch to the previous terminal tab.
         PrevTerminalTab,
+        /// A new plain shell tab from ANYWHERE in the window — the rail
+        /// footer's terminal button as a chord (`cmd-t` / `ctrl-t`).
+        NewTerminal,
     ]
 );
 
@@ -190,6 +192,19 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTerminalTab, Some(KEY_CONTEXT)),
         KeyBinding::new("ctrl-shift-tab", PrevTerminalTab, Some(KEY_CONTEXT)),
     ]);
+    // The new-terminal chord works from every screen, not only from inside a
+    // terminal (it used to be bound to the terminal's key context alone, so
+    // pressing it anywhere else did nothing). Off macOS it is `ctrl-t`
+    // OUTSIDE a terminal only — the terminal element's own `Terminal` context,
+    // so docked AND undocked grids keep `ctrl-t` for the shell (transpose,
+    // fzf); `ctrl-shift-t` above opens the tab from inside one.
+    cx.on_action(|_: &NewTerminal, cx| {
+        crate::navigation::on_active_window(cx, |window, cx| open_new_shell(window, cx));
+    });
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new("cmd-t", NewTerminal, None)]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new("ctrl-t", NewTerminal, Some("!Terminal"))]);
 }
 
 /// The per-window session bar: owner of that window's [`TerminalManager`]
@@ -1003,101 +1018,10 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         )))
 }
 
-/// EXP-769: the caller's LIVE runs the rail's Sessions section lists (the
-/// web `useAgentsData(...).running`; they were session-bar entries before
-/// EXP-791): every live row of the caller's on OTHER machines
-/// (`queries::remote_session_rows`, when a relay exists to open them through)
-/// plus the runs THIS process hosts. Newest start first.
-pub(crate) fn running_session_ids(cx: &mut App) -> Vec<String> {
-    let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
-        return Vec::new();
-    };
-    let own_device_id = queries::own_device_id(cx);
-    let relay = queries::remote_start_enabled(cx);
-    let local_sessions = LocalSessions::global_ref(cx);
-    let Some(store) = sync::Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let collections = store.collections().clone();
-    let now = chrono::Utc::now().timestamp();
-
-    let local_ids: std::collections::HashSet<String> = local_sessions
-        .as_ref()
-        .map(|sessions| sessions.read(cx).session_ids().into_iter().collect())
-        .unwrap_or_default();
-
-    let sessions = collections.coding_sessions.read(cx);
-    let mut rows: Vec<&domain::rows::CodingSession> = if relay {
-        queries::remote_session_rows(sessions.iter(), &me, &own_device_id, &local_ids, now)
-    } else {
-        Vec::new()
-    };
-    rows.extend(
-        sessions
-            .iter()
-            .filter(|session| local_ids.contains(&session.id))
-            .filter(|session| queries::coding_session_is_live(session, now)),
-    );
-    rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
-    rows.into_iter().map(|session| session.id.clone()).collect()
-}
-
-/// EXP-769: a live run a close affordance can kill (web `useKillSession`'s
-/// `canKill`): the caller's, still live, its host not paused. `None` means
-/// the × closes the tab instead.
-#[derive(Clone)]
-pub(crate) struct KillTarget {
-    session_id: String,
-    /// `Some` while THIS process hosts the run — the kill goes straight to
-    /// the host instead of out through the relay.
-    local: Option<LocalSessionHost>,
-    /// The machine's name, for the confirm copy ("… on Studio").
-    device_label: Option<String>,
-}
-
-pub(crate) fn kill_target(session_id: &str, cx: &App) -> Option<KillTarget> {
-    let me = queries::active_account(cx)?.user_id;
-    let store = sync::Store::try_global(cx)?;
-    let collections = store.collections();
-    let sessions = collections.coding_sessions.read(cx);
-    let row = sessions.get(session_id)?;
-    let now = chrono::Utc::now().timestamp();
-    if row.user_id.as_deref() != Some(me.as_str()) || !queries::coding_session_is_live(row, now) {
-        return None;
-    }
-    let presentation =
-        queries::session_device_presentation(row, collections.devices.read(cx).iter(), now * 1_000);
-    let issue_pr_state = row
-        .issue_id
-        .as_deref()
-        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
-        .and_then(|issue| issue.pr_state);
-    let display = queries::coding_session_display(
-        row,
-        issue_pr_state.as_deref().or(row.pr_state.as_deref()),
-    );
-    // A paused host is never killed (it resumes when the lid opens).
-    if queries::session_is_paused(display, &presentation) {
-        return None;
-    }
-    let local = LocalSessions::global_ref(cx)
-        .and_then(|sessions| sessions.read(cx).session_by_id(session_id).map(|s| s.host.clone()));
-    Some(KillTarget {
-        session_id: session_id.to_string(),
-        local,
-        device_label: presentation.label,
-    })
-}
-
 /// The confirm before a live run is ended. A run this process hosts stops
 /// through its [`LocalSessionHost`] (the same path the issue header's stop
-/// takes); anything else goes out as `steer.killSession`. Shared with the
-/// Devices screen's Running rows.
-pub(crate) fn prompt_kill(target: KillTarget, window: &mut Window, cx: &mut App) {
-    prompt_kill_session(target.local, target.device_label, target.session_id, window, cx);
-}
-
-/// [`prompt_kill`] on its parts.
+/// takes); anything else goes out as `steer.killSession`. Shared by the
+/// session lists' Stop.
 pub(crate) fn prompt_kill_session(
     local: Option<LocalSessionHost>,
     device_label: Option<String>,
