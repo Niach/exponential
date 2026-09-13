@@ -447,33 +447,72 @@ struct ActionsListView: View {
         return "\(name) — \(owner.name)"
     }
 
-    /// One automation-started coding_sessions row (started_reason non-null):
-    /// action-name snapshot, state, relative time. No "Automated" badge
-    /// (EXP-643) — the section header already says so.
+    /// One automation-started coding_sessions row (started_reason non-null).
+    /// No "Automated" badge (EXP-643) — the section header already says so.
     ///
-    /// EXP-773: a plain link. The close-out summary and Resume moved to the
-    /// top of the run's own session view, so live and finished rows behave
-    /// identically: a tap opens that session.
+    /// EXP-874: a LIVE run wears the Agent page's running row
+    /// (`RunningSessionRow`: dot, state line, blocked wall); a finished one
+    /// stays `EndedRunRow`. Either way a tap opens that run's session view
+    /// (EXP-773), where its summary and Resume live.
+    @ViewBuilder
     private func automatedRunRow(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
         let ended = session.status == DomainContract.codingSessionStatusEnded
-        return EndedRunRow(
-            title: session.actionName ?? "Action run",
-            byline: runByline(session, ended: ended),
-            isLive: !ended,
-            onOpen: { sessionTarget = .init(sessionId: session.id) }
-        )
-        .accessibilityIdentifier("automated-run-row")
+        if ended {
+            EndedRunRow(
+                title: session.actionName ?? "Action run",
+                byline: endedByline(session),
+                onOpen: { sessionTarget = .init(sessionId: session.id) }
+            )
+            .accessibilityIdentifier("automated-run-row")
+        } else {
+            RunningSessionRow(
+                session: session,
+                identifier: nil,
+                title: session.actionName ?? "Action run",
+                state: CodingSessionDisplayState.of(session: session, prState: session.prState),
+                device: runDevice(session, vm: vm),
+                open: .action { sessionTarget = .init(sessionId: session.id) },
+                trailing: { automatedRunTrailing(session, vm: vm) }
+            )
+            .accessibilityIdentifier("automated-run-row")
+        }
     }
 
-    /// "ended 5m ago" once the run finished, "started 5m ago" while it is
-    /// still going — the automated runs list has no machine column to add.
-    private func runByline(_ session: CodingSessionEntity, ended: Bool) -> String {
-        if ended {
-            let time = relativeDate(session.endedAt ?? session.startedAt)
-            return time.isEmpty ? "" : "ended \(time)"
+    /// EXP-874: the live run's trailing circle, the Agent page's rule — the
+    /// action's own glyph, opening the automation form for owners (when the
+    /// automation still exists) and the action editor otherwise.
+    @ViewBuilder
+    private func automatedRunTrailing(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
+        let action = session.actionId.flatMap { id in vm.actions.first { $0.id == id } }
+        let automation = session.automationId.flatMap { id in vm.automations.first { $0.id == id } }
+        if vm.permissions.isOwner, let automation {
+            CircleIconButton(action?.icon ?? AppIcons.actionDefault, accessibilityLabel: "Edit automation") {
+                formTarget = AutomationFormTarget(id: automation.id, automation: automation)
+            }
+        } else if let action {
+            CircleIconButton(action.icon ?? AppIcons.actionDefault, accessibilityLabel: "Edit action") {
+                editTarget = action
+            }
         }
-        let time = relativeDate(session.startedAt)
-        return time.isEmpty ? "" : "started \(time)"
+    }
+
+    /// The run's host as it presents:the registry row's CURRENT label when
+    /// one matches (a rename never rewrites the session snapshot), else the
+    /// snapshot. Presence stays UNKNOWN — the registry here is a one-shot
+    /// read, and a stale snapshot must never claim a live run is paused.
+    private func runDevice(_ session: CodingSessionEntity, vm: ActionsViewModel) -> SessionDevicePresentation {
+        let live = session.deviceId.flatMap { id in
+            vm.allDevices.first { $0.deviceId == id }?.deviceLabel
+        }
+        let label = (live?.isEmpty == false) ? live : session.deviceLabel
+        return SessionDevicePresentation(label: label, online: nil)
+    }
+
+    /// "ended 5m ago" — a finished automated run (the list has no machine
+    /// column to add; live runs print their own status line).
+    private func endedByline(_ session: CodingSessionEntity) -> String {
+        let time = relativeDate(session.endedAt ?? session.startedAt)
+        return time.isEmpty ? "" : "ended \(time)"
     }
 
     private func relativeDate(_ s: String) -> String {

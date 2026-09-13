@@ -49,6 +49,8 @@ import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.formatAutomationBlock
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.BottomBarInset
@@ -69,6 +71,7 @@ import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.session.RunningSessionRow
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
@@ -194,6 +197,7 @@ fun ActionsScreen(
                             viewModel.clearAutomationError()
                             automationEditTarget = automation
                         },
+                        onEditAction = { editActionId = it },
                         onNew = {
                             viewModel.clearAutomationError()
                             automationForm = true
@@ -461,6 +465,9 @@ private fun AutomationsContent(
     onSetEnabled: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
     onEdit: (AutomationEntity) -> Unit,
+    // EXP-874: a live run's trailing action circle opens the action editor
+    // when the automation doesn't resolve (or the caller isn't the owner).
+    onEditAction: (String) -> Unit,
     onNew: () -> Unit,
 ) {
     val actionsById = remember(actions) { actions.associateBy { it.id } }
@@ -537,19 +544,55 @@ private fun AutomationsContent(
                 )
             }
             items(runs, key = { it.id }) { session ->
-                // One row shape for both (EXP-686/EXP-773): a plain link.
-                // A finished run's close-out summary and its Resume live at
-                // the top of the session view it opens, so live and finished
-                // rows behave identically.
+                // EXP-874: the Agent page's row shapes — a live run is the
+                // shared RunningSessionRow (state dot, byline, the action's
+                // glyph circle), a finished one the plain EndedRunRow link.
+                // Both open the session view (close-out + Resume live there).
                 val ended = session.status == DomainContract.codingSessionStatusEnded
-                EndedRunRow(
-                    title = session.actionName ?: "Action run",
-                    timeLabel = relativeTime(
-                        if (ended) session.endedAt ?: session.startedAt else session.startedAt,
-                    ),
-                    isLive = !ended,
-                    onOpen = { onOpenSteer(session.id) },
-                )
+                val device = sessionDevice(session, devices)
+                if (ended) {
+                    val timeLabel = relativeTime(session.endedAt ?: session.updatedAt)
+                    EndedRunRow(
+                        title = session.actionName?.takeIf { it.isNotBlank() } ?: "Action run",
+                        timeLabel = timeLabel,
+                        byline = pastRunByline(
+                            deviceLabel = device.displayLabel,
+                            timeLabel = timeLabel,
+                        ),
+                        onOpen = { onOpenSteer(session.id) },
+                    )
+                } else {
+                    val runAction = session.actionId?.let(actionsById::get)
+                    val runAutomation = session.automationId?.let { id ->
+                        automations.firstOrNull { it.id == id }
+                    }
+                    // Same resolution as AgentSessionsList: the owner edits the
+                    // automation, everyone else (or an unresolved one) the action.
+                    val editsAutomation = runAutomation != null && isOwner
+                    RunningSessionRow(
+                        session = session,
+                        issue = null,
+                        device = device,
+                        mergeTarget = null,
+                        merging = false,
+                        failure = null,
+                        onClick = { onOpenSteer(session.id) },
+                        issueIdentifier = null,
+                        actionIcon = session.actionId?.let { actionGlyph(runAction) },
+                        actionLabel = if (editsAutomation) "Edit automation" else "Edit action",
+                        onOpenIssue = {},
+                        onOpenAction = {
+                            if (editsAutomation) {
+                                runAutomation?.let(onEdit)
+                            } else {
+                                session.actionId?.let(onEditAction)
+                            }
+                        },
+                        onMerge = {},
+                        canFixConflicts = false,
+                        onFixConflicts = {},
+                    )
+                }
             }
         }
     }
@@ -744,6 +787,19 @@ private fun automationLaunchLabel(automation: AutomationEntity): String {
     return (listOf(agentLabel(agent)) + extras).joinToString(" · ")
 }
 
+/** EXP-874: a run's host machine off the synced devices (steer `device_id`,
+ *  the owner's own row first) — the stamped label and UNKNOWN presence when
+ *  the row isn't visible, mirroring `resolveSessionDevice`. */
+private fun sessionDevice(session: CodingSessionEntity, devices: List<SteerDevice>): SessionDevicePresentation {
+    val matches = session.deviceId?.let { id -> devices.filter { it.deviceId == id } }.orEmpty()
+    val row = matches.firstOrNull { it.owner?.id == session.userId }
+        ?: matches.firstOrNull { it.isMine } ?: matches.firstOrNull()
+        ?: return SessionDevicePresentation(label = session.deviceLabel, online = null)
+    return SessionDevicePresentation(
+        label = row.deviceLabel.takeIf { it.isNotBlank() } ?: session.deviceLabel,
+        online = row.online,
+    )
+}
 
 private fun deviceDisplayLabel(device: SteerDevice?, deviceId: String): String {
     if (device == null) return deviceId

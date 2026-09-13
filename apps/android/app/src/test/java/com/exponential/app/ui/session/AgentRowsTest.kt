@@ -657,4 +657,12 @@ class AgentRowsTest {
         assertEquals("5m ago", pastRunByline("  ", "5m ago"))
         assertEquals("buildbox", pastRunByline("buildbox", ""))
     }
+
+    @Test
+    fun `the row identifier is the issue shortcode only for an issue run`() {
+        // EXP-874: a non-issue run (action/chat/batch) — and an issue run whose
+        // issue hasn't synced — prints no identifier, never a placeholder.
+        assertEquals("EXP-1", sessionRowIdentifier(issue("i")))
+        assertNull(sessionRowIdentifier(null))
+    }
 }

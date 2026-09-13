@@ -3,6 +3,7 @@ import {
   sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
+  sessionStatusLine,
 } from "./coding-session-display"
 
 // Parity suite — iOS CodingSessionDisplayTests.swift and Android
@@ -99,5 +100,36 @@ describe(`sessionAgentCaption`, () => {
     expect(
       sessionAgentCaption({ status: `merged`, agentCaption: `Workflow x · done · 2 agents` })
     ).toBeNull()
+  })
+})
+
+// EXP-874: the running row's status line (Android's row is the reference).
+describe(`sessionStatusLine`, () => {
+  const startedAt = new Date(Date.now() - 5 * 60_000)
+
+  it(`a paused run says so, whatever its state`, () => {
+    for (const state of [`running`, `needs_input`, `review`, `done`] as const) {
+      expect(
+        sessionStatusLine({ state, paused: true, device: `mbp`, startedAt })
+      ).toEqual({ text: `Paused · mbp`, tone: `muted` })
+    }
+  })
+
+  it(`a parked state leads with its label and tone`, () => {
+    expect(
+      sessionStatusLine({ state: `needs_input`, paused: false, device: `mbp`, startedAt })
+    ).toEqual({ text: `Needs input · mbp`, tone: `amber` })
+    expect(
+      sessionStatusLine({ state: `review`, paused: false, device: `mbp`, startedAt })
+    ).toEqual({ text: `Ready for review · mbp`, tone: `emerald` })
+    expect(
+      sessionStatusLine({ state: `done`, paused: false, device: `mbp`, startedAt })
+    ).toEqual({ text: `Done · mbp`, tone: `sky` })
+  })
+
+  it(`a live run names the machine and when it started`, () => {
+    expect(
+      sessionStatusLine({ state: `running`, paused: false, device: `mbp`, startedAt })
+    ).toEqual({ text: `mbp · started 5 minutes ago`, tone: `muted` })
   })
 })

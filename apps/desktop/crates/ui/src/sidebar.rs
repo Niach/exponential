@@ -2314,6 +2314,7 @@ impl ListPanel {
         let board_my = shared.read(cx).board_my.clone();
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
+        let merge_state = crate::pr_merge::MergeState::global(cx);
         let subscriptions = vec![
             // Rail toggles swap the tool window.
             cx.observe(&shared, |_, _, cx| cx.notify()),
@@ -2332,6 +2333,10 @@ impl ListPanel {
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // Active-row highlight follows navigation.
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // EXP-874: the automated-run rows show the device (paused/label)
+            // and paint the shared two-click Merge state.
+            cx.observe(&collections.devices, |_, _, cx| cx.notify()),
+            cx.observe(&merge_state, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -3820,43 +3825,34 @@ impl ListPanel {
         };
         let origin = self.row_origin(cx);
         let now_secs = chrono::Utc::now().timestamp();
-        let rows: Vec<gpui::AnyElement> = runs
+        let facts: Vec<crate::run_rows::RunListFacts> = runs
             .iter()
-            .enumerate()
-            .map(|(index, session)| {
-                let parts = crate::run_rows::automation_row_parts(session, now_secs);
-                let active = open_session.as_deref() == Some(session.id.as_str());
-                let open_id = session.id.clone();
-                let origin = origin.clone();
-                crate::run_rows::render_run_row_active(
-                    crate::run_rows::RunRowSpec {
-                        id_prefix: "list-nav-automation",
-                        index,
-                        lead: crate::run_rows::RunRowLead::Automation,
-                        // Automated runs are flat: an automation fires ONE
-                        // run, and a sub-session it starts is listed on the
-                        // Agent page.
-                        depth: 0,
-                        fold: None,
-                        identifier: None,
-                        title: parts.title,
-                        caption: Some(parts.caption),
-                        subcaption: None,
-                        on_open: Some(Box::new(move |_, window, cx| {
-                            crate::session_screen::open_session_with_origin(
-                                &open_id,
-                                origin.clone(),
-                                window,
-                                cx,
-                            );
-                        })),
-                        kill: None,
-                    },
-                    active,
-                    cx,
-                )
-            })
+            .map(|session| crate::run_rows::RunListFacts::derive(session, now_secs, cx))
             .collect();
+        let mut rows: Vec<gpui::AnyElement> = Vec::with_capacity(facts.len());
+        for (index, facts) in facts.into_iter().enumerate() {
+            let open_id = facts.session_id().to_string();
+            let active = open_session.as_deref() == Some(open_id.as_str());
+            let origin = origin.clone();
+            // EXP-874: the shared run rows (live → running row, ended → past
+            // row); automated runs are flat, a sub-session they start is
+            // listed on the Agent page.
+            rows.push(crate::run_rows::render_run_list_row(
+                "list-nav-automation",
+                index,
+                facts,
+                active,
+                Box::new(move |_, window, cx| {
+                    crate::session_screen::open_session_with_origin(
+                        &open_id,
+                        origin.clone(),
+                        window,
+                        cx,
+                    );
+                }),
+                cx,
+            ));
+        }
         self.nav_scroll("list-nav-automations-scroll", rows, cx)
     }
 

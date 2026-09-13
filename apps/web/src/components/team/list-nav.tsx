@@ -15,7 +15,15 @@ import { useReviewsData } from "@/hooks/use-reviews-data"
 import { useSession } from "@/hooks/use-session"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { codingSessionCollection } from "@/lib/collections"
-import { relativeTime } from "@/components/comment-rows/format"
+import { sessionIdentity } from "@/lib/session-identity"
+import { useSessionListRows } from "@/hooks/use-agents-data"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { useSteerConfig } from "@/components/agent-session"
+import { pastRunRowByline } from "@/components/agent-session-row"
+import {
+  PastSessionRow,
+  RunningSessionRow,
+} from "@/components/session-list-rows"
 import { conceptIcon } from "@/lib/icons.generated"
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { InboxView } from "@/components/inbox/inbox-view"
@@ -90,7 +98,7 @@ export function TeamListNav({
         )}
         {origin.kind === `agent` && team && <AgentListNav teamId={team.id} />}
         {origin.kind === `automations` && team && (
-          <AutomationsListNav teamId={team.id} />
+          <AutomationsListNav team={team} />
         )}
       </div>
     </>
@@ -291,9 +299,14 @@ function AgentListNav({ teamId }: { teamId: string }) {
  *  this list beside it, and Back returns to Automations (never the Agent
  *  page, whose list is the person-started one). Same rows the page's "Recent
  *  automated runs" section draws, at the sidebar's density. */
-function AutomationsListNav({ teamId }: { teamId: string }) {
+function AutomationsListNav({ team }: { team: Team }) {
+  const teamId = team.id
   const { sessionId } = useActiveDetail()
   const openSession = useOpenSession()
+  // EXP-874: resolved once for the rows' trailing buttons.
+  const { isMember, isOwner } = useTeamPermissions(team)
+  const steerConfig = useSteerConfig()
+  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const { data: sessionRows } = useLiveQuery(
     (query) =>
       query
@@ -314,7 +327,8 @@ function AutomationsListNav({ teamId }: { teamId: string }) {
         ),
     [sessionRows]
   )
-  if (runs.length === 0) {
+  const rows = useSessionListRows(teamId, runs)
+  if (rows.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-muted-foreground">
         Nothing has fired yet.
@@ -324,23 +338,32 @@ function AutomationsListNav({ teamId }: { teamId: string }) {
   return (
     <div className="flex-1 overflow-y-auto p-2">
       <div className="flex flex-col">
-        {runs.map((session) => (
-          <ListRow
-            key={session.id}
-            interactive
-            active={session.id === sessionId}
-            className="h-7 gap-2 px-2 py-0"
-            onClick={() => openSession(session, { origin: { kind: `automations` } })}
-            data-testid={`automations-nav-run-${session.id}`}
-          >
-            <span className="min-w-0 flex-1 truncate text-sm">
-              {session.actionName ?? `Action`}
-            </span>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {relativeTime(session.createdAt)}
-            </span>
-          </ListRow>
-        ))}
+        {rows.map((row) => {
+          const { session } = row
+          const onOpen = () =>
+            openSession(session, { origin: { kind: `automations` } })
+          const active = session.id === sessionId
+          return session.status === `ended` ? (
+            <PastSessionRow
+              key={session.id}
+              sessionId={session.id}
+              title={sessionIdentity(row).subject}
+              identifier={row.issue?.identifier ?? null}
+              byline={pastRunRowByline(row)}
+              active={active}
+              onOpen={onOpen}
+            />
+          ) : (
+            <RunningSessionRow
+              key={session.id}
+              row={row}
+              active={active}
+              isOwner={isOwner}
+              steerEnabled={steerEnabled}
+              onOpen={onOpen}
+            />
+          )
+        })}
       </div>
     </div>
   )

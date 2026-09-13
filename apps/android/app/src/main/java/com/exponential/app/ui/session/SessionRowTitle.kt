@@ -28,7 +28,8 @@ import com.exponential.app.ui.theme.TextEmphasis
  */
 @Composable
 internal fun SessionRowTitle(
-    identifier: String,
+    /** The issue's shortcode — null for a non-issue run, which prints none. */
+    identifier: String?,
     title: String,
     modifier: Modifier = Modifier,
     dot: @Composable () -> Unit,
@@ -36,14 +37,16 @@ internal fun SessionRowTitle(
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         dot()
         Spacer(Modifier.width(12.dp))
-        Text(
-            identifier,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 1,
-        )
-        Spacer(Modifier.width(8.dp))
+        if (identifier != null) {
+            Text(
+                identifier,
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium,
@@ -56,9 +59,9 @@ internal fun SessionRowTitle(
     }
 }
 
-/** The identifier column — an issue-scoped run whose issue hasn't synced (and
- *  a batch/action run, which has none) still needs something in the slot. */
-internal fun sessionRowIdentifier(issue: IssueEntity?): String = issue?.identifier ?: "…"
+/** EXP-874: the issue shortcode, ONLY for an issue run — a batch/action/chat
+ *  run (and an issue run whose issue hasn't synced) prints no identifier. */
+internal fun sessionRowIdentifier(issue: IssueEntity?): String? = issue?.identifier
 
 /**
  * What the run is about: the issue's title, an action run's `action_name`

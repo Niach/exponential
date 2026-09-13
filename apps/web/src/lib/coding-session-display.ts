@@ -1,4 +1,5 @@
 import type { CodingSession } from "@/db/schema"
+import { relativeTime } from "@/components/comment-rows/format"
 
 /** How a live session should render (EXP-214) — the session status alone is
  * not the whole story: `in_review` splits on the linked issue's PR outcome
@@ -59,4 +60,41 @@ export function sessionAgentCaption(
   if (session.status === `ended` || session.status === `merged`) return null
   const caption = session.agentCaption?.trim()
   return caption ? caption : null
+}
+
+/** The tone a session row's status line paints in. */
+export type SessionStatusTone = `muted` | `amber` | `emerald` | `sky`
+
+/** EXP-874: the status line of a RUNNING session list row (Android's row is
+ * the reference) — the parked state first, then the host machine; a live run
+ * reads "<device> · started <rel time>". `device` is the resolved label
+ * (`device.label || session.deviceLabel || 'Desktop'`). A paused run (offline
+ * machine) beats every state: the agent is parked, not gone. */
+export function sessionStatusLine({
+  state,
+  paused,
+  device,
+  startedAt,
+}: {
+  state: SessionDisplayState
+  paused: boolean
+  device: string
+  startedAt: Date | string | null | undefined
+}): { text: string; tone: SessionStatusTone } {
+  if (paused) return { text: `Paused · ${device}`, tone: `muted` }
+  switch (state) {
+    case `needs_input`:
+      return { text: `Needs input · ${device}`, tone: `amber` }
+    case `review`:
+      return { text: `Ready for review · ${device}`, tone: `emerald` }
+    case `done`:
+      return { text: `Done · ${device}`, tone: `sky` }
+    case `running`: {
+      const started = relativeTime(startedAt)
+      return {
+        text: started ? `${device} · started ${started}` : device,
+        tone: `muted`,
+      }
+    }
+  }
 }
