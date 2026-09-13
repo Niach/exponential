@@ -204,10 +204,10 @@ pub(crate) fn issue_id_by_identifier(
 ) -> Option<String> {
     Store::global(cx)
         .collections()
-        .issues_in_team(team_id, cx)
+        .issue_refs_in_team(team_id, cx)
         .into_iter()
         .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-        .map(|issue| issue.id)
+        .map(|issue| issue.id.clone())
 }
 
 /// The CLASSIC block-editor adapter: owns the editor entity + a markdown

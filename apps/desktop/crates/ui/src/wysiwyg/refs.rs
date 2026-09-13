@@ -105,8 +105,8 @@ pub(crate) fn refresh_ref_state(state: &SharedRefState, team_id: &str, cx: &App)
     // what the per-issue call did.
     let statuses = crate::queries::team_statuses(cx, team_id);
     let issues: HashMap<String, IssueChipSnapshot> = collections
-        .issues_in_team(team_id, cx)
-        .iter()
+        .issue_refs_in_team(team_id, cx)
+        .into_iter()
         .map(|issue| {
             // EXP-423: resolve status → glyph + tint once per refresh, so
             // the Send+Sync decorator never touches the store.

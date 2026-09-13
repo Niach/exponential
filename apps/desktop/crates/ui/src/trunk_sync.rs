@@ -200,6 +200,12 @@ pub struct TrunkSync {
     /// An issue newly finished and the prune-carrying auto-sync has not
     /// started yet — same stickiness/consumption as `pending_merge_sync`.
     pending_prune_sync: bool,
+    /// EXP-868: the (repo, issues revision, boards revision) the merge-stamp
+    /// and finished-set scans last ran against. Both run per RENDER, and the
+    /// rail renders on every window redraw (a caret blink, a keystroke) —
+    /// an unchanged key means an unchanged answer, so the scan is skipped.
+    merge_scan_key: Option<(String, u64, u64)>,
+    finished_scan_key: Option<(String, u64, u64)>,
     /// The doctor's last-seen git verdict — the EXP-366 recovery edge: when
     /// git flips missing→present ("Check tools" after installing it), the
     /// failed/never-attempted clone retries WITHOUT the user finding the
@@ -273,6 +279,8 @@ impl TrunkSync {
             finished_ids: Default::default(),
             finished_seeded: false,
             pending_prune_sync: false,
+            merge_scan_key: None,
+            finished_scan_key: None,
             git_ok_seen: None,
             _subscriptions: subscriptions,
         }
@@ -499,6 +507,14 @@ impl TrunkSync {
         if !collections.issues.read(cx).is_ready() || !collections.boards.read(cx).is_ready() {
             return;
         }
+        let key = self.issue_scan_key(cx);
+        if key.is_some() && key == self.merge_scan_key {
+            if self.pending_merge_sync {
+                self.maybe_auto_sync(window, cx);
+            }
+            return;
+        }
+        self.merge_scan_key = key;
         let stamp = self.latest_merge_stamp(cx);
         if !self.merge_stamp_seeded {
             self.merge_stamp_seeded = true;
@@ -510,6 +526,18 @@ impl TrunkSync {
         if self.pending_merge_sync {
             self.maybe_auto_sync(window, cx);
         }
+    }
+
+    /// EXP-868: what the per-render issue scans below depend on — the scoped
+    /// repo and the two collections they read. `None` without a repo.
+    fn issue_scan_key(&self, cx: &App) -> Option<(String, u64, u64)> {
+        let repo = self.repo.as_ref()?;
+        let collections = Store::global(cx).collections();
+        Some((
+            repo.repository_id.clone(),
+            collections.issues.read(cx).revision(),
+            collections.boards.read(cx).revision(),
+        ))
     }
 
     /// The newest `pr_merged_at` across synced issues whose board points at
@@ -586,6 +614,14 @@ impl TrunkSync {
         if !collections.issues.read(cx).is_ready() || !collections.boards.read(cx).is_ready() {
             return;
         }
+        let key = self.issue_scan_key(cx);
+        if key.is_some() && key == self.finished_scan_key {
+            if self.pending_prune_sync {
+                self.maybe_auto_sync(window, cx);
+            }
+            return;
+        }
+        self.finished_scan_key = key;
         let current = self.finished_issue_ids(cx);
         if finished_set_fires(self.finished_seeded, &self.finished_ids, &current) {
             self.pending_prune_sync = true;
@@ -710,6 +746,8 @@ impl TrunkSync {
             self.finished_ids = Default::default();
             self.finished_seeded = false;
             self.pending_prune_sync = false;
+            self.merge_scan_key = None;
+            self.finished_scan_key = None;
             // Kill the previous scope's timer loop + in-flight job tail.
             self.generation += 1;
         }

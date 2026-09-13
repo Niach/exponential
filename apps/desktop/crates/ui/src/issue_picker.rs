@@ -7,6 +7,7 @@
 //! identifier · status · title) are unchanged.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -90,37 +91,51 @@ pub(crate) fn state_hint(status: IssueStatus, pr_state: Option<&str>) -> Option<
 /// resolves its seed from the raw issues collection — a seed the join
 /// dropped (a board row that hasn't synced yet) is re-read from there.
 pub(crate) fn snapshot_rows(cx: &App, team_id: &str, preselected: &HashSet<String>) -> Vec<IssueRow> {
-    let mut issues = crate::queries::team_issues(cx, team_id);
+    let collections = Store::global(cx).collections();
+    // EXP-868: filter on BORROWED rows and resolve against the team's status
+    // rows read once — cloning every team issue (closed ones and their
+    // descriptions included) and re-scanning the statuses per row made this
+    // the costliest thing on screen.
+    let mut issues = collections.issue_refs_in_team(team_id, cx);
+    // A seed the team join dropped resolves on its own (its board is unknown
+    // here, so the team's rows are not a safe assumption).
+    let joined = issues.len();
     for seed in preselected {
         if !issues.iter().any(|issue| &issue.id == seed) {
-            if let Some(issue) = Store::global(cx).collections().issues.read(cx).get(seed) {
-                issues.push(issue.clone());
+            if let Some(issue) = collections.issues.read(cx).get(seed) {
+                issues.push(issue);
             }
         }
     }
-    issues.retain(|issue| {
-        preselected.contains(&issue.id) || !is_closed(issue.status, issue.pr_state.as_deref())
-    });
-    issues.sort_by(|a, b| {
+    let statuses = crate::queries::team_statuses(cx, team_id);
+    let mut rows: Vec<(&domain::rows::Issue, bool)> = issues
+        .into_iter()
+        .enumerate()
+        .map(|(ix, issue)| (issue, ix < joined))
+        .filter(|(issue, _)| {
+            preselected.contains(&issue.id) || !is_closed(issue.status, issue.pr_state.as_deref())
+        })
+        .collect();
+    rows.sort_by(|(a, _), (b, _)| {
         a.board_id
             .cmp(&b.board_id)
             .then_with(|| a.number.cmp(&b.number))
     });
-    issues
-        .into_iter()
-        .map(|issue| {
-            let resolved = crate::queries::resolve_issue_status(cx, &issue);
-            IssueRow {
-                state_hint: state_hint(issue.status, issue.pr_state.as_deref()),
-                issue_id: issue.id,
-                board_id: issue.board_id,
-                identifier: issue.identifier,
-                title: issue.title,
-                description: issue.description,
-                status: issue.status,
-                priority: issue.priority,
-                resolved,
-            }
+    rows.into_iter()
+        .map(|(issue, in_team)| IssueRow {
+            state_hint: state_hint(issue.status, issue.pr_state.as_deref()),
+            issue_id: issue.id.clone(),
+            board_id: issue.board_id.clone(),
+            identifier: issue.identifier.clone(),
+            title: issue.title.clone(),
+            description: issue.description.clone(),
+            status: issue.status,
+            priority: issue.priority,
+            resolved: if in_team {
+                domain::statuses::resolve_status_sorted(issue, &statuses)
+            } else {
+                crate::queries::resolve_issue_status(cx, issue)
+            },
         })
         .collect()
 }
@@ -272,14 +287,15 @@ fn issue_row<V: Render>(
 #[allow(clippy::too_many_arguments)] // one popover, one place
 pub(crate) fn issue_picker_popover<V: Render>(
     trigger: Button,
-    rows: &[IssueRow],
+    // EXP-868: shared, not copied — the composer renders on every window
+    // redraw, and a per-render copy of the whole pool was measurable.
+    rows: Rc<Vec<IssueRow>>,
     checked: &HashSet<String>,
     search: &Entity<InputState>,
     notes: Vec<(String, SharedString)>,
     toggle: fn(&mut V, String, bool, &mut Window, &mut gpui::Context<V>),
     cx: &mut gpui::Context<V>,
 ) -> Popover {
-    let rows = rows.to_vec();
     let checked = checked.clone();
     let search = search.clone();
     let view = cx.entity().downgrade();
