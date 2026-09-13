@@ -46,16 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-queued-messages-and-one-session-header",
+    id: "2026-09-rail-that-stays-and-run-tabs",
     date: "2026-09-13",
-    title: "Messages that wait their turn, Stop that reaches the machine, and one session header",
-    summary: "A message sent while the agent is working waits in a Queued bar until the turn ends, Stop from the web and the phone now interrupts the run, the desktop session header and usage sheet match the web, the sidebar issue list gets bulk edits, and a run that switched accounts no longer stays marked rate limited.",
-    body: r#"- **Queued messages**: send while the agent is still working or compacting and the message waits in a Queued bar above the composer, on web, desktop, iOS and Android. Its × removes it from the queue, an empty draft takes the text back, and Stop drops the queue with the turn. The message shows in the transcript the moment the agent takes it.
-- **Stop reaches the machine**: Stop pressed on the web or the phone now interrupts the running turn on the machine. Every client had been sending it; the relay was dropping it.
-- **One session header**: the desktop session header lost its Back button, centers the run's identity like the web, carries a quieter Plan chip and the web's usage and open-issue icons, and the issue band is the real issue header with Open issue in the Watch slot.
-- **One usage sheet**: the usage overlay has the same structure on web and desktop: the active account once, Context, the windows, the other accounts, and one footer note.
-- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, pinned rows unpin on hover, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
-- **Switching accounts clears the wall**: a run ended by an account switch no longer keeps Rate limited on its row for good, and a resumed run no longer re-arms a rate limit from its replayed transcript."#,
+    title: "A sidebar that never leaves, and every run in a tab beside its issue",
+    summary: "Opening an issue from a list folds the sidebar into an icon rail instead of replacing it, an issue and its coding run share one tab, and every run you have going always has a tab, on the desktop app and the web.",
+    body: r#"- **The rail stays**: opening an issue, a run or Settings from a list slides that list in beside an icon rail, so Inbox, Agent, your boards and pinned items stay one click away. Back slides the other way.
+- **One tab per piece of work**: an issue and its coding run are one tab with an Issue and Run switch in the header, and a run without an issue gets a tab of its own. The web now has tabs too.
+- **Runs always have a tab**: every run you have going gets a tab at the front of the strip, with a spinner while the agent works, amber when it waits on you and green once its PR is open. Close one and it stays closed until the run needs you again.
+- **Pinned items open in place**: a pinned issue, run or action opens full width without swapping the sidebar.
+- **The list opens every time**: on the desktop app, the first issue you open after launch or after switching teams now opens beside its board list.
+- **The same sidebar on both**: the team switcher stays at the top on the web too, the back row is the same size on both, Agent shows how many runs are going, and the web team menu gains Join team."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.
