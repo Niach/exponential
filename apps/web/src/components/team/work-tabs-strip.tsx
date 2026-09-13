@@ -345,10 +345,7 @@ export function WorkTabsStrip({
           variant="ghost"
           size="icon-xs"
           tabIndex={interactive ? undefined : -1}
-          className={cn(
-            `mr-1 shrink-0`,
-            !active && `opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100`
-          )}
+          className="mr-1 shrink-0"
           aria-label="Close tab"
           onClick={interactive ? () => close([chip.key]) : undefined}
         >
@@ -445,8 +442,8 @@ export function WorkTabsStrip({
 }
 
 /** A chip's lead glyph (the desktop's `live_chip_state` precedence): a live
- *  run waiting on you amber, with its PR open green, working the ping; else
- *  the issue's status glyph, a run tab's steady dot (muted once it ended). */
+ *  run waiting on you amber, with its PR open green, working the ping, idle
+ *  the steady dot; else the issue's status glyph, or a muted dot. */
 function ChipLead({
   tab,
   run,
@@ -474,15 +471,12 @@ function ChipLead({
         />
       )
     }
+    // A live run between turns keeps its steady dot, not the issue glyph
+    // (desktop `session_chip_content`).
+    return <span className={`size-2 rounded-full ${SESSION_DOT_CLASS.running}`} />
   }
   if (issue) {
     return <IssueStatusIcon issue={issue} className="size-3.5!" />
   }
-  return (
-    <span
-      className={`size-2 rounded-full ${
-        live ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS.muted
-      }`}
-    />
-  )
+  return <span className={`size-2 rounded-full ${SESSION_DOT_CLASS.muted}`} />
 }
