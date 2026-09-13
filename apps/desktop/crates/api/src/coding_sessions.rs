@@ -63,14 +63,13 @@ pub struct CodingSession {
     #[serde(default)]
     pub agent: Option<String>,
     /// EXP-637 close-out — who ended the run (`agent`/`user`/`client`/
-    /// `merge`/`system`) and its one-paragraph `summary`. Both `None` on live
-    /// rows and on rows written by pre-EXP-637 servers. EXP-686 dropped the
-    /// self-reported `outcome` alongside its column; an unknown field on the
-    /// wire is ignored, so old servers stay decodable.
+    /// `merge`/`system`). `None` on live rows and on rows written by
+    /// pre-EXP-637 servers. EXP-686 dropped the self-reported `outcome`
+    /// alongside its column and EXP-862 the `summary` (the agent's report is
+    /// no longer stored); an unknown field on the wire is ignored, so old
+    /// servers stay decodable.
     #[serde(default)]
     pub ended_by: Option<String>,
-    #[serde(default)]
-    pub summary: Option<String>,
     /// EXP-734: the run's OWN chore pull request (an action/chat run whose PR
     /// links no issue). All `None` on issue/batch rows — their PR lives on
     /// the issue(s) — and on pre-EXP-734 servers.
@@ -1287,16 +1286,16 @@ mod tests {
 
     #[test]
     fn decodes_the_run_close_out() {
-        // EXP-637: `exponential_sessions_end` writes these; absent = None.
-        // The `outcome` key is deliberately still in this fixture (EXP-686
-        // dropped the field): a server that predates the removal must stay
-        // decodable, so an unknown key can never become an error.
+        // EXP-637: `exponential_sessions_end` writes `endedBy`; absent = None.
+        // The `outcome` (EXP-686) and `summary` (EXP-862) keys are
+        // deliberately still in this fixture: a server that predates either
+        // removal must stay decodable, so an unknown key can never become an
+        // error.
         let session: CodingSession = serde_json::from_str(
             r#"{"id":"sess-1","status":"ended","endedBy":"agent","outcome":"done","summary":"Shipped it."}"#,
         )
         .unwrap();
         assert_eq!(session.ended_by.as_deref(), Some("agent"));
-        assert_eq!(session.summary.as_deref(), Some("Shipped it."));
 
         let session: CodingSession = serde_json::from_str(r#"{"id":"sess-2"}"#).unwrap();
         assert_eq!(session.ended_by, None);

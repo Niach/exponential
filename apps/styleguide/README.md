@@ -53,9 +53,10 @@ narrowed by EXP-862):
   button**: no circle, no border, hover fill only. That is the "…" overflow,
   close, the folder and file-list toggles, the chevrons (back, fold, reorder),
   trash and remove, and anything refresh-shaped. A rounded square at the radius
-  ladder's MD step is a PICKER, which is the **icon picker** trigger and every
-  cell of its swatch grid. Colour swatches stay circles, because a colour has no
-  shape to read, and text capsules stay at 9999.
+  ladder's MD step is a PICKER trigger: the **icon picker**, the colour picker
+  beside it (EXP-862 made the board form's two triggers one control repeated),
+  and every cell of the glyph grid. Colour swatches stay circles, because a
+  colour has no shape to read, and text capsules stay at 9999.
 - **Chrome sits on the ground, not in the card.** The title strip above the
   content card and the **session bar** below it are 36px bands on the bare page
   gradient with no fill and no border, their chips inset 8; the card stops 6px

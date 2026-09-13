@@ -1119,11 +1119,16 @@ fn render_usage_sheet(
         ));
     }
     if !has_context && !has_windows {
+        // EXP-862: a live run's login IS signed in, so windows that have not
+        // been read yet are "Checking…" (the ×4 `usage_caption` rule), never
+        // a machine that looks broken.
+        let caption = crate::usage_bar::usage_caption(crate::usage_bar::UsageState::Checking, None)
+            .unwrap_or_default();
         sheet = sheet.child(
             div()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
-                .child("No usage reported yet."),
+                .child(caption),
         );
     }
     // EXP-849: the ACCOUNT block — which login is paying for this run, and

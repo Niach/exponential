@@ -281,11 +281,11 @@ export function McpSetupTabs() {
         keys (Bearer expu_…) work for headless use —{` `}
         {teamSlug ? (
           <Link
-            to="/t/$teamSlug/settings/api-keys"
+            to="/t/$teamSlug/settings/security"
             params={{ teamSlug }}
             className="underline underline-offset-2 hover:text-foreground"
           >
-            create one in Settings → API keys
+            create one in Settings → Security
           </Link>
         ) : (
           `create one in Settings → API keys`

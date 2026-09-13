@@ -229,7 +229,7 @@ struct AgentsView: View {
         // The machine alert hangs off the ScrollView's own node — one
         // presentation per node, or SwiftUI starts dropping them.
         .alert(
-            "Remove machine?",
+            "Remove device",
             isPresented: Binding(
                 get: { removeTarget != nil },
                 set: { if !$0 { removeTarget = nil } }
@@ -239,7 +239,7 @@ struct AgentsView: View {
             Button("Cancel", role: .cancel) { removeTarget = nil }
             Button("Remove", role: .destructive) { remove(device) }
         } message: { device in
-            Text("Remove “\(deviceName(device))” from your machines? A machine with the daemon still running re-registers itself on its next heartbeat.")
+            Text("Remove “\(deviceName(device))” from your devices? A device with the daemon still running will re-register itself on its next heartbeat.")
         }
         // One presentation per node is the rule, so the login sheet and the
         // account confirm hang off a zero-size node of their own.
@@ -314,7 +314,7 @@ struct AgentsView: View {
                         if device.isDefaultDevice {
                             AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
                                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                .accessibilityLabel("Default machine")
+                                .accessibilityLabel("Default device")
                         }
                         // EXP-432: a teammate's machine is attributed to its owner;
                         // one of the caller's own that is shared with any team just
@@ -363,7 +363,7 @@ struct AgentsView: View {
                     } label: {
                         GhostIconLabel(AppIcons.uiMore)
                     }
-                    .accessibilityLabel("Machine actions")
+                    .accessibilityLabel("Device menu")
                     .accessibilityIdentifier("machine-menu")
                 }
             }
@@ -482,13 +482,13 @@ struct AgentsView: View {
 
     private var deviceHintRow: some View {
         HStack(spacing: 8) {
-            // EXP-317: the same glyph the web draws on its empty machines row
+            // EXP-317: the same glyph the web draws on its empty devices row
             // (`ui-device-offline`); `ui-offline` stays the network indicator.
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
             // Web puts its install one-liner behind this row; a phone can't
             // run it, so mobile points at the surface that can (Android says
             // the same thing, word for word).
-            Text("No machines yet. Open the Exponential desktop app, or add a device on the web.")
+            Text("No devices yet. Open the Exponential desktop app, or add a device on the web.")
                 .font(.caption)
             Spacer(minLength: 0)
         }
@@ -501,7 +501,7 @@ struct AgentsView: View {
     private var deviceLoadingRow: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(.white)
-            Text("Checking for machines…")
+            Text("Checking for devices…")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Spacer(minLength: 0)

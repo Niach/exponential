@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.api.AgentAccount
+import com.exponential.app.data.api.AgentAccountProfile
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
@@ -134,7 +135,7 @@ object AgentAccountsRows {
     const val REFRESH_CAP = "agent-usage-refresh"
 
     /** The section's empty state, byte-identical with web and the desktop. */
-    const val EMPTY_STATE = "No machine has reported an agent account yet."
+    const val EMPTY_STATE = "No device has reported an agent account yet."
 
     /** The label for the system profile when the device sent none. */
     const val SYSTEM_PROFILE_LABEL = "Default"
@@ -298,9 +299,6 @@ object AgentAccountsRows {
         return "${agentLabel(chip.agent)} · $who"
     }
 
-    /** The cap a machine must advertise before "Remove account" is offered. */
-    const val REMOVE_CAP = "account-remove"
-
     /** The chip menu's three entries, byte-identical ×4. */
     const val ACTION_SIGN_IN = "Sign in"
     const val ACTION_SET_DEFAULT = "Set as default"
@@ -426,6 +424,35 @@ object AgentAccountsRows {
             LoginTarget(profileId = SYSTEM_PROFILE_ID, newProfileLabel = null)
         }
     }
+
+    /**
+     * EXP-862: has the login a sign-in was FOR landed on the device yet? The
+     * ONE self-close rule of the sign-in sheet (web `agentLoginLanded`, iOS
+     * `loginLanded`), evaluated on the TARGETED login:
+     *  - a NEW profile (the "+ Add account" path): a profile carrying the
+     *    asked-for label is now usable; the ambient flag is useless here, it
+     *    is already true, which is why a new profile was asked for;
+     *  - an existing profile: that profile's own state;
+     *  - the ambient login: its `system` entry, else the top-level fields.
+     * "Usable" is signed in AND not `needs_relogin`.
+     */
+    fun loginLanded(account: AgentAccount?, profileId: String?, newProfileLabel: String?): Boolean {
+        if (account == null) return false
+        val profiles = account.profiles.orEmpty().filter { it.id.isNotEmpty() }
+        if (newProfileLabel != null) {
+            val wanted = newProfileLabel.trim()
+            if (wanted.isEmpty()) return false
+            return profiles.any { it.label.orEmpty().trim() == wanted && usableLogin(it) }
+        }
+        if (profileId != null && profileId != SYSTEM_PROFILE_ID) {
+            return profiles.any { it.id == profileId && usableLogin(it) }
+        }
+        profiles.firstOrNull { it.id == SYSTEM_PROFILE_ID }?.let { return usableLogin(it) }
+        return account.signedIn && AgentHealthRules.of(account) != AgentHealth.NeedsRelogin
+    }
+
+    private fun usableLogin(profile: AgentAccountProfile): Boolean =
+        profile.signedIn && AgentHealthRules.of(profile) != AgentHealth.NeedsRelogin
 
     /**
      * `Claude Code account 2` — one past the logins the machine reports for the

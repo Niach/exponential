@@ -624,7 +624,7 @@ export function IssueList({
               trailing={
                 canCreate ? (
                   <Button
-                    variant="ghost"
+                    variant="glass"
                     size="icon-sm"
                     aria-label={`New issue in ${option.name}`}
                     className="hidden md:inline-flex opacity-0 group-hover:opacity-100 hover:opacity-100"

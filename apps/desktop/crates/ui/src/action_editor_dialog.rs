@@ -349,6 +349,7 @@ impl Render for ActionEditorDialogView {
         let icon_picker = crate::board_form::icon_picker(
             "action-edit",
             Some(&self.icon),
+            None,
             false,
             move |name, _, cx| {
                 let Some(name) = name else { return };

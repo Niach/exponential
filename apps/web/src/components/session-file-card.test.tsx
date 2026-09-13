@@ -20,7 +20,7 @@ const files = (count: number) =>
 describe(`SessionFileCard (§12)`, () => {
   it(`titles the turn's files and opens the pane at one, scoped to the turn`, () => {
     const onOpenFile = vi.fn()
-    const card = { afterId: 7, files: files(2) }
+    const card = { turnId: 5, afterId: 7, files: files(2) }
     render(<SessionFileCard card={card} onOpenFile={onOpenFile} />)
     expect(screen.getByText(`2 files edited`)).toBeTruthy()
     fireEvent.click(screen.getByTitle(`src/file-1.ts`))
@@ -29,7 +29,7 @@ describe(`SessionFileCard (§12)`, () => {
 
   it(`lists five paths and folds the rest`, () => {
     render(
-      <SessionFileCard card={{ afterId: 1, files: files(7) }} onOpenFile={vi.fn()} />
+      <SessionFileCard card={{ turnId: 1, afterId: 1, files: files(7) }} onOpenFile={vi.fn()} />
     )
     expect(screen.getByText(`7 files edited`)).toBeTruthy()
     expect(screen.queryByTitle(`src/file-6.ts`)).toBeNull()
@@ -41,7 +41,7 @@ describe(`SessionFileCard (§12)`, () => {
 
   it(`one file reads in the singular and needs no fold`, () => {
     render(
-      <SessionFileCard card={{ afterId: 1, files: files(1) }} onOpenFile={vi.fn()} />
+      <SessionFileCard card={{ turnId: 1, afterId: 1, files: files(1) }} onOpenFile={vi.fn()} />
     )
     expect(screen.getByText(`1 file edited`)).toBeTruthy()
     expect(screen.queryByText(/more$/)).toBeNull()

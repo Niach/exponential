@@ -681,7 +681,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `icon-picker`,
     title: `Icon picker`,
     kind: `Controls`,
-    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): a circle is the primary ACTION, ROUNDED SQUARE is a picker. The trigger is a 36px square at the radius ladder's MD step over card fill — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the 60-glyph grid it opens wear that same corner, the picked one taking the active fill under the active stroke. Colour swatches are the counter-example: a colour has no shape to read, so those stay circles.`,
+    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): a circle is the primary ACTION, ROUNDED SQUARE is a picker. The trigger is a square at the radius ladder's MD step over card fill, sized to the field it sits beside (web h-9, desktop and the natives the 32px control rung) — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the 60-glyph grid it opens wear that same corner, the picked one taking the active fill under the active stroke. EXP-862 gave the colour picker the SAME trigger, so the board form reads as one control repeated; the swatches inside it are the counter-example: a colour has no shape to read, so those stay circles.`,
     status: {
       web: ok(
         `IconPicker`,
@@ -1188,7 +1188,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-radius`,
     title: `Radius ladder`,
     kind: `Tokens`,
-    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD does double duty as the PICKER corner (EXP-771): an icon picker trigger and every cell of its swatch grid take it, which is what keeps a picker from reading as a circular action button.`,
+    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD does double duty as the PICKER corner (EXP-771): an icon or colour picker trigger and every cell of the glyph grid take it, which is what keeps a picker from reading as a circular action button.`,
     status: {
       web: ok(`--radius`, `apps/web/src/styles.css`),
       desktop: ok(`theme::radius::*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),

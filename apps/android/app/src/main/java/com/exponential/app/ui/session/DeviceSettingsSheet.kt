@@ -240,7 +240,7 @@ fun DeviceSettingsSheet(
                 }
                 Text(
                     "Teammates of a shared team can start coding sessions on this " +
-                        "machine. Runs are attributed to whoever starts them.",
+                        "device. Runs are attributed to whoever starts them.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
@@ -252,7 +252,7 @@ fun DeviceSettingsSheet(
             // ── Agent defaults (server-authoritative, EXP-481) ───────────
             if (!device.online) {
                 Text(
-                    "This machine is offline — changes apply when it comes online.",
+                    "Applies when the device comes online.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
@@ -349,7 +349,7 @@ fun DeviceSettingsSheet(
             }
             if (!device.online && worktrees.isNotEmpty()) {
                 Text(
-                    "This machine is offline — commands run when it comes online.",
+                    "This device is offline — queued changes run when it comes online.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
@@ -358,7 +358,7 @@ fun DeviceSettingsSheet(
             CommandCaption(commandStates[PRUNE_COMMAND_KEY])
             if (worktrees.isEmpty()) {
                 Text(
-                    "No worktrees reported by this machine.",
+                    "No worktrees reported by this device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
@@ -493,7 +493,7 @@ private fun WorktreeRow(
 internal fun CommandCaption(state: DeviceCommandUiState?) {
     val (text, isError) = when (state) {
         is DeviceCommandUiState.Queued ->
-            "Queued — runs when the machine comes online." to false
+            "Queued — runs when the device comes online." to false
         is DeviceCommandUiState.Done -> (state.message ?: "Done.") to false
         is DeviceCommandUiState.Failed -> state.message to true
         else -> return

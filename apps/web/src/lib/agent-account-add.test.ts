@@ -161,7 +161,7 @@ describe(`addAccountBlockReason`, () => {
 
   it(`names the first filter that emptied the list`, () => {
     expect(addAccountBlockReason([], { currentUserId: `me`, now })).toBe(
-      `Connect one of your machines first.`
+      `Connect one of your devices first.`
     )
     // Somebody else's machine is not mine to sign in on.
     expect(
@@ -169,7 +169,7 @@ describe(`addAccountBlockReason`, () => {
         currentUserId: `me`,
         now,
       })
-    ).toBe(`Connect one of your machines first.`)
+    ).toBe(`Connect one of your devices first.`)
     // The named agent is installed nowhere.
     expect(
       addAccountBlockReason([device({ deviceId: `mine`, agents: [`claude`] })], {
@@ -178,7 +178,7 @@ describe(`addAccountBlockReason`, () => {
         agent: `codex`,
         agentLabel: `Codex`,
       })
-    ).toBe(`No machine of yours has Codex installed.`)
+    ).toBe(`No device of yours has Codex installed.`)
     // The one machine that has it is offline.
     expect(
       addAccountBlockReason(
@@ -201,14 +201,14 @@ describe(`addAccountBlockReason`, () => {
         ],
         { currentUserId: `me`, now }
       )
-    ).toBe(`None of those machines is online right now.`)
+    ).toBe(`None of those devices is online right now.`)
     // Online and installed, but the build cannot be driven remotely.
     expect(
       addAccountBlockReason([device({ deviceId: `old`, caps: [] })], {
         currentUserId: `me`,
         now,
       })
-    ).toBe(`Remote sign-in needs a newer Exponential version on that machine.`)
+    ).toBe(`Remote sign-in needs a newer Exponential version on that device.`)
     // Every machine already holds the account.
     expect(
       addAccountBlockReason([device({ deviceId: `mine` })], {
@@ -216,6 +216,6 @@ describe(`addAccountBlockReason`, () => {
         now,
         exclude: [`mine`],
       })
-    ).toBe(`Every machine of yours already uses this account.`)
+    ).toBe(`Every device of yours already uses this account.`)
   })
 })

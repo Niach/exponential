@@ -325,18 +325,6 @@ export function deviceCanRefreshUsage(
   return (device.caps ?? []).includes(`agent-usage-refresh`)
 }
 
-/** EXP-747 A4: one of MY online machines has an agent installed but signed
- * out — the Devices nav entry falls through to an amber dot for it (behind
- * the running/needs-input colours). Offline rows never count: nothing can be
- * signed in there until the machine is back. */
-export function deviceNeedsSignIn(device: SteerDevice): boolean {
-  return (
-    deviceIsMine(device) &&
-    deviceIsOnline(device) &&
-    deviceUnauthedAgentIds(device).length > 0
-  )
-}
-
 /** The two synced usage slots, as either a `SteerDevice` (absent = undefined)
  * or a raw `devices` ROW (absent = null) — the start path reads the row
  * directly, every UI surface reads the composed shape. */

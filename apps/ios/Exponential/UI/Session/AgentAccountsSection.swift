@@ -141,7 +141,7 @@ struct AgentAccountsSection: View {
     private var emptyRow: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("No machine has reported an agent account yet.")
+            Text("No device has reported an agent account yet.")
                 .font(.caption)
             Spacer(minLength: 0)
         }
@@ -238,7 +238,14 @@ private struct AgentAccountRow: View {
 
     /// EXP-862: sign this SAME account in on another device — a bare "+" chip
     /// whose menu lists the devices that could take it ("Sign in on <device>",
-    /// ×4). Absent when every eligible device already holds the account.
+    /// ×4). Absent when every eligible device already holds the account, and
+    /// for an account there is no identity to sign in as (`addAccountTargets`
+    /// applies web's `showAdd`).
+    ///
+    /// The sign-in NAMES where it lands on that device (the shared
+    /// `addAccountLoginTarget` rule): the ambient login while it is still free,
+    /// otherwise a new profile. An unscoped `agent_login` would run inside the
+    /// device's ambient config dir and destroy the login already there.
     @ViewBuilder
     private var addChip: some View {
         if !addTargets.isEmpty {
@@ -248,10 +255,16 @@ private struct AgentAccountRow: View {
                         "Sign in on \(LaunchVocabulary.deviceName(device))",
                         icon: device.isServer ? AppIcons.uiServer : AppIcons.uiDevice
                     ) {
+                        let placement = AgentAccountsRows.addAccountLoginTarget(
+                            device.agentAccounts?[group.agent],
+                            label: AgentAccountsRows.groupCaption(group)
+                        )
                         onSignIn(AgentLoginTarget(
                             deviceId: device.deviceId,
                             deviceLabel: LaunchVocabulary.deviceName(device),
-                            agent: group.agent
+                            agent: group.agent,
+                            profileId: placement.profileId,
+                            newProfileLabel: placement.newProfileLabel
                         ))
                     }
                 }

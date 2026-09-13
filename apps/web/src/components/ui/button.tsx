@@ -33,6 +33,17 @@ const buttonVariants = cva(
         "icon-xs": `size-6 [&_svg:not([class*='size-'])]:size-3`,
       },
     },
+    // EXP-862: a GHOST icon button is the secondary control (no circle, no
+    // border, the row wash on hover), so its hover paints under the MD corner
+    // like desktop `controls::ghost_icon_button` and the styleguide's ghost
+    // entry, not as a disc.
+    compoundVariants: [
+      {
+        variant: `ghost`,
+        size: [`icon`, `icon-sm`, `icon-xs`],
+        className: `rounded-md`,
+      },
+    ],
     defaultVariants: {
       variant: `default`,
       size: `default`,

@@ -1,7 +1,8 @@
 //! Settings → one board's detail page (EXP-288 — the Boards group lists
 //! every board as its own nav entry; this pane is the selected one's page).
 //!
-//! Web parity: `components/team/board-settings-dialog.tsx` — Name (deferred
+//! Web parity: `routes/t/$teamSlug/settings/boards/$boardId.tsx` (EXP-862
+//! turned the settings dialog into a page) — Name (deferred
 //! save on blur/Enter), read-only Prefix with the "can't be changed" hint,
 //! Icon + Color swatch grids saving immediately (`boards.update`), and the
 //! per-board **repository picker** (`boards.setRepository` over the team's
@@ -268,7 +269,7 @@ impl BoardDetailPane {
             "Move board to trash",
             format!(
                 "Move {board_name} to the trash? It is kept for 48 hours \
-                 (owners can restore it from the Boards settings on the web), \
+                 (owners can restore it from Archived boards on the web), \
                  then permanently deleted with all its issues."
             ),
             "Move to trash",
@@ -490,7 +491,9 @@ impl BoardDetailPane {
         let board_id = board.id.clone();
         let read_id = repository_id.clone();
         let fetch_id = repository_id.clone();
-        Some(crate::board_form::branch_menu::<Self>(
+        // EXP-862: the trigger is the ROW's trailing value, like Repository
+        // above it — `glass_picker_row` owns the padding and the hairline.
+        Some(crate::board_form::branch_value_menu::<Self>(
             SharedString::from(format!("board-detail-branch-{}", board.id)),
             value,
             repo_default,
@@ -577,9 +580,14 @@ impl Render for BoardDetailPane {
         // save IMMEDIATELY (web parity: no Save button); the name saves on
         // blur/Enter.
         let board_id = board.id.clone();
+        // A row from before the icon backfill carries no `icon`: show the
+        // board's fallback glyph (the rail's and web's rule), not the dashed
+        // "nothing picked" placeholder of the create form.
+        let fallback_icon = if board.repository_id.is_some() { "code" } else { "square-kanban" };
         let icon_picker = crate::board_form::icon_picker(
             "board-detail",
-            board.icon.as_deref(),
+            Some(board.icon.as_deref().unwrap_or(fallback_icon)),
+            board.color.as_deref(),
             false,
             move |name, _, cx| {
                 let Some(name) = name else { return };

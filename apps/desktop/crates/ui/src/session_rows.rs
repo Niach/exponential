@@ -373,7 +373,9 @@ pub(crate) fn file_cards(items: &[FeedItem]) -> HashMap<FeedItemId, FileCard> {
 pub(crate) fn turn_items(items: &[FeedItem], anchor: FeedItemId) -> Vec<FeedItemId> {
     turn_segments(items)
         .into_iter()
-        .find(|segment| segment.last().is_some_and(|(id, _)| *id == anchor))
+        // Any row of the segment names it: the anchor stays valid while the
+        // turn keeps editing (web keys the scope on the turn the same way).
+        .find(|segment| segment.iter().any(|(id, _)| *id == anchor))
         .map(|segment| segment.into_iter().map(|(id, _)| id).collect())
         .unwrap_or_default()
 }
@@ -862,8 +864,11 @@ mod tests {
         // nothing from the unsettled edit, the read or the next turn.
         assert_eq!(turn_items(&items, 4), vec![2, 3, 4]);
         assert_eq!(turn_items(&items, 8), vec![8]);
-        // An id that anchors no card asks for nothing.
-        assert!(turn_items(&items, 3).is_empty());
+        // Any row of the turn names it, so a scope opened while the turn was
+        // still editing keeps resolving after later writes moved the card's
+        // anchor (web keys the scope on the turn the same way).
+        assert_eq!(turn_items(&items, 3), vec![2, 3, 4]);
+        // An id no turn edited asks for nothing.
         assert!(turn_items(&items, 99).is_empty());
     }
 

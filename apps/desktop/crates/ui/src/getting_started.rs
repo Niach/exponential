@@ -926,7 +926,7 @@ fn entry_cta(
             .into_any_element(),
         // The one-liner goes straight to the clipboard (the shared
         // label promises exactly that); the Add-device dialog behind
-        // My machines still shows it in full.
+        // My devices still shows it in full.
         EntryKey::Server => Button::new(("gs-cta-server", index))
             .primary().web_sm()
             .icon(Icon::new(registry::UI_COPY))

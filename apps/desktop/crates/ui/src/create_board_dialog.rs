@@ -1,11 +1,12 @@
 //! Create-board dialog (masterplan-v3 §4.2 — mirror of
 //! `apps/web/src/components/create-board-dialog.tsx`).
 //!
-//! A plain name/prefix/icon/color/optional-repo form: name `Input` + an
-//! **auto-derived-but-editable prefix** `Input` (`derivePrefix`, uppercased,
-//! max 10) + an icon picker over the curated contract glyphs + the
-//! `ColorSwatchGrid` — **no slug field** (server-derived) + the **optional
-//! backing repository** picker (nullable `repository_id`). The repo picker
+//! The ×4 grouped board form (EXP-862, web `create-board-dialog.tsx`): ONE
+//! identity row — icon picker, colour picker, name — over an
+//! **auto-derived-but-editable prefix** row (`derivePrefix`, uppercased,
+//! max 4), then the repository + branch picker rows as their own group, no
+//! caption above any field; **no slug field** (server-derived) + the
+//! **optional backing repository** picker (nullable `repository_id`). The repo picker
 //! mirrors the web `GithubRepoPicker`: it offers the team's
 //! already-connected registry repos AND, once the GitHub App is
 //! installed, the user's installable GitHub repos to connect inline in the
@@ -26,11 +27,12 @@ use gpui::{
     div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
+    Div,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     scroll::{Scrollbar, ScrollbarAxis},
@@ -545,6 +547,7 @@ impl CreateBoardDialogView {
         crate::board_form::icon_picker(
             "create-board",
             Some(self.icon),
+            Some(&self.color),
             false,
             move |name, _, cx| {
                 let Some(name) = name else { return };
@@ -557,27 +560,53 @@ impl CreateBoardDialogView {
         )
     }
 
-    /// "Name" = the icon picker LEFT of the name input, one row (EXP-584 —
-    /// web `BoardNameField`, board settings and the natives share the shape).
-    fn name_field(&self, window: &Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        v_flex().gap_2().child(field_label(cx, "Name")).child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(self.icon_picker(cx))
-                .child(div().flex_1().child(glass_input(&self.name, window, cx).web_input_sm())),
+    /// The colour picker: the icon picker's twin over the swatch grid
+    /// (EXP-862 — `crate::board_form`, also the per-board settings page).
+    fn color_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let view = cx.entity().clone();
+        crate::board_form::color_picker("create-board", &self.color, move |color, _, cx| {
+            view.update(cx, |this, cx| {
+                this.color = color.to_string();
+                cx.notify();
+            });
+        }, cx)
+    }
+
+    /// EXP-862 (×4): the board's IDENTITY is ONE row — icon picker, colour
+    /// picker, name — all three on the 32px control rung (web
+    /// `BoardIdentityRow`, the settings page and the natives share the shape).
+    fn identity_row(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Div {
+        crate::surface::glass_row_shell()
+            .gap_2()
+            .child(self.icon_picker(cx))
+            .child(self.color_picker(cx))
+            .child(
+                div().flex_1().min_w_0().child(
+                    crate::surface::glass_row_input(glass_input(&self.name, window, cx)).text_left(),
+                ),
+            )
+    }
+
+    /// The prefix as a grouped input row (web `BoardPrefixField`): the label
+    /// leading, the value typed at the trailing edge.
+    fn prefix_row(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Div {
+        crate::surface::glass_input_row(
+            "Prefix",
+            crate::surface::glass_row_input(glass_input(&self.prefix, window, cx)).into_any_element(),
+            cx,
         )
     }
 
     /// EXP-712 — the board's **repository + branch** block (web parity:
     /// `components/board-repo-field.tsx`).
     ///
-    /// ONE select showing the current value: "No repository", the team's
-    /// connected repos, then a trailing "Connect another repository…" action
-    /// that expands the existing GitHub connect/picker flow
-    /// underneath. Directly beneath it — only once a repository is selected —
-    /// the **Branch** this board's coding sessions start from (the repo's
-    /// default unless the board pins another). ONE caption line under both.
+    /// EXP-862: ONE glass group of picker rows. The Repository row's value is
+    /// "No repository", the team's connected repos, then a trailing "Connect
+    /// another repository…" action that expands the existing GitHub
+    /// connect/picker flow underneath the group. Directly beneath it — only
+    /// once a repository is selected — the **Branch** row this board's coding
+    /// sessions start from (the repo's default unless the board pins
+    /// another). ONE caption line under the group.
     fn repository_field(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let loading =
             matches!(self.repos, RepoLoad::Loading) && matches!(self.github, GithubLoad::Loading);
@@ -609,13 +638,19 @@ impl CreateBoardDialogView {
         let connect_label = crate::board_form::connect_repository_label(has_repos);
         let view = cx.entity().clone();
         let menu_repos = registry.clone();
+        // The trigger is the ROW's trailing value — no field chrome of its
+        // own (`glass_picker_row` owns the padding and the hairline).
         let select = Button::new("board-repo-picker")
-            .outline()
+            .ghost()
             .cursor_pointer()
-            .small()
-            .w_full()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
             .icon(registry::UI_GITHUB)
-            .label(label)
+            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
+            // box, so a long `owner/repo` wraps onto a second line.
+            .child(crate::surface::picker_value_label(label))
             .dropdown_menu(move |menu, _window, _cx| {
                 let mut menu = menu.scrollable(true).max_h(px(320.));
                 {
@@ -665,28 +700,33 @@ impl CreateBoardDialogView {
                 )
             });
 
-        let mut column = v_flex()
-            .gap_2()
-            .child(field_label(cx, "Repository"))
-            .child(select);
-        if self.connect_open {
-            column = column.child(self.connect_section(github_result, cx));
+        let mut rows = vec![crate::surface::glass_picker_row(
+            "Repository",
+            None,
+            select.into_any_element(),
+            cx,
+        )];
+        if let Some(branch) = self.branch_field(&registry, cx) {
+            rows.push(crate::surface::glass_picker_row("Branch", None, branch, cx));
         }
 
-        let mut block = v_flex().gap_4().child(column);
-        if let Some(branch) = self.branch_field(&registry, cx) {
-            block = block.child(branch);
+        let mut block = v_flex()
+            .gap_2()
+            .child(crate::surface::glass_group_rows(rows));
+        if self.connect_open {
+            block = block.child(self.connect_section(github_result, cx));
         }
         block
             .child(crate::board_form::board_repo_note(cx))
             .into_any_element()
     }
 
-    /// EXP-712's **Branch** row — only once a repository is selected. A
-    /// connected registry repo lists its branches live
+    /// EXP-712's **Branch** row's VALUE — only once a repository is selected.
+    /// A connected registry repo lists its branches live
     /// (`repositories.listBranches`); a repo picked for INLINE connect has no
     /// registry row to list against yet, so its row shows GitHub's default
-    /// and unlocks after the board is created.
+    /// and unlocks after the board is created. EXP-862: the chromeless
+    /// [`crate::board_form::branch_value_menu`], the settings page's twin.
     fn branch_field(
         &self,
         registry: &[RepoOption],
@@ -713,50 +753,38 @@ impl CreateBoardDialogView {
             Some(id) => id,
             // Inline: nothing to list yet — show the repo's default, locked.
             None => {
-                return Some(
-                    v_flex()
-                        .gap_2()
-                        .child(field_label(cx, "Branch"))
-                        .child(crate::board_form::branch_menu::<Self>(
-                            "board-branch-picker",
-                            value,
-                            repo_default,
-                            true,
-                            |_, _| None,
-                            |_, _| {},
-                            |_, _, _| {},
-                            cx,
-                        ))
-                        .into_any_element(),
-                )
+                return Some(crate::board_form::branch_value_menu::<Self>(
+                    "board-branch-picker",
+                    value,
+                    repo_default,
+                    true,
+                    |_, _| None,
+                    |_, _| {},
+                    |_, _, _| {},
+                    cx,
+                ))
             }
         };
         let fetch_id = repository_id.clone();
         let read_id = repository_id.clone();
-        Some(
-            v_flex()
-                .gap_2()
-                .child(field_label(cx, "Branch"))
-                .child(crate::board_form::branch_menu::<Self>(
-                    "board-branch-picker",
-                    value,
-                    repo_default,
-                    false,
-                    move |this: &Self, _| {
-                        this.branches
-                            .as_ref()
-                            .filter(|(id, _)| id == &read_id)
-                            .map(|(_, load)| load.clone())
-                    },
-                    move |this: &mut Self, cx| this.ensure_branches(fetch_id.clone(), cx),
-                    |this: &mut Self, pick, cx| {
-                        this.branch = pick;
-                        cx.notify();
-                    },
-                    cx,
-                ))
-                .into_any_element(),
-        )
+        Some(crate::board_form::branch_value_menu::<Self>(
+            "board-branch-picker",
+            value,
+            repo_default,
+            false,
+            move |this: &Self, _| {
+                this.branches
+                    .as_ref()
+                    .filter(|(id, _)| id == &read_id)
+                    .map(|(_, load)| load.clone())
+            },
+            move |this: &mut Self, cx| this.ensure_branches(fetch_id.clone(), cx),
+            |this: &mut Self, pick, cx| {
+                this.branch = pick;
+                cx.notify();
+            },
+            cx,
+        ))
     }
 
     /// Select a repository (or "No repository"). EXP-712: the branch pin
@@ -1091,16 +1119,15 @@ impl Render for CreateBoardDialogView {
         // A repository is optional — only name + prefix gate submit.
         let disabled = name_empty || prefix_empty || self.submitting;
 
+        // EXP-862: one grouped form — identity (icon, colour, name) in ONE
+        // row, then the prefix; the repository block brings its own group.
+        // No captions above any field (web `create-board-dialog.tsx`).
         let mut form = v_flex()
             .gap_4()
-            .child(self.name_field(window, cx))
-            .child(labeled(cx, "Prefix", glass_input(&self.prefix, window, cx).web_input_sm()))
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(field_label(cx, "Color"))
-                    .child(color_swatch_grid(&self.color, cx.entity().clone(), cx)),
-            )
+            .child(crate::surface::glass_group_rows(vec![
+                self.identity_row(window, cx),
+                self.prefix_row(window, cx),
+            ]))
             .child(self.repository_field(cx));
 
         if let Some(error) = &self.error {
@@ -1200,31 +1227,6 @@ impl Render for CreateBoardDialogView {
     }
 }
 
-/// Web `ColorSwatchGrid` — the shared grid (EXP-288: `crate::board_form`,
-/// also the per-board settings page).
-fn color_swatch_grid(
-    selected: &str,
-    view: Entity<CreateBoardDialogView>,
-    cx: &App,
-) -> impl IntoElement {
-    crate::board_form::color_swatch_grid("create-board", selected, move |color, _, cx| {
-        view.update(cx, |this, cx| {
-            this.color = color.to_string();
-            cx.notify();
-        });
-    }, cx)
-}
-
-fn field_label(cx: &App, label: &'static str) -> impl IntoElement {
-    div()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
-}
-
-fn labeled(cx: &App, label: &'static str, input: Input) -> impl IntoElement {
-    v_flex().gap_2().child(field_label(cx, label)).child(input)
-}
 
 /// Web `derivePrefix` (`lib/board.ts`): first letter of each
 /// space/dash/underscore-separated word, uppercased, max 4 (the server cap,

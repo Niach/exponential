@@ -843,19 +843,21 @@ export function AgentSessionView({
         setDiffOpen(true)
         return
       }
-      setDiffTurn(card.afterId)
+      setDiffTurn(card.turnId)
       setDiffPaneOpen(true)
     },
     [isMobile]
   )
 
   /** The scoped card, or null once the session scope is back (or the turn has
-   *  left the feed — a replay, an `activity_reset`). */
+   *  left the feed — a replay, an `activity_reset`). The key is the card's
+   *  `turnId`, the row that OPENED the turn: a live turn keeps growing, and
+   *  an anchor on its last row would drop the scope on the next narration. */
   const diffCard = useMemo(
     () =>
       diffTurn === null
         ? null
-        : (fileCards.find((card) => card.afterId === diffTurn) ?? null),
+        : (fileCards.find((card) => card.turnId === diffTurn) ?? null),
     [fileCards, diffTurn]
   )
   /** What the PANE draws: the turn's files, or the whole branch. Its totals
@@ -1263,7 +1265,7 @@ export function AgentSessionView({
                       >
                         {content}
                         {cards?.map((card) => (
-                          <div key={`card-${card.afterId}`} className="pt-2">
+                          <div key={`card-${card.turnId}`} className="pt-2">
                             <SessionFileCard
                               card={card}
                               onOpenFile={openDiffFile}
@@ -1562,7 +1564,12 @@ export function AgentSessionView({
           scopeLabel={
             diffCard ? diffScopeTurnLabel(diffCard.files.length) : null
           }
-          onClearScope={() => setDiffTurn(null)}
+          // Nothing to widen BACK to until the run publishes a session diff:
+          // the turn's files are then everything there is, and offering the
+          // chip would blank the pane on click.
+          onClearScope={
+            diffFiles.length > 0 ? () => setDiffTurn(null) : undefined
+          }
         />
       )}
       </div>

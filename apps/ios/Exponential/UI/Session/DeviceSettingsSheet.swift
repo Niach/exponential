@@ -162,7 +162,7 @@ struct DeviceSettingsSheet: View {
             Button("Cancel", role: .cancel) { removeTarget = nil }
             Button("Remove", role: .destructive) { removeWorktree(worktree) }
         } message: { worktree in
-            Text("Remove \(worktree.branch) on \(device.deviceLabel)? Uncommitted tracked changes make the machine refuse.")
+            Text("Remove \(worktree.branch) on \(device.deviceLabel)? Uncommitted tracked changes make the device refuse.")
         }
     }
 
@@ -711,7 +711,7 @@ struct DeviceSettingsSheet: View {
                     if !command.isPending {
                         pendingCommands[targetKey] = nil
                         if command.isFailed {
-                            commandErrors[targetKey] = command.result ?? "The machine refused the command."
+                            commandErrors[targetKey] = command.result ?? "The device refused the command."
                         } else if targetKey == "prune" {
                             // The prune summary is worth showing on success
                             // ("Pruned 2 worktrees").

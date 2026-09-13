@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Archive, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -47,6 +47,12 @@ export function BoardSettingsPage({
   // the user's caret would fight typing. Everything else mutates immediately
   // off the live row.
   const [name, setName] = useState(``)
+  // Blur is the page's only commit path, and pulling a focused input out of
+  // the DOM dispatches no focusout — so an uncommitted draft is mirrored
+  // here and flushed when the page unmounts or swaps board, the way the
+  // settings DIALOG this page replaced flushed on close. Keyed by board id
+  // so a nav between boards can never write one board's draft onto another.
+  const draftRef = useRef<{ boardId: string; name: string } | null>(null)
   const [busyRepo, setBusyRepo] = useState(false)
   const [repoError, setRepoError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -55,15 +61,33 @@ export function BoardSettingsPage({
   const [archiving, setArchiving] = useState(false)
 
   useEffect(() => {
-    setName(board.name)
+    const boardId = board.id
+    const original = board.name
+    setName(original)
     setBusyRepo(false)
     setRepoError(null)
+    draftRef.current = null
+    return () => {
+      const draft = draftRef.current
+      if (!draft || draft.boardId !== boardId) return
+      draftRef.current = null
+      const trimmed = draft.name.trim()
+      if (!trimmed || trimmed === original) return
+      void trpc.boards.update.mutate({ boardId, name: trimmed })
+    }
     // Reset keyed on the target board only — remote edits while the page is
     // open deliberately don't stomp a local in-progress rename.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.id])
 
+  const changeName = (next: string) => {
+    setName(next)
+    draftRef.current = { boardId: board.id, name: next }
+  }
+
   const saveName = () => {
+    // Committed one way or another: nothing is left for the unmount flush.
+    draftRef.current = null
     const trimmed = name.trim()
     if (!trimmed || trimmed === board.name) return
     void trpc.boards.update.mutate({ boardId: board.id, name: trimmed })
@@ -114,13 +138,17 @@ export function BoardSettingsPage({
   }
 
   // The board is gone from the nav either way, so land on the section index —
-  // it forwards to whatever board is first now (or the empty state).
-  const leaveSection = () =>
+  // it forwards to whatever board is first now (or the empty state). A draft
+  // rename dies with it: the board this page is unmounting away from has just
+  // been archived or trashed.
+  const leaveSection = () => {
+    draftRef.current = null
     void navigate({
       to: `/t/$teamSlug/settings/boards`,
       params: { teamSlug: team.slug },
       replace: true,
     })
+  }
 
   const handleDelete = async () => {
     setDeleting(true)
@@ -149,7 +177,7 @@ export function BoardSettingsPage({
       <GlassGroup>
         <BoardIdentityRow
           name={name}
-          onNameChange={setName}
+          onNameChange={changeName}
           onNameBlur={saveName}
           icon={getBoardIconName(board)}
           onIconChange={(icon) =>
@@ -313,8 +341,8 @@ export function BoardsTrashPage({ teamId }: { teamId: string }) {
   )
 }
 
-// Renders NOTHING when there are none — like the trash card, the surface only
-// exists while something is in it.
+// Always renders (header, blurb, then the rows or a "No archived boards."
+// row): unlike the trash card, this page exists to be found empty too.
 function ArchivedBoardsCard({ teamId }: { teamId: string }) {
   const [archived, setArchived] = useState<ArchivedBoard[] | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
@@ -352,7 +380,7 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
       />
       <p className="px-1 pb-2 text-xs text-foreground/50">
         Archived boards and their issues are hidden from everyone in the team.
-        Nothing is deleted — unarchive to bring a board back exactly as it was.
+        Nothing is deleted: unarchive to bring a board back exactly as it was.
       </p>
       {!archived || archived.length === 0 ? (
         <GlassRow className="px-3 py-2 text-sm text-muted-foreground">

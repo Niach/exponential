@@ -9,7 +9,7 @@
 //! without the router must never break control-channel start (callers
 //! ignore the error).
 //!
-//! There is no read side here any more (EXP-485): the "My machines" rows
+//! There is no read side here any more (EXP-485): the "My devices" rows
 //! stream over the synced `devices` shape, and [`latest_versions`] is the
 //! one query left — instance config (`CLIENT_LATEST_VERSION_*`) that sync
 //! cannot carry. [`DeviceEntry`] stays as the shape the UI maps synced rows
@@ -557,8 +557,8 @@ pub fn create_command(
 /// the `Record<string,string>` payload's `"true"`/`"false"` encoding.
 ///
 /// EXP-827/EXP-849: `profile_id` names the account PROFILE to sign into —
-/// which is what a chip's "Sign in" / "Sign in again" on a multi-login machine
-/// means. It rides LAST and is omitted for the ambient login, so a
+/// which is what a chip's "Sign in" on a multi-login machine means (EXP-862:
+/// there is no separate "Sign in again"). It rides LAST and is omitted for the ambient login, so a
 /// profile-less sign-in keeps the byte-identical pre-EXP-827 wire.
 pub fn create_agent_login_command(
     trpc: &TrpcClient,

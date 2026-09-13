@@ -537,6 +537,125 @@ public enum AgentAccountsRows {
         group.health.badgeLabel
     }
 
+    // MARK: - Adding a login (EXP-827/EXP-862)
+
+    /// The server's clamp on a profile label (web `MAX_PROFILE_LABEL`).
+    public static let maxProfileLabel = 64
+
+    /// Trimmed and cut to the server's limit, so the label the machine names
+    /// its new config dir with is the one that was asked for.
+    public static func clampProfileLabel(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > maxProfileLabel
+            ? String(trimmed.prefix(maxProfileLabel))
+            : trimmed
+    }
+
+    /// WHERE a queued `agent_login` lands on the machine. Exactly one of the
+    /// two is ever set: the machine reads neither as its AMBIENT config dir
+    /// (`LoginTarget::System` in `coding/src/agent_login.rs`), which would
+    /// sign a second account in ON TOP of the login already there.
+    public struct AddLoginTarget: Equatable, Sendable {
+        public let profileId: String?
+        public let newProfileLabel: String?
+
+        public init(profileId: String?, newProfileLabel: String?) {
+            self.profileId = profileId
+            self.newProfileLabel = newProfileLabel
+        }
+    }
+
+    /// Whether the machine's AMBIENT login for an agent is taken — its own
+    /// `system` profile when it reports profiles, the top-level flag for a
+    /// machine that reports none.
+    public static func ambientSignedIn(_ account: AgentAccount?) -> Bool {
+        guard let account else { return false }
+        guard let ambient = (account.profiles ?? []).first(where: {
+            $0.id == systemProfileId
+        }) else {
+            return account.signedIn == true
+        }
+        return ambient.signedIn == true
+    }
+
+    /// Where a new login lands on a machine (web `addAccountLoginTarget`,
+    /// Android `addAccountLoginTarget`): the ambient login while it is still
+    /// signed out — nothing to keep beside it — otherwise a NEW profile
+    /// carrying `label`, which the machine creates first (EXP-792's per-agent
+    /// config dirs).
+    public static func addAccountLoginTarget(
+        _ account: AgentAccount?,
+        label: String
+    ) -> AddLoginTarget {
+        ambientSignedIn(account)
+            ? AddLoginTarget(profileId: nil, newProfileLabel: clampProfileLabel(label))
+            : AddLoginTarget(profileId: systemProfileId, newProfileLabel: nil)
+    }
+
+    /// `Claude Code account 2` — one past the logins the machine reports for
+    /// the agent (the ambient one counts as the first). Web/Android
+    /// `nextProfileLabel`; `agentLabel` is resolved by the caller, since the
+    /// agent's display name lives in the app target.
+    public static func nextProfileLabel(
+        _ account: AgentAccount?,
+        agentLabel: String
+    ) -> String {
+        let held = max((account?.profiles ?? []).count, 1)
+        return clampProfileLabel("\(agentLabel) account \(held + 1)")
+    }
+
+    /// EXP-862: whether an account row offers its bare "+" at all (web
+    /// `showAdd`). Only a SIGNED-IN, NAMED login can be added on another
+    /// machine: the sign-in there has to be run as somebody, and the machine
+    /// reports the result under the same email, which is what joins the new
+    /// chip to this row.
+    public static func canAddAccountElsewhere(_ group: AgentAccountUsageGroup) -> Bool {
+        guard group.signedIn, let email = group.email else { return false }
+        return !email.isEmpty
+    }
+
+    /// EXP-862: has the login the sign-in sheet drove ARRIVED? The sheet
+    /// closes on the TRANSITION into this, so it must be false while the flow
+    /// runs — web `agentLoginLanded`, rule for rule:
+    ///   - a NEW profile (the "+ Add account" path): a profile carrying the
+    ///     asked-for label is now usable. The ambient flag is useless here —
+    ///     it is already true, which is precisely WHY a new profile was asked
+    ///     for.
+    ///   - an existing profile: that profile's own state.
+    ///   - the ambient login: its `system` entry, else the top-level fields.
+    ///
+    /// "Usable" is signed in AND not `needs_relogin`: a login the agent
+    /// refused the moment it was made has not landed.
+    public static func loginLanded(
+        account: AgentAccount?,
+        profileId: String?,
+        newProfileLabel: String?
+    ) -> Bool {
+        guard let account else { return false }
+        let profiles = (account.profiles ?? []).filter { !$0.id.isEmpty }
+        if let newProfileLabel {
+            let wanted = newProfileLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wanted.isEmpty else { return false }
+            return profiles.contains { profile in
+                (profile.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == wanted
+                    && usableLogin(profile)
+            }
+        }
+        if let profileId, profileId != systemProfileId {
+            return profiles.contains { $0.id == profileId && usableLogin($0) }
+        }
+        // The ambient login: a machine that reports profiles carries it as the
+        // `system` row, and its top-level fields are the ACTIVE profile's.
+        if let ambient = profiles.first(where: { $0.id == systemProfileId }) {
+            return usableLogin(ambient)
+        }
+        return account.signedIn == true && AgentAccountHealth.of(account) != .needsRelogin
+    }
+
+    private static func usableLogin(_ profile: AgentAccountProfile) -> Bool {
+        profile.signedIn == true && AgentAccountHealth.of(profile) != .needsRelogin
+    }
+
     // MARK: - Internals
 
     /// Whether `candidate` is a fresher report than `current`.

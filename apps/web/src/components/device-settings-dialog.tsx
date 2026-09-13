@@ -474,15 +474,20 @@ export function DeviceSettingsDialog({
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
     try {
-      const { id } = await trpc.devices.createCommand.mutate({
-        deviceId,
-        ...input,
-      })
+      const { id } = await trpc.devices.createCommand.mutate(
+        {
+          deviceId,
+          ...input,
+        },
+        // The section prints the failure itself — no second toast from the
+        // global link.
+        { context: { skipErrorToast: true } }
+      )
       setTracked((current) => [...current, { id, key }])
     } catch (error) {
       setSectionErrors((current) => ({
         ...current,
-        [key]: trpcErrorMessage(error, `Couldn't queue that on the machine.`),
+        [key]: trpcErrorMessage(error, `Couldn't queue that on the device.`),
       }))
     }
   }
@@ -505,7 +510,7 @@ export function DeviceSettingsDialog({
             setSectionErrors((current) => ({
               ...current,
               [command.key]:
-                result.result ?? `The machine reported a failure.`,
+                result.result ?? `The device reported a failure.`,
             }))
           }
         } catch {
@@ -556,7 +561,10 @@ export function DeviceSettingsDialog({
           pointing at a description that no longer exists. */}
       <DialogContent
         mobile="sheet-full"
-        className="gap-4 sm:h-[min(90dvh,46rem)] sm:max-h-[90dvh] sm:max-w-3xl"
+        // EXP-862: height = CONTENT, capped. Losing the account block left a
+        // fixed 46rem sheet half empty; the columns still scroll on their own
+        // once the cap bites.
+        className="gap-4 sm:max-h-[min(90dvh,46rem)] sm:max-w-3xl"
         aria-describedby={undefined}
         // EXP-698: Radix autofocuses the first field and SELECTS its text, so
         // the Name row opened as a white selection block filling the row (and
@@ -618,7 +626,7 @@ export function DeviceSettingsDialog({
               </p>
             )}
 
-            {/* ── Default machine (EXP-622) ────────────────────────────── */}
+            {/* ── Default device (EXP-622) ─────────────────────────────── */}
             <GlassGroup>
               <GlassToggleRow
                 id="device-settings-default"
@@ -634,7 +642,7 @@ export function DeviceSettingsDialog({
               </p>
             )}
 
-            {/* ── Sharing (server machines only, EXP-432/FEED-33) ───────── */}
+            {/* ── Sharing (server devices only, EXP-432/FEED-33) ───────── */}
             {kind === `server` && (
               <>
                 <GlassSectionHeader label="Sharing" />
@@ -655,12 +663,12 @@ export function DeviceSettingsDialog({
                   </GlassGroup>
                 ) : (
                   <p className="px-1 text-xs text-muted-foreground">
-                    Join a team to share this machine.
+                    Join a team to share this device.
                   </p>
                 )}
                 <p className="px-1 text-xs text-muted-foreground">
                   Teammates of a shared team can start coding sessions on this
-                  machine.
+                  device.
                 </p>
                 {sectionErrors.sharing && (
                   <p className="px-1 text-xs text-destructive">
@@ -759,7 +767,7 @@ export function DeviceSettingsDialog({
             />
             {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
               <p className="px-1 pb-1 text-xs text-muted-foreground">
-                This machine is offline — queued changes run when it comes
+                This device is offline — queued changes run when it comes
                 online.
               </p>
             )}
@@ -771,7 +779,7 @@ export function DeviceSettingsDialog({
             <GlassGroup>
               {worktrees.length === 0 ? (
                 <p className="px-4 py-3 text-xs text-muted-foreground">
-                  No worktrees reported by this machine.
+                  No worktrees reported by this device.
                 </p>
               ) : (
                 worktrees.map((worktree) => {
@@ -821,7 +829,7 @@ export function DeviceSettingsDialog({
                           title={
                             worktree.busy
                               ? `A live session is using this worktree.`
-                              : `Remove this worktree on the machine`
+                              : `Remove this worktree on the device`
                           }
                           disabled={worktree.busy || removing}
                           onClick={() => setRemoveTarget(worktree)}
@@ -857,9 +865,9 @@ export function DeviceSettingsDialog({
               <AlertDialogTitle>Remove worktree</AlertDialogTitle>
               <AlertDialogDescription>
                 Remove {removeTarget?.branch} ({removeTarget?.repoFullName}) on
-                “{label}”? The machine refuses if the worktree has uncommitted
+                “{label}”? The device refuses if the worktree has uncommitted
                 changes.
-                {online ? `` : ` It runs when the machine comes online.`}
+                {online ? `` : ` It runs when the device comes online.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

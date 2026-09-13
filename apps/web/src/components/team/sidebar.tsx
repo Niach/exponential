@@ -21,7 +21,6 @@ import type { Board, Team } from "@/db/schema"
 import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
-  useDevicesNeedSignIn,
 } from "@/hooks/use-nav-counts"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
@@ -141,14 +140,6 @@ function AgentRunningBadge({ teamId }: { teamId?: string }) {
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
   if (count === 0) return null
   return <NavDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
-}
-
-// EXP-792 (EXP-747 A4): an amber dot on Devices when one of MY online
-// machines has an agent signed out.
-function DevicesSignInBadge() {
-  const { data: session } = useSession()
-  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
-  return needsSignIn ? <NavDot className="bg-amber-500" /> : null
 }
 
 interface TeamSidebarProps {
@@ -384,7 +375,6 @@ export function TeamSidebar({
                           <span>Devices</span>
                         </Link>
                       </SidebarMenuButton>
-                      <DevicesSignInBadge />
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>

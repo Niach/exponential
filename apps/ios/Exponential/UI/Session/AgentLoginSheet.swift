@@ -38,6 +38,10 @@ struct AgentLoginTarget: Identifiable {
 struct AgentLoginSheet: View {
     let viewModel: AgentsViewModel
     let target: AgentLoginTarget
+    /// What "the login landed" means for whoever opened the sheet. Nil (every
+    /// chip menu) = just close this sheet; the "+ Add account" flow closes its
+    /// own sheet as well, so a finished sign-in leaves nothing behind.
+    var onSignedIn: (() -> Void)? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -85,9 +89,11 @@ struct AgentLoginSheet: View {
             queueLogin()
         }
         // Closes itself on success: the machine re-probes after the login and
-        // its next heartbeat reports the profile as signed in.
+        // its next heartbeat reports the login as signed in — the NEW profile
+        // on the "+ Add account" path, whose ambient flag was already true
+        // (`AgentAccountsRows.loginLanded`).
         .onChange(of: signedIn) { was, now in
-            if !was, now { dismiss() }
+            if !was, now { finish() }
         }
     }
 
@@ -189,15 +195,25 @@ struct AgentLoginSheet: View {
 
     // MARK: - Commands
 
-    /// The machine's live report for the login this sheet is signing in.
+    /// The machine's live report for the login this sheet is signing in — the
+    /// shared rule, so the "+ Add account" path watches for the NEW profile
+    /// instead of the ambient flag it never changes.
     private var signedIn: Bool {
         let device = viewModel.devices?.first { $0.deviceId == target.deviceId }
-        guard let account = device?.agentAccounts?[target.agent] else { return false }
-        guard let profileId = target.profileId,
-              profileId != AgentAccountsRows.systemProfileId,
-              let profiles = account.profiles
-        else { return account.signedIn == true }
-        return profiles.first { $0.id == profileId }?.signedIn == true
+        return AgentAccountsRows.loginLanded(
+            account: device?.agentAccounts?[target.agent],
+            profileId: target.profileId,
+            newProfileLabel: target.newProfileLabel
+        )
+    }
+
+    /// The login landed: hand back to whoever opened the sheet, else close.
+    private func finish() {
+        if let onSignedIn {
+            onSignedIn()
+        } else {
+            dismiss()
+        }
     }
 
     private func queueLogin() {
@@ -276,7 +292,7 @@ struct AgentLoginSheet: View {
                 ) else { continue }
                 guard !command.isPending else { continue }
                 return command.isFailed
-                    ? .failed(command.result ?? "The machine refused the command.")
+                    ? .failed(command.result ?? "The device refused the command.")
                     : .done(command.result)
             }
             return .unanswered
@@ -363,15 +379,22 @@ struct AddAccountSheet: View {
                         .padding(.vertical, 12)
                         .glassRow()
 
-                        GlassPickerRow(
-                            "Agent",
-                            selection: Binding(
-                                get: { resolvedAgent },
-                                set: { agent = $0 }
-                            ),
-                            options: agents,
-                            label: { LaunchVocabulary.agentLabel($0) }
-                        )
+                        // EXP-862: the SHARED agent picker (brand mark +
+                        // chevron over marked menu rows), the same control the
+                        // composer, device settings and web's own Add-account
+                        // dialog carry — never a second picker on this client.
+                        HStack(spacing: 8) {
+                            Text("Agent")
+                                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                            Spacer(minLength: 8)
+                            AgentPickerMenu(
+                                agents: agents,
+                                selection: resolvedAgent,
+                                label: { LaunchVocabulary.agentLabel($0) },
+                                mark: { AgentBrandMark.image($0) },
+                                onSelect: { agent = $0 }
+                            )
+                        }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
                         .glassRow()
@@ -383,44 +406,37 @@ struct AddAccountSheet: View {
             primaryAction: {
                 GlassSubmitButton("Sign in", enabled: selected != nil && !resolvedAgent.isEmpty) {
                     guard let device = selected else { return }
+                    let agent = resolvedAgent
+                    let account = device.agentAccounts?[agent]
+                    let placement = AgentAccountsRows.addAccountLoginTarget(
+                        account,
+                        label: AgentAccountsRows.nextProfileLabel(
+                            account,
+                            agentLabel: LaunchVocabulary.agentLabel(agent)
+                        )
+                    )
                     loginTarget = AgentLoginTarget(
                         deviceId: device.deviceId,
                         deviceLabel: LaunchVocabulary.deviceName(device),
-                        agent: resolvedAgent,
-                        profileId: ambientProfileId(device, agent: resolvedAgent),
-                        newProfileLabel: newProfileLabel(device, agent: resolvedAgent)
+                        agent: agent,
+                        profileId: placement.profileId,
+                        newProfileLabel: placement.newProfileLabel
                     )
                 }
             }
         )
         .accessibilityIdentifier("add-account-sheet")
         .sheet(item: $loginTarget) { target in
-            AgentLoginSheet(viewModel: viewModel, target: target)
+            // A landed login closes the whole flow, not just the login sheet:
+            // web's dialog is gone by then too.
+            AgentLoginSheet(
+                viewModel: viewModel,
+                target: target,
+                onSignedIn: {
+                    loginTarget = nil
+                    dismiss()
+                }
+            )
         }
-    }
-
-    /// Where a new login lands: the ambient login while it is signed out
-    /// (nothing to keep beside it), otherwise a new profile.
-    private func ambientSignedIn(_ device: SteerDevice, agent: String) -> Bool {
-        guard let account = device.agentAccounts?[agent] else { return false }
-        guard let ambient = account.profiles?.first(where: {
-            $0.id == AgentAccountsRows.systemProfileId
-        }) else { return account.signedIn == true }
-        return ambient.signedIn == true
-    }
-
-    private func ambientProfileId(_ device: SteerDevice, agent: String) -> String? {
-        ambientSignedIn(device, agent: agent) ? nil : AgentAccountsRows.systemProfileId
-    }
-
-    /// `Claude Code account 2` — one past the profiles the machine reports for
-    /// the agent (the ambient login counts as the first). Clamped at the
-    /// server's 64.
-    private func newProfileLabel(_ device: SteerDevice, agent: String) -> String? {
-        guard ambientSignedIn(device, agent: agent) else { return nil }
-        let profiles = device.agentAccounts?[agent]?.profiles ?? []
-        let count = max(profiles.count, 1)
-        let label = "\(LaunchVocabulary.agentLabel(agent)) account \(count + 1)"
-        return String(label.prefix(64))
     }
 }

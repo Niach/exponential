@@ -340,31 +340,6 @@ export function accountCaption(
   return `signed in`
 }
 
-/** EXP-688/694: what one agent's OWN tab says, where the agent is already the
- * heading — just the ADDRESS: no `claude · ` prefix, no `signed in as` and no
- * ` · <plan>` tail (the plan is the agent app's business, not this row's). An
- * account with no email (a provider-only report) falls back
- * to the bare plan, and the two negative cases read as sentences. */
-export function accountLine(
-  account: DeviceAgentAccount | null | undefined
-): string {
-  if (!account) return `Sign-in status unknown`
-  if (!account.signedIn) return `Not signed in`
-  const email = account.email && account.email.length > 0 ? account.email : null
-  if (email) return email
-  const plan = account.plan && account.plan.length > 0 ? account.plan : null
-  if (plan) return plan
-  return `signed in`
-}
-
-/** The whole row: `claude · danny@example.com`. */
-export function accountRow(
-  agent: string,
-  account: DeviceAgentAccount | null | undefined
-): string {
-  return `${agent} · ${accountCaption(account)}`
-}
-
 // ── EXP-849: account HEALTH ─────────────────────────────────────────────────
 // `auth status` answers WHO a login is (email, plan) and nothing about
 // whether it still works; the device's usage probe answers that (an
@@ -492,51 +467,6 @@ export function deviceAccountChips(
     out.push(...chips)
   }
   return out
-}
-
-/** The three fields the chip rule reads — a `DeviceAccountChip` and the
- * account page's `AgentProfileUsageRow` both satisfy it. */
-export type ChipActionRow = {
-  signedIn: boolean
-  active: boolean
-  health: DeviceAgentHealth
-}
-
-/** EXP-849: whether the chip's lead entry is the non-destructive active-login
- * pick (`agent_profile_use`) rather than a sign-in. An EXPIRED credential is
- * never switched to — it would not work, it gets re-signed-in instead.
- *
- * `canSwitchAccount` is the MACHINE's `account-switch` capability
- * (`deviceCanSwitchAccount`, desktop/CLI ≥ 0.14.38). The server refuses
- * `agent_profile_use` without it (lib/trpc/devices.ts), so a machine below
- * that build must fall through to the sign-in action instead of being offered
- * a switch that is guaranteed to be refused. Mirrored ×3 (iOS/Android
- * `AgentAccountsRows.chipSwitchesTo`, desktop `accounts_section.rs`). */
-export function chipSwitchesTo(
-  row: ChipActionRow,
-  canSwitchAccount: boolean
-): boolean {
-  return (
-    canSwitchAccount &&
-    row.signedIn &&
-    !row.active &&
-    row.health !== `needs_relogin`
-  )
-}
-
-/** EXP-849: the ONE repair a MACHINE owes a login, as its chip menu's lead
- * entry — a healthy login the machine is not using simply BECOMES its login
- * (no login flow, no logout, no credential touched); everything else is a
- * sign-in. Byte-identical with iOS/Android `AgentAccountsRows.chipAction`. */
-export function chipAction(
-  row: ChipActionRow,
-  canSwitchAccount: boolean
-): string {
-  if (!row.signedIn) return `Sign in`
-  if (row.health === `needs_relogin`) return `Re-login`
-  return chipSwitchesTo(row, canSwitchAccount)
-    ? `Use this account here`
-    : `Sign in again`
 }
 
 // `Device`'s column is nullable; `SteerDevice`'s is optional — accept both,

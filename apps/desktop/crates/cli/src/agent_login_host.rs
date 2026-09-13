@@ -205,12 +205,12 @@ pub fn run(
             // numbers for a sign-in that never touched them. EXP-862: an
             // entry-less login also skips the rotation queue, so the account
             // this sign-in created is read on the very next collection pass
-            // rather than after a stagger window.
-            match &login_profile {
-                Some(profile) => {
-                    coding::usage_cache::forget_profile(&data_dir, agent.id(), profile)
-                }
-                None => coding::usage_cache::forget(&data_dir, agent.id()),
+            // rather than after a stagger window. A run that never resolved a
+            // target signed nothing in, so it drops NOTHING: forgetting the
+            // agent there would put every one of its logins on a first read
+            // at once, which is the fan-out the stagger exists to prevent.
+            if let Some(profile) = &login_profile {
+                coding::usage_cache::forget_profile(&data_dir, agent.id(), profile);
             }
             // Whatever happened, what the machine's agents look like just
             // changed (or was meant to) — re-probe on the next tick.

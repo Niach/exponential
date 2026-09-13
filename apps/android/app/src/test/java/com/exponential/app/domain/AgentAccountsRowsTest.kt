@@ -1,8 +1,12 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.api.AgentAccount
+import com.exponential.app.data.api.AgentAccountProfile
+import com.exponential.app.data.api.DeviceOwner
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.AgentUsageWindow
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
+import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceEntity
 import java.time.Instant
 import org.junit.Assert.assertEquals
@@ -622,5 +626,218 @@ class AgentAccountsRowsTest {
                 AgentHealthRules.deviceWorst(parseAgentAccounts(stale.agentAccounts))!!,
             ),
         )
+    }
+
+    // ── EXP-862: "Add account" — who can take a sign-in, and where it lands ──
+
+    /** A relay/registry row as the Add-account rules see it. */
+    private fun steerDevice(
+        deviceId: String,
+        label: String = deviceId,
+        mine: Boolean = true,
+        online: Boolean = true,
+        agents: List<String>? = listOf("claude"),
+        unauthedAgents: List<String> = emptyList(),
+        caps: List<String>? = listOf("agent-login"),
+        agentAccounts: Map<String, AgentAccount>? = null,
+    ) = SteerDevice(
+        deviceId = deviceId,
+        deviceLabel = label,
+        agents = agents,
+        unauthedAgents = unauthedAgents,
+        caps = caps,
+        online = online,
+        owner = if (mine) null else DeviceOwner(id = "someone-else", name = "Alex"),
+        agentAccounts = agentAccounts,
+    )
+
+    @Test
+    fun `add account offers only my online machines that can sign in`() {
+        val mine = steerDevice("mine")
+        val candidates = listOf(
+            mine,
+            steerDevice("theirs", mine = false),
+            steerDevice("offline", online = false),
+            // Too old to take the command: `agent-login` is strictly gated.
+            steerDevice("old", caps = emptyList()),
+            steerDevice("ancient", caps = null),
+            // Online and capable, but nothing installed to sign in to.
+            steerDevice("bare", agents = emptyList()),
+        )
+        assertEquals(
+            listOf("mine"),
+            AgentAccountsRows.addAccountDevices(candidates).map { it.deviceId },
+        )
+
+        // An agent filter keeps only the machines that have it installed —
+        // signed out counts, that is the whole point of a sign-in.
+        val codexBox = steerDevice("codex-box", agents = emptyList(), unauthedAgents = listOf("codex"))
+        val both = listOf(mine, codexBox)
+        assertEquals(
+            listOf("codex-box"),
+            AgentAccountsRows.addAccountDevices(both, agent = "codex").map { it.deviceId },
+        )
+        assertEquals(
+            listOf("mine"),
+            AgentAccountsRows.addAccountDevices(both, agent = "claude").map { it.deviceId },
+        )
+
+        // `exclude` drops the machines that already hold the account — the
+        // per-account "+" chip offers the rest.
+        assertEquals(
+            listOf("codex-box"),
+            AgentAccountsRows.addAccountDevices(both, exclude = setOf("mine")).map { it.deviceId },
+        )
+        assertTrue(
+            AgentAccountsRows.addAccountDevices(both, exclude = setOf("mine", "codex-box")).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `addable agents are the installed ones, signed in or out, in contract order`() {
+        assertEquals(
+            listOf("claude", "codex"),
+            // Reported out of order and split across the two lists.
+            AgentAccountsRows.addableAgents(
+                steerDevice("dev", agents = listOf("codex"), unauthedAgents = listOf("claude")),
+            ),
+        )
+        // A duplicate across both lists is one agent, and a retired id from a
+        // machine below the version floor is never offered.
+        assertEquals(
+            listOf("claude"),
+            AgentAccountsRows.addableAgents(
+                steerDevice("dev", agents = listOf("claude", "pi"), unauthedAgents = listOf("claude")),
+            ),
+        )
+        assertTrue(
+            AgentAccountsRows.addableAgents(steerDevice("dev", agents = emptyList())).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `a new login takes the ambient slot only while it is signed out`() {
+        // Nothing reported at all: the ambient config dir is free.
+        assertEquals(
+            AgentAccountsRows.LoginTarget(profileId = SYSTEM_PROFILE_ID, newProfileLabel = null),
+            AgentAccountsRows.addAccountLoginTarget(steerDevice("dev"), "claude", "Claude Code account 2"),
+        )
+        // The agent is known but signed out there: still the ambient slot.
+        val signedOut = steerDevice(
+            "dev",
+            agentAccounts = mapOf("claude" to AgentAccount(signedIn = false)),
+        )
+        assertEquals(
+            SYSTEM_PROFILE_ID,
+            AgentAccountsRows.addAccountLoginTarget(signedOut, "claude", "Claude Code account 2").profileId,
+        )
+        // Signed in on the ambient login: a SECOND account gets its own
+        // profile, never the agent CLI's own config dir.
+        val signedIn = steerDevice(
+            "dev",
+            agentAccounts = mapOf("claude" to AgentAccount(signedIn = true, email = "dev@acme.test")),
+        )
+        assertEquals(
+            AgentAccountsRows.LoginTarget(profileId = null, newProfileLabel = "Claude Code account 2"),
+            AgentAccountsRows.addAccountLoginTarget(signedIn, "claude", "Claude Code account 2"),
+        )
+        // The PROFILE's own flag wins over the pre-profile slot: an ambient
+        // entry that says signed out frees the slot even when the account
+        // header (another profile's identity) claims signed in.
+        val ambientSignedOut = steerDevice(
+            "dev",
+            agentAccounts = mapOf(
+                "claude" to AgentAccount(
+                    signedIn = true,
+                    profiles = listOf(
+                        AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = false),
+                        AgentAccountProfile(id = "work", signedIn = true, active = true),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            SYSTEM_PROFILE_ID,
+            AgentAccountsRows.addAccountLoginTarget(ambientSignedOut, "claude", "x").profileId,
+        )
+        // A machine with only OTHER agents signed in keeps claude's slot free.
+        val otherAgent = steerDevice(
+            "dev",
+            agentAccounts = mapOf("codex" to AgentAccount(signedIn = true)),
+        )
+        assertEquals(
+            SYSTEM_PROFILE_ID,
+            AgentAccountsRows.addAccountLoginTarget(otherAgent, "claude", "x").profileId,
+        )
+    }
+
+    @Test
+    fun `the next profile label counts past the logins the machine reports`() {
+        // Nothing reported: the ambient login still counts as the first.
+        assertEquals(
+            "Claude Code account 2",
+            AgentAccountsRows.nextProfileLabel(steerDevice("dev"), "claude", "Claude Code"),
+        )
+        val twoProfiles = steerDevice(
+            "dev",
+            agentAccounts = mapOf(
+                "claude" to AgentAccount(
+                    signedIn = true,
+                    profiles = listOf(
+                        AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = true, active = true),
+                        AgentAccountProfile(id = "work", signedIn = true),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            "Claude Code account 3",
+            AgentAccountsRows.nextProfileLabel(twoProfiles, "claude", "Claude Code"),
+        )
+        // The label follows the AGENT asked about, not the machine's busiest.
+        assertEquals(
+            "Codex account 2",
+            AgentAccountsRows.nextProfileLabel(twoProfiles, "codex", "Codex"),
+        )
+        // An empty profile list is the same "one ambient login" floor.
+        val empty = steerDevice(
+            "dev",
+            agentAccounts = mapOf("claude" to AgentAccount(signedIn = true, profiles = emptyList())),
+        )
+        assertEquals(
+            "Claude Code account 2",
+            AgentAccountsRows.nextProfileLabel(empty, "claude", "Claude Code"),
+        )
+    }
+
+    // EXP-862: the sign-in sheet's self-close rule, on the TARGETED login.
+    @Test
+    fun loginLandedReadsTheTargetedLogin() {
+        val ambientOut = AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = false)
+        val ambientIn = AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = true, health = "ok")
+        val work = AgentAccountProfile(id = "p-work", label = "Work", signedIn = true, health = "ok")
+        val stale = AgentAccountProfile(id = "p-stale", label = "Stale", signedIn = true, health = "needs_relogin")
+
+        assertFalse(AgentAccountsRows.loginLanded(null, null, null))
+        // The ambient login: its own `system` row decides, never the header.
+        assertFalse(
+            AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, profiles = listOf(ambientOut, work)), SYSTEM_PROFILE_ID, null),
+        )
+        assertTrue(
+            AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, profiles = listOf(ambientIn)), SYSTEM_PROFILE_ID, null),
+        )
+        // No profile rows at all: the top-level fields, minus needs_relogin.
+        assertTrue(AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, health = "ok"), null, null))
+        assertFalse(AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, health = "needs_relogin"), null, null))
+        // A named profile is its own state; a refused one has not landed.
+        val account = AgentAccount(signedIn = true, profiles = listOf(ambientIn, work, stale))
+        assertTrue(AgentAccountsRows.loginLanded(account, "p-work", null))
+        assertFalse(AgentAccountsRows.loginLanded(account, "p-stale", null))
+        assertFalse(AgentAccountsRows.loginLanded(account, "p-missing", null))
+        // A NEW profile lands when a row carrying its label is usable.
+        assertTrue(AgentAccountsRows.loginLanded(account, null, " Work "))
+        assertFalse(AgentAccountsRows.loginLanded(account, null, "Stale"))
+        assertFalse(AgentAccountsRows.loginLanded(account, null, "Nowhere"))
+        assertFalse(AgentAccountsRows.loginLanded(account, null, "  "))
     }
 }

@@ -24,7 +24,7 @@ import {
   AutomationDialog,
   REQUIRED_INPUTS_HINT,
 } from "@/components/automation-dialog"
-import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
+import { AGENT_LABELS } from "@/components/agent-picker"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -72,21 +72,24 @@ function sessionStatusLabel(status: string): string {
   return SESSION_STATUS_LABELS[status] ?? status
 }
 
-// Owner-only ⋯ menu on a row.
+// Owner-only ⋯ menu on a row. `onEdit` is absent when this build has no
+// automation editor to open (steer off), and the item goes with it.
 function AutomationMenu({
   name,
   onEdit,
   onDelete,
 }: {
   name: string
-  onEdit: () => void
+  onEdit: (() => void) | undefined
   onDelete: () => void
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
+        {/* EXP-862: the "…" trigger is a GHOST icon button, like every other
+            one in the sweep — no circle, no border. */}
         <Button
-          variant="glass"
+          variant="ghost"
           size="icon-sm"
           aria-label={`Automation menu for ${name}`}
         >
@@ -94,10 +97,12 @@ function AutomationMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit}>
-          <Pencil className="h-4 w-4" />
-          Edit
-        </DropdownMenuItem>
+        {onEdit && (
+          <DropdownMenuItem onClick={onEdit}>
+            <Pencil className="h-4 w-4" />
+            Edit
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
           Delete
@@ -112,6 +117,7 @@ function AutomationRow({
   action,
   devices,
   isOwner,
+  canEdit,
   lastRun,
   onEdit,
   onDelete,
@@ -120,6 +126,8 @@ function AutomationRow({
   action: TeamAction | undefined
   devices: SteerDevice[]
   isOwner: boolean
+  /** Whether the editor this row opens is rendered at all (§`canEdit`). */
+  canEdit: boolean
   lastRun: CodingSession | undefined
   onEdit: () => void
   onDelete: () => void
@@ -160,11 +168,11 @@ function AutomationRow({
 
   return (
     // EXP-862: a flat row like every other list row — the hover fill and the
-    // pointer come with the click, which is the row's editor (owner-only, the
-    // same destination its ⋯ menu has).
+    // pointer come with the click, which is the row's editor (the same
+    // destination its ⋯ menu has, under the same gate).
     <ListRow
-      interactive={isOwner}
-      onClick={isOwner ? onEdit : undefined}
+      interactive={canEdit}
+      onClick={canEdit ? onEdit : undefined}
       data-testid={`automation-${automation.id}`}
     >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
@@ -232,7 +240,7 @@ function AutomationRow({
         {isOwner ? (
           <AutomationMenu
             name={action?.name ?? `action`}
-            onEdit={onEdit}
+            onEdit={canEdit ? onEdit : undefined}
             onDelete={onDelete}
           />
         ) : (
@@ -320,6 +328,10 @@ export function AutomationsTab({
     [actions]
   )
 
+  // The dialog below is the ONE automation editor — create and edit both open
+  // it — so every path into it shares its gate.
+  const canEdit = steerEnabled && isOwner
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Automation | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
@@ -336,14 +348,14 @@ export function AutomationsTab({
       (automation) => automation.id === editAutomationId
     )
     onEditAutomationConsumed?.()
-    if (!target || !isOwner) return
+    if (!target || !canEdit) return
     setEditing(target)
     setDialogOpen(true)
   }, [
     editAutomationId,
     automationRows,
     automations,
-    isOwner,
+    canEdit,
     onEditAutomationConsumed,
   ])
 
@@ -363,11 +375,10 @@ export function AutomationsTab({
     }
   }
 
-  const canCreate = steerEnabled && isOwner
-  const headerTrailing = !showSuggestions && !canCreate ? undefined : (
+  const headerTrailing = !showSuggestions && !canEdit ? undefined : (
     <>
       {showSuggestions && <SuggestionsButton />}
-      {canCreate && (
+      {canEdit && (
         <Pill
           mode="action"
           onClick={() => {
@@ -406,6 +417,7 @@ export function AutomationsTab({
                   action={actionById.get(automation.actionId)}
                   devices={devices}
                   isOwner={isOwner}
+                  canEdit={canEdit}
                   lastRun={lastRunByAutomation.get(automation.id)}
                   onEdit={() => {
                     setEditing(automation)
@@ -474,7 +486,7 @@ export function AutomationsTab({
         </div>
       </div>
 
-      {canCreate && (
+      {canEdit && (
         <AutomationDialog
           open={dialogOpen}
           onOpenChange={(next) => {

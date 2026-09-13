@@ -1,3 +1,4 @@
+import { useId } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { Input } from "@/components/ui/input"
 import { Pill } from "@/components/ui/pill"
@@ -42,27 +43,40 @@ export function BoardIdentityRow({
   onColorChange: (color: string) => void
   disabled?: boolean
 }) {
+  // Two board forms can share a document (the create dialog opens from the
+  // settings nav while a board's settings page is mounted), so the control
+  // ids are per instance rather than fixed strings.
+  const uid = useId()
   return (
     <div className="flex items-center gap-2 px-4 py-3">
       <IconPicker
-        id="board-icon"
+        id={`${uid}-icon`}
         value={icon}
         onChange={(next) => onIconChange(next as BoardIcon)}
         color={color}
         disabled={disabled}
       />
       <ColorPicker
-        id="board-color"
+        id={`${uid}-color`}
         value={color}
         onChange={onColorChange}
         disabled={disabled}
       />
       <Input
-        id="board-name"
+        id={`${uid}-name`}
         aria-label="Name"
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
         onBlur={onNameBlur}
+        onKeyDown={(e) => {
+          // A blur-committed field (the settings page: no Save button) also
+          // commits on Enter. Inside the create form Enter stays the submit
+          // key, so this only arms where an `onNameBlur` handler exists.
+          if (e.key === `Enter` && onNameBlur) {
+            e.preventDefault()
+            e.currentTarget.blur()
+          }
+        }}
         placeholder="Name"
         className={ROW_FIELD}
         autoFocus={autoFocus}

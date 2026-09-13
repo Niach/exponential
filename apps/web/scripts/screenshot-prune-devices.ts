@@ -4,7 +4,7 @@
  * Every launch of the desktop app registers itself: a fresh `EXP_DATA_DIR`
  * means a fresh `device_id`, and the row outlives the process. One lane run is
  * therefore one extra machine in the demo team forever, and the NEXT run
- * photographs "My machines 3" with two identical Mac minis in it — on the
+ * photographs "My devices 3" with two identical Mac minis in it — on the
  * Agents screen, the Add-server dialog, the launcher's device picker and every
  * mobile mirror of them.
  *

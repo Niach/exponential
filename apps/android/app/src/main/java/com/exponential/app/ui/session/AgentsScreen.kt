@@ -392,10 +392,10 @@ fun AgentsScreen(
     removeTarget?.let { device ->
         AlertDialog(
             onDismissRequest = { removeTarget = null },
-            title = { Text("Remove machine?") },
+            title = { Text("Remove device") },
             text = {
                 Text(
-                    "Remove “${device.displayLabel}” from your machines? A machine with the " +
+                    "Remove “${device.displayLabel}” from your devices? A device with the " +
                         "daemon still running will re-register itself on its next heartbeat.",
                 )
             },
@@ -464,7 +464,11 @@ fun AgentsScreen(
     }
 
     loginTarget?.let { target ->
-        AgentLoginSheet(target = target, onDismiss = { loginTarget = null })
+        AgentLoginSheet(
+            target = target,
+            onDismiss = { loginTarget = null },
+            liveDevice = devices.orEmpty().firstOrNull { it.deviceId == target.device.deviceId },
+        )
     }
 }
 
@@ -496,10 +500,18 @@ private fun AddAccountSheet(
     onPick: (SteerDevice, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var deviceId by remember(devices) { mutableStateOf(devices.firstOrNull()?.deviceId ?: "") }
-    val device = devices.firstOrNull { it.deviceId == deviceId }
+    // EXP-862: the picks are remembered as the user's CHOICE, never keyed on
+    // the device rows. Those re-emit on every heartbeat (~30s) with a fresh
+    // `lastSeenAt`, so a `remember(devices)` key would re-initialise mid-sheet
+    // and silently snap the pick back to the first machine — a sign-in would
+    // then land on a machine nobody chose. An empty or vanished pick falls
+    // back to the first candidate here instead.
+    var pickedDeviceId by remember { mutableStateOf("") }
+    var pickedAgent by remember { mutableStateOf("") }
+    val device = devices.firstOrNull { it.deviceId == pickedDeviceId } ?: devices.firstOrNull()
+    val deviceId = device?.deviceId ?: ""
     val agents = device?.let(AgentAccountsRows::addableAgents).orEmpty()
-    var agent by remember(agents) { mutableStateOf(agents.firstOrNull() ?: "") }
+    val agent = pickedAgent.takeIf { it in agents } ?: agents.firstOrNull() ?: ""
     GlassSheet(
         title = "Add account",
         onDismiss = onDismiss,
@@ -528,7 +540,7 @@ private fun AddAccountSheet(
                             val row = devices.firstOrNull { it.deviceId == id }
                             if (row?.isServer == true) ExpIcons.uiServer else ExpIcons.uiDevice
                         },
-                        onSelect = { deviceId = it },
+                        onSelect = { pickedDeviceId = it },
                     )
                     GroupDivider()
                     PickerRow(
@@ -538,7 +550,7 @@ private fun AddAccountSheet(
                         selected = agent,
                         optionLabel = ::agentLabel,
                         enabled = agents.isNotEmpty(),
-                        onSelect = { agent = it },
+                        onSelect = { pickedAgent = it },
                     )
                 }
                 Spacer(Modifier.height(12.dp))
@@ -603,9 +615,6 @@ private fun MachineRow(
     onSignInAccount: (DeviceAccountChip) -> Unit,
 ) {
     val online = device.online
-    // Installed-but-signed-out agents (EXP-409): they block a start outright
-    // when nothing else is runnable, and are worth a note when something is.
-    val unauthed = device.unauthedAgentIds
     // EXP-836: a start needs an online machine WITH a runnable agent. Gating on
     // the signed-out case alone let a machine that reported no agents at all
     // keep its play button, and the composer then dropped the pre-picked
@@ -687,7 +696,7 @@ private fun MachineRow(
                         Spacer(Modifier.width(6.dp))
                         Icon(
                             ExpIcons.uiDeviceDefault,
-                            contentDescription = "Default machine",
+                            contentDescription = "Default device",
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             modifier = Modifier.size(13.dp),
                         )
@@ -782,8 +791,11 @@ private fun MachineRow(
                 Box {
                     CircleIconButton(
                         ExpIcons.uiMore,
-                        contentDescription = "Machine actions",
+                        contentDescription = "Device menu",
                         onClick = { rowMenu = true },
+                        // EXP-862: every "⋯" is a ghost rung — no circle, no
+                        // hairline (×4).
+                        borderless = true,
                         modifier = Modifier.padding(start = 8.dp),
                     )
                     GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
@@ -942,7 +954,7 @@ private fun MachineAccountChip(
     }
     val description = buildString {
         append(label)
-        if (chip.active) append(", the account this machine uses")
+        if (chip.active) append(", the account this device uses")
         badge?.let { append(", ${it.lowercase()}") }
     }
     val pill: @Composable () -> Unit = {
@@ -966,7 +978,7 @@ private fun MachineAccountChip(
                     {
                         Icon(
                             ExpIcons.uiCheck,
-                            contentDescription = "The account this machine uses",
+                            contentDescription = "The account this device uses",
                             tint = ReviewGreen,
                             modifier = Modifier.size(12.dp),
                         )
@@ -1168,6 +1180,15 @@ private fun AccountRow(
                     )
                 }
             }
+        } else if (group.signedIn && asOf == null) {
+            // EXP-862: a signed-in login nothing has probed YET reads
+            // "Checking…" — "No usage reported" made a device that is simply
+            // still working read as broken (×4).
+            Text(
+                "Checking…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
         } else {
             Text(
                 if (asOf != null) "No usage reported · as of $asOf" else "No usage reported",
@@ -1241,7 +1262,7 @@ private fun DeviceChip(
                     {
                         Icon(
                             ExpIcons.uiCheck,
-                            contentDescription = "Active on this machine",
+                            contentDescription = "Active on this device",
                             tint = ReviewGreen,
                             modifier = Modifier.size(12.dp),
                         )

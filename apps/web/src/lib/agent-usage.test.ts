@@ -5,17 +5,12 @@ import {
   agentHealth,
   agentProfileUsageRows,
   attentionRank,
-  chipAction,
-  chipSwitchesTo,
   deviceAccountChips,
   deviceWorstHealth,
   healthBadgeLabel,
   worstHealth,
   sortAccountGroupsAttentionFirst,
   type AgentProfileUsageRow,
-  type ChipActionRow,
-  accountLine,
-  accountRow,
   contextPercent,
   formatContextUsage,
   formatResetCountdown,
@@ -360,43 +355,6 @@ describe(`accountCaption`, () => {
   it(`degrades to signed in, then to unknown`, () => {
     expect(accountCaption({ signedIn: true })).toBe(`signed in`)
     expect(accountCaption(null)).toBe(`unknown`)
-  })
-})
-
-describe(`accountLine`, () => {
-  it(`is the email alone — no prefix, no plan tail`, () => {
-    expect(
-      accountLine({ signedIn: true, email: `danny@example.com`, plan: `Max` })
-    ).toBe(`danny@example.com`)
-    expect(accountLine({ signedIn: true, email: `danny@example.com` })).toBe(
-      `danny@example.com`
-    )
-  })
-
-  it(`falls back to the bare plan without an email`, () => {
-    expect(accountLine({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
-      `anthropic (oauth)`
-    )
-    expect(accountLine({ signedIn: true })).toBe(`signed in`)
-  })
-
-  it(`spells out the negatives`, () => {
-    expect(accountLine({ signedIn: false })).toBe(`Not signed in`)
-    expect(accountLine(null)).toBe(`Sign-in status unknown`)
-  })
-})
-
-describe(`accountRow`, () => {
-  it(`prefixes the agent`, () => {
-    expect(
-      accountRow(`claude`, {
-        signedIn: true,
-        email: `danny@example.com`,
-        plan: `Max`,
-      })
-    ).toBe(`claude · danny@example.com`)
-    expect(accountRow(`codex`, { signedIn: false })).toBe(`codex · signed out`)
-    expect(accountRow(`claude`, null)).toBe(`claude · unknown`)
   })
 })
 
@@ -908,44 +866,6 @@ describe(`retired agent ids (EXP-849)`, () => {
       []
     )
     expect(deviceWorstHealth({ agentAccounts: onlyPi.agentAccounts })).toBeNull()
-  })
-})
-
-// EXP-849: the ONE repair a machine's account chip offers. The cap input is
-// the machine's `account-switch` capability (`deviceCanSwitchAccount`): the
-// server refuses `agent_profile_use` without it, and a fleet at the 0.14.37
-// floor does not have it yet, so the rule must not offer the switch there.
-describe(`chipAction / chipSwitchesTo`, () => {
-  const row = (over: Partial<ChipActionRow> = {}): ChipActionRow => ({
-    signedIn: true,
-    active: false,
-    health: `ok`,
-    ...over,
-  })
-
-  it(`names the one action per state on a capable machine`, () => {
-    expect(chipAction(row({ signedIn: false, health: `signed_out` }), true)).toBe(
-      `Sign in`
-    )
-    expect(chipAction(row({ health: `needs_relogin` }), true)).toBe(`Re-login`)
-    expect(chipAction(row({ active: true }), true)).toBe(`Sign in again`)
-    expect(chipAction(row(), true)).toBe(`Use this account here`)
-  })
-
-  it(`switches only to a healthy login the machine is not already using`, () => {
-    expect(chipSwitchesTo(row(), true)).toBe(true)
-    expect(chipSwitchesTo(row({ active: true }), true)).toBe(false)
-    expect(chipSwitchesTo(row({ health: `needs_relogin` }), true)).toBe(false)
-    expect(chipSwitchesTo(row({ signedIn: false }), true)).toBe(false)
-  })
-
-  it(`falls back to a sign-in without the account-switch capability`, () => {
-    expect(chipSwitchesTo(row(), false)).toBe(false)
-    expect(chipAction(row(), false)).toBe(`Sign in again`)
-    // The other states are unchanged — only the switch needs the cap.
-    expect(chipAction(row({ signedIn: false }), false)).toBe(`Sign in`)
-    expect(chipAction(row({ health: `needs_relogin` }), false)).toBe(`Re-login`)
-    expect(chipAction(row({ active: true }), false)).toBe(`Sign in again`)
   })
 })
 

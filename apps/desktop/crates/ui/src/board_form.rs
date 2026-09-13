@@ -23,9 +23,14 @@ use crate::icons::registry;
 /// action inputs) and reports `None`; the swatch then shows a dashed
 /// placeholder. Byte-for-byte the same shape as web `IconPicker`, iOS
 /// `IconPicker` and Android `IconPicker`.
+///
+/// `color` (EXP-862) tints the picked glyph — the board form's live preview
+/// of "this glyph in this colour", web `IconPicker`'s `color` prop; `None`
+/// (the action forms) draws it in the foreground.
 pub(crate) fn icon_picker(
     id_prefix: impl Into<SharedString>,
     selected: Option<&str>,
+    color: Option<&str>,
     allows_none: bool,
     on_pick: impl Fn(Option<&'static str>, &mut Window, &mut App) + Clone + 'static,
     cx: &App,
@@ -33,8 +38,13 @@ pub(crate) fn icon_picker(
     let id_prefix: SharedString = id_prefix.into();
     let selected: SharedString = selected.unwrap_or_default().to_string().into();
     let has_pick = !selected.is_empty();
+    let tint = color.and_then(crate::settings::parse_hex_color);
     let glyph = if has_pick {
-        crate::icons::board_icon_name_glyph(&selected)
+        let glyph = crate::icons::board_icon_name_glyph(&selected);
+        match tint {
+            Some(color) => glyph.text_color(color),
+            None => glyph,
+        }
     } else {
         Icon::from(registry::UI_ICON_PLACEHOLDER).text_color(cx.theme().muted_foreground)
     };
@@ -260,18 +270,21 @@ pub(crate) enum BranchLoad {
     Failed(SharedString),
 }
 
-/// The board form's **Branch** dropdown: the branch this board's coding
-/// sessions start from. Shows the board's pin, or the repo's default when it
-/// has none; the repo default is tagged `default` and picking it reports
-/// `None` (follow the repo again — the same normalization the server does).
+/// The board form's **Branch** dropdown (EXP-712): the branch this board's
+/// coding sessions start from, as the trailing VALUE of a
+/// [`crate::surface::glass_picker_row`] — field chrome stripped (the row owns
+/// the padding and the hairline), so the Repository and Branch rows read as
+/// one group on the settings page AND in the create-board dialog (EXP-862).
+/// Shows the board's pin, or the repo's default when it has none; the repo
+/// default is tagged `default` and picking it reports `None` (follow the
+/// repo again — the same normalization the server does).
 ///
-/// Kept in the dropdown-menu shape the repository field uses, so the two rows
-/// read as one block. `branches` is read at OPEN time (the menu is built
-/// then, not at render), and `on_open` kicks the lazy fetch.
-/// (`value` is the branch to show — the board's pin, else the repo default;
-/// `repo_default` is the repo's own default, `None` when the server never
-/// reported one — L30: never fabricate `main`.)
-pub(crate) fn branch_menu<V: gpui::Render>(
+/// `branches` is read at OPEN time (the menu is built then, not at render),
+/// and `on_open` kicks the lazy fetch. `value` is the branch to show — the
+/// board's pin, else the repo default; `repo_default` is the repo's own
+/// default, `None` when the server never reported one — L30: never fabricate
+/// `main`.
+pub(crate) fn branch_value_menu<V: gpui::Render>(
     id: impl Into<SharedString>,
     value: impl Into<SharedString>,
     repo_default: Option<String>,
@@ -281,15 +294,34 @@ pub(crate) fn branch_menu<V: gpui::Render>(
     on_pick: impl Fn(&mut V, Option<String>, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> gpui::AnyElement {
+    let value: SharedString = value.into();
+    let trigger = Button::new(id.into())
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_color(cx.theme().foreground.opacity(0.7))
+        // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
+        // so a long branch name wraps onto a second line.
+        .child(crate::surface::picker_value_label(value.clone()));
+    branch_dropdown(trigger, value, repo_default, disabled, branches, on_open, on_pick, cx)
+}
+
+/// The Branch menu itself, hung off the dressed trigger.
+#[allow(clippy::too_many_arguments)]
+fn branch_dropdown<V: gpui::Render>(
+    button: Button,
+    value: SharedString,
+    repo_default: Option<String>,
+    disabled: bool,
+    branches: impl Fn(&V, &App) -> Option<BranchLoad> + 'static,
+    on_open: impl Fn(&mut V, &mut gpui::Context<V>) + 'static,
+    on_pick: impl Fn(&mut V, Option<String>, &mut gpui::Context<V>) + 'static,
+    cx: &mut gpui::Context<V>,
+) -> gpui::AnyElement {
     use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 
-    let value: SharedString = value.into();
-    let button = Button::new(id.into())
-        .outline()
-        .cursor_pointer()
-        .small()
-        .w_full()
-        .label(value.clone());
     if disabled {
         use gpui_component::Disableable as _;
         return button.disabled(true).into_any_element();

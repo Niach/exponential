@@ -802,7 +802,7 @@ pub(crate) fn sign_in_on_device(
     if own {
         // The named helpers, so "add an account" and "repair this profile"
         // stay one call each on this machine too.
-        match target {
+        match normalize_own_target(target) {
             LoginTarget::System => open_login_tab(agent, false, cx),
             LoginTarget::Profile(profile_id) => open_profile_login_tab(agent, profile_id, cx),
             LoginTarget::NewProfile(label) => open_add_account_tab(agent, label, cx),
@@ -810,6 +810,21 @@ pub(crate) fn sign_in_on_device(
         return;
     }
     open_login_dialog(device_id, device_label, agent, target, window, cx);
+}
+
+/// The ambient login is the ABSENCE of a profile, on this machine exactly as
+/// it is on the wire (`queue_login_command` drops a `system`/blank id): every
+/// chip hands over the row's raw `profile_id`, which IS `system` for the
+/// ambient account, and `coding::agent_login::resolve_login_profile` has no
+/// directory for that id — so a raw pass-through would refuse the most common
+/// sign-in there is ("This machine has no Claude Code profile system.").
+fn normalize_own_target(target: LoginTarget) -> LoginTarget {
+    match target {
+        LoginTarget::Profile(id) if coding::agent_profiles::is_system(Some(&id)) => {
+            LoginTarget::System
+        }
+        other => other,
+    }
 }
 
 /// `devices.createCommand` for an `agent_login` that names WHERE the login
@@ -1034,7 +1049,7 @@ fn login_dialog_result(row: &api::devices::CommandRow) -> LoginDialogState {
         return LoginDialogState::Failed(SharedString::from(
             row.result
                 .clone()
-                .unwrap_or_else(|| "The machine reported a failure.".to_string()),
+                .unwrap_or_else(|| "The device reported a failure.".to_string()),
         ));
     }
     match row.result.as_deref().and_then(LoginProgress::parse) {
@@ -1260,7 +1275,7 @@ impl AddAccountDialogView {
                 selected
                     .as_ref()
                     .map(|device| device.label.clone())
-                    .unwrap_or_else(|| "Pick a machine".into()),
+                    .unwrap_or_else(|| "Pick a device".into()),
                 selected.is_none(),
                 cx,
             ))
@@ -1338,7 +1353,7 @@ impl Render for AddAccountDialogView {
                 .w_full()
                 .gap_4()
                 .child(div().text_sm().text_color(muted).child(
-                    "None of your machines is online with an agent that can sign in remotely. \
+                    "None of your devices is online with an agent that can sign in remotely. \
                      Open the desktop app or start the daemon there first.",
                 ))
                 .child(
@@ -1360,13 +1375,13 @@ impl Render for AddAccountDialogView {
                 device.label
             )
             .into(),
-            None => "Sign in with another account on one of your machines.".into(),
+            None => "Sign in with another account on one of your devices.".into(),
         };
         v_flex()
             .w_full()
             .gap_4()
             .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_picker_row("Machine", None, machine_picker, cx),
+                crate::surface::glass_picker_row("Device", None, machine_picker, cx),
                 crate::surface::glass_picker_row("Agent", None, agent_picker, cx),
             ]))
             .child(div().text_xs().text_color(muted).child(caption))
@@ -1399,6 +1414,37 @@ impl Render for AddAccountDialogView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-862: every chip on the Devices and Accounts pages hands
+    /// [`sign_in_on_device`] the row's RAW `profile_id`, and the ambient
+    /// login's is `system` — which has no profile directory, so the own-device
+    /// branch has to read it as "the ambient login" exactly like the wire
+    /// does, or "Sign in" on the commonest chip there is dies in
+    /// `resolve_login_profile`.
+    #[test]
+    fn the_ambient_profile_id_is_the_ambient_login() {
+        assert!(matches!(
+            normalize_own_target(LoginTarget::Profile(coding::SYSTEM_PROFILE.to_string())),
+            LoginTarget::System
+        ));
+        assert!(matches!(
+            normalize_own_target(LoginTarget::Profile("  ".to_string())),
+            LoginTarget::System
+        ));
+        assert!(matches!(
+            normalize_own_target(LoginTarget::Profile(String::new())),
+            LoginTarget::System
+        ));
+        // A real profile still signs into ITSELF.
+        assert!(matches!(
+            normalize_own_target(LoginTarget::Profile("0a1b2c3d".to_string())),
+            LoginTarget::Profile(id) if id == "0a1b2c3d"
+        ));
+        assert!(matches!(
+            normalize_own_target(LoginTarget::NewProfile("Work".to_string())),
+            LoginTarget::NewProfile(label) if label == "Work"
+        ));
+    }
 
     /// A stand-in for the device-settings dialog: an entity whose click
     /// handler starts a switch and, in the callback, updates ITSELF through

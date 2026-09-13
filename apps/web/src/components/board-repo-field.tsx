@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc-client"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { GlassGroup } from "@/components/ui/glass-rows"
+import { GLASS_PICKER_ROW, GlassGroup } from "@/components/ui/glass-rows"
 import {
   Select,
   SelectContent,
@@ -21,11 +21,6 @@ import {
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 export type ConnectedRepo = RepoList[number]
-
-// The picker-row skin for a stock `SelectTrigger` (glass-rows' own
-// `GLASS_PICKER_ROW`, which that module keeps private): no chrome of its
-// own, the group around it draws the fill.
-const PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
 
 const NONE = `none`
 const CONNECT = `connect`
@@ -105,7 +100,7 @@ export function BoardRepoField({
     repositoryId && repos ? repos.find((r) => r.id === repositoryId) : null
 
   // FEED-32: the host can point the board at a repo this list has never seen
-  // — the settings dialog connects a new repo and the LIVE board row flips
+  // — the settings page connects a new repo and the LIVE board row flips
   // `repositoryId` before this copy of `repositories.list` is refreshed, so
   // the Select held a value with no matching item and the trigger went blank.
   // Re-list ONCE per unknown id (a genuinely unknown id — an archived repo —
@@ -180,7 +175,7 @@ export function BoardRepoField({
           <SelectTrigger
             id="board-repository"
             aria-label="Repository"
-            className={PICKER_ROW}
+            className={GLASS_PICKER_ROW}
           >
             <span className="shrink-0 text-sm text-foreground">Repository</span>
             <span className="ml-auto min-w-0 truncate text-sm text-foreground/70">

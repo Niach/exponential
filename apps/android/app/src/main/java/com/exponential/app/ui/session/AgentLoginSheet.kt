@@ -17,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.exponential.app.domain.AgentAccountsRows
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -71,10 +73,31 @@ internal data class AgentLoginTarget(
 internal fun AgentLoginSheet(
     target: AgentLoginTarget,
     onDismiss: () -> Unit,
+    /** The LIVE row of the device the login runs on (the synced heartbeat),
+     * so the sheet can see its own success; null keeps it open until
+     * dismissed by hand. */
+    liveDevice: SteerDevice? = null,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
 ) {
     val device = target.device
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
+
+    // EXP-862: the sheet closes itself once the login it asked for is usable
+    // on the device (web/desktop/iOS do the same). The FIRST observation is
+    // the baseline: a login that was already there never counts as landing.
+    val landed = AgentAccountsRows.loginLanded(
+        liveDevice?.agentAccounts?.get(target.agent),
+        target.profileId,
+        target.newProfileLabel,
+    )
+    var baseline by remember(target) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(landed) {
+        when (baseline) {
+            null -> baseline = landed
+            false -> if (landed) onDismiss()
+            else -> Unit
+        }
+    }
 
     // The sheet IS the request: it queues the login once, on the machine the
     // caller named, and then follows it. A second open re-runs it, which is

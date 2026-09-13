@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import type { Device } from "@/db/schema"
+import { conceptIcon } from "@/lib/icons.generated"
 import { AgentPicker, agentLabel } from "@/components/agent-picker"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { Button } from "@/components/ui/button"
@@ -20,7 +21,10 @@ import {
 } from "@/lib/agent-account-add"
 import { steerDeviceFromRow } from "@/lib/steer-devices"
 
-// EXP-827: "Add account" — pick one of MY online machines (cap `agent-login`)
+const DesktopIcon = conceptIcon(`ui-device`)
+const ServerIcon = conceptIcon(`ui-server`)
+
+// EXP-827: "Add account" — pick one of MY online devices (cap `agent-login`)
 // and an agent installed there, then hand off to the shared sign-in dialog
 // (`AgentLoginDialogHost`) with a `newProfileLabel` (or the ambient login
 // while that is still free): the machine creates the profile, runs the CLI's
@@ -48,7 +52,7 @@ export function AddAccountDialog({
   const [deviceId, setDeviceId] = useState<string>(``)
   const [agent, setAgent] = useState<string>(``)
 
-  // Defaults latch on open: the first machine, its first agent.
+  // Defaults latch on open: the first device, its first agent.
   useEffect(() => {
     if (!open) return
     setDeviceId((current) =>
@@ -89,25 +93,35 @@ export function AddAccountDialog({
           <DialogDescription>
             {device
               ? `The sign-in runs on ${label}. Sign in with the account you want to add.`
-              : `Sign in with another account on one of your machines.`}
+              : `Sign in with another account on one of your devices.`}
           </DialogDescription>
         </DialogHeader>
         {candidates.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            None of your machines is online with an agent that can sign in
+            None of your devices is online with an agent that can sign in
             remotely. Open the desktop app or start the daemon there first.
           </p>
         ) : (
           <GlassGroup>
             <GlassPickerRow
-              label="Machine"
+              label="Device"
               value={deviceId}
               onValueChange={setDeviceId}
-              placeholder="Pick a machine"
-              options={candidates.map((row) => ({
-                value: row.deviceId,
-                label: row.label || row.deviceId,
-              }))}
+              placeholder="Pick a device"
+              // EXP-862: the device's KIND leads the value and every row — a
+              // picker whose value wears an icon offers it on its items.
+              options={candidates.map((row) => {
+                const KindIcon = row.kind === `server` ? ServerIcon : DesktopIcon
+                return {
+                  value: row.deviceId,
+                  label: (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <KindIcon className="size-4 shrink-0" />
+                      <span className="truncate">{row.label || row.deviceId}</span>
+                    </span>
+                  ),
+                }
+              })}
             />
             {/* EXP-862: the ONE agent picker — brand mark + chevron, the
                 label in its tooltip and its menu rows. */}

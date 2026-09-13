@@ -30,9 +30,17 @@
 import { useState, type ReactNode } from "react"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
-import type { DeviceAgentHealth } from "@/db/schema"
+import type {
+  DeviceAgentAccount,
+  DeviceAgentHealth,
+  DeviceAgentProfileEntry,
+} from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
-import { parseAgentLoginResult } from "@/lib/agent-usage"
+import {
+  agentHealth,
+  parseAgentLoginResult,
+  SYSTEM_PROFILE_ID,
+} from "@/lib/agent-usage"
 import {
   canRemoveAccountOn,
   removeAccountConfirmCopy,
@@ -46,6 +54,7 @@ import {
 } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
+import { agentLabel } from "@/components/agent-picker"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -157,6 +166,53 @@ export function accountChipLabel(row: AccountChipRow): string {
   return row.email || row.profileLabel
 }
 
+/** EXP-862: has the login a sign-in was FOR landed on the device yet? The
+ * login dialog closes on that transition, and "signed in" alone answers the
+ * wrong question twice over:
+ *
+ *  - a credential the probe found revoked keeps `signedIn === true` the whole
+ *    time (the CLI still claims a login, only the probe knows better), so a
+ *    re-login would open already "signed in" and never close;
+ *  - an "Add account" run names a profile the device has not created yet, so
+ *    reading the account's own flag reports the AMBIENT login's state — true
+ *    on any device that already holds one.
+ *
+ * Landed = signed in AND not revoked, on the profile that was targeted: by
+ * id, or by the label the device was asked to create it under (the id is the
+ * device's to mint, `agent_profiles::create`). */
+export function agentLoginLanded(
+  account:
+    | Pick<DeviceAgentAccount, `signedIn` | `health` | `profiles`>
+    | null
+    | undefined,
+  target: { profileId?: string; newProfileLabel?: string }
+): boolean {
+  if (!account) return false
+  const usable = (
+    entry: Pick<DeviceAgentProfileEntry, `signedIn` | `health`>
+  ): boolean =>
+    entry.signedIn === true && agentHealth(entry) !== `needs_relogin`
+  const profiles = (account.profiles ?? []).filter(
+    (profile): profile is DeviceAgentProfileEntry => Boolean(profile?.id)
+  )
+  const label = target.newProfileLabel?.trim()
+  if (label) {
+    return profiles.some(
+      (profile) => (profile.label ?? ``).trim() === label && usable(profile)
+    )
+  }
+  const profileId = target.profileId
+  if (profileId && profileId !== SYSTEM_PROFILE_ID) {
+    return profiles.some(
+      (profile) => profile.id === profileId && usable(profile)
+    )
+  }
+  // The ambient login: a device that reports profiles carries it as the
+  // `system` row, and its top-level fields are the ACTIVE profile's.
+  const ambient = profiles.find((profile) => profile.id === SYSTEM_PROFILE_ID)
+  return usable(ambient ?? account)
+}
+
 /** THE chip menu. The trigger is the caller's pill (the two surfaces draw
  * different chips); everything behind it — the queued commands, the destructive
  * confirm, the failure toast — lives here so the rule cannot drift between the
@@ -188,6 +244,7 @@ export function AccountChipMenu({
 
   const queue = async (
     kind: `agent_profile_use` | `agent_profile_remove`,
+    success: string,
     failure: string
   ) => {
     if (busy) return
@@ -204,6 +261,11 @@ export function AccountChipMenu({
         // would add a second toast on top of it.
         { context: { skipErrorToast: true } }
       )
+      // Both commands ride the owner→device queue and change NOTHING here
+      // until the device's next heartbeat, so without this the click reads
+      // as dead. Same sentence as the desktop's notification
+      // (`accounts_section.rs`).
+      toast.success(success)
     } catch (error) {
       toast.error(failure, {
         description: trpcErrorMessage(
@@ -237,6 +299,7 @@ export function AccountChipMenu({
               onSelect={() =>
                 void queue(
                   `agent_profile_use`,
+                  `${deviceLabel} will run ${agentLabel(row.agent)} as this account.`,
                   `Couldn't switch the account on that device`
                 )
               }
@@ -285,6 +348,7 @@ export function AccountChipMenu({
                 setConfirmRemove(false)
                 void queue(
                   `agent_profile_remove`,
+                  `${deviceLabel} will remove this login.`,
                   `Couldn't remove the account on that device`
                 )
               }}
@@ -318,7 +382,7 @@ export function AgentLoginOutcome({
   if (progress?.phase === `failed`) {
     return (
       <p className="text-xs text-destructive">
-        {progress.message ?? `The machine reported a failure.`}
+        {progress.message ?? `The device reported a failure.`}
       </p>
     )
   }

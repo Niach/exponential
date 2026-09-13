@@ -9,7 +9,7 @@
     {
       "id": "issues",
       "label": "Issues",
-      "blurb": "The board and the issue itself: list, filters, full detail, comments, creation and cross-board search.",
+      "blurb": "The board and the issue itself: list, full detail, comments, creation and cross-board search.",
       "order": 2
     },
     {
@@ -112,7 +112,7 @@
     },
     {
       "route": "/t/$teamSlug/settings/boards/archived",
-      "reason": "EXP-862: archived boards and the 48h trash on their own page. Both cards render nothing until a board is put away, which the capture seed never does; the pane is photographed on desktop as settings-boards-archived."
+      "reason": "EXP-862: archived boards and the 48h trash on their own page. The pane is photographed on desktop as settings-boards-archived; the web and web-mobile captures land with the EXP-865 screenshot refresh (a declared capture without a committed webp fails shots:check)."
     },
     {
       "route": "/t/$teamSlug/settings/api-keys",
@@ -1008,8 +1008,8 @@
     {
       "id": "machine-settings",
       "group": "coding",
-      "title": "Machine settings",
-      "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees.",
+      "title": "Device settings",
+      "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
       "order": 8,
       "web": {
         "route": "/t/$teamSlug/devices",
@@ -1884,7 +1884,7 @@
       "id": "settings-boards-archived",
       "group": "settings",
       "title": "Settings · Archived boards",
-      "blurb": "Boards put away rather than deleted, and the way back.",
+      "blurb": "Boards put away rather than deleted, and the way back. EXP-862 gave web its own page under the settings nav's board list; the 48h pending-deletion card joins the archived list once something is in the trash.",
       "order": 19,
       "desktop": {
         "drive": {
@@ -1893,7 +1893,7 @@
         }
       },
       "notes": {
-        "web": "EXP-862 gave web its own page at /t/$teamSlug/settings/boards/archived, holding the archived list and the 48h pending-deletion card. Both render nothing until a board is put away, which the capture seed never does, so the desktop pane stays the reference.",
+        "web": "EXP-862 gave web its own page at /t/$teamSlug/settings/boards/archived; its capture joins the store with the EXP-865 screenshot refresh.",
         "web-mobile": "See web.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."

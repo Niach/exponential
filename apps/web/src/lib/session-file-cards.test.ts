@@ -101,6 +101,7 @@ describe(`sessionFileCards`, () => {
     ]
     expect(sessionFileCards(feed)).toEqual([
       {
+        turnId: 1,
         afterId: 3,
         files: [
           expect.objectContaining({
@@ -111,6 +112,7 @@ describe(`sessionFileCards`, () => {
         ],
       },
       {
+        turnId: 4,
         afterId: 6,
         files: [
           expect.objectContaining({
@@ -130,6 +132,7 @@ describe(`sessionFileCards`, () => {
     ])
     expect(cards).toEqual([
       {
+        turnId: 1,
         afterId: 2,
         files: [
           expect.objectContaining({
@@ -165,6 +168,45 @@ describe(`sessionFileCards`, () => {
       `src/gone.ts`,
       `src/moved.ts`,
     ])
+  })
+
+  // EXP-862: the pane's turn scope is keyed on the card's `turnId`, so the
+  // anchor has to survive the turn it names — a live run appends rows to the
+  // OPEN segment, and an anchor on the segment's last row would move under
+  // the scope on every narration.
+  it(`keeps the open turn's id while the turn keeps growing`, () => {
+    const feed: FileCardFeedItem[] = [
+      { id: 1, kind: `user_message` },
+      edit(2, `src/a.ts`, 2, 1),
+    ]
+    const [card] = sessionFileCards(feed)
+    expect(card.turnId).toBe(1)
+    expect(card.afterId).toBe(2)
+
+    const grown = sessionFileCards([
+      ...feed,
+      { id: 3, kind: `narration` },
+      { id: 4, kind: `tool`, toolKind: `read`, settled: true },
+    ])
+    expect(grown).toHaveLength(1)
+    expect(grown[0].turnId).toBe(1)
+    // The card still renders behind the newest row of its turn …
+    expect(grown[0].afterId).toBe(4)
+    // … and the next turn gets its own anchor.
+    const next = sessionFileCards([
+      ...feed,
+      { id: 5, kind: `user_message` },
+      edit(6, `src/b.ts`, 1, 0),
+    ])
+    expect(next.map((c) => c.turnId)).toEqual([1, 5])
+  })
+
+  it(`anchors a run that never got a user message on its first row`, () => {
+    const cards = sessionFileCards([
+      { id: 7, kind: `narration` },
+      edit(8, `src/a.ts`, 1, 0),
+    ])
+    expect(cards[0].turnId).toBe(7)
   })
 
   it(`an empty feed has no cards`, () => {

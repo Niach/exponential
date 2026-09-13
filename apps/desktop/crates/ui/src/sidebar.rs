@@ -782,15 +782,19 @@ fn rail_row_lead(
 const RAIL_TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// EXP-862 — everything a repaint on the CLOCK can change about a rail
-/// session row: whether the agent is working (the trailing spinner) and
-/// whether its host has gone quiet (the muted paused tone). Neither produces
-/// a collection delta to observe, which is why the rail needs a tick at all;
-/// comparing them is what keeps that tick from repainting a still sidebar.
+/// session row: whether the agent is working (the trailing spinner), whether
+/// its host has gone quiet (the muted paused tone), and the agent CAPTION the
+/// row shows beside its title. None of the three produces a collection delta
+/// to observe for a run THIS process hosts (the engine's turn and caption
+/// signals are in-process, and `LocalSessions` notifies only on register and
+/// remove), which is why the rail needs a tick at all; comparing them is what
+/// keeps that tick from repainting a still sidebar.
 #[derive(Clone, PartialEq)]
 struct RailLiveFact {
     session_id: String,
     busy: bool,
     paused: bool,
+    caption: Option<String>,
 }
 
 /// [`RailLiveFact`]s as of now, over every run that can still change on its
@@ -815,7 +819,17 @@ fn rail_live_facts(cx: &mut App) -> Vec<RailLiveFact> {
                     .session_by_id(&session_id)
                     .map(|session| !session.host.session.turn_signal().is_idle())
             });
+            // EXP-850 §8: the caption the row renders, derived exactly as the
+            // row derives it (`queries::session_agent_caption`) so the tick
+            // sees the same string the paint would.
+            let local_caption = local_sessions.as_ref().and_then(|live| {
+                live.read(cx)
+                    .session_by_id(&session_id)
+                    .and_then(|session| session.host.session.caption_signal().get())
+            });
             let row = sessions.get(&session_id);
+            let caption =
+                row.and_then(|row| queries::session_agent_caption(row, local_caption, now));
             let busy = row
                 .map(|row| queries::session_agent_busy(row, local_busy, now))
                 .unwrap_or_else(|| local_busy.unwrap_or(false));
@@ -832,6 +846,7 @@ fn rail_live_facts(cx: &mut App) -> Vec<RailLiveFact> {
                 session_id,
                 busy,
                 paused,
+                caption,
             }
         })
         .collect()
@@ -2991,14 +3006,14 @@ impl ListPanel {
             .on_click(cx.listener(move |_, _, _, cx| {
                 mark_group_read(&unread_ids, cx);
             }))
+            // EXP-862: the compact inbox drops the avatar circle (web parity):
+            // the type glyph alone leads the row.
             .child(
                 h_flex()
-                    .size_6()
+                    .size_4()
                     .flex_shrink_0()
                     .items_center()
                     .justify_center()
-                    .rounded_full()
-                    .bg(theme.muted)
                     .child(type_icon.xsmall().text_color(theme.muted_foreground)),
             )
             .child(

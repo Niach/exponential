@@ -402,24 +402,25 @@ async function recipeOpenFirstThread(page: Page): Promise<void> {
 // --------------------------------------------------------------- machines
 
 /**
- * Open a machine's Device settings dialog from the Devices page. The ⋯ menu
+ * Open a device's Device settings dialog from the Devices page. The ⋯ menu
  * only renders for a REGISTERED device of the caller's own (my-machines.tsx),
  * so with no relay stub running there is no row and nothing to click.
  *
  * The menu button's accessible name carries the device label, hence the prefix
- * match — it keeps the recipe working when the seed renames the machine.
+ * match — it keeps the recipe working when the seed renames the device.
+ * EXP-862: the entry is "Device settings" (it was "Edit").
  */
 async function recipeOpenMachineSettings(page: Page): Promise<void> {
-  const menu = page.getByRole(`button`, { name: /^Machine menu for/ })
+  const menu = page.getByRole(`button`, { name: /^Device menu for/ })
   if (!(await appears(menu, 30_000))) {
     throw new Error(
-      `no machine ⋯ menu under "My machines" — the row needs a REGISTERED ` +
+      `no device ⋯ menu under "My devices" — the row needs a REGISTERED ` +
         `device of your own: run bun run screenshots:desktop (and set ` +
         `STEER_RELAY_URL)`
     )
   }
   await menu.first().click()
-  await page.getByRole(`menuitem`, { name: `Edit`, exact: true }).click()
+  await page.getByRole(`menuitem`, { name: `Device settings`, exact: true }).click()
   await page.getByRole(`heading`, { name: `Device settings` }).waitFor({ timeout: 15_000 })
 }
 

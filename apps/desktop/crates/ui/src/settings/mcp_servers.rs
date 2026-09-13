@@ -1095,7 +1095,7 @@ impl McpServersPane {
             )
             .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
             .disabled(self.busy)
-            .dropdown_menu(move |menu, _window, _cx| {
+            .dropdown_menu(move |menu, _window, cx| {
                 let (edit, team, pane_edit) = (edit.clone(), team.clone(), pane.clone());
                 let (remove, pane_remove) = (remove.clone(), pane.clone());
                 menu.item(
@@ -1109,8 +1109,13 @@ impl McpServersPane {
                         }),
                 )
                 .item(
-                    PopupMenuItem::new("Remove")
-                        .icon(Icon::new(registry::UI_DELETE))
+                    // Destructive rows wear the danger tint (web
+                    // `DropdownMenuItem variant="destructive"`).
+                    crate::controls::danger_menu_item(
+                        "Remove",
+                        Icon::new(registry::UI_DELETE),
+                        cx,
+                    )
                         .on_click(move |_, window, cx| {
                             let remove = remove.clone();
                             pane_remove.update(cx, |this, cx| {

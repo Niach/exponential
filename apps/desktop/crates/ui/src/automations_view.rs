@@ -24,7 +24,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, App, Entity, InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle,
-    SharedString, Styled, Subscription, Window,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::ButtonVariant,
@@ -239,7 +239,9 @@ impl AutomationsView {
         let enabled = automation.enabled;
         let name = row.action_name.clone();
         let icon = row.action_icon.clone();
+        let edit_id = automation.id.clone();
         crate::surface::flat_row()
+            .id(SharedString::from(format!("automation-row-{}", automation.id)))
             .flex()
             .w_full()
             .min_w_0()
@@ -247,10 +249,17 @@ impl AutomationsView {
             .gap_3()
             .px_3()
             .py_2p5()
-            .hover(move |this| this.bg(row_hover))
-            // EXP-862 (web `ListRow interactive`): every flat row takes the
-            // hover wash AND the pointer.
-            .cursor_pointer()
+            // EXP-862 (web `ListRow interactive={canEdit}`): the row's click
+            // is the editor — the same destination its ⋯ menu has, under the
+            // same owner gate — and the hover wash plus the pointer come with
+            // it. A member has no editor to open, so the row stays inert.
+            .when(is_owner, |this| {
+                this.hover(move |this| this.bg(row_hover))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |_, _: &gpui::ClickEvent, window, cx| {
+                        crate::automation_dialog::open_edit(window, cx, edit_id.clone());
+                    }))
+            })
             .child(
                 div()
                     .flex_shrink_0()
@@ -273,16 +282,26 @@ impl AutomationsView {
                     .child(meta),
             )
             .child(
-                // Owner-only per the permissions model: members SEE the state
-                // (a disabled switch), owners flip it.
-                crate::controls::web_switch(("automation-enabled", index))
-                    .checked(enabled)
-                    .disabled(!is_owner)
-                    .on_click(cx.listener(move |_, on: &bool, _, cx| {
-                        spawn_automation_enabled(cx, toggle_id.clone(), *on);
-                    })),
+                // The toggle and the menu are their own targets; the row's
+                // click must not fire underneath them (web parity).
+                gpui_component::h_flex()
+                    .id(("automation-row-controls", index))
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1()
+                    .on_click(|_: &gpui::ClickEvent, _, cx| cx.stop_propagation())
+                    .child(
+                        // Owner-only per the permissions model: members SEE the
+                        // state (a disabled switch), owners flip it.
+                        crate::controls::web_switch(("automation-enabled", index))
+                            .checked(enabled)
+                            .disabled(!is_owner)
+                            .on_click(cx.listener(move |_, on: &bool, _, cx| {
+                                spawn_automation_enabled(cx, toggle_id.clone(), *on);
+                            })),
+                    )
+                    .children(is_owner.then(|| self.render_automation_menu(index, automation, cx))),
             )
-            .children(is_owner.then(|| self.render_automation_menu(index, automation, cx)))
             .into_any_element()
     }
 

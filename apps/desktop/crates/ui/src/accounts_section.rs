@@ -1024,7 +1024,7 @@ impl Render for AccountsSection {
                         .py_2()
                         .text_xs()
                         .text_color(muted)
-                        .child("No machine has reported an agent account yet."),
+                        .child("No device has reported an agent account yet."),
                 );
             }
             Some((groups, facts)) => {

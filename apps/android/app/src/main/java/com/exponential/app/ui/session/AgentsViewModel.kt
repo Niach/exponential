@@ -217,7 +217,7 @@ class AgentsViewModel @Inject constructor(
                 _refreshingAccounts.value = _refreshingAccounts.value - group.key
                 if (!silent) {
                     _accountsError.value =
-                        trpcErrorMessage(t, "The refresh could not be queued on the machine.")
+                        trpcErrorMessage(t, "The refresh could not be queued on the device.")
                 }
             }
         }
@@ -251,8 +251,8 @@ class AgentsViewModel @Inject constructor(
     }
 
     // ── EXP-849: the MACHINE rows' account repair (Devices, not Accounts) ───
-    // "Use this account here" is the one repair a machine row runs by itself:
-    // `agent_profile_use` points the agent at a login the machine ALREADY
+    // "Set as default" is the one repair a device row runs by itself:
+    // `agent_profile_use` points the agent at a login the device ALREADY
     // holds. Sign-ins are NOT here — they round-trip a link and a code, which
     // the device-settings sheet owns (one implementation, not one per
     // surface). Keyed by machine × chip ([deviceAccountCommandKey]), so two

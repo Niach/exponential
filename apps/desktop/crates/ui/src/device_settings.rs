@@ -96,6 +96,21 @@ pub(crate) fn row_is_online(last_seen_at: Option<&str>, now_ms: i64) -> bool {
     now_ms - seen * 1_000 < domain::contract::DEVICE_ONLINE_WINDOW_MS
 }
 
+/// EXP-862 — write a value into one of the dialog's hidden selects the way a
+/// PICK does, autosave included.
+///
+/// `set_selected_value` writes the selection without notifying (only the
+/// select's own interactive confirm path emits and notifies), and the EXP-694
+/// autosave is an observer on that entity — so a picker that renders its own
+/// trigger (the shared [`crate::coding_selects::agent_picker`]) has to ring the
+/// bell itself, or the pick is silently dropped when the dialog closes.
+fn write_choice(select: &ChoiceSelect, value: &str, window: &mut Window, cx: &mut App) {
+    select.update(cx, |select, cx| {
+        select.set_selected_value(&SharedString::from(value.to_string()), window, cx);
+        cx.notify();
+    });
+}
+
 /// The agents the defaults editor covers: runnable ∪ signed-out ∪
 /// already-configured, in `CodingAgent::ALL` order; an offline/quiet machine
 /// falls back to the full set so its defaults stay editable (web parity).
@@ -1073,7 +1088,7 @@ impl DeviceSettingsView {
                                     this.set_error(
                                         key,
                                         Some(SharedString::from(row.result.unwrap_or_else(
-                                            || "The machine reported a failure.".to_string(),
+                                            || "The device reported a failure.".to_string(),
                                         ))),
                                     );
                                 }
@@ -1161,9 +1176,9 @@ impl DeviceSettingsView {
 
     /// EXP-862: "Default agent" is the SHARED agent picker
     /// ([`crate::coding_selects::agent_picker`]) — the same brand-marked
-    /// trigger the composer and Settings → Agents wear. The pick still writes
+    /// trigger the composer and Settings → Agents wear. The pick writes
     /// through the `agent_select` state, so the EXP-694 autosave (an observer
-    /// on that select) is unchanged.
+    /// on that select) still owns the save.
     fn render_agent_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let current = CodingAgent::parse(&selected(&self.agent_select, cx))
             .unwrap_or(self.seeded.default_agent);
@@ -1172,11 +1187,7 @@ impl DeviceSettingsView {
             "device-default-agent",
             &self.editor_agents,
             current,
-            move |agent, window, cx| {
-                select.update(cx, |select, cx| {
-                    select.set_selected_value(&SharedString::from(agent.id()), window, cx)
-                });
-            },
+            move |agent, window, cx| write_choice(&select, agent.id(), window, cx),
             cx,
         )
     }
@@ -1325,7 +1336,7 @@ impl DeviceSettingsView {
         let mut body = v_flex().w_full().gap_2().child(header);
         if !online && (!worktrees.is_empty() || prune_pending) {
             body = body.child(div().text_xs().text_color(muted).child(
-                "This machine is offline — queued changes run when it comes online.",
+                "This device is offline — queued changes run when it comes online.",
             ));
         }
         if let Some(error) = self.error_line("prune", cx) {
@@ -1336,7 +1347,7 @@ impl DeviceSettingsView {
                 div()
                     .text_xs()
                     .text_color(muted)
-                    .child("No worktrees reported by this machine."),
+                    .child("No worktrees reported by this device."),
             );
         }
         // EXP-694: the hairline-underlined list became ONE grouped stack —
@@ -1460,7 +1471,7 @@ impl DeviceSettingsView {
             return div()
                 .text_xs()
                 .text_color(muted)
-                .child("Join a team to share this machine.");
+                .child("Join a team to share this device.");
         }
         let busy = self.busy_section.is_some();
         let rows: Vec<Div> = teams
@@ -1491,7 +1502,7 @@ impl DeviceSettingsView {
             .gap_1()
             .child(surface::glass_group_rows(rows))
             .child(div().text_xs().text_color(muted).child(
-                "Teammates of a shared team can start coding sessions on this machine.",
+                "Teammates of a shared team can start coding sessions on this device.",
             ))
     }
 }
@@ -1591,6 +1602,45 @@ impl Render for DeviceSettingsView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in for the dialog: it counts the EXP-694 autosave, which is an
+    /// observer on the select the picker writes through.
+    struct Saver {
+        saves: usize,
+    }
+
+    impl gpui::Render for Saver {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    /// EXP-862: "Default agent" is the shared agent picker now, so the pick
+    /// reaches the select PROGRAMMATICALLY — and `set_selected_value` alone
+    /// never notifies, which silently dropped the new default. The write has to
+    /// carry the autosave with it.
+    #[gpui::test]
+    async fn picking_a_default_agent_reaches_the_autosave(cx: &mut gpui::TestAppContext) {
+        let (saver, cx) = cx.add_window_view(|_, _| Saver { saves: 0 });
+        let select = saver.update_in(cx, |_, window, cx| {
+            let select = choice_select(&AGENT_CHOICES, CodingAgent::Claude.id(), window, cx);
+            cx.observe(&select, |this: &mut Saver, _, _| this.saves += 1).detach();
+            select
+        });
+        cx.run_until_parked();
+        saver.update(cx, |this, _| assert_eq!(this.saves, 0));
+
+        saver.update_in(cx, |_, window, cx| {
+            write_choice(&select, CodingAgent::Codex.id(), window, cx);
+        });
+        cx.run_until_parked();
+        saver.update(cx, |_, cx| {
+            assert_eq!(selected(&select, cx), CodingAgent::Codex.id());
+        });
+        saver.update(cx, |this, _| {
+            assert_eq!(this.saves, 1, "the pick has to reach the autosave observer")
+        });
+    }
 
     #[test]
     fn online_window_clamps_negative_ages_and_fails_closed() {

@@ -209,7 +209,9 @@ pub(crate) fn render_run_row_active(
         .when_some(kill, |this, kill| {
             let on_kill = std::rc::Rc::new(kill.on_kill);
             let label = kill.label.clone();
-            let menu = crate::controls::glass_icon_button(
+            // EXP-862: a row's "..." is a GHOST glyph, never a circle — the
+            // circles are the primary actions (play/start/send/+).
+            let menu = crate::controls::ghost_icon_button(
                 (SharedString::from(format!("{id_prefix}-menu")), index),
                 Icon::from(registry::UI_MORE),
                 cx,

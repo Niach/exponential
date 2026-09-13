@@ -265,7 +265,8 @@ export function SessionRow({
             </Link>
           </Pill>
         ) : editsAutomation && session.automationId ? (
-          <Button asChild variant="glass" size="icon-sm">
+          // EXP-862: a secondary icon button is GHOST — no circle, no border.
+          <Button asChild variant="ghost" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}
@@ -281,7 +282,7 @@ export function SessionRow({
             </Link>
           </Button>
         ) : session.actionId ? (
-          <Button asChild variant="glass" size="icon-sm">
+          <Button asChild variant="ghost" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}

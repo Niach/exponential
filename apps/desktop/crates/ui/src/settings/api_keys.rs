@@ -529,14 +529,11 @@ impl Render for ApiKeysPane {
             .on_click(cx.listener(|this, _, window, cx| {
                 this.open_mint_dialog(window, cx);
             }));
-        let refresh = glass_pill_button("api-keys-refresh", PillSize::Sm, cx)
-            .label("Refresh")
-            .loading(matches!(self.load, Load::Loading))
-            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
+        // EXP-862: no Refresh pill (web parity); the list re-reads after
+        // every mint and revoke on its own.
         let header_actions = h_flex()
             .items_center()
             .gap_2()
-            .child(refresh)
             .child(new_key)
             .into_any_element();
 

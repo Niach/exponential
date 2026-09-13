@@ -35,6 +35,7 @@
 
 use std::collections::HashMap;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
     Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
@@ -375,7 +376,13 @@ impl ActionsView {
         if let Some(reason) = no_agent {
             run_button = run_button.tooltip(reason.clone());
         }
+        // EXP-862 (web `ActionRow`): an owner's row opens the editor, so the
+        // pointer is only worn where a click does something; the hover wash
+        // is every flat row's.
+        let editable = is_owner && !action.builtin;
+        let row_edit_id = action.id.clone();
         let mut row = crate::surface::flat_row()
+            .id(("action-row", index))
             .flex()
             .w_full()
             .min_w_0()
@@ -384,9 +391,12 @@ impl ActionsView {
             .px_3()
             .py_2p5()
             .hover(move |this| this.bg(row_hover))
-            // EXP-862 (web `ListRow interactive`): every flat row takes the
-            // hover wash AND the pointer.
-            .cursor_pointer()
+            .when(editable, |this| {
+                this.cursor_pointer()
+                    .on_click(move |_: &ClickEvent, window, cx| {
+                        crate::action_editor_dialog::open(window, cx, row_edit_id.clone());
+                    })
+            })
             .child(
                 div().flex_shrink_0().child(
                     crate::icons::action_icon(action.icon.as_deref())
@@ -394,7 +404,15 @@ impl ActionsView {
                         .text_color(muted),
                 ),
             )
-            .child(middle)
+            .child(middle);
+        // The ▶ and the menu are their own targets; the row's click must not
+        // fire underneath them (web parity).
+        let mut controls = gpui_component::h_flex()
+            .id(("action-row-controls", index))
+            .flex_shrink_0()
+            .items_center()
+            .gap_1()
+            .on_click(|_: &ClickEvent, _, cx| cx.stop_propagation())
             // EXP-615/686: the shared round glass ▶ (web/mobile parity).
             .child(run_button);
         // The ⋯ menu renders on non-builtin rows — builtins have no
@@ -412,7 +430,7 @@ impl ActionsView {
                 &action.id,
                 cx,
             );
-            row = row.child(
+            controls = controls.child(
                 div().flex_shrink_0().child(
                     // EXP-862: a row's "..." is a GHOST glyph, never a circle.
                     crate::controls::ghost_icon_button(
@@ -479,7 +497,7 @@ impl ActionsView {
                 ),
             );
         }
-        row.into_any_element()
+        row.child(controls).into_any_element()
     }
 
     /// The web `NoCustomActionsNudge`: a dashed full-width strip below the

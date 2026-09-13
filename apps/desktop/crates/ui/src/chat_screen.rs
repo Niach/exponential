@@ -52,7 +52,6 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
@@ -1106,27 +1105,6 @@ impl ChatScreenView {
         }
     }
 
-    /// EXP-849 — the agent a LOGIN would unblock, for the one blocker that has
-    /// a one-click fix: a LOCAL run whose agent is installed on this machine
-    /// but signed out (`ToolCheck::signed_out`). `None` for every other
-    /// blocker, including a remote machine's sign-out — that login belongs to
-    /// that machine (its Devices row offers it).
-    fn sign_in_nudge(&self, cx: &mut App) -> Option<coding::CodingAgent> {
-        if self.remote_device().is_some() {
-            return None;
-        }
-        let launch = self.launch.as_ref()?;
-        let agent = match self.resume_active(cx) {
-            true => self
-                .resume_candidate()
-                .map(|(_, record)| record.agent)
-                .unwrap_or(launch.agent),
-            false => launch.agent,
-        };
-        let report = CodingHub::global_ref(cx).and_then(|hub| hub.read(cx).doctor.report.clone())?;
-        report.check_for(agent).signed_out().then_some(agent)
-    }
-
     fn subject_kind(&self) -> SubjectKind {
         match &self.subject {
             Subject::None => SubjectKind::Chat,
@@ -1908,10 +1886,21 @@ impl ChatScreenView {
         };
         let candidates = self.device.devices.clone();
         if candidates.len() < 2 && offline.is_none() {
-            return div()
+            // EXP-862: no menu with one device, but the kind glyph still
+            // leads the value (web `InlinePicker`'s one-option arm).
+            let kind = self
+                .device
+                .device_id
+                .as_deref()
+                .map(|id| device_kind_icon(id, cx))
+                .unwrap_or(registry::UI_DEVICE);
+            return h_flex()
                 .px_1()
+                .gap_1()
+                .items_center()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
+                .child(Icon::new(kind).size(gpui::px(12.)))
                 .child(SharedString::from(label))
                 .into_any_element();
         }
@@ -2085,7 +2074,7 @@ impl ChatScreenView {
         if has_launch {
             let more = self.more_open;
             row = row.child(
-                inline_pin_trigger("chat-pin-more".into(), "⋯".to_string(), cx)
+                launch_options::inline_icon_trigger("chat-pin-more".into(), registry::UI_MORE, cx)
                     .tooltip(if more { "Fewer options" } else { "More options" })
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.more_open = !this.more_open;
@@ -2255,29 +2244,10 @@ impl Render for ChatScreenView {
             .filter(|_| !self.launching && !self.sending)
             .filter(|reason| chat_launch::note_for_blocker(Some(reason.as_ref())).is_some());
         if let Some(reason) = blocker_note {
-            // EXP-849: a blocked launch whose fix is a LOGIN offers the login.
-            // It used to be text only, which left the one actionable blocker
-            // reading like every unactionable one.
-            let sign_in = self.sign_in_nudge(cx);
-            notes = notes.child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_1p5()
-                    .child(div().min_w_0().text_color(muted).child(reason))
-                    .children(sign_in.map(|agent| {
-                        Button::new("chat-sign-in")
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(registry::UI_SIGN_IN)
-                            .label(SharedString::from(format!("Sign in to {}", agent.label())))
-                            .on_click(move |_, _window, cx| {
-                                crate::agent_login::open_login_tab(agent, false, cx);
-                            })
-                    })),
-            );
+            // EXP-862: the blocker is a sentence and nothing else — the
+            // "Sign in to <agent>" pill it used to carry is gone ×4; a login
+            // is offered ONCE, on the account chip that owns it (Devices).
+            notes = notes.child(div().w_full().min_w_0().text_color(muted).child(reason));
         }
         if let Some(note) = no_session_note {
             notes = notes.child(div().text_color(muted).child(note));

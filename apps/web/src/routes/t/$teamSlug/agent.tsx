@@ -191,6 +191,9 @@ function AgentPage() {
             activeSessionId={null}
             origin={{ kind: `agent` }}
             scroll={false}
+            // EXP-862: the Agent page ALWAYS draws the Running band, empty or
+            // not; the sidebar's list nav leaves it off.
+            showWhenEmpty
             // The page's own container already reserves the tab bar's
             // clearance — the list must not add a second one inside it.
             className="p-0 max-md:pb-0"

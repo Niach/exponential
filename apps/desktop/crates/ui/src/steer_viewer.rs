@@ -3538,14 +3538,6 @@ pub(crate) fn answer_digit(keystroke: &gpui::Keystroke) -> Option<usize> {
     }
 }
 
-/// The subagent a group row belongs to — its first scoped item's id.
-fn subagent_id_of(items: &[&FeedItem]) -> Option<String> {
-    items
-        .iter()
-        .find_map(|item| item.subagent_id())
-        .map(str::to_string)
-}
-
 /// EXP-790 — the composer width under which the tool row leaves the field's
 /// line and drops under it: a 240px field beside the 24px attach glyph, the
 /// 32px round button and the card's own padding and gaps.

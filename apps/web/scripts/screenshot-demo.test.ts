@@ -1,7 +1,7 @@
 import { formatDistanceToNowStrict } from "date-fns"
 import { describe, expect, it } from "vitest"
 import {
-  accountLine,
+  accountCaption,
   formatResetCountdown,
   parseAgentUsage,
   usageIsFresh,
@@ -178,9 +178,11 @@ describe(`demo agent report (EXP-733)`, () => {
     expect(agents.sort()).toStrictEqual([`claude`, `codex`])
     const { agentAccounts } = demoAgentReport(new Date())
     for (const agent of agents) {
-      // "Sign-in status unknown" / "Not signed in" are exactly the fallbacks
-      // the store used to photograph.
-      expect(accountLine(agentAccounts[agent])).not.toMatch(/unknown|Not signed in/)
+      // `unknown` / `signed out` / the bare `signed in` are exactly the
+      // fallbacks the store used to photograph.
+      expect(accountCaption(agentAccounts[agent])).not.toMatch(
+        /^(unknown|signed out|signed in)$/
+      )
     }
   })
 

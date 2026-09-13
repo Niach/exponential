@@ -14,11 +14,6 @@ import { usageGroups, type UsageSeverity } from "@/lib/agent-usage"
 import { relativeTime } from "@/components/comment-rows/format"
 import { cn } from "@/lib/utils"
 
-// EXP-862: ONE agent vocabulary — `components/agent-picker.tsx`. The re-export
-// keeps the surfaces that ask this module for a label compiling; new callers
-// import it from the picker directly.
-export { agentLabel } from "@/components/agent-picker"
-
 const TONE: Record<UsageSeverity, string> = {
   normal: `bg-foreground/30`,
   warning: `bg-amber-500`,

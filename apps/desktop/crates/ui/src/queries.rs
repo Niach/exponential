@@ -27,9 +27,6 @@ pub struct BoardData {
     /// (§4.1 `is_ready`: skeleton while false, real empty-state only when
     /// true — the never-flash-empty rule).
     pub is_ready: bool,
-    /// Whether the unfiltered scope has ANY issue (distinguishes "no issues
-    /// yet" from "filters hide everything", web `hasAnyIssues`).
-    pub has_any_issues: bool,
     /// Status groups in display order, empty groups hidden (web parity).
     pub groups: Vec<BoardGroup>,
     /// issue id → its labels (for the row label chips), shared behind `Rc`
@@ -102,7 +99,6 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
     // EXP-314: the board groups by the team's OWN status rows.
     let status_rows = team_id.map(|id| team_statuses(cx, id)).unwrap_or_default();
 
-    let has_any_issues = !issues.is_empty();
     let today = today_local();
     let groups = build_status_groups(issues, &status_rows, &[], &today);
 
@@ -137,7 +133,6 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
 
     BoardData {
         is_ready,
-        has_any_issues,
         groups,
         labels_by_issue,
     }

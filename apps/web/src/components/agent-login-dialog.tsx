@@ -14,12 +14,14 @@ import { LoaderCircle } from "lucide-react"
 import type { Device } from "@/db/schema"
 import { useAgentLogin } from "@/hooks/use-agent-login"
 import { deviceCollection } from "@/lib/collections"
-import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { AgentLoginOutcome } from "@/components/device-agent-account"
+import {
+  agentLoginLanded,
+  AgentLoginOutcome,
+} from "@/components/device-agent-account"
 import { agentLabel } from "@/components/agent-picker"
 import {
   Dialog,
@@ -81,9 +83,11 @@ export function AgentLoginDialog({
   const label = device ? device.deviceLabel || device.deviceId : ``
 
   // EXP-862: closes itself on success. The device re-probes after the login
-  // and its next heartbeat reports the profile as signed in — that TRANSITION
-  // (never the state it opened in) is the signal, so re-signing a healthy
-  // login stays open until it really lands.
+  // and its next heartbeat reports the TARGETED login as usable — that
+  // TRANSITION (never the state it opened in) is the signal, so re-signing a
+  // healthy login stays open until it really lands. `agentLoginLanded` is the
+  // predicate: a revoked credential and a not-yet-created profile both read
+  // as "signed in" on the account itself.
   const { data: deviceRows } = useLiveQuery(
     (query) =>
       open && device?.rowId
@@ -95,28 +99,24 @@ export function AgentLoginDialog({
   )
   const row = (deviceRows?.[0] as Device | undefined) ?? null
   const account = agent ? (row?.agentAccounts?.[agent] ?? null) : null
-  const profileId = target?.profileId
-  const signedIn = !account
-    ? false
-    : profileId && profileId !== SYSTEM_PROFILE_ID
-      ? (account.profiles ?? []).some(
-          (profile) => profile.id === profileId && profile.signedIn === true
-        )
-      : account.signedIn === true
-  const wasSignedIn = useRef<boolean | null>(null)
+  const landed = agentLoginLanded(account, {
+    profileId: target?.profileId,
+    newProfileLabel: target?.newProfileLabel,
+  })
+  const hadLanded = useRef<boolean | null>(null)
   useEffect(() => {
     if (!open) {
-      wasSignedIn.current = null
+      hadLanded.current = null
       return
     }
-    if (wasSignedIn.current === null) {
-      wasSignedIn.current = signedIn
+    if (hadLanded.current === null) {
+      hadLanded.current = landed
       return
     }
-    if (!wasSignedIn.current && signedIn) onOpenChange(false)
-    wasSignedIn.current = signedIn
+    if (!hadLanded.current && landed) onOpenChange(false)
+    hadLanded.current = landed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, signedIn])
+  }, [open, landed])
 
   // The ONE status line, byte-identical ×4: who is signing in where, and what
   // is happening right now — never a paragraph.

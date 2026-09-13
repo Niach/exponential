@@ -86,15 +86,20 @@ export function useAgentLogin({
       return next
     })
     try {
-      const { id } = await trpc.devices.createCommand.mutate({
-        deviceId,
-        ...input,
-      })
+      const { id } = await trpc.devices.createCommand.mutate(
+        {
+          deviceId,
+          ...input,
+        },
+        // The dialog prints the failure itself — no second toast from the
+        // global link.
+        { context: { skipErrorToast: true } }
+      )
       setTracked((current) => [...current, { id, key }])
     } catch (error) {
       setErrors((current) => ({
         ...current,
-        [key]: trpcErrorMessage(error, `Couldn't queue that on the machine.`),
+        [key]: trpcErrorMessage(error, `Couldn't queue that on the device.`),
       }))
     }
   }
@@ -128,7 +133,7 @@ export function useAgentLogin({
             setErrors((current) => ({
               ...current,
               [command.key]:
-                result.result ?? `The machine reported a failure.`,
+                result.result ?? `The device reported a failure.`,
             }))
           }
         } catch {

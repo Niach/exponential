@@ -292,7 +292,7 @@ export function AgentAccountsSection({
       ) : sections.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
           <OfflineIcon className="size-3.5 shrink-0" />
-          No machine has reported an agent account yet.
+          No device has reported an agent account yet.
         </div>
       ) : (
         <div className="mb-1">
@@ -515,9 +515,12 @@ function AccountCard({
             </p>
           )}
         </div>
-      ) : state === `checking` && !asOf ? (
-        // A login nothing has read YET: "No usage reported" made a device that
-        // is simply still working read as broken.
+      ) : state === `checking` ? (
+        // A login with no windows read YET: "No usage reported" made a device
+        // that is simply still working read as broken. The state alone decides
+        // the caption (desktop `usage_caption`) — the device stamps
+        // `checkedAt` on every probe, so an as-of guard here would hide this
+        // line on almost every row that needs it.
         <p className="text-[11px] text-muted-foreground">Checking…</p>
       ) : (
         <p className="text-[11px] text-muted-foreground">

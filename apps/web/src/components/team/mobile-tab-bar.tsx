@@ -13,7 +13,6 @@ import {
 import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
-  useDevicesNeedSignIn,
 } from "@/hooks/use-nav-counts"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
@@ -121,16 +120,6 @@ function ReviewsDot({
   const count = useReviewsOpenPrCount(boards, teamId)
   if (count === 0) return null
   return <TabDot className="bg-green-500" />
-}
-
-// Amber while any live session waits on a plan approval / question
-// (EXP-214), live green otherwise.
-// EXP-792 (EXP-747 A4): amber when one of MY online machines has an agent
-// signed out.
-function DevicesDot() {
-  const { data: session } = useSession()
-  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
-  return needsSignIn ? <TabDot className="bg-amber-500" /> : null
 }
 
 // Any of MY live coding sessions in the team, on the Chat launcher — the
@@ -282,7 +271,6 @@ export function MobileTabBar({
           className={tabClass(onDevices)}
         >
           <NavDevicesIcon className="size-5" />
-          <DevicesDot />
         </Link>
         <Link
           to="/t/$teamSlug/actions"

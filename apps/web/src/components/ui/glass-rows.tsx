@@ -386,7 +386,7 @@ type GlassPickerOption = {
 // (`bg-glass-row` / `hover:bg-glass-active/50`), so a plain `bg-transparent`
 // clears the fill and the hover is inherited rather than restated — the row
 // draws the group's own fill one level up.
-const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
+export const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
 
 function GlassPickerRow({
   label,

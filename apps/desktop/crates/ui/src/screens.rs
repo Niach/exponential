@@ -3178,7 +3178,7 @@ mod tests {
                     .gap_1p5()
                     .px_3()
                     .py_1p5()
-                    .child(div().text_sm().child(SharedString::from("My machines")))
+                    .child(div().text_sm().child(SharedString::from("My devices")))
                     .child(div().flex_1())
                     .child(div().text_xs().child(SharedString::from("Add server")));
                 let list = v_flex()

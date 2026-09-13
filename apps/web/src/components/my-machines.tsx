@@ -102,7 +102,7 @@ const CheckIcon = conceptIcon(`ui-check`)
 
 /** FEED-36: the tooltip on a queued Update button — the daemon's own rules
  * for getting there (every session ends, or one sits idle for 2 hours). */
-export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the machine restarts itself once every session ends or sits idle for 2 hours.`
+export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
 
 /** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
  * off the synced coding_sessions shape), with the issue identifier joined
@@ -281,15 +281,9 @@ function MachineAccountChip({
 // nothing about sign-ins — the account chips own that.
 export function DeviceStatusLine({
   online,
-  signInNeeded = false,
-  unauthed = [],
   lastSeenAt,
 }: {
   online: boolean
-  /** EXP-862: the device rows pass neither any more — only the onboarding
-   *  step still spells the signed-out agents out, and it should stop too. */
-  signInNeeded?: boolean
-  unauthed?: string[]
   lastSeenAt: string | null | undefined
 }) {
   if (!online) {
@@ -301,19 +295,8 @@ export function DeviceStatusLine({
   }
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <span
-        className={`size-1.5 shrink-0 rounded-full ${
-          signInNeeded ? `bg-amber-500` : `bg-emerald-500`
-        }`}
-      />
-      <span className="truncate">
-        {signInNeeded ? `${unauthed.join(`, `)} not signed in` : `Online`}
-        {!signInNeeded && unauthed.length > 0 && (
-          <span className="text-muted-foreground/60">
-            {` · ${unauthed.join(`, `)} not signed in`}
-          </span>
-        )}
-      </span>
+      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+      <span className="truncate">Online</span>
     </div>
   )
 }
@@ -763,14 +746,14 @@ export function MyMachines({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {`Update ${updateNowTarget?.deviceLabel || updateNowTarget?.deviceId || `this machine`} now?`}
+              {`Update ${updateNowTarget?.deviceLabel || updateNowTarget?.deviceId || `this device`} now?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {updateNowLiveCount > 0
                 ? `Ends the ${updateNowLiveCount} live ${
                     updateNowLiveCount === 1 ? `session` : `sessions`
-                  } on this machine (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
-                : `Ends every live session on this machine (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
+                  } on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
+                : `Ends every live session on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -797,10 +780,10 @@ export function MyMachines({
       >
         <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Remove machine</DialogTitle>
+            <DialogTitle>Remove device</DialogTitle>
             <DialogDescription>
               Remove “{removeTarget?.deviceLabel || removeTarget?.deviceId}”
-              from your machines? A machine with the daemon still running will
+              from your devices? A device with the daemon still running will
               re-register itself on its next heartbeat.
             </DialogDescription>
           </DialogHeader>

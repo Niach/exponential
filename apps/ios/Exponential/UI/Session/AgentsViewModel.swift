@@ -542,8 +542,12 @@ final class AgentsViewModel {
 
     /// EXP-862: the machines an account row's "+" can sign this account in on
     /// — MINE, online, advertising `agent-login`, with the agent installed,
-    /// and not already holding the account (web `addAccountDevices`).
+    /// and not already holding the account (web `addAccountDevices`). Empty
+    /// for an account nobody could sign in AS (web's `showAdd`): a signed-out
+    /// login, or one the machines reported with no email, has no identity to
+    /// add elsewhere.
     func addAccountTargets(_ group: AgentAccountUsageGroup) -> [SteerDevice] {
+        guard AgentAccountsRows.canAddAccountElsewhere(group) else { return [] }
         let holders = Set(group.rows.map(\.deviceId))
         return (devices ?? []).filter { device in
             device.isMine && device.isOnline && device.canAgentLogin
@@ -646,7 +650,7 @@ final class AgentsViewModel {
                     guard !command.isPending else { continue }
                     if command.isFailed {
                         self.accountActionErrors[deviceId] =
-                            command.result ?? "The machine refused the command."
+                            command.result ?? "The device refused the command."
                     }
                     break
                 }

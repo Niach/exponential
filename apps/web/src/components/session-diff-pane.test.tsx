@@ -100,6 +100,22 @@ describe(`SessionDiffPane`, () => {
     expect(onClearScope).toHaveBeenCalledOnce()
   })
 
+  it(`hides the chip when there is nothing to widen back to`, () => {
+    // The run has published no session diff yet, so the turn's files ARE all
+    // the changes: a chip here would blank the pane on click.
+    render(
+      <SessionDiffPane
+        sessionId="sess-1"
+        files={[file(`src/a.ts`)]}
+        selected="src/a.ts"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        scopeLabel={`This turn: 1 file`}
+      />
+    )
+    expect(screen.queryByTestId(`session-diff-scope`)).toBeNull()
+  })
+
   it(`its header buttons are borderless ghosts (EXP-862)`, () => {
     render(
       <SessionDiffPane

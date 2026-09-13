@@ -31,14 +31,10 @@ import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 // EXP-694 collapses it into ONE card on every client (the Android device-edit
 // stack is the reference): the agent strip is the group's EMBEDDED FIRST ROW
 // — no "Agent" label above it, no floating capsule — and model, effort, the
-// run-time toggles and whatever `renderAgentFooter` adds are the rows under
-// it. The device/"Runs on" picker is NOT part of this card: the caller keeps
+// run-time toggles are the rows under it. EXP-862 dropped the account footer
+// that used to close the card (accounts live on their own page, never in a
+// launcher). The device/"Runs on" picker is NOT part of this card: the caller keeps
 // it in its own group ABOVE.
-
-// EXP-862: the labels and the brand marks live in `components/agent-picker`
-// (THE agent picker), re-exported here so the surfaces that already read them
-// off this module keep one source of truth.
-export { AGENT_LABELS, agentMarkIcon } from "@/components/agent-picker"
 
 const ResumeBranchIcon = conceptIcon(`ui-branch`)
 
@@ -89,15 +85,6 @@ interface LaunchToggleProps {
 
 type AgentOptionsFieldsProps = {
   idPrefix: string
-  /**
-   * EXP-688: what to render UNDER the selected agent's toggles — the device
-   * settings dialog puts that agent's account and usage there, so the tab you
-   * are editing is the tab that tells you whose account it runs as. The
-   * launcher passes nothing: a run in flight is no place to sign in.
-   * EXP-694: these are the card's FINAL ROWS, so what it returns must be
-   * row-shaped (`px-4 py-3`), not a loose block.
-   */
-  renderAgentFooter?: (agent: string) => React.ReactNode
   /** `` in the automation variant = device default. */
   agent: string
   availableAgents: string[]
@@ -124,7 +111,6 @@ type AgentOptionsFieldsProps = {
 export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
     idPrefix,
-    renderAgentFooter,
     agent,
     availableAgents,
     onAgentChange,
@@ -241,7 +227,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           onCheckedChange={toggles.onPlanModeChange}
         />
       )}
-      {renderAgentFooter?.(agent)}
     </GlassGroup>
   )
 }

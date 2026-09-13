@@ -28,6 +28,11 @@ export interface SessionFileEntry {
 /** One card: the files a turn segment touched, anchored AFTER the feed row
  *  that closed the segment. */
 export interface SessionFileCard {
+  /** The id of the row that OPENED the segment (its `user_message`, or the
+   *  run's first row) — the card's STABLE identity. `afterId` moves with
+   *  every row a live turn adds, so a diff scope keyed on it would evaporate
+   *  mid-turn; this one names the turn for as long as the turn exists. */
+  turnId: number
   /** The id of the last feed row of the segment — the card renders behind it. */
   afterId: number
   files: SessionFileEntry[]
@@ -117,9 +122,10 @@ export function sessionFileCards(
   const cards: SessionFileCard[] = []
   let files = new Map<string, SessionFileEntry>()
   let lastId: number | null = null
+  let turnId: number | null = null
   const close = () => {
-    if (lastId !== null && files.size > 0) {
-      cards.push({ afterId: lastId, files: [...files.values()] })
+    if (lastId !== null && turnId !== null && files.size > 0) {
+      cards.push({ turnId, afterId: lastId, files: [...files.values()] })
     }
     files = new Map()
   }
@@ -128,9 +134,11 @@ export function sessionFileCards(
     if (item.kind === `user_message`) {
       close()
       lastId = item.id
+      turnId = item.id
       continue
     }
     lastId = item.id
+    if (turnId === null) turnId = item.id
     if (item.kind !== `tool`) continue
     if (item.settled !== true || !item.diff) continue
     if (

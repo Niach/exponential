@@ -12,6 +12,7 @@ import {
   accountChipLabel,
   agentLoginCodeKey,
   agentLoginKey,
+  agentLoginLanded,
   agentOfLoginCodeKey,
   type AccountChipRow,
 } from "@/components/device-agent-account"
@@ -125,6 +126,79 @@ describe(`accountChipLabel`, () => {
       `dev@acme.test`
     )
     expect(accountChipLabel(chip())).toBe(`Work`)
+  })
+})
+
+describe(`agentLoginLanded`, () => {
+  it(`reads the TARGETED login, not the account's own flag`, () => {
+    // Nothing reported for the agent at all.
+    expect(agentLoginLanded(null, {})).toBe(false)
+    // A re-login: the CLI still claims a login the probe found revoked, so
+    // `signedIn` never moves and only the health says it landed.
+    const revoked = {
+      signedIn: true,
+      profiles: [
+        { id: `work`, label: `Work`, signedIn: true, health: `needs_relogin` as const },
+      ],
+    }
+    expect(agentLoginLanded(revoked, { profileId: `work` })).toBe(false)
+    expect(
+      agentLoginLanded(
+        {
+          signedIn: true,
+          profiles: [
+            { id: `work`, label: `Work`, signedIn: true, health: `ok` as const },
+          ],
+        },
+        { profileId: `work` }
+      )
+    ).toBe(true)
+    // Add account: the device has not created the profile yet, and the
+    // account it already holds is signed in.
+    const held = {
+      signedIn: true,
+      profiles: [
+        { id: `system`, label: `Default`, signedIn: true, health: `ok` as const },
+      ],
+    }
+    expect(agentLoginLanded(held, { newProfileLabel: `Claude account 2` })).toBe(
+      false
+    )
+    expect(
+      agentLoginLanded(
+        {
+          signedIn: true,
+          profiles: [
+            ...held.profiles,
+            { id: `0a1b`, label: `Claude account 2`, signedIn: true },
+          ],
+        },
+        { newProfileLabel: `Claude account 2` }
+      )
+    ).toBe(true)
+  })
+
+  it(`answers for the ambient login off its own row`, () => {
+    expect(agentLoginLanded({ signedIn: false }, { profileId: `system` })).toBe(
+      false
+    )
+    expect(agentLoginLanded({ signedIn: true }, { profileId: `system` })).toBe(
+      true
+    )
+    // A device that reports profiles keeps its ACTIVE profile in the top-level
+    // fields, so the ambient login is read off the `system` row.
+    expect(
+      agentLoginLanded(
+        {
+          signedIn: true,
+          profiles: [
+            { id: `system`, label: `Default`, signedIn: false },
+            { id: `0a1b`, label: `Work`, signedIn: true, active: true },
+          ],
+        },
+        { profileId: `system` }
+      )
+    ).toBe(false)
   })
 })
 

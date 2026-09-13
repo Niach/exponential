@@ -28,13 +28,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 //    so every variant renders the SAME three-segment strip and model/effort
 //    fall back to the launch "CLI default" sentinel.
 //  * [LaunchOptionsVariant.Device] — one machine's stored per-agent defaults:
-//    no machine picker (the sheet IS the machine), plus the [accountSlot] with
-//    that agent's sign-in and usage.
+//    no machine picker (the sheet IS the machine). EXP-862 took the sign-in and
+//    usage rows off it: Devices is the repair surface, Accounts the decision one.
 //
 // EXP-694 folds all of it into ONE grouped card: the agent tabs are the card's
 // first row (embedded — no capsule of their own), then Model / Effort /
-// (Resume) / Ultracode / Plan mode / (account), hairline-divided. The device
-// picker keeps its own group above, and groups sit 8dp apart everywhere.
+// (Resume) / Ultracode / Plan mode, hairline-divided. The device picker keeps
+// its own group above, and groups sit 8dp apart everywhere.
 
 enum class LaunchOptionsVariant { Launch, Automation, Device }
 
@@ -87,9 +87,9 @@ internal fun deviceOptionLabel(device: SteerDevice): String {
  * [noDeviceNote] renders instead of the picker when none qualifies. The Device
  * variant renders no machine row at all — the sheet already names it.
  *
- * [resumeSlot] (Launch) and [accountSlot] (Device) are ROWS of the one group,
- * not groups of their own: they are rendered after their own [GroupDivider], so
- * a caller passes bare rows and never its own [OptionGroup].
+ * [resumeSlot] (Launch) is a ROW of the one group, not a group of its own: it
+ * is rendered after its own [GroupDivider], so a caller passes a bare row and
+ * never its own [OptionGroup].
  */
 @Composable
 internal fun LaunchOptionsSection(
@@ -111,7 +111,6 @@ internal fun LaunchOptionsSection(
     onPlanModeChange: (Boolean) -> Unit = {},
     planModeHidden: Boolean = false,
     resumeSlot: (@Composable () -> Unit)? = null,
-    accountSlot: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
     val deviceVariant = variant == LaunchOptionsVariant.Device
@@ -227,14 +226,6 @@ internal fun LaunchOptionsSection(
                     onCheckedChange = onPlanModeChange,
                 )
             }
-        }
-
-        // EXP-688/EXP-694: the machine's sign-in and usage for THIS agent are
-        // the card's last rows — a standalone "Agents" section repeated the
-        // agent list a second time.
-        if (accountSlot != null) {
-            GroupDivider()
-            accountSlot()
         }
     }
 
