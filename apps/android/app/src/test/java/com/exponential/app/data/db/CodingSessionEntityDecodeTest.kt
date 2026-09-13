@@ -9,8 +9,8 @@ import org.junit.Test
 
 /**
  * EXP-637: wire-decode vectors for the coding_sessions shape rows, now that
- * the shape carries the agent's own close-out (`summary`), `ended_by` and
- * `resumed_from_id`. EXP-686 dropped the companion `outcome` column.
+ * the shape carries `ended_by` and `resumed_from_id`. EXP-686 dropped the
+ * companion `outcome` column and EXP-864 the agent's stored `summary`.
  *
  * Every one of them must decode when ABSENT — an old server, or simply a row
  * that ended before the columns existed. A required field missing on the wire
@@ -38,7 +38,6 @@ class CodingSessionEntityDecodeTest {
               "device_id": "dev-1",
               "status": "ended",
               "branch": "exp/chat-1a2b3c4d",
-              "summary": "Refreshed the shots and pushed a PR.",
               "ended_by": "agent",
               "resumed_from_id": "sess-0",
               "needs_input": "f",
@@ -51,7 +50,6 @@ class CodingSessionEntityDecodeTest {
             }
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
-        assertEquals("Refreshed the shots and pushed a PR.", entity.summary)
         assertEquals("agent", entity.endedBy)
         assertEquals("sess-0", entity.resumedFromId)
         assertEquals("2026-08-11 10:20:00+00", entity.endedAt)
@@ -93,7 +91,6 @@ class CodingSessionEntityDecodeTest {
             }
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
-        assertNull(entity.summary)
         assertNull(entity.endedBy)
         assertNull(entity.resumedFromId)
         // The pre-existing optional columns keep their defaults too.
@@ -110,7 +107,6 @@ class CodingSessionEntityDecodeTest {
               "team_id": "team-1",
               "user_id": "user-1",
               "status": "ended",
-              "summary": null,
               "ended_by": null,
               "resumed_from_id": null,
               "started_at": "2026-08-11 10:00:00+00",
@@ -119,7 +115,6 @@ class CodingSessionEntityDecodeTest {
             }
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
-        assertNull(entity.summary)
         assertNull(entity.endedBy)
         assertNull(entity.resumedFromId)
     }
@@ -128,7 +123,7 @@ class CodingSessionEntityDecodeTest {
      * still sends it must not break the decode — ignoreUnknownKeys carries it,
      * and nothing reads it anymore. */
     @Test
-    fun `a stray outcome key is ignored`() {
+    fun `stray outcome and summary keys are ignored`() {
         val row = """
             {
               "id": "sess-1",
@@ -143,8 +138,8 @@ class CodingSessionEntityDecodeTest {
             }
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
-        assertEquals("Bumped the deps.", entity.summary)
         assertEquals("ended", entity.status)
+        assertNull(entity.endedBy)
     }
 
     // EXP-484: the agent a run launched with — absent on every pre-EXP-484 row.
@@ -167,27 +162,6 @@ class CodingSessionEntityDecodeTest {
         )
         assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent\": null")).agent)
         assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agent)
-    }
-
-    /** A summary is free-form GFM: newlines, quotes and unicode ride through
-     * as written (mobile renders it as plain text). */
-    @Test
-    fun `a multi-line summary survives the round trip`() {
-        val row = """
-            {
-              "id": "sess-1",
-              "team_id": "team-1",
-              "user_id": "user-1",
-              "status": "ended",
-              "summary": "Line one.\n\n- bullet \"quoted\"\n- ✅ done",
-              "started_at": "2026-08-11 10:00:00+00",
-              "created_at": "2026-08-11 10:00:00+00",
-              "updated_at": "2026-08-11 10:00:00+00"
-            }
-        """.trimIndent()
-        val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
-        assertTrue(entity.summary!!.contains("\n\n- bullet \"quoted\""))
-        assertTrue(entity.summary!!.endsWith("✅ done"))
     }
 
     // EXP-734: the run's OWN chore PR — pr_url / pr_number / pr_state on the

@@ -1517,6 +1517,18 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v38 (EXP-864): coding_sessions.summary is GONE — the agent's
+        // close-out is reported to the run that started it (EXP-862), never
+        // stored, and the server column was dropped. Guarded drop, like v24.
+        migrator.registerMigration("v38_drop_coding_session_summary") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            guard existing.contains("summary") else { return }
+            try db.alter(table: "coding_sessions") { t in
+                t.drop(column: "summary")
+            }
+        }
+
         return migrator
     }
 

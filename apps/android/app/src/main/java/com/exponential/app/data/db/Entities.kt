@@ -301,12 +301,6 @@ data class CodingSessionEntity(
     // values, a documented varchar server-side). NULL on every pre-EXP-484 row
     // and on any starter that omits it — the usage bar simply doesn't render.
     val agent: String? = null,
-    // EXP-637: the agent's OWN close-out, written by the
-    // `exponential_sessions_end` MCP tool — a one-paragraph summary the team
-    // reads on the run row. NULL on a run that ended any other way and on
-    // every pre-EXP-637 row. (EXP-686 dropped the companion `outcome` column
-    // server-side; a stray value on the wire is simply ignored.)
-    val summary: String? = null,
     // EXP-637: who ended the run — `agent` (sessions_end), `user`
     // (killSession), `client` (exit/tab close/quit), `merge` (a PR merge) or
     // `system` (the sweep). NULL on rows ended before the stamp existed.

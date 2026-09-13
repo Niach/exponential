@@ -103,7 +103,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
-             "v37_coding_session_agent_caption"]
+             "v37_coding_session_agent_caption",
+             "v38_drop_coding_session_summary"]
         )
     }
 
@@ -133,7 +134,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
-             "v37_coding_session_agent_caption"]
+             "v37_coding_session_agent_caption",
+             "v38_drop_coding_session_summary"]
         )
     }
 
@@ -191,7 +193,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
-             "v37_coding_session_agent_caption"]
+             "v37_coding_session_agent_caption",
+             "v38_drop_coding_session_summary"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -269,7 +272,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v33_pins", "v34_device_shared_team_ids",
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
-             "v37_coding_session_agent_caption"]
+             "v37_coding_session_agent_caption",
+             "v38_drop_coding_session_summary"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

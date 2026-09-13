@@ -258,9 +258,12 @@ import androidx.room.TypeConverters
     //      nullable text. New column on the coding-sessions shape allowlist;
     //      destructive fallback wipes + resyncs so every row arrives carrying
     //      it.
+    // v57 (EXP-864): coding_sessions.summary is GONE — the agent's close-out is
+    //      reported to the run that started it, never stored (EXP-862), and the
+    //      server column was dropped. Destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 56,
+    version = 57,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

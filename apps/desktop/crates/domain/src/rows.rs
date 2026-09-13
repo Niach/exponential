@@ -598,10 +598,6 @@ pub struct CodingSession {
     /// value; `None` = a person started it.
     #[serde(default)]
     pub started_reason: Option<String>,
-    /// EXP-637 close-out: the agent's own one-paragraph summary, written by
-    /// the `exponential_sessions_end` MCP tool (≤4000 chars, plain GFM).
-    #[serde(default)]
-    pub summary: Option<String>,
     /// EXP-637: who ended the run — `agent` / `user` / `client` / `merge` /
     /// `system` (`CODING_SESSION_ENDED_BY_VALUES`).
     #[serde(default)]
