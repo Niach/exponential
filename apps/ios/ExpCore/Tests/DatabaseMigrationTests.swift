@@ -747,7 +747,9 @@ final class DatabaseMigrationTests: XCTestCase {
 
         XCTAssertNoThrow(try migrator.migrate(pool))
         let columns = try columnNames(pool, "coding_sessions")
-        for column in ["summary", "ended_by", "resumed_from_id"] {
+        // v38 (EXP-864) drops `summary` again at the end of the chain.
+        XCTAssertFalse(columns.contains("summary"), "summary must be dropped by v38")
+        for column in ["ended_by", "resumed_from_id"] {
             XCTAssertTrue(columns.contains(column), "missing \(column)")
             let added = try pool.read { db in
                 try db.columns(in: "coding_sessions").first { $0.name == column }
@@ -1091,7 +1093,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try migrator.migrate(pool))
         let columns = try columnNames(pool, "coding_sessions")
         XCTAssertFalse(columns.contains("outcome"))
-        for column in ["summary", "ended_by", "resumed_from_id"] {
+        XCTAssertFalse(columns.contains("summary"), "summary must be dropped by v38")
+        for column in ["ended_by", "resumed_from_id"] {
             XCTAssertTrue(columns.contains(column), "missing \(column)")
         }
     }
