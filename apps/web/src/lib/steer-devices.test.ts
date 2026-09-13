@@ -726,7 +726,7 @@ describe(`deviceUsageWallAt`, () => {
   })
 
   it(`is the reset of a fresh, fully spent window`, () => {
-    expect(deviceUsageWallAt(device(), `claude`, undefined, NOW)).toEqual(
+    expect(deviceUsageWallAt(device(), `claude`, undefined, undefined, NOW)).toEqual(
       new Date(RESET)
     )
   })
@@ -742,7 +742,7 @@ describe(`deviceUsageWallAt`, () => {
         ]),
       },
     })
-    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toEqual(
+    expect(deviceUsageWallAt(row, `claude`, undefined, undefined, NOW)).toEqual(
       new Date(later)
     )
   })
@@ -753,7 +753,7 @@ describe(`deviceUsageWallAt`, () => {
         claude: usage([{ key: `session`, percent: 99, resetsAt: RESET }]),
       },
     })
-    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toBeNull()
+    expect(deviceUsageWallAt(row, `claude`, undefined, undefined, NOW)).toBeNull()
   })
 
   it(`fails open on STALE numbers`, () => {
@@ -766,14 +766,14 @@ describe(`deviceUsageWallAt`, () => {
         ),
       },
     })
-    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toBeNull()
+    expect(deviceUsageWallAt(row, `claude`, undefined, undefined, NOW)).toBeNull()
   })
 
   it(`fails open with no reset, a past reset, or no report at all`, () => {
     const noReset = device({
       agentUsage: { claude: usage([{ key: `session`, percent: 100 }]) },
     })
-    expect(deviceUsageWallAt(noReset, `claude`, undefined, NOW)).toBeNull()
+    expect(deviceUsageWallAt(noReset, `claude`, undefined, undefined, NOW)).toBeNull()
     const past = device({
       agentUsage: {
         claude: usage([
@@ -781,12 +781,30 @@ describe(`deviceUsageWallAt`, () => {
         ]),
       },
     })
-    expect(deviceUsageWallAt(past, `claude`, undefined, NOW)).toBeNull()
+    expect(deviceUsageWallAt(past, `claude`, undefined, undefined, NOW)).toBeNull()
     expect(
-      deviceUsageWallAt(device({ agentUsage: undefined }), `claude`, undefined, NOW)
+      deviceUsageWallAt(device({ agentUsage: undefined }), `claude`, undefined, undefined, NOW)
     ).toBeNull()
     // A different agent on the same machine is unaffected.
-    expect(deviceUsageWallAt(device(), `codex`, undefined, NOW)).toBeNull()
+    expect(deviceUsageWallAt(device(), `codex`, undefined, undefined, NOW)).toBeNull()
+  })
+
+  it(`walls a spent per-MODEL window only for that model (EXP-869)`, () => {
+    const row = device({
+      agentUsage: {
+        claude: usage([
+          { key: `session`, percent: 40, resetsAt: RESET },
+          { key: `weekly`, percent: 66, resetsAt: RESET },
+          { key: `model:fable`, percent: 100, resetsAt: RESET },
+        ]),
+      },
+    })
+    expect(deviceUsageWallAt(row, `claude`, undefined, `opus`, NOW)).toBeNull()
+    expect(deviceUsageWallAt(row, `claude`, undefined, `fable`, NOW)).toEqual(
+      new Date(RESET)
+    )
+    // The machine resolves an absent model itself: unknown fails open.
+    expect(deviceUsageWallAt(row, `claude`, undefined, undefined, NOW)).toBeNull()
   })
 })
 
@@ -820,7 +838,7 @@ describe(`deviceProfileUsage`, () => {
       },
     }
     expect(deviceProfileUsage(row, `claude`, undefined)?.windows[0].percent).toBe(10)
-    expect(deviceUsageWallAt(row, `claude`, undefined, NOW)).toBeNull()
+    expect(deviceUsageWallAt(row, `claude`, undefined, undefined, NOW)).toBeNull()
   })
 
   it(`falls the ACTIVE profile back to the pre-profile slot`, () => {
@@ -845,7 +863,7 @@ describe(`deviceProfileUsage`, () => {
       },
     }
     expect(deviceProfileUsage(row, `claude`, `other`)).toBeNull()
-    expect(deviceUsageWallAt(row, `claude`, `other`, NOW)).toBeNull()
+    expect(deviceUsageWallAt(row, `claude`, `other`, undefined, NOW)).toBeNull()
   })
 })
 

@@ -2037,6 +2037,25 @@ describe(`steer.startSession — usage headroom (EXP-804)`, () => {
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
+  it(`a spent per-model window does not wall another model (EXP-869)`, async () => {
+    queueOwnDevice({
+      label: `mint`,
+      agentUsage: {
+        claude: {
+          fetchedAt: iso(0),
+          windows: [
+            window(40, iso(60 * 60_000)),
+            { key: `model:fable`, label: `Fable`, percent: 100, resetsAt: iso(5 * 60 * 60_000) },
+          ],
+        },
+      },
+    })
+    await expect(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, model: `opus` })
+    ).resolves.toEqual({ ok: true })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
   it(`allowRateLimited bypasses the refusal`, async () => {
     queueOwnDevice({
       label: `mint`,
