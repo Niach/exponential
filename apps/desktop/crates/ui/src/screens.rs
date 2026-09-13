@@ -417,10 +417,15 @@ enum LivePlanOp {
 /// the user closed stays closed while its run's signature is the one it was
 /// closed with; a tab whose run ends keeps its place (a transcript) until it
 /// is closed; an ended run is never auto-added.
+///
+/// `viewed` is the run the window is SHOWING: a tab bound to it is being read
+/// (a past run of an issue that also has a live one), so it is never rebound
+/// out from under the reader — it rebinds once it is in the background.
 fn live_tab_plan(
     tabs: &[TabLiveView],
     live: &[crate::queries::LiveTabRun],
     dismissed: &HashMap<String, crate::queries::LiveSig>,
+    viewed: Option<&str>,
 ) -> Vec<LivePlanOp> {
     let live_ids: std::collections::HashSet<&str> =
         live.iter().map(|run| run.session_id.as_str()).collect();
@@ -441,12 +446,17 @@ fn live_tab_plan(
                 if claimed.insert(ix) {
                     let bound = tabs[ix].run_id.as_deref();
                     let bind = bound != Some(run.session_id.as_str())
-                        && !bound.is_some_and(|bound| live_ids.contains(bound));
-                    ops.push(LivePlanOp::MarkLive {
-                        ix,
-                        run_id: run.session_id.clone(),
-                        bind,
-                    });
+                        && !bound.is_some_and(|bound| live_ids.contains(bound))
+                        && (viewed.is_none() || bound != viewed);
+                    // Only an op that CHANGES something: an unchanged plan is
+                    // empty, so the tick never repaints a still window.
+                    if bind || !tabs[ix].live {
+                        ops.push(LivePlanOp::MarkLive {
+                            ix,
+                            run_id: run.session_id.clone(),
+                            bind,
+                        });
+                    }
                 }
             }
             None => {
@@ -1691,11 +1701,15 @@ impl ScreensPanel {
                 live: tab.live,
             })
             .collect();
-        let ops = live_tab_plan(&views, &live, &self.dismissed_live);
+        let active = resolved_screen(&self.nav, cx);
+        let viewed = match &active {
+            Some(Screen::Session { session_id }) => Some(session_id.as_str()),
+            _ => None,
+        };
+        let ops = live_tab_plan(&views, &live, &self.dismissed_live, viewed);
         if ops.is_empty() {
             return;
         }
-        let active = resolved_screen(&self.nav, cx);
         for op in ops {
             match op {
                 LivePlanOp::MarkLive { ix, run_id, bind } => {
@@ -1911,6 +1925,15 @@ impl ScreensPanel {
                 detail.flush_description(cx);
             });
         }
+        // EXP-870: the strip SHOWS live tabs first, so "the neighbour" is the
+        // one beside the closed chip on screen, not in storage order.
+        let display_pos = {
+            let live: Vec<bool> = self.tabs.iter().map(|tab| tab.live).collect();
+            strip_order(&live)
+                .iter()
+                .position(|&tab_ix| tab_ix == ix)
+                .unwrap_or(ix)
+        };
         let closed = self.tabs.remove(ix);
         self.forget_tab(&closed, cx);
         let active = resolved_screen(&self.nav, cx);
@@ -1918,9 +1941,13 @@ impl ScreensPanel {
             // The neighbor within the SAME strip: closing a bottom-bar tab
             // lands on the next bottom-bar tab (the web's dock never jumps to
             // an issue), closing a top tab on the next top tab.
-            let strip: Vec<bool> = self.tabs.iter().map(|tab| tab.screen.is_dock_tab()).collect();
-            let next = neighbor_in_strip(&strip, ix, closed.screen.is_dock_tab())
-                .map(|ix| self.tabs[ix].screen.clone());
+            let order = strip_order(&self.tabs.iter().map(|tab| tab.live).collect::<Vec<_>>());
+            let strip: Vec<bool> = order
+                .iter()
+                .map(|&tab_ix| self.tabs[tab_ix].screen.is_dock_tab())
+                .collect();
+            let next = neighbor_in_strip(&strip, display_pos, closed.screen.is_dock_tab())
+                .map(|pos| self.tabs[order[pos]].screen.clone());
             set_screen(window, cx, next);
         }
         if let (true, Screen::Terminal { tab }) = (kill_terminal, &closed.screen) {
@@ -3280,8 +3307,16 @@ impl Render for ScreensPanel {
             // Width budget: the strip shares the row with nothing, but the
             // panel sits right of the window's left column (EXP-862: ONE
             // width for every occupant of it) and carries its own `px_2`.
+            // Resolved off `self`: this runs INSIDE the panel's render, and the
+            // window-level helper reads the panel entity back (a double lease).
+            let screen = resolved_screen(&self.nav, cx);
+            let origin = screen
+                .as_ref()
+                .filter(|screen| screen.carries_list())
+                .and_then(|screen| self.origin_of(screen));
+            let occupant = crate::shell::left_occupant_for(screen.as_ref(), origin.as_ref());
             let available = (window.viewport_size().width
-                - px(crate::shell::window_left_column_width(window, cx))
+                - px(crate::shell::left_column_width_for(occupant))
                 - px(2. * crate::shell::PANEL_MARGIN + 16.))
             .max(px(160.));
             div()
@@ -3498,7 +3533,7 @@ mod tests {
         let tabs = [view(Some("i1"), None, false)];
         let live = [run("s1", Some("i1"), false), run("s2", None, false)];
         assert_eq!(
-            live_tab_plan(&tabs, &live, &none),
+            live_tab_plan(&tabs, &live, &none, None),
             vec![
                 LivePlanOp::MarkLive {
                     ix: 0,
@@ -3512,24 +3547,37 @@ mod tests {
             ]
         );
         // A tab bound to a LIVE run keeps it when a second run of the issue
-        // starts.
+        // starts — and an unchanged plan is EMPTY (no repaint per tick).
         let tabs = [view(Some("i1"), Some("s1"), true)];
         let live = [run("s1", Some("i1"), false), run("s9", Some("i1"), false)];
+        assert!(live_tab_plan(&tabs, &live, &none, None).is_empty());
+        // A past run being READ is not rebound under the reader; it only
+        // joins the live group.
+        let tabs = [view(Some("i1"), Some("s0"), false)];
         assert_eq!(
-            live_tab_plan(&tabs, &live, &none),
+            live_tab_plan(&tabs, &[run("s1", Some("i1"), false)], &none, Some("s0")),
             vec![LivePlanOp::MarkLive {
                 ix: 0,
                 run_id: "s1".into(),
                 bind: false
             }]
         );
+        // … and rebinds once it is in the background.
+        assert_eq!(
+            live_tab_plan(&tabs, &[run("s1", Some("i1"), false)], &none, None),
+            vec![LivePlanOp::MarkLive {
+                ix: 0,
+                run_id: "s1".into(),
+                bind: true
+            }]
+        );
         // Dismissed at the same signature: stays closed.
         let mut dismissed = HashMap::new();
         dismissed.insert("s1".to_string(), crate::queries::LiveSig::default());
-        assert!(live_tab_plan(&[], &[run("s1", Some("i1"), false)], &dismissed).is_empty());
+        assert!(live_tab_plan(&[], &[run("s1", Some("i1"), false)], &dismissed, None).is_empty());
         // The run starts waiting on you: the tab comes back.
         assert_eq!(
-            live_tab_plan(&[], &[run("s1", Some("i1"), true)], &dismissed),
+            live_tab_plan(&[], &[run("s1", Some("i1"), true)], &dismissed, None),
             vec![
                 LivePlanOp::Add {
                     issue_id: Some("i1".into()),
@@ -3540,12 +3588,12 @@ mod tests {
         );
         // The run ended: the dismissal is forgotten and nothing is added.
         assert_eq!(
-            live_tab_plan(&[], &[], &dismissed),
+            live_tab_plan(&[], &[], &dismissed, None),
             vec![LivePlanOp::Forget("s1".into())]
         );
         // A live tab whose run ended stays open, just not live.
         assert_eq!(
-            live_tab_plan(&[view(Some("i1"), Some("s1"), true)], &[], &none),
+            live_tab_plan(&[view(Some("i1"), Some("s1"), true)], &[], &none, None),
             vec![LivePlanOp::MarkNotLive(0)]
         );
         // Two new runs on one issue add ONE tab.
@@ -3553,7 +3601,8 @@ mod tests {
             live_tab_plan(
                 &[],
                 &[run("s1", Some("i1"), false), run("s2", Some("i1"), false)],
-                &none
+                &none,
+                None
             ),
             vec![LivePlanOp::Add {
                 issue_id: Some("i1".into()),

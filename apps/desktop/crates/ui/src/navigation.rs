@@ -1068,6 +1068,8 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     let fallback = if nav.read(cx).screen.is_none() {
         resolved_screen(&nav, cx)
             .map(|default| materialize_default(default, active_board_id(&nav, cx)))
+            // A default that still names no board is no place to go back to.
+            .filter(|screen| !matches!(screen, Screen::BoardIssues { board_id } if board_id.is_empty()))
     } else {
         None
     };
