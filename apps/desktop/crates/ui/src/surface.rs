@@ -695,6 +695,8 @@ pub(crate) enum RichTabStatus {
     Glyph(gpui_component::Icon),
     /// A liveness tone dot (the remote session chips).
     Dot(Hsla),
+    /// EXP-870: a run's agent is working — a spinner in the glyph slot.
+    Working,
     None,
 }
 
@@ -806,6 +808,15 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
                 .size_1p5()
                 .rounded_full()
                 .bg(tone),
+        ),
+        RichTabStatus::Working => chip.child(
+            div().flex_shrink_0().child(
+                gpui_component::Sizable::with_size(
+                    gpui_component::spinner::Spinner::new(),
+                    px(12.),
+                )
+                .color(theme.muted_foreground),
+            ),
         ),
         RichTabStatus::None => chip,
     })

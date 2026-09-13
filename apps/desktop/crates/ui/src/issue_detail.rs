@@ -1848,13 +1848,14 @@ impl IssueDetailView {
     fn render_header(
         &mut self,
         issue: &Issue,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let header = self.header.clone();
+        let face = crate::screens::face_toggle(&issue.id, window, cx);
         let (top_row, chip_row, agent_row) = header.update(cx, |header, cx| {
             (
-                header.top_row(issue, cx),
+                header.top_row(issue, face, cx),
                 header.chip_row(issue, None, cx),
                 header.agent_row(issue, cx),
             )
@@ -1876,8 +1877,7 @@ impl IssueDetailView {
 
 impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // Terminal-dock pattern: key context + tracked focus. (The bare-letter
-        // J/K switcher bindings are gone — EXP-268; the header arrows remain.)
+        // Terminal-dock pattern: key context + tracked focus.
         // EXP-282: no base fill — the view sits directly on the window's page
         // gradient (`colors.list` is transparent since EXP-269, so the old
         // `.bg()` was a no-op that only obscured the intent).

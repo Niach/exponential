@@ -981,28 +981,18 @@ impl SessionScreenView {
             .get(&issue_id)
             .cloned()?;
         let header = self.ensure_header(&issue_id, window, cx);
-        let open_id = issue_id.clone();
-        let open_issue_pill = crate::surface::glass_pill_button(
-            "session-open-issue",
-            crate::surface::PillSize::Sm,
-            cx,
-        )
-        .icon(
-            gpui_component::Icon::new(registry::NAV_ISSUES)
-                .with_size(px(crate::surface::PillSize::Sm.glyph())),
-        )
-        .label("Open issue")
-        .on_click(move |_, window, cx| {
-            open_issue(&open_id, window, cx);
-        })
-        .into_any_element();
+        // EXP-870: the band's leading control flips the tab back to its Issue
+        // face (it replaced the "Open issue" pill — the run and its issue are
+        // one tab now).
+        let face = crate::screens::face_toggle(&issue_id, window, cx);
         // The header entity's rows are built through `entity.update` from
         // this render (the detail view's `render_header` precedent) — they
-        // never call back into this view synchronously.
+        // never call back into this view synchronously. The empty trailing
+        // slot keeps the chip row's session mode (no launcher, no Merge).
         let (top_row, chip_row) = header.update(cx, |header, cx| {
             (
-                header.top_row(&issue, cx),
-                header.chip_row(&issue, Some(open_issue_pill), cx),
+                header.top_row(&issue, face, cx),
+                header.chip_row(&issue, Some(gpui::Empty.into_any_element()), cx),
             )
         });
         Some(
@@ -1022,17 +1012,6 @@ impl SessionScreenView {
                 .into_any_element(),
         )
     }
-}
-
-/// Open `issue_id`'s detail — the issue band's click and its pill.
-fn open_issue(issue_id: &str, window: &mut Window, cx: &mut App) {
-    crate::navigation::navigate(
-        window,
-        cx,
-        Screen::IssueDetail {
-            issue_id: issue_id.to_string(),
-        },
-    );
 }
 
 /// EXP-818: the session header's Stop — a small glass pill with the stop

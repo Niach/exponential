@@ -946,6 +946,91 @@ pub(crate) fn coding_session_is_live(
     }
 }
 
+/// EXP-870: what a closed live-run tab remembers about its run — a dismissed
+/// tab stays closed until this CHANGES (the run starts waiting on you, or its
+/// PR opens). The agent's busy edge is deliberately not part of it: it flips
+/// every turn, and a closed tab that reopened on every turn would never close.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct LiveSig {
+    /// Needs input, or walled by a usage limit.
+    pub attention: bool,
+    /// Its PR is open (`in_review`).
+    pub review: bool,
+}
+
+/// EXP-870: one of MY live runs — every one of them owns a top tab.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LiveTabRun {
+    pub session_id: String,
+    pub issue_id: Option<String>,
+    pub sig: LiveSig,
+}
+
+pub(crate) fn live_sig(session: &domain::rows::CodingSession, now_epoch: i64) -> LiveSig {
+    let blocked = crate::usage_bar::parse_blocked(session.blocked.as_ref());
+    LiveSig {
+        attention: session.needs_input.unwrap_or(false)
+            || crate::usage_bar::blocked_badge_label(blocked.as_ref(), now_epoch).is_some(),
+        review: session.status.as_deref()
+            == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW),
+    }
+}
+
+/// EXP-870: the runs that own a top tab in `team_id` — ALL of the caller's
+/// live runs (person-started, automations, other machines alike), oldest
+/// start first so a new run's tab lands after the ones already up.
+pub(crate) fn live_tab_runs(cx: &App, team_id: &str) -> Vec<LiveTabRun> {
+    let Some(me) = active_account(cx).map(|account| account.user_id) else {
+        return Vec::new();
+    };
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let now = chrono::Utc::now().timestamp();
+    let sessions = store.collections().coding_sessions.read(cx);
+    let mut rows: Vec<&domain::rows::CodingSession> = sessions
+        .iter()
+        .filter(|session| {
+            session.user_id.as_deref() == Some(me.as_str())
+                && session.team_id.as_deref() == Some(team_id)
+                && coding_session_is_live(session, now)
+        })
+        .collect();
+    rows.sort_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)));
+    rows.into_iter()
+        .map(|session| LiveTabRun {
+            session_id: session.id.clone(),
+            issue_id: session.issue_id.clone(),
+            sig: live_sig(session, now),
+        })
+        .collect()
+}
+
+/// EXP-870: the run an issue tab's Run face shows — the web
+/// `issueSessionTarget`: the run the tab is bound to while it still belongs to
+/// the issue, else my newest run on it (live or ended). `None` = the issue
+/// has no run of mine, so the Run face is disabled.
+pub(crate) fn issue_run_target(
+    rows: &[(String, Option<String>, Option<String>, Option<String>)],
+    issue_id: &str,
+    bound: Option<&str>,
+    me: &str,
+) -> Option<String> {
+    // (id, issue_id, user_id, started_at)
+    let mine = |row: &&(String, Option<String>, Option<String>, Option<String>)| {
+        row.1.as_deref() == Some(issue_id) && row.2.as_deref() == Some(me)
+    };
+    if let Some(bound) = bound {
+        if rows.iter().filter(mine).any(|row| row.0 == bound) {
+            return Some(bound.to_string());
+        }
+    }
+    rows.iter()
+        .filter(mine)
+        .max_by(|a, b| a.3.cmp(&b.3).then_with(|| a.0.cmp(&b.0)))
+        .map(|row| row.0.clone())
+}
+
 /// REV2-24: the device already coding `issue_id` according to the live SYNCED
 /// rows, or `None` when the issue is free. The cross-device half of the
 /// EXP-202 one-session-per-issue rule — `coding_flow::LocalSessions` knows
@@ -1940,6 +2025,30 @@ pub(crate) async fn await_row_visible<T: 'static>(
 
 #[cfg(test)]
 mod tests {
+    /// EXP-870: the Run face opens the bound run while it still belongs to
+    /// the issue, else my newest run on it; a teammate's run never counts.
+    #[test]
+    fn issue_run_target_prefers_the_bound_run_then_my_newest() {
+        let row = |id: &str, issue: &str, user: &str, started: &str| {
+            (
+                id.to_string(),
+                Some(issue.to_string()),
+                Some(user.to_string()),
+                Some(started.to_string()),
+            )
+        };
+        let rows = vec![
+            row("old", "i1", "me", "2026-01-01"),
+            row("new", "i1", "me", "2026-02-01"),
+            row("theirs", "i1", "you", "2026-03-01"),
+            row("elsewhere", "i2", "me", "2026-04-01"),
+        ];
+        assert_eq!(issue_run_target(&rows, "i1", Some("old"), "me").as_deref(), Some("old"));
+        assert_eq!(issue_run_target(&rows, "i1", None, "me").as_deref(), Some("new"));
+        assert_eq!(issue_run_target(&rows, "i1", Some("elsewhere"), "me").as_deref(), Some("new"));
+        assert_eq!(issue_run_target(&rows, "i3", None, "me"), None);
+    }
+
     use super::*;
     use serde_json::json;
 

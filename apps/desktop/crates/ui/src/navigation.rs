@@ -103,8 +103,8 @@ pub enum Screen {
     /// EXP-773: EVERY coding run is one of these — there is no terminal
     /// surface left for a run to live on — which is why every entry point
     /// funnels through [`crate::session_screen::open_session`] rather than
-    /// navigating here directly. EXP-769: a session's tab lives in the
-    /// BOTTOM session bar, not the top strip ([`Screen::is_dock_tab`]).
+    /// navigating here directly. EXP-870: it is the Run face of its issue's
+    /// top tab, or a Run-only top tab for an issue-less run.
     Session { session_id: String },
     /// One PTY terminal of this window's `TerminalManager` (EXP-769): a plain
     /// shell or an agent login, never a coding run (EXP-773). The
@@ -146,14 +146,12 @@ impl Screen {
         matches!(self, Screen::IssueDetail { .. } | Screen::PrDiff { .. })
     }
 
-    /// EXP-769: whether the screen's tab lives in the BOTTOM session bar
-    /// (coding sessions and PTY terminals — web `AgentDock` parity) rather
-    /// than the top strip (issue and support-thread tabs). Both kinds are
-    /// [`Self::is_detail`] tabs of the one `ScreensPanel` list; only where the
-    /// chip renders differs. The split is the whole point: issue tabs and
-    /// coding tabs were hard to tell apart in one strip.
+    /// EXP-769: whether the screen's tab lives in the BOTTOM bar rather than
+    /// the top strip. EXP-870: terminals only — a coding run is a face of its
+    /// issue's top tab (or a top tab of its own), and the bottom bar is this
+    /// machine's processes.
     pub(crate) fn is_dock_tab(&self) -> bool {
-        matches!(self, Screen::Session { .. } | Screen::Terminal { .. })
+        matches!(self, Screen::Terminal { .. })
     }
 
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
@@ -2104,12 +2102,11 @@ mod tests {
     /// — went back from it, then closed it: go-forward must not re-enter a
     /// `Screen::Terminal` with no tab (the ghost-chip case). `close_tab`'s
     /// predicate is plain screen equality; a `terminal::TabId` cannot be
-    /// minted outside its crate, so the other bottom-bar tab screen stands
-    /// in — the rule is the same for both.
+    /// minted outside its crate, so a session screen stands in — the purge
+    /// rule is screen equality either way.
     #[test]
     fn purged_terminal_is_not_re_entered_by_go_forward() {
         let terminal = Screen::Session { session_id: "s1".into() };
-        assert!(terminal.is_dock_tab());
         let mut nav = Navigation::new();
         nav.screen = Some(terminal.clone());
         nav.back_stack = vec![Screen::Reviews];

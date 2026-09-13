@@ -563,9 +563,6 @@ pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
     Syncing,
-    /// EXP-791: a Sessions row whose agent is working — the plain spinner
-    /// (not the Source Control refresh glyph: nothing is being pulled).
-    Working,
     /// EXP-870: a count pill in the badge colour — the Agent entry's live
     /// runs (the web `NavCountBadge`).
     Count(usize, Hsla),
@@ -590,14 +587,6 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
             .child(
                 Spinner::new()
                     .icon(registry::UI_REFRESH)
-                    .with_size(px(glyph_px))
-                    .color(cx.theme().muted_foreground),
-            )
-            .into_any_element(),
-        RailBadge::Working => div()
-            .flex_shrink_0()
-            .child(
-                Spinner::new()
                     .with_size(px(glyph_px))
                     .color(cx.theme().muted_foreground),
             )
@@ -665,35 +654,6 @@ fn rail_compact_button(
         })
 }
 
-/// EXP-791: the rail's Sessions rows, in order — this window's OPEN session
-/// tabs first (tab order), then the caller's live runs that have no tab yet
-/// (`session_bar::running_session_ids` order: newest start first). The exact
-/// order the retired session-bar entries had.
-///
-/// EXP-827: only LIVE runs get a row. A past chat opened from the Agent list
-/// (or a run that ends while its tab is open) keeps its center tab but
-/// leaves the rail: the rail lists what is running, the Agent page lists
-/// the history. `ended` is the synced row's verdict (`status == ended`); a
-/// tab with no synced row yet (a local start ahead of its echo) counts as
-/// live. Pure, so the rule is unit-tested.
-pub(crate) fn rail_session_rows(
-    open_tabs: &[String],
-    running: &[String],
-    ended: impl Fn(&str) -> bool,
-) -> Vec<String> {
-    let mut rows: Vec<String> = open_tabs
-        .iter()
-        .filter(|session_id| !ended(session_id))
-        .cloned()
-        .collect();
-    for session_id in running {
-        if !rows.iter().any(|open| open == session_id) {
-            rows.push(session_id.clone());
-        }
-    }
-    rows
-}
-
 /// EXP-791: what a Sessions row's badge says about its run. Derived from the
 /// synced row (`ended`), the host's presence (`paused`, EXP-696) and the
 /// `needs_input` attention flag — in that precedence: an ended run has no
@@ -724,19 +684,6 @@ pub(crate) fn session_row_state(ended: bool, paused: bool, needs_input: bool) ->
 }
 
 impl SessionRowState {
-    /// The row's trailing badge: a spinner while the agent is ACTUALLY
-    /// working (`busy` — EXP-848: the local engine's turn signal for a run
-    /// hosted here, the synced `agent_busy` column for one on another
-    /// machine), the amber dot while the agent waits (the Devices entry's
-    /// palette), nothing else.
-    fn badge(self, busy: bool) -> Option<RailBadge> {
-        match self {
-            SessionRowState::Working => busy.then_some(RailBadge::Working),
-            SessionRowState::NeedsInput => Some(RailBadge::Dot(theme::tokens::YELLOW.to_hsla())),
-            SessionRowState::Ended | SessionRowState::Paused => None,
-        }
-    }
-
     /// EXP-818: the row's leading dot — the mobile `sessionStateColor`
     /// palette (Devices rows and the session header wear the same).
     fn dot(self, display: queries::CodingSessionDisplay, muted: Hsla) -> Hsla {
@@ -771,22 +718,6 @@ fn rail_row(
         badge,
         cx,
     )
-}
-
-/// EXP-851/EXP-850 §8: the muted CAPTION a rail session row shows between its
-/// title and its badge — the ONE place it is decided.
-///
-/// The run's live agent caption wins (the newest running workflow's, off the
-/// in-process signal for a run we host and off the synced `agent_caption`
-/// column for every other), and the host MACHINE's label (EXP-827's
-/// `· macbook`) is the fallback: at rail width there is room for one, and
-/// what the agent is doing right now beats where it is doing it.
-fn rail_session_caption(caption: Option<String>, device: Option<String>) -> Option<SharedString> {
-    caption
-        .map(|caption| caption.trim().to_string())
-        .filter(|caption| !caption.is_empty())
-        .or(device)
-        .map(SharedString::from)
 }
 
 /// [`rail_row`] with an arbitrary LEAD element (EXP-818: a Sessions row leads
@@ -848,84 +779,10 @@ fn rail_row_lead(
 // RailView — the icon strip left of the dock area
 // ---------------------------------------------------------------------------
 
-/// The 44px tool-window rail. Owned and rendered by the `Shell` shell
-/// OUTSIDE the `DockArea`, below the full-width top bar. (No terminal
-/// entry — terminals are session-bar tabs, EXP-769.)
-/// EXP-862 — how often the rail re-derives its live rows on the CLOCK. The
-/// same 5s the session lists ride (`sessions_section::TICK`).
-const RAIL_TICK: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// EXP-862 — everything a repaint on the CLOCK can change about a rail
-/// session row: whether the agent is working (the trailing spinner), whether
-/// its host has gone quiet (the muted paused tone), and the agent CAPTION the
-/// row shows beside its title. None of the three produces a collection delta
-/// to observe for a run THIS process hosts (the engine's turn and caption
-/// signals are in-process, and `LocalSessions` notifies only on register and
-/// remove), which is why the rail needs a tick at all; comparing them is what
-/// keeps that tick from repainting a still sidebar.
-#[derive(Clone, PartialEq)]
-struct RailLiveFact {
-    session_id: String,
-    busy: bool,
-    paused: bool,
-    caption: Option<String>,
-}
-
-/// [`RailLiveFact`]s as of now, over every run that can still change on its
-/// own: the caller's live rows plus the ones this process hosts. An ENDED
-/// run's row is settled — the clock cannot move it — so it is not in here.
-fn rail_live_facts(cx: &mut App) -> Vec<RailLiveFact> {
-    let ids = crate::session_bar::running_session_ids(cx);
-    if ids.is_empty() {
-        return Vec::new();
-    }
-    let local_sessions = coding_flow::LocalSessions::global_ref(cx);
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let collections = store.collections().clone();
-    let now = chrono::Utc::now().timestamp();
-    let sessions = collections.coding_sessions.read(cx);
-    ids.into_iter()
-        .map(|session_id| {
-            let local_busy = local_sessions.as_ref().and_then(|live| {
-                live.read(cx)
-                    .session_by_id(&session_id)
-                    .map(|session| !session.host.session.turn_signal().is_idle())
-            });
-            // EXP-850 §8: the caption the row renders, derived exactly as the
-            // row derives it (`queries::session_agent_caption`) so the tick
-            // sees the same string the paint would.
-            let local_caption = local_sessions.as_ref().and_then(|live| {
-                live.read(cx)
-                    .session_by_id(&session_id)
-                    .and_then(|session| session.host.session.caption_signal().get())
-            });
-            let row = sessions.get(&session_id);
-            let caption =
-                row.and_then(|row| queries::session_agent_caption(row, local_caption, now));
-            let busy = row
-                .map(|row| queries::session_agent_busy(row, local_busy, now))
-                .unwrap_or_else(|| local_busy.unwrap_or(false));
-            let paused = row.is_some_and(|row| {
-                let display = queries::coding_session_display(row, row.pr_state.as_deref());
-                let presentation = queries::session_device_presentation(
-                    row,
-                    collections.devices.read(cx).iter(),
-                    now * 1_000,
-                );
-                queries::session_is_paused(display, &presentation)
-            });
-            RailLiveFact {
-                session_id,
-                busy,
-                paused,
-                caption,
-            }
-        })
-        .collect()
-}
-
+/// The tool-window rail: the expanded sidebar, or (EXP-870) its 48px icon
+/// column beside a list. Owned and rendered by the `Shell` OUTSIDE the
+/// `DockArea`. (No terminal entry — terminals are session-bar tabs, EXP-769;
+/// no Sessions section either — live runs are top tabs, EXP-870.)
 pub struct RailView {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
@@ -939,22 +796,6 @@ pub struct RailView {
     /// leaves the window any more; it folds its labels away instead).
     /// Re-derived at the top of every render from the window's occupant.
     compact: bool,
-    /// EXP-791: the Sessions section lists this window's open session tabs,
-    /// so the rail repaints when the screens panel's tabs change. Resolved
-    /// lazily on the first render (the panel is built after the rail), the
-    /// `session_bar` recipe.
-    observe_screens: Option<Subscription>,
-    /// EXP-818: the Sessions rows whose children are folded away (a parent
-    /// row's chevron). Per window, never persisted.
-    collapsed_sessions: std::collections::HashSet<String>,
-    /// EXP-862: the live rows' clock-derived facts as of the last check —
-    /// the short-circuit for [`Self::refresh_live`].
-    live_facts: Vec<RailLiveFact>,
-    /// EXP-862 (EXP-832's pattern, the one the session lists use): a 5s
-    /// re-derive of those facts that repaints ONLY when they moved. It
-    /// replaces EXP-818's blanket 1s `cx.notify()`, which repainted the whole
-    /// sidebar every second for the lifetime of any local run.
-    _live_tick: gpui::Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1014,29 +855,7 @@ impl RailView {
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
             compact: false,
-            observe_screens: None,
-            collapsed_sessions: HashSet::new(),
-            live_facts: Vec::new(),
-            _live_tick: cx.spawn(async move |this, cx| loop {
-                cx.background_executor().timer(RAIL_TICK).await;
-                if this
-                    .update(cx, |this, cx| this.refresh_live(cx))
-                    .is_err()
-                {
-                    return;
-                }
-            }),
             _subscriptions: subscriptions,
-        }
-    }
-
-    /// EXP-862: re-derive what the CLOCK can change about the live session
-    /// rows and repaint only if it moved ([`rail_live_facts`]).
-    fn refresh_live(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = rail_live_facts(cx);
-        if next != self.live_facts {
-            self.live_facts = next;
-            cx.notify();
         }
     }
 
@@ -1056,231 +875,6 @@ impl RailView {
                     .text_color(cx.theme().sidebar_foreground.opacity(0.5))
                     .child(text),
             )
-    }
-
-    /// EXP-791: the Sessions section's rows — one per open session tab or
-    /// live run of the caller's ([`rail_session_rows`]). EXP-818 gave the row
-    /// the mobile session row's shape: a state DOT leads (green working,
-    /// amber waiting, blue done, muted paused/ended), then the run's title,
-    /// then the host machine's name muted on the right, then — only while
-    /// the LOCAL engine reports a turn in flight — a spinner (a remote run's
-    /// turns are invisible here, so it never spins). Children of a run
-    /// (`parent_session_id`, `domain::session_tree`) nest under it, indented,
-    /// behind the parent's collapse chevron. Clicking opens the run the way
-    /// every entry point does (`session_screen::open_session`). EXP-827: an
-    /// ended run has no row here (its transcript stays a center tab; the
-    /// Agent page lists the history). Empty when nothing is up — the caller
-    /// hides the section.
-    fn render_session_rows(
-        &mut self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Vec<gpui::AnyElement> {
-        let Some(screens) = crate::screens::screens_for_window(window, cx) else {
-            return Vec::new();
-        };
-        if self.observe_screens.is_none() {
-            self.observe_screens = Some(cx.observe(&screens, |_, _, cx| cx.notify()));
-        }
-        let open = screens.read(cx).open_session_ids();
-        let running = crate::session_bar::running_session_ids(cx);
-        let store = Store::global(cx);
-        let collections = store.collections().clone();
-        let ids = {
-            let sessions = collections.coding_sessions.read(cx);
-            rail_session_rows(&open, &running, |session_id| {
-                sessions.get(session_id).is_some_and(|row| {
-                    row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
-                })
-            })
-        };
-        if ids.is_empty() {
-            return Vec::new();
-        }
-        let active_screen = resolved_screen(&self.nav, cx);
-        let now = chrono::Utc::now().timestamp();
-        let muted = cx.theme().muted_foreground;
-        let local_sessions = coding_flow::LocalSessions::global_ref(cx);
-
-        // The synced row behind each id (a local start ahead of its echo has
-        // none), nested by parent.
-        let entries: Vec<(String, Option<domain::rows::CodingSession>)> = {
-            let sessions = collections.coding_sessions.read(cx);
-            ids.into_iter()
-                .map(|id| {
-                    let row = sessions.get(&id).cloned();
-                    (id, row)
-                })
-                .collect()
-        };
-        let tree = domain::session_tree::nest_sessions(
-            entries,
-            |entry| entry.0.as_str(),
-            |entry| entry.1.as_ref().and_then(|row| row.parent_session_id.as_deref()),
-            |entry| entry.1.as_ref().and_then(|row| row.started_at.as_deref()),
-        );
-
-        let mut out = Vec::with_capacity(tree.len());
-        // Rows under a collapsed parent are skipped until the depth climbs
-        // back out from under it.
-        let mut hidden_below: Option<usize> = None;
-        for (index, tree_row) in tree.into_iter().enumerate() {
-            if let Some(depth) = hidden_below {
-                if tree_row.depth > depth {
-                    continue;
-                }
-                hidden_below = None;
-            }
-            let (session_id, row) = tree_row.session;
-            let collapsed = tree_row.has_children && self.collapsed_sessions.contains(&session_id);
-            if collapsed {
-                hidden_below = Some(tree_row.depth);
-            }
-            let screen = Screen::Session {
-                session_id: session_id.clone(),
-            };
-            let title = crate::navigation::screen_title(&screen, cx);
-            let (state, display, device) = match row.as_ref() {
-                Some(row) => {
-                    let ended = row.status.as_deref()
-                        == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
-                    let pr_state = row
-                        .issue_id
-                        .as_deref()
-                        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
-                        .and_then(|issue| issue.pr_state)
-                        .or_else(|| row.pr_state.clone());
-                    let display = queries::coding_session_display(row, pr_state.as_deref());
-                    let presentation = queries::session_device_presentation(
-                        row,
-                        collections.devices.read(cx).iter(),
-                        now * 1_000,
-                    );
-                    (
-                        session_row_state(
-                            ended,
-                            queries::session_is_paused(display, &presentation),
-                            display == queries::CodingSessionDisplay::NeedsInput,
-                        ),
-                        display,
-                        presentation.label,
-                    )
-                }
-                // No row yet (a local start ahead of its echo): it is live
-                // by definition, on this machine.
-                None => (
-                    SessionRowState::Working,
-                    queries::CodingSessionDisplay::Running,
-                    None,
-                ),
-            };
-            // EXP-818/EXP-848: "working" is a FACT here, not a default. A run
-            // hosted HERE reads the engine's own turn signal; every other
-            // machine's run reads the `agent_busy` column its device writes on
-            // each turn edge (ONE rule — `queries::session_agent_busy`).
-            let local_busy = local_sessions.as_ref().and_then(|sessions| {
-                sessions
-                    .read(cx)
-                    .session_by_id(&session_id)
-                    .map(|session| !session.host.session.turn_signal().is_idle())
-            });
-            // EXP-850 §8: the run's agent caption, with the same precedence
-            // as `local_busy` — the in-process signal for a run this process
-            // hosts, the synced column for every other.
-            let local_caption = local_sessions.as_ref().and_then(|sessions| {
-                sessions
-                    .read(cx)
-                    .session_by_id(&session_id)
-                    .and_then(|session| session.host.session.caption_signal().get())
-            });
-            let agent_caption = row
-                .as_ref()
-                .and_then(|row| queries::session_agent_caption(row, local_caption, now));
-            let busy = row
-                .as_ref()
-                .map(|row| queries::session_agent_busy(row, local_busy, now))
-                // No row yet (a local start ahead of its echo): the engine is
-                // the only thing that can answer, and it is right here.
-                .unwrap_or_else(|| local_busy.unwrap_or(false));
-            let active = active_screen.as_ref() == Some(&screen);
-            let dot = div()
-                .flex_shrink_0()
-                .size_1p5()
-                .rounded_full()
-                .bg(state.dot(display, muted));
-            let lead: gpui::AnyElement = if tree_row.has_children {
-                let toggle_id = session_id.clone();
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_0p5()
-                    .items_center()
-                    .child(
-                        div()
-                            .id(("rail-session-fold", index))
-                            .flex_shrink_0()
-                            .cursor_pointer()
-                            .child(
-                                Icon::new(if collapsed {
-                                    registry::UI_CHEVRON_RIGHT
-                                } else {
-                                    registry::UI_CHEVRON_DOWN
-                                })
-                                .with_size(px(12.))
-                                .text_color(muted),
-                            )
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                cx.stop_propagation();
-                                if !this.collapsed_sessions.insert(toggle_id.clone()) {
-                                    this.collapsed_sessions.remove(&toggle_id);
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .child(dot)
-                    .into_any_element()
-            } else {
-                dot.into_any_element()
-            };
-            let open_id = session_id.clone();
-            let mut row_el = rail_row_lead(
-                ("rail-session", index),
-                lead,
-                title,
-                active,
-                // The row's muted caption slot, between the title and the
-                // badge (`● title · macbook ◌`).
-                rail_session_caption(agent_caption, device),
-                state.badge(busy),
-                cx,
-            )
-            // Children indent one step per level (the chevron's own width).
-            .pl(px(6. + 14. * tree_row.depth as f32))
-            .when(state == SessionRowState::Paused, |row| row.opacity(0.6))
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                crate::session_screen::open_session_from_rail(&open_id, window, cx);
-            }));
-            if state == SessionRowState::Ended {
-                let screens = screens.clone();
-                let close_id = session_id.clone();
-                row_el = row_el.child(
-                    Button::new(("rail-session-close", index))
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::UI_CLOSE)
-                        .tooltip("Close transcript")
-                        .on_click(move |_, window, cx| {
-                            cx.stop_propagation();
-                            let close_id = close_id.clone();
-                            screens.update(cx, |screens, cx| {
-                                screens.close_session_row(&close_id, window, cx);
-                            });
-                        }),
-                );
-            }
-            out.push(row_el.into_any_element());
-        }
-        out
     }
 
     /// EXP-778: the Pinned section's rows — the caller's pins in the ACTIVE
@@ -2257,21 +1851,6 @@ impl Render for RailView {
                 .children(pinned_rows)
                 .into_any_element()
         });
-        // EXP-791: the Sessions section — hidden while nothing is up.
-        let session_rows = if self.compact {
-            Vec::new()
-        } else {
-            self.render_session_rows(window, cx)
-        };
-        let sessions_section: Option<gpui::AnyElement> = (!session_rows.is_empty()).then(|| {
-            v_flex()
-                .w_full()
-                .gap_1()
-                .child(self.divider(cx))
-                .child(self.section_label("Sessions", cx))
-                .children(session_rows)
-                .into_any_element()
-        });
 
         // Source Control badge (EXP-253 — the git bar is headless now, this
         // badge is its whole rail presence): attention (conflict / local
@@ -2540,7 +2119,6 @@ impl Render for RailView {
                     .child(self.divider(cx))
                     .children(boards_header)
                     .children(board_icons)
-                    .children(sessions_section)
                     .child(self.divider(cx))
                     // Repo tool windows — this machine's trunk clone.
                     .child(self.section_label("This device", cx))
@@ -4433,7 +4011,7 @@ impl Render for ListPanel {
 #[cfg(test)]
 mod tests {
     use super::{
-        focused_list, rail_session_caption, rail_session_rows, row_origin_for, session_row_state,
+        focused_list, row_origin_for, session_row_state,
         InboxTab, ListMode, SessionRowState, ToolWindow,
     };
     use crate::navigation::{Screen, TabOrigin};
@@ -4579,69 +4157,6 @@ mod tests {
         }
     }
 
-    /// EXP-851/EXP-850 §8: the rail session row's caption slot — the run's
-    /// agent caption when it has one, the host machine otherwise.
-    #[test]
-    fn a_rail_session_row_captions_its_agent_then_its_host() {
-        assert_eq!(
-            rail_session_caption(None, Some("macbook".to_string())).as_deref(),
-            Some("macbook")
-        );
-        assert_eq!(
-            rail_session_caption(
-                Some("Workflow wire-probe · 2/3 agents done".to_string()),
-                Some("macbook".to_string())
-            )
-            .as_deref(),
-            Some("Workflow wire-probe · 2/3 agents done")
-        );
-        // A blank caption is not a caption.
-        assert_eq!(
-            rail_session_caption(Some("   ".to_string()), Some("macbook".to_string())).as_deref(),
-            Some("macbook")
-        );
-        assert_eq!(rail_session_caption(None, None), None);
-    }
-
-    fn ids(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
-    }
-
-    /// EXP-791: open tabs keep their tab order and come first; live runs
-    /// without a tab follow in their own (newest-first) order; a run that is
-    /// both open and live is listed once, in its tab slot.
-    #[test]
-    fn session_rows_are_open_tabs_then_tabless_live_runs() {
-        let live = |_: &str| false;
-        assert_eq!(
-            rail_session_rows(&ids(&["s2", "s1"]), &ids(&["s3", "s1", "s4"]), live),
-            ids(&["s2", "s1", "s3", "s4"])
-        );
-        assert_eq!(rail_session_rows(&[], &ids(&["s3"]), live), ids(&["s3"]));
-        assert_eq!(rail_session_rows(&ids(&["s1"]), &[], live), ids(&["s1"]));
-        assert!(rail_session_rows(&[], &[], live).is_empty());
-    }
-
-    /// EXP-827: an ENDED run's open tab gets no rail row: a past chat
-    /// opened from the Agent list stays a center tab only, and a run that
-    /// ends under an open tab drops out of the rail. The live tabs around it
-    /// keep their order; a tabless live run still follows.
-    #[test]
-    fn ended_open_tabs_get_no_rail_row() {
-        let ended = |id: &str| id == "s1" || id == "s9";
-        assert_eq!(
-            rail_session_rows(&ids(&["s2", "s1", "s4"]), &ids(&["s3", "s4"]), ended),
-            ids(&["s2", "s4", "s3"])
-        );
-        // Only ended tabs open: the section is empty (the caller hides it).
-        assert!(rail_session_rows(&ids(&["s1", "s9"]), &[], ended).is_empty());
-        // A tab with no synced row yet is live by definition.
-        assert_eq!(
-            rail_session_rows(&ids(&["local"]), &[], |id| id != "local"),
-            ids(&["local"])
-        );
-    }
-
     /// EXP-791: ended beats paused beats needs-input — a finished run never
     /// spins or asks, an offline host never claims to be working, and only a
     /// live run on a present host gets the amber dot or the spinner.
@@ -4651,18 +4166,5 @@ mod tests {
         assert_eq!(session_row_state(false, true, true), SessionRowState::Paused);
         assert_eq!(session_row_state(false, false, true), SessionRowState::NeedsInput);
         assert_eq!(session_row_state(false, false, false), SessionRowState::Working);
-        // Only working and needs-input carry a badge — and working only
-        // while the engine says so (EXP-818).
-        assert!(SessionRowState::Ended.badge(true).is_none());
-        assert!(SessionRowState::Paused.badge(true).is_none());
-        assert!(SessionRowState::Working.badge(false).is_none());
-        assert!(matches!(
-            SessionRowState::Working.badge(true),
-            Some(super::RailBadge::Working)
-        ));
-        assert!(matches!(
-            SessionRowState::NeedsInput.badge(false),
-            Some(super::RailBadge::Dot(_))
-        ));
     }
 }
