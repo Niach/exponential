@@ -5,7 +5,6 @@
 - Agent-siden holder dine kørsler: tidligere kørsler foldes bag et tal, du kan åbne, og når intet kører, sidder skrivefeltet midt på siden
 - Log ind, hvor kontoen er: enhedsindstillinger holder navn, deling og agentens standarder, mens login, valget af den aktive konto og fjernelse nu ligger på kontochipsene
 - Tilføj en konto: Add account sidder i Accounts-overskriften og logger en ny konto ind på en enhed, og et plus ved en konto logger den samme ind på en anden enhed
-- Et board på én linje: ikonet, farven og navnet deler én linje, når du opretter et board, og farvevælgeren åbner som et ark med farveprøver
 - Issue-filtre er væk: filterknappen og dens pills er væk fra board og indbakke, søgning dækker det, de blev brugt til, og gruppering og statusbånd bliver
 - Fortsæt med e-mail eller med en adgangsnøgle: log ind med en 6-cifret kode, du får tilsendt, eller med Face ID eller Touch ID; alle muligheder står i én liste, og en ukendt e-mail bliver bare til en ny konto
 - Arbejdsindikatoren stopper, når agenten stopper: den følger nu agentens rigtige tur i stedet for forbindelsen, viser hvad den laver med tid og tokens, og Stop ligger i sessionens overskrift
@@ -15,9 +14,4 @@
 - Konti, der siger sandheden: en agentkontos tilstand kommer fra en rigtig forbrugsmåling, så et dødt login viser „Needs re-login“ i stedet for „Signed in“
 - Devices er reparationssiden: hver maskine viser de agent-logins, den har, og en chip tilbyder den rigtige reparation, nyt login til et udløbet eller brug denne konto her til et, maskinen ikke bruger
 - Skift konto midt i en kørsel: en Claude-kørsel, der rammer sin grænse, kan fortsætte på en anden konto fra forbrugsarket eller grænsebeskeden, som en ny kørsel knyttet til den gamle
-- Den maskine, du trykkede på: en maskines afspilningsknap åbner feltet med netop den maskine valgt, og feltet siger hvorfor, når en maskine ikke kan tage kørslen
 - Tilbage hvor du kom fra: forlader du en session, lander du igen på det issue, board eller den indbakke, du åbnede den fra, og en kørsel startet af en anden kørsel ligger indrykket under den
-- Watch i stedet for Coding now: din egen kørsel på et issue er en Watch-knap i issuets egenskaber og ikke længere et kort for sig
-- Forslag i chatten: en ny chat tilbyder forslags-chips at starte fra
-- Ingen pin-knapper på telefonen: der er ingen sidebjælke at sætte fast i, så Pin er væk fra issues, sessioner og actions; pins lavet på computeren vises stadig i board-vælgeren
-- Pensionerede agenter bliver væk: en maskine på en ældre version, der stadig melder en fjernet agent, giver aldrig en række, et faneblad eller et punkt i vælgeren

@@ -5,7 +5,6 @@
 - A página Agent guarda as suas execuções: as execuções passadas dobram-se atrás de um número que pode abrir, e sem nada a correr o campo de escrita fica a meio da página
 - Inicie sessão onde está a conta: as definições do dispositivo ficam com o nome, a partilha e os valores por omissão do agente, enquanto o início de sessão, a escolha da conta ativa e a remoção passam para as etiquetas de conta
 - Adicionar uma conta: Add account está no cabeçalho Accounts e inicia sessão com uma conta nova num dispositivo, e um mais junto a uma conta inicia a mesma noutro dispositivo
-- Um quadro numa só linha: ao criar um quadro, o ícone, a cor e o nome partilham uma única linha, e o seletor de cor abre como uma folha de amostras
 - Os filtros de issues desapareceram: o botão de filtro e as suas pastilhas saíram do quadro e da caixa de entrada, a pesquisa cobre o que faziam, e o agrupamento e as faixas de estado ficam
 - Continuar com o email, ou com uma chave de acesso: entre com um código de 6 dígitos enviado por email, ou com Face ID ou Touch ID; todas as opções estão numa só lista, e um email desconhecido passa simplesmente a ser uma conta nova
 - O indicador de trabalho acaba quando o agente acaba: segue agora o turno real do agente em vez da ligação, mostra o que está a fazer com a duração e os tokens, e o Stop está no cabeçalho da sessão
@@ -15,9 +14,4 @@
 - Contas que dizem a verdade: o estado de uma conta de agente vem de uma medição de uso real, por isso um início de sessão morto indica «Needs re-login» em vez de «Signed in»
 - Devices é a página de reparação: cada máquina lista as contas de agente que tem, e uma etiqueta oferece a reparação certa, voltar a entrar numa expirada ou usar esta conta aqui numa que a máquina não está a usar
 - Trocar de conta a meio da execução: uma execução Claude que chega ao limite pode continuar noutra conta a partir da folha de uso ou do aviso de limite, como uma execução nova ligada à anterior
-- A máquina que tocou: o botão de reprodução de uma máquina abre o compositor com essa máquina já escolhida, e o compositor diz porque é que uma máquina não pode aceitar a execução
 - De volta ao sítio de onde veio: sair de uma sessão leva-o de volta ao issue, ao quadro ou à caixa de entrada de onde a abriu, e uma execução iniciada por outra aparece aninhada por baixo
-- Watch em vez de Coding now: a sua própria execução ao vivo num issue é uma etiqueta Watch nas propriedades do issue e já não um cartão à parte
-- Sugestões de conversa: uma conversa nova oferece etiquetas de sugestões por onde começar
-- Sem botões de fixar no telemóvel: não há barra lateral onde fixar, por isso o Pin desapareceu dos issues, das sessões e das actions; as fixações feitas no computador continuam a aparecer no seletor de quadros
-- Os agentes retirados ficam de fora: uma máquina com uma versão mais antiga que ainda anuncia um agente removido nunca produz uma linha, um separador ou uma entrada no seletor

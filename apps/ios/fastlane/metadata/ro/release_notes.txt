@@ -5,7 +5,6 @@
 - Pagina Agent îți ține rulările: rulările trecute se pliază în spatele unui număr pe care îl poți deschide, iar când nu rulează nimic, câmpul de scris stă la mijlocul paginii
 - Autentifică-te acolo unde e contul: setările dispozitivului păstrează numele, partajarea și valorile implicite ale agentului, în timp ce autentificarea, alegerea contului activ și ștergerea stau acum pe etichetele de cont
 - Adaugă un cont: Add account stă în antetul Accounts și autentifică un cont nou pe un dispozitiv, iar un plus lângă un cont îl autentifică pe alt dispozitiv
-- Un board pe un singur rând: la crearea unui board, pictograma, culoarea și numele împart un singur rând, iar selectorul de culoare se deschide ca o foaie cu mostre
 - Filtrele de issue-uri au dispărut: butonul de filtrare și pastilele lui au plecat din board și din inbox, căutarea acoperă la ce erau folosite, iar gruparea și benzile de status rămân
 - Continuă cu e-mailul sau cu o cheie de acces: intră cu un cod din 6 cifre trimis pe e-mail, ori cu Face ID sau Touch ID; toate variantele stau într-o singură listă, iar o adresă necunoscută devine pur și simplu un cont nou
 - Indicatorul de lucru se oprește când se oprește agentul: urmărește acum tura reală a agentului în locul conexiunii, arată ce face, cu durata și tokenurile, iar Stop stă în antetul sesiunii
@@ -15,9 +14,4 @@
 - Conturi care spun adevărul: starea unui cont de agent vine dintr-o măsurătoare reală de consum, așa că o autentificare moartă scrie „Needs re-login” în loc de „Signed in”
 - Devices este pagina de reparații: fiecare mașină listează conturile de agent pe care le ține, iar o etichetă oferă reparația potrivită, o nouă autentificare pentru unul expirat sau folosirea acestui cont aici pentru unul pe care mașina nu îl folosește
 - Schimbare de cont în mijlocul rulării: o rulare Claude care atinge limita poate continua pe alt cont din fișa de consum sau din avertizarea de limită, ca rulare nouă legată de cea veche
-- Mașina pe care ai atins-o: butonul de pornire al unei mașini deschide câmpul cu exact acea mașină aleasă, iar câmpul spune de ce o mașină nu poate prelua rularea
 - Înapoi de unde ai venit: ieșirea dintr-o sesiune te duce înapoi la issue-ul, boardul sau inboxul din care ai deschis-o, iar o rulare pornită de altă rulare apare imbricată sub ea
-- Watch în loc de Coding now: propria ta rulare în desfășurare pe un issue este un buton Watch între proprietățile issue-ului, nu un card separat
-- Sugestii de discuție: o discuție nouă oferă etichete cu sugestii de la care să pornești
-- Fără butoane de fixare pe telefon: nu există bară laterală unde să fixezi, așa că Pin a dispărut de la issue-uri, sesiuni și actions; fixările făcute pe calculator apar în continuare în comutatorul de boarduri
-- Agenții retrași rămân retrași: o mașină pe o versiune mai veche care încă anunță un agent eliminat nu produce niciodată un rând, o filă sau o intrare în selector

@@ -5,7 +5,6 @@
 - La pagina Agent tiene i tuoi run: i run passati si ripiegano dietro un conteggio che puoi aprire, e quando non gira nulla il campo di scrittura sta al centro della pagina
 - Accedi dove sta l'account: le impostazioni del dispositivo tengono nome, condivisione e valori predefiniti dell'agente, mentre accesso, scelta dell'account attivo e rimozione vivono ora sulle etichette dell'account
 - Aggiungere un account: Add account sta nell'intestazione Accounts e accede con un nuovo account su un dispositivo, e un più accanto a un account lo accede su un altro dispositivo
-- Una board in una riga: icona, colore e nome condividono una sola riga quando crei una board, e il selettore di colore si apre come un foglio di campioni
 - I filtri degli issue sono spariti: il pulsante filtro e le sue pastiglie lasciano board e posta in arrivo, la ricerca copre quello che facevano, e raggruppamento e bande di stato restano
 - Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un unico elenco, e un'email sconosciuta diventa semplicemente un nuovo account
 - L'indicatore di lavoro finisce quando finisce l'agente: ora segue il turno reale dell'agente invece della connessione, mostra cosa sta facendo con durata e token, e Stop sta nell'intestazione della sessione
@@ -15,9 +14,4 @@
 - Account che dicono la verità: lo stato di un account agente arriva da una misura d'uso reale, quindi un accesso morto legge «Needs re-login» invece di «Signed in»
 - Devices è la pagina delle riparazioni: ogni macchina elenca gli account agente che tiene, e un chip propone la riparazione giusta, rientrare in uno scaduto o usare questo account qui per uno che la macchina non sta usando
 - Cambio account a metà esecuzione: un'esecuzione Claude che raggiunge il limite può proseguire con un altro account dal foglio dei consumi o dall'avviso di limite, come nuova esecuzione collegata alla precedente
-- La macchina che hai toccato: il pulsante play di una macchina apre il compositore con quella macchina già scelta, e il compositore spiega perché una macchina non può prendere l'esecuzione
 - Torna da dove sei arrivato: uscire da una sessione ti riporta all'issue, alla board o alla inbox da cui l'avevi aperta, e un'esecuzione avviata da un'altra compare annidata sotto
-- Watch al posto di Coding now: la tua esecuzione dal vivo su un'issue è una pillola Watch nelle proprietà dell'issue, non una scheda a parte
-- Suggerimenti di chat: una nuova chat propone chip di suggerimenti da cui partire
-- Niente pulsanti pin sul telefono: non c'è una barra laterale a cui appuntare, quindi Pin sparisce da issue, sessioni e action; i pin messi sul desktop restano visibili nel selettore delle board
-- Gli agenti ritirati restano fuori: una macchina con una build più vecchia che segnala ancora un agente rimosso non produce mai una riga, una scheda o una voce nel selettore

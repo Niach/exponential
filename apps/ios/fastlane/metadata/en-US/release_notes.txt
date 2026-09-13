@@ -5,7 +5,6 @@
 - The Agent page holds your runs: past runs fold behind a count you can open, and with nothing running the prompt sits in the middle of the page instead of under the nav bar
 - Sign in where the account is: device settings keeps the device name, sharing and agent defaults, while signing in, choosing the active login and removing one now live on the account chips
 - Add an account: Add account sits in the Accounts header to sign a new login in on a device, and a plus on an account signs that same one in on another device
-- A board in one row: the icon, the color and the name share a single row when you create a board, and the color picker opens as a sheet of swatches
 - Issue filters are gone: the filter button and its pills left the board and the inbox, search covers what they did, and grouping and the status bands stay
 - Continue with email, or with a passkey: sign in with a 6-digit code mailed to you, or with Face ID or Touch ID; every option is one Continue list, and an unknown email simply becomes a new account
 - Working ends when the agent does: the working indicator follows the agent's real turn instead of the connection, showing what it is doing with the elapsed time and tokens, and Stop sits in the session header
@@ -15,9 +14,4 @@
 - Accounts that tell the truth: an agent account's health comes from a live usage probe, so a dead login reads Needs re-login instead of Signed in
 - Devices is the repair page: each machine lists the agent logins it holds, and a chip offers the right repair, re-login for an expired one or use this account here for one the machine is not using
 - Switch account mid-run: a Claude run that hits its limit can carry on with another account from the usage sheet or the rate-limit notice, as a new run linked to the old one
-- The machine you tapped: a machine's play button opens the composer with that machine already selected, and the composer says why when a machine cannot take the run
 - Back where you came from: leaving a session returns you to the issue, board or inbox you opened it from, and a run started by another run is nested under it
-- Watch instead of Coding now: your own live run on an issue is a Watch pill in the issue's properties rather than a card of its own
-- Chat suggestions: a new chat offers suggestion chips to start from
-- No pin buttons on the phone: there is no sidebar to pin to, so Pin is gone from issues, sessions and actions; pins made on the desktop still show in the board switcher
-- Retired agents stay gone: a machine on an older build that still reports a removed agent never produces a row, a tab or a picker entry
