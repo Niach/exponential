@@ -27,7 +27,7 @@
 //! - [`ListPanel`] — the team's LIST surfaces (a board, the Inbox, Support).
 //!   EXP-851: it renders EITHER as the full-width main view
 //!   ([`ListMode::Screen`], the list screen a rail entry navigates to) or as
-//!   the 320px `ListNav` in the left column ([`ListMode::Nav`], the
+//!   the `ListNav` in the left column ([`ListMode::Nav`], the
 //!   simplified list beside an open detail). One type either way, so the
 //!   Support poll, the board query and the inbox grouping exist once.
 //!
@@ -828,8 +828,8 @@ impl RailView {
             cx.observe(&collections.actions, |_, _, cx| cx.notify()),
             // The Agent dot is a live read over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
-            // EXP-791: the Sessions rows include the runs THIS process hosts
-            // (and their paused edge reads the devices rows below).
+            // The pinned session rows' dots read the runs THIS process hosts
+            // (and their paused edge the devices rows below).
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
             // EXP-311: the account button's avatar rides the users shape
@@ -2186,7 +2186,7 @@ pub(crate) enum ListMode {
 /// EXP-851: the team's list surfaces in one view. It used to be the
 /// `SidebarPanel` tool column beside the centre; the centre split is gone,
 /// so the same rows render EITHER as the full-width main view
-/// ([`ListMode::Screen`]) or as the 320px `ListNav` beside an open detail
+/// ([`ListMode::Screen`]) or as the `ListNav` beside an open detail
 /// ([`ListMode::Nav`]). One type, so the Support poll, the board query and
 /// the inbox grouping exist once.
 pub struct ListPanel {
@@ -3807,7 +3807,7 @@ impl ListPanel {
     /// ([`queries::automated_runs`]) the Automations page's "Recent automated
     /// runs" log draws, with the open run selected. Opening a finished
     /// automated run is the one path that lands here, and its Back goes to
-    /// the Automations page (`navigation::session_back_target`).
+    /// the Automations page.
     fn render_automations_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let team_id = active_team_id(&self.nav, cx);
         let runs = queries::automated_runs(cx, team_id.as_deref());

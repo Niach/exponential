@@ -71,7 +71,7 @@ pub(crate) struct RunRowSpec {
     pub(crate) lead: RunRowLead,
     /// EXP-827: nesting depth (0 = a root run). A sub-session started through
     /// `exponential_sessions_start` is indented under its parent, exactly as
-    /// the rail's Sessions rows nest it.
+    /// the session lists nest it.
     pub(crate) depth: usize,
     /// `Some` when this row HAS children — the chevron that folds them away.
     pub(crate) fold: Option<RunRowFold>,

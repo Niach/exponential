@@ -6,15 +6,12 @@
 //! ACP engine ends that split. A run this process hosts is an in-process
 //! [`engine::EngineSession`], not a terminal, so it renders in the CENTER pane
 //! like every other detail screen. EXP-769: a PTY-hosted run renders in the
-//! center too (`Screen::Terminal`), and both kinds tab in the bottom session
-//! bar.
+//! center too (`Screen::Terminal`). EXP-870: a run is a TOP tab — the Run
+//! face of its issue's tab (`Issue | Run` in the header), or a Run-only tab
+//! for an issue-less run — and every live run of mine always has one.
 //!
 //! [`open_session`] is the ONE entry point (the start dialog, the issue's
-//! coding-now card, Devices → Running / Past, a Sessions row in the rail).
-//! EXP-791: an ISSUE-bound run opens INSIDE its issue's detail — the
-//! transcript slides in over the issue (`navigation::navigate_steering`,
-//! `IssueDetailView::open_steering`) instead of leaving the page; every
-//! other run (batch, action, chat) navigates here.
+//! coding-now card, Devices → Running / Past, a pinned run).
 //!
 //! Three feed sources, one renderer ([`SteerSessionView`]): the in-process
 //! engine (`Local`), the relay viewer (`Remote` — another machine, or another
@@ -27,7 +24,7 @@
 //! carries navigation), then the read-only Plan chip, Pin, Context, Diff,
 //! Merge and Stop in a right-aligned group; under it, for an issue-bound
 //! run, the issue's own header (EXP-863: `IssueHeader`'s rows over a
-//! read-only title, with "Open issue" in the tray's trailing slot). The
+//! read-only title; EXP-870: the face control flips back to the issue). The
 //! transcript view keeps everything that
 //! is about the conversation itself (the feed, the banners, the diff pane the
 //! Diff pill toggles, the composer), which is why it renders headerless here
@@ -69,8 +66,8 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     open_session_inner(session_id, Origin::Derive, window, cx);
 }
 
-/// EXP-851: [`open_session`] from a RAIL row (the Sessions section, a pinned
-/// run) — the rail is not a list, so the run opens with no `ListNav` beside
+/// EXP-851: [`open_session`] from a RAIL row (a pinned run) — the rail is
+/// not a list, so the run opens with no `ListNav` beside
 /// it instead of inheriting whatever the main view was showing.
 pub(crate) fn open_session_from_rail(session_id: &str, window: &mut Window, cx: &mut App) {
     open_session_inner(session_id, Origin::Rail, window, cx);

@@ -287,8 +287,8 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Shell {
     dock_area: Entity<DockArea>,
-    /// EXP-769: the bottom session bar — the strip of session/terminal tabs
-    /// with the Chat and `+` buttons. EXP-771: the CONTENT COLUMN's last
+    /// EXP-769: the bottom session bar — the strip of terminal tabs
+    /// (EXP-870: runs are top tabs). EXP-771: the CONTENT COLUMN's last
     /// child, under the cutout panel on the bare ground (no fill, no
     /// hairline), sharing the panel's horizontal margins. It owns this
     /// window's `TerminalManager`; a terminal's content renders in the

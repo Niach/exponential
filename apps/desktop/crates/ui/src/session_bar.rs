@@ -1,8 +1,8 @@
 //! The bottom **session bar** (EXP-769) — ONE fixed strip under the working
 //! panel carrying the tabs of the user's PTY terminals, then the `+` button.
 //! Nothing else. EXP-791: it used to be the desktop twin of the web
-//! `AgentDock` and carried the coding-session tabs too; those are rows of
-//! the rail's Sessions section now, the Chat button became the rail's Agent
+//! `AgentDock` and carried the coding-session tabs too; those are top tabs
+//! now (EXP-870: a run is its issue's Run face), the Chat button became the rail's Agent
 //! entry, and the bar takes NO height while no terminal is open (the shell
 //! keeps it mounted — its manager, key bindings and registry live on).
 //!

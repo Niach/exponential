@@ -518,9 +518,9 @@ fn resolve_tab_origin(
 /// EXP-769/EXP-791: one entry of the bottom session bar, in bar order — an
 /// open [`Screen::Terminal`] tab (`ix` into `ScreensPanel::tabs`). The bar
 /// used to be the web `AgentDock`'s tab list (sessions AND terminals, plus
-/// the caller's tab-less live runs); EXP-791 moved every session to the
-/// rail's Sessions section, so the bar is the terminal strip and nothing
-/// else — and takes no height at all without one.
+/// the caller's tab-less live runs); sessions left it (EXP-791, and EXP-870
+/// made them top tabs), so the bar is the terminal strip and nothing else —
+/// and takes no height at all without one.
 struct DockEntry {
     ix: usize,
     screen: Screen,
@@ -1958,8 +1958,7 @@ impl ScreensPanel {
     }
 
     /// EXP-769/EXP-791: the session bar's entries, in bar order — the open
-    /// TERMINAL tabs. Sessions live in the rail's Sessions section now
-    /// ([`Self::rail_session_ids`]).
+    /// TERMINAL tabs ([`Screen::is_dock_tab`]).
     fn dock_entries(&self) -> Vec<DockEntry> {
         self.tabs
             .iter()
@@ -2214,10 +2213,9 @@ impl ScreensPanel {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        // EXP-769: the TOP strip holds the issue/support tabs only — the
-        // session and terminal tabs are the bottom session bar's
-        // (`render_session_bar_tabs`). `top` maps strip position → real tab
-        // index; every handler keys on the real index.
+        // EXP-769/EXP-870: the TOP strip holds every tab but terminals (the
+        // bottom bar's, `render_session_bar_tabs`). `top` maps strip
+        // position → real tab index; every handler keys on the real index.
         // EXP-870: live-run tabs lead the strip (browser pinned tabs).
         let top: Vec<usize> = {
             let live: Vec<bool> = self.tabs.iter().map(|tab| tab.live).collect();
@@ -2465,7 +2463,7 @@ impl ScreensPanel {
     /// partition as the top strip). Hosted by the
     /// [`crate::session_bar::SessionBar`], which appends the `+` button and
     /// records `available` off its own painted slot. EXP-791: terminal chips
-    /// only — sessions are rail rows now.
+    /// only.
     ///
     /// The trailing ×: a terminal's × closes the terminal (kills the child).
     /// Middle-click is the same. The chip's context menu adds "Open in new

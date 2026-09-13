@@ -110,7 +110,7 @@ pub enum Screen {
     /// shell or an agent login, never a coding run (EXP-773). The
     /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
     /// in the center now, like every other screen, and its tab sits in the
-    /// bottom session bar beside the session tabs (web `AgentDock` parity).
+    /// bottom bar (EXP-870: the only kind of tab there).
     /// Keyed by the manager's stable [`terminal::TabId`] — never persisted
     /// (EXP-301: nothing terminal-side survives a relaunch).
     Terminal { tab: terminal::TabId },
@@ -967,7 +967,7 @@ pub(crate) fn navigate_from(window: &Window, cx: &mut App, screen: Screen, origi
 
 /// EXP-851: [`navigate`] from the RAIL — the detail opens with NO list beside
 /// it, so the rail stays up. Every rail row that opens a detail (a pinned
-/// issue or session, a Sessions-section row) goes through here; without it a
+/// issue or session) goes through here; without it a
 /// click would inherit whatever list the main view happened to be showing.
 pub(crate) fn navigate_from_rail(window: &Window, cx: &mut App, screen: Screen) {
     navigate_inner(window, cx, screen, PendingOrigin::Rail);
