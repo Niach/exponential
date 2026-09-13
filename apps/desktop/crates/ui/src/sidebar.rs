@@ -1347,7 +1347,7 @@ impl RailView {
                             if crate::coding_flow::no_agent_reason(cx).is_some() {
                                 return;
                             }
-                            crate::navigation::navigate_to_chat(
+                            crate::navigation::navigate_to_chat_from_rail(
                                 window,
                                 cx,
                                 crate::navigation::ChatSeed::action(action_id.clone()),
@@ -3899,6 +3899,7 @@ impl ListPanel {
         let click_id = issue.id.clone();
         let menu_issue = issue.clone();
         let menu_statuses = statuses.clone();
+        let menu_origin = self.row_origin(cx);
         // A bulk-selected row wears the same active fill as the open one —
         // both mean "this row is where you are" (EXP-426).
         rail_row_lead(
@@ -3924,7 +3925,14 @@ impl ListPanel {
             this.open_from_list(screen.clone(), window, cx);
         }))
         .context_menu(move |menu, window, cx| {
-            build_row_context_menu(menu, &menu_issue, &menu_statuses, window, cx)
+            build_row_context_menu(
+                menu,
+                &menu_issue,
+                &menu_statuses,
+                menu_origin.clone(),
+                window,
+                cx,
+            )
         })
         .into_any_element()
     }

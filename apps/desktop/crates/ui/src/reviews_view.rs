@@ -372,13 +372,16 @@ impl ReviewsView {
                 // The PR diff (EXP-181): a review click is about the CODE —
                 // the diff screen renders it, and its header links back to the
                 // issue detail for the body.
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::PrDiff {
-                        issue_id: nav_id.clone(),
-                    },
-                );
+                // EXP-870: explicitly beside the Reviews queue it came from.
+                let screen = crate::navigation::Screen::PrDiff {
+                    issue_id: nav_id.clone(),
+                };
+                match crate::navigation::Screen::Reviews.list_origin() {
+                    Some(origin) => {
+                        crate::navigation::navigate_from(window, cx, screen, origin)
+                    }
+                    None => crate::navigation::navigate(window, cx, screen),
+                }
             }))
             .child(
                 v_flex()

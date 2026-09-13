@@ -167,6 +167,44 @@ pub enum IssueQuery {
     },
 }
 
+impl IssueQuery {
+    /// EXP-870: the LIST a row picked from this view opens beside — named
+    /// explicitly, so the detail never depends on what history happens to
+    /// hold (the default board list after launch used to hold nothing, and
+    /// the first issue opened with the rail instead of its board).
+    pub(crate) fn list_origin(&self) -> Option<crate::navigation::TabOrigin> {
+        use crate::sidebar::{InboxTab, ToolWindow};
+        match self {
+            IssueQuery::None => None,
+            IssueQuery::Board { board_id } => Some(crate::navigation::TabOrigin {
+                tool: ToolWindow::BoardIssues,
+                board_id: Some(board_id.clone()),
+                inbox_tab: None,
+            }),
+            IssueQuery::MyIssues { .. } => Some(crate::navigation::TabOrigin {
+                tool: ToolWindow::Inbox,
+                board_id: None,
+                inbox_tab: Some(InboxTab::MyIssues),
+            }),
+        }
+    }
+}
+
+/// EXP-870: open an issue from a list — beside `origin` when the list names
+/// one, the breadcrumb rule otherwise.
+pub(crate) fn open_issue_from_list(
+    window: &Window,
+    cx: &mut App,
+    issue_id: String,
+    origin: Option<crate::navigation::TabOrigin>,
+) {
+    let screen = Screen::IssueDetail { issue_id };
+    match origin {
+        Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
+        None => navigate(window, cx, screen),
+    }
+}
+
 /// One flattened virtual-list row. The issue payload sits behind a pointer so
 /// the enum stays small (clippy `large_enum_variant` — `Issue` is ~520 bytes
 /// vs the header's ~10); it is an `Rc` into the memoized [`BoardData`], so
@@ -600,6 +638,8 @@ impl IssueListView {
         let issue_id = issue.id.clone();
         let menu_issue = issue.clone();
         let menu_statuses = self.team_statuses.clone();
+        let origin = self.query.list_origin();
+        let menu_origin = origin.clone();
         let is_selected = self.selected.contains(&issue.id);
         // The open detail's row keeps the same active fill as a bulk-selected
         // one — both mean "this row is where you are" (EXP-426).
@@ -645,13 +685,7 @@ impl IssueListView {
                     this.extend_selection_to(issue_id.clone(), cx);
                     return;
                 }
-                navigate(
-                    window,
-                    cx,
-                    Screen::IssueDetail {
-                        issue_id: issue_id.clone(),
-                    },
-                );
+                open_issue_from_list(window, cx, issue_id.clone(), origin.clone());
             }))
             // Leading bulk-select checkbox: hover-revealed, pinned visible
             // while ANY selection exists (web `group-hover/row` parity).
@@ -749,7 +783,14 @@ impl IssueListView {
             .child(due_cell(issue, cx))
             // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
             .context_menu(move |menu, window, cx| {
-                build_row_context_menu(menu, &menu_issue, &menu_statuses, window, cx)
+                build_row_context_menu(
+                    menu,
+                    &menu_issue,
+                    &menu_statuses,
+                    menu_origin.clone(),
+                    window,
+                    cx,
+                )
             })
     }
 
@@ -1829,6 +1870,7 @@ pub(crate) fn build_row_context_menu(
     menu: PopupMenu,
     issue: &Issue,
     statuses: &Rc<Vec<ResolvedStatus>>,
+    origin: Option<crate::navigation::TabOrigin>,
     window: &mut Window,
     cx: &mut gpui::Context<PopupMenu>,
 ) -> PopupMenu {
@@ -1843,13 +1885,7 @@ pub(crate) fn build_row_context_menu(
             PopupMenuItem::new("Open issue")
                 .icon(Icon::from(ExpIcon::Pencil))
                 .on_click(move |_, window, cx| {
-                    navigate(
-                        window,
-                        cx,
-                        Screen::IssueDetail {
-                            issue_id: issue_id.clone(),
-                        },
-                    );
+                    open_issue_from_list(window, cx, issue_id.clone(), origin.clone());
                 }),
         );
     }

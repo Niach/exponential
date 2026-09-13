@@ -601,6 +601,29 @@ impl Navigation {
         Some(previous)
     }
 
+    /// The pure rule behind [`navigate_inner`]. `fallback` is the screen the
+    /// window SHOWS while `screen` is still `None` (the default board list,
+    /// materialized): it enters the back stack like a real screen, so
+    /// [`derive_origin`] sees the board a row was picked from (EXP-870 — the
+    /// first issue opened after launch used to open with no list beside it).
+    fn advance(&mut self, screen: Screen, origin: PendingOrigin, fallback: Option<Screen>) {
+        if self.screen.as_ref() == Some(&screen) {
+            // Re-navigating to the already-active screen still refreshes the
+            // tab's origin (dedupe keeps ONE tab; the LATEST origin wins).
+            self.pending_origin = Some(origin);
+            return;
+        }
+        if let Some(previous) = self.screen.take().or(fallback) {
+            if previous != screen {
+                self.back_stack.push(previous);
+            }
+        }
+        self.screen = Some(screen);
+        // A real navigation forks history: the forward stack is gone.
+        self.forward_stack.clear();
+        self.pending_origin = Some(origin);
+    }
+
     /// The pure rule behind [`go_forward`]: pop the forward stack, park the
     /// current screen for [`go_back`]. `None` with nothing forward.
     fn step_forward(&mut self) -> Option<Screen> {
@@ -1036,23 +1059,33 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    // EXP-870: with no explicit screen yet (a fresh window, a team switch,
+    // the last tab closed) the window SHOWS the default board list — read it
+    // BEFORE the update (re-entering the nav inside it would double-borrow)
+    // so it enters history like any screen, and a row clicked on it derives
+    // that board.
+    let fallback = if nav.read(cx).screen.is_none() {
+        resolved_screen(&nav, cx)
+            .map(|default| materialize_default(default, active_board_id(&nav, cx)))
+    } else {
+        None
+    };
     nav.update(cx, |nav, cx| {
-        if nav.screen.as_ref() == Some(&screen) {
-            // Re-navigating to the already-active screen still refreshes the
-            // tab's origin (dedupe keeps ONE tab; the LATEST origin wins).
-            nav.pending_origin = Some(origin);
-            cx.notify();
-            return;
-        }
-        if let Some(previous) = nav.screen.take() {
-            nav.back_stack.push(previous);
-        }
-        nav.screen = Some(screen);
-        // A real navigation forks history: the forward stack is gone.
-        nav.forward_stack.clear();
-        nav.pending_origin = Some(origin);
+        nav.advance(screen, origin, fallback);
         cx.notify();
     });
+}
+
+/// EXP-870: the virtual default board list names no board (the empty
+/// sentinel follows `active_board_id`); once it enters history it must name
+/// the board it showed, or the list derived from it reads "No board selected".
+pub(crate) fn materialize_default(screen: Screen, active_board: Option<String>) -> Screen {
+    match screen {
+        Screen::BoardIssues { board_id } if board_id.is_empty() => Screen::BoardIssues {
+            board_id: active_board.unwrap_or_default(),
+        },
+        other => other,
+    }
 }
 
 /// EXP-825: open the Agent page's composer with `seed` preselected — what
@@ -1067,6 +1100,17 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 /// raised — the `forward_to_owner_shell` shape, only with the seed carried
 /// along (writing it onto the undocked window's nav would lose it).
 pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed) {
+    navigate_to_chat_inner(window, cx, seed, false);
+}
+
+/// EXP-870: [`navigate_to_chat`] from the RAIL (a pinned action) — the
+/// composer opens full width and the rail stays; whatever list the previous
+/// screen carried must not slide in beside it.
+pub(crate) fn navigate_to_chat_from_rail(window: &mut Window, cx: &mut App, seed: ChatSeed) {
+    navigate_to_chat_inner(window, cx, seed, true);
+}
+
+fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, from_rail: bool) {
     if crate::screens::screens_for_window(window, cx).is_none() {
         let window_id = window.window_handle().window_id();
         if let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) {
@@ -1074,7 +1118,7 @@ pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed
             // update silently no-ops.
             cx.defer(move |cx| {
                 let _ = owner.update(cx, |_, window, cx| {
-                    navigate_to_chat(window, cx, seed.clone());
+                    navigate_to_chat_inner(window, cx, seed.clone(), from_rail);
                     window.activate_window();
                 });
             });
@@ -1090,7 +1134,12 @@ pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed
             cx.notify();
         });
     }
-    navigate(window, cx, Screen::Chat);
+    let origin = if from_rail {
+        PendingOrigin::Rail
+    } else {
+        PendingOrigin::Derive
+    };
+    navigate_inner(window, cx, Screen::Chat, origin);
 }
 
 /// EXP-825: consume the composer seed (`None` = nothing pending). The chat
@@ -1935,6 +1984,47 @@ mod tests {
         // A plain LIST screen never gets a left-column list of its own.
         assert_eq!(derive_origin(Some(&board_screen), None, &inbox_screen), None);
         assert_eq!(derive_origin(Some(&board_screen), None, &Screen::Reviews), None);
+    }
+
+    /// EXP-870: the default board list the window shows before any explicit
+    /// navigation enters history MATERIALIZED, so an issue picked from it
+    /// derives that board — the "board → issue, but the rail stays" bug.
+    #[test]
+    fn advance_pushes_the_materialized_default_when_no_screen_is_set() {
+        let mut nav = Navigation::new();
+        nav.screen = None;
+        nav.back_stack.clear();
+        let default = materialize_default(
+            Screen::BoardIssues {
+                board_id: String::new(),
+            },
+            Some("b1".into()),
+        );
+        assert_eq!(
+            default,
+            Screen::BoardIssues {
+                board_id: "b1".into()
+            }
+        );
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        nav.advance(issue.clone(), PendingOrigin::Derive, Some(default.clone()));
+        assert_eq!(nav.previous_screen(), Some(&default));
+        assert_eq!(nav.screen(), Some(&issue));
+        assert_eq!(
+            derive_origin(nav.previous_screen(), None, &issue)
+                .and_then(|origin| origin.board_id),
+            Some("b1".into())
+        );
+        // Re-entering the materialized default itself never stacks it twice.
+        let mut nav = Navigation::new();
+        nav.screen = None;
+        nav.back_stack.clear();
+        nav.advance(default.clone(), PendingOrigin::Derive, Some(default.clone()));
+        assert!(nav.back_stack.is_empty());
+        // A non-board default passes through untouched.
+        assert_eq!(materialize_default(Screen::Devices, Some("b1".into())), Screen::Devices);
     }
 
     /// EXP-818: go-back parks the screen it left for go-forward; a real
