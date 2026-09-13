@@ -221,6 +221,16 @@ export function deviceCanSwitchAccount(
   return (device.caps ?? []).includes(`account-switch`)
 }
 
+/** EXP-862: the machine runs `agent_profile_remove` — it deletes its own copy
+ * of one agent login (never the account). An older build would leave the
+ * queued row pending forever, so requesters hide "Remove account" instead;
+ * the server refuses it on their behalf either way. */
+export function deviceCanRemoveAccount(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`account-remove`)
+}
+
 /** EXP-484: the machine runs the `agent_login` device command (the desktop
  * app and the CLI daemon both advertise it). Without the cap the queued row
  * would sit pending forever, so requesters hide Login/Switch account. */
@@ -313,18 +323,6 @@ export function deviceCanRefreshUsage(
   device: Pick<SteerDevice, `caps`>
 ): boolean {
   return (device.caps ?? []).includes(`agent-usage-refresh`)
-}
-
-/** EXP-747 A4: one of MY online machines has an agent installed but signed
- * out — the Devices nav entry falls through to an amber dot for it (behind
- * the running/needs-input colours). Offline rows never count: nothing can be
- * signed in there until the machine is back. */
-export function deviceNeedsSignIn(device: SteerDevice): boolean {
-  return (
-    deviceIsMine(device) &&
-    deviceIsOnline(device) &&
-    deviceUnauthedAgentIds(device).length > 0
-  )
 }
 
 /** The two synced usage slots, as either a `SteerDevice` (absent = undefined)

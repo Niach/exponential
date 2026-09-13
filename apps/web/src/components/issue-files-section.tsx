@@ -190,7 +190,7 @@ export function IssueFilesSection({
                     {formatAttachmentSize(file.sizeBytes)}
                   </span>
                   <IconTooltip label="Open">
-                    <Button variant="glass" size="icon-sm" asChild>
+                    <Button variant="ghost" size="icon-sm" asChild>
                       <a
                         href={file.url}
                         target="_blank"
@@ -202,7 +202,7 @@ export function IssueFilesSection({
                     </Button>
                   </IconTooltip>
                   <IconTooltip label="Download">
-                    <Button variant="glass" size="icon-sm" asChild>
+                    <Button variant="ghost" size="icon-sm" asChild>
                       <a
                         href={buildAttachmentDownloadUrl(file.url)}
                         download={file.filename}
@@ -215,7 +215,7 @@ export function IssueFilesSection({
                   {!readOnly && (
                     <IconTooltip label="Delete">
                       <Button
-                        variant="glass"
+                        variant="ghost"
                         size="icon-sm"
                         className="hover:text-destructive"
                         aria-label={`Delete ${file.filename}`}

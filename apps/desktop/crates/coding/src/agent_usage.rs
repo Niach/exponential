@@ -79,9 +79,13 @@ pub const MAX_USAGE_PROFILES: usize = 12;
 /// [`usage_cache::SHARED_TTL_SECS`]) are per cache ENTRY, i.e. per LOGIN, so
 /// N profiles are N times the request rate against an endpoint that tolerates
 /// ~20/hour — and, worse, one beat would fan out into N keychain reads, N
-/// `codex app-server` spawns and N GETs at once. So exactly ONE non-active
-/// profile ACROSS THE MACHINE is eligible per window, in rotation: a beat
-/// costs at most one probe more than the pre-profile build did.
+/// `codex app-server` spawns and N GETs at once. So at most ONE non-active
+/// profile ACROSS THE MACHINE is probed per window: a beat costs at most one
+/// probe more than the pre-profile build did.
+///
+/// EXP-862: the window is a SPACING, not a slot lottery — the due login with
+/// the oldest numbers takes it, and a login this machine has never read at all
+/// skips the queue entirely (see [`usage_targets`]).
 pub const PROFILE_STAGGER_SECS: u64 = 60;
 
 /// One rate-limit window. `key` identifies it across probes (the per-client
@@ -881,7 +885,12 @@ fn collect_inner(
     // a codex keep-alive is actually in question.
     let mut used_logins: Option<std::collections::BTreeSet<String>> = None;
 
-    for target in usage_targets(data_dir, report, &detail.usage_eligible, now, forced) {
+    // EXP-862: the plan reads the cache this pass then updates — one load,
+    // taken before the loop so "has this login ever been read?" and the
+    // probe accounting can never disagree.
+    let plan = usage_targets(data_dir, report, &detail.usage_eligible, &cache, now, forced);
+
+    for target in plan {
         let agent = target.agent;
         let id = agent.id().to_string();
         // EXP-792 (EXP-747 B6): the cache is keyed per LOGIN
@@ -1139,6 +1148,59 @@ pub fn use_profile(
     )
 }
 
+/// EXP-862 — "remove account": delete `profile`'s login from THIS machine.
+///
+/// The ONE body behind every entry point (the desktop's own chip, its
+/// `agent_profile_remove` command handler and the CLI daemon's), so the
+/// refusals are the same sentence wherever the removal was asked for.
+///
+/// What it removes is the machine's copy of a login: the profile's config dir
+/// (its credentials, the agent CLI's own files) and its index row. The ACCOUNT
+/// itself is untouched — no `codex logout`, which would revoke it server-wide,
+/// and no request of any kind leaves this machine. The device default falls
+/// back to the ambient login when the removed profile held it.
+///
+/// `Err` is the sentence to show: the ambient login (which is the agent CLI's
+/// own, not ours to delete), an id this machine does not have, a login a LIVE
+/// run here is using, or an unwritable index.
+pub fn remove_profile(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    agent: CodingAgent,
+    profile: &str,
+    live_accounts: &[String],
+    now: u64,
+) -> Result<AgentStatusPayload, String> {
+    let profile = profile.trim();
+    if crate::agent_profiles::is_system(Some(profile)) {
+        return Err(format!(
+            "That is this machine's own {} login, not one Exponential can remove.",
+            agent.id()
+        ));
+    }
+    if crate::agent_profiles::get(data_dir, agent, profile).is_none() {
+        return Err(format!("No such {} account on this machine.", agent.id()));
+    }
+    // A live run reads the profile's config dir for as long as it turns:
+    // pulling the credentials out from under it would break the run mid-turn
+    // with an error nobody could place.
+    if live_accounts
+        .iter()
+        .any(|account| account.trim() == profile)
+    {
+        return Err(
+            "A live run on this machine still uses that account. End it first.".to_string(),
+        );
+    }
+    crate::agent_profiles::remove(data_dir, agent, profile)
+        .map_err(|err| format!("Could not remove the {} account here: {err}", agent.id()))?;
+    // Its numbers and its identity go with it: a later profile created under
+    // a recycled id must never inherit them.
+    usage_cache::forget_profile(data_dir, agent.id(), profile);
+    Ok(collect_if_due(data_dir, settings, report, now))
+}
+
 // ---------------------------------------------------------------------------
 // EXP-808 — which logins a pass touches
 // ---------------------------------------------------------------------------
@@ -1156,7 +1218,8 @@ struct UsageTarget {
     /// account fields and the top-level `agentUsage` entry.
     active: bool,
     /// Whether this pass may spend a probe on it. Always true for the
-    /// active login and for a forced refresh; for the others it is the
+    /// active login, for a forced refresh and for a login this machine has
+    /// never read (EXP-862 — no cache entry); for the others it is the
     /// [`PROFILE_STAGGER_SECS`] rotation's answer. A target that may not
     /// poll still REPORTS what the cache holds.
     may_poll: bool,
@@ -1171,18 +1234,32 @@ struct UsageTarget {
 /// never be polled on its behalf), and any profile whose own `auth status`
 /// did not come back signed in.
 ///
-/// Exactly ONE non-active login across the machine is put past the stagger
-/// per [`PROFILE_STAGGER_SECS`] window, in rotation.
+/// EXP-862: a login this machine has NEVER read (no cache entry at all — just
+/// added, just signed in, just [`usage_cache::forget_profile`]d) is read on the
+/// very next pass. Waiting for its rotation slot is what left a fresh account
+/// captionless for minutes; the first read is also the cheapest one, since a
+/// machine only ever gains an account by a person adding it.
+///
+/// Past that first read, at most ONE non-active login is probed per pass, the
+/// one whose numbers are OLDEST, and never within [`PROFILE_STAGGER_SECS`] of
+/// the previous secondary probe: the poll floors are per LOGIN, so an unspaced
+/// fan-out would multiply this machine's request rate by the number of
+/// accounts on it.
 fn usage_targets(
     data_dir: &Path,
     report: &DoctorReport,
     eligible: &BTreeMap<String, bool>,
+    cache: &usage_cache::UsageCache,
     now: u64,
     forced: Option<(CodingAgent, &str)>,
 ) -> Vec<UsageTarget> {
     let mut targets: Vec<UsageTarget> = Vec::new();
-    // Indices into `targets`, in a stable order — the stagger's rotation.
-    let mut secondary: Vec<usize> = Vec::new();
+    // (index into `targets`, its numbers' age) for every non-active login a
+    // probe could go to right now — the oldest wins the pass's one slot.
+    let mut secondary: Vec<(usize, u64)> = Vec::new();
+    // When this machine last spent a probe on a non-active login, as the
+    // cache records it: the spacing the rotation keys on.
+    let mut last_secondary_probe_secs: u64 = 0;
     for agent in CodingAgent::ALL {
         // Installed = a version resolved. Nothing else about the ambient
         // login gates a PROFILE: a machine may well have signed the default
@@ -1207,21 +1284,31 @@ fn usage_targets(
                 continue;
             }
             let dir = crate::agent_profiles::profile_dir(data_dir, agent, &profile.id);
+            // EXP-862: never read here = read now. Everything else waits its
+            // turn below.
+            let entry = cache.get(&key);
+            let first_read = entry.is_none();
             targets.push(UsageTarget {
                 agent,
                 profile: profile.id,
                 dir,
                 active: is_active,
-                may_poll: is_active,
+                may_poll: is_active || first_read,
             });
-            if !is_active {
-                secondary.push(targets.len() - 1);
+            if let (false, Some(entry)) = (is_active, entry) {
+                last_secondary_probe_secs = last_secondary_probe_secs.max(entry.fetched_at_secs);
+                if usage_cache::poll_due(entry, now) {
+                    secondary.push((targets.len() - 1, entry.fetched_at_secs));
+                }
             }
         }
     }
-    if !secondary.is_empty() {
-        let slot = (now / PROFILE_STAGGER_SECS) as usize % secondary.len();
-        targets[secondary[slot]].may_poll = true;
+    if now.saturating_sub(last_secondary_probe_secs) >= PROFILE_STAGGER_SECS {
+        // Oldest numbers first; ties keep the listing order, so the choice is
+        // deterministic for one machine's state.
+        if let Some((index, _)) = secondary.iter().min_by_key(|(_, fetched)| *fetched) {
+            targets[*index].may_poll = true;
+        }
     }
     if let Some((agent, profile)) = forced {
         for target in targets.iter_mut() {
@@ -2595,13 +2682,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-808 — the plan a pass runs: every login of the agent, the ACTIVE
-    /// one first (so the cap can never truncate it away), at most
-    /// [`MAX_USAGE_PROFILES`] of them, and exactly ONE non-active login past
-    /// the stagger per window — rotating, so every login gets its turn
-    /// without any beat fanning out to all of them.
+    /// EXP-808/EXP-862 — the plan a pass runs: every login of the agent, the
+    /// ACTIVE one first (so the cap can never truncate it away), at most
+    /// [`MAX_USAGE_PROFILES`] of them, a login this machine has NEVER read
+    /// always, and past that at most one non-active login per pass — the one
+    /// whose numbers are oldest, spaced by [`PROFILE_STAGGER_SECS`].
     #[test]
-    fn the_profile_fan_out_is_capped_ordered_and_staggered() {
+    fn the_profile_fan_out_is_capped_ordered_and_spaced() {
         let dir = usage_dir("targets");
         let report = codex_named_report();
         let mut eligible = BTreeMap::new();
@@ -2624,7 +2711,14 @@ mod tests {
         let active = ids.last().unwrap().clone();
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &active).unwrap();
 
-        let targets = usage_targets(&dir, &report, &eligible, 0, None);
+        // A machine that has read NOTHING yet: every login it plans to look
+        // at is read on this very pass. A fresh account waiting minutes for
+        // its rotation slot is what EXP-862 fixed, and the first read is the
+        // cheapest one — a machine only gains an account when a person adds
+        // one.
+        let now = 1_800_000_000;
+        let empty = usage_cache::UsageCache::default();
+        let targets = usage_targets(&dir, &report, &eligible, &empty, now, None);
         assert_eq!(
             targets.len(),
             MAX_USAGE_PROFILES,
@@ -2633,10 +2727,9 @@ mod tests {
         );
         assert_eq!(targets[0].profile, active);
         assert!(targets[0].active && targets[0].may_poll);
-        assert_eq!(
-            targets.iter().filter(|target| target.may_poll).count(),
-            2,
-            "the active login plus ONE rotation slot, never the whole fan-out"
+        assert!(
+            targets.iter().all(|target| target.may_poll),
+            "every never-read login is read at once"
         );
         // A custom profile carries its config dir; the ambient login does not.
         assert!(targets[0].dir.is_some());
@@ -2647,29 +2740,65 @@ mod tests {
             .dir
             .is_none());
 
-        // One window each: over a full rotation every non-active login is
-        // polled exactly once.
-        let secondaries = MAX_USAGE_PROFILES - 1;
-        let mut polled: Vec<String> = Vec::new();
-        for window in 0..secondaries as u64 {
-            let targets =
-                usage_targets(&dir, &report, &eligible, window * PROFILE_STAGGER_SECS, None);
-            let mut turn: Vec<String> = targets
-                .iter()
-                .filter(|target| target.may_poll && !target.active)
-                .map(|target| target.profile.clone())
-                .collect();
-            assert_eq!(turn.len(), 1, "window {window}");
-            polled.push(turn.remove(0));
+        // Now every login has numbers, each staler than the last. One pass
+        // takes ONE of them: the oldest.
+        let mut cache = usage_cache::UsageCache::default();
+        let planned: Vec<String> = targets
+            .iter()
+            .map(|target| target.profile.clone())
+            .collect();
+        for (age, profile) in planned.iter().enumerate() {
+            cache.insert(
+                usage_cache::entry_key("codex", profile),
+                AgentCacheEntry {
+                    fetched_at_secs: now - 10_000 - age as u64 * 100,
+                    ..AgentCacheEntry::default()
+                },
+            );
         }
-        polled.sort();
-        polled.dedup();
-        assert_eq!(polled.len(), secondaries, "every login gets a window");
+        let oldest = planned.last().unwrap().clone();
+        let targets = usage_targets(&dir, &report, &eligible, &cache, now, None);
+        let polled: Vec<&str> = targets
+            .iter()
+            .filter(|target| target.may_poll && !target.active)
+            .map(|target| target.profile.as_str())
+            .collect();
+        assert_eq!(
+            polled,
+            vec![oldest.as_str()],
+            "one secondary per pass, the stalest first"
+        );
+
+        // A secondary probed moments ago holds the whole rotation back: the
+        // poll floors are per LOGIN, so an unspaced fan-out would multiply
+        // this machine's request rate by the number of accounts on it.
+        let mut hot = usage_cache::UsageCache::default();
+        for profile in &planned {
+            hot.insert(
+                usage_cache::entry_key("codex", profile),
+                AgentCacheEntry {
+                    fetched_at_secs: now - 1,
+                    ..AgentCacheEntry::default()
+                },
+            );
+        }
+        let targets = usage_targets(&dir, &report, &eligible, &hot, now, None);
+        assert!(
+            !targets.iter().any(|target| target.may_poll && !target.active),
+            "a secondary probed a second ago spaces the next one out"
+        );
 
         // A person pressing Refresh is not a beat: the forced login polls
-        // whatever the rotation says.
+        // whatever the spacing says.
         let forced = ids[0].clone();
-        let targets = usage_targets(&dir, &report, &eligible, 0, Some((CodingAgent::Codex, &forced)));
+        let targets = usage_targets(
+            &dir,
+            &report,
+            &eligible,
+            &hot,
+            now,
+            Some((CodingAgent::Codex, &forced)),
+        );
         assert!(
             targets
                 .iter()
@@ -2681,7 +2810,7 @@ mod tests {
         // A login that cannot answer for usage (signed out, or an API-key
         // claude) is not a target at all — no probe is ever spent on it.
         eligible.insert(usage_cache::entry_key("codex", &ids[0]), false);
-        let targets = usage_targets(&dir, &report, &eligible, 0, None);
+        let targets = usage_targets(&dir, &report, &eligible, &empty, now, None);
         assert!(!targets.iter().any(|target| target.profile == ids[0]));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -2748,12 +2877,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-808 — and when everything IS due, one beat still only claims the
-    /// active login's slot plus one rotation slot: the poll floors are per
-    /// LOGIN, so an unstaggered fan-out would multiply this machine's
-    /// request rate by the number of accounts on it.
+    /// EXP-862 — a machine that has read nothing reads every login it plans
+    /// to look at on its first beat (nobody waits minutes for an account they
+    /// just added), and from then on one beat claims the active login plus at
+    /// most one secondary slot: the poll floors are per LOGIN, so an unspaced
+    /// fan-out would multiply this machine's request rate by the number of
+    /// accounts on it.
     #[test]
-    fn one_beat_claims_the_active_login_and_a_single_rotation_slot() {
+    fn a_first_beat_reads_every_login_then_one_secondary_per_window() {
         let _lock = live_lock();
         live::reset();
         let dir = usage_dir("stagger-claims");
@@ -2766,20 +2897,39 @@ mod tests {
         let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
 
-        // Nothing cached: all three logins are due at once.
+        // Nothing cached: all three logins are read on this pass.
         let now = 1_800_000_000;
         collect_if_due(&dir, &settings, &report, now);
         let claimed = cache_keys(&dir);
-        assert_eq!(claimed.len(), 2, "3 logins due, 2 probed: {claimed:?}");
-        assert!(claimed.contains(&usage_cache::entry_key("codex", &work.id)));
-
-        // One window on, the OTHER non-active login gets its turn.
-        collect_if_due(&dir, &settings, &report, now + PROFILE_STAGGER_SECS);
-        let claimed = cache_keys(&dir);
-        assert_eq!(claimed.len(), 3, "one per window, never all at once: {claimed:?}");
+        assert_eq!(claimed.len(), 3, "3 never-read logins, 3 probed: {claimed:?}");
         for id in [crate::agent_profiles::SYSTEM_PROFILE, &work.id, &home.id] {
             assert!(claimed.contains(&usage_cache::entry_key("codex", id)), "{id}");
         }
+
+        // Every login now has an entry, and the probes just spent space the
+        // next secondary out: a beat inside the window moves only the active
+        // login's slot.
+        let before: Vec<u64> = [work.id.as_str(), home.id.as_str()]
+            .iter()
+            .map(|id| {
+                usage_cache::load(&dir)
+                    .get(&usage_cache::entry_key("codex", id))
+                    .unwrap()
+                    .next_poll_at_secs
+            })
+            .collect();
+        collect_if_due(&dir, &settings, &report, now + 1);
+        let cache = usage_cache::load(&dir);
+        let after: Vec<u64> = [work.id.as_str(), home.id.as_str()]
+            .iter()
+            .map(|id| {
+                cache
+                    .get(&usage_cache::entry_key("codex", id))
+                    .unwrap()
+                    .next_poll_at_secs
+            })
+            .collect();
+        assert_eq!(before, after, "no secondary is re-probed inside the window");
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2841,6 +2991,73 @@ mod tests {
         // An unknown id (a picker that raced a deletion) refreshes the
         // ambient login instead of refusing.
         assert!(force_collect(&dir, &settings, &report, CodingAgent::Codex, "deadbeef", now + 1).is_ok());
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-862 — "Remove account": the machine's copy of ONE login goes (its
+    /// profile dir and its index row), the account itself is untouched, and
+    /// three things are refused: the ambient login, an id this machine does
+    /// not have, and an account a live run here is still using.
+    #[test]
+    fn removing_an_account_deletes_only_this_machines_login() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("remove-profile");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let report = codex_named_report();
+        let now = 1_800_000_000;
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        let dir_on_disk = crate::agent_profiles::profile_dir(&dir, CodingAgent::Codex, &work.id)
+            .expect("the profile has a config dir");
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            usage_cache::entry_key("codex", &work.id),
+            cached(vec![session_window(42)], now),
+        );
+        usage_cache::save(&dir, &cache);
+
+        let remove = |profile: &str, live: &[String]| {
+            remove_profile(&dir, &settings, &report, CodingAgent::Codex, profile, live, now)
+        };
+
+        // The ambient login is the agent CLI's own — never ours to delete,
+        // and `codex logout` is never in this path.
+        let refusal = remove(crate::agent_profiles::SYSTEM_PROFILE, &[]).unwrap_err();
+        assert!(refusal.contains("machine's own"), "{refusal}");
+        assert!(remove("", &[]).is_err(), "a blank account id is the ambient login");
+        assert_eq!(
+            remove("deadbeef", &[]).unwrap_err(),
+            "No such codex account on this machine."
+        );
+        assert_eq!(
+            remove(&work.id, &[work.id.clone()]).unwrap_err(),
+            "A live run on this machine still uses that account. End it first."
+        );
+        // Nothing was touched by any of those refusals.
+        assert!(dir_on_disk.is_dir());
+
+        assert!(remove(&work.id, &["another".to_string()]).is_ok());
+        assert!(
+            crate::agent_profiles::get(&dir, CodingAgent::Codex, &work.id).is_none(),
+            "the index row is gone"
+        );
+        assert!(!dir_on_disk.exists(), "the credentials went with it");
+        assert_eq!(
+            crate::agent_profiles::active_profile(&dir, CodingAgent::Codex),
+            crate::agent_profiles::SYSTEM_PROFILE,
+            "the default falls back to the ambient login"
+        );
+        assert!(
+            usage_cache::load(&dir)
+                .get(&usage_cache::entry_key("codex", &work.id))
+                .is_none(),
+            "its numbers and its identity go with it"
+        );
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }

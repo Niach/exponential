@@ -55,7 +55,7 @@ pub struct IssueHeader {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
     /// Search query of the Labels popover (EXP-282 — the searchable picker
-    /// follows `filter_popover::labels_view`: the OWNING view holds the
+    /// follows the labels-picker pattern: the OWNING view holds the
     /// `InputState`, the popover only renders it).
     label_query: Entity<InputState>,
     /// Search query of the move-to-board popover (EXP-316 — web
@@ -734,7 +734,8 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let identifier = issue.identifier.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
-        crate::controls::glass_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
+        // EXP-862: the "..." is a GHOST glyph, never a circle.
+        crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
             .tooltip("Issue actions")
             .dropdown_menu(move |mut menu, window, cx| {
                 {

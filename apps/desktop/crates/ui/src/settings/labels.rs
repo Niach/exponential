@@ -457,7 +457,7 @@ impl LabelsPane {
                             .child("Delete?"),
                     )
                     .child(
-                        crate::controls::glass_icon_button(
+                        crate::controls::ghost_icon_button(
                             row_id("label-delete-confirm", &label.id),
                             Icon::new(registry::UI_CHECK).text_color(cx.theme().danger),
                             cx,
@@ -473,7 +473,7 @@ impl LabelsPane {
                             })),
                     )
                     .child(
-                        crate::controls::glass_icon_button(
+                        crate::controls::ghost_icon_button(
                             row_id("label-delete-cancel", &label.id),
                             Icon::new(registry::UI_CLOSE),
                             cx,
@@ -487,7 +487,7 @@ impl LabelsPane {
         } else {
             let confirm_id = label_id.clone();
             row = row.child(
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     row_id("label-delete", &label.id),
                     Icon::new(registry::UI_DELETE),
                     cx,

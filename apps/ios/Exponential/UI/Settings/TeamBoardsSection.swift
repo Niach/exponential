@@ -65,7 +65,7 @@ struct TeamBoardsSection: View {
                         // / boards.update (mutate_resources server-side).
                         // EXP-721: the shared chromed circle (Labels parity) —
                         // a bare glyph read as a stray mark in the row.
-                        CircleIconButton(AppIcons.uiSwap, accessibilityLabel: "Change repository") {
+                        GhostIconButton(AppIcons.uiSwap, accessibilityLabel: "Change repository") {
                             repoTarget = board
                         }
 
@@ -74,7 +74,7 @@ struct TeamBoardsSection: View {
                         // web parity); the tap still routes through the parent's
                         // destructive confirmation alert.
                         if isOwner {
-                            CircleIconButton(
+                            GhostIconButton(
                                 AppIcons.uiDelete,
                                 accessibilityLabel: "Delete board",
                                 tint: DesignTokens.Palette.destructive.opacity(0.7)

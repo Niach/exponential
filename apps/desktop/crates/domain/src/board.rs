@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 
 use crate::enums::{IssuePriority, IssueStatus};
-use crate::filters::{matches_filters, IssueFilters};
 use crate::rows::{Issue, IssueLabel, IssueStatusRow};
 use crate::statuses::{
     resolve_status_sorted, sort_team_statuses, status_key_matches, team_resolved_statuses,
@@ -139,30 +138,6 @@ pub fn build_issue_label_ids_map(issue_labels: &[IssueLabel]) -> HashMap<String,
             .push(link.label_id.clone());
     }
     map
-}
-
-/// Web `buildFilteredIssues(issues, issueLabelIdsMap, filters)`. EXP-314: the
-/// status filter matches on the issue's RESOLVED group key, so `team_rows`
-/// (the team's `issue_statuses`, any order) rides along.
-pub fn build_filtered_issues(
-    issues: Vec<Issue>,
-    issue_label_ids: &HashMap<String, Vec<String>>,
-    team_rows: &[IssueStatusRow],
-    filters: &IssueFilters,
-) -> Vec<Issue> {
-    const NO_LABELS: &[String] = &[];
-    let sorted = sort_team_statuses(team_rows);
-    issues
-        .into_iter()
-        .filter(|issue| {
-            let label_ids = issue_label_ids
-                .get(&issue.id)
-                .map(Vec::as_slice)
-                .unwrap_or(NO_LABELS);
-            let status = resolve_status_sorted(issue, &sorted);
-            matches_filters(issue, label_ids, &status, filters)
-        })
-        .collect()
 }
 
 /// EXP-314 `buildVisibleIssueGroups`: ONE group per team status row, in
@@ -576,19 +551,6 @@ mod tests {
         assert_eq!(group_names(&groups), vec!["In Progress"]);
         assert_eq!(groups[0].issues.len(), 1);
 
-        // Filtering also drops the non-matching issues.
-        let filtered = build_filtered_issues(
-            issues.clone(),
-            &HashMap::new(),
-            &builtin_rows(),
-            &IssueFilters {
-                status_keys: vec!["builtin:in_progress".to_string()],
-                ..Default::default()
-            },
-        );
-        let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, vec!["wip"]);
-
         // A row-uuid key still selects exactly its own group.
         let groups = build_status_groups(
             issues.clone(),
@@ -616,41 +578,12 @@ mod tests {
     }
 
     #[test]
-    fn label_map_and_filtering_mirror_web() {
+    fn label_map_mirrors_web() {
         let links = vec![link("i-1", "l-1"), link("i-1", "l-2"), link("i-2", "l-3")];
         let map = build_issue_label_ids_map(&links);
         assert_eq!(map["i-1"], vec!["l-1".to_string(), "l-2".to_string()]);
         assert_eq!(map["i-2"], vec!["l-3".to_string()]);
 
-        let filters = IssueFilters {
-            label_ids: vec!["l-2".to_string()],
-            ..Default::default()
-        };
-        let issues = vec![
-            issue("i-1", "backlog", "none", None),
-            issue("i-2", "backlog", "none", None),
-            issue("i-3", "backlog", "none", None),
-        ];
-        let filtered = build_filtered_issues(issues, &map, &builtin_rows(), &filters);
-        let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, vec!["i-1"]);
-    }
-
-    #[test]
-    fn status_filter_matches_the_resolved_group_key() {
-        let mut rows = builtin_rows();
-        rows.push(custom_row("qa", "started", "QA", 3.0));
-        let issues = vec![
-            with_status_id(issue("in-qa", "in_progress", "none", None), "qa"),
-            issue("in-progress", "in_progress", "none", None),
-        ];
-        let filters = IssueFilters {
-            status_keys: vec!["qa".to_string()],
-            ..Default::default()
-        };
-        let filtered = build_filtered_issues(issues, &HashMap::new(), &rows, &filters);
-        let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, vec!["in-qa"]);
     }
 
     #[test]

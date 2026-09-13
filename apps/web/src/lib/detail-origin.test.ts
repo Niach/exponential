@@ -30,6 +30,11 @@ describe(`screenFromPath`, () => {
   it(`names every list and detail screen, and calls the rest context-free`, () => {
     expect(screenFromPath(`/t/acme/inbox`)).toEqual({ kind: `inbox` })
     expect(screenFromPath(`/t/acme/agent`)).toEqual({ kind: `agent` })
+    // EXP-862: the Automations page lists the finished AUTOMATED runs, so it
+    // is a list screen of its own.
+    expect(screenFromPath(`/t/acme/automations`)).toEqual({
+      kind: `automations`,
+    })
     expect(screenFromPath(`/t/acme/support`)).toEqual({ kind: `support` })
     expect(screenFromPath(`/t/acme/reviews`)).toEqual({ kind: `reviews` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
@@ -64,6 +69,7 @@ describe(`screenFromPath`, () => {
     for (const path of [
       `/t/acme/inbox`,
       `/t/acme/agent`,
+      `/t/acme/automations`,
       `/t/acme/support`,
       `/t/acme/reviews`,
       `/t/acme/sessions/s1`,
@@ -99,6 +105,15 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toEqual({ kind: `agent` })
+    // EXP-862: so is the Automations page — a finished automated run opened
+    // from it keeps that list, and Back returns to it.
+    expect(
+      deriveOrigin(
+        screenFromPath(`/t/acme/automations`),
+        { kind: `automations` },
+        { kind: `session` }
+      )
+    ).toEqual({ kind: `automations` })
     // Devices (context-free) → a session: no origin at all, so the sidebar's
     // main menu stays put.
     expect(
@@ -138,6 +153,14 @@ describe(`capturedOrigin`, () => {
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`))).toEqual({
       kind: `agent`,
     })
+    // EXP-862: an automated run opened from Automations returns THERE, so
+    // the page is its own origin and never hands on what it was opened with.
+    expect(capturedOrigin(screenFromPath(`/t/acme/automations`))).toEqual({
+      kind: `automations`,
+    })
+    expect(
+      capturedOrigin(screenFromPath(`/t/acme/automations`), issue)
+    ).toEqual({ kind: `automations` })
     // The Agent page hands on the origin the composer was opened with — that
     // is how "start coding from an issue" survives the launcher hop.
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`), issue)).toEqual(
@@ -174,6 +197,7 @@ describe(`formatOrigin / parseOrigin`, () => {
       { kind: `support` },
       { kind: `reviews` },
       { kind: `agent` },
+      { kind: `automations` },
     ]
     for (const origin of origins) {
       expect(parseOrigin(formatOrigin(origin)), formatOrigin(origin)).toEqual(
@@ -199,6 +223,7 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originLabel({ kind: `support` })).toBe(`Support`)
     expect(originLabel({ kind: `reviews` })).toBe(`Reviews`)
     expect(originLabel({ kind: `agent` })).toBe(`Agent`)
+    expect(originLabel({ kind: `automations` })).toBe(`Automations`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
     expect(originLabel(issue, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
@@ -210,6 +235,7 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originBoardSlug(issue)).toBe(`web`)
     expect(originBoardSlug(inbox)).toBeNull()
     expect(originBoardSlug({ kind: `agent` })).toBeNull()
+    expect(originBoardSlug({ kind: `automations` })).toBeNull()
   })
 })
 
@@ -250,6 +276,7 @@ describe(`sidebarOccupant`, () => {
       `/t/acme`,
       `/t/acme/inbox`,
       `/t/acme/agent`,
+      `/t/acme/automations`,
       `/t/acme/support`,
       `/t/acme/reviews`,
       `/t/acme/devices`,

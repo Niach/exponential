@@ -1,8 +1,15 @@
 // EXP-637: the AGENT end path. Every other end is a client/user/merge/system
 // decision about a run; this one is the run's own close-out — the agent calls
-// the `exponential_sessions_end` MCP tool with a one-paragraph summary, and
-// the row carries it to every runs list on every client. (EXP-686 dropped the
-// self-reported outcome: the summary is the report.)
+// the `exponential_sessions_end` MCP tool with a one-paragraph summary of
+// what it did. (EXP-686 dropped the self-reported outcome: the summary is the
+// report.)
+//
+// EXP-862: the summary is REPORTED, not STORED. It goes to whoever started
+// the run — a live parent run gets it as a message (`notifyParentOfChildEnd`)
+// — and nowhere else: no client rendered the stored copy any more, and a
+// paragraph nobody reads on a row every client syncs is not worth the column.
+// The `summary` column itself is dropped in a follow-up; this path simply
+// stops writing it.
 //
 // EXP-673/EXP-679: the close-out ENDS the row, and only an UNATTENDED run
 // (`started_reason` set — nobody is watching that tab) ever gets here: the
@@ -28,18 +35,21 @@ export interface AgentEndResult {
 }
 
 /**
- * Record `sessionId`'s close-out as the agent's own report and END the run.
- * Owner-OR-HOST like the rest
+ * END the run as the agent's own close-out. Owner-OR-HOST like the rest
  * of the session procedures (EXP-432: a shared-device run is requester-owned
- * while the hosting daemon operates it), and idempotent — an already-ended
- * row keeps whatever summary it has, so a retried tool call never blanks a
- * good one.
+ * while the hosting daemon operates it), and idempotent — a second call on an
+ * already-ended row changes nothing and reports `alreadyEnded`.
+ *
+ * EXP-862: `close.summary` is the agent's report to whoever started the run
+ * (the caller relays it); this function does not store it.
  */
 export async function endSessionByAgent(
   db: Context[`db`],
   sessionId: string,
   callerId: string,
-  close: { summary: string }
+  // EXP-862: kept in the signature (the tool hands its report here, and the
+  // caller relays the same object to the parent run) but no longer written.
+  _close: { summary: string }
 ): Promise<AgentEndResult> {
   const [existing] = await db
     .select({
@@ -74,16 +84,14 @@ export async function endSessionByAgent(
   }
 
   // Status-conditioned so a close-out racing a kill can never resurrect the
-  // row (nor stamp a summary onto one that was just killed). needsInput is
-  // cleared: a run that just declared itself finished is not waiting on a
-  // human.
+  // row. needsInput is cleared: a run that just declared itself finished is
+  // not waiting on a human.
   const [session] = await db
     .update(codingSessions)
     .set({
       status: `ended`,
       endedAt: new Date(),
       endedBy: `agent`,
-      summary: close.summary,
       needsInput: false,
       // EXP-848/850: an ended run is never busy and says nothing.
       agentBusy: false,

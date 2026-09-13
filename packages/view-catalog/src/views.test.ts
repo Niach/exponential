@@ -66,7 +66,6 @@ const ANDROID_STYLEGUIDE = resolve(
  * uses until that file lands, and the cross-check afterwards.
  */
 const PINNED_RECIPES = [
-  `openFilterPopover`,
   `scrollToComments`,
   `openCreateIssue`,
   `openSearch`,

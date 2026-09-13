@@ -1397,10 +1397,29 @@ export function opensInlineField(
 /** One `expToolDisplay` row off the contract. */
 export interface ExpToolDisplay {
   name: string
+  /** EXP-862: the row's settings copy (the built-in tools list). */
+  title: string
+  blurb: string
   progressive: string
   done: string
   subjectKey: string
   result: string
+}
+
+/** EXP-862: every built-in Exponential tool, as the MCP servers page lists
+ *  them — contract title over a muted blurb, the raw wire name (`name`) only
+ *  as the row's tooltip. Contract order, which is alphabetical by tool.
+ *  Mirrored ×2 (desktop `steer::exp_tool::builtin_tools`). */
+export function builtinExpTools(): {
+  name: string
+  title: string
+  blurb: string
+}[] {
+  return contract.expToolDisplay.tools.map((row) => ({
+    name: `${contract.expToolDisplay.prefix}${row.name}`,
+    title: row.title,
+    blurb: row.blurb,
+  }))
 }
 
 /** EXP-846: the Exponential MCP tool a call NAMES, or null for anything else.

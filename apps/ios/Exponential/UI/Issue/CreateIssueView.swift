@@ -414,7 +414,7 @@ struct CreateIssueView: View {
                 // Duplicate CATEGORY = status interception (L27): a new issue
                 // can't be a duplicate (nothing to link yet), so it's not a
                 // create option. The team's own status order — the ONE picker
-                // vocabulary (REV2-85), same as the filter sheet.
+                // vocabulary (REV2-85).
                 items: teamStatuses.filter { $0.category != .duplicate },
                 selectedID: status.id,
                 idFor: { $0.id },

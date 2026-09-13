@@ -16,7 +16,7 @@ export const SEGMENTED_LIST = `inline-flex h-9 w-fit items-center justify-center
 // (`SEGMENTED_TAB`), same row padding — in the big list views…
 export const SEGMENTED_ROW = `flex shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2 md:px-6`
 
-// …and in the sidebar's list nav, where the 16rem slot is the only thing that
+// …and in the sidebar's list nav, where the 17rem slot is the only thing that
 // changes (the strip itself is identical).
 export const SEGMENTED_ROW_COMPACT = `flex shrink-0 items-center justify-between gap-2 px-2 pt-2 pb-2`
 

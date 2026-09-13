@@ -271,7 +271,7 @@ fn attach_publisher(
         },
         error: Arc::new(|message| log::warn!("engine publisher: {message}")),
         answers: Some(Arc::clone(&answer_link)),
-        agent: crate::adapters::AdapterKind::from_agent(&ctx.agent).session_agent(),
+        agent: crate::adapters::AdapterKind::from_agent(ctx.agent).session_agent(),
         text_sink: Some({
             let commands = commands.clone();
             Arc::new(move |text: String| {
@@ -723,7 +723,7 @@ mod tests {
     }
 
     /// EXP-758: a host that dies without its end sequence (Cmd-Q, a crash)
-    /// leaves a codex/external child with no `claude-hooks` anchor on it, so the
+    /// leaves a codex child with no `claude-hooks` anchor on it, so the
     /// record has to name the pid while the run is live, and stop naming it
     /// the moment the run ends, or the next start's reaper hunts a pid the OS
     /// has since handed to somebody else.

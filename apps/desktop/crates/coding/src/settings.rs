@@ -17,7 +17,6 @@
 //! render a status row + Regenerate, never a value (§7.2).
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -60,11 +59,13 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// is always expanded, so there is no preference left to hold), and the
 /// EXP-742 collapsed-dock bubble (EXP-769 replaced the sliding dock with the
 /// session bar, which has no collapsed form to pick), and the EXP-201 pi keys
-/// (EXP-849 dropped the agent for good — `ExternalAgent` is the escape hatch).
+/// (EXP-849 dropped the agent for good), and the EXP-746 `externalAgents`
+/// list (EXP-862 dropped external ACP agents whole — a settings file carrying
+/// one still loads, and the next save drops the key).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 21] = [
+const DEAD_KEYS: [&str; 22] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -86,6 +87,7 @@ const DEAD_KEYS: [&str; 21] = [
     "piModel",
     "piThinking",
     "piPlanMode",
+    "externalAgents",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -140,11 +142,6 @@ pub struct Settings {
     /// per-install store. `None`/blank = auto (the platform's
     /// `default_shell()` resolution in the terminal crate).
     pub terminal_shell: Option<String>,
-    /// EXP-746 (D13): user-declared external ACP agents this machine may
-    /// launch beside the three builtins. Opt-in and LOCAL-only — never
-    /// advertised to remote pickers, never a [`CodingAgent`], and always the
-    /// ACP transport (an external agent has no TUI path here).
-    pub external_agents: Vec<ExternalAgentSpec>,
     /// EXP-723: id of the newest `ui::changelog::LATEST` entry the user
     /// dismissed or opened — the rail's "What's new" card renders only while
     /// this differs from it (the desktop mirror of the web
@@ -168,22 +165,6 @@ pub struct Settings {
     /// server-side per-type prefs still decide which types may leave the
     /// app at all. ON by default — a fresh install toasts until switched off.
     pub os_notifications: bool,
-}
-
-/// EXP-746 (D13): one user-declared external ACP agent — an ACP-speaking
-/// binary the user names themselves. `command` + `args` spawn it VERBATIM
-/// (never an `npx` preset), `env` is layered onto the spawn env, `id` keys
-/// settings and run records and `label` names the picker pill. Every field
-/// `#[serde(default)]` so a half-written entry loads instead of taking the
-/// whole settings file down with it.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ExternalAgentSpec {
-    pub id: String,
-    pub label: String,
-    pub command: String,
-    pub args: Vec<String>,
-    pub env: BTreeMap<String, String>,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -214,7 +195,6 @@ impl Default for Settings {
             claude_ultracode: false,
             claude_plan_mode: true,
             terminal_shell: None,
-            external_agents: Vec::new(),
             changelog_seen_id: None,
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
@@ -562,7 +542,6 @@ mod tests {
         assert!(settings.claude_plan_mode);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
-        assert!(settings.external_agents.is_empty());
         // EXP-367: a fresh install has not seen the tools onboarding step.
         assert!(!settings.tools_setup_seen);
     }
@@ -782,13 +761,6 @@ mod tests {
             claude_ultracode: true,
             claude_plan_mode: false,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
-            external_agents: vec![ExternalAgentSpec {
-                id: "acme".to_string(),
-                label: "Acme".to_string(),
-                command: "acme-acp".to_string(),
-                args: vec!["--acp".to_string()],
-                env: BTreeMap::from([("ACME_TOKEN".to_string(), "t".to_string())]),
-            }],
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
@@ -804,7 +776,6 @@ mod tests {
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"externalAgents\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 
@@ -829,31 +800,25 @@ mod tests {
         assert_eq!(root["launchDefaultsSync"]["desk-1"]["dirty"], true);
     }
 
-    /// EXP-746 (D13): an external agent round-trips whole (command, args and
-    /// env), and a half-written entry loads instead of failing the parse.
+    /// EXP-862: external ACP agents are gone. A settings.json still
+    /// carrying the EXP-746 `externalAgents` list loads (the rest of the
+    /// file parses untouched) and the next save scrubs the dead key.
     #[test]
-    fn external_agents_round_trip() {
-        assert!(Settings::default().external_agents.is_empty());
-        let dir = TempDir::new("external-agents");
+    fn a_retired_external_agents_key_is_dropped_on_save() {
+        let dir = TempDir::new("external-agents-dead");
         let path = dir.0.join("settings.json");
-        let mut settings = Settings::default();
-        settings.external_agents = vec![ExternalAgentSpec {
-            id: "acme".to_string(),
-            label: "Acme ACP".to_string(),
-            command: "/opt/acme/bin/acme".to_string(),
-            args: vec!["--acp".to_string(), "--quiet".to_string()],
-            env: BTreeMap::from([("ACME_HOME".to_string(), "/opt/acme".to_string())]),
-        }];
+        fs::write(
+            &path,
+            r#"{"externalAgents":[{"id":"acme","command":"acme-acp"}],"claudeModel":"sonnet"}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_model, "sonnet", "the rest still parses");
         settings.save(&path).unwrap();
-        assert_eq!(Settings::load(&path).external_agents, settings.external_agents);
 
-        // A hand-written entry missing every optional field still loads.
-        fs::write(&path, r#"{"externalAgents":[{"id":"bare"}]}"#).unwrap();
-        let loaded = Settings::load(&path);
-        assert_eq!(loaded.external_agents.len(), 1);
-        assert_eq!(loaded.external_agents[0].id, "bare");
-        assert!(loaded.external_agents[0].command.is_empty());
-        assert_eq!(loaded.claude_model, DEFAULT_CLAUDE_MODEL, "the rest still parses");
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(root.get("externalAgents").is_none());
     }
 
     /// EXP-688: the EXP-484 per-agent pinned usage window is gone (every

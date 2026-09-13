@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Link, useParams } from "@tanstack/react-router"
+import { Link, useLocation, useParams, useSearch } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
@@ -22,6 +22,7 @@ import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useTeamPins } from "@/hooks/use-pins"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
+import { cn } from "@/lib/utils"
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -41,6 +42,11 @@ import {
 
 const UiUnpinIcon = conceptIcon(`ui-unpin`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
+
+// EXP-862: the sidebar's compact density — 28px rows (the twin of
+// `SIDEBAR_ROW_COMPACT` in `sidebar.tsx`; the two files cannot import from
+// each other without a cycle).
+const PINNED_ROW_COMPACT = `h-7 text-sm`
 
 export function SidebarPinned({
   teamId,
@@ -102,6 +108,21 @@ function PinnedRows({
   )
   const { sessionId: routeSessionId, issueIdentifier: routeIssueIdentifier } =
     useParams({ strict: false })
+  // EXP-862: a pinned ACTION row is active while the composer is seeded with
+  // it — the Agent page's `?action=` (the desktop's `active_chat_action`).
+  // The Agent nav entry drops its own highlight for the same reason
+  // (`sidebar.tsx`), so exactly one row claims the page.
+  const onAgentPage = useLocation({
+    select: (current) => current.pathname.endsWith(`/agent`),
+  })
+  const composerActionId = useSearch({
+    strict: false,
+    select: (search) => {
+      const value = (search as { action?: unknown }).action
+      return typeof value === `string` && value !== `` ? value : null
+    },
+  })
+  const seededActionId = onAgentPage ? composerActionId : null
   const openSession = useOpenSession()
   const openComposer = useOpenComposer()
 
@@ -143,6 +164,7 @@ function PinnedRows({
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
             asChild
+            className={PINNED_ROW_COMPACT}
             isActive={routeIssueIdentifier === issue.identifier}
           >
             <Link
@@ -184,7 +206,7 @@ function PinnedRows({
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
             isActive={routeSessionId === session.id}
-            className={caption ? `h-auto py-1` : undefined}
+            className={cn(PINNED_ROW_COMPACT, caption && `h-auto py-1`)}
             // EXP-851: a pinned row is context-free — the main menu stays.
             onClick={() => openSession(session, { origin: null })}
           >
@@ -221,6 +243,8 @@ function PinnedRows({
       return [
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
+            className={PINNED_ROW_COMPACT}
+            isActive={seededActionId === action.id}
             onClick={() => openComposer({ actionId: action.id })}
             title={`Run ${action.name}`}
           >

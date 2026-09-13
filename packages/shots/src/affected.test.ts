@@ -78,7 +78,7 @@ describe(`web attribution`, () => {
 
   test(`the recipe registry re-drives the recipe views only`, () => {
     const result = scope(`apps/web/scripts/lib/view-recipes.ts`)
-    expect(views(result, `web`)).toContain(`board-filters`)
+    expect(views(result, `web`)).toContain(`issue-create`)
     expect(views(result, `web`)).not.toContain(`board`)
     expect(views(result, `desktop`)).toEqual([])
   })

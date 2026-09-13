@@ -29,8 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -143,8 +141,8 @@ fun IssueListScreen(
     // EXP-825: the selection bar's Start coding navigates to the Agent page
     // composer with the checked issues chipped.
     onOpenAgent: (AgentComposerSeed) -> Unit = {},
-    // EXP-686: search left the bottom bar and rides the board header instead,
-    // next to the filter trigger.
+    // EXP-686: search left the bottom bar and rides the board header
+    // instead.
     onOpenSearch: () -> Unit = {},
     // EXP-698 r5: the getting-started cards under the two empty states send
     // the user to the surface each step lives on, plus the empty board's own
@@ -159,7 +157,6 @@ fun IssueListScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val syncingVisible by viewModel.syncingVisible.collectAsStateWithLifecycle()
-    var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
     var showCreateBoard by remember { mutableStateOf(false) }
     // Which team the create-board sheet targets — the switcher names one, every
@@ -287,12 +284,11 @@ fun IssueListScreen(
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Pinned nav row. Pushed: circular back button + the search and
-            // filter triggers trailing. Root: the inline board switcher
-            // control + those two next to the settings gear (EXP-251 — the
-            // filter button moved up from the removed tab-preset row; EXP-686
-            // put search here when it left the bottom bar); the single
-            // add-issue affordance is the bottom bar's compose FAB.
+            // Pinned nav row. Pushed: circular back button + the search
+            // trigger trailing. Root: the inline board switcher control +
+            // search next to the settings gear (EXP-686 put search here when
+            // it left the bottom bar); the single add-issue affordance is the
+            // bottom bar's compose FAB.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -301,7 +297,7 @@ fun IssueListScreen(
             ) {
                 when (mode) {
                     IssueListMode.Pushed -> {
-                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
+                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, borderless = true)
                         Spacer(Modifier.weight(1f))
                         CircleIconButton(
                             ExpIcons.navSearch,
@@ -309,8 +305,6 @@ fun IssueListScreen(
                             onClick = onOpenSearch,
                             modifier = Modifier.testTag("board-search"),
                         )
-                        Spacer(Modifier.width(8.dp))
-                        FilterButton(count = state.filters.count, onClick = { showFilters = true })
                     }
                     IssueListMode.Root -> {
                         BoardSwitcherControl(
@@ -319,8 +313,8 @@ fun IssueListScreen(
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
-                        // No filter state exists before a board resolves —
-                        // the empty/create-board states have nothing to filter.
+                        // Nothing to search before a board resolves — the
+                        // empty/create-board states have no issues yet.
                         if (!boardId.isNullOrBlank()) {
                             CircleIconButton(
                                 ExpIcons.navSearch,
@@ -328,8 +322,6 @@ fun IssueListScreen(
                                 onClick = onOpenSearch,
                                 modifier = Modifier.testTag("board-search"),
                             )
-                            Spacer(Modifier.width(8.dp))
-                            FilterButton(count = state.filters.count, onClick = { showFilters = true })
                             Spacer(Modifier.width(8.dp))
                         }
                         CircleIconButton(ExpIcons.navSettings, "Settings", onClick = onOpenSettings)
@@ -637,19 +629,6 @@ fun IssueListScreen(
         }
     }
 
-    if (showFilters) {
-        IssueFilterSheet(
-            filters = state.filters,
-            labels = state.labels,
-            statuses = state.teamStatuses,
-            onToggleStatus = viewModel::toggleStatus,
-            onTogglePriority = viewModel::togglePriority,
-            onToggleLabel = viewModel::toggleLabel,
-            onClear = viewModel::clearFilters,
-            onDismiss = { showFilters = false },
-        )
-    }
-
     if (showSwitcher && homeViewModel != null) {
         BoardSwitcherSheet(
             groups = homeState?.boardTree ?: emptyList(),
@@ -749,24 +728,6 @@ private fun IssueListContent(
             contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            // Removable pills for the active filters (the filter trigger
-            // itself lives in the nav row since EXP-251). Gated so an
-            // unfiltered list has no zero-height item eating a spacedBy gap.
-            if (!state.filters.isEmpty) {
-                item(key = "pills") {
-                    ActiveFilterPills(
-                        filters = state.filters,
-                        labels = state.labels,
-                        statuses = state.teamStatuses,
-                        onToggleStatus = viewModel::toggleStatus,
-                        onTogglePriority = viewModel::togglePriority,
-                        onToggleLabel = viewModel::toggleLabel,
-                        onClear = viewModel::clearFilters,
-                        modifier = Modifier.padding(horizontal = ListGutter),
-                    )
-                }
-            }
-
             if (state.groups.isEmpty()) {
                 // EXP-698 r5: the shared empty-board shape on every client —
                 // a circled glyph, a title, one line of guidance and the one
@@ -899,9 +860,9 @@ private fun IssueListContent(
                                     null
                                 },
                                 // EXP-523: a status change moves an issue to
-                                // another group, and a filter change drops
-                                // rows out. Without this they teleport; with
-                                // it the row slides to where it landed.
+                                // another group. Without this the row
+                                // teleports; with it it slides to where it
+                                // landed.
                                 modifier = Modifier
                                     .animateItem()
                                     .padding(horizontal = ListGutter),
@@ -944,17 +905,6 @@ private fun BoardSwitcherControl(
             )
         },
     )
-}
-
-// Nav-row filter trigger: the circular glass filter button with its
-// active-count badge (EXP-251 — moved up from the removed tab-preset row).
-@Composable
-private fun FilterButton(count: Int, onClick: () -> Unit) {
-    BadgedBox(badge = {
-        if (count > 0) Badge { Text(count.toString()) }
-    }) {
-        CircleIconButton(ExpIcons.navFilter, "Filters", onClick = onClick)
-    }
 }
 
 @Composable

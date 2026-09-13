@@ -53,7 +53,7 @@ describe(`segmented strips`, () => {
     expect(SEGMENTED_TAB).not.toContain(`text-`)
   })
 
-  it(`share one row, tighter only in the 16rem sidebar slot`, () => {
+  it(`share one row, tighter only in the 17rem sidebar slot`, () => {
     for (const row of [SEGMENTED_ROW, SEGMENTED_ROW_COMPACT]) {
       const tokens = row.split(/\s+/)
       expect(tokens).toContain(`flex`)

@@ -11,8 +11,9 @@
 //
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
-// `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews` —
-// plus the legacy `issue:<board>:<identifier>` (a detail that IS a list
+// `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews`,
+// `automations` (EXP-862) — plus the legacy `issue:<board>:<identifier>`
+// (a detail that IS a list
 // context: its board's list) and `sessions` (the old spelling of `agent`).
 // Pure, so every combination is a test.
 
@@ -28,6 +29,10 @@ export type DetailOrigin =
   | { kind: `reviews` }
   /** The Agent page's Running/Past list. */
   | { kind: `agent` }
+  /** EXP-862: the Automations page's finished-automated-runs list — the one
+   *  list that shows an UNATTENDED run, so a run opened from it returns
+   *  there rather than to the Agent page's person-started list. */
+  | { kind: `automations` }
 
 /** The screen a navigation starts FROM. `other` is every full-page screen
  * (Devices, Actions, Automations, Settings…) — the context-free set, desktop
@@ -42,6 +47,9 @@ export type OriginScreen =
   /** The Agent page — a list context (desktop `Screen::Chat`: the Sessions
    * column's own center), never context-free. */
   | { kind: `agent` }
+  /** The Automations page — a list context too (desktop
+   * `ToolWindow::Automations`), never context-free. */
+  | { kind: `automations` }
   | { kind: `other` }
 
 /** What is being opened. */
@@ -65,6 +73,7 @@ export function screenFromPath(pathname: string): OriginScreen {
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }
   if (rest === `/agent`) return { kind: `agent` }
+  if (rest === `/automations`) return { kind: `automations` }
   if (rest === `/support`) return { kind: `support` }
   if (rest === `/reviews`) return { kind: `reviews` }
   if (/^\/sessions\/[^/]+/.test(rest)) return { kind: `session` }
@@ -106,6 +115,8 @@ export function capturedOrigin(
       return { kind: `support` }
     case `reviews`:
       return { kind: `reviews` }
+    case `automations`:
+      return { kind: `automations` }
     case `session`:
       return carried ?? { kind: `agent` }
     case `agent`:
@@ -152,6 +163,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return `reviews`
     case `agent`:
       return `agent`
+    case `automations`:
+      return `automations`
   }
 }
 
@@ -167,6 +180,7 @@ export function parseOrigin(
   if (value === `support`) return { kind: `support` }
   if (value === `reviews`) return { kind: `reviews` }
   if (value === `agent` || value === `sessions`) return { kind: `agent` }
+  if (value === `automations`) return { kind: `automations` }
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
   const issue = value.match(/^issue:([^:]+):([^:]+)$/)
@@ -191,6 +205,8 @@ export function originLabel(
       return `Reviews`
     case `agent`:
       return `Agent`
+    case `automations`:
+      return `Automations`
     case `board`:
     case `issue`:
       return boardName || `Board`

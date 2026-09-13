@@ -206,27 +206,3 @@ export function creatableStatusOptions(
 ): StatusRowOption[] {
   return options.filter((option) => option.category !== `duplicate`)
 }
-
-/**
- * The URL filter token a status row contributes. Real rows use their uuid; a
- * CONSTRUCTED fallback row uses its anchor enum — the URL allowlist
- * (`isValidStatusToken`) accepts uuids and enum values only, so a synthetic
- * `builtin:<key>` id must never reach `?status=`.
- */
-export function statusFilterToken(option: StatusRowOption): string {
-  if (isFallbackStatusOption(option) && option.builtinKey) {
-    return option.builtinKey
-  }
-  return option.id
-}
-
-/**
- * Filter-token matching (lib/filters.ts dual-token model): a token is either a
- * status row uuid or a legacy anchor-enum value from an older URL.
- */
-export function statusOptionMatchesToken(
-  option: StatusRowOption,
-  token: string
-): boolean {
-  return token === option.id || token === option.builtinKey
-}

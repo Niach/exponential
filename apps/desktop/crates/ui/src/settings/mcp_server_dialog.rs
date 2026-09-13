@@ -32,7 +32,6 @@ use gpui_component::{
     input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::{Scrollbar, ScrollbarAxis},
-    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -582,7 +581,7 @@ impl Render for McpServerDialogView {
         rows.push(surface::glass_toggle_row(
             "Enabled by default",
             Some("Preselected in the start-coding dialog.".into()),
-            Switch::new("mcp-edit-default")
+            crate::controls::web_switch("mcp-edit-default")
                 .checked(self.enabled_by_default)
                 .on_click(cx.listener(|this, on: &bool, _, cx| {
                     this.enabled_by_default = *on;

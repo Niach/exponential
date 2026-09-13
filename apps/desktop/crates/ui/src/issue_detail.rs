@@ -989,8 +989,8 @@ impl IssueDetailView {
 
         let issue_id = issue.id.clone();
         // EXP-316: icon-only attach button (tooltip carries the wording).
-        // EXP-698: the one 32px glass chrome every trailing action wears.
-        let attach_button = crate::controls::glass_icon_button(
+        // EXP-862: the file list's actions are GHOST glyphs, never circles.
+        let attach_button = crate::controls::ghost_icon_button(
             "issue-files-attach",
             Icon::from(ExpIcon::Paperclip),
             cx,
@@ -1220,7 +1220,7 @@ impl IssueDetailView {
             )
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     SharedString::from(format!("issue-file-open-{id}")),
                     Icon::from(ExpIcon::ExternalLink),
                     cx,
@@ -1233,7 +1233,7 @@ impl IssueDetailView {
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     SharedString::from(format!("issue-file-save-{id}")),
                     Icon::from(ExpIcon::Download),
                     cx,
@@ -1246,7 +1246,7 @@ impl IssueDetailView {
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     SharedString::from(format!("issue-file-delete-{id}")),
                     Icon::from(ExpIcon::Trash2),
                     cx,
@@ -1309,7 +1309,7 @@ impl IssueDetailView {
             )
             .when(failed, |row| {
                 row.child(
-                    crate::controls::glass_icon_button(
+                    crate::controls::ghost_icon_button(
                         SharedString::from(format!("issue-file-dismiss-{key}")),
                         Icon::new(registry::UI_CLOSE),
                         cx,

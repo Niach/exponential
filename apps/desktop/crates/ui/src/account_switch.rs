@@ -116,7 +116,7 @@ impl SwitchBlocker {
 pub(crate) struct SwitchTarget {
     pub profile_id: String,
     pub label: String,
-    /// The identity caption — the email, else the plan, else "signed in".
+    /// The identity caption — the email, else the plan, else the label.
     pub caption: String,
     pub health: Health,
     pub usage: Option<coding::agent_usage::AgentUsage>,
@@ -218,14 +218,17 @@ pub(crate) fn switch_targets(
     (targets, blocker)
 }
 
+/// EXP-862 — the account's identity, never its status: the email, else the
+/// plan (an agent may report a provider, never an address), else the login's
+/// own label. A signed-out account used to title itself "Not signed in", which
+/// said what the refusal under the rows already says and buried the only
+/// identifying thing the row had (iOS `SessionAccountSwitch.caption`, Android
+/// `SessionAccountOption.caption`, desktop `accounts_section::group_caption`).
 fn caption_of(row: &crate::usage_bar::AgentProfileUsageRow) -> String {
-    if !row.signed_in {
-        return "Not signed in".to_string();
-    }
     row.email
         .clone()
         .or_else(|| row.plan.clone())
-        .unwrap_or_else(|| "signed in".to_string())
+        .unwrap_or_else(|| row.profile_label.clone())
 }
 
 /// EXP-849 — what the usage sheet needs to offer an account switch for ONE
@@ -685,5 +688,23 @@ mod tests {
             CONTINUATION_COST_NOTE,
             "The agent re-read the transcript once to pick it up — a one-time cost."
         );
+    }
+
+    /// EXP-862: the row's caption is the account's IDENTITY, never its status
+    /// — the refusal under the row already says a signed-out account cannot
+    /// be switched to, and "Not signed in" as a title threw away the only
+    /// identifying thing the row had (iOS + Android `caption`, desktop
+    /// `accounts_section::group_caption`).
+    #[test]
+    fn a_signed_out_account_still_says_who_it_is() {
+        let mut signed_out = row("deadbeef", false, Health::SignedOut);
+        assert_eq!(caption_of(&signed_out), "deadbeef@acme.test");
+
+        // No email: the plan, then the login's own label.
+        signed_out.email = None;
+        signed_out.plan = Some("Pro".to_string());
+        assert_eq!(caption_of(&signed_out), "Pro");
+        signed_out.plan = None;
+        assert_eq!(caption_of(&signed_out), signed_out.profile_label);
     }
 }

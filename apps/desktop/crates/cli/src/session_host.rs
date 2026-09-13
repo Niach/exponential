@@ -317,14 +317,8 @@ fn fail_before_start(err: anyhow::Error, end_row: impl FnOnce()) -> anyhow::Erro
     err
 }
 
-/// EXP-746: which steer agent vocabulary an ACP run speaks. An EXTERNAL agent
-/// (D13) is deliberately its own value — the contract's curated `/` catalog
-/// describes claude/codex behaviour we verified, so an external agent's
-/// menu carries only what it advertised itself.
+/// EXP-746: which steer agent vocabulary an ACP run speaks.
 fn acp_session_agent(prepared: &PreparedLaunch) -> steer::SessionAgent {
-    if prepared.acp.options.external.is_some() {
-        return steer::SessionAgent::External;
-    }
     match prepared.agent {
         CodingAgent::Claude => steer::SessionAgent::Claude,
         CodingAgent::Codex => steer::SessionAgent::Codex,

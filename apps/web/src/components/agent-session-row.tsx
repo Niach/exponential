@@ -18,6 +18,8 @@ import {
 } from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
+import { formatOrigin, type DetailOrigin } from "@/lib/detail-origin"
+import { SESSION_DOT_CLASS } from "@/lib/session-dot"
 import { useNow } from "@/hooks/use-now"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 import { actionCollection } from "@/lib/collections"
@@ -39,15 +41,6 @@ const ActionAutomationIcon = conceptIcon(`action-automation`)
 // "Action" + the action name, an issueless batch run shows "Batch",
 // everything else is the linked issue.
 
-// Steady dot per parked display state (EXP-194/EXP-214): review green,
-// done blue (both matching the issue-status palette), needs-input amber;
-// a live row is emerald and pings only while the agent is WORKING (EXP-848).
-const STATE_DOT: Record<Exclude<SessionDisplayState, `running`>, string> = {
-  needs_input: `bg-amber-500`,
-  review: `bg-emerald-500`,
-  done: `bg-sky-500`,
-}
-
 const STATE_LABEL: Record<
   Exclude<SessionDisplayState, `running`>,
   { text: string; className: string }
@@ -57,6 +50,9 @@ const STATE_LABEL: Record<
   done: { text: `Done`, className: `text-sky-400` },
 }
 
+/** The row's state dot. EXP-862: the colours are the shared session-dot table
+ * (`lib/session-dot.ts`, the desktop's `queries::session_dot_tone`); the row
+ * adds the EXP-848 ping, which fires only while the agent is WORKING. */
 export function RunningIndicator({
   state,
   paused = false,
@@ -71,18 +67,24 @@ export function RunningIndicator({
 }) {
   if (paused) {
     return (
-      <span className="inline-flex size-2 rounded-full bg-muted-foreground/40" />
+      <span
+        className={`inline-flex size-2 rounded-full ${SESSION_DOT_CLASS.muted}`}
+      />
     )
   }
   if (state !== `running`) {
     return (
       <span
-        className={`inline-flex size-2 rounded-full ${STATE_DOT[state]}`}
+        className={`inline-flex size-2 rounded-full ${SESSION_DOT_CLASS[state]}`}
       />
     )
   }
   if (!working) {
-    return <span className="inline-flex size-2 rounded-full bg-emerald-500" />
+    return (
+      <span
+        className={`inline-flex size-2 rounded-full ${SESSION_DOT_CLASS.running}`}
+      />
+    )
   }
   return (
     <span className="relative flex size-2">
@@ -263,7 +265,8 @@ export function SessionRow({
             </Link>
           </Pill>
         ) : editsAutomation && session.automationId ? (
-          <Button asChild variant="glass" size="icon-sm">
+          // EXP-862: a secondary icon button is GHOST — no circle, no border.
+          <Button asChild variant="ghost" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}
@@ -279,7 +282,7 @@ export function SessionRow({
             </Link>
           </Button>
         ) : session.actionId ? (
-          <Button asChild variant="glass" size="icon-sm">
+          <Button asChild variant="ghost" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}
@@ -299,9 +302,9 @@ export function SessionRow({
 
 // ── Ended runs (EXP-637) ─────────────────────────────────────────────────────
 // EXP-773: a finished run is a LINK, nothing more. The row used to expand into
-// the agent's close-out summary and a Resume button; both moved into the
-// fullscreen session view, where the transcript lives (the device republishes
-// its journal on demand). So Devices → Past, the chat page's "Past chats" and
+// the run's close-out and a Resume button; both moved into the fullscreen
+// session view, where the transcript lives (the device republishes its journal
+// on demand). So Devices → Past, the chat page's "Past chats" and
 // the Automations tab's "Recent automated runs" all render the same plain row:
 // title, identifier, byline, and a tap that opens `sessions/$sessionId`.
 // Mirrored on desktop, iOS and Android.
@@ -333,6 +336,7 @@ export function EndedSessionRow({
   title,
   identifier,
   byline,
+  origin = null,
 }: {
   row: EndedRunRow
   title: string
@@ -344,6 +348,10 @@ export function EndedSessionRow({
    * relative time, so the trailing time column stands down when it is set;
    * the Automations tab passes none and keeps the old row verbatim. */
   byline?: string
+  /** EXP-862: the list this row was opened from, as `?from=` — the Automations
+   * tab hands `{ kind: 'automations' }`, so the run's Back returns there and
+   * the sidebar keeps the automated-runs list. Null = no origin token. */
+  origin?: DetailOrigin | null
 }) {
   const { session } = row
   // Loose match, like `useOpenSession`: every caller lives under `/t/$teamSlug`,
@@ -384,11 +392,13 @@ export function EndedSessionRow({
     )
   }
 
+  const token = formatOrigin(origin)
   return (
     <ListRow asChild interactive className="gap-2">
       <Link
         to="/t/$teamSlug/sessions/$sessionId"
         params={{ teamSlug, sessionId: session.id }}
+        search={token ? { from: token } : {}}
         data-testid={`ended-session-${session.id}`}
       >
         {body}

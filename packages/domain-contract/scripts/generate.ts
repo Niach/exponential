@@ -96,6 +96,8 @@ interface Contract {
     resultKinds: string[]
     tools: {
       name: string
+      title: string
+      blurb: string
       progressive: string
       done: string
       subjectKey: string
@@ -168,8 +170,14 @@ const steerCommandConfirm = steerCommands.map((c) => c.confirm)
 // caption once it settles, the input field named by `subjectKey` as the
 // subject, and a result preview keyed by `result` (an `expToolResultKinds`
 // value). Unknown tools fall back to the raw name.
+//
+// EXP-862: `titles`/`blurbs` are the SETTINGS copy of the same rows — the
+// built-in tools group of the MCP servers page (web + desktop) lists one row
+// per tool as its title over a muted blurb, the wire name only as a tooltip.
 const expTools = contract.expToolDisplay.tools
 const expToolNames = expTools.map((t) => t.name)
+const expToolTitles = expTools.map((t) => t.title)
+const expToolBlurbs = expTools.map((t) => t.blurb)
 const expToolProgressive = expTools.map((t) => t.progressive)
 const expToolDone = expTools.map((t) => t.done)
 const expToolSubjectKeys = expTools.map((t) => t.subjectKey)
@@ -317,6 +325,8 @@ ${swiftBoolArray("steerCommandConfirm", steerCommandConfirm)}
     public static let expToolPrefix: String = "${contract.expToolDisplay.prefix}"
 ${swiftStringArray("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${swiftStringArray("expToolNames", expToolNames)}
+${swiftStringArray("expToolTitles", expToolTitles)}
+${swiftStringArray("expToolBlurbs", expToolBlurbs)}
 ${swiftStringArray("expToolProgressive", expToolProgressive)}
 ${swiftStringArray("expToolDone", expToolDone)}
 ${swiftStringArray("expToolSubjectKeys", expToolSubjectKeys)}
@@ -421,6 +431,8 @@ ${kotlinBoolArray("steerCommandConfirm", steerCommandConfirm)}
     const val expToolPrefix: String = "${contract.expToolDisplay.prefix}"
 ${kotlinStringArray("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${kotlinStringArray("expToolNames", expToolNames)}
+${kotlinStringArray("expToolTitles", expToolTitles)}
+${kotlinStringArray("expToolBlurbs", expToolBlurbs)}
 ${kotlinStringArray("expToolProgressive", expToolProgressive)}
 ${kotlinStringArray("expToolDone", expToolDone)}
 ${kotlinStringArray("expToolSubjectKeys", expToolSubjectKeys)}
@@ -527,6 +539,8 @@ ${rustBoolSlice("steerCommandConfirm", steerCommandConfirm)}
 pub const EXP_TOOL_PREFIX: &str = "${contract.expToolDisplay.prefix}";
 ${rustStrSlice("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${rustStrSlice("expToolNames", expToolNames)}
+${rustStrSlice("expToolTitles", expToolTitles)}
+${rustStrSlice("expToolBlurbs", expToolBlurbs)}
 ${rustStrSlice("expToolProgressive", expToolProgressive)}
 ${rustStrSlice("expToolDone", expToolDone)}
 ${rustStrSlice("expToolSubjectKeys", expToolSubjectKeys)}

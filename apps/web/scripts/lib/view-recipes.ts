@@ -176,18 +176,6 @@ async function recipeOpenOnboardingDevices(page: Page, ctx: RecipeCtx): Promise<
 // ----------------------------------------------------------------- issues
 
 /**
- * Open the board's filter popover on its category list (Status · Priority ·
- * Labels). The trigger's accessible name grows a count badge once filters are
- * active, hence the prefix match.
- */
-async function recipeOpenFilterPopover(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: /^Filter/ })
-  await trigger.first().waitFor({ timeout: 20_000 })
-  await trigger.first().click()
-  await page.getByText(`Priority`, { exact: true }).first().waitFor({ timeout: 10_000 })
-}
-
-/**
  * Bring the issue's comment thread into frame. The composer is the last thing
  * in the timeline, so scrolling it into view puts the whole conversation on
  * screen; the phone layout keeps its composer in a floating bottom bar
@@ -414,24 +402,25 @@ async function recipeOpenFirstThread(page: Page): Promise<void> {
 // --------------------------------------------------------------- machines
 
 /**
- * Open a machine's Device settings dialog from the Devices page. The ⋯ menu
+ * Open a device's Device settings dialog from the Devices page. The ⋯ menu
  * only renders for a REGISTERED device of the caller's own (my-machines.tsx),
  * so with no relay stub running there is no row and nothing to click.
  *
  * The menu button's accessible name carries the device label, hence the prefix
- * match — it keeps the recipe working when the seed renames the machine.
+ * match — it keeps the recipe working when the seed renames the device.
+ * EXP-862: the entry is "Device settings" (it was "Edit").
  */
 async function recipeOpenMachineSettings(page: Page): Promise<void> {
-  const menu = page.getByRole(`button`, { name: /^Machine menu for/ })
+  const menu = page.getByRole(`button`, { name: /^Device menu for/ })
   if (!(await appears(menu, 30_000))) {
     throw new Error(
-      `no machine ⋯ menu under "My machines" — the row needs a REGISTERED ` +
+      `no device ⋯ menu under "My devices" — the row needs a REGISTERED ` +
         `device of your own: run bun run screenshots:desktop (and set ` +
         `STEER_RELAY_URL)`
     )
   }
   await menu.first().click()
-  await page.getByRole(`menuitem`, { name: `Edit`, exact: true }).click()
+  await page.getByRole(`menuitem`, { name: `Device settings`, exact: true }).click()
   await page.getByRole(`heading`, { name: `Device settings` }).waitFor({ timeout: 15_000 })
 }
 
@@ -635,7 +624,6 @@ export const RECIPES: Record<string, Recipe> = {
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
   openOnboardingDevices: recipeOpenOnboardingDevices,
-  openFilterPopover: recipeOpenFilterPopover,
   scrollToComments: recipeScrollToComments,
   openCreateIssue: recipeOpenCreateIssue,
   openSearch: recipeOpenSearch,

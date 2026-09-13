@@ -47,7 +47,7 @@ use domain::board::format_short_date;
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
-use domain::{IssueFilters, IssueStatus};
+use domain::IssueStatus;
 
 use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
@@ -85,15 +85,14 @@ const COMPACT_LIST_WIDTH: f32 = 440.;
 /// width the whole LABELED control row needs on ONE line.
 ///
 /// EXP-827: the row is not the same on every panel. Assignee is hidden on a
-/// solo team and the Filter trigger lives in the host's tool strip on the
-/// Inbox (`external_trigger`), so a fixed sum over the FULL row collapsed a
-/// bar that would have fit with room to spare (a ~690px panel without
-/// Assignee). The width is summed over the controls the bar actually
-/// renders:
+/// solo team, so a fixed sum over the FULL row collapsed a bar that would
+/// have fit with room to spare (a ~690px panel without Assignee). The width
+/// is summed over the controls the bar actually renders:
 ///
 /// ```text
 /// always
-///   20  bar padding (px_2p5 ×2)
+///   32  the hosting row's px_4 gutters
+/// + 20  bar padding (px_2p5 ×2)
 /// + 32  the ✕ (web_icon_sm)
 /// + 16  the count
 /// + 82  Status    ┐ ghost web_sm, icon + label
@@ -103,36 +102,27 @@ const COMPACT_LIST_WIDTH: f32 = 440.;
 /// +  9  the separator (1px + mx_1)
 /// + 84  Delete
 /// + 24  8px gaps ×3
-/// = 561
+/// = 593
 ///
 /// with Assignee (a multi-member team)
 /// + 98  the button (ghost web_sm, icon + label)
 /// +  8  its gap
 /// = 106
-///
-/// with the Filter trigger beside the bar (no external trigger)
-/// + 32  the filter row's own px_4
-/// + 90  the trigger
-/// = 122
 /// ```
 ///
 /// It is measured against the LIST's probe, not the bar's own box: the bar
-/// and the filter row share the panel's width, and only the panel width is
-/// known before the bar is built. gpui has no cheap "lay this out and tell me
-/// how wide it came out" pass, hence the sum above rather than a measurement.
-const BULK_BAR_BASE_W: f32 = 561.;
+/// floats over the list, so only the panel width is known before the bar is
+/// built. gpui has no cheap "lay this out and tell me how wide it came out"
+/// pass, hence the sum above rather than a measurement.
+const BULK_BAR_BASE_W: f32 = 593.;
 const BULK_BAR_ASSIGNEE_W: f32 = 106.;
-const BULK_BAR_FILTER_W: f32 = 122.;
 
-/// The panel width the LABELED bulk bar needs on one line, given which of
-/// its optional controls render (see the table above).
-fn bulk_bar_label_min_width(has_assignee: bool, has_filter: bool) -> Pixels {
+/// The panel width the LABELED bulk bar needs on one line, given whether its
+/// one optional control renders (see the table above).
+fn bulk_bar_label_min_width(has_assignee: bool) -> Pixels {
     let mut width = BULK_BAR_BASE_W;
     if has_assignee {
         width += BULK_BAR_ASSIGNEE_W;
-    }
-    if has_filter {
-        width += BULK_BAR_FILTER_W;
     }
     px(width)
 }
@@ -141,7 +131,7 @@ gpui::actions!(
     issue_list,
     [
         /// Bulk select (cmd-a/ctrl-a): select every VISIBLE issue row —
-        /// filtered, non-collapsed (Linear semantics, web parity).
+        /// non-collapsed (Linear semantics, web parity).
         SelectAll,
         /// Bulk select (escape): drop the selection.
         ClearIssueSelection,
@@ -197,9 +187,8 @@ enum ListRow {
 /// Every input the memoized [`BoardData`] derives from (REV-39). Revisions
 /// alone are not enough: an empty up-to-date batch flips a collection's
 /// readiness phase WITHOUT bumping its revision, so the combined `ready` bit
-/// rides along; `today` covers the local-midnight overdue boundary. Query and
-/// filter changes invalidate eagerly in [`IssueListView::set_query`] /
-/// [`IssueListView::set_filters`].
+/// rides along; `today` covers the local-midnight overdue boundary. A query
+/// change invalidates eagerly in [`IssueListView::set_query`].
 #[derive(PartialEq, Eq)]
 struct BoardDataKey {
     issues: u64,
@@ -229,7 +218,6 @@ fn board_data_key(cx: &App) -> BoardDataKey {
 
 pub struct IssueListView {
     query: IssueQuery,
-    filters: IssueFilters,
     /// Collapsed status groups, keyed by resolved group key (web
     /// `collapsedGroups`).
     collapsed: HashSet<String>,
@@ -260,12 +248,8 @@ pub struct IssueListView {
     /// probe can notify when the classification flips.
     wide: bool,
     /// EXP-827: the label threshold of the CURRENT render (the optional
-    /// controls decide it); the probe compares against it.
+    /// control decides it); the probe compares against it.
     bulk_label_min_w: Pixels,
-    /// EXP-525/827: the host renders the Filter trigger elsewhere, so the
-    /// bulk bar's row has no trigger beside it. Handed in by the board
-    /// through [`Self::bulk_bar`] (the board owns `external_filter`).
-    external_filter: bool,
     /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
     focus_handle: FocusHandle,
     /// This window's navigation — the rows highlight the issue whose detail
@@ -324,7 +308,6 @@ impl IssueListView {
             nav,
             active_issue_id: None,
             query: IssueQuery::None,
-            filters: IssueFilters::empty(),
             collapsed: HashSet::new(),
             selected: HashSet::new(),
             select_anchor: None,
@@ -334,8 +317,7 @@ impl IssueListView {
             measured_width: Rc::new(Cell::new(px(0.))),
             compact: false,
             wide: false,
-            bulk_label_min_w: bulk_bar_label_min_width(true, true),
-            external_filter: false,
+            bulk_label_min_w: bulk_bar_label_min_width(true),
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             team_statuses: Rc::new(Vec::new()),
@@ -360,17 +342,6 @@ impl IssueListView {
         cx.notify();
     }
 
-    /// Replace the active filters (driven by the §4.2 `BoardView` — tabs,
-    /// filter popover and pills all funnel through it).
-    pub fn set_filters(&mut self, filters: IssueFilters, cx: &mut gpui::Context<Self>) {
-        if self.filters == filters {
-            return;
-        }
-        self.filters = filters;
-        self.data = None;
-        cx.notify();
-    }
-
     /// The board query behind [`Self::data`] — a cache hit is a handle clone,
     /// a miss reruns the full pipeline and re-keys the cache (REV-39).
     fn board_data(&mut self, cx: &App) -> Option<Rc<BoardData>> {
@@ -385,11 +356,10 @@ impl IssueListView {
         }
         let data = Rc::new(match &self.query {
             IssueQuery::None => return None,
-            IssueQuery::Board { board_id } => queries::board_board(cx, board_id, &self.filters),
-            IssueQuery::MyIssues {
-                team_id,
-                user_id,
-            } => queries::my_issues(cx, team_id, user_id, &self.filters),
+            IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
+            IssueQuery::MyIssues { team_id, user_id } => {
+                queries::my_issues(cx, team_id, user_id)
+            }
         });
         self.data = Some((key, data.clone()));
         Some(data)
@@ -801,9 +771,8 @@ impl IssueListView {
     /// EXP-289: the bar is NOT rendered by this view anymore. Entering
     /// multiselect used to prepend an in-flow row, which pushed the whole list
     /// down by its height — the list "jumped". [`crate::board::BoardView`]
-    /// now hands the element this returns to the filter bar, which swaps its
-    /// own fixed-height control row for it (EXP-426 made the swap in-flow —
-    /// the rows still never move). `BoardView` observes this entity, so a
+    /// floats the element this returns over the bottom of the list, so the
+    /// rows never move. `BoardView` observes this entity, so a
     /// selection change re-renders it; the ids are recomputed here off the
     /// CURRENT query data (never a snapshot taken during this view's own
     /// render, which runs AFTER its parent's and would lag a frame), in
@@ -811,18 +780,7 @@ impl IssueListView {
     /// projection `render` prunes `selected` with. Since REV-39 that read is
     /// the memoized [`Self::data`], so agreeing with the rows underneath no
     /// longer costs an extra board query per frame.
-    ///
-    /// `external_filter`: the host renders the Filter trigger elsewhere (the
-    /// Inbox tool strip), so the bar's row has no trigger beside it and its
-    /// label threshold shrinks accordingly (EXP-827). Recorded here because
-    /// the board asks for the bar BEFORE this view's own render, which is
-    /// where the width probe reads it.
-    pub(crate) fn bulk_bar(
-        &mut self,
-        external_filter: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        self.external_filter = external_filter;
+    pub(crate) fn bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         if self.selected.is_empty() {
             return None;
         }
@@ -871,8 +829,7 @@ impl IssueListView {
         // Read straight off the probe, not off `self.wide`: the parent asks
         // for this element BEFORE this view's own render runs, so the field
         // would be one frame stale on the first selection.
-        let labels = self.measured_width.get()
-            >= bulk_bar_label_min_width(has_assignee, !self.external_filter);
+        let labels = self.measured_width.get() >= bulk_bar_label_min_width(has_assignee);
         // `.label()` takes a value, so the collapse is a small helper rather
         // than a `when` chain on six buttons.
         let with_label = move |button: Button, label: &'static str| {
@@ -1229,18 +1186,17 @@ impl IssueListView {
                 })
         };
 
-        // EXP-426: an INLINE row — the filter bar swaps its Filter cluster
-        // for this element while a selection exists (its row keeps a fixed
-        // min-height, so the list rows still never move — the EXP-289
-        // no-jump invariant, without the old floating-overlay masking).
-        // EXP-439: content-sized (no `w_full`) so the Filter trigger keeps
-        // its right-hand slot on the same row.
+        // EXP-289: the board floats this element over the bottom of the
+        // list while a selection exists, so the list rows never move (the
+        // no-jump invariant).
+        // EXP-439: content-sized (no `w_full`) — the capsule is centred over
+        // the list, not stretched across it.
         // EXP-698 round 5: the cluster wears the OPAQUE bar capsule (EXP-642
         // had it on the translucent tray) so it reads as the one object
-        // acting on the selection, left of the Filter trigger — the web
-        // `BulkActionBar` card and the two mobile bars, same shape. It stays
-        // `flex_shrink_0`: the capsule is one line by construction, and the
-        // label gate above — not a squeeze — is what makes it fit.
+        // acting on the selection — the web `BulkActionBar` card and the two
+        // mobile bars, same shape. It stays `flex_shrink_0`: the capsule is
+        // one line by construction, and the label gate above — not a
+        // squeeze — is what makes it fit.
         crate::surface::glass_bar(cx)
             .id("bulk-action-bar")
             .flex_shrink_0()
@@ -1366,9 +1322,9 @@ impl Render for IssueListView {
         // so a resize across the threshold re-renders exactly once.
         let measured = self.measured_width.get();
         self.compact = measured > px(0.) && measured < px(COMPACT_LIST_WIDTH);
-        // EXP-827: the bar's threshold depends on which optional controls it
-        // renders (same gates as `render_bulk_bar`), so the probe compares
-        // against THIS render's sum. Only while the bar is actually up,
+        // EXP-827: the bar's threshold depends on whether its optional
+        // control renders (same gate as `render_bulk_bar`), so the probe
+        // compares against THIS render's sum. Only while the bar is actually up,
         // though (EXP-832 rule): with nothing selected the threshold is read
         // by no one, and `team_users` clones and sorts the whole team on a
         // path that runs on every list render.
@@ -1376,7 +1332,7 @@ impl Render for IssueListView {
             && self
                 .bulk_team_id(cx)
                 .is_some_and(|team_id| queries::team_users(cx, &team_id).len() > 1);
-        self.bulk_label_min_w = bulk_bar_label_min_width(has_assignee, !self.external_filter);
+        self.bulk_label_min_w = bulk_bar_label_min_width(has_assignee);
         self.wide = measured >= self.bulk_label_min_w;
 
         // Base surface: NONE — the list sits directly on the window's page
@@ -1451,21 +1407,6 @@ impl Render for IssueListView {
             if !data.is_ready {
                 return base.child(list_skeleton(cx)).into_any_element();
             }
-            if data.has_any_issues && domain::has_active_filters(&self.filters) {
-                return base
-                    .child(
-                        v_flex().size_full().items_center().justify_center().child(
-                            crate::controls::empty_state(
-                                Icon::from(ExpIcon::SearchX),
-                                "No issues match your filters",
-                                "Try removing some filters to see more issues.",
-                                cx,
-                            ),
-                        ),
-                    )
-
-                    .into_any_element();
-            }
             // EXP-698 round 5: a genuinely empty board is where the
             // Getting-started checklist belongs — the same cards the page
             // renders, under the empty state, on every client. The column
@@ -1511,8 +1452,8 @@ impl Render for IssueListView {
                 .into_any_element();
         }
 
-        // Prune selected ids whose rows left the data set (filter change,
-        // delete elsewhere, sync) — web parity. Collapsed rows stay selected.
+        // Prune selected ids whose rows left the data set (delete elsewhere,
+        // sync) — web parity. Collapsed rows stay selected.
         if !self.selected.is_empty() {
             let present: HashSet<&str> = data
                 .groups
@@ -1527,9 +1468,6 @@ impl Render for IssueListView {
         let mut rows: Vec<ListRow> = Vec::new();
         for group in &data.groups {
             if group.issues.is_empty() {
-                // Status-filtered boards keep selected-but-empty groups in the
-                // group list (web); render nothing for them in v1 like the
-                // web's empty Collapsible body.
                 continue;
             }
             let collapsed = self.collapsed.contains(&group.status.group_key);
@@ -2563,18 +2501,16 @@ mod tests {
     use super::*;
 
     /// EXP-827: the label threshold sums only the controls the bar renders.
-    /// The full row is the EXP-698 sum (789); a solo team's bar (no
-    /// Assignee) fits a ~690px panel with its labels, and an Inbox bar (no
-    /// Filter trigger beside it) shrinks by the trigger and the row padding.
+    /// The full row is the EXP-698 sum minus the filter trigger EXP-862 took
+    /// away (699); a solo team's bar (no Assignee) fits a ~690px panel with
+    /// its labels.
     #[test]
     fn bulk_bar_label_threshold_counts_only_rendered_controls() {
-        assert_eq!(bulk_bar_label_min_width(true, true), px(789.));
-        assert_eq!(bulk_bar_label_min_width(false, true), px(683.));
-        assert_eq!(bulk_bar_label_min_width(true, false), px(667.));
-        assert_eq!(bulk_bar_label_min_width(false, false), px(561.));
+        assert_eq!(bulk_bar_label_min_width(true), px(699.));
+        assert_eq!(bulk_bar_label_min_width(false), px(593.));
         // The screenshot case: a 691px panel on a solo team keeps its labels.
-        assert!(px(691.) >= bulk_bar_label_min_width(false, true));
-        assert!(px(691.) < bulk_bar_label_min_width(true, true));
+        assert!(px(691.) >= bulk_bar_label_min_width(false));
+        assert!(px(691.) < bulk_bar_label_min_width(true));
     }
 
     #[test]

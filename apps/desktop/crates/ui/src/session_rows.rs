@@ -341,28 +341,64 @@ pub(crate) const FILE_CARD_ROWS: usize = 5;
 /// title counts files rather than calls. A subagent's edits belong to its own
 /// card inside the group, never to the main line's.
 pub(crate) fn file_cards(items: &[FeedItem]) -> HashMap<FeedItemId, FileCard> {
-    let mut cards: HashMap<FeedItemId, FileCard> = HashMap::new();
-    let mut open: Vec<FileEdit> = Vec::new();
-    let mut anchor: Option<FeedItemId> = None;
-    let mut flush = |open: &mut Vec<FileEdit>, anchor: &mut Option<FeedItemId>| {
-        if let (Some(id), false) = (*anchor, open.is_empty()) {
-            cards.insert(
-                id,
-                FileCard {
-                    anchor: id,
-                    files: std::mem::take(open),
-                },
-            );
-        }
-        open.clear();
-        *anchor = None;
-    };
+    turn_segments(items)
+        .into_iter()
+        .filter_map(|segment| {
+            // The card hangs under the LAST edit row of the segment.
+            let anchor = segment.last()?.0;
+            // Two writes to one file are ONE row, summed, in first-touch
+            // order — the title counts files, not calls.
+            let mut files: Vec<FileEdit> = Vec::new();
+            for (_, edit) in segment {
+                match files.iter_mut().find(|held| held.path == edit.path) {
+                    Some(held) => {
+                        held.additions += edit.additions;
+                        held.deletions += edit.deletions;
+                    }
+                    None => files.push(edit),
+                }
+            }
+            Some((anchor, FileCard { anchor, files }))
+        })
+        .collect()
+}
+
+/// EXP-862 — the settled edit ROWS of the turn a [`FileCard`] hangs under, in
+/// feed order. The card carries only `path +a −d`; the diff pane scoped to
+/// that turn needs the PATCHES back, and the patches live on the rows.
+///
+/// Extracted from [`file_cards`], so "which rows belong to this turn" is
+/// answered once: a card and the pane it opens can never disagree about what
+/// the turn touched.
+pub(crate) fn turn_items(items: &[FeedItem], anchor: FeedItemId) -> Vec<FeedItemId> {
+    turn_segments(items)
+        .into_iter()
+        // Any row of the segment names it: the anchor stays valid while the
+        // turn keeps editing (web keys the scope on the turn the same way).
+        .find(|segment| segment.iter().any(|(id, _)| *id == anchor))
+        .map(|segment| segment.into_iter().map(|(id, _)| id).collect())
+        .unwrap_or_default()
+}
+
+/// §12's segmentation: one entry per turn that edited anything, holding its
+/// settled edit rows (id + the file that row touched) in feed order.
+///
+/// A segment runs from a user message (or the start of the feed) to the next
+/// one. A subagent's edits belong to its own card inside the group, never to
+/// the main line's, so `subagent_id: None` gates both arms.
+fn turn_segments(items: &[FeedItem]) -> Vec<Vec<(FeedItemId, FileEdit)>> {
+    let mut segments: Vec<Vec<(FeedItemId, FileEdit)>> = Vec::new();
+    let mut open: Vec<(FeedItemId, FileEdit)> = Vec::new();
     for item in items {
         match &item.kind {
             // A new turn opens: whatever the last one edited is settled.
             FeedKind::UserMessage {
                 subagent_id: None, ..
-            } => flush(&mut open, &mut anchor),
+            } => {
+                if !open.is_empty() {
+                    segments.push(std::mem::take(&mut open));
+                }
+            }
             FeedKind::Tool {
                 subagent_id: None,
                 tool_kind,
@@ -373,20 +409,15 @@ pub(crate) fn file_cards(items: &[FeedItem]) -> HashMap<FeedItemId, FileCard> {
                 let Some(edit) = edit_of(diff) else {
                     continue;
                 };
-                match open.iter_mut().find(|held| held.path == edit.path) {
-                    Some(held) => {
-                        held.additions += edit.additions;
-                        held.deletions += edit.deletions;
-                    }
-                    None => open.push(edit),
-                }
-                anchor = Some(item.id);
+                open.push((item.id, edit));
             }
             _ => {}
         }
     }
-    flush(&mut open, &mut anchor);
-    cards
+    if !open.is_empty() {
+        segments.push(open);
+    }
+    segments
 }
 
 /// The kinds §12 counts — a write, a delete or a rename.
@@ -827,6 +858,18 @@ mod tests {
         let second = cards.get(&8).expect("the second turn earns its own card");
         assert_eq!(second.title(), "1 file edited");
         assert_eq!(second.files.len(), 1);
+
+        // EXP-862: the pane scoped to a card reads back the ROWS that card
+        // counted — every write, including the second one to a.rs, and
+        // nothing from the unsettled edit, the read or the next turn.
+        assert_eq!(turn_items(&items, 4), vec![2, 3, 4]);
+        assert_eq!(turn_items(&items, 8), vec![8]);
+        // Any row of the turn names it, so a scope opened while the turn was
+        // still editing keeps resolving after later writes moved the card's
+        // anchor (web keys the scope on the turn the same way).
+        assert_eq!(turn_items(&items, 3), vec![2, 3, 4]);
+        // An id no turn edited asks for nothing.
+        assert!(turn_items(&items, 99).is_empty());
     }
 
     // ── The recorded wire, end to end ─────────────────────────────────────

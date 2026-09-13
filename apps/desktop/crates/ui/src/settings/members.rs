@@ -365,8 +365,8 @@ fn member_actions_menu(
     i_am_owner: bool,
     cx: &gpui::App,
 ) -> impl IntoElement {
-    // EXP-698: every trailing row action wears the one 32px glass chrome.
-    crate::controls::glass_icon_button(
+    // EXP-862: a row's "..." is a GHOST glyph, never a circle.
+    crate::controls::ghost_icon_button(
         row_id("member-actions", &member_id),
         Icon::new(registry::UI_MORE),
         cx,

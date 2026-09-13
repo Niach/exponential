@@ -350,6 +350,10 @@ struct BeatSnapshot {
     branch_prefix: String,
     held_branches: HashSet<String>,
     active_sessions: u32,
+    /// EXP-862: the row ids of the sessions this app is hosting right now —
+    /// the removal guard's input (a live run's account must not be deleted
+    /// out from under it).
+    live_session_ids: Vec<String>,
     report_requested: bool,
     /// EXP-484: the live settings + doctor report the agent-status collector
     /// runs against. `None` doctor = the first probe has not landed yet;
@@ -414,7 +418,8 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
     let sessions = sessions.read(cx);
     let held_branches: HashSet<String> =
         sessions.held_branches().map(str::to_string).collect();
-    let active_sessions = sessions.session_ids().len() as u32;
+    let live_session_ids = sessions.session_ids();
+    let active_sessions = live_session_ids.len() as u32;
     let hub = CodingHub::global(cx);
     let (settings, doctor) = {
         let hub = hub.read(cx);
@@ -431,6 +436,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
         settings_path,
         held_branches,
         active_sessions,
+        live_session_ids,
         report_requested: false,
         settings,
         doctor,
@@ -782,6 +788,7 @@ pub(crate) fn push_local_defaults_if_changed(
         branch_prefix: settings.branch_prefix.clone(),
         held_branches: HashSet::new(),
         active_sessions: 0,
+        live_session_ids: Vec::new(),
         report_requested: false,
         // Defaults-push only — this snapshot never beats, collects or runs
         // a command.
@@ -989,6 +996,30 @@ fn run_device_command(
                 },
             }
         }
+        // EXP-862 — "remove account": delete THIS machine's copy of a login
+        // (its profile dir, credentials included, and its index row). The
+        // account itself is untouched: no `codex logout` (it would revoke the
+        // account server-wide) and no request leaves the machine. Refused for
+        // the ambient login and for an account a live run here is using.
+        "agent_profile_remove" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(agent) => match remove_agent_profile(snapshot, agent, profile) {
+                    Ok(payload) => {
+                        complete(
+                            snapshot,
+                            &command.id,
+                            true,
+                            &format!("The {} account was removed from this machine.", agent.id()),
+                        );
+                        return CommandDisposition::Refreshed(payload);
+                    }
+                    Err(error) => (false, error),
+                },
+            }
+        }
         other => {
             log::info!("[device-sync] command {other:?} unsupported — reported back");
             (
@@ -1026,6 +1057,41 @@ fn use_agent_profile(
     )
 }
 
+/// EXP-862 — the device side of `agent_profile_remove`, over the ONE shared
+/// body ([`coding::agent_usage::remove_profile`]): delete this machine's copy
+/// of `profile`'s login for `agent`, then re-report so every client's account
+/// list loses the chip on this beat.
+fn remove_agent_profile(
+    snapshot: &BeatSnapshot,
+    agent: coding::CodingAgent,
+    profile: &str,
+) -> Result<coding::agent_usage::AgentStatusPayload, String> {
+    let report = match &snapshot.doctor {
+        Some(report) => report.clone(),
+        None => coding::run_doctor(&snapshot.settings),
+    };
+    coding::agent_usage::remove_profile(
+        &snapshot.data_dir,
+        &snapshot.settings,
+        &report,
+        agent,
+        profile,
+        &live_run_accounts(&snapshot.data_dir, &snapshot.live_session_ids),
+        now_unix_secs(),
+    )
+}
+
+/// EXP-862 — the accounts the runs this app hosts are using right now. The
+/// in-process session row does not carry the account, the run RECORD does
+/// (`runs.json`), so the live ids are resolved through the registry.
+fn live_run_accounts(data_dir: &std::path::Path, session_ids: &[String]) -> Vec<String> {
+    session_ids
+        .iter()
+        .filter_map(|id| coding::run_registry::get(data_dir, id))
+        .filter_map(|record| record.account())
+        .collect()
+}
+
 /// EXP-849 — the LOCAL "use this account here" (the Devices row's own chip on
 /// THIS machine): the same body the command runs, plus the hub mirror so every
 /// surface in this process sees the moved login before the next beat.
@@ -1048,6 +1114,41 @@ pub(crate) fn use_agent_profile_here(
         &report,
         agent,
         profile,
+        now_unix_secs(),
+    )?;
+    hub.update(cx, |hub, cx| {
+        hub.agent_status = Some(status);
+        cx.notify();
+    });
+    Ok(())
+}
+
+/// EXP-862 — the LOCAL "Remove account" (the chip's own menu on THIS machine):
+/// the same body the command runs, plus the hub mirror so the accounts list
+/// loses the chip without waiting for the next beat. `Err` is the sentence to
+/// show (the ambient login, an unknown id, a live run still on that account).
+pub(crate) fn remove_agent_profile_here(
+    agent: coding::CodingAgent,
+    profile: &str,
+    cx: &mut App,
+) -> Result<(), String> {
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let hub = crate::coding_flow::CodingHub::global(cx);
+    let (settings, report) =
+        hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
+    let report = match report {
+        Some(report) => report,
+        None => coding::run_doctor(&settings),
+    };
+    let live = LocalSessions::global(cx);
+    let live_session_ids = live.read(cx).session_ids();
+    let status = coding::agent_usage::remove_profile(
+        &data_dir,
+        &settings,
+        &report,
+        agent,
+        profile,
+        &live_run_accounts(&data_dir, &live_session_ids),
         now_unix_secs(),
     )?;
     hub.update(cx, |hub, cx| {

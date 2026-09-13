@@ -35,6 +35,7 @@
 
 use std::collections::HashMap;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
     Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
@@ -109,16 +110,15 @@ pub(crate) fn page_scaffold_with(
 /// Getting-started page's second tab, and this is the way back to them from
 /// the list they seed.
 ///
-/// EXP-697: it wears the shared round glass affordance
-/// ([`crate::controls::glass_icon_button`]) instead of a bare ghost icon, so
-/// it reads as a control next to the outlined "New …" button.
+/// EXP-862: it is a GHOST glyph ([`crate::controls::ghost_icon_button`]) — a
+/// circle means a primary action (play, send, New issue), and this is the
+/// quiet way back to the suggestions.
 ///
 /// EXP-827: at the PILL's height (`CONTROL_SM`, 24px — `web_icon_xs`), not the
 /// 32px the shared affordance defaults to: it sits beside a `PillSize::Sm`
-/// "New …" pill and a circle a third taller than its neighbour read as the
-/// header's main control rather than the quiet way back to the suggestions.
+/// "New …" pill.
 pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement {
-    crate::controls::glass_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
+    crate::controls::ghost_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
         .web_icon_xs()
         .tooltip("Suggestions")
         .on_click(|_: &ClickEvent, window, cx| {
@@ -376,7 +376,13 @@ impl ActionsView {
         if let Some(reason) = no_agent {
             run_button = run_button.tooltip(reason.clone());
         }
+        // EXP-862 (web `ActionRow`): an owner's row opens the editor, so the
+        // pointer is only worn where a click does something; the hover wash
+        // is every flat row's.
+        let editable = is_owner && !action.builtin;
+        let row_edit_id = action.id.clone();
         let mut row = crate::surface::flat_row()
+            .id(("action-row", index))
             .flex()
             .w_full()
             .min_w_0()
@@ -385,6 +391,12 @@ impl ActionsView {
             .px_3()
             .py_2p5()
             .hover(move |this| this.bg(row_hover))
+            .when(editable, |this| {
+                this.cursor_pointer()
+                    .on_click(move |_: &ClickEvent, window, cx| {
+                        crate::action_editor_dialog::open(window, cx, row_edit_id.clone());
+                    })
+            })
             .child(
                 div().flex_shrink_0().child(
                     crate::icons::action_icon(action.icon.as_deref())
@@ -392,7 +404,15 @@ impl ActionsView {
                         .text_color(muted),
                 ),
             )
-            .child(middle)
+            .child(middle);
+        // The ▶ and the menu are their own targets; the row's click must not
+        // fire underneath them (web parity).
+        let mut controls = gpui_component::h_flex()
+            .id(("action-row-controls", index))
+            .flex_shrink_0()
+            .items_center()
+            .gap_1()
+            .on_click(|_: &ClickEvent, _, cx| cx.stop_propagation())
             // EXP-615/686: the shared round glass ▶ (web/mobile parity).
             .child(run_button);
         // The ⋯ menu renders on non-builtin rows — builtins have no
@@ -410,10 +430,10 @@ impl ActionsView {
                 &action.id,
                 cx,
             );
-            row = row.child(
+            controls = controls.child(
                 div().flex_shrink_0().child(
-                    // EXP-698: the one 32px glass chrome every row action wears.
-                    crate::controls::glass_icon_button(
+                    // EXP-862: a row's "..." is a GHOST glyph, never a circle.
+                    crate::controls::ghost_icon_button(
                         ("action-menu", index),
                         Icon::from(registry::UI_MORE),
                         cx,
@@ -477,7 +497,7 @@ impl ActionsView {
                 ),
             );
         }
-        row.into_any_element()
+        row.child(controls).into_any_element()
     }
 
     /// The web `NoCustomActionsNudge`: a dashed full-width strip below the

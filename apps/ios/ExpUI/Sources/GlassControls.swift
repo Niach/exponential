@@ -304,6 +304,94 @@ public struct CircleIconLabel: View {
     }
 }
 
+// MARK: - Ghost icon button (EXP-862)
+
+/// The SECONDARY icon button: the bare glyph in the same 32pt frame, with no
+/// circle and no hairline — what every "…", close, chevron, trash/remove and
+/// refresh-class control wears now (×4: web `Button variant="ghost"
+/// size="icon-sm"`, desktop `controls::ghost_icon_button`, Android
+/// `CircleIconButton(borderless = true)`). The drawn `CircleIconButton` stays
+/// for PRIMARY actions only: play/start, send, the mobile FAB, "+".
+///
+/// Geometry is `CircleIconButton`'s so the two are swappable 1:1 in a row, and
+/// the glyph sits at 70 % white like the circle's does.
+public struct GhostIconButton: View {
+    let icon: String
+    let accessibilityLabel: String
+    var size: CGFloat = GlassTokens.controlSize
+    var glyphSize: CGFloat = AppIcon.Size.medium
+    var tint: Color? = nil
+    var enabled: Bool = true
+    let action: () -> Void
+
+    public init(
+        _ icon: String,
+        accessibilityLabel: String,
+        size: CGFloat = GlassTokens.controlSize,
+        glyphSize: CGFloat = AppIcon.Size.medium,
+        tint: Color? = nil,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) {
+        self.icon = icon
+        self.accessibilityLabel = accessibilityLabel
+        self.size = size
+        self.glyphSize = glyphSize
+        self.tint = tint
+        self.enabled = enabled
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            GhostIconLabel(
+                icon,
+                size: size,
+                glyphSize: glyphSize,
+                tint: tint,
+                enabled: enabled
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+/// The styled content of a `GhostIconButton` — for the hosts that own their
+/// own tap handling (a `GlassMenu` label). Everything else uses the button.
+public struct GhostIconLabel: View {
+    let icon: String
+    var size: CGFloat = GlassTokens.controlSize
+    var glyphSize: CGFloat = AppIcon.Size.medium
+    var tint: Color? = nil
+    var enabled: Bool = true
+
+    public init(
+        _ icon: String,
+        size: CGFloat = GlassTokens.controlSize,
+        glyphSize: CGFloat = AppIcon.Size.medium,
+        tint: Color? = nil,
+        enabled: Bool = true
+    ) {
+        self.icon = icon
+        self.size = size
+        self.glyphSize = glyphSize
+        self.tint = tint
+        self.enabled = enabled
+    }
+
+    public var body: some View {
+        AppIcon(icon, size: glyphSize, weight: .medium)
+            .foregroundStyle(
+                tint ?? .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
+            )
+            .frame(width: size, height: size)
+            // No fill, no stroke — but the same 44pt hit area the circle has.
+            .contentShape(Rectangle().inset(by: min(0, (size - 44) / 2)))
+    }
+}
+
 // `TopBarBackButton` is gone (EXP-698 r4): its one call site (New issue, the
 // page that hides the system chevron to run its discard confirmation) is a
 // plain toolbar `Button` around the `ui-back` glyph now, because the system's

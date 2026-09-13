@@ -32,7 +32,6 @@ use gpui_component::{
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
-    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -303,7 +302,7 @@ impl Render for NotificationsPrefsPane {
                  your inbox. This machine only; the per-type switches below apply to it too."
                     .into(),
             ),
-            Switch::new("os-notifications")
+            crate::controls::web_switch("os-notifications")
                 .checked(os_notifications)
                 .on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.set_os_notifications(*checked, cx);
@@ -317,7 +316,7 @@ impl Render for NotificationsPrefsPane {
         let mut email_rows = vec![glass_toggle_row(
             "Email notifications",
             Some("Notifications still unread are bundled into one digest email.".into()),
-            Switch::new("email-enabled")
+            crate::controls::web_switch("email-enabled")
                 .checked(email_enabled)
                 .disabled(!transport || !have_prefs)
                 .on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -396,7 +395,7 @@ impl Render for NotificationsPrefsPane {
                     rows.push(glass_toggle_row(
                         label,
                         Some(hint.into()),
-                        Switch::new(SharedString::from(format!("type-{kind}")))
+                        crate::controls::web_switch(SharedString::from(format!("type-{kind}")))
                             .checked(checked)
                             .disabled(types_disabled)
                             .on_click(cx.listener(move |this, checked: &bool, _, cx| {
@@ -421,7 +420,7 @@ impl Render for NotificationsPrefsPane {
                          Your own agents can always reach you."
                             .into(),
                     ),
-                    Switch::new("allow-agent-messages")
+                    crate::controls::web_switch("allow-agent-messages")
                         .checked(allow_agent_messages)
                         .on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.set_allow_agent_messages(*checked, cx);

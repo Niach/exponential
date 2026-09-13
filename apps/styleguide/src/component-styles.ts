@@ -209,6 +209,27 @@ export const componentStyles = `
 .cmp-icon-button:hover { background: var(--active); color: var(--fg); }
 .cmp-icon-button .glyph { width: 16px; height: 16px; }
 
+/* The GHOST (EXP-862): a SECONDARY icon button keeps the box and loses the
+   shape. No circle, no fill, no stroke at rest, so the circle above is left
+   meaning exactly one thing on a surface: press THIS. Hover is the row wash
+   under the MD corner, the same one a list row takes. */
+.cmp-ghost-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--ctl-md);
+  height: var(--ctl-md);
+  border-radius: var(--r-md);
+  background: transparent;
+  border: none;
+  color: var(--fg-70);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmp-ghost-icon-button:hover { background: var(--active); color: var(--fg); }
+.cmp-ghost-icon-button .glyph { width: 16px; height: 16px; }
+
 /* The MOBILE sheet submit: full width, radius 10, solid. Web and desktop
    primaries stay capsules — see the status table. */
 .cmp-button-primary {
@@ -228,7 +249,8 @@ export const componentStyles = `
 .cmp-button-primary.disabled { background: var(--card); border-color: var(--stroke); color: var(--fg-50); }
 
 /* ----------------------------------------------------------- icon picker */
-/* EXP-771, the shape rule: a circle is an ACTION and a rounded square is a
+/* EXP-771 narrowed by EXP-862, the shape rule: a circle is the PRIMARY action
+   (everything secondary is the ghost button above) and a rounded square is a
    PICKER. The trigger and the swatch cells take the MD step, so a picker can
    never be read as one of the circular icon buttons above; only COLOUR
    swatches stay circles, because a colour has no shape to read. */

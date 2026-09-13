@@ -18,14 +18,14 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    h_flex, switch::Switch, v_flex, ActiveTheme as _, Disableable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _,
 };
 use sync::Store;
 
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{card_title, error_notice, is_plan_limit, section, upgrade_notice};
+use super::{error_notice, is_plan_limit, section, upgrade_notice};
 
 /// Web `toggleHelpdesk`'s plan-limit branch, verbatim.
 const PLAN_LIMIT_MESSAGE: &str = "The helpdesk is available on the Team plan.";
@@ -130,7 +130,7 @@ impl Render for HelpdeskPane {
             .unwrap_or(false);
 
         let mut body = section(cx)
-            .child(card_title("Helpdesk"))
+            .child(crate::surface::glass_section_header("Helpdesk", None, cx))
             .child(crate::surface::glass_group_rows(vec![
                 crate::surface::glass_toggle_row(
                     "Enable the helpdesk",
@@ -139,7 +139,7 @@ impl Render for HelpdeskPane {
                          the widget land there."
                             .into(),
                     ),
-                    Switch::new("team-helpdesk-enabled")
+                    crate::controls::web_switch("team-helpdesk-enabled")
                         .checked(enabled)
                         .disabled(self.busy)
                         .on_click(cx.listener({

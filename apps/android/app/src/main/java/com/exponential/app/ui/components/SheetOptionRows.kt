@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchColors
@@ -36,6 +38,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -111,6 +114,52 @@ fun MetaRow(
         )
         Spacer(Modifier.weight(1f))
         value()
+    }
+}
+
+/**
+ * EXP-862: a TEXT field as a glass row with its label INSIDE it — the board
+ * form's shape on every client (web `GlassInputRow`, desktop `GlassTextField`
+ * rows, iOS the same): no caption floating above a field, just one row that
+ * says what it holds. The group around it owns the chrome, so the field itself
+ * is borderless.
+ */
+@Composable
+internal fun TextFieldRow(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    enabled: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    textStyle: TextStyle = LocalTextStyle.current,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        GlassTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = placeholder,
+            enabled = enabled,
+            singleLine = true,
+            bordered = false,
+            keyboardOptions = keyboardOptions,
+            textStyle = textStyle,
+            containerColor = Color.Transparent,
+            modifier = Modifier.weight(1f),
+        )
+        trailing?.invoke()
     }
 }
 

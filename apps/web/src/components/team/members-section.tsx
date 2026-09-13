@@ -154,7 +154,7 @@ export function TeamMembersSection({
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          variant="glass"
+                          variant="ghost"
                           size="icon-sm"
                           aria-label={`Member actions for ${displayName}`}
                         >
@@ -466,7 +466,7 @@ function InviteControls({ teamId }: { teamId: string }) {
                   </span>
                 </div>
                 <Button
-                  variant="glass"
+                  variant="ghost"
                   size="icon-sm"
                   onClick={() => handleRevoke(invite.id)}
                   aria-label={`Revoke invite ${invite.id}`}

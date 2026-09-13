@@ -534,7 +534,7 @@ function ReviewDetailPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-11 rounded-full border border-glass-stroke-card bg-glass-card text-muted-foreground hover:bg-muted/85 hover:text-foreground"
+                className="size-11 text-muted-foreground hover:text-foreground"
                 aria-label="Close pull request without merging"
                 title="Close PR without merging"
                 disabled={merging || closing}
@@ -581,7 +581,7 @@ function ReviewDetailPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-11 rounded-full border border-glass-stroke-card bg-glass-card text-muted-foreground hover:bg-muted/85 hover:text-foreground"
+                className="size-11 text-muted-foreground hover:text-foreground"
                 aria-label="Open pull request on GitHub"
                 title="Open PR on GitHub"
                 onClick={() =>

@@ -20,14 +20,14 @@
 //! so a sibling save never wipes edits in flight here.
 
 use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, Disableable as _,
 };
 
 use coding::Settings;
@@ -37,7 +37,7 @@ use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 
 use super::doctor_section::DoctorPanel;
-use super::{card_header, danger_zone, error_notice, section};
+use super::{danger_zone, error_notice, section};
 
 pub struct ToolsPane {
     repos_input: Entity<InputState>,
@@ -197,16 +197,20 @@ impl ToolsPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    fn labeled_input(
+    /// EXP-862: one FIELD of the pane's group — the label inside the row, the
+    /// value typed on its right (`surface::glass_input_row`), never a caption
+    /// floating above a boxed field.
+    fn field_row(
         label: &'static str,
         input: &Entity<InputState>,
         window: &Window,
         cx: &App,
-    ) -> impl IntoElement {
-        v_flex()
-            .gap_1()
-            .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(glass_input(input, window, cx).web_input_sm())
+    ) -> gpui::Div {
+        crate::surface::glass_input_row(
+            label,
+            crate::surface::glass_row_input(glass_input(input, window, cx)).into_any_element(),
+            cx,
+        )
     }
 }
 
@@ -215,19 +219,19 @@ impl Render for ToolsPane {
         let dirty = self.dirty(cx);
 
         let card = section(cx)
-            .child(card_header(
-                "Tools",
-                "Local per-machine settings, never synced.",
-                cx,
-            ))
-            .child(Self::labeled_input(
-                "Repos & worktrees root",
-                &self.repos_input,
-                window,
-                cx,
-            ))
-            .child(Self::labeled_input("Branch prefix", &self.prefix_input, window, cx))
-            .child(Self::labeled_input("Terminal shell", &self.shell_input, window, cx));
+            .child(
+                v_flex()
+                    .child(crate::surface::glass_section_header("Tools", None, cx))
+                    .child(super::section_description(
+                        "Local per-machine settings, never synced.",
+                        cx,
+                    )),
+            )
+            .child(crate::surface::glass_group_rows(vec![
+                Self::field_row("Repos & worktrees root", &self.repos_input, window, cx),
+                Self::field_row("Branch prefix", &self.prefix_input, window, cx),
+                Self::field_row("Terminal shell", &self.shell_input, window, cx),
+            ]));
 
         let mut save_area = v_flex().gap_2();
         if let Some(error) = &self.save_error {

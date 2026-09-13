@@ -238,6 +238,38 @@ describe(`LaunchComposer`, () => {
     expect(suggestionCaretOffset(`Label every issue in the backlog`)).toBeUndefined()
   })
 
+  // EXP-862: the options line — THE agent picker (icon-only, the name in its
+  // accessible name), and the account promoted out of the `⋯` overflow the
+  // moment the machine reports two logins for the picked agent.
+  it(`renders the shared agent picker icon-only`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    const trigger = screen.getByLabelText(`Claude Code`)
+    expect(trigger.getAttribute(`data-slot`)).toBe(`agent-picker`)
+    expect(trigger.textContent).toBe(``)
+  })
+
+  it(`promotes the account picker into the row with two profiles`, () => {
+    const one = fakeModel()
+    render(<LaunchComposer model={one} users={[]} />)
+    expect(screen.queryByLabelText(`Account`)).toBeNull()
+
+    const model = fakeModel({
+      launch: {
+        ...fakeLaunch(),
+        account: `p1`,
+        accountProfiles: [
+          { id: `p1`, label: `work@example.com`, active: true, health: `ok` },
+          { id: `p2`, label: `side@example.com`, active: false, health: `ok` },
+        ],
+      },
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    const account = screen.getByLabelText(`Account`)
+    expect(account.textContent).toContain(`work@example.com`)
+    // The row is where it lives now — never the overflow sheet.
+    expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
+  })
+
   it(`says so when no desktop is online`, () => {
     render(
       <LaunchComposer model={fakeModel({ candidateDevices: [] })} users={[]} />

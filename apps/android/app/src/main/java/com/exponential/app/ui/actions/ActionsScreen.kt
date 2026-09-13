@@ -426,6 +426,7 @@ private fun ActionRow(
                     contentDescription = "Action options",
                     onClick = { menuOpen = true },
                     modifier = Modifier.padding(start = 8.dp),
+                    borderless = true,
                 )
                 GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     GlassMenuItem(
@@ -682,6 +683,7 @@ private fun AutomationRow(
                         onClick = { menuOpen = true },
                         enabled = !busy,
                         modifier = Modifier.padding(start = 8.dp),
+                        borderless = true,
                     )
                     GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         GlassMenuItem(

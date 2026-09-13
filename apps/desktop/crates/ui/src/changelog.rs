@@ -46,6 +46,27 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-ui-refinement",
+    date: "2026-09-12",
+    title: "A quieter interface: ghost buttons, pickers that show what they pick, and settings that flatten out",
+    summary: "Secondary buttons lose their circles, agent and device pickers carry icons, the Agent page holds the running and past runs, board settings get a page each, API keys became Security, and issue filters are gone.",
+    body: r#"- **Circles mean the main action**: only the one action a surface is for keeps a round button: start a run, send, New issue, Search, add. Everything secondary is a plain glyph that fills on hover, including the ... menus, close, folder and file toggles, chevrons, remove and refresh. Back is that same quiet button in the same place on every screen, and a back row in a list or in settings is the whole row.
+- **Pickers that show what they pick**: the agent picker is one control everywhere, showing the Claude Code or Codex mark on the button and both the mark and the name in its menu. Device pickers lead with a laptop or a server icon, and every menu whose value carries an icon now shows that icon on its options too.
+- **The Agent page is the composer**: the runs that are going sit in a band above the prompt, past runs are folded behind a count you can open, and with nothing running the prompt sits in the middle of the page instead of at the top.
+- **Device settings hold settings**: the dialog is the device name, your default device, team sharing and the per-agent defaults, and it opens at the size of its content. Signing in and choosing which account the device uses moved onto the account chips, where the account is.
+- **Add, switch and remove an account**: Add account sits in the Accounts header next to Add device, and an account chip offers exactly what applies to it: Sign in when it is signed out, Set as default, or Remove account. Removing clears that login from that one device; the account itself is untouched.
+- **Security**: the API keys settings page is now Security and holds your API keys and your passkeys, which moved off the Account page. Old links land there on their own.
+- **A settings page per board**: team settings list your boards one by one, the way the desktop app already did. Each board is its own page, with New board under the list and Archived boards after it.
+- **Changes you can size and scope**: the diff pane drags wider and remembers its width, and opening a file or an edit from the transcript scopes it to that turn, with one click back to the whole branch.
+- **Status headers in the sidebar**: the board and My issues lists in the sidebar group under the same status bands as the full list: the status glyph, its name, a count, and a click to fold.
+- **Automated runs together**: opening a finished automated run shows the other automated runs beside it, and Back returns to Automations.
+- **Issue filters are gone**: the filter bar left the board and the inbox on web, desktop, iOS and Android. Search covers what it was mostly used for, and grouping, sorting and the status bands stay.
+- **External agents are gone**: the desktop app and the CLI no longer run an arbitrary ACP binary. Claude Code and Codex are the agents; a recorded run that used an external one cannot be resumed, so start a new run instead."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-email-signup-and-mobile-tidy",
     date: "2026-09-12",
     title: "Sign up with your email, and the mobile apps drop what they cannot use",
@@ -54,19 +75,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **No pin buttons where there is no sidebar**: iOS, Android and the phone-width web app no longer offer Pin on issues, sessions and actions. Pins made on the desktop or the wide web app still show in the board switcher's Pinned group.
 - **Accounts and Devices on Android**: the Accounts page keeps only quiet machine chips (an online dot, a check on the active login). Signing in, re-login and "use this account here" moved to the machine row under Devices, as on web, desktop and iOS. On iOS a machine chip now offers the right repair: re-login for an expired login, use this account here for one the machine is not using.
 - **Retired agents stay gone**: a machine still on an older build that reports the removed pi agent no longer produces a row, a tab or a picker entry anywhere. The server strips it from every heartbeat and the stored device data was cleaned up."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-passwordless-login-and-passkeys",
-    date: "2026-09-12",
-    title: "Continue with email, or with a passkey",
-    summary: "The login screen is one list of Continue buttons: Apple, Google, email with a one-time code instead of a password, and passkeys, on web, desktop, iOS and Android.",
-    body: r#"- **One screen, one verb**: signing in and creating an account are the same tap. Every option reads Continue with Apple, Continue with Google, Continue with email or Login with passkey, and an unknown email simply becomes a new account.
-- **A code instead of a password**: Continue with email mails a 6-digit code that works once and expires after ten minutes. Type it where you started, on any client. Instances without a mail transport keep the password form behind the same button.
-- **Passkeys**: add one under Settings, Account, Passkeys, then sign in with Face ID, Touch ID, Windows Hello or a security key. iOS and Android run the ceremony on the device; the desktop app hands off to your browser and returns on its own.
-- **Self-hosted**: codes need SMTP or SES; passkeys need an https instance address. Both can be switched off with AUTH_EMAIL_OTP_ENABLED and AUTH_PASSKEY_ENABLED."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

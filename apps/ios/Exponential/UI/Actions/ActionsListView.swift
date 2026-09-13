@@ -412,7 +412,7 @@ struct ActionsListView: View {
                         pendingDelete = automation
                     }
                 } label: {
-                    CircleIconLabel(AppIcons.uiMore)
+                    GhostIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Automation actions")
             }
@@ -648,7 +648,7 @@ struct ActionsListView: View {
                         editTarget = action
                     }
                 } label: {
-                    CircleIconLabel(AppIcons.uiMore)
+                    GhostIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Action actions")
                 .accessibilityIdentifier("action-menu")

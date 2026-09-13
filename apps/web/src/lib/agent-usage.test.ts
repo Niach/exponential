@@ -5,17 +5,12 @@ import {
   agentHealth,
   agentProfileUsageRows,
   attentionRank,
-  chipAction,
-  chipSwitchesTo,
   deviceAccountChips,
   deviceWorstHealth,
   healthBadgeLabel,
   worstHealth,
   sortAccountGroupsAttentionFirst,
   type AgentProfileUsageRow,
-  type ChipActionRow,
-  accountLine,
-  accountRow,
   contextPercent,
   formatContextUsage,
   formatResetCountdown,
@@ -28,6 +23,7 @@ import {
   severity,
   usageGroups,
   usageIsFresh,
+  usageState,
   CONTEXT_SECTION_TITLE,
   USAGE_FRESH_MS,
 } from "./agent-usage"
@@ -362,43 +358,6 @@ describe(`accountCaption`, () => {
   })
 })
 
-describe(`accountLine`, () => {
-  it(`is the email alone — no prefix, no plan tail`, () => {
-    expect(
-      accountLine({ signedIn: true, email: `danny@example.com`, plan: `Max` })
-    ).toBe(`danny@example.com`)
-    expect(accountLine({ signedIn: true, email: `danny@example.com` })).toBe(
-      `danny@example.com`
-    )
-  })
-
-  it(`falls back to the bare plan without an email`, () => {
-    expect(accountLine({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
-      `anthropic (oauth)`
-    )
-    expect(accountLine({ signedIn: true })).toBe(`signed in`)
-  })
-
-  it(`spells out the negatives`, () => {
-    expect(accountLine({ signedIn: false })).toBe(`Not signed in`)
-    expect(accountLine(null)).toBe(`Sign-in status unknown`)
-  })
-})
-
-describe(`accountRow`, () => {
-  it(`prefixes the agent`, () => {
-    expect(
-      accountRow(`claude`, {
-        signedIn: true,
-        email: `danny@example.com`,
-        plan: `Max`,
-      })
-    ).toBe(`claude · danny@example.com`)
-    expect(accountRow(`codex`, { signedIn: false })).toBe(`codex · signed out`)
-    expect(accountRow(`claude`, null)).toBe(`claude · unknown`)
-  })
-})
-
 describe(`sessionAgentUsage`, () => {
   const session = {
     deviceId: `dev-1`,
@@ -598,6 +557,7 @@ describe(`accountUsageGroups`, () => {
     email: null,
     plan: null,
     usage: null,
+    unmonitored: false,
     checkedAt: null,
     ...overrides,
   })
@@ -909,40 +869,56 @@ describe(`retired agent ids (EXP-849)`, () => {
   })
 })
 
-// EXP-849: the ONE repair a machine's account chip offers. The cap input is
-// the machine's `account-switch` capability (`deviceCanSwitchAccount`): the
-// server refuses `agent_profile_use` without it, and a fleet at the 0.14.37
-// floor does not have it yet, so the rule must not offer the switch there.
-describe(`chipAction / chipSwitchesTo`, () => {
-  const row = (over: Partial<ChipActionRow> = {}): ChipActionRow => ({
+// EXP-862: every login's numbers are collected, so an empty bar means one of
+// three different things — and the row has to say which.
+describe(`usageState (EXP-862)`, () => {
+  const row = (over: Partial<AgentProfileUsageRow> = {}) => ({
     signedIn: true,
-    active: false,
-    health: `ok`,
+    unmonitored: false,
+    usage: {
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+      windows: [{ key: `session`, label: `Session`, percent: 12, resetsAt: null }],
+    },
     ...over,
   })
 
-  it(`names the one action per state on a capable machine`, () => {
-    expect(chipAction(row({ signedIn: false, health: `signed_out` }), true)).toBe(
-      `Sign in`
+  it(`reads numbers as ready, stale ones included`, () => {
+    expect(usageState(row())).toBe(`ready`)
+    expect(
+      usageState(
+        row({
+          usage: {
+            fetchedAt: `2020-01-01T00:00:00.000Z`,
+            stale: true,
+            windows: [
+              { key: `session`, label: `Session`, percent: 3, resetsAt: null },
+            ],
+          },
+        })
+      )
+    ).toBe(`ready`)
+  })
+
+  it(`reads a signed-in login with nothing read yet as checking`, () => {
+    expect(usageState(row({ usage: null }))).toBe(`checking`)
+    expect(
+      usageState(
+        row({
+          usage: { fetchedAt: `2026-09-12T10:00:00.000Z`, stale: false, windows: [] },
+        })
+      )
+    ).toBe(`checking`)
+  })
+
+  it(`keeps the machine's own "I collect nothing for this one" verdict`, () => {
+    expect(usageState(row({ unmonitored: true, usage: null }))).toBe(
+      `unmonitored`
     )
-    expect(chipAction(row({ health: `needs_relogin` }), true)).toBe(`Re-login`)
-    expect(chipAction(row({ active: true }), true)).toBe(`Sign in again`)
-    expect(chipAction(row(), true)).toBe(`Use this account here`)
   })
 
-  it(`switches only to a healthy login the machine is not already using`, () => {
-    expect(chipSwitchesTo(row(), true)).toBe(true)
-    expect(chipSwitchesTo(row({ active: true }), true)).toBe(false)
-    expect(chipSwitchesTo(row({ health: `needs_relogin` }), true)).toBe(false)
-    expect(chipSwitchesTo(row({ signedIn: false }), true)).toBe(false)
-  })
-
-  it(`falls back to a sign-in without the account-switch capability`, () => {
-    expect(chipSwitchesTo(row(), false)).toBe(false)
-    expect(chipAction(row(), false)).toBe(`Sign in again`)
-    // The other states are unchanged — only the switch needs the cap.
-    expect(chipAction(row({ signedIn: false }), false)).toBe(`Sign in`)
-    expect(chipAction(row({ health: `needs_relogin` }), false)).toBe(`Re-login`)
-    expect(chipAction(row({ active: true }), false)).toBe(`Sign in again`)
+  it(`says nothing at all for a signed-out login`, () => {
+    expect(usageState(row({ signedIn: false }))).toBe(`none`)
+    expect(usageState(row({ signedIn: false, unmonitored: true }))).toBe(`none`)
   })
 })

@@ -31,7 +31,7 @@ struct RelationPickerSheet: View {
                 if let pick {
                     VStack(alignment: .leading, spacing: 0) {
                         // The drill-down's own back control lives inside the
-                        // content, like the filter sheet's (EXP-687).
+                        // content (EXP-687).
                         Button {
                             self.pick = nil
                             searchText = ""

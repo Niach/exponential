@@ -18,9 +18,6 @@
 //! test `apps/web/src/lib/mcp/context-budget.test.ts` reads the same file
 //! and fails when it names a tool the server does not register or grows
 //! past [`RUN_SKILL_MAX_BYTES`].
-//!
-//! External ACP agents (`AgentKind::External`) get nothing: they have no
-//! known additive instruction channel.
 
 /// The playbook, verbatim.
 pub const RUN_SKILL: &str = include_str!("skill.md");

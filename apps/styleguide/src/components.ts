@@ -29,6 +29,7 @@ import {
   escapeHtml,
   svgBell,
   svgCheck,
+  svgChevronDown,
   svgChevronRight,
   svgCircleDashed,
   svgCircleHelp,
@@ -194,6 +195,15 @@ function relationRow(label: string, id: string, title: string): string {
 
 function iconButton(glyph: string): string {
   return `<button class="cmp-icon-button" type="button">${glyph}</button>`
+}
+
+/**
+ * The GHOST (EXP-862). Same 32px box, same 16px glyph, but no circle, no fill
+ * and no border at rest: a SECONDARY action is a glyph the row owns, and the
+ * hover wash is the only paint it ever draws.
+ */
+function ghostIconButton(glyph: string): string {
+  return `<button class="cmp-ghost-icon-button" type="button">${glyph}</button>`
 }
 
 /**
@@ -631,9 +641,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
   },
   {
     id: `icon-button`,
-    title: `Glass icon button`,
+    title: `Primary icon button`,
     kind: `Controls`,
-    blurb: `A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength. The SHAPE is the meaning (EXP-771): a circle is an ACTION, so every icon-only action wears one — these glass buttons, the rail's New issue and Search, the session bar's tools, a mobile FAB. The one exception is a picker TRIGGER, which is a rounded square: see icon picker.`,
+    blurb: `A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength. The SHAPE is the meaning (EXP-771, narrowed by EXP-862): a circle marks the PRIMARY action and nothing else wears one. That is play / start, send, the rail's New issue and Search, a mobile FAB, and the "+" that adds. Every other icon-only control is the ghost icon button. The remaining exception is a picker TRIGGER, which is a rounded square: see icon picker.`,
     status: {
       web: ok(`buttonVariants variant="glass" size="icon-sm"`, `apps/web/src/components/ui/button.tsx`),
       desktop: ok(`controls::glass_icon_button`, DESKTOP_CONTROLS),
@@ -641,13 +651,37 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       android: ok(`CircleIconButton`, `${ANDROID_COMPONENTS}/CircleIconButton.kt`),
     },
     render: () =>
-      row(`Nightly changelog`, `${iconButton(svgPlay)}${iconButton(svgEllipsis)}`),
+      row(
+        `Nightly changelog`,
+        `${iconButton(svgPlay)}${iconButton(svgSend)}${iconButton(svgPlus)}`
+      ),
+  },
+  {
+    id: `ghost-icon-button`,
+    title: `Ghost icon button`,
+    kind: `Controls`,
+    blurb: `The SECONDARY icon button (EXP-862): the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength. Everything that is not the primary action wears this one: the "…" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.`,
+    status: {
+      web: ok(`buttonVariants variant="ghost" size="icon-sm"`, `apps/web/src/components/ui/button.tsx`),
+      desktop: ok(`controls::ghost_icon_button`, DESKTOP_CONTROLS),
+      ios: ok(`GhostIconButton`, IOS_CONTROLS),
+      android: ok(
+        `CircleIconButton(borderless = true)`,
+        `${ANDROID_COMPONENTS}/CircleIconButton.kt`,
+        `one composable, two shapes: borderless drops the circle and the stroke and keeps the hover fill`
+      ),
+    },
+    render: () =>
+      row(
+        `Changes`,
+        `${ghostIconButton(svgEllipsis)}${ghostIconButton(svgChevronDown)}${ghostIconButton(svgX)}`
+      ),
   },
   {
     id: `icon-picker`,
     title: `Icon picker`,
     kind: `Controls`,
-    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): circle is an action, ROUNDED SQUARE is a picker. The trigger is a 36px square at the radius ladder's MD step over card fill — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the 60-glyph grid it opens wear that same corner, the picked one taking the active fill under the active stroke. Colour swatches are the counter-example: a colour has no shape to read, so those stay circles.`,
+    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): a circle is the primary ACTION, ROUNDED SQUARE is a picker. The trigger is a square at the radius ladder's MD step over card fill, sized to the field it sits beside (web h-9, desktop and the natives the 32px control rung) — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the 60-glyph grid it opens wear that same corner, the picked one taking the active fill under the active stroke. EXP-862 gave the colour picker the SAME trigger, so the board form reads as one control repeated; the swatches inside it are the counter-example: a colour has no shape to read, so those stay circles.`,
     status: {
       web: ok(
         `IconPicker`,
@@ -1154,7 +1188,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-radius`,
     title: `Radius ladder`,
     kind: `Tokens`,
-    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD does double duty as the PICKER corner (EXP-771): an icon picker trigger and every cell of its swatch grid take it, which is what keeps a picker from reading as a circular action button.`,
+    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD does double duty as the PICKER corner (EXP-771): an icon or colour picker trigger and every cell of the glyph grid take it, which is what keeps a picker from reading as a circular action button.`,
     status: {
       web: ok(`--radius`, `apps/web/src/styles.css`),
       desktop: ok(`theme::radius::*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),

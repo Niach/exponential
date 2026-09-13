@@ -11,10 +11,10 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import {
-  BoardColorField,
-  BoardNameField,
+  BoardIdentityRow,
   BoardPrefixField,
 } from "@/components/board-form-fields"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { BoardRepoField } from "@/components/board-repo-field"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
@@ -147,17 +147,22 @@ export function CreateBoardDialog({
             onSubmit={handleSubmit}
             className="flex min-h-0 flex-1 flex-col gap-4"
           >
+            {/* EXP-862: one grouped form — identity (icon, colour, name) in
+                ONE row, then the prefix; the repository block brings its own
+                group. No captions above any field. */}
             <DialogBody className="space-y-4">
-              <BoardNameField
-                value={name}
-                onChange={handleNameChange}
-                autoFocus
-                icon={icon}
-                onIconChange={setIcon}
-                color={color}
-              />
-              <BoardPrefixField value={prefix} onChange={setPrefix} />
-              <BoardColorField color={color} onColorChange={setColor} />
+              <GlassGroup>
+                <BoardIdentityRow
+                  name={name}
+                  onNameChange={handleNameChange}
+                  autoFocus
+                  icon={icon}
+                  onIconChange={setIcon}
+                  color={color}
+                  onColorChange={setColor}
+                />
+                <BoardPrefixField value={prefix} onChange={setPrefix} />
+              </GlassGroup>
 
               <BoardRepoField
                 teamId={teamId}

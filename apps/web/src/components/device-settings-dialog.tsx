@@ -1,12 +1,15 @@
-// Device settings (EXP-481) — the per-machine Edit view the ⋯ menu's Rename/
-// Share entries collapsed into. Name, the EXP-622 default-machine toggle and
+// Device settings (EXP-481) — the per-device view the ⋯ menu's "Device
+// settings" entry opens. Name, the EXP-622 default-device toggle and
 // sharing are registry writes (work offline); agent defaults edit the SERVER-AUTHORITATIVE devices row (an
-// offline machine converges on its next heartbeat), and the worktree list
-// manages the machine's reported inventory through the durable command queue
+// offline device converges on its next heartbeat), and the worktree list
+// manages the device's reported inventory through the durable command queue
 // (worktree_remove / worktree_prune — queued commands run when an offline
-// device returns). Owner-only: the menu only exists on "My machines" rows.
+// device returns). Owner-only: the menu only exists on "My devices" rows.
+//
+// EXP-862: NO accounts here. Signing in, picking the default login and
+// removing one all live on the account chips (the device row's and the
+// Accounts section's) — one surface for a device's logins, not two.
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate, useParams } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
@@ -15,19 +18,14 @@ import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
-import { useAgentLogin } from "@/hooks/use-agent-login"
 import { deviceCollection, deviceWorktreeCollection, teamCollection } from "@/lib/collections"
 import {
   agentSeed,
   agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import {
-  deviceCanAgentLogin,
-  deviceRowIsOnline,
-  type SteerDevice,
-} from "@/lib/steer-devices"
-import { AgentAccountBlock } from "@/components/device-agent-account"
+import { deviceRowIsOnline, type SteerDevice } from "@/lib/steer-devices"
+import { AgentPicker } from "@/components/agent-picker"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -48,12 +46,10 @@ import {
 import {
   GlassGroup,
   GlassInputRow,
-  GlassPickerRow,
   GlassSectionHeader,
   GlassToggleRow,
 } from "@/components/ui/glass-rows"
 import {
-  AGENT_LABELS,
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
 } from "@/components/launch-dialog/launch-options-pane"
@@ -96,10 +92,6 @@ export function DeviceSettingsDialog({
 }) {
   const rowId = device?.rowId
   const deviceId = device?.deviceId
-  // Loose: the dialog mounts under `/t/$teamSlug`, but must not throw in a
-  // story that renders it elsewhere.
-  const { teamSlug } = useParams({ strict: false })
-  const navigate = useNavigate()
 
   // The LIVE synced row — renames/share/defaults applied elsewhere stream in;
   // the drafts below latch once per open so sync never stomps typing.
@@ -178,8 +170,8 @@ export function DeviceSettingsDialog({
       ...(row?.agents ?? []),
       ...(row?.unauthedAgents ?? []),
       ...Object.keys(row?.launchDefaults?.agents ?? {}),
-      // EXP-688: an agent the machine only reported an ACCOUNT or usage for
-      // still gets a tab — that tab is now where its sign-in lives.
+      // EXP-688: an agent the device only reported an ACCOUNT or usage for
+      // still gets a tab — its defaults are editable either way.
       ...Object.keys(row?.agentAccounts ?? {}),
       ...Object.keys(row?.agentUsage ?? {}),
     ].filter((agent) => contract.codingAgent.values.includes(agent))
@@ -229,7 +221,6 @@ export function DeviceSettingsDialog({
     sentDefaultsStampRef.current = 0
     setSectionErrors({})
     setTracked([])
-    setSwitchTarget(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.id])
   useEffect(() => {
@@ -470,10 +461,6 @@ export function DeviceSettingsDialog({
   const [tracked, setTracked] = useState<TrackedCommand[]>([])
   const [removeTarget, setRemoveTarget] =
     useState<SyncedDeviceWorktree | null>(null)
-  // EXP-792 (EXP-747 A1): the agent sign-in round trip lives in its own
-  // hook now, shared with the launch-failure toasts and the machine rows.
-  const login = useAgentLogin({ deviceId, online, active: open })
-  const [switchTarget, setSwitchTarget] = useState<string | null>(null)
 
   const commandKey = (worktree: SyncedDeviceWorktree) =>
     `${worktree.repoFullName} ${worktree.branch}`
@@ -487,15 +474,20 @@ export function DeviceSettingsDialog({
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
     try {
-      const { id } = await trpc.devices.createCommand.mutate({
-        deviceId,
-        ...input,
-      })
+      const { id } = await trpc.devices.createCommand.mutate(
+        {
+          deviceId,
+          ...input,
+        },
+        // The section prints the failure itself — no second toast from the
+        // global link.
+        { context: { skipErrorToast: true } }
+      )
       setTracked((current) => [...current, { id, key }])
     } catch (error) {
       setSectionErrors((current) => ({
         ...current,
-        [key]: trpcErrorMessage(error, `Couldn't queue that on the machine.`),
+        [key]: trpcErrorMessage(error, `Couldn't queue that on the device.`),
       }))
     }
   }
@@ -518,7 +510,7 @@ export function DeviceSettingsDialog({
             setSectionErrors((current) => ({
               ...current,
               [command.key]:
-                result.result ?? `The machine reported a failure.`,
+                result.result ?? `The device reported a failure.`,
             }))
           }
         } catch {
@@ -554,28 +546,6 @@ export function DeviceSettingsDialog({
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
 
-  // EXP-827: the Usage button under an agent's account closes this dialog
-  // and lands on the Devices page's Accounts section.
-  const openUsage = () => {
-    if (!teamSlug) return
-    onOpenChange(false)
-    void navigate({
-      to: `/t/$teamSlug/devices`,
-      params: { teamSlug },
-      hash: `accounts`,
-    })
-  }
-
-  const startAgentLogin = (agent: string, switchAccount: boolean) => {
-    // `codex logout` revokes the token SERVER-side — switching accounts is
-    // not a local-only act, so it asks first. Claude's is local.
-    if (switchAccount && agent === `codex`) {
-      setSwitchTarget(agent)
-      return
-    }
-    login.queueLogin(agent, switchAccount)
-  }
-
   const dirtyLabel = (dirty: string): string | null =>
     dirty === `tracked`
       ? `uncommitted changes`
@@ -591,7 +561,10 @@ export function DeviceSettingsDialog({
           pointing at a description that no longer exists. */}
       <DialogContent
         mobile="sheet-full"
-        className="gap-4 sm:h-[min(90dvh,46rem)] sm:max-h-[90dvh] sm:max-w-3xl"
+        // EXP-862: height = CONTENT, capped. Losing the account block left a
+        // fixed 46rem sheet half empty; the columns still scroll on their own
+        // once the cap bites.
+        className="gap-4 sm:max-h-[min(90dvh,46rem)] sm:max-w-3xl"
         aria-describedby={undefined}
         // EXP-698: Radix autofocuses the first field and SELECTS its text, so
         // the Name row opened as a white selection block filling the row (and
@@ -653,7 +626,7 @@ export function DeviceSettingsDialog({
               </p>
             )}
 
-            {/* ── Default machine (EXP-622) ────────────────────────────── */}
+            {/* ── Default device (EXP-622) ─────────────────────────────── */}
             <GlassGroup>
               <GlassToggleRow
                 id="device-settings-default"
@@ -669,7 +642,7 @@ export function DeviceSettingsDialog({
               </p>
             )}
 
-            {/* ── Sharing (server machines only, EXP-432/FEED-33) ───────── */}
+            {/* ── Sharing (server devices only, EXP-432/FEED-33) ───────── */}
             {kind === `server` && (
               <>
                 <GlassSectionHeader label="Sharing" />
@@ -690,12 +663,12 @@ export function DeviceSettingsDialog({
                   </GlassGroup>
                 ) : (
                   <p className="px-1 text-xs text-muted-foreground">
-                    Join a team to share this machine.
+                    Join a team to share this device.
                   </p>
                 )}
                 <p className="px-1 text-xs text-muted-foreground">
                   Teammates of a shared team can start coding sessions on this
-                  machine.
+                  device.
                 </p>
                 {sectionErrors.sharing && (
                   <p className="px-1 text-xs text-destructive">
@@ -721,19 +694,22 @@ export function DeviceSettingsDialog({
                 )}
               </div>
             )}
+            {/* EXP-862: the ONE agent picker — same trigger as the composer's
+                and the launch pane's, in the row rhythm the group draws. */}
             <GlassGroup>
-              <GlassPickerRow
-                label="Default agent"
-                value={defaultAgentDraft}
-                onValueChange={(value) => {
-                  setDefaultAgentDraft(value)
-                  scheduleDefaults()
-                }}
-                options={editorAgents.map((agent) => ({
-                  value: agent,
-                  label: AGENT_LABELS[agent] ?? agent,
-                }))}
-              />
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="text-sm text-foreground">Default agent</span>
+                <span className="ml-auto">
+                  <AgentPicker
+                    value={defaultAgentDraft}
+                    agents={editorAgents}
+                    onChange={(value) => {
+                      setDefaultAgentDraft(value)
+                      scheduleDefaults()
+                    }}
+                  />
+                </span>
+              </div>
             </GlassGroup>
             <AgentOptionsFields
               idPrefix="device-settings"
@@ -754,30 +730,6 @@ export function DeviceSettingsDialog({
               onUltracodeChange={(value) => patchDraft({ ultracode: value })}
               planMode={draft.planMode}
               onPlanModeChange={(value) => patchDraft({ planMode: value })}
-              /* EXP-688: who this agent is signed in as on this machine, and
-                 what it has spent — under its OWN tab, not a section apart.
-                 EXP-694: rendered as that card's closing rows. */
-              renderAgentFooter={(agent) => {
-                const state = login.stateFor(agent)
-                return (
-                  <AgentAccountBlock
-                    agent={agent}
-                    row={row}
-                    online={online}
-                    canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
-                    now={now}
-                    error={state.error}
-                    pending={state.pending}
-                    result={state.result}
-                    onLogin={startAgentLogin}
-                    onOpenUsage={openUsage}
-                    codeError={state.codeError}
-                    codePending={state.codePending}
-                    codeResult={state.codeResult}
-                    onEnterCode={login.queueLoginCode}
-                  />
-                )
-              }}
             />
             {sectionErrors.defaults && (
               <p className="px-1 text-xs text-destructive">
@@ -792,10 +744,12 @@ export function DeviceSettingsDialog({
               label="Worktrees"
               trailing={
                 /* EXP-688: icon only — the label repeated the section it sits
-                   in, and the row reads as a heading with an action again. */
+                   in, and the row reads as a heading with an action again.
+                   EXP-862: a GHOST icon button ×4, no circle, no border. */
                 <Button
                   variant="ghost"
-                  className="h-5 w-5 p-0 text-muted-foreground"
+                  size="icon-sm"
+                  className="text-muted-foreground"
                   aria-label="Prune merged worktrees"
                   title="Prune merged worktrees"
                   disabled={pendingKey(`prune`) || worktrees.length === 0}
@@ -804,16 +758,16 @@ export function DeviceSettingsDialog({
                   }
                 >
                   {pendingKey(`prune`) ? (
-                    <LoaderCircle className="size-3 animate-spin" />
+                    <LoaderCircle className="size-3.5 animate-spin" />
                   ) : (
-                    <PruneIcon className="size-3" />
+                    <PruneIcon className="size-3.5" />
                   )}
                 </Button>
               }
             />
             {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
               <p className="px-1 pb-1 text-xs text-muted-foreground">
-                This machine is offline — queued changes run when it comes
+                This device is offline — queued changes run when it comes
                 online.
               </p>
             )}
@@ -825,7 +779,7 @@ export function DeviceSettingsDialog({
             <GlassGroup>
               {worktrees.length === 0 ? (
                 <p className="px-4 py-3 text-xs text-muted-foreground">
-                  No worktrees reported by this machine.
+                  No worktrees reported by this device.
                 </p>
               ) : (
                 worktrees.map((worktree) => {
@@ -870,11 +824,12 @@ export function DeviceSettingsDialog({
                         )}
                         <Button
                           variant="ghost"
-                          className="h-5 w-5 shrink-0 p-0 text-muted-foreground"
+                          size="icon-sm"
+                          className="shrink-0 text-muted-foreground"
                           title={
                             worktree.busy
                               ? `A live session is using this worktree.`
-                              : `Remove this worktree on the machine`
+                              : `Remove this worktree on the device`
                           }
                           disabled={worktree.busy || removing}
                           onClick={() => setRemoveTarget(worktree)}
@@ -910,9 +865,9 @@ export function DeviceSettingsDialog({
               <AlertDialogTitle>Remove worktree</AlertDialogTitle>
               <AlertDialogDescription>
                 Remove {removeTarget?.branch} ({removeTarget?.repoFullName}) on
-                “{label}”? The machine refuses if the worktree has uncommitted
+                “{label}”? The device refuses if the worktree has uncommitted
                 changes.
-                {online ? `` : ` It runs when the machine comes online.`}
+                {online ? `` : ` It runs when the device comes online.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -931,35 +886,6 @@ export function DeviceSettingsDialog({
                 }}
               >
                 Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <AlertDialog
-          open={switchTarget !== null}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setSwitchTarget(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Switch Codex account</AlertDialogTitle>
-              <AlertDialogDescription>
-                Codex logout revokes the token server-side; you'll sign in
-                again on that machine.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  const target = switchTarget
-                  setSwitchTarget(null)
-                  if (target) login.queueLogin(target, true)
-                }}
-              >
-                Sign out and sign in
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

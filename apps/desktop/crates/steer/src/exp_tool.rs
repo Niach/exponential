@@ -78,6 +78,33 @@ pub fn exp_tool_display(name: &str, settled: bool) -> Option<ExpToolDisplay> {
     })
 }
 
+/// EXP-862 — one built-in Exponential tool as the MCP servers page lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinExpTool {
+    /// The full wire name (`exponential_issues_create`) — the row's tooltip,
+    /// and the only place the wire vocabulary still shows.
+    pub name: String,
+    /// The contract's human title ("Create issue").
+    pub title: &'static str,
+    /// The one-line description under it.
+    pub blurb: &'static str,
+}
+
+/// EXP-862 — every built-in Exponential tool, in contract order, for the
+/// collapsed "Built-in Exponential tools" group of the MCP servers page.
+/// Mirrored ×2 (web `lib/agent-feed.ts` `builtinExpTools`).
+pub fn builtin_tools() -> Vec<BuiltinExpTool> {
+    domain::contract::EXP_TOOL_NAMES
+        .iter()
+        .enumerate()
+        .map(|(index, row)| BuiltinExpTool {
+            name: format!("{}{row}", domain::contract::EXP_TOOL_PREFIX),
+            title: domain::contract::EXP_TOOL_TITLES[index],
+            blurb: domain::contract::EXP_TOOL_BLURBS[index],
+        })
+        .collect()
+}
+
 /// The contract result kinds a settled row can preview, as named constants —
 /// the match arms every client's renderer forks on.
 pub mod result {
@@ -148,12 +175,34 @@ mod tests {
         assert_eq!(domain::contract::EXP_TOOL_DONE.len(), rows);
         assert_eq!(domain::contract::EXP_TOOL_SUBJECT_KEYS.len(), rows);
         assert_eq!(domain::contract::EXP_TOOL_RESULTS.len(), rows);
+        // EXP-862: the settings copy is two more parallel tables.
+        assert_eq!(domain::contract::EXP_TOOL_TITLES.len(), rows);
+        assert_eq!(domain::contract::EXP_TOOL_BLURBS.len(), rows);
         // Every result kind is one of the contract's own values.
         for kind in domain::contract::EXP_TOOL_RESULTS {
             assert!(
                 domain::contract::EXP_TOOL_RESULT_KINDS.contains(kind),
                 "{kind} is not a contract result kind"
             );
+        }
+    }
+
+    /// EXP-862 — the settings list: every built-in tool, its wire name whole
+    /// (the row's tooltip) and human copy beside it.
+    #[test]
+    fn the_builtin_list_carries_the_wire_name_and_the_copy() {
+        let tools = builtin_tools();
+        assert_eq!(tools.len(), domain::contract::EXP_TOOL_NAMES.len());
+        let create = tools
+            .iter()
+            .find(|tool| tool.name == "exponential_issues_create")
+            .expect("issues_create is built in");
+        assert_eq!(create.title, "Create issue");
+        assert!(!create.blurb.is_empty());
+        for tool in &tools {
+            assert!(tool.name.starts_with(domain::contract::EXP_TOOL_PREFIX));
+            assert!(!tool.title.is_empty() && !tool.blurb.is_empty());
+            assert!(tool.blurb.len() <= 120, "{} blurb is long", tool.name);
         }
     }
 }

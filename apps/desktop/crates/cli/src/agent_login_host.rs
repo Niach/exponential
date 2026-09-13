@@ -202,12 +202,15 @@ pub fn run(
             // person who just signed out. Drop the LOGIN's entry so the next
             // collect asks afresh. EXP-849: the login's, not the agent's —
             // dropping every profile would blank its siblings' health and
-            // numbers for a sign-in that never touched them.
-            match &login_profile {
-                Some(profile) => {
-                    coding::usage_cache::forget_profile(&data_dir, agent.id(), profile)
-                }
-                None => coding::usage_cache::forget(&data_dir, agent.id()),
+            // numbers for a sign-in that never touched them. EXP-862: an
+            // entry-less login also skips the rotation queue, so the account
+            // this sign-in created is read on the very next collection pass
+            // rather than after a stagger window. A run that never resolved a
+            // target signed nothing in, so it drops NOTHING: forgetting the
+            // agent there would put every one of its logins on a first read
+            // at once, which is the fan-out the stagger exists to prevent.
+            if let Some(profile) = &login_profile {
+                coding::usage_cache::forget_profile(&data_dir, agent.id(), profile);
             }
             // Whatever happened, what the machine's agents look like just
             // changed (or was meant to) — re-probe on the next tick.

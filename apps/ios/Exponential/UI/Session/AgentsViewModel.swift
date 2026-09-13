@@ -78,8 +78,6 @@ final class AgentsViewModel {
     /// glyph. Cleared when the machine's re-report moves the stamp, or after
     /// `Self.refreshPendingWindow` with no answer.
     private(set) var refreshingAccounts: Set<String> = []
-    /// EXP-829: the last refresh that could not be queued, for the row.
-    var accountError: String?
     /// EXP-849: the account ACTIONS a machine chip offers (re-login, "use this
     /// account here") — the rows a command is in flight for, keyed by
     /// `AgentProfileUsageRow.key`, and the last refusal. The outcome itself
@@ -489,23 +487,17 @@ final class AgentsViewModel {
                 continue
             }
             autoRefreshAttempts[group.key] = now
-            refreshAccount(group, silent: true)
+            refreshAccount(group)
         }
     }
 
-    /// Whether the section refreshes by itself — any account has a machine
-    /// that may run the command.
-    var accountsAutoRefresh: Bool {
-        accountGroups.contains { $0.refreshTarget != nil }
-    }
-
     /// Queue `agent_usage_refresh` for the account on its refresh target.
-    /// The page's own refresh (`silent`) fails quietly: a command still
+    /// EXP-862 retired the per-row refresh BUTTON on every client, so this is
+    /// only ever the page's own pass — and it fails quietly: a command still
     /// queued from the last round is a CONFLICT, and the next pass simply
     /// looks again.
-    func refreshAccount(_ group: AgentAccountUsageGroup, silent: Bool = false) {
+    private func refreshAccount(_ group: AgentAccountUsageGroup) {
         guard let target = group.refreshTarget, let devicesApi else { return }
-        if !silent { accountError = nil }
         refreshMarks[group.key] = (fetchedAt: group.usage?.fetchedAt, at: Date())
         refreshingAccounts = Set(refreshMarks.keys)
         let accountId = accountId
@@ -522,7 +514,6 @@ final class AgentsViewModel {
                 guard let self else { return }
                 self.refreshMarks[group.key] = nil
                 self.refreshingAccounts = Set(self.refreshMarks.keys)
-                if !silent { self.accountError = error.userFacingMessage }
             }
         }
     }
@@ -549,6 +540,23 @@ final class AgentsViewModel {
         AgentAccountsRows.deviceRows(accountRows, deviceId: deviceId)
     }
 
+    /// EXP-862: the machines an account row's "+" can sign this account in on
+    /// — MINE, online, advertising `agent-login`, with the agent installed,
+    /// and not already holding the account (web `addAccountDevices`). Empty
+    /// for an account nobody could sign in AS (web's `showAdd`): a signed-out
+    /// login, or one the machines reported with no email, has no identity to
+    /// add elsewhere.
+    func addAccountTargets(_ group: AgentAccountUsageGroup) -> [SteerDevice] {
+        guard AgentAccountsRows.canAddAccountElsewhere(group) else { return [] }
+        let holders = Set(group.rows.map(\.deviceId))
+        return (devices ?? []).filter { device in
+            device.isMine && device.isOnline && device.canAgentLogin
+                && !holders.contains(device.deviceId)
+                && (device.agentIds.contains(group.agent)
+                    || device.unauthedAgentIds.contains(group.agent))
+        }
+    }
+
     /// EXP-849: the health badge a machine row wears — the worst of its
     /// logins.
     func deviceHealth(_ deviceId: String) -> AgentAccountHealth {
@@ -567,7 +575,8 @@ final class AgentsViewModel {
     }
 
     /// EXP-849: make this login the machine's ACTIVE one for its agent — the
-    /// Devices surface's "Use this account here".
+    /// chip menu's "Set as default" (EXP-862 renamed the entry; the command is
+    /// unchanged).
     ///
     /// Its own command kind (`agent_profile_use`, payload `{agent,
     /// profileId}`): the machine points its active-profile pointer at a login
@@ -587,6 +596,24 @@ final class AgentsViewModel {
     /// machine. Accepted by `devices.createCommand` and handled by the desktop
     /// and the headless daemon (`agent_profiles::set_active_profile`).
     private static let useAccountCommandKind = "agent_profile_use"
+
+    /// EXP-862: delete the MACHINE's copy of a login — the chip menu's
+    /// destructive entry, confirmed before it gets here.
+    ///
+    /// What goes is the agent CLI's config dir for that profile (credentials
+    /// included) and its index row. The ACCOUNT is untouched: the machine never
+    /// runs `codex logout`, which would revoke it server-wide, and nothing
+    /// about it leaves the machine. Gated on the machine's `account-remove` cap
+    /// (`AgentAccountsRows.canRemoveAccount`) — without it the menu hides the
+    /// entry, because the server refuses the command and an older build would
+    /// leave the row pending forever.
+    func removeAccount(_ row: AgentProfileUsageRow) {
+        queueAccountCommand(row, kind: Self.removeAccountCommandKind)
+    }
+
+    /// EXP-862's command kind, handled by the desktop and the headless daemon
+    /// (`coding::agent_usage::remove_profile`).
+    private static let removeAccountCommandKind = "agent_profile_remove"
 
     private func queueAccountCommand(
         _ row: AgentProfileUsageRow,
@@ -623,7 +650,7 @@ final class AgentsViewModel {
                     guard !command.isPending else { continue }
                     if command.isFailed {
                         self.accountActionErrors[deviceId] =
-                            command.result ?? "The machine refused the command."
+                            command.result ?? "The device refused the command."
                     }
                     break
                 }

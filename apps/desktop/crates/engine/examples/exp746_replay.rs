@@ -48,7 +48,7 @@ fn main() {
         data_dir: std::env::temp_dir().join("exp746-replay"),
         personal_key: None,
         handle: engine::HistoryHandle {
-            agent: coding::AgentKind::Builtin(agent),
+            agent: agent,
             cwd: PathBuf::from(cwd),
             acp_session_id: Some(session_id.clone()),
             native,

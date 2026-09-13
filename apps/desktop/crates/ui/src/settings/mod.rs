@@ -10,7 +10,7 @@
 //! old flat Boards list into per-board detail pages), **Features**
 //! (Feedback widget, Helpdesk — EXP-771), the desktop-only
 //! **This device** group (Tools, Agents, Worktrees), and
-//! **Personal** (Account, Notifications, API keys, About — EXP-238); the
+//! **Personal** (Account, Notifications, Security, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
 //! each pane mirrors its web card field-for-field — and since EXP-771 sits
 //! under the web route's OWN header ("Settings" + "Manage … and your
@@ -59,13 +59,6 @@ mod team_general;
 mod tools;
 mod widget;
 
-/// EXP-282/EXP-456: width of the settings nav column — it REPLACES the RAIL
-/// (the window's leftmost column, rendered by the `Shell`) while a settings
-/// screen is up, so it owns a fixed width like the right detail sidebars
-/// rather than riding the resizable split. EXP-464: exactly the rail's width,
-/// so the swap slides without the column growing or shrinking.
-pub const SETTINGS_NAV_WIDTH: f32 = crate::sidebar::RAIL_W;
-
 /// EXP-851: the left column's BACK row — the settings nav's header row,
 /// shared with the `ListNav` (`sidebar::ListPanel::nav_back_row`) so the two
 /// occupants of that column wear the same affordance. Returns the row WITHOUT
@@ -86,7 +79,10 @@ pub(crate) fn nav_back_row(
         .cursor_pointer()
         .flex_shrink_0()
         .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-        .child(Icon::new(registry::UI_BACK).xsmall().flex_shrink_0())
+        // EXP-862: the BARE 16px chevron (`controls::back_glyph`) — the whole
+        // row is the target, so a nested button would be a second hit target
+        // for the same action.
+        .child(crate::controls::back_glyph())
         .child(
             div()
                 .min_w_0()
@@ -99,11 +95,11 @@ pub(crate) fn nav_back_row(
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, MouseButton, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window, WindowControlArea,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Icon, InteractiveElementExt as _, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -188,7 +184,9 @@ pub(crate) enum SettingsSection {
     /// EXP-238: email/push notification prefs as their own section (web
     /// parity: `settings/notifications`). Never gated.
     Notifications,
-    /// EXP-238: personal `expu_` API keys — list/mint/revoke. Never gated.
+    /// EXP-238: personal `expu_` API keys — list/mint/revoke. EXP-862
+    /// relabelled the nav entry "Security" (web `/settings/security`); the
+    /// variant keeps its name, and so does the `settings-api` icon.
     ApiKeys,
     /// EXP-262: version + third-party licence notices. Since EXP-238 an
     /// ordinary Personal-group item in [`NAV_GROUPS`] — it sits LAST, so the
@@ -209,7 +207,7 @@ struct NavGroup {
 
 /// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
 /// web-only Billing item, plus the desktop-only "This device" group.
-/// EXP-238 appended the Personal group (Account, Notifications, API keys,
+/// EXP-238 appended the Personal group (Account, Notifications, Security,
 /// About) as ordinary items — web parity again, and last so the fallback
 /// scan below never lands on a personal pane. The Boards group's per-board
 /// rows + "New board" are injected dynamically at render (EXP-288); order
@@ -314,7 +312,7 @@ const NAV_GROUPS: &[NavGroup] = &[
                 section: SettingsSection::Notifications,
             },
             NavItem {
-                label: "API keys",
+                label: "Security",
                 section: SettingsSection::ApiKeys,
             },
             NavItem {
@@ -906,52 +904,17 @@ impl Render for SettingsNavPanel {
             }
         }
 
-        // EXP-456: the nav occupies the rail's slot now, so its top 34px sit
-        // in the window-decoration band as a drag/zoom region — the rail's
-        // own strip recipe. EXP-723: pure drag space, like the rail's, since
-        // the app brand went with the logo.
-        // EXP-760: rendered ONLY where the macOS traffic lights float over
-        // it — everywhere else those 34px are an empty gap above the back
-        // row, and drag/zoom live on the `AppTitleBar` band to the right.
-        let client_chrome = crate::app_title_bar::client_chrome(window);
-        let top_strip = crate::app_title_bar::macos_lights_in_strip(window).then(|| h_flex()
-            .id("settings-nav-titlebar-strip")
-            .w_full()
-            .h(gpui_component::TITLE_BAR_HEIGHT)
-            .flex_shrink_0()
-            .items_center()
-            // The rail's strip inherits its horizontal padding from the rail
-            // root; this nav's root has none (rows carry their own margins),
-            // so the strip pads itself.
-            .px_2()
-            .when(client_chrome, |strip| {
-                strip
-                    .window_control_area(WindowControlArea::Drag)
-                    .map(|strip| {
-                        if cfg!(target_os = "macos") {
-                            strip.on_double_click(|_, window, _| window.titlebar_double_click())
-                        } else if cfg!(target_os = "linux") {
-                            strip.on_double_click(|_, window, _| window.zoom_window())
-                        } else {
-                            strip
-                        }
-                    })
-                    .on_mouse_down_out(cx.listener(|this, _, _, _| this.should_move = false))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, _| this.should_move = true),
-                    )
-                    .on_mouse_up(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, _| this.should_move = false),
-                    )
-                    .on_mouse_move(cx.listener(|this, _, window, _| {
-                        if this.should_move {
-                            this.should_move = false;
-                            window.start_window_move();
-                        }
-                    }))
-            }));
+        // EXP-456: the nav occupies the rail's slot, so its top 34px sit in
+        // the window-decoration band as a drag/zoom region. EXP-862: one
+        // recipe for every occupant of that column (`left_column_top_strip`),
+        // which also owns the "only where the macOS lights float over it"
+        // rule.
+        let top_strip = crate::app_title_bar::left_column_top_strip(
+            "settings-nav-titlebar-strip",
+            |this: &mut Self| &mut this.should_move,
+            window,
+            cx,
+        );
 
         // EXP-456: the back affordance — web parity with the settings
         // sidebar's header row. Direct calls, not action dispatch (EXP-17).
@@ -1038,20 +1001,15 @@ pub(crate) fn is_owner(cx: &App, team_id: &str) -> bool {
 // Shared chrome bits (web Card + notices at compact density)
 // ---------------------------------------------------------------------------
 
-/// The settings panes' section container. EXP-282 flattened it; EXP-818
-/// brings the CARD back the Linear way: one rounded `FILL_ROW` block per
-/// section holding its heading and its rows, so a pane reads as a stack of
-/// grouped cards (Profile / Workspace access) rather than as headings
-/// floating in a column. The rows inside are flat (`surface::flat_row`,
-/// the `glass_*_row` recipes), never a second card.
+/// The settings panes' section container. EXP-862 takes the CARD back off:
+/// a section is a HEADER BAND (`surface::glass_section_header`) over its
+/// rows, the same shape every list page wears, so the panes stop being a
+/// stack of bordered boxes holding other boxes. Nothing here paints a fill,
+/// a stroke or padding of its own — the rows do that
+/// (`surface::glass_group_rows`, `surface::flat_row`) and the detail column
+/// owns the page gutter.
 pub(crate) fn section(_cx: &App) -> gpui::Div {
-    v_flex()
-        .w_full()
-        .gap_3()
-        .px_4()
-        .py_3()
-        .rounded(gpui::px(theme::tokens::radius::LG))
-        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
+    v_flex().w_full().min_w_0().gap_2()
 }
 
 /// EXP-282: the hairline the panes' rows/chips draw — the glass row stroke
@@ -1124,15 +1082,6 @@ pub(super) fn usage_bar(
     row
 }
 
-/// Web `CardTitle` alone — a section whose rows speak for themselves needs no
-/// explanatory paragraph under the heading (EXP-328).
-pub(crate) fn card_title(title: impl Into<SharedString>) -> impl IntoElement {
-    div()
-        .text_sm()
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(title.into())
-}
-
 /// EXP-771: the web sections' `<p className="px-1 pb-2 text-xs
 /// text-foreground/50">` — the explanatory line UNDER a
 /// [`crate::surface::glass_section_header`], where the web puts it, instead of
@@ -1151,30 +1100,8 @@ pub(crate) fn section_description(
         .child(description.into())
 }
 
-/// Web `CardTitle` + `CardDescription`.
-pub(crate) fn card_header(
-    title: impl Into<SharedString>,
-    description: impl Into<SharedString>,
-    cx: &App,
-) -> impl IntoElement {
-    v_flex()
-        .gap_0p5()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.into()),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(description.into()),
-        )
-}
-
 /// EXP-720: the ONE danger-zone recipe, the web `settings/general.tsx` twin —
-/// a [`section`] whose [`card_title`] is tinted `danger` over ONE glass row:
+/// a [`section`] whose heading is tinted `danger` over ONE glass row:
 /// the muted description leading, the destructive action trailing. Both the
 /// team's "Delete team" and the device's "Reset IDE data" wear it; the
 /// red-bordered tinted card General used to draw is gone (it was the only
@@ -1360,6 +1287,26 @@ mod tests {
 
     fn any_board(_: &str) -> bool {
         true
+    }
+
+    /// EXP-862 (×4): the personal keys pane is called **Security** in the nav
+    /// (web `/settings/security`), and the variant it selects is unchanged —
+    /// a rename that moved the section would orphan every stored selection.
+    #[test]
+    fn the_personal_keys_entry_is_labelled_security() {
+        let entry = NAV_GROUPS
+            .iter()
+            .flat_map(|group| group.items)
+            .find(|item| item.section == SettingsSection::ApiKeys)
+            .expect("the personal keys entry is in the nav");
+        assert_eq!(entry.label, "Security");
+        assert!(
+            !NAV_GROUPS
+                .iter()
+                .flat_map(|group| group.items)
+                .any(|item| item.label == "API keys"),
+            "the old label is gone everywhere"
+        );
     }
 
     #[test]

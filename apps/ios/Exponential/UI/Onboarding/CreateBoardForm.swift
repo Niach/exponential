@@ -111,18 +111,19 @@ final class CreateBoardDraft {
     }
 }
 
-// The create-first-board form (web onboarding parity, wizard.tsx): a plain
-// form of name, prefix, color, icon, and an ALWAYS-optional repository plus
-// the branch its coding sessions start from (EXP-712). One `boards.create`
-// call carries `icon` (never the deprecated `type`). Reused by the first-run
-// onboarding page and the empty-state "Create board" sheets.
+// The create-first-board form (web onboarding parity, wizard.tsx): ONE row of
+// icon + colour + name (EXP-862, ×4), the prefix, and an ALWAYS-optional
+// repository plus the branch its coding sessions start from (EXP-712). Every
+// field is a glass row carrying its own label — no captions above. One
+// `boards.create` call carries `icon` (never the deprecated `type`). Reused by
+// the first-run onboarding page and the empty-state "Create board" sheets.
 struct CreateBoardForm: View {
     let accountId: String
     let teamId: String
     /// Onboarding renders the minimal spec form (shared mobile onboarding
-    /// spec): name + icon + optional repository. The prefix stays
-    /// auto-derived from the name and the color keeps its default — the full
-    /// form (prefix + color fields) remains for the regular sheets.
+    /// spec): the icon/colour/name row plus the optional repository. The
+    /// prefix stays auto-derived from the name there; the regular sheets show
+    /// its row too.
     var minimal = false
     /// The shared state. A host that pins the submit button (the sheet) passes
     /// its own; the onboarding page lets the form make one.
@@ -136,44 +137,45 @@ struct CreateBoardForm: View {
     @Environment(AppDependencies.self) private var deps
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Name, with the icon picker LEFT of the input (EXP-584 — web,
-            // desktop and Android share the row). The picker lives in ExpUI
-            // so the Start-coding sheet's `icon` action input picks from the
-            // exact same curated swatches (EXP-273/575).
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Board name")
-                HStack(spacing: 8) {
-                    IconPicker(selection: $draft.icon, tint: Color(hex: draft.color))
-                    GlassTextField("e.g. Backend API", text: Binding(
-                        get: { draft.name },
-                        set: { draft.onNameChange($0) }
-                    ))
-                    .font(.subheadline)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            // EXP-862: ONE row — icon, colour, name (×4). The two pickers are
+            // the same 36pt rounded square (a rounded square is a PICKER), the
+            // name field carries its own label as its placeholder, and there is
+            // no caption line above any of it.
+            HStack(spacing: 8) {
+                IconPicker(selection: $draft.icon, tint: Color(hex: draft.color))
+                ColorSwatchPicker(selection: $draft.color)
+                GlassTextField("Board name", text: Binding(
+                    get: { draft.name },
+                    set: { draft.onNameChange($0) }
+                ), verticalPadding: 9)
+                .font(.subheadline)
             }
 
+            // The prefix rides its own glass row with the label INSIDE it —
+            // the onboarding's minimal form derives it from the name instead.
             if !minimal {
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Prefix")
-                    GlassTextField("e.g. API", text: Binding(
+                HStack(spacing: 8) {
+                    Text("Prefix")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    Spacer(minLength: 8)
+                    GlassTextField("API", text: Binding(
                         get: { draft.prefix },
                         set: { draft.onPrefixChange($0) }
-                    ))
+                    ), bordered: false)
                     .font(.subheadline.monospaced())
+                    .multilineTextAlignment(.trailing)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)
                 }
-
-                // Color
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Color")
-                    ColorSwatchGrid(selection: $draft.color)
-                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassRow()
             }
 
-            // Repository + branch (always optional) — the field renders its
-            // own labels and the one caption line.
+            // Repository + branch (always optional) — picker rows that carry
+            // their own labels, plus the one shared caption line.
             BoardRepoField(
                 accountId: accountId,
                 teamId: teamId,
@@ -213,6 +215,7 @@ struct CreateBoardForm: View {
                 GlassSubmitButton(draft.submitLabel, enabled: draft.canCreate) {
                     Task { await create() }
                 }
+                .padding(.top, 8)
             }
         }
     }
@@ -225,12 +228,6 @@ struct CreateBoardForm: View {
         ) {
             onCreated(boardId)
         }
-    }
-
-    private func fieldLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
     }
 
     // MARK: - Editing

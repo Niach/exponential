@@ -9,8 +9,8 @@
 //! | Agents | Default agent, then one TAB per agent: CLI path + model +    |
 //! |        | effort, the agent's own toggles — Claude: ultracode, plan    |
 //! |        | mode; Codex: none (EXP-690: every run bypasses permissions,  |
-//! |        | no toggle) — and (EXP-694) this                              |
-//! |        | machine's account + usage rows for that agent                |
+//! |        | no toggle). EXP-862: accounts and usage live on the Devices  |
+//! |        | page, never here                                             |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
 //! text — the closed alias sets the CLI accepts). The per-agent toggles are
@@ -19,9 +19,10 @@
 //!
 //! EXP-694: the pane wears the SHARED grouped agent picker
 //! ([`crate::launch_options::AgentDefaultsGroup`]) — the exact component the
-//! Device settings dialog and the Start-coding dialog render — and AUTOSAVES
-//! like both of them: no Save button, pickers and switches write on change,
-//! a typed CLI path after [`PATH_SAVE_DEBOUNCE`] (or on blur).
+//! Device settings dialog and the Start-coding dialog render, with the
+//! default agent on the shared [`crate::coding_selects::agent_picker`] — and
+//! AUTOSAVES like both of them: no Save button, pickers and switches write on
+//! change, a typed CLI path after [`PATH_SAVE_DEBOUNCE`] (or on blur).
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
@@ -39,34 +40,29 @@
 //! (`api::users::ensure_personal_key` on the first coding session; the
 //! `.exp-mcp.json` writer picks it up), so there is no key UI here at all.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext as _, Div, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Task, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     input::{InputEvent, InputState},
-    select::Select,
-    v_flex, ActiveTheme as _, Icon,
+    v_flex,
 };
 
-use coding::{CodingAgent, ExternalAgentSpec, Settings};
+use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
-    AGENT_CHOICES,
+    agent_icon, agent_picker, choice_select, effort_choices_for, model_choices_for, selected,
+    ChoiceSelect,
 };
-use crate::device_settings::{agent_account_rows, login_affordance, own_agent_status};
-use crate::icons::registry;
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::glass_input;
 
-use super::{card_header, card_title, error_notice, section};
+use super::{error_notice, section};
 
 /// EXP-694: the pane AUTOSAVES like the Device settings dialog — no Save
 /// button. A typed CLI path settles for this long before it is written; a
@@ -78,25 +74,11 @@ const PATH_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 // Pane
 // ---------------------------------------------------------------------------
 
-/// EXP-746 (D13): one row of the "External agents" editor — a user-declared
-/// ACP binary this machine may launch beside the three builtins. Editable in
-/// full (`command` + `args` spawn it VERBATIM, never an `npx` preset), and
-/// LOCAL-only: the list never reaches a remote picker and never becomes a
-/// `CodingAgent`.
-struct ExternalDraft {
-    id: Entity<InputState>,
-    label: Entity<InputState>,
-    command: Entity<InputState>,
-    args: Entity<InputState>,
-    env: Entity<InputState>,
-    /// Change subscriptions for the five inputs — dropped with the row, so
-    /// removing an entry cannot leave a listener writing into a gap.
-    _subscriptions: Vec<Subscription>,
-}
-
 pub struct AgentsPane {
-    /// The default agent the Start-coding dialog preselects (EXP-201).
-    agent_select: ChoiceSelect,
+    /// The default agent the Start-coding dialog preselects (EXP-201) —
+    /// EXP-862: picked with the SHARED [`agent_picker`], so the pane holds
+    /// the value itself instead of a one-off choice select.
+    default_agent: CodingAgent,
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
     effort_select: ChoiceSelect,
@@ -115,11 +97,6 @@ pub struct AgentsPane {
     /// baseline: a control rewrite the pane itself performed drafts back to
     /// it and writes nothing).
     synced: Option<Settings>,
-    /// EXP-746 (D13): the external ACP agents this machine may launch. Opt-in
-    /// and empty on every fresh install; edited as free text (there is
-    /// nothing closed to pick from) and written on the same debounce as the
-    /// CLI paths.
-    externals: Vec<ExternalDraft>,
     /// The pending debounced CLI-path write (dropping it cancels).
     path_save: Option<Task<()>>,
     save_error: Option<SharedString>,
@@ -133,8 +110,6 @@ impl AgentsPane {
         let codex_input = cx
             .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
         let defaults = Settings::default();
-        let agent_select =
-            choice_select(&AGENT_CHOICES, defaults.default_agent.id(), window, cx);
         let model_select = choice_select(
             model_choices_for(CodingAgent::Claude),
             &defaults.claude_model,
@@ -184,7 +159,6 @@ impl AgentsPane {
             }));
         }
         for select in [
-            &agent_select,
             &model_select,
             &effort_select,
             &codex_model_select,
@@ -202,7 +176,7 @@ impl AgentsPane {
         cx.on_release(|this, cx| this.flush_pending_path(cx)).detach();
 
         let mut this = Self {
-            agent_select,
+            default_agent: defaults.default_agent,
             claude_input,
             model_select,
             effort_select,
@@ -212,7 +186,6 @@ impl AgentsPane {
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
-            externals: Vec::new(),
             synced: None,
             path_save: None,
             save_error: None,
@@ -235,7 +208,6 @@ impl AgentsPane {
         onto.codex_effort = from.codex_effort.clone();
         onto.claude_ultracode = from.claude_ultracode;
         onto.claude_plan_mode = from.claude_plan_mode;
-        onto.external_agents = from.external_agents.clone();
     }
 
     /// Mirror the hub's settings into the controls whenever they change out
@@ -259,15 +231,9 @@ impl AgentsPane {
         self.codex_input.update(cx, |input, cx| {
             input.set_value(settings.codex_path.clone(), window, cx)
         });
+        self.default_agent = settings.default_agent;
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
-        self.agent_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &SharedString::from(settings.default_agent.id()),
-                window,
-                cx,
-            )
-        });
         for (select, value) in [
             (&self.model_select, settings.claude_model.clone()),
             (&self.effort_select, settings.claude_effort.clone()),
@@ -280,14 +246,8 @@ impl AgentsPane {
         }
         self.claude_ultracode = settings.claude_ultracode;
         self.claude_plan_mode = settings.claude_plan_mode;
-        // EXP-746: rebuild the external rows only when the FILE says
-        // something the editor does not — rebuilding them on every resync
-        // would replace the input entities under a cursor mid-word.
-        if self.drafted_externals(cx) != settings.external_agents {
-            self.seed_externals(&settings.external_agents, window, cx);
-        }
         // Open the Agents card on the saved default agent (first sync only —
-        // later external saves must not yank the tab from under the user).
+        // later saves must not yank the tab from under the user).
         if self.synced.is_none() {
             self.agent_tab = settings.default_agent;
         }
@@ -312,8 +272,7 @@ impl AgentsPane {
         };
         let mut drafted = self.synced.clone().unwrap_or_default();
         let owned = Settings {
-            default_agent: CodingAgent::parse(&selected(&self.agent_select, cx))
-                .unwrap_or_default(),
+            default_agent: self.default_agent,
             claude_path: value(&self.claude_input, &defaults.claude_path),
             codex_path: value(&self.codex_input, &defaults.codex_path),
             claude_model: selected(&self.model_select, cx),
@@ -322,7 +281,6 @@ impl AgentsPane {
             codex_effort: selected(&self.codex_effort_select, cx),
             claude_ultracode: self.claude_ultracode,
             claude_plan_mode: self.claude_plan_mode,
-            external_agents: self.drafted_externals(cx),
             ..defaults
         };
         Self::overlay_owned(&mut drafted, &owned);
@@ -392,226 +350,7 @@ impl AgentsPane {
         }
     }
 
-
-    // -- external agents (EXP-746 D13) ---------------------------------------
-
-    /// The external agents the rows currently describe. An entry with no id
-    /// or no command is INCOMPLETE, not a spec: it stays in the editor and
-    /// never reaches settings, so a half-typed row can never become a launch
-    /// target that fails at spawn.
-    fn drafted_externals(&self, cx: &App) -> Vec<ExternalAgentSpec> {
-        self.externals
-            .iter()
-            .filter_map(|draft| {
-                let value = |input: &Entity<InputState>| input.read(cx).value().trim().to_string();
-                let id = value(&draft.id);
-                let command = value(&draft.command);
-                if id.is_empty() || command.is_empty() {
-                    return None;
-                }
-                Some(ExternalAgentSpec {
-                    id,
-                    label: value(&draft.label),
-                    command,
-                    args: parse_args(&value(&draft.args)),
-                    env: parse_env(&value(&draft.env)),
-                })
-            })
-            .collect()
-    }
-
-    /// Rebuild the editor rows from `externals` (a fresh pane, or a change
-    /// that arrived from outside this editor).
-    fn seed_externals(
-        &mut self,
-        externals: &[ExternalAgentSpec],
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.externals = externals
-            .iter()
-            .map(|spec| {
-                self.new_external_draft(
-                    &spec.id,
-                    &spec.label,
-                    &spec.command,
-                    &format_args_value(&spec.args),
-                    &format_env_value(&spec.env),
-                    window,
-                    cx,
-                )
-            })
-            .collect();
-    }
-
-    /// One editor row's five inputs, wired to the same debounced write the
-    /// CLI-path fields use (typing settles, then it saves).
-    #[allow(clippy::too_many_arguments)] // five fields, one row
-    fn new_external_draft(
-        &self,
-        id: &str,
-        label: &str,
-        command: &str,
-        args: &str,
-        env: &str,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> ExternalDraft {
-        fn field(
-            value: &str,
-            placeholder: &'static str,
-            window: &mut Window,
-            cx: &mut gpui::Context<AgentsPane>,
-        ) -> Entity<InputState> {
-            let value = value.to_string();
-            cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(placeholder);
-                state.set_value(value, window, cx);
-                state
-            })
-        }
-        let id = field(id, "my-agent", window, cx);
-        let label = field(label, "My agent", window, cx);
-        let command = field(command, "/usr/local/bin/my-agent", window, cx);
-        let args = field(args, "--acp", window, cx);
-        let env = field(env, "KEY=value", window, cx);
-        let subscriptions = [&id, &label, &command, &args, &env]
-            .into_iter()
-            .map(|input| {
-                cx.subscribe_in(input, window, |this, _, event: &InputEvent, _window, cx| {
-                    match event {
-                        InputEvent::Change => this.queue_path_save(cx),
-                        // A blur (or Enter) commits immediately, like the
-                        // CLI-path fields.
-                        InputEvent::Blur | InputEvent::PressEnter { .. } => {
-                            this.path_save.take();
-                            this.save(cx);
-                        }
-                        _ => {}
-                    }
-                })
-            })
-            .collect();
-        ExternalDraft {
-            id,
-            label,
-            command,
-            args,
-            env,
-            _subscriptions: subscriptions,
-        }
-    }
-
-    /// "Add external agent": an empty row. It writes nothing until it names a
-    /// command (see [`Self::drafted_externals`]).
-    fn add_external(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let draft = self.new_external_draft("", "", "", "", "", window, cx);
-        self.externals.push(draft);
-        cx.notify();
-    }
-
-    fn remove_external(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
-        if index < self.externals.len() {
-            self.externals.remove(index);
-        }
-        self.save(cx);
-        cx.notify();
-    }
-
-    /// The "External agents" card (EXP-746 D13): one group per declared
-    /// agent, each row a plain text field — there is nothing closed to pick
-    /// from, the binary is the user's own.
-    fn render_externals_section(
-        &mut self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let muted = cx.theme().muted_foreground;
-        let mut body = v_flex().w_full().gap_2();
-        for index in 0..self.externals.len() {
-            let draft = &self.externals[index];
-            let rows = vec![
-                surface::glass_input_row(
-                    "Name",
-                    surface::glass_row_input(glass_input(&draft.label, window, cx))
-                        .into_any_element(),
-                    cx,
-                ),
-                surface::glass_input_row(
-                    "Id",
-                    surface::glass_row_input(glass_input(&draft.id, window, cx)).into_any_element(),
-                    cx,
-                ),
-                surface::glass_input_row(
-                    "Command",
-                    surface::glass_row_input(glass_input(&draft.command, window, cx))
-                        .into_any_element(),
-                    cx,
-                ),
-                surface::glass_input_row(
-                    "Arguments",
-                    surface::glass_row_input(glass_input(&draft.args, window, cx))
-                        .into_any_element(),
-                    cx,
-                ),
-                surface::glass_input_row(
-                    "Environment",
-                    surface::glass_row_input(glass_input(&draft.env, window, cx))
-                        .into_any_element(),
-                    cx,
-                ),
-                surface::glass_row_shell().child(gpui_component::h_flex().w_full().justify_end().child(
-                    Button::new(SharedString::from(format!("agents-external-remove-{index}")))
-                        .ghost()
-                        .web_sm()
-                        .icon(Icon::from(registry::UI_DELETE))
-                        .label("Remove")
-                        .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                            this.remove_external(index, cx);
-                        })),
-                )),
-            ];
-            body = body.child(surface::glass_group_rows(rows));
-        }
-        body = body.child(
-            gpui_component::h_flex().w_full().child(
-                surface::glass_pill_button("agents-add-external", surface::PillSize::Sm, cx)
-                    .icon(Icon::from(registry::UI_ADD))
-                    .label("Add external agent")
-                    .on_click(cx.listener(|this: &mut Self, _, window, cx| {
-                        this.add_external(window, cx);
-                    })),
-            ),
-        );
-        body = body.child(
-            gpui::div()
-                .text_xs()
-                .text_color(muted)
-                .child("Arguments and environment entries are separated by spaces."),
-        );
-        section(cx)
-            .child(card_header(
-                "External agents",
-                "ACP-speaking binaries this machine may run beside Claude and Codex. \
-                 They start from the Start-coding dialog on this machine only.",
-                cx,
-            ))
-            .child(body)
-    }
-
     // -- render pieces --------------------------------------------------------
-
-    /// EXP-694: a [`ChoiceSelect`] as a grouped picker row — the label
-    /// leading, the value trailing behind the select's own caret, no field
-    /// chrome (the group IS the field).
-    fn picker_row(label: &'static str, select: &ChoiceSelect, cx: &App) -> Div {
-        surface::glass_picker_row(
-            label,
-            None,
-            surface::glass_picker_select(Select::new(select)).into_any_element(),
-            cx,
-        )
-    }
 
     /// The Agents card (EXP-206): one TAB per agent, each holding that
     /// agent's CLI path + model/effort selects and its OWN toggles — plan
@@ -620,9 +359,9 @@ impl AgentsPane {
     ///
     /// EXP-694: it is the SHARED [`AgentDefaultsGroup`] — byte-for-byte the
     /// component the Device settings dialog and the Start-coding cluster
-    /// render, with this pane's CLI-path row spliced above Model and this
-    /// machine's own account + usage rows under the toggles. The old centered
-    /// `TabBar` pill strip and the title-above-control fields are gone.
+    /// render, with this pane's CLI-path row spliced above Model. The old
+    /// centered `TabBar` pill strip and the title-above-control fields are
+    /// gone, and EXP-862 moved accounts/usage out to the Devices page.
     fn render_agents_section(
         &mut self,
         window: &Window,
@@ -642,30 +381,6 @@ impl AgentsPane {
                 note: None,
             })
             .collect();
-
-        // EXP-484/694: this machine's own account + usage for the open tab,
-        // the same two rows the device dialog renders for a remote machine.
-        let (accounts, usage) = own_agent_status(cx);
-        let account = accounts.get(agent_tab.id());
-        let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
-        let affordance = login_affordance(true, true, &[], signed_in);
-        let account_rows = agent_account_rows(
-            agent_tab,
-            account,
-            usage.get(agent_tab.id()),
-            None,
-            affordance,
-            false,
-            move |_: &mut Self, switch, cx| {
-                crate::agent_login::open_login_tab(agent_tab, switch, cx)
-            },
-            // EXP-827: the windows themselves live on the Devices page's
-            // Accounts section — this pane only points there.
-            |_: &mut Self, window, cx| {
-                crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
-            },
-            cx,
-        );
 
         let (path, model, effort) = match agent_tab {
             CodingAgent::Claude => (
@@ -700,8 +415,7 @@ impl AgentsPane {
             effort,
         )
         .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .leading(vec![path_row])
-        .trailing(account_rows);
+        .leading(vec![path_row]);
         if agent_tab == CodingAgent::Claude {
             group = group
                 .toggle(DefaultsToggle::new(
@@ -723,102 +437,51 @@ impl AgentsPane {
                     },
                 ));
         }
-        section(cx).child(card_title("Agents")).child(
-            // 8px between the two groups (EXP-694's group rhythm).
-            v_flex()
-                .w_full()
-                .gap_2()
-                .child(surface::glass_group_rows(vec![Self::picker_row(
-                    "Default agent",
-                    &self.agent_select,
-                    cx,
-                )]))
-                .child(group.render(cx)),
-        )
+        // EXP-862: the default agent rides the ONE shared picker — the same
+        // icon-only trigger the composer and the device dialog wear.
+        let pane = cx.entity();
+        let default_agent = self.default_agent;
+        let default_row = surface::glass_picker_row(
+            "Default agent",
+            None,
+            agent_picker(
+                "settings-default-agent",
+                &CodingAgent::ALL,
+                default_agent,
+                move |agent, _window, cx| {
+                    pane.update(cx, |this, cx| {
+                        this.default_agent = agent;
+                        this.save(cx);
+                        cx.notify();
+                    });
+                },
+                cx,
+            ),
+            cx,
+        );
+        section(cx)
+            .child(crate::surface::glass_section_header("Agents", None, cx))
+            .child(
+                // 8px between the two groups (EXP-694's group rhythm).
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(surface::glass_group_rows(vec![default_row]))
+                    .child(group.render(cx)),
+            )
     }
 }
 
 impl Render for AgentsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let agents_card = self.render_agents_section(window, cx);
-        let externals_card = self.render_externals_section(window, cx);
 
         // EXP-694: no Save button — every control autosaves, so the only
-        // thing left below the cards is a write that failed.
-        let mut body = v_flex()
-            .w_full()
-            .gap_6()
-            .child(agents_card)
-            .child(externals_card);
+        // thing left below the card is a write that failed.
+        let mut body = v_flex().w_full().gap_6().child(agents_card);
         if let Some(error) = &self.save_error {
             body = body.child(error_notice(error.clone(), cx));
         }
         body
-    }
-}
-
-// ---------------------------------------------------------------------------
-// External-agent field formats (EXP-746 D13)
-// ---------------------------------------------------------------------------
-
-/// `--acp --stdio` → `["--acp", "--stdio"]`. Whitespace-separated, no quoting:
-/// a path with spaces belongs in `command`, and an argument that needs one is
-/// a reason to write a wrapper script, not to grow a shell parser here.
-fn parse_args(raw: &str) -> Vec<String> {
-    raw.split_whitespace().map(str::to_string).collect()
-}
-
-fn format_args_value(args: &[String]) -> String {
-    args.join(" ")
-}
-
-/// `KEY=value OTHER=2` → the spawn-env overlay. An entry without `=`, or with
-/// an empty name, is dropped rather than guessed at.
-fn parse_env(raw: &str) -> BTreeMap<String, String> {
-    raw.split_whitespace()
-        .filter_map(|pair| {
-            let (key, value) = pair.split_once('=')?;
-            let key = key.trim();
-            (!key.is_empty()).then(|| (key.to_string(), value.to_string()))
-        })
-        .collect()
-}
-
-fn format_env_value(env: &BTreeMap<String, String>) -> String {
-    env.iter()
-        .map(|(key, value)| format!("{key}={value}"))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The two free-text fields of an external agent round-trip through the
-    /// editor: what the settings file holds is what the row shows, and typing
-    /// it back produces the same spec.
-    #[test]
-    fn external_agent_fields_round_trip() {
-        let args = vec!["--acp".to_string(), "--stdio".to_string()];
-        assert_eq!(format_args_value(&args), "--acp --stdio");
-        assert_eq!(parse_args("  --acp   --stdio "), args);
-        assert!(parse_args("   ").is_empty());
-
-        let env: BTreeMap<String, String> = [
-            ("API_KEY".to_string(), "abc".to_string()),
-            ("MODE".to_string(), "acp".to_string()),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(format_env_value(&env), "API_KEY=abc MODE=acp");
-        assert_eq!(parse_env("MODE=acp API_KEY=abc"), env);
-        // Nothing is invented: a bare word is not an assignment.
-        assert!(parse_env("nonsense =empty").is_empty());
-        // An empty value is legal (an env var set to "").
-        assert_eq!(
-            parse_env("EMPTY=").get("EMPTY").map(String::as_str),
-            Some("")
-        );
     }
 }

@@ -7,8 +7,6 @@ import {
   fallbackStatusOptions,
   isFallbackStatusOption,
   resolveIssueStatus,
-  statusFilterToken,
-  statusOptionMatchesToken,
   statusUpdatePayload,
   type StatusRowInput,
 } from "@/lib/team-statuses"
@@ -341,41 +339,10 @@ describe(`the single ordered vocabulary`, () => {
   })
 })
 
-describe(`creatableStatusOptions / statusOptionMatchesToken`, () => {
+describe(`creatableStatusOptions`, () => {
   it(`drops the duplicate category from create pickers`, () => {
     expect(
       creatableStatusOptions(defaultStatusOptions()).map((o) => o.builtinKey)
     ).not.toContain(`duplicate`)
-  })
-
-  // `?status=` accepts uuids and anchor enums only — a synthetic
-  // `builtin:<key>` id would be stripped by the route's validateSearch.
-  it(`emits URL-safe filter tokens`, () => {
-    const [custom] = buildStatusOptions([
-      row({ id: `66666666-6666-6666-6666-666666666666`, category: `started` }),
-    ])
-    expect(statusFilterToken(custom)).toBe(
-      `66666666-6666-6666-6666-666666666666`
-    )
-    for (const option of defaultStatusOptions()) {
-      expect(statusFilterToken(option)).toBe(option.builtinKey)
-      expect(statusFilterToken(option).startsWith(`builtin:`)).toBe(false)
-    }
-  })
-
-  it(`matches row-id and legacy enum tokens`, () => {
-    const [option] = buildStatusOptions([
-      row({
-        id: `55555555-5555-5555-5555-555555555555`,
-        category: `completed`,
-        builtinKey: `done`,
-      }),
-    ])
-    expect(
-      statusOptionMatchesToken(option, `55555555-5555-5555-5555-555555555555`)
-    ).toBe(true)
-    expect(statusOptionMatchesToken(option, `done`)).toBe(true)
-    // `todo` is retired (EXP-685) — it must never match anything.
-    expect(statusOptionMatchesToken(option, `todo`)).toBe(false)
   })
 })

@@ -288,11 +288,7 @@ fn orphaned_or_ours(proc: &Proc, self_pid: i32) -> bool {
 /// have been recycled since the host died, so the answer has to come off the
 /// command line, not the number.
 fn looks_like_agent(command: &str, record: &crate::run_registry::RunRecord) -> bool {
-    let expected = match &record.external_agent {
-        Some(spec) => basename(&spec.command),
-        None => record.agent.default_binary(),
-    }
-    .to_ascii_lowercase();
+    let expected = record.agent.default_binary().to_ascii_lowercase();
     if expected.is_empty() {
         return false;
     }
@@ -312,9 +308,7 @@ fn looks_like_agent(command: &str, record: &crate::run_registry::RunRecord) -> b
     // a second, equally exclusive marker. Deliberately not generalized: a
     // bare-substring rule on the binary name would match `python3
     // pipeline.py`.
-    record.agent == crate::agent::CodingAgent::Codex
-        && record.external_agent.is_none()
-        && command.contains("app-server")
+    record.agent == crate::agent::CodingAgent::Codex && command.contains("app-server")
 }
 
 /// The last path segment of `path` (both separators — a Windows command line
@@ -332,8 +326,8 @@ fn basename(path: &str) -> &str {
 /// command no longer looks like the recorded agent (a recycled pid).
 ///
 /// [`reap`] cannot see these: it anchors on the `claude-hooks/<pid>/` segment
-/// in the command line, and only claude ever carries one — codex and every
-/// external binary are invisible to it.
+/// in the command line, and only claude ever carries one — a codex child is
+/// invisible to it.
 #[cfg(unix)]
 pub fn reap_recorded(data_dir: &Path) -> usize {
     let records = crate::run_registry::all(data_dir);
@@ -662,41 +656,25 @@ mod tests {
         );
     }
 
-    /// claude and an external agent are named by their own program; a record
-    /// without both pids (a PTY run, or one the engine's end sequence already
-    /// cleared) is never a candidate.
+    /// claude is named by its own program; a record without both pids (a PTY
+    /// run, or one the engine's end sequence already cleared) is never a
+    /// candidate.
     #[test]
-    fn matches_claude_and_external_programs_and_ignores_half_records() {
-        let external_spec = crate::settings::ExternalAgentSpec {
-            id: "acme".to_string(),
-            command: "/opt/acme/bin/acme-acp".to_string(),
-            ..Default::default()
-        };
-        let mut external = acp_record("sess-ext", CodingAgent::Claude, 4003, 3000);
-        external.external_agent = Some(external_spec);
+    fn matches_the_agent_program_and_ignores_half_records() {
         let mut half = acp_record("sess-half", CodingAgent::Codex, 4001, 3000);
         half.host_pid = None;
         let mut pty = sample_record("sess-pty");
         pty.agent = CodingAgent::Claude;
 
-        let mut procs = codex_procs();
-        procs.push(Proc {
-            pid: 4003,
-            ppid: 1,
-            command: "acme-acp --stdio".into(),
-        });
+        let procs = codex_procs();
         let records = vec![
             acp_record("sess-claude", CodingAgent::Claude, 4002, 3000),
-            external,
             half,
             pty,
         ];
         assert_eq!(
             select_recorded(&records, &procs, 9999),
-            vec![
-                ("sess-claude".to_string(), 4002),
-                ("sess-ext".to_string(), 4003)
-            ]
+            vec![("sess-claude".to_string(), 4002)]
         );
     }
 

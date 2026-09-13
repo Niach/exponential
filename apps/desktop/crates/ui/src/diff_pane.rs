@@ -10,11 +10,16 @@
 //! The pane is a header (file-list toggle when there is more than one file,
 //! the selected path with its `+N −M`, a close ×) over the shared
 //! [`crate::diff::DiffView`], with a collapsible file list down its left.
+//!
+//! EXP-862 gave it two things: a DRAGGABLE left edge (the width is the
+//! reader's, persisted once for every session in [`crate::ui_prefs`]) and a
+//! SCOPE chip — the pane can show one turn's files or one edit, and the chip
+//! is both the label for that and the way back to the whole branch.
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, ClickEvent, Context, Entity,
-    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, SharedString,
-    StatefulInteractiveElement as _, Styled,
+    InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, ParentElement as _, Pixels,
+    Render, SharedString, StatefulInteractiveElement as _, Styled,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 
@@ -31,26 +36,36 @@ pub(crate) const MIN_WIDTH: f32 = 360.;
 pub(crate) const TRANSCRIPT_MIN_WIDTH: f32 = 320.;
 /// The file list's own column.
 pub(crate) const FILE_LIST_WIDTH: f32 = 216.;
+/// The grab strip on the pane's left edge (EXP-862) — 8px, the same hit
+/// width every split in the IDE offers.
+const RESIZE_HANDLE_W: f32 = 8.;
 
-/// The pane's width inside a session view `total` px wide (§11: 45 %, min
-/// [`MIN_WIDTH`]). A view too narrow to hold both columns hands the pane the
-/// whole width — the caller compares the answer with `total` to decide
-/// whether the transcript still renders.
-pub(crate) fn pane_width(total: f32) -> f32 {
+/// EXP-862 — `requested` clamped into a session view `total` px wide: never
+/// under [`MIN_WIDTH`], never over `total - `[`TRANSCRIPT_MIN_WIDTH`], and on
+/// a view too narrow to hold both columns the pane takes the WHOLE width (the
+/// caller compares the answer with `total` to decide whether the transcript
+/// still renders). Pure — this is the one rule the drag, the persisted width
+/// and the opening width all go through.
+pub(crate) fn clamp_pane_width(requested: f32, total: f32) -> f32 {
     if total <= 0. {
         return MIN_WIDTH;
     }
     if total < MIN_WIDTH + TRANSCRIPT_MIN_WIDTH {
         return total;
     }
-    (total * WIDTH_FRACTION)
-        .max(MIN_WIDTH)
-        .min(total - TRANSCRIPT_MIN_WIDTH)
+    requested.max(MIN_WIDTH).min(total - TRANSCRIPT_MIN_WIDTH)
 }
 
-/// Whether the transcript still has a column of its own beside the pane.
-pub(crate) fn transcript_visible(total: f32) -> bool {
-    pane_width(total) < total
+/// The width the pane OPENS at inside a view `total` px wide (§11: 45 %,
+/// clamped) — what a reader who has never dragged the edge gets.
+pub(crate) fn pane_width(total: f32) -> f32 {
+    clamp_pane_width(total * WIDTH_FRACTION, total)
+}
+
+/// Whether the transcript still has a column of its own beside a pane
+/// `width` px wide.
+pub(crate) fn transcript_visible(width: f32, total: f32) -> bool {
+    width < total
 }
 
 /// One row of the pane's file list.
@@ -71,9 +86,20 @@ pub(crate) struct DiffPaneSpec<V: Render> {
     /// Whether the left file list is unfolded.
     pub(crate) list_open: bool,
     pub(crate) width: Pixels,
+    /// EXP-862: what the pane is SHOWING, when it is not the whole branch —
+    /// "This turn: 3 files" / "This edit". `None` = the session scope, where
+    /// the header's Diff pill already says it.
+    pub(crate) scope_label: Option<SharedString>,
     pub(crate) diff: Entity<crate::diff::DiffView>,
     pub(crate) on_close: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
     pub(crate) on_toggle_list: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
+    /// The scope chip's click: back to the whole branch.
+    pub(crate) on_show_session: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
+    /// EXP-862 — the left edge went down at this window x. The pane cannot
+    /// own the rest of the gesture (the pointer leaves it immediately), so
+    /// the HOST captures the window's mouse-move until the button comes up
+    /// and clamps each position through [`clamp_pane_width`].
+    pub(crate) on_resize: Box<dyn Fn(&mut V, Pixels, &mut Context<V>) + 'static>,
     pub(crate) on_pick: std::rc::Rc<dyn Fn(&mut V, usize, &mut Context<V>) + 'static>,
 }
 
@@ -84,9 +110,12 @@ pub(crate) fn render<V: Render>(spec: DiffPaneSpec<V>, cx: &mut Context<V>) -> A
         selected,
         list_open,
         width,
+        scope_label,
         diff,
         on_close,
         on_toggle_list,
+        on_show_session,
+        on_resize,
         on_pick,
     } = spec;
     let muted = cx.theme().muted_foreground;
@@ -108,7 +137,9 @@ pub(crate) fn render<V: Render>(spec: DiffPaneSpec<V>, cx: &mut Context<V>) -> A
         // to list (§11).
         .when(multiple, |this| {
             this.child(
-                crate::controls::glass_icon_button(
+                // EXP-862: a glyph on a row is a GHOST button — the circle is
+                // for the primary actions only.
+                crate::controls::ghost_icon_button(
                     "session-diff-files",
                     Icon::new(registry::NAV_FILES),
                     cx,
@@ -154,8 +185,27 @@ pub(crate) fn render<V: Render>(spec: DiffPaneSpec<V>, cx: &mut Context<V>) -> A
                         .child(SharedString::from(format!("-{}", file.deletions))),
                 )
         }))
+        // EXP-862 — the SCOPE chip: what the pane is showing when it is not
+        // the whole branch, and the click that goes back to it.
+        .children(scope_label.map(|label| {
+            crate::surface::glass_pill(
+                "session-diff-scope",
+                crate::surface::PillSize::Sm,
+                crate::surface::PillMode::Action,
+                cx,
+            )
+            .flex_shrink_0()
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Show all changes").build(window, cx)
+            })
+            .child(div().text_2xs().child(label))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                on_show_session(this, cx);
+            }))
+        }))
         .child(
-            crate::controls::glass_icon_button(
+            crate::controls::ghost_icon_button(
                 "session-diff-close",
                 Icon::new(registry::UI_CLOSE),
                 cx,
@@ -231,7 +281,29 @@ pub(crate) fn render<V: Render>(spec: DiffPaneSpec<V>, cx: &mut Context<V>) -> A
         column
     });
 
+    // EXP-862 — the drag strip on the pane's LEFT edge. Absolute, so it
+    // overlays the border rather than taking a column of its own, and
+    // deliberately NOT `h_resizable`: that component owns the widths of a
+    // whole panel group, and this is one edge whose width is persisted by
+    // the host.
+    let handle = div()
+        .id("session-diff-resize")
+        .absolute()
+        .left_0()
+        .top_0()
+        .h_full()
+        .w(px(RESIZE_HANDLE_W))
+        .cursor_col_resize()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                cx.stop_propagation();
+                on_resize(this, event.position.x, cx);
+            }),
+        );
+
     v_flex()
+        .relative()
         .h_full()
         .w(width)
         .flex_shrink_0()
@@ -250,6 +322,7 @@ pub(crate) fn render<V: Render>(spec: DiffPaneSpec<V>, cx: &mut Context<V>) -> A
                 .children(list)
                 .child(div().flex_1().min_w_0().h_full().child(diff)),
         )
+        .child(handle)
         .into_any_element()
 }
 
@@ -263,18 +336,40 @@ mod tests {
     #[test]
     fn the_pane_takes_45_percent_down_to_its_floor() {
         assert_eq!(pane_width(1600.), 720.);
-        assert!(transcript_visible(1600.));
+        assert!(transcript_visible(pane_width(1600.), 1600.));
         // 45 % of 900 is 405 — over the floor, under the transcript's guard.
         assert_eq!(pane_width(900.), 405.);
         // 45 % of 700 is 315: the floor wins, and the transcript keeps 340.
         assert_eq!(pane_width(700.), 360.);
-        assert!(transcript_visible(700.));
+        assert!(transcript_visible(pane_width(700.), 700.));
         // 45 % of 4000 is 1800 — nothing clamps it back down.
         assert_eq!(pane_width(4000.), 1800.);
         // Narrower than floor + guard: the pane IS the view.
         assert_eq!(pane_width(600.), 600.);
-        assert!(!transcript_visible(600.));
+        assert!(!transcript_visible(pane_width(600.), 600.));
         // An unmeasured view (first frame) opens at the floor.
         assert_eq!(pane_width(0.), MIN_WIDTH);
+    }
+
+    /// EXP-862 — the DRAG's rule: a dragged width lands between the floor and
+    /// the transcript's guard whatever the pointer asks for, a persisted
+    /// width from a wider window is clamped back into this one, and a view
+    /// too narrow for both columns still hands the pane everything.
+    #[test]
+    fn a_dragged_width_is_clamped_into_the_view() {
+        // Inside the band: taken verbatim.
+        assert_eq!(clamp_pane_width(500., 1600.), 500.);
+        // Dragged past the right edge / to nothing: the floor.
+        assert_eq!(clamp_pane_width(10., 1600.), MIN_WIDTH);
+        assert_eq!(clamp_pane_width(-400., 1600.), MIN_WIDTH);
+        // Dragged over the transcript: its last 320px survive.
+        assert_eq!(clamp_pane_width(1590., 1600.), 1280.);
+        // A width remembered from a 2400px window, re-opened at 900.
+        assert_eq!(clamp_pane_width(1080., 900.), 580.);
+        // Under floor + guard the pane is the view, whatever was asked for.
+        assert_eq!(clamp_pane_width(400., 600.), 600.);
+        assert_eq!(clamp_pane_width(1000., 0.), MIN_WIDTH);
+        // The opening width IS this rule applied to 45 %.
+        assert_eq!(pane_width(1600.), clamp_pane_width(1600. * 0.45, 1600.));
     }
 }

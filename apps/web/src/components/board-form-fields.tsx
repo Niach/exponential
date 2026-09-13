@@ -1,52 +1,87 @@
+import { useId } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+import { Pill } from "@/components/ui/pill"
+import { ColorPicker } from "@/components/ui/color-picker"
 import { IconPicker } from "@/components/ui/icon-picker"
+import { GlassInputRow } from "@/components/ui/glass-rows"
 
-// Shared, fully controlled field blocks for the create-board dialog and the
-// per-board settings dialog (EXP-159/160). Presentation only — no tRPC in
-// here: create saves everything on submit, edit mutates per change, so each
-// surface owns its own persistence through these props.
+// Shared, fully controlled field blocks for the create-board dialog, the
+// per-board settings page and the onboarding wizard (EXP-159/160).
+// Presentation only — no tRPC in here: create saves everything on submit,
+// the settings page mutates per change, so each surface owns its own
+// persistence through these props.
+//
+// EXP-862: every block is a ROW of the form's glass group — the label lives
+// inside the row, never as a caption above it — and identity is ONE row:
+// icon picker, colour picker, name, the two pickers being the same rounded
+// square at the name field's height (×4 with desktop/iOS/Android).
 
-// EXP-584: the icon picker sits LEFT of the name input (one row under the
-// "Name" label) on every board form — create, edit and the onboarding
-// wizard — mirrored on desktop/iOS/Android.
-export function BoardNameField({
-  value,
-  onChange,
-  onBlur,
+// A field that draws no chrome of its own: the glass group around it IS the
+// field (`action-editor-dialog`'s GROUPED_FIELD, restated here so the board
+// form doesn't import a dialog for a class string).
+const ROW_FIELD = `h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
+
+export function BoardIdentityRow({
+  name,
+  onNameChange,
+  onNameBlur,
   autoFocus,
   icon,
   onIconChange,
   color,
+  onColorChange,
+  disabled,
 }: {
-  value: string
-  onChange: (value: string) => void
-  onBlur?: () => void
+  name: string
+  onNameChange: (value: string) => void
+  onNameBlur?: () => void
   autoFocus?: boolean
   icon: BoardIcon
   onIconChange: (icon: BoardIcon) => void
   color: string
+  onColorChange: (color: string) => void
+  disabled?: boolean
 }) {
+  // Two board forms can share a document (the create dialog opens from the
+  // settings nav while a board's settings page is mounted), so the control
+  // ids are per instance rather than fixed strings.
+  const uid = useId()
   return (
-    <div className="space-y-2">
-      <Label htmlFor="board-name">Name</Label>
-      <div className="flex items-center gap-2">
-        <IconPicker
-          value={icon}
-          onChange={(next) => onIconChange(next as BoardIcon)}
-          color={color}
-        />
-        <Input
-          id="board-name"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={onBlur}
-          placeholder="e.g. Backend API"
-          autoFocus={autoFocus}
-        />
-      </div>
+    <div className="flex items-center gap-2 px-4 py-3">
+      <IconPicker
+        id={`${uid}-icon`}
+        value={icon}
+        onChange={(next) => onIconChange(next as BoardIcon)}
+        color={color}
+        disabled={disabled}
+      />
+      <ColorPicker
+        id={`${uid}-color`}
+        value={color}
+        onChange={onColorChange}
+        disabled={disabled}
+      />
+      <Input
+        id={`${uid}-name`}
+        aria-label="Name"
+        value={name}
+        onChange={(e) => onNameChange(e.target.value)}
+        onBlur={onNameBlur}
+        onKeyDown={(e) => {
+          // A blur-committed field (the settings page: no Save button) also
+          // commits on Enter. Inside the create form Enter stays the submit
+          // key, so this only arms where an `onNameBlur` handler exists.
+          if (e.key === `Enter` && onNameBlur) {
+            e.preventDefault()
+            e.currentTarget.blur()
+          }
+        }}
+        placeholder="Name"
+        className={ROW_FIELD}
+        autoFocus={autoFocus}
+        disabled={disabled}
+      />
     </div>
   )
 }
@@ -59,34 +94,31 @@ export function BoardPrefixField({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor="board-prefix">Prefix</Label>
-      <Input
-        id="board-prefix"
-        value={value}
-        // Alphanumeric only — the server floor rejects symbol prefixes
-        // (EXP-46).
-        onChange={(e) =>
-          onChange(e.target.value.replace(/[^A-Za-z0-9]/g, ``).toUpperCase())
-        }
-        placeholder="e.g. API"
-        maxLength={4}
-      />
-    </div>
+    <GlassInputRow
+      id="board-prefix"
+      label="Prefix"
+      value={value}
+      // Alphanumeric only — the server floor rejects symbol prefixes
+      // (EXP-46).
+      onChange={(e) =>
+        onChange(e.target.value.replace(/[^A-Za-z0-9]/g, ``).toUpperCase())
+      }
+      placeholder="API"
+      maxLength={4}
+      inputClassName="font-mono uppercase"
+    />
   )
 }
 
-export function BoardColorField({
-  color,
-  onColorChange,
-}: {
-  color: string
-  onColorChange: (color: string) => void
-}) {
+// The minted prefix, read-only: identifiers are derived from it, so it can't
+// change after creation.
+export function BoardPrefixRow({ prefix }: { prefix: string }) {
   return (
-    <div className="space-y-2">
-      <Label>Color</Label>
-      <ColorSwatchGrid value={color} onChange={onColorChange} />
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className="shrink-0 text-sm text-foreground">Prefix</span>
+      <span className="ml-auto">
+        <Pill className="font-mono">{prefix}</Pill>
+      </span>
     </div>
   )
 }

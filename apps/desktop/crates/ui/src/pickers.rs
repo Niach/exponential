@@ -426,7 +426,7 @@ pub(crate) fn label_picker_popover(
                         cx,
                     )
                     // The row owns the click — a handler on the checkbox too
-                    // would double-toggle (filter_popover pattern).
+                    // would double-toggle.
                     .child(
                         Checkbox::new(ElementId::Name(SharedString::from(format!(
                             "picker-label-check-{label_id}"

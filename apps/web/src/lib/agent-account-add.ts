@@ -92,7 +92,7 @@ export function clampProfileLabel(label: string): string {
     : trimmed
 }
 
-/** EXP-845: WHY no machine can take a sign-in right now — the tooltip the
+/** EXP-845: WHY no device can take a sign-in right now — the tooltip the
  * DISABLED "+" / "Add account" control carries. The controls used to vanish
  * when `addAccountDevices` came back empty, which reads as a missing feature
  * rather than as a machine that is off; they render disabled with this reason
@@ -118,11 +118,11 @@ export function addAccountBlockReason(
   const excluded = new Set(opts.exclude ?? [])
   const mine = rows.filter((row) => row.userId === opts.currentUserId)
   if (mine.length === 0) {
-    return `Connect one of your machines first.`
+    return `Connect one of your devices first.`
   }
   const candidates = mine.filter((row) => !excluded.has(row.deviceId))
   if (candidates.length === 0) {
-    return `Every machine of yours already uses this account.`
+    return `Every device of yours already uses this account.`
   }
   const agentName = opts.agentLabel ?? opts.agent
   const withAgent = opts.agent
@@ -130,8 +130,8 @@ export function addAccountBlockReason(
     : candidates.filter((row) => addableAgents(row).length > 0)
   if (withAgent.length === 0) {
     return agentName
-      ? `No machine of yours has ${agentName} installed.`
-      : `No machine of yours reports an agent to sign in to.`
+      ? `No device of yours has ${agentName} installed.`
+      : `No device of yours reports an agent to sign in to.`
   }
   const online = withAgent.filter((row) =>
     deviceRowIsOnline(row.lastSeenAt, opts.now)
@@ -139,8 +139,8 @@ export function addAccountBlockReason(
   if (online.length === 0) {
     return withAgent.length === 1
       ? `${withAgent[0].label || withAgent[0].deviceId} is offline.`
-      : `None of those machines is online right now.`
+      : `None of those devices is online right now.`
   }
   // Online and installed, but nothing can be driven remotely.
-  return `Remote sign-in needs a newer Exponential version on that machine.`
+  return `Remote sign-in needs a newer Exponential version on that device.`
 }

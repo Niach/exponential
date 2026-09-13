@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { Device } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -7,7 +7,6 @@ import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import {
   composeDeviceList,
-  deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
   deviceUnauthedAgentIds,
@@ -22,7 +21,7 @@ import {
   CopyIconButton,
   DeviceStatusLine,
 } from "@/components/my-machines"
-import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { GETTING_STARTED_COPY } from "@/components/getting-started/getting-started-copy"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
@@ -44,8 +43,9 @@ const SignInIcon = conceptIcon(`ui-sign-in`)
 // the add-device dialog's install box (`my-machines.tsx`); the device rows
 // are the caller's own machines off the synced devices shape (user-scoped,
 // so they show regardless of the shape rotation the new team just caused),
-// each opening the device-settings dialog whose agent tabs carry the remote
-// `agent_login` button (EXP-484/688).
+// each offering a "Sign in" pill while an installed agent is signed out
+// there (EXP-862: the shared login dialog is the ONE place a sign-in
+// renders; the device-settings dialog carries no accounts any more).
 export function DevicesStep({
   teamId,
   onNext,
@@ -73,10 +73,6 @@ export function DevicesStep({
       teamId
     ).filter(deviceIsMine)
   }, [deviceRows, isReady, now, currentUserId, teamId])
-
-  const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
-  const settingsTarget =
-    devices?.find((device) => device.deviceId === settingsTargetId) ?? null
 
   const origin =
     typeof window === `undefined`
@@ -147,9 +143,10 @@ export function DevicesStep({
             <div className="flex flex-col gap-2">
               {devices.map((device) => {
                 const online = deviceIsOnline(device)
-                const unauthed = deviceUnauthedAgentIds(device)
-                const signInNeeded =
-                  online && !deviceHasRunnableAgent(device) && unauthed.length > 0
+                // The first signed-out agent is what the pill signs in; a
+                // device with every agent signed in (or none installed)
+                // offers nothing here.
+                const signInAgent = deviceUnauthedAgentIds(device)[0]
                 const KindIcon =
                   device.kind === `server` ? ServerIcon : DesktopIcon
                 return (
@@ -161,18 +158,20 @@ export function DevicesStep({
                       </div>
                       <DeviceStatusLine
                         online={online}
-                        signInNeeded={signInNeeded}
-                        unauthed={unauthed}
                         lastSeenAt={device.lastSeenAt}
                       />
                     </div>
-                    <Pill
-                      mode="action"
-                      onClick={() => setSettingsTargetId(device.deviceId)}
-                    >
-                      <SignInIcon className="size-3" />
-                      Agents
-                    </Pill>
+                    {signInAgent && (
+                      <Pill
+                        mode="action"
+                        onClick={() =>
+                          requestAgentLogin({ device, agent: signInAgent })
+                        }
+                      >
+                        <SignInIcon className="size-3" />
+                        Sign in
+                      </Pill>
+                    )}
                   </GlassRow>
                 )
               })}
@@ -193,14 +192,6 @@ export function DevicesStep({
           </Button>
         </div>
       </div>
-
-      <DeviceSettingsDialog
-        device={settingsTarget}
-        open={settingsTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setSettingsTargetId(null)
-        }}
-      />
     </StepCard>
   )
 }

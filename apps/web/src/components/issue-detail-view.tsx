@@ -39,7 +39,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
-import type { IssueFilterSearch } from "@/lib/filters"
 import { parseOrigin } from "@/lib/detail-origin"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -86,9 +85,6 @@ interface IssueDetailViewProps {
   teamSlug: string
   teamId: string
   readOnly?: boolean
-  // Board filter params carried from the list view — preserved on the phone
-  // header's back-to-board target.
-  filterSearch?: IssueFilterSearch
   /** EXP-851: the `?from=` token this issue was opened with
    *  (`lib/detail-origin.ts`) — the phone header's back button returns THERE
    *  (the inbox, the board, a review queue) instead of always to the board. */
@@ -153,7 +149,6 @@ export function IssueDetailView({
   teamSlug,
   teamId,
   readOnly = false,
-  filterSearch,
   origin,
   showMobileHeader = true,
 }: IssueDetailViewProps) {
@@ -565,17 +560,13 @@ export function IssueDetailView({
   }
 
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
-  // once it commits, land back on the board with the carried filters.
+  // once it commits, land back on the board.
   const handleDeleteIssue = async () => {
     await trpc.issues.delete.mutate({ id: issue.id })
     void navigate({
       to: `/t/$teamSlug/boards/$boardSlug`,
       params: { teamSlug, boardSlug: board.slug },
-      search: {
-        status: filterSearch?.status,
-        priority: filterSearch?.priority,
-        labels: filterSearch?.labels,
-      },
+      search: {},
     })
   }
 
@@ -716,7 +707,7 @@ export function IssueDetailView({
     <DropdownMenu>
       <IconTooltip label="More actions">
         <DropdownMenuTrigger asChild>
-          <Button variant="glass" size="icon-sm" aria-label="Issue actions">
+          <Button variant="ghost" size="icon-sm" aria-label="Issue actions">
             <UiMoreIcon />
           </Button>
         </DropdownMenuTrigger>
@@ -863,11 +854,7 @@ export function IssueDetailView({
             boardSlug:
               from?.kind === `board` ? from.boardSlug : board.slug,
           },
-          search: {
-            status: filterSearch?.status,
-            priority: filterSearch?.priority,
-            labels: filterSearch?.labels,
-          },
+          search: {},
         })
       }}
       menu={

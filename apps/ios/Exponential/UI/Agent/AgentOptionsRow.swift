@@ -3,12 +3,13 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the launch options as ONE muted inline line under the composer
-/// card (Danny's variant B): Device, Agent, Model, a Plan switch, the Resume
-/// switch inline while a worktree makes it offerable (EXP-481), the
+/// card (Danny's variant B): Device, Agent, Account (EXP-862: only where the
+/// machine holds more than one login for the agent), Model, a Plan switch, the
+/// Resume switch inline while a worktree makes it offerable (EXP-481), the
 /// Repository pick only while there is no subject (a chat's optional anchor,
 /// EXP-739), and a `⋯` pill for the rest (`AgentOptionsSheet`: Effort,
-/// Ultracode, Account). Every pill is a menu or a toggle — no disabled
-/// controls, the footer under the row explains what cannot start.
+/// Ultracode). Every pill is a menu or a toggle — no disabled controls, the
+/// footer under the row explains what cannot start.
 struct AgentOptionsRow: View {
     let model: AgentComposerModel
 
@@ -21,6 +22,7 @@ struct AgentOptionsRow: View {
             HStack(spacing: 8) {
                 devicePill
                 agentPill
+                accountPill
                 modelPill
                 planPill
                 resumePill
@@ -44,7 +46,13 @@ struct AgentOptionsRow: View {
             if model.candidateDevices.count > 1 {
                 GlassMenu {
                     ForEach(model.candidateDevices) { candidate in
-                        GlassMenuItem(LaunchVocabulary.deviceCaption(candidate)) {
+                        // EXP-862: every picker menu whose selected value shows
+                        // an icon shows it on the items too — here the machine's
+                        // own kind glyph, exactly as the trigger draws it.
+                        GlassMenuItem(
+                            LaunchVocabulary.deviceCaption(candidate),
+                            icon: candidate.isServer ? AppIcons.uiServer : AppIcons.uiDevice
+                        ) {
                             model.selectDevice(candidate.deviceId)
                         }
                     }
@@ -68,34 +76,63 @@ struct AgentOptionsRow: View {
         }
     }
 
-    /// The agent — brand-marked like the segmented strip it replaces. EXP-642:
-    /// the store slide's pop-out rect used to be measured off that strip, so
-    /// the identifier stays on this pill.
+    /// The agent — the SHARED picker (EXP-862 `AgentPickerMenu`, ×4): an
+    /// icon-only trigger (brand mark + chevron) whose menu rows carry that same
+    /// mark beside the agent's name. EXP-642: the store slide's pop-out rect
+    /// used to be measured off the segmented strip this replaced, so the
+    /// identifier stays on this control.
     @ViewBuilder
     private var agentPill: some View {
         if model.availableAgents.count > 1 {
+            AgentPickerMenu(
+                agents: model.availableAgents,
+                selection: launch.agent,
+                label: { LaunchVocabulary.agentLabel($0) },
+                mark: { AgentBrandMark.image($0) },
+                onSelect: { model.selectAgent($0) }
+            )
+            .accessibilityIdentifier("start-coding-agent-picker")
+        } else {
+            AgentPickerTriggerLabel(mark: AgentBrandMark.image(launch.agent))
+                .accessibilityLabel(LaunchVocabulary.agentLabel(launch.agent))
+                .accessibilityIdentifier("start-coding-agent-picker")
+        }
+    }
+
+    /// EXP-862: the ACCOUNT the run launches under, promoted out of the `⋯`
+    /// sheet into the row — but only where it is a choice: the picked machine
+    /// has to report two or more logins for the picked agent (×4 rule). The
+    /// label is the login itself (email, else its profile label).
+    @ViewBuilder
+    private var accountPill: some View {
+        let profiles = launch.accountProfiles(on: model.device)
+        if profiles.count >= 2 {
+            @Bindable var launch = model.launch
             GlassMenu {
-                ForEach(model.availableAgents, id: \.self) { agent in
-                    GlassMenuItem(LaunchVocabulary.agentLabel(agent)) {
-                        model.selectAgent(agent)
-                    }
+                GlassMenuItem("Active login") { launch.account = "" }
+                ForEach(profiles, id: \.id) { profile in
+                    GlassMenuItem(accountLabel(profile)) { launch.account = profile.id }
                 }
             } label: {
                 OptionPillLabel(
-                    brand: launch.agent,
-                    text: LaunchVocabulary.agentLabel(launch.agent)
+                    icon: AppIcons.navAccount,
+                    text: profiles.first { $0.id == launch.account }
+                        .map(accountLabel) ?? "Active login"
                 )
             }
-            .accessibilityLabel("Agent")
-            .accessibilityIdentifier("start-coding-agent-picker")
-        } else {
-            OptionPillLabel(
-                brand: launch.agent,
-                text: LaunchVocabulary.agentLabel(launch.agent),
-                chevron: false
-            )
-            .accessibilityIdentifier("start-coding-agent-picker")
+            .accessibilityLabel("Account")
+            .accessibilityIdentifier("agent-account-pill")
         }
+    }
+
+    /// One login's name. EXP-849: a login the agent REFUSED is still a login
+    /// the machine holds, so it stays on offer — but it has to say so, or the
+    /// run starts and dies on an expired credential.
+    private func accountLabel(_ profile: AgentAccountProfile) -> String {
+        let name = profile.email ?? profile.label ?? profile.id
+        let health = AgentAccountHealth.of(profile)
+        guard let badge = health.badgeLabel else { return name }
+        return "\(name) · \(badge.lowercased())"
     }
 
     private var modelPill: some View {
@@ -114,31 +151,22 @@ struct AgentOptionsRow: View {
     /// Plan mode is claude's (EXP-441/EXP-849); a resume never re-enters plan
     /// mode (the machine clamps it too), so the switch hides while one is on.
     /// EXP-827: a slide switch on every platform (web and desktop use one),
-    /// not a lit select pill. The app-wide glass toggle is UISwitch-sized, so
-    /// it scales down to sit in the 28pt row; the caption toggles it too.
+    /// not a lit select pill. EXP-859 rebuilt it without `.fixedSize()` and
+    /// without scaling the app-wide toggle down: a scaled switch reported its
+    /// UNSCALED size, which pushed the caption out of the pill and clipped the
+    /// track. One caption, a plain toggle, both inside the capsule.
     @ViewBuilder
     private var planPill: some View {
         if LaunchVocabulary.supportsPlanMode(launch.agent), !model.resumeActive {
             @Bindable var launch = model.launch
-            HStack(spacing: 6) {
+            Toggle(isOn: $launch.planMode) {
                 Text("Plan")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
-                Toggle("Plan", isOn: $launch.planMode)
-                    .labelsHidden()
-                    .fixedSize()
-                    .scaleEffect(0.7)
-                    .frame(width: 36, height: 22)
-                    .accessibilityLabel("Plan mode")
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 5)
-            .frame(height: 28)
-            .background(GlassTokens.fillRow, in: Capsule())
-            .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-            .contentShape(Capsule())
-            .onTapGesture { launch.planMode.toggle() }
+            .toggleStyle(OptionPillToggleStyle())
+            .accessibilityLabel("Plan mode")
         }
     }
 
@@ -195,25 +223,18 @@ struct AgentOptionsRow: View {
     }
 }
 
-/// One option pill's LABEL — a glyph (or an agent brand mark), a value and a
-/// chevron, on the row fill. A label, not a button: `GlassMenu` wraps it in
-/// its own trigger, so a `GlassPill` (a `Button` itself) would nest two.
+/// One option pill's LABEL — a glyph, a value and a chevron, on the row fill.
+/// A label, not a button: `GlassMenu` wraps it in its own trigger, so a
+/// `GlassPill` (a `Button` itself) would nest two. The agent's brand-marked
+/// trigger is `AgentPickerTriggerLabel` (ExpUI) since EXP-862.
 struct OptionPillLabel: View {
     var icon: String? = nil
-    var brand: String? = nil
     let text: String
     var chevron: Bool = true
 
     var body: some View {
         HStack(spacing: 5) {
-            // EXP-849: the mark is resolved, never interpolated — an agent id
-            // with no brand asset draws the neutral glyph instead of blank.
-            if let brand, let mark = AgentBrandMark.image(brand) {
-                mark
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 13, height: 13)
-            } else if let icon {
+            if let icon {
                 AppIcon(icon, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
@@ -237,10 +258,10 @@ struct OptionPillLabel: View {
 }
 
 /// EXP-825: the `⋯` sheet — the options that did not earn a pill: Effort
-/// (Reasoning / Thinking per agent), Ultracode (claude only — it IS
-/// `--effort ultracode`, so it disables the Effort row) and, when the picked
-/// machine reports two or more login profiles for the agent, the Account to
-/// launch under (EXP-792). No MCP-server picker: mobile has none.
+/// (Reasoning / Thinking per agent) and Ultracode (claude only — it IS
+/// `--effort ultracode`, so it disables the Effort row). EXP-862 promoted the
+/// Account out of here into the row itself. No MCP-server picker: mobile has
+/// none.
 struct AgentOptionsSheet: View {
     let model: AgentComposerModel
 
@@ -271,36 +292,64 @@ struct AgentOptionsSheet: View {
                         .glassRow()
                 }
 
-                let profiles = launch.accountProfiles(on: model.device)
-                if profiles.count >= 2 {
-                    GlassPickerRow(
-                        "Account",
-                        selection: $launch.account,
-                        options: [""] + profiles.map(\.id),
-                        label: { id in
-                            guard !id.isEmpty else { return "Active login" }
-                            guard let profile = profiles.first(where: { $0.id == id }) else {
-                                return id
-                            }
-                            let name = profile.email ?? profile.label ?? id
-                            // EXP-849: a login the agent REFUSED is still a
-                            // login the machine holds, so it stays on offer —
-                            // but it has to say so, or the run starts and dies
-                            // on an expired credential.
-                            let health = AgentAccountHealth.of(profile)
-                            guard let badge = health.badgeLabel else { return name }
-                            return "\(name) · \(badge.lowercased())"
-                        }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .glassRow()
-                }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding)
             .padding(.bottom, 16)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-options-sheet")
+    }
+}
+
+/// EXP-859: the options row's switch — the pill IS the toggle. The app-wide
+/// glass switch is UISwitch-sized (51×31) and too tall for the 28pt row, and
+/// scaling it down left SwiftUI laying out the unscaled size, which is what
+/// clipped the track and shoved the caption out of the capsule. This draws the
+/// track at the row's own scale instead, so nothing is transformed.
+struct OptionPillToggleStyle: ToggleStyle {
+    @Environment(\.motion) private var motion
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(motion.fast) { configuration.isOn.toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                configuration.label
+                track(isOn: configuration.isOn)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 5)
+            .frame(height: 28)
+            .background(GlassTokens.fillRow, in: Capsule())
+            .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+
+    /// The glass switch at row scale: same colours and the same 2pt thumb
+    /// inset, 34×20 instead of 51×31.
+    private func track(isOn: Bool) -> some View {
+        Capsule()
+            .fill(isOn ? DesignTokens.Palette.primary : GlassTokens.fillCard)
+            .overlay(
+                Capsule().stroke(
+                    isOn ? Color.clear : GlassTokens.strokeCard,
+                    lineWidth: GlassTokens.hairline
+                )
+            )
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(
+                        isOn
+                            ? DesignTokens.Palette.primaryForeground
+                            : DesignTokens.Palette.mutedForeground
+                    )
+                    .frame(width: 16, height: 16)
+                    .padding(2)
+            }
+            .frame(width: 34, height: 20)
     }
 }

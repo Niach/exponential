@@ -9,7 +9,7 @@
     {
       "id": "issues",
       "label": "Issues",
-      "blurb": "The board and the issue itself: list, filters, full detail, comments, creation and cross-board search.",
+      "blurb": "The board and the issue itself: list, full detail, comments, creation and cross-board search.",
       "order": 2
     },
     {
@@ -105,6 +105,18 @@
     {
       "route": "/t/$teamSlug/settings/billing",
       "reason": "Cloud-only (CLOUD_INSTANCE=true). Unreachable on the local instance the capturers drive, and the nav item is hidden there."
+    },
+    {
+      "route": "/t/$teamSlug/settings/boards/$boardId",
+      "reason": "EXP-862: one board's settings page. Captured by settings-boards, whose /settings/boards route forwards here for the first board; the id is whatever the seed minted, so the route is not addressable by the catalog."
+    },
+    {
+      "route": "/t/$teamSlug/settings/boards/archived",
+      "reason": "EXP-862: archived boards and the 48h trash on their own page. The pane is photographed on desktop as settings-boards-archived; the web and web-mobile captures land with the EXP-865 screenshot refresh (a declared capture without a committed webp fails shots:check)."
+    },
+    {
+      "route": "/t/$teamSlug/settings/api-keys",
+      "reason": "Legacy redirect to /t/$teamSlug/settings/security since EXP-862, kept for older desktop builds, bookmarks and the MCP setup card."
     },
     {
       "route": "/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier/session",
@@ -413,42 +425,6 @@
           "value": "board"
         }
       }
-    },
-    {
-      "id": "board-filters",
-      "group": "issues",
-      "title": "Board filters",
-      "blurb": "The filter popover open over the board: status, assignee, priority and label facets, all URL-backed.",
-      "order": 2,
-      "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug",
-        "anchor": {
-          "text": "Priority",
-          "timeoutMs": 20000
-        },
-        "recipe": "openFilterPopover",
-        "settleMs": 400
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_board-filters",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_board-filters",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "tool",
-          "value": "board"
-        },
-        "env": {
-          "EXP_DEV_FILTER": "1"
-        },
-        "anchorDelayMs": 2500
-      },
-      "diffTolerance": 0.002
     },
     {
       "id": "issue-detail",
@@ -1032,8 +1008,8 @@
     {
       "id": "machine-settings",
       "group": "coding",
-      "title": "Machine settings",
-      "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees.",
+      "title": "Device settings",
+      "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
       "order": 8,
       "web": {
         "route": "/t/$teamSlug/devices",
@@ -1614,20 +1590,20 @@
     {
       "id": "settings-boards",
       "group": "settings",
-      "title": "Settings · Boards",
-      "blurb": "Every board with its prefix and repo, plus the archived and pending-deletion cards. Owner-only.",
+      "title": "Settings · Board",
+      "blurb": "One board up close: icon, colour and name in one row, then prefix, repository and default branch, with Archive and Move to trash below. Since EXP-862 the settings nav IS the board list on web as well as desktop, and the bare /settings/boards forwards to the first board. Owner-only.",
       "order": 6,
       "web": {
         "route": "/t/$teamSlug/settings/boards",
         "anchor": {
-          "text": "Boards",
+          "text": "Archive board",
           "timeoutMs": 20000
         },
         "settleMs": 600
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "Desktop flattened this into one nav entry per board (SettingsSection::Board(id)) plus a separate ArchivedBoards pane, so there is no single equivalent section to drive to.",
+        "desktop": "The same pane (SettingsSection::Board(id), EXP-288), but the drive vocabulary addresses settings sections by name and a board pane is keyed by id, so there is nothing stable to drive to.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
       }
@@ -1759,11 +1735,11 @@
     {
       "id": "settings-api-keys",
       "group": "settings",
-      "title": "Settings · API keys",
-      "blurb": "Personal expu_ keys: list, mint, revoke. The credential the MCP wiring rides on.",
+      "title": "Settings · Security",
+      "blurb": "Personal expu_ keys: list, mint, revoke, the credential the MCP wiring rides on. Passkeys moved here off the Account page in EXP-862, which is what renamed the section from API keys to Security.",
       "order": 12,
       "web": {
-        "route": "/t/$teamSlug/settings/api-keys",
+        "route": "/t/$teamSlug/settings/security",
         "anchor": {
           "text": "API keys",
           "timeoutMs": 20000
@@ -1908,7 +1884,7 @@
       "id": "settings-boards-archived",
       "group": "settings",
       "title": "Settings · Archived boards",
-      "blurb": "Boards put away rather than deleted, and the way back.",
+      "blurb": "Boards put away rather than deleted, and the way back. EXP-862 gave web its own page under the settings nav's board list; the 48h pending-deletion card joins the archived list once something is in the trash.",
       "order": 19,
       "desktop": {
         "drive": {
@@ -1917,7 +1893,7 @@
         }
       },
       "notes": {
-        "web": "Web folds this into settings-boards as a card below the live list, alongside the pending-deletion one.",
+        "web": "EXP-862 gave web its own page at /t/$teamSlug/settings/boards/archived; its capture joins the store with the EXP-865 screenshot refresh.",
         "web-mobile": "See web.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."

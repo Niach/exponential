@@ -3381,38 +3381,6 @@ public object ExpIcons {
         }.build()
     }
 
-    public val `list-filter`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "list-filter",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M2 5h20"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M6 12h12"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M9 19h6"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
     public val `list-ordered`: ImageVector by lazy {
         ImageVector.Builder(
             name = "list-ordered",
@@ -6445,7 +6413,6 @@ public object ExpIcons {
         "link-2" -> `link-2`
         "list" -> `list`
         "list-checks" -> `list-checks`
-        "list-filter" -> `list-filter`
         "list-ordered" -> `list-ordered`
         "list-todo" -> `list-todo`
         "list-tree" -> `list-tree`
@@ -6653,8 +6620,6 @@ public object ExpIcons {
     public val navDevices: ImageVector get() = `monitor`
     /** Concept `nav-files`. */
     public val navFiles: ImageVector get() = `folder`
-    /** Concept `nav-filter`. */
-    public val navFilter: ImageVector get() = `list-filter`
     /** Concept `nav-getting-started`. */
     public val navGettingStarted: ImageVector get() = `sparkles`
     /** Concept `nav-inbox`. */

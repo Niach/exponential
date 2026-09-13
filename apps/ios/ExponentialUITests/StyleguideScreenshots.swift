@@ -15,7 +15,7 @@ import XCTest
 /// additionally requires the iOS and Android `sg_*` sets to be IDENTICAL.
 ///
 ///   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
-///   sg_board-filters · sg_board-empty ·
+///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
@@ -201,24 +201,6 @@ final class StyleguideScreenshots: XCTestCase {
             "Dismissing the team setup sheet did not return to the board list"
         )
 
-        // ── sg_board-filters: the board's filter sheet ───────────────────────
-        // The trigger is the nav-bar "Filters" toolbar item; the sheet headline
-        // carries the SAME string, so scope the tap to the navigation bar and
-        // the assertion to staticTexts.
-        let filtersButton = app.navigationBars.buttons["Filters"]
-        XCTAssertTrue(filtersButton.waitForExistence(timeout: 20), "Filters toolbar item missing on the board")
-        filtersButton.tap()
-        let filterSheetHeadline = app.staticTexts["Filters"]
-        XCTAssertTrue(filterSheetHeadline.waitForExistence(timeout: 15), "Filter sheet did not open")
-        // Its three category rows are the real content — the sheet chrome alone
-        // renders even before the team's statuses/labels have synced.
-        XCTAssertTrue(
-            app.buttons["Status"].waitForExistence(timeout: 15),
-            "Filter sheet never showed its categories"
-        )
-        snapshot("sg_board-filters", settle: 2)
-        dismissSheet(app, whileVisible: filterSheetHeadline)
-
         // ── sg_board-empty: a board with no issues on it ─────────────────────
         // The seed's second board ("Launch Marketing") is created empty for
         // exactly this shot, so nothing has to be deleted to reach the state.
@@ -326,8 +308,7 @@ final class StyleguideScreenshots: XCTestCase {
         _ = titleField.waitForNonExistence(timeout: 10)
 
         // ── sg_search: the search view with seeded results ───────────────────
-        // EXP-686: Search lost its tab — it is a push off the board header,
-        // beside Filter.
+        // EXP-686: Search lost its tab — it is a push off the board header.
         let searchButton = app.buttons["board-search"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Board search button missing")
         searchButton.tap()
@@ -469,9 +450,11 @@ final class StyleguideScreenshots: XCTestCase {
             "No machine row menu — the stub device must be the demo user's OWN, registered machine"
         )
         machineMenu.tap()
-        let editItem = app.buttons["Edit"].firstMatch
-        XCTAssertTrue(editItem.waitForExistence(timeout: 15), "The machine menu never opened")
-        editItem.tap()
+        // EXP-862: the row menu's entry is "Device settings" with the settings
+        // gear — "Edit" and its pencil are gone on every client.
+        let settingsItem = app.buttons["Device settings"].firstMatch
+        XCTAssertTrue(settingsItem.waitForExistence(timeout: 15), "The machine menu never opened")
+        settingsItem.tap()
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
         XCTAssertTrue(deviceSheet.waitForExistence(timeout: 20), "Device settings sheet did not open")
         snapshot("sg_machine-settings", settle: 2)

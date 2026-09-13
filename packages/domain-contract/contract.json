@@ -348,6 +348,8 @@
     "tools": [
       {
         "name": "actions_create",
+        "title": "Create action",
+        "blurb": "Adds a reusable action to a team, with its prompt body and its inputs.",
         "progressive": "Creating action",
         "done": "Created action",
         "subjectKey": "name",
@@ -355,6 +357,8 @@
       },
       {
         "name": "actions_delete",
+        "title": "Delete action",
+        "blurb": "Removes an action from the team for good.",
         "progressive": "Deleting action",
         "done": "Deleted action",
         "subjectKey": "id",
@@ -362,6 +366,8 @@
       },
       {
         "name": "actions_list",
+        "title": "List actions",
+        "blurb": "Lists the team's actions, the builtins included.",
         "progressive": "Listing actions",
         "done": "Listed actions",
         "subjectKey": "",
@@ -369,6 +375,8 @@
       },
       {
         "name": "actions_update",
+        "title": "Update action",
+        "blurb": "Edits an action's name, prompt body, repository or inputs.",
         "progressive": "Updating action",
         "done": "Updated action",
         "subjectKey": "id",
@@ -376,6 +384,8 @@
       },
       {
         "name": "attachments_delete",
+        "title": "Delete attachment",
+        "blurb": "Removes an uploaded file and the blob behind it.",
         "progressive": "Deleting attachment",
         "done": "Deleted attachment",
         "subjectKey": "id",
@@ -383,6 +393,8 @@
       },
       {
         "name": "attachments_get",
+        "title": "Read attachment",
+        "blurb": "Reads one attachment: its metadata and its contents.",
         "progressive": "Reading attachment",
         "done": "Read attachment",
         "subjectKey": "id",
@@ -390,6 +402,8 @@
       },
       {
         "name": "attachments_upload",
+        "title": "Upload attachment",
+        "blurb": "Uploads a file and returns the link to embed in an issue or a comment.",
         "progressive": "Uploading attachment",
         "done": "Uploaded attachment",
         "subjectKey": "filename",
@@ -397,6 +411,8 @@
       },
       {
         "name": "automations_create",
+        "title": "Create automation",
+        "blurb": "Binds an action to a device on a schedule or an event trigger.",
         "progressive": "Creating automation",
         "done": "Created automation",
         "subjectKey": "name",
@@ -404,6 +420,8 @@
       },
       {
         "name": "automations_delete",
+        "title": "Delete automation",
+        "blurb": "Removes an automation and stops its runs.",
         "progressive": "Deleting automation",
         "done": "Deleted automation",
         "subjectKey": "id",
@@ -411,6 +429,8 @@
       },
       {
         "name": "automations_list",
+        "title": "List automations",
+        "blurb": "Lists the team's automations with their triggers and their runners.",
         "progressive": "Listing automations",
         "done": "Listed automations",
         "subjectKey": "",
@@ -418,6 +438,8 @@
       },
       {
         "name": "automations_toggle",
+        "title": "Toggle automation",
+        "blurb": "Switches an automation on or off without deleting it.",
         "progressive": "Toggling automation",
         "done": "Toggled automation",
         "subjectKey": "id",
@@ -425,6 +447,8 @@
       },
       {
         "name": "automations_update",
+        "title": "Update automation",
+        "blurb": "Edits an automation's action, device, trigger or agent defaults.",
         "progressive": "Updating automation",
         "done": "Updated automation",
         "subjectKey": "id",
@@ -432,6 +456,8 @@
       },
       {
         "name": "boards_create",
+        "title": "Create board",
+        "blurb": "Adds a board to a team, optionally linked to a repository.",
         "progressive": "Creating board",
         "done": "Created board",
         "subjectKey": "name",
@@ -439,6 +465,8 @@
       },
       {
         "name": "boards_delete",
+        "title": "Delete board",
+        "blurb": "Moves a board to the trash; an owner can restore it for 48 hours.",
         "progressive": "Deleting board",
         "done": "Deleted board",
         "subjectKey": "id",
@@ -446,6 +474,8 @@
       },
       {
         "name": "boards_get",
+        "title": "Read board",
+        "blurb": "Reads one board with its settings and its repository link.",
         "progressive": "Reading board",
         "done": "Read board",
         "subjectKey": "id",
@@ -453,6 +483,8 @@
       },
       {
         "name": "boards_list",
+        "title": "List boards",
+        "blurb": "Lists the boards you can see across your teams.",
         "progressive": "Listing boards",
         "done": "Listed boards",
         "subjectKey": "",
@@ -460,6 +492,8 @@
       },
       {
         "name": "boards_set_repository",
+        "title": "Link repository to board",
+        "blurb": "Points a board at a repository so its issues can start coding runs.",
         "progressive": "Linking repository to board",
         "done": "Linked repository to board",
         "subjectKey": "id",
@@ -467,6 +501,8 @@
       },
       {
         "name": "boards_update",
+        "title": "Update board",
+        "blurb": "Edits a board's name, icon, colour or default branch.",
         "progressive": "Updating board",
         "done": "Updated board",
         "subjectKey": "id",
@@ -474,6 +510,8 @@
       },
       {
         "name": "comments_create",
+        "title": "Comment on issue",
+        "blurb": "Posts a comment on an issue, or a reply under an existing one.",
         "progressive": "Commenting on issue",
         "done": "Commented on issue",
         "subjectKey": "issueId",
@@ -481,6 +519,8 @@
       },
       {
         "name": "comments_delete",
+        "title": "Delete comment",
+        "blurb": "Removes a comment from its issue.",
         "progressive": "Deleting comment",
         "done": "Deleted comment",
         "subjectKey": "id",
@@ -488,6 +528,8 @@
       },
       {
         "name": "comments_list",
+        "title": "Read comments",
+        "blurb": "Reads an issue's comment thread, oldest first.",
         "progressive": "Reading comments",
         "done": "Read comments",
         "subjectKey": "issueId",
@@ -495,6 +537,8 @@
       },
       {
         "name": "comments_update",
+        "title": "Update comment",
+        "blurb": "Rewrites the body of a comment.",
         "progressive": "Updating comment",
         "done": "Updated comment",
         "subjectKey": "id",
@@ -502,6 +546,8 @@
       },
       {
         "name": "devices_list",
+        "title": "List devices",
+        "blurb": "Lists the machines that can run coding sessions for you.",
         "progressive": "Listing machines",
         "done": "Listed machines",
         "subjectKey": "",
@@ -509,6 +555,8 @@
       },
       {
         "name": "helpdesk_close",
+        "title": "Close ticket",
+        "blurb": "Closes a support thread once the reporter has an answer.",
         "progressive": "Closing support thread",
         "done": "Closed support thread",
         "subjectKey": "id",
@@ -516,6 +564,8 @@
       },
       {
         "name": "helpdesk_escalate",
+        "title": "Escalate ticket",
+        "blurb": "Turns a support thread into a linked issue on a board.",
         "progressive": "Escalating support thread",
         "done": "Escalated support thread",
         "subjectKey": "id",
@@ -523,6 +573,8 @@
       },
       {
         "name": "helpdesk_note",
+        "title": "Add internal note",
+        "blurb": "Adds a note only the team sees, never the reporter.",
         "progressive": "Adding support note",
         "done": "Added support note",
         "subjectKey": "id",
@@ -530,6 +582,8 @@
       },
       {
         "name": "helpdesk_reopen",
+        "title": "Reopen ticket",
+        "blurb": "Puts a closed support thread back in the queue.",
         "progressive": "Reopening support thread",
         "done": "Reopened support thread",
         "subjectKey": "id",
@@ -537,6 +591,8 @@
       },
       {
         "name": "helpdesk_reply",
+        "title": "Reply to ticket",
+        "blurb": "Answers the reporter and mails the reply to them.",
         "progressive": "Replying to support thread",
         "done": "Replied to support thread",
         "subjectKey": "id",
@@ -544,6 +600,8 @@
       },
       {
         "name": "helpdesk_threads_get",
+        "title": "Read ticket",
+        "blurb": "Reads one support thread with its whole message history.",
         "progressive": "Reading support thread",
         "done": "Read support thread",
         "subjectKey": "id",
@@ -551,6 +609,8 @@
       },
       {
         "name": "helpdesk_threads_list",
+        "title": "List tickets",
+        "blurb": "Lists a team's support threads, open or closed.",
         "progressive": "Listing support threads",
         "done": "Listed support threads",
         "subjectKey": "",
@@ -558,6 +618,8 @@
       },
       {
         "name": "invites_create",
+        "title": "Create invite",
+        "blurb": "Creates an invite link for a team, optionally mailed to an address.",
         "progressive": "Creating invite",
         "done": "Created invite",
         "subjectKey": "email",
@@ -565,6 +627,8 @@
       },
       {
         "name": "invites_list",
+        "title": "List invites",
+        "blurb": "Lists a team's outstanding invites.",
         "progressive": "Listing invites",
         "done": "Listed invites",
         "subjectKey": "",
@@ -572,6 +636,8 @@
       },
       {
         "name": "invites_revoke",
+        "title": "Revoke invite",
+        "blurb": "Kills an invite link before anyone uses it.",
         "progressive": "Revoking invite",
         "done": "Revoked invite",
         "subjectKey": "id",
@@ -579,6 +645,8 @@
       },
       {
         "name": "issue_labels_add",
+        "title": "Add label to issue",
+        "blurb": "Puts one of the team's labels on an issue.",
         "progressive": "Adding labels",
         "done": "Added labels",
         "subjectKey": "issueId",
@@ -586,6 +654,8 @@
       },
       {
         "name": "issue_labels_remove",
+        "title": "Remove label from issue",
+        "blurb": "Takes a label back off an issue.",
         "progressive": "Removing labels",
         "done": "Removed labels",
         "subjectKey": "issueId",
@@ -593,6 +663,8 @@
       },
       {
         "name": "issue_relations_add",
+        "title": "Link issues",
+        "blurb": "Relates two issues: blocks, parent, duplicate or related.",
         "progressive": "Linking issues",
         "done": "Linked issues",
         "subjectKey": "issueId",
@@ -600,6 +672,8 @@
       },
       {
         "name": "issue_relations_remove",
+        "title": "Unlink issues",
+        "blurb": "Drops a relation between two issues.",
         "progressive": "Unlinking issues",
         "done": "Unlinked issues",
         "subjectKey": "issueId",
@@ -607,6 +681,8 @@
       },
       {
         "name": "issues_create",
+        "title": "Create issue",
+        "blurb": "Files an issue on a board, with description, labels and assignee.",
         "progressive": "Creating issue",
         "done": "Created issue",
         "subjectKey": "title",
@@ -614,6 +690,8 @@
       },
       {
         "name": "issues_delete",
+        "title": "Delete issue",
+        "blurb": "Removes an issue and everything on it.",
         "progressive": "Deleting issue",
         "done": "Deleted issue",
         "subjectKey": "id",
@@ -621,6 +699,8 @@
       },
       {
         "name": "issues_get",
+        "title": "Read issue",
+        "blurb": "Reads one issue in full, with its latest comments.",
         "progressive": "Reading issue",
         "done": "Read issue",
         "subjectKey": "id",
@@ -628,6 +708,8 @@
       },
       {
         "name": "issues_list",
+        "title": "List issues",
+        "blurb": "Lists issues across your teams or one board, open work by default.",
         "progressive": "Listing issues",
         "done": "Listed issues",
         "subjectKey": "",
@@ -635,6 +717,8 @@
       },
       {
         "name": "issues_pr_files",
+        "title": "Read pull request files",
+        "blurb": "Lists the files an issue's pull request changes.",
         "progressive": "Reading PR files",
         "done": "Read PR files",
         "subjectKey": "id",
@@ -642,6 +726,8 @@
       },
       {
         "name": "issues_subscribe",
+        "title": "Subscribe to issue",
+        "blurb": "Follows an issue so its activity reaches your inbox.",
         "progressive": "Subscribing to issue",
         "done": "Subscribed to issue",
         "subjectKey": "id",
@@ -649,6 +735,8 @@
       },
       {
         "name": "issues_unsubscribe",
+        "title": "Unsubscribe from issue",
+        "blurb": "Stops following an issue.",
         "progressive": "Unsubscribing from issue",
         "done": "Unsubscribed from issue",
         "subjectKey": "id",
@@ -656,6 +744,8 @@
       },
       {
         "name": "issues_update",
+        "title": "Update issue",
+        "blurb": "Edits an issue's title, description, assignee, priority or due date.",
         "progressive": "Updating issue",
         "done": "Updated issue",
         "subjectKey": "id",
@@ -663,6 +753,8 @@
       },
       {
         "name": "issues_update_status",
+        "title": "Set issue status",
+        "blurb": "Moves an issue to another status on its team's board.",
         "progressive": "Updating issue status",
         "done": "Updated issue status",
         "subjectKey": "id",
@@ -670,6 +762,8 @@
       },
       {
         "name": "labels_create",
+        "title": "Create label",
+        "blurb": "Adds a label to a team, with its name and its colour.",
         "progressive": "Creating label",
         "done": "Created label",
         "subjectKey": "name",
@@ -677,6 +771,8 @@
       },
       {
         "name": "labels_delete",
+        "title": "Delete label",
+        "blurb": "Removes a label from the team and from every issue wearing it.",
         "progressive": "Deleting label",
         "done": "Deleted label",
         "subjectKey": "id",
@@ -684,6 +780,8 @@
       },
       {
         "name": "labels_get",
+        "title": "Read label",
+        "blurb": "Reads one label with its name and its colour.",
         "progressive": "Reading label",
         "done": "Read label",
         "subjectKey": "id",
@@ -691,6 +789,8 @@
       },
       {
         "name": "labels_list",
+        "title": "List labels",
+        "blurb": "Lists a team's labels.",
         "progressive": "Listing labels",
         "done": "Listed labels",
         "subjectKey": "",
@@ -698,6 +798,8 @@
       },
       {
         "name": "labels_update",
+        "title": "Update label",
+        "blurb": "Renames a label or changes its colour.",
         "progressive": "Updating label",
         "done": "Updated label",
         "subjectKey": "id",
@@ -705,6 +807,8 @@
       },
       {
         "name": "members_list",
+        "title": "List members",
+        "blurb": "Lists a team's members with their roles.",
         "progressive": "Listing members",
         "done": "Listed members",
         "subjectKey": "",
@@ -712,6 +816,8 @@
       },
       {
         "name": "notifications_list",
+        "title": "List notifications",
+        "blurb": "Reads your inbox, newest first.",
         "progressive": "Reading notifications",
         "done": "Read notifications",
         "subjectKey": "",
@@ -719,6 +825,8 @@
       },
       {
         "name": "notifications_mark_read",
+        "title": "Mark notifications read",
+        "blurb": "Clears notifications out of your inbox.",
         "progressive": "Marking notifications read",
         "done": "Marked notifications read",
         "subjectKey": "",
@@ -726,6 +834,8 @@
       },
       {
         "name": "notifications_send",
+        "title": "Send message",
+        "blurb": "Sends a message to the team's inbox and pushes it to their devices.",
         "progressive": "Sending notification",
         "done": "Sent notification",
         "subjectKey": "title",
@@ -733,6 +843,8 @@
       },
       {
         "name": "pr_merge",
+        "title": "Merge pull request",
+        "blurb": "Squash-merges an open pull request and moves its issues on.",
         "progressive": "Merging pull request",
         "done": "Merged pull request",
         "subjectKey": "issueId",
@@ -740,6 +852,8 @@
       },
       {
         "name": "pr_open",
+        "title": "Open pull request",
+        "blurb": "Opens a pull request on the repository and links it to the issues.",
         "progressive": "Opening pull request",
         "done": "Opened pull request",
         "subjectKey": "title",
@@ -747,6 +861,8 @@
       },
       {
         "name": "pr_retarget",
+        "title": "Retarget pull request",
+        "blurb": "Points an open pull request at another base branch.",
         "progressive": "Retargeting pull request",
         "done": "Retargeted pull request",
         "subjectKey": "issueId",
@@ -754,6 +870,8 @@
       },
       {
         "name": "report_bug",
+        "title": "Report a bug",
+        "blurb": "Files a bug about Exponential itself with the people who build it.",
         "progressive": "Reporting bug to Exponential",
         "done": "Reported bug to Exponential",
         "subjectKey": "title",
@@ -761,6 +879,8 @@
       },
       {
         "name": "repositories_add",
+        "title": "Add repository",
+        "blurb": "Registers a GitHub repository with the team.",
         "progressive": "Adding repository",
         "done": "Added repository",
         "subjectKey": "fullName",
@@ -768,6 +888,8 @@
       },
       {
         "name": "repositories_branch_diff",
+        "title": "Read branch diff",
+        "blurb": "Compares a branch with its base and lists what changed.",
         "progressive": "Reading branch diff",
         "done": "Read branch diff",
         "subjectKey": "",
@@ -775,6 +897,8 @@
       },
       {
         "name": "repositories_list",
+        "title": "List repositories",
+        "blurb": "Lists the repositories the team has registered.",
         "progressive": "Listing repositories",
         "done": "Listed repositories",
         "subjectKey": "",
@@ -782,6 +906,8 @@
       },
       {
         "name": "sessions_ask_parent",
+        "title": "Ask the parent run",
+        "blurb": "Asks the run that started this one a question, without blocking on it.",
         "progressive": "Asking parent session",
         "done": "Asked parent session",
         "subjectKey": "question",
@@ -789,6 +915,8 @@
       },
       {
         "name": "sessions_end",
+        "title": "End this run",
+        "blurb": "Closes out this coding run and reports back to whoever started it.",
         "progressive": "Ending session",
         "done": "Ended session",
         "subjectKey": "",
@@ -796,6 +924,8 @@
       },
       {
         "name": "sessions_get",
+        "title": "Read session",
+        "blurb": "Reads one coding session: its status, its pull request, its device.",
         "progressive": "Reading session",
         "done": "Read session",
         "subjectKey": "id",
@@ -803,6 +933,8 @@
       },
       {
         "name": "sessions_kill",
+        "title": "Stop session",
+        "blurb": "Ends a running coding session on its device.",
         "progressive": "Killing session",
         "done": "Killed session",
         "subjectKey": "id",
@@ -810,6 +942,8 @@
       },
       {
         "name": "sessions_list",
+        "title": "List sessions",
+        "blurb": "Lists coding sessions across your teams, newest first.",
         "progressive": "Listing sessions",
         "done": "Listed sessions",
         "subjectKey": "",
@@ -817,6 +951,8 @@
       },
       {
         "name": "sessions_message",
+        "title": "Message session",
+        "blurb": "Sends a message into a live coding session, the way a person steers it.",
         "progressive": "Messaging session",
         "done": "Messaged session",
         "subjectKey": "id",
@@ -824,6 +960,8 @@
       },
       {
         "name": "sessions_start",
+        "title": "Start coding session",
+        "blurb": "Starts a coding run on one of your devices for an issue or an action.",
         "progressive": "Starting session",
         "done": "Started session",
         "subjectKey": "issueId",
@@ -831,6 +969,8 @@
       },
       {
         "name": "statuses_create",
+        "title": "Create status",
+        "blurb": "Adds a custom status to a team inside one of the six categories.",
         "progressive": "Creating status",
         "done": "Created status",
         "subjectKey": "name",
@@ -838,6 +978,8 @@
       },
       {
         "name": "statuses_delete",
+        "title": "Delete status",
+        "blurb": "Removes a custom status once its issues have somewhere else to go.",
         "progressive": "Deleting status",
         "done": "Deleted status",
         "subjectKey": "id",
@@ -845,6 +987,8 @@
       },
       {
         "name": "statuses_list",
+        "title": "List statuses",
+        "blurb": "Lists a team's statuses in board order.",
         "progressive": "Listing statuses",
         "done": "Listed statuses",
         "subjectKey": "",
@@ -852,6 +996,8 @@
       },
       {
         "name": "statuses_update",
+        "title": "Update status",
+        "blurb": "Renames a status, recolours it or moves it within its category.",
         "progressive": "Updating status",
         "done": "Updated status",
         "subjectKey": "id",
@@ -859,6 +1005,8 @@
       },
       {
         "name": "teams_create",
+        "title": "Create team",
+        "blurb": "Creates a team and makes you its owner.",
         "progressive": "Creating team",
         "done": "Created team",
         "subjectKey": "name",
@@ -866,6 +1014,8 @@
       },
       {
         "name": "teams_get",
+        "title": "Read team",
+        "blurb": "Reads one team with its settings.",
         "progressive": "Reading team",
         "done": "Read team",
         "subjectKey": "id",
@@ -873,6 +1023,8 @@
       },
       {
         "name": "teams_list",
+        "title": "List teams",
+        "blurb": "Lists the teams you belong to.",
         "progressive": "Listing teams",
         "done": "Listed teams",
         "subjectKey": "",
@@ -880,6 +1032,8 @@
       },
       {
         "name": "teams_update",
+        "title": "Update team",
+        "blurb": "Edits a team's name, slug or feature settings.",
         "progressive": "Updating team",
         "done": "Updated team",
         "subjectKey": "id",

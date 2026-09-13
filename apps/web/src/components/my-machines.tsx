@@ -1,28 +1,30 @@
-// "My machines" (EXP-403): the caller's registered devices — desktops and
+// "My devices" (EXP-403): the caller's registered devices — desktops and
 // headless `exponential` daemon servers — with live online state, last-seen
 // fallback, and the "Add device" dialog (EXP-697: desktop download + the
 // CLI install one-liner). Since EXP-481 the rows
 // ride the synced devices shape (useRemoteStart composes them) and the ⋯
-// menu collapses to Edit + Remove — rename, team sharing (EXP-432), agent
-// defaults and worktree management all live in the Device settings dialog.
-// Teammates' shared servers render read-only under "Team machines".
+// menu collapses to Device settings + Remove — rename, team sharing
+// (EXP-432), agent defaults and worktree management all live in the Device
+// settings dialog. Teammates' shared servers render read-only under "Team
+// devices".
+//
+// EXP-862: nothing on a row SAYS anything about sign-ins any more. A login's
+// state is said once, on the chip that owns it (summarised by the row's
+// health badge) — the status line used to repeat it as "codex not signed in"
+// beside a chip already wearing the badge, and a "Sign in" pill repeated it a
+// third time.
 import { useMemo, useState } from "react"
 import { LoaderCircle } from "lucide-react"
-import { toast } from "sonner"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   describeUpdateBlockers,
-  deviceCanAgentLogin,
-  deviceCanSwitchAccount,
   deviceCanUpdateNow,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
-  deviceUnauthedAgentIds,
   deviceUpdateAvailable,
   liveUpdateBlockers,
   showDeviceUpdateButton,
@@ -40,14 +42,16 @@ import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
-  chipAction,
-  chipSwitchesTo,
+  AccountChipMenu,
+  accountChipActionable,
+} from "@/components/device-agent-account"
+import {
   deviceAccountChips,
   deviceWorstHealth,
   healthBadgeLabel,
   type DeviceAccountChip,
 } from "@/lib/agent-usage"
-import { agentLabel } from "@/components/agent-usage-bar"
+import { agentLabel } from "@/components/agent-picker"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
@@ -88,19 +92,17 @@ const OfflineIcon = conceptIcon(`ui-device-offline`)
 const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
 const UpdateIcon = conceptIcon(`ui-update`)
-const EditIcon = conceptIcon(`ui-edit`)
+// EXP-862: the ⋯ menu opens Device settings — the settings gear, ×4. A pencil
+// promised an inline rename, not the dialog it opens.
+const SettingsIcon = conceptIcon(`nav-settings`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const MoreIcon = conceptIcon(`ui-more`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
-// EXP-792 (EXP-747): the cross-device usage page + the remote sign-in.
-const SignInIcon = conceptIcon(`ui-sign-in`)
-// EXP-849: the repair surface's account chips.
-const SwapIcon = conceptIcon(`ui-swap`)
 
 /** FEED-36: the tooltip on a queued Update button — the daemon's own rules
  * for getting there (every session ends, or one sits idle for 2 hours). */
-export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the machine restarts itself once every session ends or sits idle for 2 hours.`
+export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
 
 /** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
  * off the synced coding_sessions shape), with the issue identifier joined
@@ -148,14 +150,6 @@ function useUpdateBlockers(): (device: SteerDevice) => UpdateBlockerSession[] {
       }))
 }
 
-/** EXP-747 A5: the agent a machine row's "Sign in" pill targets — the first
- * signed-out agent (EXP-849: every agent has a device-code flow). Null when
- * nothing is signed out, or the build cannot run `agent_login`. */
-export function signInAgentFor(device: SteerDevice): string | null {
-  if (!deviceIsOnline(device) || !deviceCanAgentLogin(device)) return null
-  return deviceUnauthedAgentIds(device)[0] ?? null
-}
-
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
 // pages), so the one-liner always names the target instance explicitly via
@@ -191,44 +185,23 @@ export function CopyIconButton({ text }: { text: string }) {
 }
 
 // EXP-849: the Devices surface is the SETUP/REPAIR surface — one row per
-// machine with its agents, worktrees and the accounts it holds. Accounts
+// device with its agents, worktrees and the accounts it holds. Accounts
 // (the page's other section) decides WHICH login to run on; everything that
-// touches a machine's credentials happens here: the worst health bubbles to
+// touches a device's credentials happens here: the worst health bubbles to
 // the row's title, and every account it holds is a chip whose menu signs in,
-// re-logins, or makes that login the one this machine uses.
+// makes that login the device's default, or removes it from the device.
 //
 // Nothing here ever copies a credential: a chip action queues either the
-// machine's OWN `agent_login` (`AgentLoginDialog`, the agent CLI's login in
-// that profile's config dir) or `agent_profile_use`, which only points the
-// agent at a profile the machine already holds.
-function MachineAccountChips({
-  device,
-  online,
-}: {
-  device: SteerDevice
-  online: boolean
-}) {
+// device's OWN `agent_login` (`AgentLoginDialog`, the agent CLI's login in
+// that profile's config dir), `agent_profile_use` (point the agent at a
+// profile the device already holds) or `agent_profile_remove` (forget one).
+function MachineAccountChips({ device }: { device: SteerDevice }) {
   const chips = deviceAccountChips({ agentAccounts: device.agentAccounts })
   if (chips.length === 0) return null
-  // A repair is only offered on the caller's OWN machine, online, with the
-  // `agent_login` cap — the same rule the sign-in pill uses.
-  const canLogin =
-    deviceIsMine(device) && online && deviceCanAgentLogin(device)
-  // …and "Use this account here" needs the SECOND cap the server checks
-  // (`account-switch`, desktop/CLI ≥ 0.14.38): below it the queued
-  // `agent_profile_use` is refused outright, so such a machine only gets the
-  // sign-in action.
-  const canSwitchAccount = canLogin && deviceCanSwitchAccount(device)
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {chips.map((chip) => (
-        <MachineAccountChip
-          key={chip.key}
-          device={device}
-          chip={chip}
-          canLogin={canLogin}
-          canSwitchAccount={canSwitchAccount}
-        />
+        <MachineAccountChip key={chip.key} device={device} chip={chip} />
       ))}
     </div>
   )
@@ -245,15 +218,10 @@ function machineChipLabel(chip: DeviceAccountChip): string {
 function MachineAccountChip({
   device,
   chip,
-  canLogin,
-  canSwitchAccount,
 }: {
   device: SteerDevice
   chip: DeviceAccountChip
-  canLogin: boolean
-  canSwitchAccount: boolean
 }) {
-  const [busy, setBusy] = useState(false)
   const health = healthBadgeLabel(chip.health)
   const body = (
     <>
@@ -261,7 +229,7 @@ function MachineAccountChip({
       {chip.signedIn && chip.active && (
         <CheckIcon
           className="size-3 text-emerald-400"
-          aria-label="The account this machine uses"
+          aria-label="Active login"
         />
       )}
       {health && (
@@ -271,108 +239,51 @@ function MachineAccountChip({
       )}
     </>
   )
-  if (!canLogin) {
+  // EXP-862: the ONE menu per state lives in `AccountChipMenu` (Sign in /
+  // Set as default / Remove account, ×4). A chip with no entry — a teammate's
+  // device, an offline one, a build that takes none of the commands — is the
+  // statement it always was.
+  if (!accountChipActionable(device, chip)) {
     return (
       <Pill size="sm" className="max-w-full" title={machineChipLabel(chip)}>
         {body}
       </Pill>
     )
   }
-  // The ONE action per state: a broken or missing login is signed in again,
-  // a healthy one that is not the machine's active login simply BECOMES it.
-  // EXP-849: that second case is `agent_profile_use` — the machine points the
-  // agent at a profile it already holds and re-heartbeats. Never a logout:
-  // signing codex out would revoke the account server-wide, and never a
-  // credential copy either (the files stay where the CLI wrote them).
-  // …and a machine whose build predates `account-switch` cannot run that
-  // command at all, so the shared rule folds the cap in and hands such a chip
-  // the sign-in action instead of an offer the server would refuse.
-  const switchesTo = chipSwitchesTo(chip, canSwitchAccount)
-  const action = chipAction(chip, canSwitchAccount)
-  const useHere = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      await trpc.devices.createCommand.mutate({
-        deviceId: device.deviceId,
-        kind: `agent_profile_use`,
-        agent: chip.agent as never,
-        profileId: chip.profileId,
-      })
-      toast.success(
-        `${device.deviceLabel || device.deviceId} will use this ${agentLabel(chip.agent)} account`
-      )
-    } catch (error) {
-      toast.error(`Couldn't switch the account on that machine`, {
-        description: trpcErrorMessage(
-          error,
-          `The command could not be queued on the machine.`
-        ),
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
-  // The login dialog is hosted elsewhere in the tree — hand off a tick after
-  // the menu closes (the Accounts section's rule).
-  const signIn = () =>
-    setTimeout(
-      () =>
+  return (
+    <AccountChipMenu
+      device={device}
+      row={chip}
+      accountLabel={machineChipLabel(chip)}
+      onSignIn={() =>
         requestAgentLogin({
           device,
           agent: chip.agent,
           profileId: chip.profileId,
-        }),
-      0
-    )
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+        })
+      }
+      trigger={
         <Pill
           size="sm"
           mode="action"
           className="max-w-full"
-          title={`${machineChipLabel(chip)} — ${action} on ${device.deviceLabel || device.deviceId}`}
+          title={machineChipLabel(chip)}
         >
           {body}
         </Pill>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuItem
-          disabled={busy}
-          onSelect={() => {
-            if (switchesTo) void useHere()
-            else signIn()
-          }}
-        >
-          {switchesTo ? <SwapIcon /> : <SignInIcon />}
-          {action}
-        </DropdownMenuItem>
-        {/* A switch is the cheap repair; the sign-in stays available under it
-            for a login that turns out to be dead after all. */}
-        {switchesTo && (
-          <DropdownMenuItem onSelect={signIn}>
-            <SignInIcon />
-            Sign in again
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      }
+    />
   )
 }
 
 // The row's second line (native `deviceStatusLine` parity): a live dot +
-// "Online" (amber + the signed-out agents when nothing is runnable, EXP-409),
-// or the last-seen caption for offline machines.
+// "Online", or the last-seen caption for offline devices. EXP-862: it says
+// nothing about sign-ins — the account chips own that.
 export function DeviceStatusLine({
   online,
-  signInNeeded,
-  unauthed,
   lastSeenAt,
 }: {
   online: boolean
-  signInNeeded: boolean
-  unauthed: string[]
   lastSeenAt: string | null | undefined
 }) {
   if (!online) {
@@ -384,19 +295,8 @@ export function DeviceStatusLine({
   }
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <span
-        className={`size-1.5 shrink-0 rounded-full ${
-          signInNeeded ? `bg-amber-500` : `bg-emerald-500`
-        }`}
-      />
-      <span className="truncate">
-        {signInNeeded ? `${unauthed.join(`, `)} not signed in` : `Online`}
-        {!signInNeeded && unauthed.length > 0 && (
-          <span className="text-muted-foreground/60">
-            {` · ${unauthed.join(`, `)} not signed in`}
-          </span>
-        )}
-      </span>
+      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+      <span className="truncate">Online</span>
     </div>
   )
 }
@@ -498,7 +398,7 @@ export function MyMachines({
       {/* EXP-616: the iOS Agents screen's plain-text section header — no
           count, the trailing control rides along. */}
       <GlassSectionHeader
-        label="My machines"
+        label="My devices"
         trailing={
           <Pill mode="action" onClick={() => setAddServerOpen(true)}>
             <AddIcon className="size-3" />
@@ -512,24 +412,21 @@ export function MyMachines({
       ) : mine.length === 0 ? (
         <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
           <OfflineIcon className="size-3.5 shrink-0" />
-          No machines yet. Open the Exponential desktop app, or add a device.
+          No devices yet. Open the Exponential desktop app, or add a device.
         </div>
       ) : (
         <div className="flex flex-col gap-0">
           {mine.map((device) => {
             const online = deviceIsOnline(device)
-            // EXP-409: installed-but-signed-out agents grey the machine out
-            // (online but nothing runnable) or annotate it (a runnable
-            // sibling still covers coding).
-            const unauthed = deviceUnauthedAgentIds(device)
+            // EXP-409: a device with nothing runnable greys out — EXP-862
+            // leaves the WHY to the account chips.
             const runnable = deviceHasRunnableAgent(device)
-            const signInNeeded = online && !runnable && unauthed.length > 0
-            // EXP-836: play hands this machine to the Agent composer, which
-            // only starts on an online machine WITH a runnable agent — so the
-            // button gates on exactly that. It used to gate on `signInNeeded`
-            // alone, so a machine reporting no agents at all (nothing
+            // EXP-836: play hands this device to the Agent composer, which
+            // only starts on an online device WITH a runnable agent — so the
+            // button gates on exactly that. It used to gate on the sign-in
+            // state alone, so a device reporting no agents at all (nothing
             // installed, an older build) opened the composer and the
-            // pre-picked machine silently lost to the default one.
+            // pre-picked device silently lost to the default one.
             const startable = online && runnable
             const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
             const latest =
@@ -537,9 +434,6 @@ export function MyMachines({
                 ? latestVersions?.cli
                 : latestVersions?.desktop
             const outdated = deviceUpdateAvailable(device.version, latest)
-            // EXP-747 A5: a signed-out agent gets a Sign in pill in the
-            // trailing column, wired to the remote login dialog.
-            const signInAgent = unauthed.length > 0 ? signInAgentFor(device) : null
             // FEED-36: a queued update parked behind live sessions says
             // WHICH ones, and a capable daemon offers to end them now.
             const updateQueued = Boolean(
@@ -548,17 +442,18 @@ export function MyMachines({
             const blockerLine = updateQueued
               ? describeUpdateBlockers(blockersFor(device), usersById, now)
               : null
-            // EXP-849: the worst health of the accounts this machine holds —
+            // EXP-849: the worst health of the accounts this device holds —
             // "needs re-login" is a DIFFERENT problem from "signed out", and
             // the chips below say which account it is. Null when every login
-            // is fine (or the machine reported none).
+            // is fine (or the device reported none).
             const healthBadge = healthBadgeLabel(
               deviceWorstHealth({ agentAccounts: device.agentAccounts }) ?? `ok`
             )
             return (
               <ListRow
                 key={device.deviceId}
-                className={signInNeeded ? `opacity-60` : undefined}
+                interactive
+                className={online && !runnable ? `opacity-60` : undefined}
               >
                 <KindIcon className="size-4 shrink-0 text-foreground/70" />
                 {/* FEED-15: the native two-line row — name + version (+ Shared)
@@ -586,8 +481,8 @@ export function MyMachines({
                     {device.isDefault && (
                       <span
                         className="shrink-0 text-muted-foreground"
-                        title={`Your default machine — preselected when you start a coding session.`}
-                        aria-label="Default machine"
+                        title={`Your default device — preselected when you start a coding session.`}
+                        aria-label="Default device"
                       >
                         <DefaultIcon className="size-3 fill-current" />
                       </span>
@@ -597,7 +492,7 @@ export function MyMachines({
                         className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
                         title={
                           teamId && device.sharedTeamIds?.includes(teamId)
-                            ? `Shared with this team — teammates can start coding sessions on this machine.`
+                            ? `Shared with this team — teammates can start coding sessions on this device.`
                             : `Shared with other teams.`
                         }
                       >
@@ -605,18 +500,13 @@ export function MyMachines({
                       </span>
                     )}
                     {healthBadge && (
-                      <span
-                        className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500"
-                        title={`Sign in again from the account chip below.`}
-                      >
+                      <span className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500">
                         {healthBadge}
                       </span>
                     )}
                   </div>
                   <DeviceStatusLine
                     online={online}
-                    signInNeeded={signInNeeded}
-                    unauthed={unauthed}
                     lastSeenAt={device.lastSeenAt}
                   />
                   {blockerLine && (
@@ -627,9 +517,9 @@ export function MyMachines({
                       {blockerLine}
                     </div>
                   )}
-                  {/* EXP-849: the accounts this machine holds — the repair
+                  {/* EXP-849: the accounts this device holds — the repair
                       controls live on these chips. */}
-                  <MachineAccountChips device={device} online={online} />
+                  <MachineAccountChips device={device} />
                 </div>
                 {/* EXP-698: the fixed trailing column — a play slot and a ⋯
                     slot, so the controls line up down the list. A row without
@@ -677,30 +567,17 @@ export function MyMachines({
                     <Pill
                       mode="action"
                       onClick={() => setUpdateNowTarget(device)}
-                      title={`End this machine's live sessions and restart it on the new version now.`}
+                      title={`End this device's live sessions and restart it on the new version now.`}
                     >
                       <UpdateIcon className="size-3" />
                       Update now…
                     </Pill>
                   )}
-                  {signInAgent && (
-                    <Pill
-                      mode="action"
-                      onClick={() =>
-                        requestAgentLogin({ device, agent: signInAgent })
-                      }
-                    >
-                      <SignInIcon className="size-3" />
-                      Sign in
-                    </Pill>
-                  )}
                   <span
                     title={
-                      signInNeeded
-                        ? `Sign in to ${unauthed[0]} on this machine first.`
-                        : online && !runnable
-                          ? `No agent is signed in on this machine.`
-                          : undefined
+                      online && !runnable
+                        ? `No agent is signed in on this device.`
+                        : undefined
                     }
                   >
                     <Button
@@ -719,10 +596,12 @@ export function MyMachines({
                   {device.registered ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
+                        {/* EXP-862: a ⋯ is a GHOST icon button ×4 — no
+                            circle, no border. */}
                         <Button
-                          variant="glass"
+                          variant="ghost"
                           size="icon-sm"
-                          aria-label={`Machine menu for ${device.deviceLabel || device.deviceId}`}
+                          aria-label={`Device menu for ${device.deviceLabel || device.deviceId}`}
                         >
                           <MoreIcon />
                         </Button>
@@ -733,8 +612,8 @@ export function MyMachines({
                         <DropdownMenuItem
                           onSelect={() => setSettingsTargetId(device.deviceId)}
                         >
-                          <EditIcon />
-                          Edit
+                          <SettingsIcon />
+                          Device settings
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           variant="destructive"
@@ -759,17 +638,16 @@ export function MyMachines({
           fully startable. */}
       {teamShared.length > 0 && (
         <div className="mt-6">
-          <GlassSectionHeader label="Team machines" />
+          <GlassSectionHeader label="Team devices" />
           <div className="flex flex-col gap-0">
             {teamShared.map((device) => {
               const online = deviceIsOnline(device)
-              const unauthed = deviceUnauthedAgentIds(device)
               const runnable = deviceHasRunnableAgent(device)
-              const signInNeeded = online && !runnable && unauthed.length > 0
               return (
                 <ListRow
                   key={device.deviceId}
-                  className={signInNeeded ? `opacity-60` : undefined}
+                  interactive
+                  className={online && !runnable ? `opacity-60` : undefined}
                 >
                   <ServerIcon className="size-4 shrink-0 text-foreground/70" />
                   <div className="min-w-0 flex-1">
@@ -785,25 +663,23 @@ export function MyMachines({
                     </div>
                     <DeviceStatusLine
                       online={online}
-                      signInNeeded={signInNeeded}
-                      unauthed={unauthed}
                       lastSeenAt={device.lastSeenAt}
                     />
                   </div>
-                  {/* The same fixed trailing column as "My machines": a
+                  {/* The same fixed trailing column as "My devices": a
                       read-only row has no ⋯ menu, so its slot is an empty
                       spacer and the play buttons stay in one line. */}
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
                       variant="glass"
                       size="icon"
-                      // EXP-836: same predicate as own machines — the composer
-                      // cannot start on a machine with no runnable agent.
+                      // EXP-836: same predicate as own devices — the composer
+                      // cannot start on a device with no runnable agent.
                       disabled={!online || !runnable}
                       onClick={() => onStartCoding(device.deviceId)}
                       title={
                         online && !runnable
-                          ? `No agent is signed in on this machine.`
+                          ? `No agent is signed in on this device.`
                           : `Start coding`
                       }
                       aria-label="Start coding"
@@ -870,14 +746,14 @@ export function MyMachines({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {`Update ${updateNowTarget?.deviceLabel || updateNowTarget?.deviceId || `this machine`} now?`}
+              {`Update ${updateNowTarget?.deviceLabel || updateNowTarget?.deviceId || `this device`} now?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {updateNowLiveCount > 0
                 ? `Ends the ${updateNowLiveCount} live ${
                     updateNowLiveCount === 1 ? `session` : `sessions`
-                  } on this machine (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
-                : `Ends every live session on this machine (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
+                  } on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
+                : `Ends every live session on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -904,10 +780,10 @@ export function MyMachines({
       >
         <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Remove machine</DialogTitle>
+            <DialogTitle>Remove device</DialogTitle>
             <DialogDescription>
               Remove “{removeTarget?.deviceLabel || removeTarget?.deviceId}”
-              from your machines? A machine with the daemon still running will
+              from your devices? A device with the daemon still running will
               re-register itself on its next heartbeat.
             </DialogDescription>
           </DialogHeader>

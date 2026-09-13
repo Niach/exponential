@@ -111,10 +111,14 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   switch) and runs the `agent_profile_use` command ("use this account
 ///   here"). It refuses nothing new: a machine without it simply never gets
 ///   asked, and the server refuses both on its behalf.
+/// - `account-remove` (EXP-862) — this build runs `agent_profile_remove`:
+///   delete ONE account's login from this machine (its profile dir and its
+///   index row), never the account itself. An older build would leave the
+///   row pending forever, so the server refuses to queue it without the cap.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 10 + 7 = 17.
-pub const DEVICE_CAPS: [&str; 10] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 11 + 7 = 18.
+pub const DEVICE_CAPS: [&str; 11] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -122,6 +126,7 @@ pub const DEVICE_CAPS: [&str; 10] = [
     "agent-start",
     "acp",
     ACCOUNT_SWITCH_CAP,
+    ACCOUNT_REMOVE_CAP,
     "mcp",
     "agent-usage-refresh",
     "update-now",
@@ -131,6 +136,11 @@ pub const DEVICE_CAPS: [&str; 10] = [
 /// a client deciding whether a machine can move a live run (or its default
 /// login) to another account never repeats the string.
 pub const ACCOUNT_SWITCH_CAP: &str = "account-switch";
+
+/// EXP-862's account-remove cap, by name: the ONE place the literal lives, so
+/// a client deciding whether a machine can delete one of its logins never
+/// repeats the string.
+pub const ACCOUNT_REMOVE_CAP: &str = "account-remove";
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
@@ -1440,6 +1450,13 @@ mod tests {
         assert!(DEVICE_CAPS.contains(&ACCOUNT_SWITCH_CAP));
         assert!(!ACTION_CAPS.contains(&ACCOUNT_SWITCH_CAP));
         assert!(signed_out.contains(&ACCOUNT_SWITCH_CAP.to_string()));
+        // EXP-862: removing a login is the same story again — a build cap,
+        // advertised with nothing runnable, since a signed-out machine is
+        // exactly where a dead account gets cleaned up.
+        assert_eq!(ACCOUNT_REMOVE_CAP, "account-remove");
+        assert!(DEVICE_CAPS.contains(&ACCOUNT_REMOVE_CAP));
+        assert!(!ACTION_CAPS.contains(&ACCOUNT_REMOVE_CAP));
+        assert!(signed_out.contains(&ACCOUNT_REMOVE_CAP.to_string()));
     }
 
     /// EXP-792: running `mcp_oauth_*` and a forced usage refresh are

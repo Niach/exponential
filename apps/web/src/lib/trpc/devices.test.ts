@@ -1029,11 +1029,30 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
 
-  it(`refuses a duplicate pending command`, async () => {
+  it(`refuses a duplicate pending command that is an ACT`, async () => {
+    h.state.selectQueue = [
+      ...deviceProbe(),
+      [{ id: `wt-1` }],
+      [{ id: `dup-1` }],
+    ]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `worktree_remove`,
+        repoFullName: `acme/api`,
+        branch: `exp/EXP-1`,
+      })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  // EXP-862: a prune is a WISH — clicking it twice asks for the same end
+  // state, so the pending row is reused instead of failing the mutation.
+  it(`reuses the pending row for a duplicate prune`, async () => {
     h.state.selectQueue = [...deviceProbe(), [{ id: `dup-1` }]]
     await expect(
       caller.createCommand({ deviceId: `dev-1`, kind: `worktree_prune` })
-    ).rejects.toMatchObject({ code: `CONFLICT` })
+    ).resolves.toEqual({ id: `dup-1` })
     expect(h.state.inserted).toHaveLength(0)
   })
 
@@ -1689,9 +1708,9 @@ describe(`devices.register — EXP-792 caps`, () => {
     })
   })
 
-  // FEED-36: the daemon advertises 16 caps today (10 build + 6 action), so
-  // the ceiling moved off the exact count to 24 — a new cap must not 400
-  // every register.
+  // FEED-36/EXP-862: the daemon advertises 18 caps today (11 build + 7
+  // action), so the ceiling moved off the exact count to 24 — a new cap must
+  // not 400 every register.
   it(`accepts 16 caps and keeps the 24-cap ceiling`, async () => {
     await expect(
       caller.register({
@@ -1718,6 +1737,32 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
       {
         id: `row-1`,
         caps: [`agent-login`, `agent-usage-refresh`, `account-switch`],
+      },
+    ],
+  ]
+
+  // EXP-862: the removal additionally reads the machine's REPORTED accounts —
+  // its target has to be a login the requester could actually see.
+  const reportedAccounts = () => ({
+    claude: {
+      signedIn: true,
+      profiles: [
+        { id: `system`, signedIn: true, active: true },
+        { id: `work`, signedIn: true },
+      ],
+    },
+  })
+  const removeProbe = () => [
+    [
+      {
+        id: `row-1`,
+        caps: [
+          `agent-login`,
+          `agent-usage-refresh`,
+          `account-switch`,
+          `account-remove`,
+        ],
+        agentAccounts: reportedAccounts(),
       },
     ],
   ]
@@ -1815,6 +1860,134 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
         })
       ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
     }
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  // EXP-862: "Remove account" — the machine deletes its own copy of a login.
+  // Same payload again, gated on `agent-login` + `account-remove`, refused for
+  // the ambient login and for a profile the machine never reported.
+  it(`queues agent_profile_remove for a login the machine reported`, async () => {
+    h.state.selectQueue = [...removeProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-11` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_profile_remove`,
+      agent: `claude`,
+      profileId: `work`,
+    })
+    expect(result).toEqual({ id: `cmd-11` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_profile_remove`,
+      payload: { agent: `claude`, profileId: `work` },
+    })
+  })
+
+  it(`refuses the machine's own ambient login`, async () => {
+    for (const profileId of [`system`, ` system `]) {
+      h.state.selectQueue = removeProbe()
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_remove`,
+          agent: `claude`,
+          profileId,
+        })
+      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`refuses a build that cannot run it, naming the update`, async () => {
+    // Either cap missing: an older app would leave the row pending forever.
+    for (const caps of [[], [`agent-login`], [`account-remove`]]) {
+      h.state.selectQueue = [
+        [{ id: `row-1`, caps, agentAccounts: reportedAccounts() }],
+      ]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_remove`,
+          agent: `claude`,
+          profileId: `work`,
+        })
+      ).rejects.toMatchObject({
+        code: `PRECONDITION_FAILED`,
+        message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
+      })
+    }
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`refuses a profile the device never reported`, async () => {
+    h.state.selectQueue = removeProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_remove`,
+        agent: `claude`,
+        profileId: `gone`,
+      })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    // Another agent's profile id is just as much a miss.
+    h.state.selectQueue = removeProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_remove`,
+        agent: `codex`,
+        profileId: `work`,
+      })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`needs an agent and a profile id`, async () => {
+    h.state.selectQueue = removeProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_remove`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  // EXP-862: asking twice for an idempotent command asks for the same end
+  // state — the pending row is reused instead of failing the mutation with
+  // "That command is already queued".
+  it(`reuses the pending row for an idempotent kind`, async () => {
+    for (const kind of [
+      `agent_usage_refresh`,
+      `agent_profile_use`,
+      `agent_profile_remove`,
+    ] as const) {
+      h.state.inserted.length = 0
+      h.state.selectQueue = [...removeProbe(), [{ id: `cmd-pending` }]]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind,
+          agent: `claude`,
+          profileId: `work`,
+        })
+      ).resolves.toEqual({ id: `cmd-pending` })
+      expect(h.state.inserted).toHaveLength(0)
+    }
+  })
+
+  // A sign-in is an ACT, not a wish: a second one while the first is still
+  // pending says something the requester needs to hear.
+  it(`still conflicts on a duplicate agent_login`, async () => {
+    h.state.selectQueue = [...removeProbe(), [{ id: `cmd-pending` }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
     expect(h.state.inserted).toHaveLength(0)
   })
 

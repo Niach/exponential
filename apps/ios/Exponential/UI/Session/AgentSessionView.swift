@@ -662,10 +662,11 @@ struct AgentSessionView: View {
 
     // MARK: - Ended header (EXP-773)
 
-    /// A finished run's byline, its Resume and its close-out summary, above
-    /// the transcript. Every runs list dropped its expand-to-summary row for
-    /// this: a close-out is a paragraph, and a paragraph belongs next to the
-    /// transcript it summarizes, not in a list.
+    /// A finished run's byline and its Resume, above the transcript. EXP-862
+    /// dropped the close-out summary from every client: the server takes the
+    /// report (it still notifies a parent run) but no longer stores it, and
+    /// `summary` left the coding-sessions shape — the transcript right below
+    /// is what a finished run has to say.
     @ViewBuilder
     private func endedHeader(_ model: AgentSessionModel) -> some View {
         if model.sessionEnded {
@@ -688,11 +689,6 @@ struct AgentSessionView: View {
                         )
                         .accessibilityIdentifier("resume-run")
                     }
-                }
-                if let summary = model.session?.summary, !summary.isEmpty {
-                    AgentMarkdownText(text: summary, context: markdownContext)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("run-summary")
                 }
                 if let failure = startWatcher.failure {
                     Text(failure)

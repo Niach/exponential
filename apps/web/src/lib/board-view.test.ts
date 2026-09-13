@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Issue, IssueLabel, Label } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
-import { emptyFilters } from "@/lib/filters"
 import {
-  buildFilteredIssues,
-  buildIssueLabelIdsMap,
   buildIssueLabelMap,
   buildVisibleIssueGroups as buildGroups,
   compareIssuesForGroup,
@@ -25,15 +22,11 @@ const optionFor = (key: string): StatusRowOption =>
 
 function buildVisibleIssueGroups(
   issues: Issue[],
-  statusTokens: string[] = [],
   options: StatusRowOption[] = DEFAULT_OPTIONS
 ) {
   const byId = new Map(options.map((o) => [o.id, o]))
-  return buildGroups(
-    issues,
-    options,
-    (issue) => resolveIssueStatus(issue, options, byId),
-    statusTokens
+  return buildGroups(issues, options, (issue) =>
+    resolveIssueStatus(issue, options, byId)
   ).map((group) => ({
     status: group.status.builtinKey ?? group.status.id,
     issues: group.issues,
@@ -41,12 +34,9 @@ function buildVisibleIssueGroups(
 }
 
 // The un-mapped form (real IssueGroups).
-function rawGroups(issues: Issue[], statusTokens: string[] = []) {
-  return buildGroups(
-    issues,
-    DEFAULT_OPTIONS,
-    (issue) => resolveIssueStatus(issue, DEFAULT_OPTIONS, DEFAULT_BY_ID),
-    statusTokens
+function rawGroups(issues: Issue[]) {
+  return buildGroups(issues, DEFAULT_OPTIONS, (issue) =>
+    resolveIssueStatus(issue, DEFAULT_OPTIONS, DEFAULT_BY_ID)
   )
 }
 
@@ -108,27 +98,15 @@ function makeIssueLabel(overrides: Partial<IssueLabel>): IssueLabel {
 }
 
 describe(`board-view helpers`, () => {
-  it(`builds label maps and filters issues`, () => {
-    const issues = [
-      makeIssue({ id: `issue-1`, status: `backlog`, title: `Buggy` }),
-      makeIssue({ id: `issue-2`, status: `done`, title: `Fixed` }),
-    ]
+  it(`builds label maps`, () => {
     const labels = [makeLabel({ id: `label-1`, name: `Bug` })]
     const issueLabels = [
       makeIssueLabel({ issueId: `issue-1`, labelId: `label-1` }),
     ]
-    const issueLabelIdsMap = buildIssueLabelIdsMap(issueLabels)
-    const filters = {
-      ...emptyFilters,
-      labelIds: [`label-1`],
-    }
 
     expect(buildIssueLabelMap(issueLabels, labels).get(`issue-1`)).toEqual(
       labels
     )
-    expect(buildFilteredIssues(issues, issueLabelIdsMap, filters)).toEqual([
-      issues[0],
-    ])
   })
 
   it(`builds visible groups in status order`, () => {
@@ -138,13 +116,9 @@ describe(`board-view helpers`, () => {
       makeIssue({ id: `issue-3`, status: `backlog` }),
     ]
 
-    expect(buildVisibleIssueGroups(issues, [])).toEqual([
+    expect(buildVisibleIssueGroups(issues)).toEqual([
       { status: `backlog`, issues: [issues[2]] },
       { status: `in_progress`, issues: [issues[0]] },
-      { status: `done`, issues: [issues[1]] },
-    ])
-
-    expect(buildVisibleIssueGroups(issues, [`done`])).toEqual([
       { status: `done`, issues: [issues[1]] },
     ])
   })
@@ -176,10 +150,12 @@ describe(`board-view helpers`, () => {
       priority: `none`,
     })
 
-    const groups = buildVisibleIssueGroups(
-      [noPriority, mediumToday, urgentNoDue, overdueLow],
-      []
-    )
+    const groups = buildVisibleIssueGroups([
+      noPriority,
+      mediumToday,
+      urgentNoDue,
+      overdueLow,
+    ])
 
     expect(groups).toEqual([
       {
@@ -206,7 +182,7 @@ describe(`board-view helpers`, () => {
       status: `backlog`,
     })
 
-    expect(buildVisibleIssueGroups([ten, nine], [])).toEqual([
+    expect(buildVisibleIssueGroups([ten, nine])).toEqual([
       { status: `backlog`, issues: [nine, ten] },
     ])
   })
@@ -228,7 +204,7 @@ describe(`board-view helpers`, () => {
       dueDate: tomorrow,
     })
 
-    expect(buildVisibleIssueGroups([noDue, dated], [])).toEqual([
+    expect(buildVisibleIssueGroups([noDue, dated])).toEqual([
       { status: `in_progress`, issues: [dated, noDue] },
     ])
   })
@@ -258,10 +234,11 @@ describe(`board-view helpers`, () => {
       updatedAt: new Date(`2026-03-03T10:00:00.000Z`),
     })
 
-    expect(buildVisibleIssueGroups([completedOld, noStamp, completedNew], []))
-      .toEqual([
-        { status: `done`, issues: [completedNew, noStamp, completedOld] },
-      ])
+    expect(
+      buildVisibleIssueGroups([completedOld, noStamp, completedNew])
+    ).toEqual([
+      { status: `done`, issues: [completedNew, noStamp, completedOld] },
+    ])
   })
 
   it(`sorts cancelled and duplicate groups by updatedAt descending`, () => {
@@ -289,10 +266,12 @@ describe(`board-view helpers`, () => {
     })
 
     expect(
-      buildVisibleIssueGroups(
-        [cancelledOld, duplicateOld, cancelledNew, duplicateNew],
-        []
-      )
+      buildVisibleIssueGroups([
+        cancelledOld,
+        duplicateOld,
+        cancelledNew,
+        duplicateNew,
+      ])
     ).toEqual([
       { status: `cancelled`, issues: [cancelledNew, cancelledOld] },
       { status: `duplicate`, issues: [duplicateNew, duplicateOld] },
@@ -373,11 +352,8 @@ describe(`board-view custom statuses`, () => {
       statusId: DONE_ID,
     })
 
-    const groups = buildGroups(
-      [shipped, custom],
-      customOptions,
-      (issue) => resolveIssueStatus(issue, customOptions),
-      []
+    const groups = buildGroups([shipped, custom], customOptions, (issue) =>
+      resolveIssueStatus(issue, customOptions)
     )
 
     expect(groups.map((group) => group.status.id)).toEqual([
@@ -404,40 +380,10 @@ describe(`board-view custom statuses`, () => {
       completedAt: new Date(`2026-03-05T10:00:00.000Z`),
     })
 
-    const groups = buildGroups(
-      [older, newer],
-      customOptions,
-      (issue) => resolveIssueStatus(issue, customOptions),
-      []
+    const groups = buildGroups([older, newer], customOptions, (issue) =>
+      resolveIssueStatus(issue, customOptions)
     )
     expect(groups[0].issues).toEqual([newer, older])
-  })
-
-  it(`filters groups by row-id AND legacy enum tokens`, () => {
-    const custom = makeIssue({
-      id: `custom-1`,
-      status: `in_progress`,
-      statusId: CUSTOM_ID,
-    })
-    const shipped = makeIssue({
-      id: `shipped-1`,
-      status: `done`,
-      statusId: DONE_ID,
-    })
-    const resolve = (issue: { status: string; statusId: string | null }) =>
-      resolveIssueStatus(issue, customOptions)
-
-    expect(
-      buildGroups([custom, shipped], customOptions, resolve, [CUSTOM_ID]).map(
-        (g) => g.status.id
-      )
-    ).toEqual([CUSTOM_ID])
-    // `done` is the Shipped row's anchor — an old ?status=done URL still works.
-    expect(
-      buildGroups([custom, shipped], customOptions, resolve, [`done`]).map(
-        (g) => g.status.id
-      )
-    ).toEqual([DONE_ID])
   })
 
   it(`falls back to a constructed group for an unknown status`, () => {
@@ -446,11 +392,8 @@ describe(`board-view custom statuses`, () => {
       status: `cancelled`,
       statusId: null,
     })
-    const groups = buildGroups(
-      [orphan],
-      customOptions,
-      (issue) => resolveIssueStatus(issue, customOptions),
-      []
+    const groups = buildGroups([orphan], customOptions, (issue) =>
+      resolveIssueStatus(issue, customOptions)
     )
     expect(groups).toHaveLength(1)
     expect(groups[0].status.id).toBe(`builtin:cancelled`)

@@ -153,6 +153,11 @@ public enum AgentAccountsRows {
     /// `SYSTEM_PROFILE_ID` and the desktop's `agent_profiles::SYSTEM_PROFILE`.
     public static let systemProfileId = "system"
 
+    /// What the ambient login is CALLED when the device sent no label —
+    /// Android's `SYSTEM_PROFILE_LABEL`, and the last fallback an account row's
+    /// title takes.
+    public static let systemProfileLabel = "Default"
+
     /// The `agent-usage-refresh` device cap: the machine runs
     /// `agent_usage_refresh` (web `deviceCanRefreshUsage`).
     public static let refreshCap = "agent-usage-refresh"
@@ -204,7 +209,7 @@ public enum AgentAccountsRows {
                         online: online,
                         agent: agent,
                         profileId: systemProfileId,
-                        profileLabel: "Default",
+                        profileLabel: systemProfileLabel,
                         active: true,
                         signedIn: account?.signedIn == true,
                         email: nonEmpty(account?.email),
@@ -234,7 +239,7 @@ public enum AgentAccountsRows {
                         agent: agent,
                         profileId: profile.id,
                         profileLabel: nonEmpty(profile.label)
-                            ?? (profile.id == systemProfileId ? "Default" : profile.id),
+                            ?? (profile.id == systemProfileId ? systemProfileLabel : profile.id),
                         active: profile.active == true,
                         signedIn: profile.signedIn == true,
                         email: nonEmpty(profile.email),
@@ -435,11 +440,13 @@ public enum AgentAccountsRows {
         return row.profileId == systemProfileId ? device : "\(device) · \(row.profileLabel)"
     }
 
-    /// The row's title: `Not signed in`, else the email, else the bare plan
-    /// (an agent that reports a provider, never an address), else `signed in`.
+    /// The row's title: who the account IS — the email, else the bare plan (an
+    /// agent that reports a provider, never an address), else the profile's own
+    /// label. EXP-862 dropped the "Not signed in" title: a signed-out login is
+    /// said ONCE, by its chip's badge, and a row that announced it in its title
+    /// as well had nothing left to identify the account by.
     public static func groupCaption(_ group: AgentAccountUsageGroup) -> String {
-        guard group.signedIn else { return "Not signed in" }
-        return group.email ?? group.plan ?? "signed in"
+        group.email ?? group.plan ?? group.rows.first?.profileLabel ?? systemProfileLabel
     }
 
     /// The `account-switch` device cap: the machine handles
@@ -449,46 +456,204 @@ public enum AgentAccountsRows {
     /// refusal. `SteerDevice.canSwitchAccount` reads the cap.
     public static let switchCap = "account-switch"
 
-    /// EXP-849: the ONE repair a MACHINE owes a login, as its chip menu's lead
-    /// entry — a healthy login the machine is not using simply BECOMES its
-    /// login (`agent_profile_use`: no login flow, no logout, no credential
-    /// touched), everything else is a sign-in. Byte-identical with web
-    /// `MachineAccountChip` and Android `chipAction`.
-    ///
-    /// `canSwitchAccount` is the machine's `account-switch` cap: without it the
-    /// switch falls through to a sign-in, because the server would refuse the
-    /// command.
-    public static func chipAction(
-        _ row: AgentProfileUsageRow,
-        canSwitchAccount: Bool
-    ) -> String {
-        if !row.signedIn { return "Sign in" }
-        if row.health == .needsRelogin { return "Re-login" }
-        return chipSwitchesTo(row, canSwitchAccount: canSwitchAccount)
-            ? "Use this account here"
-            : "Sign in again"
+    /// EXP-862: the `account-remove` device cap — the machine runs
+    /// `agent_profile_remove` and deletes its own copy of a login. Its own cap
+    /// beside `agent-login`, because an older build would leave the queued row
+    /// pending forever.
+    public static let removeCap = "account-remove"
+
+    /// EXP-862: a chip whose one repair is a SIGN-IN — there is no login on
+    /// that machine, or the agent refused the one there. Both read the same to
+    /// a person: sign in. (Web `MachineAccountChip`, Android `chipSignsIn`.)
+    public static func chipSignsIn(_ row: AgentProfileUsageRow) -> Bool {
+        !row.signedIn || row.health == .needsRelogin
     }
 
-    /// Whether `chipAction` is the non-destructive active-login pick rather
-    /// than a sign-in. An EXPIRED credential is never switched to: it would
-    /// not work — it gets re-signed-in instead. Neither is a login on a
-    /// machine whose build has no `agent_profile_use`: the server refuses that
-    /// one before it ever reaches the machine.
-    public static func chipSwitchesTo(
+    /// EXP-862: whether the chip menu offers "Set as default" — a HEALTHY login
+    /// the machine is not currently using simply BECOMES its login
+    /// (`agent_profile_use`: no login flow, no logout, no credential touched).
+    /// An expired one is never switched to (it would not work: it signs in
+    /// instead), and neither is a login on a machine whose build has no
+    /// `agent_profile_use` — the server refuses that before it reaches the
+    /// machine.
+    public static func chipSetsDefault(
         _ row: AgentProfileUsageRow,
         canSwitchAccount: Bool
     ) -> Bool {
-        canSwitchAccount && row.signedIn && !row.active && row.health != .needsRelogin
+        canSwitchAccount && !chipSignsIn(row) && !row.active
     }
 
-    /// EXP-849: the account row's health badge, or nil when there is nothing to
-    /// say. A signed-OUT row already says so in its `groupCaption`, so a badge
-    /// there would only repeat it — what a row wears is the expired credential
-    /// the caption cannot express (Android `healthBadge`, web
-    /// `accountHealthBadge`).
+    /// Byte-identical with the server's refusal (`lib/trpc/devices.ts`), so a
+    /// requester that raced a downgrade reads the same sentence twice.
+    public static let removeAccountOldApp =
+        "That machine runs an older Exponential app that cannot remove agent accounts. Update it first."
+
+    /// EXP-862: why "Remove account" is NOT offered for this login on this
+    /// machine, or nil when it is — the web `removeAccountBlockReason` twin,
+    /// same three refusals in the same order: the ambient login (the agent
+    /// CLI's own config dir, which Exponential never created), a machine whose
+    /// build cannot run the command, and a login that is signed out or expired
+    /// here (its chip's one repair is a sign-in).
+    public static func removeAccountBlockReason(
+        _ row: AgentProfileUsageRow,
+        canAgentLogin: Bool,
+        canRemoveAccount: Bool
+    ) -> String? {
+        if row.profileId.isEmpty || row.profileId == systemProfileId {
+            return "That is the machine's own agent login, not one Exponential can remove."
+        }
+        if !canAgentLogin || !canRemoveAccount { return removeAccountOldApp }
+        if chipSignsIn(row) {
+            return "That account is signed out on that machine, so its chip offers a sign-in instead."
+        }
+        return nil
+    }
+
+    /// Whether the chip menu offers "Remove account" for this login.
+    public static func canRemoveAccount(
+        _ row: AgentProfileUsageRow,
+        canAgentLogin: Bool,
+        canRemoveAccount: Bool
+    ) -> Bool {
+        removeAccountBlockReason(
+            row, canAgentLogin: canAgentLogin, canRemoveAccount: canRemoveAccount
+        ) == nil
+    }
+
+    /// The confirm the destructive entry asks, pinned ×4: it names the login
+    /// and the machine, and says in the same breath that the account survives.
+    public static func removeAccountConfirmCopy(
+        account: String,
+        device: String
+    ) -> String {
+        "Delete \(account) on \(device)? The login is removed from this device only; the account itself is untouched."
+    }
+
+    /// EXP-849/EXP-862: the account row's health badge, or nil when there is
+    /// nothing to say. Since EXP-862 the title no longer announces a signed-out
+    /// account, so the badge is what says it — for BOTH attention states
+    /// (Android `healthBadge`, web `accountHealthBadge`).
     public static func healthBadge(_ group: AgentAccountUsageGroup) -> String? {
-        guard group.signedIn else { return nil }
-        return group.health.badgeLabel
+        group.health.badgeLabel
+    }
+
+    // MARK: - Adding a login (EXP-827/EXP-862)
+
+    /// The server's clamp on a profile label (web `MAX_PROFILE_LABEL`).
+    public static let maxProfileLabel = 64
+
+    /// Trimmed and cut to the server's limit, so the label the machine names
+    /// its new config dir with is the one that was asked for.
+    public static func clampProfileLabel(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > maxProfileLabel
+            ? String(trimmed.prefix(maxProfileLabel))
+            : trimmed
+    }
+
+    /// WHERE a queued `agent_login` lands on the machine. Exactly one of the
+    /// two is ever set: the machine reads neither as its AMBIENT config dir
+    /// (`LoginTarget::System` in `coding/src/agent_login.rs`), which would
+    /// sign a second account in ON TOP of the login already there.
+    public struct AddLoginTarget: Equatable, Sendable {
+        public let profileId: String?
+        public let newProfileLabel: String?
+
+        public init(profileId: String?, newProfileLabel: String?) {
+            self.profileId = profileId
+            self.newProfileLabel = newProfileLabel
+        }
+    }
+
+    /// Whether the machine's AMBIENT login for an agent is taken — its own
+    /// `system` profile when it reports profiles, the top-level flag for a
+    /// machine that reports none.
+    public static func ambientSignedIn(_ account: AgentAccount?) -> Bool {
+        guard let account else { return false }
+        guard let ambient = (account.profiles ?? []).first(where: {
+            $0.id == systemProfileId
+        }) else {
+            return account.signedIn == true
+        }
+        return ambient.signedIn == true
+    }
+
+    /// Where a new login lands on a machine (web `addAccountLoginTarget`,
+    /// Android `addAccountLoginTarget`): the ambient login while it is still
+    /// signed out — nothing to keep beside it — otherwise a NEW profile
+    /// carrying `label`, which the machine creates first (EXP-792's per-agent
+    /// config dirs).
+    public static func addAccountLoginTarget(
+        _ account: AgentAccount?,
+        label: String
+    ) -> AddLoginTarget {
+        ambientSignedIn(account)
+            ? AddLoginTarget(profileId: nil, newProfileLabel: clampProfileLabel(label))
+            : AddLoginTarget(profileId: systemProfileId, newProfileLabel: nil)
+    }
+
+    /// `Claude Code account 2` — one past the logins the machine reports for
+    /// the agent (the ambient one counts as the first). Web/Android
+    /// `nextProfileLabel`; `agentLabel` is resolved by the caller, since the
+    /// agent's display name lives in the app target.
+    public static func nextProfileLabel(
+        _ account: AgentAccount?,
+        agentLabel: String
+    ) -> String {
+        let held = max((account?.profiles ?? []).count, 1)
+        return clampProfileLabel("\(agentLabel) account \(held + 1)")
+    }
+
+    /// EXP-862: whether an account row offers its bare "+" at all (web
+    /// `showAdd`). Only a SIGNED-IN, NAMED login can be added on another
+    /// machine: the sign-in there has to be run as somebody, and the machine
+    /// reports the result under the same email, which is what joins the new
+    /// chip to this row.
+    public static func canAddAccountElsewhere(_ group: AgentAccountUsageGroup) -> Bool {
+        guard group.signedIn, let email = group.email else { return false }
+        return !email.isEmpty
+    }
+
+    /// EXP-862: has the login the sign-in sheet drove ARRIVED? The sheet
+    /// closes on the TRANSITION into this, so it must be false while the flow
+    /// runs — web `agentLoginLanded`, rule for rule:
+    ///   - a NEW profile (the "+ Add account" path): a profile carrying the
+    ///     asked-for label is now usable. The ambient flag is useless here —
+    ///     it is already true, which is precisely WHY a new profile was asked
+    ///     for.
+    ///   - an existing profile: that profile's own state.
+    ///   - the ambient login: its `system` entry, else the top-level fields.
+    ///
+    /// "Usable" is signed in AND not `needs_relogin`: a login the agent
+    /// refused the moment it was made has not landed.
+    public static func loginLanded(
+        account: AgentAccount?,
+        profileId: String?,
+        newProfileLabel: String?
+    ) -> Bool {
+        guard let account else { return false }
+        let profiles = (account.profiles ?? []).filter { !$0.id.isEmpty }
+        if let newProfileLabel {
+            let wanted = newProfileLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wanted.isEmpty else { return false }
+            return profiles.contains { profile in
+                (profile.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == wanted
+                    && usableLogin(profile)
+            }
+        }
+        if let profileId, profileId != systemProfileId {
+            return profiles.contains { $0.id == profileId && usableLogin($0) }
+        }
+        // The ambient login: a machine that reports profiles carries it as the
+        // `system` row, and its top-level fields are the ACTIVE profile's.
+        if let ambient = profiles.first(where: { $0.id == systemProfileId }) {
+            return usableLogin(ambient)
+        }
+        return account.signedIn == true && AgentAccountHealth.of(account) != .needsRelogin
+    }
+
+    private static func usableLogin(_ profile: AgentAccountProfile) -> Bool {
+        profile.signedIn == true && AgentAccountHealth.of(profile) != .needsRelogin
     }
 
     // MARK: - Internals

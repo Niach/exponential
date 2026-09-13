@@ -7,7 +7,6 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
-import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.worktreePruneCommand
 import com.exponential.app.data.api.worktreeRemoveCommand
@@ -75,13 +74,6 @@ fun agentLoginCommandKey(agent: String): String = "login:$agent"
  * publication.
  */
 fun agentLoginCodeCommandKey(agent: String): String = "login-code:$agent"
-
-/**
- * EXP-849: one agent's `agent_profile_use` key ("Use this account here") — its
- * own slot, so the active-login pick captions under the chips instead of being
- * read as a sign-in publication.
- */
-fun agentProfileUseCommandKey(agent: String): String = "profile-use:$agent"
 
 /** The prefix [agentLoginCodeCommandKey] builds — see [DeviceSettingsViewModel.issueCommand]. */
 private const val LOGIN_CODE_KEY_PREFIX = "login-code:"
@@ -220,7 +212,7 @@ class DeviceSettingsViewModel @Inject constructor(
                 onSuccess = { renameInput.compareAndSet(pending, null) },
                 onFailure = { t ->
                     if (t is CancellationException) throw t
-                    _nameError.value = trpcErrorMessage(t, "The machine could not be renamed")
+                    _nameError.value = trpcErrorMessage(t, "The device could not be renamed")
                 },
             )
         _nameBusy.value = false
@@ -271,7 +263,7 @@ class DeviceSettingsViewModel @Inject constructor(
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _defaultError.value =
-                        trpcErrorMessage(t, "The default machine could not be changed")
+                        trpcErrorMessage(t, "The default device could not be changed")
                 }
             _defaultBusy.value = false
         }
@@ -307,31 +299,22 @@ class DeviceSettingsViewModel @Inject constructor(
          * to the agent's card either way.
          */
         profileId: String? = null,
+        /**
+         * EXP-862 "Add account": the machine CREATES a profile under this
+         * label and runs the login inside it, instead of signing into one it
+         * already holds. Mutually exclusive with [profileId].
+         */
+        newProfileLabel: String? = null,
     ) {
         issueCommand(
             key = agentLoginCommandKey(agent),
-            command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
-            deviceOnline = deviceOnline,
-        )
-    }
-
-    /**
-     * EXP-849: "Use this account here" — point the machine at a login it
-     * ALREADY holds (`agent_profile_use`). Deliberately not a sign-in: no
-     * credential is touched and nothing is signed out (a codex logout would
-     * revoke the token server-side), the machine just re-points itself and
-     * re-reports `agent_accounts` on its next heartbeat, which is what moves
-     * the chip's check.
-     */
-    fun agentProfileUse(
-        deviceId: String,
-        agent: String,
-        profileId: String,
-        deviceOnline: Boolean,
-    ) {
-        issueCommand(
-            key = agentProfileUseCommandKey(agent),
-            command = agentProfileUseCommand(deviceId, agent, profileId),
+            command = agentLoginCommand(
+                deviceId,
+                agent,
+                switchAccount,
+                profileId,
+                newProfileLabel,
+            ),
             deviceOnline = deviceOnline,
         )
     }
@@ -441,7 +424,7 @@ internal suspend fun runDeviceCommand(
             DeviceCommandDto.STATUS_FAILED -> {
                 onState(
                     DeviceCommandUiState.Failed(
-                        row.result ?: "The machine refused the command",
+                        row.result ?: "The device refused the command",
                     ),
                 )
                 return

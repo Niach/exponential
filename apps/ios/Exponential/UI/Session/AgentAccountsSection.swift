@@ -5,21 +5,25 @@ import SwiftUI
 /// EXP-829/EXP-849: the Devices page's **Accounts** section — the DECISION
 /// surface for agent logins.
 ///
-/// One row per agent ACCOUNT (an agent plus the login the machines named):
-/// who it is, what it may spend, how much of that is left, and whether it
-/// still works (EXP-849 `health`). Attention first — a signed-out or refused
-/// login leads, then anything at or over the danger threshold, then the rest.
+/// One row per agent ACCOUNT (an agent plus the login the devices named): who
+/// it is, what it may spend, how much of that is left, and whether it still
+/// works (EXP-849 `health`). Attention first — a signed-out or refused login
+/// leads, then anything at or over the danger threshold, then the rest.
 ///
 /// EXP-849 split the two surfaces that used to be one list:
 ///   - HERE (Accounts) you decide WHICH account to use: the numbers are the
-///     freshest machine's (they are the account's limits, so every machine
-///     reads the same ones) and the machines holding it are QUIET chips — a
-///     presence indicator with a check where the account is that machine's
-///     ACTIVE login, not a control.
-///   - Repair lives on the machine rows above ("My machines"): re-login, "use
-///     this account here", the per-machine health badge. A chip here used to
-///     be the only way into that, which made Accounts a settings menu in
-///     disguise.
+///     freshest device's (they are the account's limits, so every device reads
+///     the same ones) and the devices holding it are chips — the online dot, a
+///     check where the account is that device's ACTIVE login, and (EXP-862) the
+///     same menu the device rows' chips carry.
+///   - The device rows above ("My devices") remain the SETUP surface: which
+///     device, which logins it holds, what it may run.
+///
+/// EXP-862: the header carries "+ Add account" (the sign-in a device runs for a
+/// login it does not hold yet) and each row a bare "+" for signing the SAME
+/// account in on another device. What went: the refresh buttons and the
+/// "Refreshes every 5 minutes" caption — the section refreshes itself, and a
+/// button for it was a control that mostly said "too soon".
 ///
 /// With two or more agents reporting, the rows sit under per-agent TABS
 /// (claude | codex) instead of stacked bands: codex's two windows used to push
@@ -31,10 +35,18 @@ import SwiftUI
 /// layout.
 struct AgentAccountsSection: View {
     let viewModel: AgentsViewModel
+    /// EXP-862: sign in on a device — the header's "+ Add account", every
+    /// row's "+", and a chip whose login is signed out. The page owns the
+    /// sheet.
+    let onSignIn: (AgentLoginTarget) -> Void
+    /// EXP-862: a chip's "Remove account". The page owns the confirm.
+    let onRemove: (AgentProfileUsageRow) -> Void
 
     /// The picked agent tab, or nil while it follows the first reported agent.
     /// View state: a fresh page opens on the leading agent.
     @State private var agentTab: String?
+    /// EXP-862: the "+ Add account" sheet (device + agent, then the login).
+    @State private var addingAccount = false
 
     var body: some View {
         let now = Date()
@@ -56,18 +68,13 @@ struct AgentAccountsSection: View {
                         AgentAccountRow(
                             group: group,
                             now: now,
-                            refreshing: viewModel.refreshingAccounts.contains(group.key),
-                            onRefresh: { viewModel.refreshAccount(group) }
+                            viewModel: viewModel,
+                            addTargets: viewModel.addAccountTargets(group),
+                            onSignIn: onSignIn,
+                            onRemove: onRemove
                         )
                     }
                 }
-            }
-            if let error = viewModel.accountError {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .padding(.horizontal, 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -99,16 +106,21 @@ struct AgentAccountsSection: View {
     }
 
     /// The section's own heading — plain text, because the per-agent tabs
-    /// below it already carry the filled strip.
+    /// below it already carry the filled strip. EXP-862: its one control is
+    /// "+ Add account" (the "+ Add device" twin on web and the IDE); the
+    /// "Refreshes every 5 minutes" caption is gone — the section keeps itself
+    /// current and saying so was noise.
     private var accountsBand: some View {
         GlassSectionHeader("Accounts") {
-            if viewModel.accountsAutoRefresh {
-                Text("Refreshes every 5 minutes")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+            GlassPill("Add account", icon: AppIcons.uiAdd, mode: .action {
+                addingAccount = true
+            })
+            .accessibilityIdentifier("add-account-button")
         }
         .accessibilityIdentifier("accounts-header")
+        .sheet(isPresented: $addingAccount) {
+            AddAccountSheet(viewModel: viewModel)
+        }
     }
 
     private var loadingRow: some View {
@@ -129,7 +141,7 @@ struct AgentAccountsSection: View {
     private var emptyRow: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("No machine has reported an agent account yet.")
+            Text("No device has reported an agent account yet.")
                 .font(.caption)
             Spacer(minLength: 0)
         }
@@ -140,15 +152,19 @@ struct AgentAccountsSection: View {
     }
 }
 
-/// One account: the login (amber "Not signed in" when there is none), its
-/// health when there is something to say about it, the refresh glyph when one
-/// of MY machines may run it, the quiet machine chips, and the freshest
-/// report's cards.
+/// One account: the login, its health when there is something to say about it,
+/// the device chips (plus a bare "+" for signing it in on another device), and
+/// the freshest report's cards.
 private struct AgentAccountRow: View {
     let group: AgentAccountUsageGroup
     let now: Date
-    let refreshing: Bool
-    let onRefresh: () -> Void
+    /// The chips' actions ride the same owner→device queue the device rows use.
+    let viewModel: AgentsViewModel
+    /// EXP-862: the caller's online, login-capable devices that do NOT hold
+    /// this account yet — the "+" chip's menu ("Sign in on <device>").
+    let addTargets: [SteerDevice]
+    let onSignIn: (AgentLoginTarget) -> Void
+    let onRemove: (AgentProfileUsageRow) -> Void
 
     private var fresh: Bool {
         AgentUsagePresentation.isFresh(fetchedAt: group.usage?.fetchedAt, now: now)
@@ -171,33 +187,20 @@ private struct AgentAccountRow: View {
                     .truncationMode(.middle)
                 healthBadge
                 Spacer(minLength: 0)
-                if group.refreshTarget != nil {
-                    refreshControl
-                }
             }
             FlowLayout(spacing: 6) {
                 ForEach(group.rows) { row in
-                    AgentAccountDeviceChip(row: row)
+                    AgentAccountDeviceChip(
+                        row: row,
+                        device: viewModel.devices?.first { $0.deviceId == row.deviceId },
+                        viewModel: viewModel,
+                        onSignIn: onSignIn,
+                        onRemove: onRemove
+                    )
                 }
+                addChip
             }
-            if hasWindows, let usage = group.usage {
-                VStack(alignment: .leading, spacing: 4) {
-                    AgentUsageCards(usage: usage, compact: true)
-                    // Numbers past the freshness window say how old they are;
-                    // the device's own stale flag already dims the cards and
-                    // is a separate signal.
-                    if !fresh, usage.stale != true, !asOf.isEmpty {
-                        Text("as of \(asOf)")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                }
-                .opacity(fresh ? 1 : 0.5)
-            } else {
-                Text(asOf.isEmpty ? "No usage reported" : "No usage reported · as of \(asOf)")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+            usageBlock
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -205,23 +208,22 @@ private struct AgentAccountRow: View {
         .accessibilityIdentifier("account-row-\(group.key)")
     }
 
-    /// `Not signed in` / the email / the bare plan — plus a muted ` · <plan>`
-    /// tail when both the email and the plan are known (web parity).
+    /// The email / the bare plan / the profile's label — who the account IS.
+    /// EXP-862: never its sign-in state; the chip badges say that.
     private var title: Text {
         let caption = AgentAccountsRows.groupCaption(group)
         let lead = Text(caption)
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(group.signedIn ? Color.white : DesignTokens.Semantic.yellow)
-        guard group.signedIn, group.email != nil, let plan = group.plan else { return lead }
+            .foregroundStyle(Color.white)
+        guard group.email != nil, let plan = group.plan else { return lead }
         return lead + Text(" · \(plan)")
             .font(.subheadline)
             .foregroundStyle(Color.white.opacity(TextOpacity.quaternary))
     }
 
-    /// EXP-849: the health badge the ×4 rule produces — a signed-out login
-    /// already SAYS so in the title (a badge beside it would be the same word
-    /// twice), and the two quiet states have nothing to report, so in practice
-    /// this is the expired credential the caption cannot express.
+    /// EXP-849/EXP-862: the health badge the ×4 rule produces — for BOTH
+    /// attention states now that the title no longer announces a signed-out
+    /// login.
     @ViewBuilder
     private var healthBadge: some View {
         if let label = AgentAccountsRows.healthBadge(group) {
@@ -234,38 +236,156 @@ private struct AgentAccountRow: View {
         }
     }
 
-    /// The refresh glyph — a spinner while a queued refresh waits for the
-    /// machine, greyed inside the device's rate-limit floor.
+    /// EXP-862: sign this SAME account in on another device — a bare "+" chip
+    /// whose menu lists the devices that could take it ("Sign in on <device>",
+    /// ×4). Absent when every eligible device already holds the account, and
+    /// for an account there is no identity to sign in as (`addAccountTargets`
+    /// applies web's `showAdd`).
+    ///
+    /// The sign-in NAMES where it lands on that device (the shared
+    /// `addAccountLoginTarget` rule): the ambient login while it is still free,
+    /// otherwise a new profile. An unscoped `agent_login` would run inside the
+    /// device's ambient config dir and destroy the login already there.
     @ViewBuilder
-    private var refreshControl: some View {
-        if refreshing {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.white)
-                .frame(width: DesignTokens.Size.controlSm, height: DesignTokens.Size.controlSm)
-                .accessibilityLabel("Refreshing usage")
+    private var addChip: some View {
+        if !addTargets.isEmpty {
+            GlassMenu {
+                ForEach(addTargets) { device in
+                    GlassMenuItem(
+                        "Sign in on \(LaunchVocabulary.deviceName(device))",
+                        icon: device.isServer ? AppIcons.uiServer : AppIcons.uiDevice
+                    ) {
+                        let placement = AgentAccountsRows.addAccountLoginTarget(
+                            device.agentAccounts?[group.agent],
+                            label: AgentAccountsRows.groupCaption(group)
+                        )
+                        onSignIn(AgentLoginTarget(
+                            deviceId: device.deviceId,
+                            deviceLabel: LaunchVocabulary.deviceName(device),
+                            agent: group.agent,
+                            profileId: placement.profileId,
+                            newProfileLabel: placement.newProfileLabel
+                        ))
+                    }
+                }
+            } label: {
+                GlassPill("", icon: AppIcons.uiAdd, mode: .readonly)
+            }
+            .accessibilityLabel("Add a device to this account")
+            .accessibilityIdentifier("account-add-device-\(group.key)")
+        }
+    }
+
+    /// The freshest report's cards, or the one line that says why there are
+    /// none. EXP-862: a signed-in login nothing has probed YET reads
+    /// "Checking…" — "No usage reported" made a device that is simply still
+    /// working read as broken.
+    @ViewBuilder
+    private var usageBlock: some View {
+        if hasWindows, let usage = group.usage {
+            VStack(alignment: .leading, spacing: 4) {
+                AgentUsageCards(usage: usage, compact: true)
+                // Numbers past the freshness window say how old they are; the
+                // device's own stale flag already dims the cards and is a
+                // separate signal.
+                if !fresh, usage.stale != true, !asOf.isEmpty {
+                    Text("as of \(asOf)")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            .opacity(fresh ? 1 : 0.5)
+        } else if group.signedIn, asOf.isEmpty {
+            Text("Checking…")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         } else {
-            CircleIconButton(
-                AppIcons.uiRefresh,
-                accessibilityLabel: "Refresh usage",
-                size: DesignTokens.Size.controlSm,
-                glyphSize: AppIcon.Size.small,
-                enabled: AgentAccountsRows.refreshAllowedAt(group.usage, now: now) == nil,
-                action: onRefresh
-            )
+            Text(asOf.isEmpty ? "No usage reported" : "No usage reported · as of \(asOf)")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
     }
 }
 
-/// EXP-818's machine chip, EXP-849's quiet indicator: the online dot, the
-/// machine (· profile), a CHECK where the account is that machine's ACTIVE
-/// login, and an amber warning glyph where THAT machine's copy of the login is
-/// broken. Not a control — every account ACTION lives on the machine's own row
-/// ("My machines"), which is the surface that can repair one.
+/// EXP-818's device chip: the online dot, the device (· profile), a CHECK where
+/// the account is that device's ACTIVE login, and an amber warning glyph where
+/// THAT device's copy of the login is broken.
+///
+/// EXP-862 gave it the SAME menu the device rows' chips carry (Sign in / Set as
+/// default / Remove account, from the one shared rule): a person looking at an
+/// account here should not have to go find the device row to fix it. A
+/// teammate's device, an offline one, or one whose build takes none of the
+/// commands renders the chip as the statement it used to be.
 private struct AgentAccountDeviceChip: View {
     let row: AgentProfileUsageRow
+    /// The live device row behind this chip — its caps decide the menu. Nil
+    /// (a device that left the list) renders read-only.
+    let device: SteerDevice?
+    let viewModel: AgentsViewModel
+    let onSignIn: (AgentLoginTarget) -> Void
+    let onRemove: (AgentProfileUsageRow) -> Void
 
+    @ViewBuilder
     var body: some View {
+        if let device, isActionable(device) {
+            GlassMenu {
+                menuItems(device)
+            } label: {
+                pill
+            }
+            .accessibilityLabel("\(AgentAccountsRows.chipLabel(row)) actions")
+            .accessibilityIdentifier("account-chip-\(row.key)")
+        } else {
+            pill
+                .accessibilityIdentifier("account-chip-\(row.key)")
+        }
+    }
+
+    /// The same gate the device rows apply: mine, listening, and advertising
+    /// `agent-login` — plus at least one entry to show.
+    private func isActionable(_ device: SteerDevice) -> Bool {
+        guard row.mine, device.isOnline, device.canAgentLogin else { return false }
+        if AgentAccountsRows.chipSignsIn(row) { return true }
+        if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
+            return true
+        }
+        return AgentAccountsRows.canRemoveAccount(
+            row,
+            canAgentLogin: device.canAgentLogin,
+            canRemoveAccount: device.canRemoveAccount
+        )
+    }
+
+    @ViewBuilder
+    private func menuItems(_ device: SteerDevice) -> some View {
+        if AgentAccountsRows.chipSignsIn(row) {
+            GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
+                onSignIn(AgentLoginTarget(
+                    deviceId: row.deviceId,
+                    deviceLabel: row.deviceLabel.isEmpty ? row.deviceId : row.deviceLabel,
+                    agent: row.agent,
+                    profileId: row.profileId
+                ))
+            }
+        } else {
+            if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
+                GlassMenuItem("Set as default", icon: AppIcons.uiSwap) {
+                    viewModel.useAccountHere(row)
+                }
+            }
+            if AgentAccountsRows.canRemoveAccount(
+                row,
+                canAgentLogin: device.canAgentLogin,
+                canRemoveAccount: device.canRemoveAccount
+            ) {
+                GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
+                    onRemove(row)
+                }
+            }
+        }
+    }
+
+    private var pill: some View {
         GlassPill(
             AgentAccountsRows.chipLabel(row),
             mode: .readonly,
@@ -275,17 +395,21 @@ private struct AgentAccountDeviceChip: View {
         ) {
             EmptyView()
         } trailing: {
-            if let badge = row.health.badgeLabel {
+            if viewModel.isAccountActionPending(row) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+                    .accessibilityLabel("Working…")
+            } else if let badge = row.health.badgeLabel {
                 AppIcon(AppIcons.uiWarning, size: GlassPillSize.sm.glyphSize)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
-                    .accessibilityLabel("\(badge) on this machine")
+                    .accessibilityLabel("\(badge) on this device")
             } else if row.signedIn, row.active {
                 AppIcon(AppIcons.uiCheck, size: GlassPillSize.sm.glyphSize)
                     .foregroundStyle(DesignTokens.Semantic.green)
-                    .accessibilityLabel("Active on this machine")
+                    .accessibilityLabel("Active on this device")
             }
         }
         .opacity(row.online ? 1 : 0.7)
-        .accessibilityIdentifier("account-chip-\(row.key)")
     }
 }

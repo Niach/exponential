@@ -1,24 +1,31 @@
-// EXP-792 (EXP-747 A1/A2): "Sign in to <agent> on <machine>" as a dialog of
-// its own, so a failed remote start's toast, a machine row's Sign in pill and
-// the Devices nav can all open the SAME sign-in without going through device
-// settings first. Queues `agent_login` on open (a fresh dialog IS the
-// intent), then renders what the machine hands back — the CLI's sign-in link,
-// Codex's device code, claude's code field (EXP-765) — via the outcome view
-// the device-settings tab already uses. The machine flips `signedIn` on its
-// next probe; nothing here writes a credential.
+// EXP-792 (EXP-747 A1/A2): the sign-in dialog — the ONE place an agent login
+// is driven from the web, so a failed remote start's toast, a device row's
+// account chip and an account row's "+" all open the SAME flow without going
+// through device settings first. Queues `agent_login` on open (a fresh dialog
+// IS the intent), then renders what the device hands back: the CLI's sign-in
+// link, Codex's device code, claude's code field (EXP-765).
+//
+// EXP-862: a title and ONE status line, ×4 (iOS `AgentLoginSheet`, desktop's
+// login dialog) — and it CLOSES ITSELF the moment the device reports the
+// login as signed in. Nothing here writes, holds or forwards a credential.
 import { useEffect, useRef } from "react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
+import type { Device } from "@/db/schema"
 import { useAgentLogin } from "@/hooks/use-agent-login"
+import { deviceCollection } from "@/lib/collections"
 import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { AgentLoginOutcome } from "@/components/device-agent-account"
-import { agentLabel } from "@/components/agent-usage-bar"
+import {
+  agentLoginLanded,
+  AgentLoginOutcome,
+} from "@/components/device-agent-account"
+import { agentLabel } from "@/components/agent-picker"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -74,32 +81,68 @@ export function AgentLoginDialog({
   }, [open, device?.deviceId, agent, target?.profileId, target?.newProfileLabel])
 
   const label = device ? device.deviceLabel || device.deviceId : ``
-  const addsAccount = Boolean(target?.newProfileLabel)
+
+  // EXP-862: closes itself on success. The device re-probes after the login
+  // and its next heartbeat reports the TARGETED login as usable — that
+  // TRANSITION (never the state it opened in) is the signal, so re-signing a
+  // healthy login stays open until it really lands. `agentLoginLanded` is the
+  // predicate: a revoked credential and a not-yet-created profile both read
+  // as "signed in" on the account itself.
+  const { data: deviceRows } = useLiveQuery(
+    (query) =>
+      open && device?.rowId
+        ? query
+            .from({ d: deviceCollection })
+            .where(({ d }) => eq(d.id, device.rowId))
+        : undefined,
+    [open, device?.rowId]
+  )
+  const row = (deviceRows?.[0] as Device | undefined) ?? null
+  const account = agent ? (row?.agentAccounts?.[agent] ?? null) : null
+  const landed = agentLoginLanded(account, {
+    profileId: target?.profileId,
+    newProfileLabel: target?.newProfileLabel,
+  })
+  const hadLanded = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (!open) {
+      hadLanded.current = null
+      return
+    }
+    if (hadLanded.current === null) {
+      hadLanded.current = landed
+      return
+    }
+    if (!hadLanded.current && landed) onOpenChange(false)
+    hadLanded.current = landed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, landed])
+
+  // The ONE status line, byte-identical ×4: who is signing in where, and what
+  // is happening right now — never a paragraph.
+  const statusText = state.codePending
+    ? `Sending the code to ${label}…`
+    : state.pending
+      ? `Waiting for ${label} to publish the ${agentLabel(agent)} sign-in link…`
+      : `${agentLabel(agent)} on ${label}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent mobile="sheet" className="sm:max-w-md">
+      <DialogContent
+        mobile="sheet"
+        className="sm:max-w-md"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
-          <DialogTitle>
-            {addsAccount
-              ? `Add a ${agentLabel(agent)} account`
-              : `Sign in to ${agentLabel(agent)}`}
-          </DialogTitle>
-          <DialogDescription>
-            {addsAccount
-              ? `The sign-in runs on ${label}. Sign in with the account you want to add; the machine keeps it beside its other logins.`
-              : `The sign-in runs on ${label}. Open the link it hands back on any device.`}
-          </DialogDescription>
+          <DialogTitle>Sign in</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-2">
-          {state.pending && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {(state.pending || state.codePending) && (
               <LoaderCircle className="size-3 animate-spin" />
-              {online
-                ? `Waiting for the sign-in link…`
-                : `This machine is offline. The sign-in runs when it comes online.`}
-            </p>
-          )}
+            )}
+            {statusText}
+          </p>
           {state.result && (
             <AgentLoginOutcome
               result={state.result}
@@ -109,12 +152,6 @@ export function AgentLoginDialog({
           )}
           {state.error && (
             <p className="text-xs text-destructive">{state.error}</p>
-          )}
-          {state.codePending && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3 animate-spin" />
-              Sending the code to the machine…
-            </p>
           )}
           {state.codeResult && (
             <p className="text-xs text-muted-foreground">{state.codeResult}</p>

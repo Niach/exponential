@@ -77,8 +77,9 @@ import {
 // ACTION_CAPS); the ones this router gates on: `agent-login`,
 // `account-switch` (EXP-849: honours `account` on a live-run resume), `mcp`
 // (EXP-792: runs `mcp_oauth_*` and reports readiness), `agent-usage-refresh`
-// (EXP-747 C4) and `update-now` (FEED-36: runs `update_now`). The daemon
-// advertises 17 today (10 build + 7 action caps), so the ceiling sits at 24
+// (EXP-747 C4), `update-now` (FEED-36: runs `update_now`) and
+// `account-remove` (EXP-862: runs `agent_profile_remove`). The daemon
+// advertises 18 today (11 build + 7 action caps), so the ceiling sits at 24
 // with headroom, not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
@@ -310,6 +311,37 @@ export function nudgeDevice(ownerId: string, deviceId: string): void {
   const config = getSteerRelayConfig()
   if (!config) return
   void relayPostNudge(config, ownerId, deviceId).catch(() => {})
+}
+
+/** EXP-862: command kinds whose queued row is a WISH, not an act — asking
+ * twice asks for the same end state, so a duplicate reuses the pending row
+ * instead of failing the mutation with "That command is already queued". */
+const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
+  `agent_usage_refresh`,
+  `worktree_prune`,
+  `agent_profile_use`,
+  `agent_profile_remove`,
+])
+
+/** EXP-862: the ambient login's profile id — the agent CLI's own config dir,
+ * which Exponential never created and never deletes. Blank counts as the
+ * ambient login too (the device reads a missing `account` that way). */
+function isSystemProfileId(profileId: string | undefined): boolean {
+  const id = (profileId ?? ``).trim()
+  return id.length === 0 || id === `system`
+}
+
+/** EXP-862: whether the device's last heartbeat reported `profileId` as one of
+ * `agent`'s logins. A removal is destructive on the machine, so its target has
+ * to be a row the requester could actually see. */
+function deviceReportsProfile(
+  accounts: DeviceAgentAccounts | null,
+  agent: string,
+  profileId: string
+): boolean {
+  return (accounts?.[agent]?.profiles ?? []).some(
+    (profile) => profile.id === profileId
+  )
 }
 
 /** FEED-36: `update_now` needs a daemon that knows the kind — an older build
@@ -930,6 +962,11 @@ export const devicesRouter = router({
           // profile and re-heartbeats `agent_accounts`. (Never `codex
           // logout`: that revokes the account server-wide.)
           `agent_profile_use`,
+          // EXP-862: delete THIS machine's copy of an agent login (its
+          // profile dir and its index row). The ACCOUNT is untouched: the
+          // device never runs `codex logout` (that revokes the account
+          // server-wide), it only forgets the credential it holds.
+          `agent_profile_remove`,
           `update_now`,
         ]),
         repoFullName: z.string().min(1).max(255).optional(),
@@ -953,7 +990,13 @@ export const devicesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const [row] = await ctx.db
-        .select({ id: devices.id, caps: devices.caps })
+        .select({
+          id: devices.id,
+          caps: devices.caps,
+          // EXP-862: `agent_profile_remove` is destructive on the device, so
+          // its target must be a login the machine actually reported.
+          agentAccounts: devices.agentAccounts,
+        })
         .from(devices)
         .where(
           and(
@@ -1071,6 +1114,43 @@ export const devicesRouter = router({
         payload = { agent: input.agent, profileId: input.profileId }
       }
 
+      // EXP-862: "Remove account" — the machine deletes its own copy of that
+      // login. Two caps, like `agent_profile_use`: `agent-login` to drive the
+      // machine's logins at all, `account-remove` for this command itself. A
+      // build missing either would leave the row pending forever.
+      if (input.kind === `agent_profile_remove`) {
+        if (!input.agent || !input.profileId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_profile_remove needs an agent and a profileId`,
+          })
+        }
+        // The ambient login is the agent CLI's own, not ours to delete: it
+        // has no profile dir to remove, and `codex logout` is never in this
+        // path. The device refuses it too; refusing here keeps the round
+        // trip off a machine that could only say no.
+        if (isSystemProfileId(input.profileId)) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `That machine's own agent login cannot be removed from Exponential`,
+          })
+        }
+        const caps = row.caps ?? []
+        if (!caps.includes(`agent-login`) || !caps.includes(`account-remove`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
+          })
+        }
+        if (!deviceReportsProfile(row.agentAccounts, input.agent, input.profileId)) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `That account is no longer reported by the device`,
+          })
+        }
+        payload = { agent: input.agent, profileId: input.profileId }
+      }
+
       if (input.kind === `agent_usage_refresh`) {
         if (!input.agent || !input.profileId) {
           throw new TRPCError({
@@ -1095,7 +1175,14 @@ export const devicesRouter = router({
         deviceId: input.deviceId,
         kind: input.kind,
         payload,
-        onDuplicate: `conflict`,
+        // EXP-862: a second click on an IDEMPOTENT command is the same wish,
+        // not an error — the queued row is reused instead of surfacing "That
+        // command is already queued" as a failed mutation. A sign-in, a code
+        // hand-off and a worktree removal keep the CONFLICT: those are acts,
+        // and a repeat says something the requester needs to hear.
+        onDuplicate: IDEMPOTENT_COMMAND_KINDS.has(input.kind)
+          ? `reuse`
+          : `conflict`,
       })
     }),
 

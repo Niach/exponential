@@ -36,7 +36,6 @@ use gpui_component::{
     input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
-    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -53,7 +52,7 @@ use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
 use super::labels::{swatch_grid, LABEL_COLORS, STATUS_COLORS};
-use super::{card_title, section};
+use super::section;
 use crate::icons::registry;
 use crate::controls::glass_input;
 
@@ -662,7 +661,8 @@ impl StatusesPane {
         let rows: Vec<IssueStatusRow> =
             statuses.iter().map(|(row, _)| row.clone()).collect();
 
-        let mut card = section(cx).child(card_title("PR automation"));
+        let mut card = section(cx)
+            .child(crate::surface::glass_section_header("PR automation", None, cx));
         let pane = cx.entity().downgrade();
 
         let events: [(
@@ -827,7 +827,7 @@ impl StatusesPane {
                         ),
                 )
                 .child(
-                    Switch::new("pr-automation-end-sessions")
+                    crate::controls::web_switch("pr-automation-end-sessions")
                         .checked(ends_sessions)
                         .on_click(move |checked: &bool, _window, cx| {
                             let team_id = team_id.clone();
@@ -1021,8 +1021,8 @@ impl StatusesPane {
         let down_row = row.clone();
         line = line
             .child(
-                // EXP-698: the one 32px glass chrome every row action wears.
-                crate::controls::glass_icon_button(
+                // EXP-862: a reorder chevron is a GHOST glyph — no circle.
+                crate::controls::ghost_icon_button(
                     row_id("status-up", &status_id),
                     Icon::new(registry::UI_CHEVRON_UP),
                     cx,
@@ -1034,7 +1034,7 @@ impl StatusesPane {
                     })),
             )
             .child(
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     row_id("status-down", &status_id),
                     Icon::new(registry::UI_CHEVRON_DOWN),
                     cx,
@@ -1065,7 +1065,7 @@ impl StatusesPane {
             let del_id = status_id.clone();
             let del_name = row.name.clone();
             line = line.child(
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     row_id("status-delete", &status_id),
                     Icon::new(registry::UI_DELETE),
                     cx,
@@ -1209,7 +1209,8 @@ impl Render for StatusesPane {
 
         // EXP-771: the web's title, which is just "Statuses" — the pane and
         // the nav row it hangs off must read the same.
-        let mut body = section(cx).child(card_title("Statuses"));
+        let mut body = section(cx)
+            .child(crate::surface::glass_section_header("Statuses", None, cx));
 
         if statuses.is_empty() {
             return v_flex().child(body.child(

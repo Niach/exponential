@@ -192,7 +192,6 @@ public enum AppIcons {
         "link-2",
         "list",
         "list-checks",
-        "list-filter",
         "list-ordered",
         "list-todo",
         "list-tree",
@@ -404,8 +403,6 @@ public enum AppIcons {
     public static let navDevices: String = "monitor"
     /// Concept `nav-files`.
     public static let navFiles: String = "folder"
-    /// Concept `nav-filter`.
-    public static let navFilter: String = "list-filter"
     /// Concept `nav-getting-started`.
     public static let navGettingStarted: String = "sparkles"
     /// Concept `nav-inbox`.

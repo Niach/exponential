@@ -178,6 +178,7 @@ private fun FileRow(
                 ExpIcons.uiMore,
                 contentDescription = "File actions",
                 onClick = { menuOpen = true },
+                borderless = true,
             )
             GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 GlassMenuItem(

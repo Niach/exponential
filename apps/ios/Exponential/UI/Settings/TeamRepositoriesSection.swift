@@ -266,7 +266,7 @@ struct TeamRepositoriesSection: View {
                 // confirmation.
                 // EXP-721: the shared chromed circle (Boards/Labels parity).
                 if canManage(repo) {
-                    CircleIconButton(
+                    GhostIconButton(
                         AppIcons.uiDelete,
                         accessibilityLabel: "Remove repository",
                         tint: DesignTokens.Palette.destructive.opacity(0.7)
@@ -297,11 +297,20 @@ struct TeamRepositoriesSection: View {
                         .padding(.vertical, 4)
                 }
                 ForEach(repo.boards) { ref in
+                    // EXP-862: the board's OWN icon, tinted with its colour
+                    // (×4 — web `getBoardIcon`, desktop `icons::board_icon`,
+                    // Android's `BoardIcon`). A board the synced set has not
+                    // caught up with still draws the shared fallback glyph
+                    // rather than a bare chip.
+                    let board = boards.first { $0.id == ref.id }
                     GlassPill(ref.name) {
-                        if let board = boards.first(where: { $0.id == ref.id }) {
-                            AppIcon(BoardTypeDisplay.iconName(for: board), size: GlassPillTokens.glyphSm)
-                                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                        }
+                        AppIcon(
+                            board.map { BoardTypeDisplay.iconName(for: $0) } ?? "square-kanban",
+                            size: GlassPillTokens.glyphSm
+                        )
+                        .foregroundStyle(
+                            Color(hex: board?.color ?? "#888888") ?? .gray
+                        )
                     }
                 }
             }
@@ -456,7 +465,7 @@ struct TeamRepositoriesSection: View {
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
                     }
-                    CircleIconButton(
+                    GhostIconButton(
                         AppIcons.uiClose,
                         accessibilityLabel: "Disconnect this GitHub account from the team",
                         glyphSize: AppIcon.Size.small,

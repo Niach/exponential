@@ -75,6 +75,46 @@ pub(crate) fn glass_section_band(
         .children(trailing)
 }
 
+/// EXP-862 — the FOLDABLE group band: [`glass_section_band`] with a leading
+/// chevron and a trailing count, the whole strip a click target.
+///
+/// The Agent page's "Past" band is the first wearer (collapsed by default;
+/// clicking expands the finished runs inline, ×4), and any list whose second
+/// group is history takes the same shape: a band that says how many rows it
+/// hides is the only honest way to ship a collapsed group.
+///
+/// Returns the band WITHOUT a click handler — what folding means is the
+/// caller's (it owns the collapsed flag).
+pub(crate) fn glass_section_band_fold(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    count: usize,
+    collapsed: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    use gpui::IntoElement as _;
+    use gpui_component::Sizable as _;
+    let foreground = cx.theme().foreground;
+    let chevron = gpui_component::Icon::from(if collapsed {
+        crate::icons::registry::UI_CHEVRON_RIGHT
+    } else {
+        crate::icons::registry::UI_CHEVRON_DOWN
+    })
+    .xsmall()
+    .flex_shrink_0()
+    .text_color(foreground.opacity(0.7))
+    .into_any_element();
+    let count = div()
+        .flex_shrink_0()
+        .text_xs()
+        .text_color(foreground.opacity(0.5))
+        .child(SharedString::from(count.to_string()))
+        .into_any_element();
+    glass_section_band(Some(chevron), label, Some(count), cx)
+        .id(id)
+        .cursor_pointer()
+}
+
 /// EXP-818: ONE flat list row — the web `ListRow`. No stroke, no fill of its
 /// own: rows stack with NO gap under a [`glass_section_band`] and read as a
 /// table; the `list_hover` wash is the only thing a hover paints, and a
@@ -481,8 +521,8 @@ pub(crate) enum PillMode {
 /// `components/ui/pill.tsx` and the mobile `GlassPill`s. Every chip, tag,
 /// badge, filter pill, header button and picker trigger that used to be its
 /// own recipe (`glass_chip`, the old two-arg `glass_pill`, `pickers::
-/// chip_button`, `active_filter_pills::pill_base`, `issue_list::label_chip`,
-/// `settings/members::role_chip`, `filter_popover::count_badge`, the two
+/// chip_button`, `issue_list::label_chip`,
+/// `settings/members::role_chip`, the two
 /// `file_chip`s, `pending_chip`) is this function with a different
 /// [`PillSize`] / [`PillMode`].
 ///

@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -157,13 +157,14 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
               here too.
             </p>
           ) : (
-            <div className="flex flex-col gap-2">
+            // EXP-862: flat rows under the band, never one card per key.
+            <div className="flex flex-col">
               {keys.map((row) => {
                 const isDeviceKey = Boolean(
                   row.name?.startsWith(DEVICE_KEY_PREFIX)
                 )
                 return (
-                  <GlassRow key={row.id}>
+                  <ListRow key={row.id}>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
                         {row.name || `Personal key`}
@@ -189,7 +190,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                     >
                       Revoke
                     </Button>
-                  </GlassRow>
+                  </ListRow>
                 )
               })}
             </div>

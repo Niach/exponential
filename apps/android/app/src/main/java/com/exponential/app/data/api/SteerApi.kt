@@ -347,6 +347,15 @@ data class SteerDevice(
     val canSwitchAccount: Boolean get() = caps?.contains("account-switch") == true
 
     /**
+     * EXP-862: whether this machine can REMOVE one of its agent logins
+     * (`agent_profile_remove` — it deletes its own copy of the profile, never
+     * the account). Cap-gated like the switch: the server refuses the command
+     * without it, so the chip menu simply does not offer the entry on an older
+     * build instead of queueing something that would never run.
+     */
+    val canRemoveAccount: Boolean get() = caps?.contains("account-remove") == true
+
+    /**
      * EXP-746: whether this machine runs coding sessions through the
      * in-process ACP engine. Read-only here and no longer a gate: every build
      * above the version floor advertises it (EXP-773 left no other transport),

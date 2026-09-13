@@ -207,12 +207,18 @@ export interface DomainContract {
    * input field named by `subjectKey` as the subject (empty = none) and a
    * result preview keyed by `result` (one of `resultKinds`). Unknown tools
    * fall back to the raw name; generated ×4 as parallel arrays.
+   *
+   * EXP-862: `title` + `blurb` are the same row's SETTINGS copy — the
+   * built-in tools group of the MCP servers page lists one row per tool as
+   * title + muted blurb, with the raw wire name only as a tooltip.
    */
   expToolDisplay: {
     prefix: string
     resultKinds: readonly string[]
     tools: readonly {
       name: string
+      title: string
+      blurb: string
       progressive: string
       done: string
       subjectKey: string

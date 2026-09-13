@@ -234,6 +234,15 @@ impl LocalExtras {
         self.for_item(item)
             .is_some_and(|extras| !extras.edits.is_empty() || extras.output.is_some())
     }
+
+    /// EXP-862 — `item`'s per-edit patches, for the diff pane scoped to that
+    /// row. `None` when the row produced no local edit card (a remote viewer
+    /// reads the wire patch off the feed row instead).
+    pub(crate) fn edit_files(&self, item: FeedItemId) -> Option<Vec<DiffFile>> {
+        let extras = self.for_item(item)?;
+        (!extras.edits.is_empty())
+            .then(|| extras.edits.iter().map(|edit| edit.file.clone()).collect())
+    }
 }
 
 impl OutputCard {
@@ -338,11 +347,15 @@ fn tool_edit_card(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Opti
 /// stop. It is `None` when the source cannot stop anything (a replay, a
 /// remote viewer): there the whole Running/Stop strip is left out rather than
 /// offering a button whose click goes nowhere.
+///
+/// EXP-862: `on_open` is the edit card HEADER's click — the diff pane, scoped
+/// to this one edit. `None` where there is no pane to open into.
 pub(crate) fn render_extras(
     extras: &LocalExtras,
     item: FeedItemId,
     expanded: bool,
     on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    on_open: Option<OpenDiff>,
     on_kill: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     cx: &App,
 ) -> Option<AnyElement> {
@@ -352,8 +365,14 @@ pub(crate) fn render_extras(
     }
     let muted = cx.theme().muted_foreground;
     let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
-    for edit in &tool.edits {
-        column = column.child(render_edit_card(edit, expanded, cx));
+    for (index, edit) in tool.edits.iter().enumerate() {
+        column = column.child(render_edit_card(
+            edit,
+            (item, index),
+            expanded,
+            on_open.clone(),
+            cx,
+        ));
     }
     if let Some(output) = tool.output.as_ref() {
         column = column.child(render_output_card(output, item, expanded, on_kill, cx));
@@ -367,18 +386,36 @@ pub(crate) fn render_extras(
             .as_ref()
             .is_some_and(|output| output.rows().len() > DIFF_PREVIEW_ROWS);
     if foldable {
-        column = column.child(
-            div()
-                .id(("session-extras-toggle", item as usize))
-                .mt_0p5()
-                .cursor_pointer()
-                .text_xs()
-                .text_color(muted)
-                .child(if expanded { "Show less" } else { "Show more" })
-                .on_click(on_toggle),
-        );
+        column = column.child(fold_toggle(item, expanded, on_toggle, muted));
     }
     Some(column.into_any_element())
+}
+
+/// EXP-862 — "open the diff pane at this edit", the inline card header's
+/// click. `Rc` because one tool row can carry several edit cards and they all
+/// open the same scope.
+pub(crate) type OpenDiff = std::rc::Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+/// The `Show more` / `Show less` line under a folded card. It STOPS the click
+/// (EXP-862): the card above it opens the diff pane now, and unfolding a
+/// patch in place must not also open the pane beside it.
+fn fold_toggle(
+    item: FeedItemId,
+    expanded: bool,
+    on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    muted: gpui::Hsla,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(("session-extras-toggle", item as usize))
+        .mt_0p5()
+        .cursor_pointer()
+        .text_xs()
+        .text_color(muted)
+        .child(if expanded { "Show less" } else { "Show more" })
+        .on_click(move |event: &ClickEvent, window, cx| {
+            cx.stop_propagation();
+            on_toggle(event, window, cx);
+        })
 }
 
 /// EXP-786: "… N more lines" — the header's note for a cut patch.
@@ -390,7 +427,13 @@ fn hunk_rows(file: &DiffFile) -> usize {
     file.hunks.iter().map(|hunk| hunk.lines.len()).sum()
 }
 
-fn render_edit_card(edit: &EditCard, expanded: bool, cx: &App) -> AnyElement {
+fn render_edit_card(
+    edit: &EditCard,
+    id: (FeedItemId, usize),
+    expanded: bool,
+    on_open: Option<OpenDiff>,
+    cx: &App,
+) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let mut body = v_flex()
         .w_full()
@@ -398,12 +441,25 @@ fn render_edit_card(edit: &EditCard, expanded: bool, cx: &App) -> AnyElement {
         .gap_1()
         .child(
             h_flex()
+                // EXP-862: the header IS the way into the diff pane, scoped
+                // to this edit — the card shows a preview of one patch, the
+                // pane shows the patch.
+                .id(("session-edit-card", id.0 as usize * 64 + id.1))
                 .w_full()
                 .min_w_0()
                 .gap_1p5()
                 .items_center()
                 .text_2xs()
                 .text_color(muted)
+                .when_some(on_open, |header, on_open| {
+                    header
+                        .cursor_pointer()
+                        .hover(|this| this.text_color(cx.theme().foreground))
+                        .on_click(move |event: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            on_open(event, window, cx);
+                        })
+                })
                 .child(Icon::new(registry::CODING_DIFF).xsmall())
                 .child(
                     div()
@@ -563,6 +619,7 @@ pub(crate) fn render_wire_diff(
     item: FeedItemId,
     expanded: bool,
     on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    on_open: Option<OpenDiff>,
     cx: &App,
 ) -> AnyElement {
     let Some((file, omitted)) = parse_tool_diff(diff) else {
@@ -581,18 +638,9 @@ pub(crate) fn render_wire_diff(
         .gap_1()
         .pl_5()
         .pt_1()
-        .child(render_edit_card(&edit, expanded, cx))
+        .child(render_edit_card(&edit, (item, 0), expanded, on_open, cx))
         .when(foldable, |column| {
-            column.child(
-                div()
-                    .id(("session-extras-toggle", item as usize))
-                    .mt_0p5()
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(if expanded { "Show less" } else { "Show more" })
-                    .on_click(on_toggle),
-            )
+            column.child(fold_toggle(item, expanded, on_toggle, muted))
         })
         .into_any_element()
 }

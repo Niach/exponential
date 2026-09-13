@@ -23,20 +23,16 @@ use crate::mcp_json::MCP_JSON_FILE;
 use crate::settings::Settings;
 use crate::skill::RUN_SKILL;
 
-/// The env var carrying the raw `expu_` key for codex + external-agent
-/// sessions (EXP-201) — those agents get the MCP credential via the spawn
-/// environment instead of a worktree file: codex reads it through
-/// `bearer_token_env_var`, an external ACP binary reads it directly. Never on
-/// argv (ps-visible), never on disk.
+/// The env var carrying the raw `expu_` key for codex sessions (EXP-201) —
+/// codex gets the MCP credential via the spawn environment instead of a
+/// worktree file, reading it through `bearer_token_env_var`. Never on argv
+/// (ps-visible), never on disk.
 pub const MCP_TOKEN_ENV: &str = "EXP_MCP_TOKEN";
 
-/// The env var carrying the `/api/mcp` URL for an external ACP agent.
-pub const MCP_URL_ENV: &str = "EXP_MCP_URL";
-
 /// EXP-637: the `coding_sessions` row id the spawned agent's MCP calls must
-/// identify themselves with (`X-Exp-Session-Id`). Read by an external ACP
-/// agent off the env; claude gets it from `.exp-mcp.json` and codex
-/// from a `-c mcp_servers.exponential.http_headers` override. NOT a secret —
+/// identify themselves with (`X-Exp-Session-Id`). Claude gets it from
+/// `.exp-mcp.json` and codex from a `-c mcp_servers.exponential.http_headers`
+/// override. NOT a secret —
 /// it only names the row the launcher just created for this run.
 pub const MCP_SESSION_ID_ENV: &str = "EXP_MCP_SESSION_ID";
 
@@ -155,8 +151,6 @@ pub fn toml_basic_string(text: &str) -> String {
 /// - Codex: `-c mcp_servers.*` CLI overrides pointing at `url`, with the
 ///   bearer token read from [`MCP_TOKEN_ENV`] in the spawn env — the key
 ///   never lands on disk or argv for codex.
-/// - External (EXP-758): the spawn env alone ([`MCP_URL_ENV`] +
-///   [`MCP_TOKEN_ENV`] + [`MCP_SESSION_ID_ENV`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentMcp {
     ClaudeFile,
@@ -178,26 +172,14 @@ pub enum AgentMcp {
         /// session (agent shells) keeps the pre-EXP-637 argv byte-identical.
         session_id: Option<String>,
     },
-    /// EXP-758: a user-declared EXTERNAL ACP agent. There is no config format
-    /// of ours to write for a binary we did not ship, so the whole wiring is
-    /// the spawn env ([`MCP_URL_ENV`] / [`MCP_TOKEN_ENV`] /
-    /// [`MCP_SESSION_ID_ENV`]) and the
-    /// agent connects to `/api/mcp` itself if it speaks MCP at all. Nothing
-    /// of ours lands in the worktree.
-    ExternalEnv {
-        url: String,
-        /// The `X-Exp-Session-Id` header value (EXP-637).
-        session_id: Option<String>,
-    },
 }
 
 /// EXP-792: ONE team MCP server resolved for a launch — the non-secret
 /// config from `mcpServers.listForDevice` joined with the ENV VAR NAMES the
 /// launcher minted for its device-held secrets. Every credential position is
 /// a `${VAR}` REFERENCE the agent expands from the child's own environment
-/// (claude header values, codex `bearer_token_env_var`/`env_http_headers`, an
-/// external agent's own `process.env`), so no generated config ever carries a
-/// value. `exponential` itself is NOT one of these — it keeps its dedicated
+/// (claude header values, codex `bearer_token_env_var`/`env_http_headers`), so
+/// no generated config ever carries a value. `exponential` itself is NOT one of these — it keeps its dedicated
 /// [`AgentMcp`] posture (the `expu_` key + the session header); these are the
 /// user-declared servers appended beside it.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -250,16 +232,6 @@ impl McpServerWire {
     }
 }
 
-/// EXP-792: the env var carrying the launch's team MCP servers for the
-/// agents that have no config format of their own to render them into: an
-/// external ACP binary reads this JSON array
-/// (`[{name, kind:"http", url, headers} | {name, kind:"stdio", command,
-/// args, env}]`) and resolve every `${VAR}` header/env reference from their
-/// OWN environment at connect time. Never set for claude/codex (their
-/// configs carry the servers) and never for an agent shell. NOT a secret:
-/// every credential position is a `${VAR}` reference.
-pub const MCP_SERVERS_ENV: &str = "EXP_MCP_SERVERS";
-
 /// The name of the env var a `${VAR}` reference names, when `value` is
 /// EXACTLY one such reference (`${EXP_MCP_ENV_1_X_API_KEY}`); `None` for a
 /// literal or a composite (`Bearer ${…}`, see [`bearer_env_reference`]).
@@ -277,52 +249,6 @@ pub fn env_reference(value: &str) -> Option<&str> {
 pub fn bearer_env_reference(value: &str) -> Option<&str> {
     let rest = value.strip_prefix("Bearer ")?;
     env_reference(rest.trim_start())
-}
-
-/// [`MCP_SERVERS_ENV`]'s value: the external agent wire shape,
-/// `${VAR}` references verbatim (the reader expands them), headers and env
-/// sorted by name so the string is stable across launches.
-pub fn mcp_servers_env_json(servers: &[McpServerWire]) -> String {
-    let entries: Vec<serde_json::Value> = servers
-        .iter()
-        .map(|server| {
-            let mut entry = serde_json::Map::new();
-            entry.insert("name".into(), serde_json::Value::String(server.name.clone()));
-            match &server.transport {
-                McpWireTransport::Http { url } => {
-                    entry.insert("kind".into(), "http".into());
-                    entry.insert("url".into(), serde_json::Value::String(url.clone()));
-                    entry.insert("headers".into(), sorted_object(&server.headers));
-                }
-                McpWireTransport::Stdio { command, args } => {
-                    entry.insert("kind".into(), "stdio".into());
-                    entry.insert("command".into(), serde_json::Value::String(command.clone()));
-                    entry.insert(
-                        "args".into(),
-                        serde_json::Value::Array(
-                            args.iter().map(|arg| arg.as_str().into()).collect(),
-                        ),
-                    );
-                    entry.insert("env".into(), sorted_object(&server.env));
-                }
-            }
-            serde_json::Value::Object(entry)
-        })
-        .collect();
-    serde_json::Value::Array(entries).to_string()
-}
-
-fn sorted_object(pairs: &[(String, String)]) -> serde_json::Value {
-    let sorted: std::collections::BTreeMap<&str, &str> = pairs
-        .iter()
-        .map(|(name, value)| (name.as_str(), value.as_str()))
-        .collect();
-    serde_json::Value::Object(
-        sorted
-            .into_iter()
-            .map(|(name, value)| (name.to_string(), serde_json::Value::String(value.to_string())))
-            .collect(),
-    )
 }
 
 /// EXP-792: ONE `mcp_servers.<key>` entry as codex spells it — the model
@@ -500,12 +426,6 @@ pub struct LaunchOptions {
     /// Launch-into-plan mode: claude natively (`--permission-mode plan`).
     /// Never codex.
     pub plan_mode: bool,
-    /// EXP-746 (D13): run this launch on a user-declared external ACP agent
-    /// instead of `agent`'s CLI. `None` = the builtin above, which is every
-    /// path but a local start that picked an external pill — an external
-    /// agent is never remotely startable and has no TUI argv, so it always
-    /// resolves to [`crate::launcher::LaunchTransport::Acp`].
-    pub external: Option<crate::settings::ExternalAgentSpec>,
     /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
     /// connects to beside `exponential`. Empty = none. The launcher resolves
     /// them against the device's secret store and REFUSES the launch with a
@@ -537,11 +457,8 @@ impl LaunchOptions {
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
-            // EXP-746: the settings defaults always name a BUILTIN agent —
-            // an external one is only ever an explicit local pick.
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         }
     }
 
@@ -608,9 +525,6 @@ impl LaunchOptions {
             ultracode: ultracode.unwrap_or(settings.claude_ultracode)
                 && agent.supports_ultracode(),
             plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
-            // EXP-746 (D13): external agents are LOCAL-only — a relay start
-            // can never name one.
-            external: None,
             mcp_server_ids: Vec::new(),
             account: None,
         }
@@ -766,7 +680,6 @@ mod tests {
             plan_mode: false,
             mcp_server_ids: Vec::new(),
             account: None,
-            external: None,
         }
     }
 
@@ -860,28 +773,6 @@ mod tests {
         // No value ever lands in the table: only names and references.
         assert!(!full.contains("expu_"));
         assert!(!full.contains("${"), "codex gets env NAMES, never a `${{…}}` it cannot expand");
-    }
-
-    /// EXP-792: the external agent wire keeps every `${VAR}`
-    /// verbatim (they resolve it from their own env) and is byte-stable.
-    #[test]
-    fn mcp_servers_env_json_is_the_bridge_wire_shape() {
-        assert_eq!(mcp_servers_env_json(&[]), "[]");
-        let rendered = mcp_servers_env_json(&two_servers());
-        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
-        assert_eq!(parsed[0]["name"], "linear");
-        assert_eq!(parsed[0]["kind"], "http");
-        assert_eq!(parsed[0]["url"], "https://mcp.linear.app/mcp");
-        assert_eq!(parsed[0]["headers"]["Authorization"], "Bearer ${EXP_MCP_TOKEN_1}");
-        assert_eq!(parsed[0]["headers"]["X-Api-Key"], "${EXP_MCP_ENV_1_X_API_KEY}");
-        assert_eq!(parsed[1]["name"], "github");
-        assert_eq!(parsed[1]["kind"], "stdio");
-        assert_eq!(parsed[1]["command"], "npx");
-        assert_eq!(parsed[1]["args"], serde_json::json!(["-y", "@acme/github-mcp"]));
-        assert_eq!(parsed[1]["env"]["GITHUB_TOKEN"], "${GITHUB_TOKEN}");
-        // The row ids stay off the wire: the agent needs names, not rows.
-        assert!(!rendered.contains("srv-1"));
-        assert_eq!(rendered, mcp_servers_env_json(&two_servers()));
     }
 
     /// EXP-773: the agent SHELL argv — the one interactive TUI spawn left.

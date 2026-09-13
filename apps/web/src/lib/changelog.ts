@@ -25,6 +25,24 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-ui-refinement`,
+    date: `2026-09-12`,
+    title: `A quieter interface: ghost buttons, pickers that show what they pick, and settings that flatten out`,
+    summary: `Secondary buttons lose their circles, agent and device pickers carry icons, the Agent page holds the running and past runs, board settings get a page each, API keys became Security, and issue filters are gone.`,
+    body: `- **Circles mean the main action**: only the one action a surface is for keeps a round button: start a run, send, New issue, Search, add. Everything secondary is a plain glyph that fills on hover, including the ... menus, close, folder and file toggles, chevrons, remove and refresh. Back is that same quiet button in the same place on every screen, and a back row in a list or in settings is the whole row.
+- **Pickers that show what they pick**: the agent picker is one control everywhere, showing the Claude Code or Codex mark on the button and both the mark and the name in its menu. Device pickers lead with a laptop or a server icon, and every menu whose value carries an icon now shows that icon on its options too.
+- **The Agent page is the composer**: the runs that are going sit in a band above the prompt, past runs are folded behind a count you can open, and with nothing running the prompt sits in the middle of the page instead of at the top.
+- **Device settings hold settings**: the dialog is the device name, your default device, team sharing and the per-agent defaults, and it opens at the size of its content. Signing in and choosing which account the device uses moved onto the account chips, where the account is.
+- **Add, switch and remove an account**: Add account sits in the Accounts header next to Add device, and an account chip offers exactly what applies to it: Sign in when it is signed out, Set as default, or Remove account. Removing clears that login from that one device; the account itself is untouched.
+- **Security**: the API keys settings page is now Security and holds your API keys and your passkeys, which moved off the Account page. Old links land there on their own.
+- **A settings page per board**: team settings list your boards one by one, the way the desktop app already did. Each board is its own page, with New board under the list and Archived boards after it.
+- **Changes you can size and scope**: the diff pane drags wider and remembers its width, and opening a file or an edit from the transcript scopes it to that turn, with one click back to the whole branch.
+- **Status headers in the sidebar**: the board and My issues lists in the sidebar group under the same status bands as the full list: the status glyph, its name, a count, and a click to fold.
+- **Automated runs together**: opening a finished automated run shows the other automated runs beside it, and Back returns to Automations.
+- **Issue filters are gone**: the filter bar left the board and the inbox on web, desktop, iOS and Android. Search covers what it was mostly used for, and grouping, sorting and the status bands stay.
+- **External agents are gone**: the desktop app and the CLI no longer run an arbitrary ACP binary. Claude Code and Codex are the agents; a recorded run that used an external one cannot be resumed, so start a new run instead.`,
+  },
+  {
     id: `2026-09-email-signup-and-mobile-tidy`,
     date: `2026-09-12`,
     title: `Sign up with your email, and the mobile apps drop what they cannot use`,

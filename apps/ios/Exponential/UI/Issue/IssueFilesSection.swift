@@ -115,7 +115,7 @@ struct IssueFilesSection: View {
                     }
                 }
             } label: {
-                CircleIconLabel(AppIcons.uiMore)
+                GhostIconLabel(AppIcons.uiMore)
             }
             .accessibilityLabel("File actions")
         }

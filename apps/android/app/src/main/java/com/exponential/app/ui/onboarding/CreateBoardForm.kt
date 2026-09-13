@@ -1,17 +1,11 @@
 package com.exponential.app.ui.onboarding
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -26,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -34,13 +27,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.ui.components.BoardRepoField
+import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.GlassSubmitButton
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconPicker
+import com.exponential.app.ui.components.TextFieldRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassGroup
 
 private const val DEFAULT_COLOR = "#6366f1"
 
@@ -132,78 +126,50 @@ fun CreateBoardForm(
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val canCreate = form.canCreate && !state.submitting
 
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // Caption-labelled glass fields — iOS CreateBoardForm parity (EXP-577).
-        // Name, with the icon picker LEFT of the input (EXP-584 — web, desktop
-        // and iOS share the row). The shared curated picker (EXP-273/575) is
-        // the same one an `icon` action input uses in the Start-coding sheet.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Board name", style = MaterialTheme.typography.labelMedium, color = secondary)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                IconPicker(
-                    selected = form.iconName,
-                    onSelect = { form.iconName = it },
-                    accentColor = parseColor(form.color),
-                )
-                GlassTextField(
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // EXP-862: ONE row — the icon picker, the colour picker and the name,
+        // all at the same height (web `h-9`, desktop CTL_MD_H, iOS the same).
+        // A board IS its glyph, its colour and its name; asking for them in
+        // three stacked captioned blocks made a two-field form read as a page.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            IconPicker(
+                selected = form.iconName,
+                onSelect = { form.iconName = it },
+                accentColor = parseColor(form.color),
+            )
+            ColorPicker(selected = form.color, onSelect = { form.color = it })
+            // Every field is a GLASS ROW with its label inside it — no caption
+            // floating above an input anywhere in this form.
+            Column(modifier = Modifier.weight(1f).glassGroup()) {
+                TextFieldRow(
+                    label = "Name",
                     value = form.name,
                     onValueChange = {
                         form.name = it
                         if (!form.prefixEdited) form.prefix = derivePrefix(it)
                     },
-                    singleLine = true,
                     placeholder = "e.g. Backend API",
-                    modifier = Modifier.weight(1f),
                 )
             }
         }
 
         if (!minimal) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Prefix", style = MaterialTheme.typography.labelMedium, color = secondary)
-                GlassTextField(
+            Column(modifier = Modifier.fillMaxWidth().glassGroup()) {
+                TextFieldRow(
+                    label = "Prefix",
                     value = form.prefix,
                     onValueChange = {
                         form.prefixEdited = true
                         form.prefix = it.uppercase().take(4)
                     },
-                    singleLine = true,
                     placeholder = "e.g. API",
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-                    modifier = Modifier.fillMaxWidth(),
                 )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Color", style = MaterialTheme.typography.labelMedium, color = secondary)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    LabelPalette.colors.forEach { swatch ->
-                        val selected = swatch.equals(form.color, ignoreCase = true)
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(parseColor(swatch), CircleShape)
-                                .then(
-                                    if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                    else Modifier,
-                                )
-                                .clickable { form.color = swatch },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (selected) {
-                                Icon(ExpIcons.uiCheck, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
             }
         }
 

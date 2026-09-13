@@ -2,12 +2,10 @@ import { conceptIcon } from "@/lib/icons.generated"
 import {
   GlassGroup,
   GlassPickerRow,
-  GlassTabsRow,
   GlassToggleRow,
   type GlassPickerOption,
 } from "@/components/ui/glass-rows"
-import { TabsTrigger } from "@/components/ui/tabs"
-import { ClaudeIcon, CodexIcon } from "@/components/icons/brand-icons"
+import { AgentPickerTabs } from "@/components/agent-picker"
 import {
   agentAllowsBlankModel,
   agentEffortValues,
@@ -33,39 +31,10 @@ import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 // EXP-694 collapses it into ONE card on every client (the Android device-edit
 // stack is the reference): the agent strip is the group's EMBEDDED FIRST ROW
 // — no "Agent" label above it, no floating capsule — and model, effort, the
-// run-time toggles and whatever `renderAgentFooter` adds are the rows under
-// it. The device/"Runs on" picker is NOT part of this card: the caller keeps
+// run-time toggles are the rows under it. EXP-862 dropped the account footer
+// that used to close the card (accounts live on their own page, never in a
+// launcher). The device/"Runs on" picker is NOT part of this card: the caller keeps
 // it in its own group ABOVE.
-
-export const AGENT_LABELS: Record<string, string> = {
-  claude: `Claude Code`,
-  codex: `Codex`,
-}
-
-// Each agent's brand mark for the tab strip — mirrors the desktop IDE's
-// icon + label pill tabs (EXP-213).
-const AGENT_ICONS: Record<
-  string,
-  (props: React.SVGProps<SVGSVGElement>) => React.JSX.Element
-> = {
-  claude: ClaudeIcon,
-  codex: CodexIcon,
-}
-
-// EXP-849: the brand marks are hand-drawn, one per shipped agent, so an id
-// from outside that set — a retired one (the historical `pi`), a future agent,
-// an external ACP binary — has none. It gets the NEUTRAL agent concept (the
-// Lucide bot) rather than an empty tab or, worse, claude's mark: the same
-// fallback glyph the other three clients draw.
-const AgentFallbackIcon = conceptIcon(`settings-agents`)
-
-/** The glyph for an agent id — its brand mark, or the neutral agent concept
- *  for an id this build does not ship a mark for. */
-export function agentMarkIcon(
-  agent: string
-): React.ComponentType<{ className?: string }> {
-  return AGENT_ICONS[agent] ?? AgentFallbackIcon
-}
 
 const ResumeBranchIcon = conceptIcon(`ui-branch`)
 
@@ -116,15 +85,6 @@ interface LaunchToggleProps {
 
 type AgentOptionsFieldsProps = {
   idPrefix: string
-  /**
-   * EXP-688: what to render UNDER the selected agent's toggles — the device
-   * settings dialog puts that agent's account and usage there, so the tab you
-   * are editing is the tab that tells you whose account it runs as. The
-   * launcher passes nothing: a run in flight is no place to sign in.
-   * EXP-694: these are the card's FINAL ROWS, so what it returns must be
-   * row-shaped (`px-4 py-3`), not a loose block.
-   */
-  renderAgentFooter?: (agent: string) => React.ReactNode
   /** `` in the automation variant = device default. */
   agent: string
   availableAgents: string[]
@@ -151,7 +111,6 @@ type AgentOptionsFieldsProps = {
 export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
     idPrefix,
-    renderAgentFooter,
     agent,
     availableAgents,
     onAgentChange,
@@ -195,17 +154,16 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     // agent runs with follows underneath.
     <GlassGroup>
       {availableAgents.length > 1 && (
-        <GlassTabsRow value={agent} onValueChange={onAgentChange}>
-          {availableAgents.map((value) => {
-            const AgentIcon = agentMarkIcon(value)
-            return (
-              <TabsTrigger key={value} value={value}>
-                <AgentIcon className="size-3.5" />
-                {AGENT_LABELS[value] ?? value}
-              </TabsTrigger>
-            )
-          })}
-        </GlassTabsRow>
+        /* EXP-862: the shared picker's TABS variant — one strip, one set of
+           marks and labels, wherever an agent is picked side by side. The
+           card's own padding replaces the strip's page padding (EXP-694: the
+           strip is the group's first ROW, not a control floating over it). */
+        <AgentPickerTabs
+          value={agent}
+          agents={availableAgents}
+          onChange={onAgentChange}
+          className="px-2 py-2"
+        />
       )}
       {deviceAgentNotReady(device, agent) && (
         /* EXP-773: with the PTY path gone this combination cannot start at
@@ -269,7 +227,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           onCheckedChange={toggles.onPlanModeChange}
         />
       )}
-      {renderAgentFooter?.(agent)}
     </GlassGroup>
   )
 }

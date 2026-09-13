@@ -39,6 +39,10 @@ struct AgentSessionsList: View {
     @State private var editError: String?
     /// The past rows' tap target — the page pushes it.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
+    /// EXP-862: "Past" is FOLDED by default on every client — finished runs are
+    /// history, and an unfolded list of them buried the live ones. The header
+    /// carries the count and expands inline.
+    @State private var pastExpanded = false
 
     /// The row a merge confirm is pending for. Only the ids are captured —
     /// the row itself may re-sync underneath the alert. EXP-734: the target
@@ -173,21 +177,40 @@ struct AgentSessionsList: View {
     // MARK: - Past (EXP-746)
 
     /// The caller's finished runs: title + byline, and a tap opens that run's
-    /// session view — where its transcript, its close-out summary and its
-    /// Resume live since EXP-773. Automation runs stay under Automations
-    /// (`PastRuns.select` drops every `started_reason` row).
+    /// session view — where its transcript and its Resume live since EXP-773.
+    /// Automation runs stay under Automations (`PastRuns.select` drops every
+    /// `started_reason` row). EXP-862: collapsed until the band is tapped.
     @ViewBuilder
     private var pastSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("Past")
-            ForEach(vm.pastRows) { row in
-                EndedRunRow(
-                    title: PastRuns.title(row.session, issue: row.issue),
-                    identifier: row.issue?.identifier,
-                    byline: pastByline(row),
-                    onOpen: { sessionTarget = .init(sessionId: row.session.id) }
-                )
-                .accessibilityIdentifier("past-run-row")
+            GlassSectionBand("Past") {
+                HStack(spacing: 6) {
+                    Text("\(vm.pastRows.count)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    AppIcon(
+                        pastExpanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown,
+                        size: 12
+                    )
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                pastExpanded.toggle()
+            }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("past-runs-band")
+            if pastExpanded {
+                ForEach(vm.pastRows) { row in
+                    EndedRunRow(
+                        title: PastRuns.title(row.session, issue: row.issue),
+                        identifier: row.issue?.identifier,
+                        byline: pastByline(row),
+                        onOpen: { sessionTarget = .init(sessionId: row.session.id) }
+                    )
+                    .accessibilityIdentifier("past-run-row")
+                }
             }
         }
     }
@@ -304,7 +327,7 @@ struct AgentSessionsList: View {
             EmptyView()
         } else if let action = sessionAction(row) {
             let target = editTarget(for: row, action: action)
-            CircleIconButton(
+            GhostIconButton(
                 action.icon ?? AppIcons.actionDefault,
                 accessibilityLabel: target.accessibilityLabel
             ) {

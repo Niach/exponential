@@ -11,10 +11,7 @@ import {
   useTeamBySlug,
   useTeamUsers,
 } from "@/hooks/use-team-data"
-import type { IssueFilters } from "@/lib/filters"
 import {
-  buildFilteredIssues,
-  buildIssueLabelIdsMap,
   buildIssueLabelMap,
   buildVisibleIssueGroups,
 } from "@/lib/board-view"
@@ -22,11 +19,9 @@ import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { Issue, IssueLabel, Label, Board } from "@/db/schema"
 
 export function useBoardViewData({
-  filters,
   boardSlug,
   teamSlug,
 }: {
-  filters: IssueFilters
   boardSlug: string
   teamSlug: string
 }) {
@@ -100,14 +95,7 @@ export function useBoardViewData({
   const issueLabelList = (issueLabels ?? []) as IssueLabel[]
 
   return useMemo(() => {
-    const issueLabelIdsMap = buildIssueLabelIdsMap(issueLabelList)
     const issueLabelMap = buildIssueLabelMap(issueLabelList, labelList)
-    const filteredIssues = buildFilteredIssues(
-      issueList,
-      issueLabelIdsMap,
-      filters,
-      resolveStatus
-    )
 
     return {
       issueLabelMap,
@@ -121,22 +109,18 @@ export function useBoardViewData({
       // team — `boardReady && !board` means the slug matches no live board
       // (trashed, renamed, never existed), not "still syncing".
       boardReady,
-      // Unfiltered count, so the list can tell "no issues at all" apart from
-      // "filters hide everything".
       totalIssueCount: issueList.length,
       users,
       userMap,
       visibleGroups: buildVisibleIssueGroups(
-        filteredIssues,
+        issueList,
         statusOptions,
-        resolveStatus,
-        filters.statusTokens
+        resolveStatus
       ),
       statusOptions,
       team,
     }
   }, [
-    filters,
     issueLabelList,
     issueList,
     issuesReady,

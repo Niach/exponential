@@ -368,6 +368,7 @@ private fun BoardsSection(
                         onClick = { onConfirm(SettingsConfirm.DeleteBoard(board)) },
                         tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
                         glyphSize = 16.dp,
+                        borderless = true,
                     )
                 }
             }
@@ -754,6 +755,7 @@ private fun RepositoryRow(
                     onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) },
                     tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
                     glyphSize = 16.dp,
+                    borderless = true,
                 )
             }
         }
@@ -906,6 +908,7 @@ private fun MembersSection(
                             // EXP-721: one glyph size across every settings
                             // entity row (boards, repos, labels, members).
                             glyphSize = 16.dp,
+                            borderless = true,
                         )
                         GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
                             // Role changes + removing others are owner-only.
@@ -1042,6 +1045,7 @@ private fun LabelRow(
             contentDescription = "Edit label",
             onClick = { editing = true },
             glyphSize = 16.dp,
+            borderless = true,
         )
         CircleIconButton(
             ExpIcons.uiDelete,
@@ -1049,6 +1053,7 @@ private fun LabelRow(
             onClick = { onDelete(label) },
             tint = DesignTokens.Palette.Destructive.copy(alpha = 0.7f),
             glyphSize = 16.dp,
+            borderless = true,
         )
     }
 
@@ -1358,6 +1363,7 @@ private fun InstalledAccountsBlock(
                     contentDescription = "Disconnect this GitHub account from the team",
                     onClick = { onUnlink(inst) },
                     glyphSize = 14.dp,
+                    borderless = true,
                 )
             }
         }

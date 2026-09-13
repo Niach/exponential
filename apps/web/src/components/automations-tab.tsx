@@ -8,6 +8,7 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { EndedSessionRow } from "@/components/agent-session-row"
+import type { DetailOrigin } from "@/lib/detail-origin"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { getActionIcon } from "@/lib/board-icons"
@@ -23,7 +24,7 @@ import {
   AutomationDialog,
   REQUIRED_INPUTS_HINT,
 } from "@/components/automation-dialog"
-import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
+import { AGENT_LABELS } from "@/components/agent-picker"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -56,6 +57,11 @@ import { Switch } from "@/components/ui/switch"
 // New-automation button already draws it).
 const AutomationCreateIcon = conceptIcon(`action-automation`)
 
+// EXP-862: every run opened from this list carries the automations origin —
+// on the desktop-viewport `/automations` page the URL would say so anyway,
+// but the mobile Actions tab hosts the very same list.
+const AUTOMATIONS_ORIGIN: DetailOrigin = { kind: `automations` }
+
 const SESSION_STATUS_LABELS: Record<string, string> = {
   running: `Running`,
   in_review: `In review`,
@@ -66,21 +72,24 @@ function sessionStatusLabel(status: string): string {
   return SESSION_STATUS_LABELS[status] ?? status
 }
 
-// Owner-only ⋯ menu on a row.
+// Owner-only ⋯ menu on a row. `onEdit` is absent when this build has no
+// automation editor to open (steer off), and the item goes with it.
 function AutomationMenu({
   name,
   onEdit,
   onDelete,
 }: {
   name: string
-  onEdit: () => void
+  onEdit: (() => void) | undefined
   onDelete: () => void
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
+        {/* EXP-862: the "…" trigger is a GHOST icon button, like every other
+            one in the sweep — no circle, no border. */}
         <Button
-          variant="glass"
+          variant="ghost"
           size="icon-sm"
           aria-label={`Automation menu for ${name}`}
         >
@@ -88,10 +97,12 @@ function AutomationMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit}>
-          <Pencil className="h-4 w-4" />
-          Edit
-        </DropdownMenuItem>
+        {onEdit && (
+          <DropdownMenuItem onClick={onEdit}>
+            <Pencil className="h-4 w-4" />
+            Edit
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
           Delete
@@ -106,6 +117,7 @@ function AutomationRow({
   action,
   devices,
   isOwner,
+  canEdit,
   lastRun,
   onEdit,
   onDelete,
@@ -114,6 +126,8 @@ function AutomationRow({
   action: TeamAction | undefined
   devices: SteerDevice[]
   isOwner: boolean
+  /** Whether the editor this row opens is rendered at all (§`canEdit`). */
+  canEdit: boolean
   lastRun: CodingSession | undefined
   onEdit: () => void
   onDelete: () => void
@@ -153,7 +167,14 @@ function AutomationRow({
   }
 
   return (
-    <ListRow>
+    // EXP-862: a flat row like every other list row — the hover fill and the
+    // pointer come with the click, which is the row's editor (the same
+    // destination its ⋯ menu has, under the same gate).
+    <ListRow
+      interactive={canEdit}
+      onClick={canEdit ? onEdit : undefined}
+      data-testid={`automation-${automation.id}`}
+    >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -203,7 +224,12 @@ function AutomationRow({
           row however many lines the meta above wraps to. A non-owner has no
           menu, so the slot stays as an empty spacer and the toggles still
           line up down the list. */}
-      <div className="flex shrink-0 items-center gap-1 self-center">
+      <div
+        className="flex shrink-0 items-center gap-1 self-center"
+        // The toggle and the menu are their own targets; the row's click must
+        // not fire underneath them.
+        onClick={(e) => e.stopPropagation()}
+      >
         <Switch
           checked={automation.enabled}
           disabled={!isOwner || flipping || locked}
@@ -214,7 +240,7 @@ function AutomationRow({
         {isOwner ? (
           <AutomationMenu
             name={action?.name ?? `action`}
-            onEdit={onEdit}
+            onEdit={canEdit ? onEdit : undefined}
             onDelete={onDelete}
           />
         ) : (
@@ -302,6 +328,10 @@ export function AutomationsTab({
     [actions]
   )
 
+  // The dialog below is the ONE automation editor — create and edit both open
+  // it — so every path into it shares its gate.
+  const canEdit = steerEnabled && isOwner
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Automation | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
@@ -318,14 +348,14 @@ export function AutomationsTab({
       (automation) => automation.id === editAutomationId
     )
     onEditAutomationConsumed?.()
-    if (!target || !isOwner) return
+    if (!target || !canEdit) return
     setEditing(target)
     setDialogOpen(true)
   }, [
     editAutomationId,
     automationRows,
     automations,
-    isOwner,
+    canEdit,
     onEditAutomationConsumed,
   ])
 
@@ -345,11 +375,10 @@ export function AutomationsTab({
     }
   }
 
-  const canCreate = steerEnabled && isOwner
-  const headerTrailing = !showSuggestions && !canCreate ? undefined : (
+  const headerTrailing = !showSuggestions && !canEdit ? undefined : (
     <>
       {showSuggestions && <SuggestionsButton />}
-      {canCreate && (
+      {canEdit && (
         <Pill
           mode="action"
           onClick={() => {
@@ -388,6 +417,7 @@ export function AutomationsTab({
                   action={actionById.get(automation.actionId)}
                   devices={devices}
                   isOwner={isOwner}
+                  canEdit={canEdit}
                   lastRun={lastRunByAutomation.get(automation.id)}
                   onEdit={() => {
                     setEditing(automation)
@@ -417,6 +447,9 @@ export function AutomationsTab({
                   <EndedSessionRow
                     key={session.id}
                     row={{ session }}
+                    // EXP-862: opened from Automations, so Back returns here
+                    // and the sidebar keeps the automated-runs list.
+                    origin={AUTOMATIONS_ORIGIN}
                     title={
                       session.actionName ??
                       (session.actionId
@@ -430,7 +463,9 @@ export function AutomationsTab({
                     key={session.id}
                     interactive
                     className="gap-2 text-sm"
-                    onClick={() => openSession(session)}
+                    onClick={() =>
+                      openSession(session, { origin: AUTOMATIONS_ORIGIN })
+                    }
                     data-testid={`automated-run-${session.id}`}
                   >
                     <span className="min-w-0 flex-1 truncate">
@@ -451,7 +486,7 @@ export function AutomationsTab({
         </div>
       </div>
 
-      {canCreate && (
+      {canEdit && (
         <AutomationDialog
           open={dialogOpen}
           onOpenChange={(next) => {

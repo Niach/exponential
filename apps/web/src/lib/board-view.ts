@@ -1,16 +1,10 @@
 import type { Issue, IssueLabel, Label } from "@/db/schema"
-import type { IssueFilters } from "@/lib/filters"
-import { matchesFilters } from "@/lib/filters"
 import {
   formatDateForMutation,
   type IssuePriority,
   type IssueStatusCategory,
 } from "@/lib/domain"
-import {
-  statusOptionMatchesToken,
-  type StatusResolvable,
-  type StatusRowOption,
-} from "@/lib/team-statuses"
+import type { StatusResolvable, StatusRowOption } from "@/lib/team-statuses"
 
 const priorityRank: Record<IssuePriority, number> = {
   urgent: 0,
@@ -118,39 +112,9 @@ export function buildIssueLabelMap(issueLabels: IssueLabel[], labels: Label[]) {
   return issueLabelMap
 }
 
-export function buildIssueLabelIdsMap(issueLabels: IssueLabel[]) {
-  const issueLabelIdsMap = new Map<string, string[]>()
-
-  for (const issueLabel of issueLabels) {
-    const currentLabelIds = issueLabelIdsMap.get(issueLabel.issueId) ?? []
-    currentLabelIds.push(issueLabel.labelId)
-    issueLabelIdsMap.set(issueLabel.issueId, currentLabelIds)
-  }
-
-  return issueLabelIdsMap
-}
-
-export function buildFilteredIssues(
-  issues: Issue[],
-  issueLabelIdsMap: Map<string, string[]>,
-  filters: IssueFilters,
-  resolve?: (issue: Issue) => StatusRowOption
-) {
-  return issues.filter((issue) =>
-    matchesFilters(
-      issue,
-      issueLabelIdsMap.get(issue.id) ?? [],
-      filters,
-      resolve?.(issue)
-    )
-  )
-}
-
 /**
  * One group per team status row, in `teamStatuses` order. Every issue joins
- * `resolve(issue)`'s group; empty groups are hidden unless the view is
- * status-filtered (matching the pre-EXP-314 behavior, where an explicitly
- * filtered status stays visible even when empty).
+ * `resolve(issue)`'s group; empty groups are hidden.
  *
  * `statusOptions` / `resolve` come from `useTeamStatuses` — the constructed
  * fallback set until the shape syncs, so the board renders from the first
@@ -159,8 +123,7 @@ export function buildFilteredIssues(
 export function buildVisibleIssueGroups(
   issues: Issue[],
   statusOptions: readonly StatusRowOption[],
-  resolve: (issue: StatusResolvable) => StatusRowOption,
-  statusTokens: IssueFilters[`statusTokens`] = []
+  resolve: (issue: StatusResolvable) => StatusRowOption
 ): IssueGroup[] {
   const today = formatDateForMutation(new Date()) ?? ``
 
@@ -189,12 +152,6 @@ export function buildVisibleIssueGroups(
       status: option,
       issues: bucket.sort(compareIssuesForGroup(option.category, today)),
     })
-  }
-
-  if (statusTokens.length > 0) {
-    return groups.filter((group) =>
-      statusTokens.some((token) => statusOptionMatchesToken(group.status, token))
-    )
   }
 
   return groups.filter((group) => group.issues.length > 0)

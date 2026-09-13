@@ -96,7 +96,7 @@ export const IcSupport = wrap(LifeBuoy) // nav-support
 export const IcSparkles = wrap(Sparkles) // nav-getting-started
 export const IcSettings = wrap(Settings) // nav-settings
 export const IcPlus = wrap(Plus) // ui-add
-export const IcFilter = wrap(ListFilter) // nav-filter
+export const IcFilter = wrap(ListFilter)
 
 /* Board glyphs — a board with a repository renders `ui-repository`. */
 export const IcCode = wrap(Code) // ui-repository

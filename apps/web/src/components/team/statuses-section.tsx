@@ -282,7 +282,7 @@ function StatusRow({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              variant="glass"
+              variant="ghost"
               size="icon-sm"
               disabled={busy}
               aria-label={`Status actions for ${option.name}`}

@@ -15,7 +15,7 @@ import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { rowPrState, useAgentsData, usePastRuns, type AgentSessionRow } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 import type { DetailOrigin } from "@/lib/detail-origin"
-import { agentLabel } from "@/components/agent-usage-bar"
+import { agentLabel } from "@/components/agent-picker"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 // EXP-818: the caller's sessions list — Running (nested by
@@ -40,6 +40,7 @@ export function SessionsList({
   className,
   origin = null,
   scroll = true,
+  showWhenEmpty = false,
 }: {
   teamId: string
   currentUserId: string
@@ -49,6 +50,11 @@ export function SessionsList({
   /** EXP-851: the Agent page stacks the list UNDER the composer inside one
    *  scroller, so it turns this list's own scrollport off. */
   scroll?: boolean
+  /** EXP-862: the Running band is ALWAYS drawn on the Agent page, empty or
+   *  not — that page IS the composer plus what is running. The sidebar's
+   *  17rem list nav leaves it off when nothing runs instead of parking a dead
+   *  band there (desktop `RunningSessionsSection::show_when_empty`). */
+  showWhenEmpty?: boolean
 }) {
   const { running, isLoading } = useAgentsData(teamId, currentUserId)
   const { past } = usePastRuns(teamId, currentUserId)
@@ -60,6 +66,10 @@ export function SessionsList({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   )
+  // EXP-862: Past is FOLDED by default — the page is the composer plus what
+  // is running; the history is one click away and says how much it holds
+  // (the band's trailing count). Desktop `glass_section_band_fold` twin.
+  const [pastOpen, setPastOpen] = useState(false)
   const nested = useMemo(
     () => nestSessions(running.map((row) => row.session)),
     [running]
@@ -93,50 +103,63 @@ export function SessionsList({
         className
       )}
     >
-      <GlassSectionHeader label="Running" />
-      {isLoading ? (
-        <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
-      ) : tree.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-muted-foreground">
-          No agents running right now.
-        </div>
-      ) : (
-        <div className="flex flex-col">
-          {tree.map(({ session, depth, hasChildren }) => {
-            const row = runningById.get(session.id)!
-            return (
-              <RunningRow
-                key={session.id}
-                row={row}
-                depth={depth}
-                active={session.id === activeSessionId}
-                expandable={hasChildren}
-                expanded={!collapsed.has(session.id)}
-                onToggle={() => toggle(session.id)}
-                continuation={Boolean(session.resumedFromId)}
-                onOpen={() => openSession(session, { origin })}
-              />
-            )
-          })}
-        </div>
+      {(showWhenEmpty || tree.length > 0) && (
+        <>
+          <GlassSectionHeader label="Running" />
+          {isLoading ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              Loading…
+            </div>
+          ) : tree.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              No agents running right now.
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {tree.map(({ session, depth, hasChildren }) => {
+                const row = runningById.get(session.id)!
+                return (
+                  <RunningRow
+                    key={session.id}
+                    row={row}
+                    depth={depth}
+                    active={session.id === activeSessionId}
+                    expandable={hasChildren}
+                    expanded={!collapsed.has(session.id)}
+                    onToggle={() => toggle(session.id)}
+                    continuation={Boolean(session.resumedFromId)}
+                    onOpen={() => openSession(session, { origin })}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
       {past.length > 0 && (
         <div className="mt-4">
-          <GlassSectionHeader label="Past" />
-          <div className="flex flex-col">
-            {past.map((row) => (
-              <PastRow
-                key={row.session.id}
-                session={row.session}
-                title={row.title}
-                identifier={row.identifier}
-                byline={pastRunRowByline(row)}
-                continued={continuedIds.has(row.session.id)}
-                active={row.session.id === activeSessionId}
-                onOpen={() => openSession(row.session, { origin })}
-              />
-            ))}
-          </div>
+          <GlassSectionHeader
+            label="Past"
+            count={past.length}
+            expanded={pastOpen}
+            onToggle={() => setPastOpen((open) => !open)}
+          />
+          {pastOpen && (
+            <div className="flex flex-col">
+              {past.map((row) => (
+                <PastRow
+                  key={row.session.id}
+                  session={row.session}
+                  title={row.title}
+                  identifier={row.identifier}
+                  byline={pastRunRowByline(row)}
+                  continued={continuedIds.has(row.session.id)}
+                  active={row.session.id === activeSessionId}
+                  onOpen={() => openSession(row.session, { origin })}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

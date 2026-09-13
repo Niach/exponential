@@ -27,7 +27,7 @@ use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
-    active_team, card_title, danger_zone, error_notice, is_owner, open_url, row_stroke, section,
+    active_team, danger_zone, error_notice, is_owner, open_url, section,
     team_delete_error_message,
 };
 use crate::icons::registry;
@@ -301,19 +301,19 @@ impl GeneralPane {
 
         let mut body = section(cx)
             .child(
-                h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(card_title("Plan & Billing"))
-                    .child(plan_chip),
+                crate::surface::glass_section_header(
+                    "Plan & Billing",
+                    Some(plan_chip.into_any_element()),
+                    cx,
+                ),
             )
             .child(
-                v_flex()
+                // EXP-862: the usage meters sit in the section's own glass
+                // block, not in a bordered card inside a card.
+                crate::surface::glass_group()
                     .gap_3()
-                    .p_3()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(row_stroke(cx))
+                    .px_4()
+                    .py_3()
                     .child(seats)
                     .child(storage)
                     .child(widgets),
@@ -462,7 +462,7 @@ impl Render for GeneralPane {
             )
         });
         let mut general = section(cx)
-            .child(card_title("General"))
+            .child(crate::surface::glass_section_header("General", None, cx))
             .child(crate::surface::glass_group_rows(vec![name_row]));
 
         if let Some(error) = &self.error {

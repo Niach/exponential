@@ -44,14 +44,19 @@ replies, with an opaque variant for mobile bottom bars) and **markdown blocks**
 (the chat-sized narration / bubble / plan / question / tool / fold set the steer
 feed is built from).
 
-Two rules the entries carry rather than restate, both from EXP-771:
+Two rules the entries carry rather than restate, both from EXP-771 (the first
+narrowed by EXP-862):
 
-- **Shape says what a control does.** A circle is an ACTION, so every icon-only
-  action wears one: the glass icon buttons, the rail's New issue and Search, the
-  session bar's tools, a mobile FAB. A rounded square at the radius ladder's MD
-  step is a PICKER, which is the **icon picker** trigger and every cell of its
-  swatch grid. Colour swatches stay circles, because a colour has no shape to
-  read, and text capsules stay at 9999.
+- **Shape says what a control does.** A circle marks the PRIMARY action and
+  nothing else: play / start, send, the rail's New issue and Search, a mobile
+  FAB, the "+" that adds. Every secondary icon button is a **ghost icon
+  button**: no circle, no border, hover fill only. That is the "…" overflow,
+  close, the folder and file-list toggles, the chevrons (back, fold, reorder),
+  trash and remove, and anything refresh-shaped. A rounded square at the radius
+  ladder's MD step is a PICKER trigger: the **icon picker**, the colour picker
+  beside it (EXP-862 made the board form's two triggers one control repeated),
+  and every cell of the glyph grid. Colour swatches stay circles, because a
+  colour has no shape to read, and text capsules stay at 9999.
 - **Chrome sits on the ground, not in the card.** The title strip above the
   content card and the **session bar** below it are 36px bands on the bare page
   gradient with no fill and no border, their chips inset 8; the card stops 6px

@@ -34,9 +34,9 @@ pub(crate) enum RunRowLead {
     /// says which list you are in, not which agent ran.
     Automation,
     /// The run's agent CLI (Past rows — the agent is the thing you scan for).
-    /// `None` for a run with no agent on the row: an EXP-746 external agent
-    /// (the server's vocabulary is closed, so it records none), a RETIRED id
-    /// (`pi`, EXP-849) or a row from before the column existed. It leads with
+    /// `None` for a run whose synced row names no agent: a RETIRED id
+    /// (`pi`, EXP-849), an older or foreign build, or a row from before the
+    /// column existed. It leads with
     /// the generic AGENT concept (`settings-agents`, the Lucide bot — the same
     /// fallback on all four clients) rather than picking a brand at random.
     Agent(Option<coding::CodingAgent>),
@@ -96,7 +96,25 @@ pub(crate) struct RunRowSpec {
 /// The chevron that used to unfold a summary inside the list is gone — a run
 /// was described in two places, and the list is not the better one. Same rule
 /// in every runs list on every client.
+///
+/// EXP-862: an unselected row — [`render_run_row_active`] is the same row
+/// with the selected paint.
 pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
+    render_run_row_active(spec, false, cx)
+}
+
+/// [`render_run_row`] with the SELECTED paint (EXP-862): the run whose
+/// session the screen is showing wears `list_active`, the way every other
+/// flat list marks its open row.
+///
+/// `active` rides beside the spec rather than inside it only because
+/// [`RunRowSpec`] is built as a struct literal at three call sites in other
+/// modules; fold it into the spec once they are all here.
+pub(crate) fn render_run_row_active(
+    spec: RunRowSpec,
+    active: bool,
+    cx: &App,
+) -> gpui::AnyElement {
     let RunRowSpec {
         id_prefix,
         index,
@@ -112,6 +130,10 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
+    // EXP-811: the ONE row hover / selected pair, copied out of the theme so
+    // the hover closure owns colours rather than borrowing the theme.
+    let row_hover = theme.list_hover;
+    let row_active = theme.list_active;
     let header = div()
         .flex()
         .w_full()
@@ -187,7 +209,9 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .when_some(kill, |this, kill| {
             let on_kill = std::rc::Rc::new(kill.on_kill);
             let label = kill.label.clone();
-            let menu = crate::controls::glass_icon_button(
+            // EXP-862: a row's "..." is a GHOST glyph, never a circle — the
+            // circles are the primary actions (play/start/send/+).
+            let menu = crate::controls::ghost_icon_button(
                 (SharedString::from(format!("{id_prefix}-menu")), index),
                 Icon::from(registry::UI_MORE),
                 cx,
@@ -228,9 +252,17 @@ pub(crate) fn render_run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .py_2p5()
         // One indent step per nesting level (the rail's `14px` per level).
         .pl(gpui::px(12. + 14. * depth as f32))
+        // EXP-862: a run row is a flat LIST row, so it wears the list's own
+        // feedback — the `list_hover` wash (EXP-811, the ONE row hover on
+        // every client) under the pointer, `list_active` while its session is
+        // the one on screen. The hover rides the row whether or not it opens
+        // anything: every runs list is clickable, and a row that lights up
+        // only sometimes reads as broken.
+        .cursor_pointer()
+        .when(active, |this| this.bg(row_active))
+        .hover(move |style| style.bg(if active { row_active } else { row_hover }))
         .when_some(on_open, |this, on_open| {
-            this.cursor_pointer()
-                .on_click(move |event, window, cx| on_open(event, window, cx))
+            this.on_click(move |event, window, cx| on_open(event, window, cx))
         })
         .child(header)
         // EXP-850 §8: the agent caption, on its own line under the title.

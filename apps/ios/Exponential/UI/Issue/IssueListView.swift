@@ -9,8 +9,8 @@ struct IssueListView: View {
     /// floating tab bar): no clearance then.
     var showsTabBarClearance = true
     /// True only in Root mode (IssuesHomeView): the Settings gear renders
-    /// HERE, after the filter button, so the trailing order is
-    /// filter → settings (EXP-331 — Android parity; SwiftUI's parent/child
+    /// HERE, after the search button, so the trailing order is
+    /// search → settings (EXP-331, Android parity; SwiftUI's parent/child
     /// toolbar merge would otherwise put the gear first).
     var showsSettingsButton = false
 
@@ -32,7 +32,6 @@ struct IssueListView: View {
     /// optional rather than a set — and it carries its own expiry instead of a
     /// timer Task, so there is no stale removal to race the next long-press.
     @State private var tapSuppression: TapSuppression?
-    @State private var showFilterSheet = false
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
     // and the selection bar (floating above the tab bar, EXP-405) acts on
     // the whole selection. The steer state backing the bar's Start coding
@@ -122,25 +121,16 @@ struct IssueListView: View {
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
         .navigationTitle(viewModel?.board?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // Search + filter triggers in the nav bar (EXP-251 — replaces the
-        // removed inline filter/tab bar; EXP-686 moved Search out of the tab
+        // Search trigger in the nav bar (EXP-686 moved Search out of the tab
         // bar into the board header). Root mode also emits the Settings gear
-        // here (after the filter — EXP-331); pushed boards show search +
-        // filter as the sole trailing items.
+        // here (after search, EXP-331); pushed boards show search as the sole
+        // trailing item.
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 searchToolbarButton
-                if let vm = viewModel {
-                    filterToolbarButton(vm)
-                }
                 if showsSettingsButton {
                     SettingsToolbarLink()
                 }
-            }
-        }
-        .sheet(isPresented: $showFilterSheet) {
-            if let vm = viewModel {
-                IssueFilterSheet(vm: vm)
             }
         }
         .sheet(item: $bulkSheet) { sheet in
@@ -198,18 +188,11 @@ struct IssueListView: View {
                 syncingBanner
             }
 
-            if !vm.filters.isEmpty {
-                activeFilterPills(vm)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
-            }
-
             // EXP-314: one group per TEAM STATUS row, in the resolver's order,
             // plus any appended out-of-vocabulary group (see visibleGroups).
             let groups = vm.visibleGroups
             if groups.allSatisfy({ vm.issues(forGroup: $0).isEmpty }) {
-                // An empty (or fully filtered-out) board says so instead of
+                // An empty board says so instead of
                 // rendering a blank list — and, since EXP-698 r5, carries the
                 // getting-started checklist underneath, exactly like web and
                 // the IDE. It scrolls: on a small phone the seven cards do not
@@ -266,7 +249,7 @@ struct IssueListView: View {
                     }
                 }
                 // EXP-523: rows move when the list's shape changes — a
-                // status swipe, a filter, an incoming sync — instead of
+                // status change, an incoming sync — instead of
                 // snapping. Keyed on the view model's cheap layout signature
                 // rather than on the sorted rows themselves.
                 .animation(motion.standard, value: vm.layoutSignature)
@@ -275,9 +258,9 @@ struct IssueListView: View {
                 // 16pt listRowInsets alone govern the gutter (Android parity) — the
                 // default extra margin made rows sit noticeably inboard of the bar.
                 .contentMargins(.horizontal, 0, for: .scrollContent)
-                // …and the top margin: the default put ~40pt of dead space between
-                // the filter chips and the first section header (Android: 8dp bar
-                // padding + 3dp flow + the header's own 8dp = ~19dp total).
+                // …and the top margin: the default put ~40pt of dead space above
+                // the first section header (Android: 8dp bar padding + 3dp flow
+                // + the header's own 8dp = ~19dp total).
                 .contentMargins(.top, 0, for: .scrollContent)
                 // Kill List's implicit 44pt minimum row height: Android rows are
                 // content-hugging (~40dp) with 3dp gaps, and the floor made every
@@ -350,7 +333,7 @@ struct IssueListView: View {
     }
 
     /// Nav-bar search entry (EXP-686): Search lost its tab, so every board
-    /// header carries it right before the filter, in the same 32pt style.
+    /// header carries it, in the same 32pt style as the Settings gear.
     private var searchToolbarButton: some View {
         NavigationLink(value: AppRoute.search) {
             AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
@@ -361,83 +344,6 @@ struct IssueListView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Search")
         .accessibilityIdentifier("board-search")
-    }
-
-    /// Nav-bar filter-sheet trigger with active-count badge (EXP-251 — the
-    /// inline filter bar and its tab presets are gone; the trigger sits next
-    /// to the Settings gear in Root mode, matching its 32pt style).
-    @ViewBuilder
-    private func filterToolbarButton(_ vm: IssueListViewModel) -> some View {
-        Button {
-            showFilterSheet = true
-        } label: {
-            AppIcon(AppIcons.navFilter, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Filters")
-        .overlay(alignment: .topTrailing) {
-            if vm.filters.count > 0 {
-                Text("\(vm.filters.count)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(DesignTokens.Palette.primaryForeground)
-                    .frame(minWidth: 15, minHeight: 15)
-                    .background(DesignTokens.Palette.primary, in: Circle())
-                    .offset(x: 2, y: -2)
-                    // The badge sits above the button; it must not swallow
-                    // taps meant for the filter control underneath it.
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-
-    /// Removable pills for every active filter (web/Android parity).
-    @ViewBuilder
-    private func activeFilterPills(_ vm: IssueListViewModel) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(vm.teamStatuses.filter { vm.isStatusFiltered($0) }, id: \.id) { status in
-                    filterPill(icon: status.iconName, iconColor: status.color, text: status.name) {
-                        vm.toggleStatus(status)
-                    }
-                }
-                ForEach(IssuePriority.displayOrder.filter { vm.filters.priorities.contains($0) }, id: \.self) { priority in
-                    filterPill(icon: priority.iconName, iconColor: priority.color, text: priority.label) {
-                        vm.togglePriority(priority)
-                    }
-                }
-                ForEach(vm.teamLabels.filter { vm.filters.labelIds.contains($0.id) }, id: \.id) { label in
-                    filterPill(dotColor: Color(hex: label.color) ?? .gray, text: label.name) {
-                        vm.toggleLabel(label.id)
-                    }
-                }
-
-                // "Clear all" closes the pills row, mirroring the web's
-                // ActiveFilterPills — this row exists exactly when filters are
-                // active, so Clear needs no spot in the (space-tight) tab row.
-                GlassPill("Clear all", mode: .action { vm.clearFilters() })
-            }
-        }
-    }
-
-    private func filterPill(
-        icon: String? = nil,
-        iconColor: Color = .white,
-        dotColor: Color? = nil,
-        text: String,
-        onRemove: @escaping () -> Void
-    ) -> some View {
-        GlassPill(text, mode: .action(onRemove), dot: dotColor) {
-            if let icon {
-                AppIcon(icon, size: GlassPillTokens.glyphSm)
-                    .foregroundStyle(iconColor)
-            }
-        } trailing: {
-            AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
     }
 
     @ViewBuilder

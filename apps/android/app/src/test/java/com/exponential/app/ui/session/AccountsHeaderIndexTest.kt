@@ -7,23 +7,11 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
- * EXP-827: the Devices list index the device sheet's round Usage button scrolls
- * to. It is counted off the list above it, so it is the one thing that silently
- * drifts when an item moves — these cases pin the four shapes the list has.
+ * The Devices page's per-machine command slots. EXP-862 retired the Accounts
+ * scroll index this file was named for: the device-settings sheet carries no
+ * accounts (and so no Usage button) any more, so nothing counts list items.
  */
 class AccountsHeaderIndexTest {
-
-    @Test
-    fun `the accounts header sits under the machine groups`() {
-        // Still loading: "My machines" + the spacer.
-        assertEquals(2, accountsHeaderIndex(ownCount = null, teamCount = 0))
-        // No machines: the header, the hint row, the spacer.
-        assertEquals(3, accountsHeaderIndex(ownCount = 0, teamCount = 0))
-        assertEquals(4, accountsHeaderIndex(ownCount = 2, teamCount = 0))
-        // A shared server adds its own header plus its rows.
-        assertEquals(7, accountsHeaderIndex(ownCount = 2, teamCount = 2))
-        assertEquals(5, accountsHeaderIndex(ownCount = 0, teamCount = 1))
-    }
 
     @Test
     fun `a machine chip's command slot is scoped to its machine`() {
@@ -45,6 +33,29 @@ class AccountsHeaderIndexTest {
         assertNotEquals(
             deviceAccountCommandKey("studio", chip),
             deviceAccountCommandKey("buildbox", chip),
+        )
+    }
+
+    @Test
+    fun `an account row's chip lands in the same slot as the machine row's`() {
+        // EXP-862: both surfaces carry the same chip menu, so a command fired
+        // from either must caption in ONE place.
+        assertEquals(
+            deviceAccountCommandKey(
+                "studio",
+                DeviceAccountChip(
+                    key = "claude:work",
+                    agent = "claude",
+                    profileId = "work",
+                    profileLabel = "Work",
+                    signedIn = true,
+                    active = false,
+                    email = null,
+                    plan = null,
+                    health = AgentHealth.Ok,
+                ),
+            ),
+            accountCommandKey("studio", "claude", "work"),
         )
     }
 }

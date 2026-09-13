@@ -23,9 +23,14 @@ use crate::icons::registry;
 /// action inputs) and reports `None`; the swatch then shows a dashed
 /// placeholder. Byte-for-byte the same shape as web `IconPicker`, iOS
 /// `IconPicker` and Android `IconPicker`.
+///
+/// `color` (EXP-862) tints the picked glyph — the board form's live preview
+/// of "this glyph in this colour", web `IconPicker`'s `color` prop; `None`
+/// (the action forms) draws it in the foreground.
 pub(crate) fn icon_picker(
     id_prefix: impl Into<SharedString>,
     selected: Option<&str>,
+    color: Option<&str>,
     allows_none: bool,
     on_pick: impl Fn(Option<&'static str>, &mut Window, &mut App) + Clone + 'static,
     cx: &App,
@@ -33,15 +38,23 @@ pub(crate) fn icon_picker(
     let id_prefix: SharedString = id_prefix.into();
     let selected: SharedString = selected.unwrap_or_default().to_string().into();
     let has_pick = !selected.is_empty();
+    let tint = color.and_then(crate::settings::parse_hex_color);
     let glyph = if has_pick {
-        crate::icons::board_icon_name_glyph(&selected)
+        let glyph = crate::icons::board_icon_name_glyph(&selected);
+        match tint {
+            Some(color) => glyph.text_color(color),
+            None => glyph,
+        }
     } else {
         Icon::from(registry::UI_ICON_PLACEHOLDER).text_color(cx.theme().muted_foreground)
     };
+    // EXP-862: the icon and colour triggers and the name field share ONE row,
+    // so they share ONE height — the 32px control rung (`CTL_MD_H`, web h-9's
+    // desktop twin), down from the 36 this trigger used to pick alone.
     let mut trigger = Button::new(SharedString::from(format!("{id_prefix}-icon-trigger")))
         .outline()
         .cursor_pointer()
-        .size(px(36.))
+        .size(px(crate::controls::CTL_MD_H))
         .icon(glyph);
     if !has_pick {
         trigger = trigger.border_dashed();
@@ -77,6 +90,52 @@ pub(crate) fn icon_picker(
                 &selected,
                 move |name, window, cx| {
                     on_pick(Some(name), window, cx);
+                    popover.update(cx, |state, cx| state.dismiss(window, cx));
+                },
+                cx,
+            ))
+        })
+}
+
+/// EXP-862 — THE colour picker: [`icon_picker`]'s twin over the swatch grid.
+/// One rounded-square trigger showing the current colour, the 20-swatch grid
+/// in a popover, so the board form's ONE row reads `[icon] [colour] [name]`
+/// with the palette out of the way until it is asked for. Same shape on web
+/// (`ui/color-picker.tsx` over `ColorSwatchGrid`), iOS and Android.
+///
+/// Picking always reports a colour — a board has one, so there is no "none"
+/// row here (the difference from [`icon_picker`]'s `allows_none`).
+pub(crate) fn color_picker(
+    id_prefix: impl Into<SharedString>,
+    selected: &str,
+    on_pick: impl Fn(&'static str, &mut Window, &mut App) + Clone + 'static,
+    cx: &App,
+) -> impl IntoElement {
+    let id_prefix: SharedString = id_prefix.into();
+    let selected: SharedString = selected.to_string().into();
+    let fill =
+        crate::settings::parse_hex_color(&selected).unwrap_or(cx.theme().muted_foreground);
+    let trigger = Button::new(SharedString::from(format!("{id_prefix}-color-trigger")))
+        .outline()
+        .cursor_pointer()
+        .size(px(crate::controls::CTL_MD_H))
+        // The trigger IS a swatch: the grid's own 16px dot, centered in the
+        // same rounded square the icon trigger wears.
+        .child(div().size(px(16.)).rounded_full().bg(fill));
+    Popover::new(SharedString::from(format!("{id_prefix}-color-popover")))
+        .trigger(trigger)
+        .content(move |_, _, cx| {
+            let popover = cx.entity();
+            let id_prefix = id_prefix.clone();
+            let selected = selected.clone();
+            let on_pick = on_pick.clone();
+            // A popover's content box is unconstrained, so the wrapping grid
+            // needs a DEFINITE width — the icon grid's, one palette wide.
+            v_flex().w(px(266.)).p_1().child(color_swatch_grid(
+                id_prefix,
+                &selected,
+                move |color, window, cx| {
+                    on_pick(color, window, cx);
                     popover.update(cx, |state, cx| state.dismiss(window, cx));
                 },
                 cx,
@@ -138,11 +197,12 @@ fn icon_swatch_grid(
 /// Web `ColorSwatchGrid`: a wrapping row of rounded-full swatches; the
 /// selected one carries a ring (approximated as a padded border ring).
 pub(crate) fn color_swatch_grid(
-    id_prefix: &'static str,
+    id_prefix: impl Into<SharedString>,
     selected: &str,
     on_pick: impl Fn(&'static str, &mut Window, &mut App) + Clone + 'static,
     cx: &App,
 ) -> impl IntoElement {
+    let id_prefix: SharedString = id_prefix.into();
     let mut grid = h_flex().flex_wrap().gap_1p5();
     for color in SWATCH_COLORS {
         let fill = crate::settings::parse_hex_color(color).unwrap_or(cx.theme().muted_foreground);
@@ -210,18 +270,21 @@ pub(crate) enum BranchLoad {
     Failed(SharedString),
 }
 
-/// The board form's **Branch** dropdown: the branch this board's coding
-/// sessions start from. Shows the board's pin, or the repo's default when it
-/// has none; the repo default is tagged `default` and picking it reports
-/// `None` (follow the repo again — the same normalization the server does).
+/// The board form's **Branch** dropdown (EXP-712): the branch this board's
+/// coding sessions start from, as the trailing VALUE of a
+/// [`crate::surface::glass_picker_row`] — field chrome stripped (the row owns
+/// the padding and the hairline), so the Repository and Branch rows read as
+/// one group on the settings page AND in the create-board dialog (EXP-862).
+/// Shows the board's pin, or the repo's default when it has none; the repo
+/// default is tagged `default` and picking it reports `None` (follow the
+/// repo again — the same normalization the server does).
 ///
-/// Kept in the dropdown-menu shape the repository field uses, so the two rows
-/// read as one block. `branches` is read at OPEN time (the menu is built
-/// then, not at render), and `on_open` kicks the lazy fetch.
-/// (`value` is the branch to show — the board's pin, else the repo default;
-/// `repo_default` is the repo's own default, `None` when the server never
-/// reported one — L30: never fabricate `main`.)
-pub(crate) fn branch_menu<V: gpui::Render>(
+/// `branches` is read at OPEN time (the menu is built then, not at render),
+/// and `on_open` kicks the lazy fetch. `value` is the branch to show — the
+/// board's pin, else the repo default; `repo_default` is the repo's own
+/// default, `None` when the server never reported one — L30: never fabricate
+/// `main`.
+pub(crate) fn branch_value_menu<V: gpui::Render>(
     id: impl Into<SharedString>,
     value: impl Into<SharedString>,
     repo_default: Option<String>,
@@ -231,15 +294,34 @@ pub(crate) fn branch_menu<V: gpui::Render>(
     on_pick: impl Fn(&mut V, Option<String>, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> gpui::AnyElement {
+    let value: SharedString = value.into();
+    let trigger = Button::new(id.into())
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_color(cx.theme().foreground.opacity(0.7))
+        // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
+        // so a long branch name wraps onto a second line.
+        .child(crate::surface::picker_value_label(value.clone()));
+    branch_dropdown(trigger, value, repo_default, disabled, branches, on_open, on_pick, cx)
+}
+
+/// The Branch menu itself, hung off the dressed trigger.
+#[allow(clippy::too_many_arguments)]
+fn branch_dropdown<V: gpui::Render>(
+    button: Button,
+    value: SharedString,
+    repo_default: Option<String>,
+    disabled: bool,
+    branches: impl Fn(&V, &App) -> Option<BranchLoad> + 'static,
+    on_open: impl Fn(&mut V, &mut gpui::Context<V>) + 'static,
+    on_pick: impl Fn(&mut V, Option<String>, &mut gpui::Context<V>) + 'static,
+    cx: &mut gpui::Context<V>,
+) -> gpui::AnyElement {
     use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 
-    let value: SharedString = value.into();
-    let button = Button::new(id.into())
-        .outline()
-        .cursor_pointer()
-        .small()
-        .w_full()
-        .label(value.clone());
     if disabled {
         use gpui_component::Disableable as _;
         return button.disabled(true).into_any_element();

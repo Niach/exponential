@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { LaunchComposer } from "@/components/launch-composer"
+import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
@@ -95,8 +96,23 @@ function AgentPage() {
     [search.issues, search.action, search.pr, search.device, search.text, search.icon]
   )
   const [seed, setSeed] = useState<LaunchSeed | null>(null)
+  // EXP-862: `?action=` MIRRORS the composer's picked action while it holds
+  // one, so the sidebar's pinned row for that action reads as active (and the
+  // Agent nav entry does not). A mirror write must never look like a fresh
+  // seed, hence the latch: the effect below ignores a search that is exactly
+  // the action we just wrote.
+  const mirroredActionRef = useRef<string | null>(null)
   useEffect(() => {
     if (!urlSeed) return
+    const mirrorOnly =
+      urlSeed.actionId != null &&
+      urlSeed.actionId === mirroredActionRef.current &&
+      urlSeed.issueIds.length === 0 &&
+      !urlSeed.deviceId &&
+      !urlSeed.prIssueId &&
+      !urlSeed.text &&
+      !urlSeed.icon
+    if (mirrorOnly) return
     setSeed(urlSeed)
     void navigate({
       to: `/t/$teamSlug/agent`,
@@ -107,6 +123,31 @@ function AgentPage() {
       replace: true,
     })
   }, [urlSeed, navigate, teamSlug, search.from])
+
+  const mirrorAction = useCallback(
+    (actionId: string | null) => {
+      mirroredActionRef.current = actionId
+      // Already what the URL says (the common case on every re-render).
+      if ((search.action ?? null) === actionId) return
+      void navigate({
+        to: `/t/$teamSlug/agent`,
+        params: { teamSlug },
+        search: {
+          ...(search.from ? { from: search.from } : {}),
+          ...(actionId ? { action: actionId } : {}),
+        },
+        replace: true,
+      })
+    },
+    [navigate, teamSlug, search.from, search.action]
+  )
+
+  // EXP-862: with nothing running and nothing past, the composer is the whole
+  // page — it centres in the column instead of hanging off the top edge (the
+  // desktop's `min_h_full` + centred chat column).
+  const { running } = useAgentsData(team?.id, currentUserId)
+  const { past } = usePastRuns(team?.id, currentUserId)
+  const listEmpty = running.length === 0 && past.length === 0
 
   if (!team || !currentUserId) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
@@ -120,7 +161,9 @@ function AgentPage() {
     <div className="flex h-full min-h-0 flex-col" data-testid="agent-page">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div
-          className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 ${TAB_BAR_CLEARANCE}`}
+          className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 ${
+            listEmpty ? `min-h-full justify-center` : ``
+          } ${TAB_BAR_CLEARANCE}`}
         >
           {steerEnabled ? (
             // Keyed by team: the composer's repo pick and seed latches are
@@ -133,6 +176,7 @@ function AgentPage() {
               users={teamUsers}
               seed={seed}
               onSeedConsumed={() => setSeed(null)}
+              onActionChange={mirrorAction}
             />
           ) : (
             <p className="text-center text-sm text-muted-foreground">
@@ -147,6 +191,9 @@ function AgentPage() {
             activeSessionId={null}
             origin={{ kind: `agent` }}
             scroll={false}
+            // EXP-862: the Agent page ALWAYS draws the Running band, empty or
+            // not; the sidebar's list nav leaves it off.
+            showWhenEmpty
             // The page's own container already reserves the tab bar's
             // clearance — the list must not add a second one inside it.
             className="p-0 max-md:pb-0"
@@ -166,13 +213,22 @@ function ComposerPane({
   users,
   seed,
   onSeedConsumed,
+  onActionChange,
 }: {
   teamId: string
   remote: RemoteStart
   users: User[]
   seed: LaunchSeed | null
   onSeedConsumed: () => void
+  /** EXP-862: the action the composer holds right now (null = none) — the
+   *  route mirrors it into `?action=` for the pinned row's highlight. */
+  onActionChange: (actionId: string | null) => void
 }) {
   const model = useLaunchComposer({ teamId, remote, seed, onSeedConsumed })
+  const subject = model.subject
+  const activeActionId = subject?.kind === `action` ? subject.id : null
+  useEffect(() => {
+    onActionChange(activeActionId)
+  }, [activeActionId, onActionChange])
   return <LaunchComposer model={model} users={users} />
 }

@@ -2210,6 +2210,51 @@ fn run_device_command(
                 }
             }
         }
+        // EXP-862 — "remove account": delete this machine's copy of a login
+        // (the profile dir, credentials included, and its index row). The
+        // ACCOUNT is untouched — never `codex logout`, which revokes it
+        // server-wide — and nothing leaves the machine. The ambient login and
+        // an account a live run here is using are both refused.
+        "agent_profile_remove" => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            match coding::CodingAgent::parse(agent) {
+                None => (false, "Malformed command payload.".to_string()),
+                Some(agent) => {
+                    let report = coding::run_doctor(&settings);
+                    // The accounts the runs THIS daemon hosts are on: the
+                    // live row does not carry one, its run record does.
+                    let live_accounts: Vec<String> = lock_sessions(sessions)
+                        .iter()
+                        .filter(|live| !live.session.is_done())
+                        .filter_map(|live| {
+                            coding::run_registry::get(&ctx.data_dir, &live.session.session_id)
+                        })
+                        .filter_map(|record| record.account())
+                        .collect();
+                    match coding::agent_usage::remove_profile(
+                        &ctx.data_dir,
+                        &settings,
+                        &report,
+                        agent,
+                        profile,
+                        &live_accounts,
+                        coding::run_registry::now_secs(),
+                    ) {
+                        Ok(payload) => {
+                            if let Ok(mut slot) = slots.agent_status.lock() {
+                                *slot = Some(payload);
+                            }
+                            (
+                                true,
+                                format!("The {} account was removed from this machine.", agent.id()),
+                            )
+                        }
+                        Err(error) => (false, error),
+                    }
+                }
+            }
+        }
         // FEED-36: the web's "Update now" — end every live session (the
         // owner confirmed it; repo-backed runs stay resumable) and let the
         // loop apply the pending update as soon as they close.
@@ -3512,7 +3557,6 @@ mod tests {
             agent_native_session_id: None,
             acp_child_pid: None,
             host_pid: None,
-            external_agent: None,
             recorded_at: coding::run_registry::now_secs(),
             extra: std::collections::BTreeMap::new(),
         }

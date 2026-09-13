@@ -1,5 +1,5 @@
 //! The Devices center screen (EXP-686): the web `t/$teamSlug/devices` page —
-//! the signed-in user's machines and nothing else. It was the top section of
+//! the signed-in user's devices and nothing else. It was the top section of
 //! the old Actions page; the split gave it its own rail entry so devices,
 //! actions and automations each stand on their own.
 //!
@@ -7,7 +7,9 @@
 //! in [`crate::machines::MachinesSection`], which reads the synced `devices`
 //! shape directly (EXP-485), and — EXP-818 — in
 //! [`crate::accounts_section::AccountsSection`], the Usage page folded in
-//! under it: Machines, then the agent Accounts live on them.
+//! under it: "My devices" (the SETUP surface: which device, which logins it
+//! holds, what it may run), then Accounts (the DECISION surface: which login a
+//! run should spend).
 
 use gpui::{
     AppContext as _, Entity, IntoElement, ParentElement, Render, ScrollHandle, Subscription,
@@ -25,7 +27,7 @@ pub struct DevicesView {
     /// rows come straight off the synced `devices` shape (EXP-485), so it
     /// holds no poll of its own.
     machines: Entity<crate::machines::MachinesSection>,
-    /// EXP-818: the agent accounts across those machines (the old Usage page).
+    /// EXP-818: the agent accounts across those devices (the old Usage page).
     accounts: Entity<crate::accounts_section::AccountsSection>,
     _subscriptions: Vec<Subscription>,
 }

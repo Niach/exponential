@@ -12,6 +12,10 @@ import SwiftUI
 /// reported through `onConnectNew`; the host decides whether that connects now
 /// or on submit). Below it, only once a repo is chosen, the branch its coding
 /// sessions start from — the repo's default unless the board pins another.
+/// EXP-862: both controls are glass picker ROWS with their labels inside them
+/// (×4) — the "Repository" / "Branch" captions above them are gone; only the
+/// one shared explanatory line survives.
+///
 /// Nothing here mutates: the host owns persistence (create saves on submit,
 /// settings mutates per change).
 struct BoardRepoField: View {
@@ -93,17 +97,13 @@ struct BoardRepoField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Repository")
-                repositoryRow
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            // EXP-862: picker ROWS that carry their own labels — the captions
+            // that used to sit above each control are gone (×4).
+            repositoryRow
 
             if let repoDefault {
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Branch")
-                    branchControl(repoDefault: repoDefault)
-                }
+                branchControl(repoDefault: repoDefault)
             }
 
             // The ONE explanatory line under the block — byte-identical on
@@ -162,16 +162,15 @@ struct BoardRepoField: View {
             showOptions = true
         } label: {
             HStack(spacing: 10) {
-                AppIcon(AppIcons.uiRepository, size: 13)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("Repository")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                Spacer(minLength: 8)
                 Text(triggerLabel)
                     .font(selectedFullName == nil ? .subheadline : .subheadline.monospaced())
-                    .foregroundStyle(.white.opacity(selectedFullName == nil
-                        ? TextOpacity.secondary
-                        : TextOpacity.primary))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 8)
                 if selectedIsPrivate {
                     AppIcon(AppIcons.uiPrivate, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -279,11 +278,13 @@ struct BoardRepoField: View {
                     onBranchChange(trimmed.isEmpty ? nil : trimmed)
                 }
             ), horizontalPadding: 12, verticalPadding: 10) {
-                AppIcon(AppIcons.uiBranch, size: 13)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("Branch")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
             } trailing: {
                 EmptyView()
             }
+            .multilineTextAlignment(.trailing)
             .font(.subheadline.monospaced())
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
@@ -301,12 +302,6 @@ struct BoardRepoField: View {
     }
 
     // MARK: - Data
-
-    private func fieldLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-    }
 
     private func load() async {
         do {
@@ -359,14 +354,15 @@ private struct BranchPickerRow: View {
             showSheet = true
         } label: {
             HStack(spacing: 10) {
-                AppIcon(AppIcons.uiBranch, size: 13)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("Branch")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                Spacer(minLength: 8)
                 Text(value)
                     .font(.subheadline.monospaced())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 8)
                 AppIcon(AppIcons.uiChevronDown, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }

@@ -4,25 +4,20 @@ import { BoardNotFound } from "@/components/board-not-found"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
-import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { Button } from "@/components/ui/button"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
+import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import {
-  hasActiveFilters as filtersActive,
-  issueFilterSearchFromFilters,
-  issueFiltersFromSearch,
-  parseIssueFilterSearch,
-} from "@/lib/filters"
-import { emptyFilters } from "@/lib/filters"
-import type { IssueFilterSearch, IssueFilters } from "@/lib/filters"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { StatusRowOption } from "@/lib/team-statuses"
 
-// Filters live in the URL so a filtered board is shareable and survives a
-// refresh (parse/serialize helpers shared with the issue-detail route in
-// lib/filters.ts); validateSearch drops anything unrecognised.
-type BoardSearch = IssueFilterSearch & {
+// EXP-317: the cross-client nav glyphs come from the shared registry.
+const NavSearchIcon = conceptIcon(`nav-search`)
+
+// validateSearch drops anything unrecognised.
+type BoardSearch = {
   description?: string
   /** EXP-856: the origin token a detail hands BACK when it returns here
    *  (`lib/detail-origin.ts`). A board is a list screen, so the sidebar keeps
@@ -43,7 +38,6 @@ export const Route = createFileRoute(
       typeof search.description === `string` ? search.description : undefined,
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
-    ...parseIssueFilterSearch(search),
   }),
   component: BoardPage,
 })
@@ -52,6 +46,7 @@ function BoardPage() {
   const { boardSlug, teamSlug } = Route.useParams()
   const search = Route.useSearch()
   const navigate = useNavigate()
+  const issueSearch = useIssueSearch()
   const [createIssueOpen, setCreateIssueOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<
     StatusRowOption | undefined
@@ -67,7 +62,7 @@ function BoardPage() {
         title: search.title,
         description: search.description,
       })
-      // Clear only the one-shot create keys; keep any active filter params.
+      // Clear only the one-shot create keys.
       void navigate({
         to: `/t/$teamSlug/boards/$boardSlug`,
         params: { teamSlug, boardSlug },
@@ -82,36 +77,17 @@ function BoardPage() {
     }
   }, [search.new, search.title, search.description, navigate, teamSlug, boardSlug])
 
-  const filters = useMemo<IssueFilters>(
-    () => issueFiltersFromSearch(search),
-    [search.status, search.priority, search.labels]
-  )
-
-  const setFilters = (next: IssueFilters) => {
-    void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug`,
-      params: { teamSlug, boardSlug },
-      search: (prev) => ({
-        ...prev,
-        ...issueFilterSearchFromFilters(next),
-      }),
-      replace: true,
-    })
-  }
-
   const {
     issueLabelMap,
     issuesReady,
     labelList,
     board,
     boardReady,
-    totalIssueCount,
     users,
     userMap,
     visibleGroups,
     team,
   } = useBoardViewData({
-    filters,
     boardSlug,
     teamSlug,
   })
@@ -119,7 +95,7 @@ function BoardPage() {
   const permissions = useTeamPermissions(team)
 
   // Bulk-selection state lives here so the action bar can render in the
-  // header region (in the row freed by the removed filter tabs, EXP-251);
+  // header region above the list (EXP-251);
   // IssueList keeps all the selection mechanics.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const selectedIssues = useMemo(
@@ -156,26 +132,43 @@ function BoardPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <IssueFilterBar
-        filters={filters}
-        onFiltersChange={setFilters}
-        labels={labelList}
-        // The bulk bar lives INSIDE the fixed-height control row (md+) so
-        // starting a selection never reflows the list (FEED-12); below md
-        // the bar floats itself above the tab bar.
-        actions={
-          selectedIssues.length > 0 ? (
-            <BulkActionBar
-              issues={selectedIssues}
-              issueLabelMap={issueLabelMap}
-              labels={labelList}
-              users={users}
-              teamId={team.id}
-              onClear={() => setSelectedIds(new Set())}
-            />
-          ) : undefined
-        }
-      />
+      {/* EXP-449: title-less control row — the page name lives in the
+          sidebar/topbar and the New-issue button moved into the sidebar
+          header, so this bar is just the left-hand actions plus the mobile
+          Search button. Fixed height so hosting the bulk action bar here
+          never reflows the list below (FEED-12); below md the bar floats
+          itself above the tab bar. */}
+      <div className="px-4 md:px-6">
+        <div className="flex h-14 items-center justify-between gap-2">
+          {/* EXP-642: the bulk bar sits LEFT. */}
+          <div className="flex min-w-0 items-center gap-1">
+            {selectedIssues.length > 0 ? (
+              <BulkActionBar
+                issues={selectedIssues}
+                issueLabelMap={issueLabelMap}
+                labels={labelList}
+                users={users}
+                teamId={team.id}
+                onClear={() => setSelectedIds(new Set())}
+              />
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {/* EXP-686: Search left the mobile tab bar and sits in the board
+                header — native parity. The desktop sidebar header already
+                carries its own Search button. */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-foreground md:hidden"
+              aria-label="Search"
+              onClick={issueSearch.open}
+            >
+              <NavSearchIcon className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
@@ -198,16 +191,9 @@ function BoardPage() {
                 boardSlug,
                 issueIdentifier: issue.identifier,
               },
-              // Carry the board's active filters so the detail header's
-              // prev/next switcher walks the same filtered+sorted sequence.
-              // EXP-851: and the origin, so the sidebar keeps THIS board's
-              // list beside the issue.
-              search: {
-                status: search.status,
-                priority: search.priority,
-                labels: search.labels,
-                from: `board:${boardSlug}`,
-              },
+              // EXP-851: carry the origin, so the sidebar keeps THIS
+              // board's list beside the issue.
+              search: { from: `board:${boardSlug}` },
             })
           }
           canCreate={permissions.canCreate}
@@ -217,9 +203,6 @@ function BoardPage() {
           selectedIds={selectedIds}
           onSelectedIdsChange={setSelectedIds}
           isLoading={!issuesReady}
-          hasAnyIssues={totalIssueCount > 0}
-          hasActiveFilters={filtersActive(filters)}
-          onClearFilters={() => setFilters(emptyFilters)}
           // Members only — the guidance block is meaningless before the
           // viewer's own member row has synced.
           emptyStateExtra={

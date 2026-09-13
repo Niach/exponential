@@ -32,16 +32,32 @@ import { cn } from "@/lib/utils"
 // `--color-glass-stroke: var(--glass-stroke-row)`, and there is no
 // `glass-stroke-row` colour utility.
 
+const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
+const ChevronRightGlyph = conceptIcon(`ui-chevron-right`)
+
 function GlassSectionHeader({
   label,
   leading,
   trailing,
+  count,
+  expanded,
+  onToggle,
   className,
 }: {
   label: string
   /** Optional glyph before the label (e.g. the board icon on Reviews). */
   leading?: React.ReactNode
   trailing?: React.ReactNode
+  /** EXP-862: the muted item count at the trailing edge, before `trailing`.
+   * A folded band shows how much it hides without unfolding. */
+  count?: number
+  /** EXP-862 FOLDABLE variant — pass both to make the band a toggle: the
+   * whole strip becomes the click target, a chevron leads it and
+   * `aria-expanded` states the fold (the Agent page's "Past" band, collapsed
+   * by default). Omit `onToggle` and the band stays the plain strip it has
+   * always been. */
+  expanded?: boolean
+  onToggle?: () => void
   className?: string
 }) {
   // EXP-818: the GROUP BAND — the Linear group header. A full-width strip
@@ -49,19 +65,52 @@ function GlassSectionHeader({
   // its flat rows (`ListRow`) with a 4px gap; rows read as a table under a
   // highlighted header, not as a stack of cards. Desktop
   // `surface::glass_section_band` twin.
-  return (
-    <div
-      data-slot="glass-section-header"
-      className={cn(
-        `mb-1 flex items-center gap-1.5 rounded-md bg-glass-section px-3 py-1.5`,
-        className
-      )}
-    >
+  const foldable = onToggle != null
+  const open = expanded !== false
+  const body = (
+    <>
+      {foldable &&
+        (open ? (
+          <ChevronDownGlyph className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRightGlyph className="size-3.5 shrink-0 text-muted-foreground" />
+        ))}
       {leading}
       <span className="min-w-0 truncate text-sm font-medium text-foreground/85">{label}</span>
-      {trailing && (
-        <div className="ml-auto flex items-center gap-1.5">{trailing}</div>
+      {(count !== undefined || trailing) && (
+        <div className="ml-auto flex items-center gap-1.5">
+          {count !== undefined && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {count}
+            </span>
+          )}
+          {trailing}
+        </div>
       )}
+    </>
+  )
+  const bandClassName = cn(
+    `mb-1 flex w-full items-center gap-1.5 rounded-md bg-glass-section px-3 py-1.5`,
+    foldable &&
+      `cursor-pointer text-left transition-colors duration-fast outline-none hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+    className
+  )
+  if (foldable) {
+    return (
+      <button
+        type="button"
+        data-slot="glass-section-header"
+        aria-expanded={open}
+        onClick={onToggle}
+        className={bandClassName}
+      >
+        {body}
+      </button>
+    )
+  }
+  return (
+    <div data-slot="glass-section-header" className={bandClassName}>
+      {body}
     </div>
   )
 }
@@ -337,7 +386,7 @@ type GlassPickerOption = {
 // (`bg-glass-row` / `hover:bg-glass-active/50`), so a plain `bg-transparent`
 // clears the fill and the hover is inherited rather than restated — the row
 // draws the group's own fill one level up.
-const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
+export const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
 
 function GlassPickerRow({
   label,

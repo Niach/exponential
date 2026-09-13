@@ -101,7 +101,7 @@ export function ActionMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="glass"
+          variant="ghost"
           size="icon-sm"
           aria-label={`Action menu for ${action.name}`}
         >
@@ -154,7 +154,12 @@ function ActionRow({
 }) {
   const RowIcon = getActionIcon(action)
   return (
-    <ListRow>
+    // EXP-862: every flat row takes the hover wash; an owner's row opens the
+    // editor (the ▶ and the menu stop the click underneath them).
+    <ListRow
+      interactive
+      onClick={isOwner && !action.builtin ? onEdit : undefined}
+    >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -178,7 +183,10 @@ function ActionRow({
         <Button
           variant="glass"
           size="icon"
-          onClick={onRun}
+          onClick={(event) => {
+            event.stopPropagation()
+            onRun()
+          }}
           aria-label="Run"
           title="Run"
         >
@@ -186,12 +194,14 @@ function ActionRow({
         </Button>
       )}
       {!action.builtin && (
-        <ActionMenu
-          action={action}
-          isOwner={isOwner}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
+        <span onClick={(event) => event.stopPropagation()}>
+          <ActionMenu
+            action={action}
+            isOwner={isOwner}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        </span>
       )}
     </ListRow>
   )

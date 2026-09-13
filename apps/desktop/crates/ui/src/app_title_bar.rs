@@ -50,6 +50,75 @@ pub(crate) fn macos_lights_in_strip(window: &Window) -> bool {
     cfg!(target_os = "macos") && client_chrome(window) && !window.is_fullscreen()
 }
 
+/// EXP-862 — the LEFT COLUMN's titlebar strip, one recipe for all three of
+/// its occupants (the rail, the settings nav, the `ListNav`). It used to be
+/// copied into each of them, which is how two of the three ended up with
+/// slightly different padding.
+///
+/// The strip is EMPTY chrome: since EXP-723 its only job is the 34px the
+/// macOS traffic lights float over, plus the drag/zoom wiring the vendored
+/// [`TitleBar`] gives the band to its right. [`macos_lights_in_strip`] is
+/// therefore the whole gate — `None` everywhere else (Windows, Linux, macOS
+/// fullscreen), where those 34px would be a bare gap above the column's first
+/// row and the caller takes its own top inset instead.
+///
+/// `should_move` is the caller's drag latch (`&mut` through a field
+/// accessor, since the listeners outlive this call).
+pub(crate) fn left_column_top_strip<V: 'static>(
+    id: &'static str,
+    should_move: fn(&mut V) -> &mut bool,
+    window: &Window,
+    cx: &mut gpui::Context<V>,
+) -> Option<gpui::AnyElement> {
+    use gpui::WindowControlArea;
+    use gpui_component::InteractiveElementExt as _;
+
+    if !macos_lights_in_strip(window) {
+        return None;
+    }
+    let client_chrome = client_chrome(window);
+    Some(
+        h_flex()
+            .id(id)
+            .w_full()
+            .h(gpui_component::TITLE_BAR_HEIGHT)
+            .flex_shrink_0()
+            .items_center()
+            // The columns differ in whether their ROOT pads horizontally, so
+            // the strip pads itself and the roots stay as they are.
+            .px_2()
+            .when(client_chrome, |strip| {
+                strip
+                    .window_control_area(WindowControlArea::Drag)
+                    .map(|strip| {
+                        if cfg!(target_os = "macos") {
+                            strip.on_double_click(|_, window, _| window.titlebar_double_click())
+                        } else if cfg!(target_os = "linux") {
+                            strip.on_double_click(|_, window, _| window.zoom_window())
+                        } else {
+                            strip
+                        }
+                    })
+                    .on_mouse_down_out(cx.listener(move |this, _, _, _| *should_move(this) = false))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, _| *should_move(this) = true),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, _| *should_move(this) = false),
+                    )
+                    .on_mouse_move(cx.listener(move |this, _, window, _| {
+                        if *should_move(this) {
+                            *should_move(this) = false;
+                            window.start_window_move();
+                        }
+                    }))
+            })
+            .into_any_element(),
+    )
+}
+
 /// Wrap interactive titlebar content so pressing it can't start a window
 /// drag — the story-app pattern: swallow the bar's own mouse-down listener.
 /// (Windows forwards non-client clicks through gpui first, so a handled
@@ -140,14 +209,14 @@ impl Render for AppTitleBar {
         //           the rail), otherwise three `TITLE_BAR_HEIGHT`-wide buttons
         //           — `TitleBar` draws min + max + close here.
         let strip_available = {
-            // EXP-285/EXP-456: the full-height LEFT COLUMN (rail, or the
-            // settings nav while Settings is up) sits left of this bar — its
-            // target width is the budget's first term. macOS lights float
-            // over that column, which is [`crate::sidebar::RAIL_W`] wide and
+            // EXP-285/EXP-456: the full-height LEFT COLUMN (the rail, the
+            // settings nav, or the `ListNav`) sits left of this bar — its
+            // width is the budget's first term. macOS lights float over that
+            // column, which is [`crate::shell::LEFT_COLUMN_WIDTH`] wide and
             // clears the cluster on its own (EXP-723 removed the collapsed
             // rail and with it the Shell's traffic-light tongue). Fullscreen
             // hides the lights, so nothing is reserved for them either way.
-            let rail_w = crate::shell::left_column_target_width(window, cx);
+            let rail_w = crate::shell::left_column_width();
             let left_inset = BAR_INSET;
             let fullscreen_inset = if window.is_fullscreen() { 12. } else { 0. };
             let right_reserve = if cfg!(target_os = "macos") {
@@ -178,9 +247,9 @@ impl Render for AppTitleBar {
             // reads as a double border.
             .border_b_0()
             // EXP-303: with the rail present the vendored 80px macOS
-            // traffic-light reserve is wrong — the rail is
-            // [`crate::sidebar::RAIL_W`] wide and clears the cluster, so the
-            // bar itself only needs its normal inset.
+            // traffic-light reserve is wrong — the left column is
+            // [`crate::shell::LEFT_COLUMN_WIDTH`] wide and clears the
+            // cluster, so the bar itself only needs its normal inset.
             .pl(px(BAR_INSET));
 
         bar.child(

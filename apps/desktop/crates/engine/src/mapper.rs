@@ -97,8 +97,7 @@ pub struct MapperConfig {
     pub redactor: Arc<steer::Redactor>,
     /// The worktree, for relativizing tool-call paths.
     pub cwd: std::path::PathBuf,
-    /// Keys the command catalog and the codex sigil guard; `External` is
-    /// deliberately neutral.
+    /// Keys the command catalog and the codex sigil guard.
     pub agent: steer::SessionAgent,
     /// Seed for `steer::synthetic_question_id` when the agent stamps no id.
     pub session_seed: String,
@@ -319,9 +318,9 @@ impl Coalescer {
     /// carries an id. Two of them
     /// in one flush window used to glue into
     /// `error: …error: …`, so they are SEPARATED by a
-    /// newline instead. Deliberately not a hard boundary: an external ACP
-    /// agent that streams id-less deltas would then publish one feed row per
-    /// delta, which is the far worse failure.
+    /// newline instead. Deliberately not a hard boundary: an agent that
+    /// streams id-less deltas would then publish one feed row per delta,
+    /// which is the far worse failure.
     fn push(
         &mut self,
         message_id: Option<String>,

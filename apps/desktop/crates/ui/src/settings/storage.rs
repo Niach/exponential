@@ -45,7 +45,7 @@ use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{card_title, error_notice, section};
+use super::{error_notice, section};
 
 struct Loaded {
     list: Result<AttachmentsListForTeamOutput, String>,
@@ -460,8 +460,8 @@ impl StoragePane {
                     .child(status_chip(status, cx)),
             )
             .child(
-                // EXP-698: the one 32px glass chrome every row action wears.
-                crate::controls::glass_icon_button(
+                // EXP-862: a row's trash is a GHOST glyph, never a circle.
+                crate::controls::ghost_icon_button(
                     SharedString::from(format!("storage-delete-{}", row.id)),
                     Icon::from(ExpIcon::Trash2),
                     cx,
@@ -487,23 +487,15 @@ impl Render for StoragePane {
         self.ensure_loaded(&team_id, cx);
 
         // EXP-771: the web's description under the title — the rows never
-        // said what a deletion costs, and it is permanent. Written out here
-        // rather than through `section_description`: that recipe carries the
-        // `px_1` of a `glass_section_header`, and this pane's heading is a
-        // flush `card_title`.
+        // said what a deletion costs, and it is permanent.
         let mut body = section(cx).child(
             v_flex()
-                .gap_0p5()
-                .child(card_title("Storage"))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().foreground.opacity(0.5))
-                        .child(
-                            "Files and images attached to this team's issues. Deleting \
-                             an attachment is permanent.",
-                        ),
-                ),
+                .child(crate::surface::glass_section_header("Storage", None, cx))
+                .child(super::section_description(
+                    "Files and images attached to this team's issues. Deleting \
+                     an attachment is permanent.",
+                    cx,
+                )),
         );
 
         // Refresh lives at the TOP of the pane (EXP-316) — inside the
@@ -603,11 +595,7 @@ impl Render for StoragePane {
                 if rows.is_empty() {
                     body = body.child(
                         div()
-                            .px_3()
                             .py_2()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(super::row_stroke(cx))
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child("No attachments yet."),

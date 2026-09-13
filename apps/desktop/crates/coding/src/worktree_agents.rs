@@ -46,15 +46,11 @@ pub fn record_worktree_agent(worktree: &Path, agent: CodingAgent) -> std::io::Re
     record_worktree_agent_id(worktree, agent.id())
 }
 
-/// EXP-758: [`record_worktree_agent`] for ANY agent id — a builtin's, or an
-/// external ACP agent's ([`crate::AgentKind::id`]).
-///
-/// An external run used to stamp the settings-default BUILTIN here (the
-/// `agent` field means nothing for an external record), which made a later
-/// resume offer "Resume previous session" for a CLI that never ran in the
-/// worktree. Readers ([`worktree_agents`]) skip ids outside the closed
-/// builtin vocabulary, so an external id records the honest answer: no
-/// builtin has a conversation here.
+/// EXP-758: [`record_worktree_agent`] for ANY agent id. Readers
+/// ([`worktree_agents`]) skip ids outside the closed builtin vocabulary, so
+/// an unknown id records the honest answer: no builtin has a conversation
+/// here (which keeps a bogus "Resume previous session" offer off the
+/// worktree).
 pub fn record_worktree_agent_id(worktree: &Path, id: &str) -> std::io::Result<()> {
     let id = id.trim();
     if id.is_empty() {
@@ -112,12 +108,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-758: an external agent records ITS id, and no builtin reads back
-    /// out of the marker — which is what keeps a bogus "Resume previous
-    /// session" offer off a worktree only the external agent ever ran in.
+    /// EXP-758: an unknown agent id records as-is, and no builtin reads back
+    /// out of the marker.
     #[test]
-    fn an_external_id_records_without_naming_a_builtin() {
-        let dir = temp_dir("external");
+    fn an_unknown_id_records_without_naming_a_builtin() {
+        let dir = temp_dir("unknown");
         record_worktree_agent_id(&dir, "acme").unwrap();
         record_worktree_agent_id(&dir, "acme").unwrap();
         assert_eq!(

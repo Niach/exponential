@@ -241,12 +241,6 @@ impl ActionInputPicks {
         values
     }
 
-    /// The picked repo of the first `repo` input, for the chat-style
-    /// "which repository" summary.
-    pub(crate) fn repo_pick(&self, key: &str) -> Option<&ActionRepoRow> {
-        self.repo.get(key)
-    }
-
     /// One typed input field (EXP-257): repo/board/pr → dropdown-menu buttons
     /// over the team's repos / synced boards / open PRs, icon → the shared
     /// swatch-and-popover picker. `access` reaches the picks on the host view
@@ -440,6 +434,7 @@ impl ActionInputPicks {
                 crate::board_form::icon_picker(
                     format!("{prefix}-icon-{ix}"),
                     picked.as_deref(),
+                    None,
                     optional,
                     move |name, _, cx| {
                         if let Some(view) = view.upgrade() {
@@ -552,11 +547,11 @@ mod tests {
         assert!(picks.seeded_repo_action_id.is_none());
         let repos = vec![repo("repo-1", "acme/web")];
         assert!(picks.seed_repo_inputs(&action, &repos));
-        assert_eq!(picks.repo_pick("r").map(|r| r.id.as_str()), Some("repo-1"));
+        assert_eq!(picks.repo.get("r").map(|r| r.id.as_str()), Some("repo-1"));
         // A manual clear survives the next seed call.
         picks.repo.remove("r");
         assert!(!picks.seed_repo_inputs(&action, &repos));
-        assert!(picks.repo_pick("r").is_none());
+        assert!(picks.repo.get("r").is_none());
         // An unbound action latches without seeding.
         let mut picks = ActionInputPicks::default();
         let unbound = self::action(vec![input("r", "repo", false)], None);

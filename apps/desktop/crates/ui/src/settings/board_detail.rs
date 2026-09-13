@@ -1,7 +1,8 @@
 //! Settings → one board's detail page (EXP-288 — the Boards group lists
 //! every board as its own nav entry; this pane is the selected one's page).
 //!
-//! Web parity: `components/team/board-settings-dialog.tsx` — Name (deferred
+//! Web parity: `routes/t/$teamSlug/settings/boards/$boardId.tsx` (EXP-862
+//! turned the settings dialog into a page) — Name (deferred
 //! save on blur/Enter), read-only Prefix with the "can't be changed" hint,
 //! Icon + Color swatch grids saving immediately (`boards.update`), and the
 //! per-board **repository picker** (`boards.setRepository` over the team's
@@ -35,7 +36,7 @@ use crate::repo_resolver::links_snapshot;
 use crate::sidebar::RailShared;
 
 use super::repositories::{fetch_repositories, RepoRow};
-use super::{card_title, error_notice, row_stroke, section, spawn_trpc, SettingsSection};
+use super::{error_notice, section, spawn_trpc, SettingsSection};
 use crate::icons::registry;
 
 /// Server fetch state for the per-board repository picker.
@@ -268,7 +269,7 @@ impl BoardDetailPane {
             "Move board to trash",
             format!(
                 "Move {board_name} to the trash? It is kept for 48 hours \
-                 (owners can restore it from the Boards settings on the web), \
+                 (owners can restore it from Archived boards on the web), \
                  then permanently deleted with all its issues."
             ),
             "Move to trash",
@@ -369,13 +370,19 @@ impl BoardDetailPane {
     ) -> gpui::AnyElement {
         let label = repo_picker_label(board.repository_id.as_deref(), &self.repos);
 
+        // EXP-862: the trigger is the ROW's trailing value — no field chrome
+        // of its own (`glass_picker_row` owns the padding and the hairline).
         let button = Button::new(row_id("board-detail-repo", &board.id))
-            .outline()
+            .ghost()
             .cursor_pointer()
-            .web_sm()
-            .max_w(px(320.))
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
             .icon(registry::UI_GITHUB)
-            .label(label);
+            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
+            // box, so a long `owner/repo` wraps onto a second line.
+            .child(crate::surface::picker_value_label(label));
 
         let board_id = board.id.clone();
         let pane = cx.entity().clone();
@@ -484,7 +491,9 @@ impl BoardDetailPane {
         let board_id = board.id.clone();
         let read_id = repository_id.clone();
         let fetch_id = repository_id.clone();
-        Some(crate::board_form::branch_menu::<Self>(
+        // EXP-862: the trigger is the ROW's trailing value, like Repository
+        // above it — `glass_picker_row` owns the padding and the hairline.
+        Some(crate::board_form::branch_value_menu::<Self>(
             SharedString::from(format!("board-detail-branch-{}", board.id)),
             value,
             repo_default,
@@ -546,19 +555,6 @@ impl BoardDetailPane {
         .detach();
     }
 
-    fn field_label(label: &'static str, cx: &gpui::App) -> impl IntoElement {
-        div()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(label)
-    }
-
-    fn field_hint(hint: &'static str, cx: &gpui::App) -> impl IntoElement {
-        div()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground.opacity(0.7))
-            .child(hint)
-    }
 }
 
 impl Render for BoardDetailPane {
@@ -579,12 +575,19 @@ impl Render for BoardDetailPane {
 
         let prefix: SharedString = board.prefix.clone().unwrap_or_default().into();
 
-        // EXP-584: the icon picker sits LEFT of the name input (web
-        // `BoardNameField` parity). The icon saves IMMEDIATELY like color.
+        // EXP-862 (×4): the board's IDENTITY is ONE row — icon picker, colour
+        // picker, name — all three on the 32px control rung. Icon and colour
+        // save IMMEDIATELY (web parity: no Save button); the name saves on
+        // blur/Enter.
         let board_id = board.id.clone();
+        // A row from before the icon backfill carries no `icon`: show the
+        // board's fallback glyph (the rail's and web's rule), not the dashed
+        // "nothing picked" placeholder of the create form.
+        let fallback_icon = if board.repository_id.is_some() { "code" } else { "square-kanban" };
         let icon_picker = crate::board_form::icon_picker(
             "board-detail",
-            board.icon.as_deref(),
+            Some(board.icon.as_deref().unwrap_or(fallback_icon)),
+            board.color.as_deref(),
             false,
             move |name, _, cx| {
                 let Some(name) = name else { return };
@@ -597,83 +600,68 @@ impl Render for BoardDetailPane {
             },
             cx,
         );
-        let name_field = v_flex()
-            .gap_1()
-            .child(Self::field_label("Name", cx))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(icon_picker)
-                    .child(
-                        div().flex_1().child(glass_input(&self.name_input, window, cx).web_input_sm()),
-                    ),
-            );
-
-        let prefix_field = v_flex()
-            .gap_1()
-            .child(Self::field_label("Prefix", cx))
-            .child(
-                h_flex().child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(row_stroke(cx))
-                        .text_sm()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(cx.theme().muted_foreground)
-                        .child(prefix),
-                ),
-            )
-            .child(Self::field_hint(
-                "The prefix can't be changed after creation.",
-                cx,
-            ));
-
-        // Color saves IMMEDIATELY (web parity — no Save button).
         let board_id = board.id.clone();
-        let color_field = v_flex()
-            .gap_1()
-            .child(Self::field_label("Color", cx))
-            .child(crate::board_form::color_swatch_grid(
-                "board-detail",
-                board.color.as_deref().unwrap_or_default(),
-                move |color, _, cx| {
-                    let board_id = board_id.clone();
-                    spawn_trpc(cx, "boards.update(color)", move |trpc| {
-                        let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                        input.color = Some(color.to_string());
-                        api::boards::boards_update(trpc, &input)
-                    });
-                },
-                cx,
-            ));
-
-        // EXP-712: repository + branch read as ONE block under ONE caption.
-        let mut repo_field = v_flex().gap_3().child(
-            v_flex()
-                .gap_1()
-                .child(Self::field_label("Repository", cx))
-                .child(self.repo_picker(&board, cx)),
+        let color_picker = crate::board_form::color_picker(
+            "board-detail",
+            board.color.as_deref().unwrap_or_default(),
+            move |color, _, cx| {
+                let board_id = board_id.clone();
+                spawn_trpc(cx, "boards.update(color)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    input.color = Some(color.to_string());
+                    api::boards::boards_update(trpc, &input)
+                });
+            },
+            cx,
         );
-        if let Some(branch) = self.branch_picker(&board, cx) {
-            repo_field = repo_field.child(
-                v_flex()
-                    .gap_1()
-                    .child(Self::field_label("Branch", cx))
-                    .child(div().max_w(px(320.)).child(branch)),
+        let identity_row = crate::surface::glass_row_shell()
+            .gap_2()
+            .child(icon_picker)
+            .child(color_picker)
+            .child(
+                div().flex_1().min_w_0().child(
+                    crate::surface::glass_row_input(glass_input(&self.name_input, window, cx))
+                        .text_left(),
+                ),
             );
+
+        // The prefix is read-only for life, so it is a row that STATES it
+        // (the hint is the row's description, never a caption above it).
+        let prefix_row = crate::surface::glass_row_shell()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .child("Prefix"),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_sm()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .text_color(cx.theme().muted_foreground)
+                    .child(prefix),
+            );
+
+        let mut rows = vec![
+            identity_row,
+            prefix_row,
+            crate::surface::glass_picker_row(
+                "Repository",
+                None,
+                self.repo_picker(&board, cx),
+                cx,
+            ),
+        ];
+        if let Some(branch) = self.branch_picker(&board, cx) {
+            rows.push(crate::surface::glass_picker_row("Branch", None, branch, cx));
         }
-        let repo_field = repo_field.child(crate::board_form::board_repo_note(cx));
 
         let mut body = section(cx)
-            .child(card_title("Board settings"))
-            .child(name_field)
-            .child(prefix_field)
-            .child(color_field)
-            .child(repo_field);
+            .child(crate::surface::glass_section_header("Board settings", None, cx))
+            .child(crate::surface::glass_group_rows(rows))
+            .child(crate::board_form::board_repo_note(cx));
 
         if let Some(error) = &self.link_error {
             body = body.child(error_notice(error.clone(), cx));

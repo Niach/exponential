@@ -27,7 +27,12 @@ import {
 
 const SIDEBAR_COOKIE_NAME = `sidebar_state`
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = `16rem`
+// EXP-862: 17rem — the web half of ONE sidebar width across the clients
+// (desktop `shell::LEFT_COLUMN_WIDTH` = 264px for the rail, the list nav and
+// the settings nav). The collapsed/icon width below is its own constant, not
+// a fraction of this one, so widening the open rail leaves the icon rail
+// untouched.
+const SIDEBAR_WIDTH = `17rem`
 const SIDEBAR_WIDTH_MOBILE = `18rem`
 const SIDEBAR_WIDTH_ICON = `3rem`
 const SIDEBAR_KEYBOARD_SHORTCUT = `b`

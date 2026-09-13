@@ -45,6 +45,29 @@ function relativeTime(value: Date | string): string {
   return `${Math.round(hrs / 24)}d`
 }
 
+// EXP-862: the sidebar arm runs at the COMPACT density — 28px rows, no
+// avatar circle (the bare glyph leads), one line, the title truncating. The
+// full page keeps the two-line reading row with its circle and stamp.
+const COMPACT_ROW = `h-7 items-center gap-2 px-2 py-0`
+const FULL_ROW = `items-start px-3 py-2`
+
+function RowGlyph({
+  icon: Icon,
+  compact,
+}: {
+  icon: typeof Bell
+  compact: boolean
+}) {
+  if (compact) {
+    return <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+  }
+  return (
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+    </div>
+  )
+}
+
 type IssueGroup = {
   kind: `issue`
   issue: Issue
@@ -100,7 +123,7 @@ export function InboxView({
   from,
 }: {
   teamSlug: string
-  /** EXP-851: the SIDEBAR's list nav — the same rows in the 16rem slot, no
+  /** EXP-851: the SIDEBAR's list nav — the same rows in the 17rem slot, no
    *  reading column, no empty-state illustration. */
   compact?: boolean
   /** The issue the open detail shows, by identifier (the highlighted row) —
@@ -294,14 +317,12 @@ export function InboxView({
                   key={`message:${latest.id}`}
                   interactive
                   className={cn(
-                    `items-start px-3 py-2`,
+                    compact ? COMPACT_ROW : FULL_ROW,
                     g.unread === 0 && `opacity-60`
                   )}
                   onClick={() => void markGroupRead(g)}
                 >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <MessageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
+                  <RowGlyph icon={MessageIcon} compact={compact} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span
@@ -317,16 +338,18 @@ export function InboxView({
                           {g.teamName}
                         </span>
                       )}
-                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                        {relativeTime(latest.createdAt)}
-                      </span>
-                      <span className="w-2 shrink-0" aria-hidden>
+                      {!compact && (
+                        <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+                          {relativeTime(latest.createdAt)}
+                        </span>
+                      )}
+                      <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
                         {g.unread > 0 && (
                           <span className="block h-2 w-2 rounded-full bg-primary" />
                         )}
                       </span>
                     </div>
-                    {latest.body && (
+                    {!compact && latest.body && (
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">
                         {latest.body}
                       </div>
@@ -342,7 +365,7 @@ export function InboxView({
                   asChild
                   interactive
                   className={cn(
-                    `items-start px-3 py-2`,
+                    compact ? COMPACT_ROW : FULL_ROW,
                     g.unread === 0 && `opacity-60`
                   )}
                 >
@@ -351,9 +374,7 @@ export function InboxView({
                     params={{ teamSlug: g.teamSlug ?? teamSlug }}
                     onClick={() => void markGroupRead(g)}
                   >
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                      <SupportIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                    </div>
+                    <RowGlyph icon={SupportIcon} compact={compact} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span
@@ -373,18 +394,22 @@ export function InboxView({
                             right-aligned in its own 4rem slot and the unread
                             dot keeps its 8px slot whether or not it is lit, so
                             read and unread rows line up exactly. */}
-                        <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                          {relativeTime(latest.createdAt)}
-                        </span>
-                        <span className="w-2 shrink-0" aria-hidden>
+                        {!compact && (
+                          <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+                            {relativeTime(latest.createdAt)}
+                          </span>
+                        )}
+                        <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
                           {g.unread > 0 && (
                             <span className="block h-2 w-2 rounded-full bg-primary" />
                           )}
                         </span>
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {latest.title}
-                      </div>
+                      {!compact && (
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {latest.title}
+                        </div>
+                      )}
                     </div>
                   </Link>
                 </ListRow>
@@ -393,9 +418,7 @@ export function InboxView({
             const Icon = typeIcon[latest.type] ?? Bell
             const issueRowBody = (
               <>
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
+                <RowGlyph icon={Icon} compact={compact} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -409,18 +432,22 @@ export function InboxView({
                     >
                       {g.issue.title}
                     </span>
-                    <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                      {relativeTime(latest.createdAt)}
-                    </span>
-                    <span className="w-2 shrink-0" aria-hidden>
+                    {!compact && (
+                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+                        {relativeTime(latest.createdAt)}
+                      </span>
+                    )}
+                    <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
                       {g.unread > 0 && (
                         <span className="block h-2 w-2 rounded-full bg-primary" />
                       )}
                     </span>
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {latest.title}
-                  </div>
+                  {!compact && (
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {latest.title}
+                    </div>
+                  )}
                 </div>
               </>
             )
@@ -431,7 +458,7 @@ export function InboxView({
                 interactive
                 active={g.issue.identifier === activeIssueIdentifier}
                 className={cn(
-                  `items-start px-3 py-2`,
+                  compact ? COMPACT_ROW : FULL_ROW,
                   g.unread === 0 &&
                     g.issue.identifier !== activeIssueIdentifier &&
                     `opacity-60`

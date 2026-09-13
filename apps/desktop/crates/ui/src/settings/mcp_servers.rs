@@ -35,16 +35,18 @@
 use std::path::PathBuf;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, FontWeight, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant},
     h_flex,
     input::InputState,
+    menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 
 use api::mcp_servers::{McpReadinessReport, McpServerConfig, McpServerListEntry};
@@ -299,6 +301,9 @@ pub struct McpServersPane {
     value_input: Entity<InputState>,
     /// The "Paste redirect URL" dialog's field, same deal.
     paste_input: Entity<InputState>,
+    /// EXP-862: the built-in Exponential tools group is COLLAPSED until it is
+    /// asked for — 77 rows are a reference list, not the page.
+    builtins_expanded: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -323,6 +328,7 @@ impl McpServersPane {
             pending_paste: None,
             value_input,
             paste_input,
+            builtins_expanded: false,
             _subscriptions: subscriptions,
         }
     }
@@ -885,6 +891,74 @@ impl McpServersPane {
             .child(div().text_xs().child(SharedString::from(text)))
     }
 
+    /// EXP-862 — the COLLAPSED "Built-in Exponential tools" group: what the
+    /// agents can already do without a server in the registry above. One row
+    /// per contract tool, styled like the session feed's Exponential tool row
+    /// (`steer_viewer::exp_tool_call_row`): the app's own mark, the tool's
+    /// title, the blurb muted beside it. The raw wire name
+    /// (`exponential_issues_create`) is the row's TOOLTIP only — nobody reads
+    /// a reference list in snake_case.
+    fn render_builtin_tools(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let tools = steer::exp_tool::builtin_tools();
+        let muted = cx.theme().muted_foreground;
+        let collapsed = !self.builtins_expanded;
+        let band = crate::surface::glass_section_band_fold(
+            "mcp-builtin-tools",
+            "Built-in Exponential tools",
+            tools.len(),
+            collapsed,
+            cx,
+        )
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.builtins_expanded = !this.builtins_expanded;
+            cx.notify();
+        }));
+        let mut group = v_flex().w_full().min_w_0().child(band);
+        if collapsed {
+            return group;
+        }
+        for (index, tool) in tools.into_iter().enumerate() {
+            group = group.child(
+                crate::surface::flat_row()
+                    .id(("mcp-builtin-tool", index))
+                    .flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1p5()
+                    .tooltip({
+                        let name = SharedString::from(tool.name.clone());
+                        move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
+                        }
+                    })
+                    .child(
+                        Icon::from(crate::icons::ExpIcon::Logo)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(muted),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_sm()
+                            .child(SharedString::from(tool.title)),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(tool.blurb)),
+                    ),
+            );
+        }
+        group
+    }
+
     /// One server row: identity + config chips, THIS machine's readiness
     /// line with its device actions, then one muted line per OTHER machine
     /// that reported.
@@ -1007,35 +1081,50 @@ impl McpServersPane {
                 })),
             );
         }
-        if owner {
+        // EXP-862 (web parity): the owner's writes sit behind ONE ghost "..."
+        // menu, not two pills competing with the device actions beside them.
+        let owner_menu = owner.then(|| {
             let edit = config.clone();
-            let team = entry.config.team_id.clone();
-            actions = actions.child(
-                glass_pill_button(
-                    SharedString::from(format!("mcp-edit-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
-                )
-                .label("Edit")
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.open_editor(Some(edit.clone()), &team, window, cx);
-                })),
-            );
             let remove = config.clone();
-            actions = actions.child(
-                glass_pill_button(
-                    SharedString::from(format!("mcp-remove-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
+            let team = entry.config.team_id.clone();
+            let pane = cx.entity();
+            crate::controls::ghost_icon_button(
+                SharedString::from(format!("mcp-menu-{}", config.id)),
+                Icon::new(registry::UI_MORE),
+                cx,
+            )
+            .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
+            .disabled(self.busy)
+            .dropdown_menu(move |menu, _window, cx| {
+                let (edit, team, pane_edit) = (edit.clone(), team.clone(), pane.clone());
+                let (remove, pane_remove) = (remove.clone(), pane.clone());
+                menu.item(
+                    PopupMenuItem::new("Edit")
+                        .icon(Icon::new(registry::UI_EDIT))
+                        .on_click(move |_, window, cx| {
+                            let (edit, team) = (edit.clone(), team.clone());
+                            pane_edit.update(cx, |this, cx| {
+                                this.open_editor(Some(edit), &team, window, cx);
+                            });
+                        }),
                 )
-                .label("Remove")
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.confirm_remove(&remove, window, cx);
-                })),
-            );
-        }
+                .item(
+                    // Destructive rows wear the danger tint (web
+                    // `DropdownMenuItem variant="destructive"`).
+                    crate::controls::danger_menu_item(
+                        "Remove",
+                        Icon::new(registry::UI_DELETE),
+                        cx,
+                    )
+                        .on_click(move |_, window, cx| {
+                            let remove = remove.clone();
+                            pane_remove.update(cx, |this, cx| {
+                                this.confirm_remove(&remove, window, cx);
+                            });
+                        }),
+                )
+            })
+        });
 
         // Every OTHER machine that reported — the web's readiness strip. The
         // pane's own device is the line above, so it never doubles up.
@@ -1078,7 +1167,9 @@ impl McpServersPane {
                             .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from(config.name.clone())),
                     )
-                    .child(chips),
+                    .child(chips)
+                    .child(div().flex_1())
+                    .children(owner_menu),
             )
             .when(!endpoint.trim().is_empty(), |this| {
                 this.child(
@@ -1100,7 +1191,7 @@ impl McpServersPane {
             .children(others.into_iter().map(|line| {
                 div().text_xs().text_color(muted).child(line)
             }))
-            .when(has_actions || owner, |this| this.child(actions))
+            .when(has_actions, |this| this.child(actions))
     }
 }
 
@@ -1196,6 +1287,8 @@ impl Render for McpServersPane {
                 body = body.child(list);
             }
         }
+
+        body = body.child(self.render_builtin_tools(cx));
 
         // The web hand-off — authoring a server is a form (transport, URL or
         // command, declared names, scopes), which is the web's job.

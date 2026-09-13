@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::settings::{ExternalAgentSpec, EFFORT_LEVELS, MODEL_ALIASES};
+use crate::settings::{EFFORT_LEVELS, MODEL_ALIASES};
 
 /// Codex `-m` slugs (mid-2026: the GPT-5.6 tiers — there is NO
 /// `gpt-5.6-codex` variant). Blank ("CLI default", omit `-m`) is a valid
@@ -49,6 +49,13 @@ impl CodingAgent {
             CodingAgent::Claude => "Claude Code",
             CodingAgent::Codex => "Codex",
         }
+    }
+
+    /// The id `codingSessions.start` carries for this run. EXP-862 dropped
+    /// external ACP agents, so every launch names a builtin and the wire id
+    /// is always there (it was `Option` while `AgentKind::External` existed).
+    pub fn wire_id(self) -> Option<&'static str> {
+        Some(self.id())
     }
 
     /// Lenient id parse (`"Codex "` → `Codex`); `None` for anything unknown —
@@ -117,75 +124,6 @@ impl std::fmt::Display for CodingAgent {
     }
 }
 
-/// EXP-746 (D13): WHICH agent a launch runs — one of the builtin CLIs,
-/// or a user-declared external ACP binary ([`ExternalAgentSpec`]).
-///
-/// Everything keyed on the closed [`CodingAgent`] vocabulary (the doctor
-/// gate, the trust seeders, `session_args`, the contract's `codingAgent`)
-/// takes [`AgentKind::builtin`] and simply has nothing to do for an external
-/// agent; [`AgentKind::wire_id`] is what `codingSessions.start` sends, and it
-/// is `None` for an external one — the server's agent vocabulary is closed,
-/// so an external run records no agent at all rather than lying about one.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AgentKind {
-    Builtin(CodingAgent),
-    External(ExternalAgentSpec),
-}
-
-impl AgentKind {
-    /// The builtin agent, or `None` for an external one.
-    pub fn builtin(&self) -> Option<CodingAgent> {
-        match self {
-            AgentKind::Builtin(agent) => Some(*agent),
-            AgentKind::External(_) => None,
-        }
-    }
-
-    /// The LOCAL id: the builtin's wire id, or the spec's own id (settings,
-    /// `runs.json`, pickers).
-    pub fn id(&self) -> &str {
-        match self {
-            AgentKind::Builtin(agent) => agent.id(),
-            AgentKind::External(spec) => &spec.id,
-        }
-    }
-
-    /// The id `codingSessions.start` may carry — `None` for an external
-    /// agent (see the type docs).
-    pub fn wire_id(&self) -> Option<&str> {
-        match self {
-            AgentKind::Builtin(agent) => Some(agent.id()),
-            AgentKind::External(_) => None,
-        }
-    }
-
-    /// Human label for pickers and session headers.
-    pub fn label(&self) -> &str {
-        match self {
-            AgentKind::Builtin(agent) => agent.label(),
-            AgentKind::External(spec) => {
-                if spec.label.is_empty() {
-                    &spec.id
-                } else {
-                    &spec.label
-                }
-            }
-        }
-    }
-}
-
-impl Default for AgentKind {
-    fn default() -> Self {
-        AgentKind::Builtin(CodingAgent::default())
-    }
-}
-
-impl From<CodingAgent> for AgentKind {
-    fn from(agent: CodingAgent) -> Self {
-        AgentKind::Builtin(agent)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +137,11 @@ mod tests {
         assert_eq!(CodingAgent::parse("CLAUDE"), Some(CodingAgent::Claude));
         assert_eq!(CodingAgent::parse("cursor"), None);
         assert_eq!(CodingAgent::parse(""), None);
+        // EXP-862: every launch names a builtin, so the wire id is always
+        // there (external ACP agents, which had none, are gone).
+        for agent in CodingAgent::ALL {
+            assert_eq!(agent.wire_id(), Some(agent.id()));
+        }
     }
 
     #[test]
@@ -228,36 +171,6 @@ mod tests {
             assert!(agent.allows_blank_model(), "{agent}");
         }
         assert!(!CodingAgent::Codex.supports_plan_mode());
-    }
-
-    /// EXP-746: an external agent carries its own id/label locally but NO
-    /// wire id — the server's agent vocabulary is the closed builtin set.
-    #[test]
-    fn an_external_agent_kind_has_no_wire_id() {
-        let builtin = AgentKind::Builtin(CodingAgent::Codex);
-        assert_eq!(builtin.builtin(), Some(CodingAgent::Codex));
-        assert_eq!(builtin.id(), "codex");
-        assert_eq!(builtin.wire_id(), Some("codex"));
-        assert_eq!(builtin.label(), "Codex");
-
-        let external = AgentKind::External(ExternalAgentSpec {
-            id: "acme".to_string(),
-            label: "Acme ACP".to_string(),
-            command: "acme".to_string(),
-            ..ExternalAgentSpec::default()
-        });
-        assert_eq!(external.builtin(), None);
-        assert_eq!(external.id(), "acme");
-        assert_eq!(external.wire_id(), None);
-        assert_eq!(external.label(), "Acme ACP");
-
-        // A label-less spec still names itself.
-        let bare = AgentKind::External(ExternalAgentSpec {
-            id: "bare".to_string(),
-            ..ExternalAgentSpec::default()
-        });
-        assert_eq!(bare.label(), "bare");
-        assert_eq!(AgentKind::default(), AgentKind::Builtin(CodingAgent::Claude));
     }
 
     #[test]

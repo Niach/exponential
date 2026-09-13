@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc-client"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { GLASS_PICKER_ROW, GlassGroup } from "@/components/ui/glass-rows"
 import {
   Select,
   SelectContent,
@@ -26,8 +27,9 @@ const CONNECT = `connect`
 const INLINE = `inline`
 
 // The board form's repository + branch block (EXP-712), shared by the
-// create-board dialog and the per-board settings dialog. Behaves like ONE
-// select: "No repository", the team's connected repos, and a trailing
+// create-board dialog and the per-board settings page. Behaves like ONE
+// picker ROW (EXP-862 — the label sits inside the row): "No repository", the
+// team's connected repos, and a trailing
 // "Connect another repository…" action that expands the GitHub picker
 // underneath (a brand-new repo is reported through `onConnectNew`; the host
 // decides whether that connects immediately or waits for submit). Below it,
@@ -98,7 +100,7 @@ export function BoardRepoField({
     repositoryId && repos ? repos.find((r) => r.id === repositoryId) : null
 
   // FEED-32: the host can point the board at a repo this list has never seen
-  // — the settings dialog connects a new repo and the LIVE board row flips
+  // — the settings page connects a new repo and the LIVE board row flips
   // `repositoryId` before this copy of `repositories.list` is refreshed, so
   // the Select held a value with no matching item and the trigger went blank.
   // Re-list ONCE per unknown id (a genuinely unknown id — an archived repo —
@@ -146,9 +148,8 @@ export function BoardRepoField({
     : (selectedRepo?.defaultBranch ?? null)
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="board-repository">Repository</Label>
+    <div className="space-y-2">
+      <GlassGroup>
         <Select
           value={value}
           disabled={disabled || loading}
@@ -167,20 +168,31 @@ export function BoardRepoField({
             if (repo) onSelectRegistry(repo)
           }}
         >
-          <SelectTrigger id="board-repository" className="w-full">
-            <SelectValue placeholder={triggerLabel}>
-              {labelRepo ? (
-                <span className="flex min-w-0 items-center gap-2">
-                  <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{labelRepo.fullName}</span>
-                  {labelRepo.private && (
-                    <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                </span>
-              ) : (
-                triggerLabel
-              )}
-            </SelectValue>
+          {/* EXP-862: the field IS a row of the form's glass group — the
+              label leads it, the repo sits at the trailing edge. The
+              explicit `aria-label` keeps the control's accessible name the
+              field's name now that the label is part of the row's text. */}
+          <SelectTrigger
+            id="board-repository"
+            aria-label="Repository"
+            className={GLASS_PICKER_ROW}
+          >
+            <span className="shrink-0 text-sm text-foreground">Repository</span>
+            <span className="ml-auto min-w-0 truncate text-sm text-foreground/70">
+              <SelectValue placeholder={triggerLabel}>
+                {labelRepo ? (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{labelRepo.fullName}</span>
+                    {labelRepo.private && (
+                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                  </span>
+                ) : (
+                  triggerLabel
+                )}
+              </SelectValue>
+            </span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE}>No repository</SelectItem>
@@ -211,29 +223,25 @@ export function BoardRepoField({
             </SelectItem>
           </SelectContent>
         </Select>
-        {pickerOpen && (
-          <GithubRepoPicker
-            teamId={teamId}
-            onSelect={(repo) => {
-              setPickerOpen(false)
-              onConnectNew(repo)
-            }}
-          />
-        )}
-      </div>
 
-      {repoDefault && (
-        <div className="space-y-2">
-          <Label htmlFor="board-branch">Branch</Label>
-          {inlineRepo || !selectedRepo ? (
-            <Input
-              id="board-branch"
-              value={branch ?? ``}
-              placeholder={repoDefault}
-              disabled={disabled}
-              className="font-mono"
-              onChange={(e) => onBranchChange(e.target.value.trim() || null)}
-            />
+        {repoDefault &&
+          (inlineRepo || !selectedRepo ? (
+            <div className="flex items-center gap-3 px-4 py-3">
+              <Label
+                htmlFor="board-branch"
+                className="shrink-0 font-normal text-foreground"
+              >
+                Branch
+              </Label>
+              <Input
+                id="board-branch"
+                value={branch ?? ``}
+                placeholder={repoDefault}
+                disabled={disabled}
+                className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-right font-mono text-sm text-foreground/70 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm"
+                onChange={(e) => onBranchChange(e.target.value.trim() || null)}
+              />
+            </div>
           ) : (
             <BranchCombobox
               repositoryId={selectedRepo.id}
@@ -241,20 +249,29 @@ export function BoardRepoField({
               repoDefault={repoDefault}
               disabled={disabled}
               ariaLabel="Branch"
-              className="h-9 w-full justify-between font-mono text-sm font-normal"
+              rowLabel="Branch"
               onPick={onBranchChange}
             />
-          )}
-        </div>
+          ))}
+      </GlassGroup>
+
+      {pickerOpen && (
+        <GithubRepoPicker
+          teamId={teamId}
+          onSelect={(repo) => {
+            setPickerOpen(false)
+            onConnectNew(repo)
+          }}
+        />
       )}
 
-      <p className="text-xs text-muted-foreground">{BOARD_REPO_NOTE}</p>
+      <p className="px-1 text-xs text-muted-foreground">{BOARD_REPO_NOTE}</p>
       {loadError && (
-        <p className="text-xs text-destructive">
+        <p className="px-1 text-xs text-destructive">
           Couldn&rsquo;t load the team&rsquo;s repositories: {loadError}
         </p>
       )}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="px-1 text-xs text-destructive">{error}</p>}
     </div>
   )
 }

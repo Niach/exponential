@@ -81,7 +81,7 @@ use crate::native_dialog::{self, AlertSpec};
 use crate::repo_resolver::{repo_resolver_for_window, RepoResolver};
 use crate::surface;
 
-use super::{card_title, section};
+use super::section;
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -903,28 +903,25 @@ impl Render for LocalReposPane {
         let sweeping = self.any_busy();
         let has_worktrees = matches!(&self.scan, Scan::Ready(repos)
             if repos.iter().any(|repo| !repo.worktrees.is_empty()));
-        let mut body = section(cx).child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .child(card_title("Worktrees"))
-                .child(
-                    // EXP-698: the one 32px glass chrome every trailing action
-                    // wears; `loading` swaps the glyph for the spinner.
-                    crate::controls::glass_icon_button(
-                        "local-repos-prune-all",
-                        Icon::new(registry::UI_CLEAN),
-                        cx,
-                    )
-                        .loading(sweeping)
-                        .tooltip("Prune merged worktrees")
-                        .disabled(sweeping || !has_worktrees)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.run_prune_all(window, cx);
-                        })),
-                ),
-        );
+        // EXP-862: the broom rides the BAND's trailing slot as a ghost glyph;
+        // `loading` swaps it for the spinner.
+        let prune_all = crate::controls::ghost_icon_button(
+            "local-repos-prune-all",
+            Icon::new(registry::UI_CLEAN),
+            cx,
+        )
+        .loading(sweeping)
+        .tooltip("Prune merged worktrees")
+        .disabled(sweeping || !has_worktrees)
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.run_prune_all(window, cx);
+        }))
+        .into_any_element();
+        let mut body = section(cx).child(crate::surface::glass_section_header(
+            "Worktrees",
+            Some(prune_all),
+            cx,
+        ));
 
         body = body.child(
             div()
@@ -1025,7 +1022,11 @@ impl Render for LocalReposPane {
                     .map(|(ix, (repo, in_use, _))| self.render_repo_row(ix, repo, *in_use, cx))
                     .collect();
                 body = body
-                    .child(card_title("Local repositories"))
+                    .child(crate::surface::glass_section_header(
+                        "Local repositories",
+                        None,
+                        cx,
+                    ))
                     .child(surface::glass_group_rows(clone_rows));
             }
         }

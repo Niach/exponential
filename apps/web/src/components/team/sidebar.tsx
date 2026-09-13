@@ -21,16 +21,13 @@ import type { Board, Team } from "@/db/schema"
 import {
   useReviewsOpenPrCount,
   useAgentsRunningCount,
-  useDevicesNeedSignIn,
 } from "@/hooks/use-nav-counts"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
-import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { TeamListNav } from "@/components/team/list-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
-import { SidebarSessions } from "@/components/team/sidebar-sessions"
 import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { sidebarOccupant } from "@/lib/detail-origin"
@@ -89,6 +86,12 @@ const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiCheckIcon = conceptIcon(`ui-check`)
 
+// EXP-862: the sidebar's COMPACT density — 28px rows at the list's own type
+// size. Every arm of the 17rem slot runs at it (the list nav's rows and the
+// compact inbox are exactly as tall); `size="sm"` alone would also drop the
+// label to 12px, which is a different decision.
+const SIDEBAR_ROW_COMPACT = `h-7 text-sm`
+
 // EXP-699: nav badges are dots, never counts — same colors and logic as
 // the mobile tab bars on all four clients.
 function NavDot({ className }: { className: string }) {
@@ -139,14 +142,6 @@ function AgentRunningBadge({ teamId }: { teamId?: string }) {
   return <NavDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
 
-// EXP-792 (EXP-747 A4): an amber dot on Devices when one of MY online
-// machines has an agent signed out.
-function DevicesSignInBadge() {
-  const { data: session } = useSession()
-  const needsSignIn = useDevicesNeedSignIn(session?.user?.id)
-  return needsSignIn ? <NavDot className="bg-amber-500" /> : null
-}
-
 interface TeamSidebarProps {
   teamSlug: string
   team: Team | null | undefined
@@ -164,11 +159,6 @@ export function TeamSidebar({
   const navigate = useNavigate()
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  // FEED-3: hover gear on a board row → the board-settings dialog (rename,
-  // icon, color, repo). Owner-gated like the settings Boards pages; the
-  // dialog receives the LIVE row so a concurrent trash closes it.
-  const [editBoardId, setEditBoardId] = useState<string | null>(null)
-  const editBoard = boards?.find((board) => board.id === editBoardId) ?? null
   const permissions = useTeamPermissions(team)
   const { isOwner, canCreate } = permissions
   // EXP-449: the header's New-issue button works from any team route — it
@@ -190,7 +180,7 @@ export function TeamSidebar({
   const userLabel = session?.user?.name || session?.user?.email
   const userInitials = userLabel ? getInitials(userLabel) : `?`
 
-  // EXP-456 / EXP-851: the 16rem slot has THREE occupants — the main menu, the
+  // EXP-456 / EXP-851: the 17rem slot has THREE occupants — the main menu, the
   // settings nav, and the LIST NAV a detail brings along (`?from=`). Derived
   // from the URL (not click state) so every entry point (footer gear, mobile
   // topbar menu, a list row, deep links) drives the same swap, and a direct
@@ -207,7 +197,17 @@ export function TeamSidebar({
       return typeof value === `string` ? value : null
     },
   })
+  // EXP-862: the composer's seeded ACTION (`/t/$teamSlug/agent?action=`). The
+  // pinned row for that action is what reads as active then, so the Agent
+  // entry must NOT — two highlighted rows would both claim the same page.
+  const composerActionId = useRouterState({
+    select: (s) => {
+      const value = (s.location.search as { action?: unknown }).action
+      return typeof value === `string` && value !== `` ? value : null
+    },
+  })
   const occupant = sidebarOccupant(pathname, fromToken)
+  const agentPage = pathname.endsWith(`/agent`)
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
   // Whichever overlay is up pushes the main menu out left.
@@ -347,7 +347,7 @@ export function TeamSidebar({
                       Reviews. */}
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                         <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
                           <NavInboxIcon className="h-4 w-4" />
                           <span>Inbox</span>
@@ -357,7 +357,7 @@ export function TeamSidebar({
                     </SidebarMenuItem>
                     {team?.helpdeskEnabled === true && (
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
+                        <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                           <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
                             <NavSupportIcon className="h-4 w-4" />
                             <span>Support</span>
@@ -369,16 +369,15 @@ export function TeamSidebar({
                     {/* EXP-686: Devices · Actions · Automations, the three
                         surfaces the old Agents entry bundled. */}
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                         <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
                           <NavDevicesIcon className="h-4 w-4" />
                           <span>Devices</span>
                         </Link>
                       </SidebarMenuButton>
-                      <DevicesSignInBadge />
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                         <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
                           <NavActionsIcon className="h-4 w-4" />
                           <span>Actions</span>
@@ -386,7 +385,7 @@ export function TeamSidebar({
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                         <Link
                           to="/t/$teamSlug/automations"
                           params={{ teamSlug }}
@@ -397,7 +396,7 @@ export function TeamSidebar({
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                         <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
                           <NavReviewsIcon className="h-4 w-4" />
                           <span>Reviews</span>
@@ -405,10 +404,22 @@ export function TeamSidebar({
                       </SidebarMenuButton>
                       <ReviewsOpenBadge boards={boards} teamId={team?.id} />
                     </SidebarMenuItem>
-                    {/* EXP-818: the Agent page — the sessions list beside the
-                        chat prompt (the IDE rail's Agent entry). */}
+                    {/* EXP-818: the Agent page — the composer over the
+                        caller's running and past runs (the IDE rail's Agent
+                        entry). EXP-862: the RUNNING runs are listed there and
+                        nowhere else in the sidebar. */}
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton
+                        asChild
+                        className={cn(
+                          SIDEBAR_ROW_COMPACT,
+                          // A pinned action is driving the composer: its row
+                          // owns the highlight (EXP-862).
+                          agentPage &&
+                            composerActionId !== null &&
+                            `data-[status=active]:bg-transparent data-[status=active]:font-normal data-[status=active]:text-sidebar-foreground`
+                        )}
+                      >
                         <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
                           <NavAgentIcon className="h-4 w-4" />
                           <span>Agent</span>
@@ -437,7 +448,7 @@ export function TeamSidebar({
                   <SidebarMenu>
                     {!boards || boards.length === 0 ? (
                       <SidebarMenuItem>
-                        <SidebarMenuButton disabled>
+                        <SidebarMenuButton disabled className={SIDEBAR_ROW_COMPACT}>
                           <NavBoardsIcon className="h-4 w-4" />
                           <span className="text-muted-foreground">
                             No boards yet
@@ -449,7 +460,7 @@ export function TeamSidebar({
                         const TypeIcon = getBoardIcon(board)
                         return (
                           <SidebarMenuItem key={board.id}>
-                            <SidebarMenuButton asChild>
+                            <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
                               <Link
                                 to="/t/$teamSlug/boards/$boardSlug"
                                 params={{
@@ -466,12 +477,17 @@ export function TeamSidebar({
                             </SidebarMenuButton>
                             {isOwner && (
                               <SidebarMenuAction
+                                asChild
                                 showOnHover
                                 title="Board settings"
-                                aria-label={`Settings for ${board.name}`}
-                                onClick={() => setEditBoardId(board.id)}
                               >
-                                <NavSettingsIcon />
+                                <Link
+                                  to="/t/$teamSlug/settings/boards/$boardId"
+                                  params={{ teamSlug, boardId: board.id }}
+                                  aria-label={`Settings for ${board.name}`}
+                                >
+                                  <NavSettingsIcon />
+                                </Link>
                               </SidebarMenuAction>
                             )}
                           </SidebarMenuItem>
@@ -481,11 +497,9 @@ export function TeamSidebar({
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
-              {/* EXP-818: the running sessions, the IDE rail's Sessions
-                  section — replaced the dock band under the card. */}
-              {team && session?.user?.id && (
-                <SidebarSessions teamId={team.id} currentUserId={session.user.id} />
-              )}
+              {/* EXP-862: no Sessions group here. A RUNNING run is listed on
+                  the Agent page (and in the list nav beside an open one) —
+                  one list, not a standing copy in the main menu. */}
             </SidebarContent>
     
             <SidebarFooter>
@@ -616,16 +630,6 @@ export function TeamSidebar({
           open={createBoardOpen}
           onOpenChange={setCreateBoardOpen}
           team={team}
-        />
-      )}
-      {team && (
-        <BoardSettingsDialog
-          board={editBoard}
-          team={team}
-          onOpenChange={(open) => {
-            if (!open) setEditBoardId(null)
-          }}
-          onRepoChanged={() => {}}
         />
       )}
       <CreateTeamDialog
