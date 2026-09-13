@@ -23,7 +23,6 @@
 //!   more**, because the other account's transcript is replayed into it. Said
 //!   once, where the switch is offered.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled as _, Window,
 };
@@ -60,8 +59,7 @@ pub(crate) const WALL_SWITCH_LABEL: &str = "Switch account";
 
 /// What a switch costs, said ONCE where the switch is offered.
 pub(crate) const COST_NOTE: &str =
-    "Switching continues this run under the other account. The agent re-reads the \
-     transcript once, which costs tokens.";
+    "The run continues under the other account. Re-reading the transcript once costs tokens.";
 
 /// The continuation byline a resumed run's screen carries.
 pub(crate) const CONTINUATION_NOTE: &str = "Continues an earlier run";
@@ -124,6 +122,35 @@ pub(crate) struct SwitchTarget {
     pub current: bool,
     /// `None` = offerable; `Some(reason)` = rendered disabled with the reason.
     pub blocked: Option<String>,
+}
+
+impl SwitchTarget {
+    /// EXP-863 — the refusal that belongs UNDER this row and nowhere else:
+    /// the account's own state (signed out, needs a re-login). Every other
+    /// reason is about the RUN (agent, host, build, turn) and is said once,
+    /// in the sheet's footer ([`footer_note`]) — a row must never repeat it.
+    pub(crate) fn row_refusal(&self) -> Option<&str> {
+        self.blocked
+            .as_deref()
+            .filter(|reason| *reason == REASON_SIGNED_OUT || *reason == REASON_NEEDS_RELOGIN)
+    }
+}
+
+/// EXP-863 — the ONE note under the sheet: the global blocker when a switch
+/// is refused for every other account, else the one-time cost of taking one.
+/// `None` when there is no other account at all (the Accounts section is
+/// hidden then, and a cost note for a switch nobody can take is noise).
+pub(crate) fn footer_note(
+    targets: &[SwitchTarget],
+    blocker: Option<&SwitchBlocker>,
+) -> Option<&'static str> {
+    if !targets.iter().any(|target| !target.current) {
+        return None;
+    }
+    Some(match blocker {
+        Some(blocker) => blocker.message(),
+        None => COST_NOTE,
+    })
 }
 
 /// EXP-849 — the switch decision for one run: the accounts its HOST machine
@@ -278,90 +305,85 @@ impl SwitchContext {
             .and_then(|record| record.account())
     }
 
-    /// The account rows, with their usage bars, and a "Use this account"
-    /// action on every offerable one. `None` when the machine reported no
-    /// account at all for the agent (nothing to say, and nothing to switch).
-    pub(crate) fn render(&self, cx: &App) -> Option<AnyElement> {
-        let device_id = self.device_id.clone()?;
+    /// EXP-863 — the switch decision for this run: every account its host
+    /// holds for the agent (the current one included, flagged) and the global
+    /// blocker. `None` when the machine reported no account at all for the
+    /// agent (nothing to say, and nothing to switch), or the row has not
+    /// synced its device yet.
+    pub(crate) fn resolve(&self, cx: &App) -> Option<(Vec<SwitchTarget>, Option<SwitchBlocker>)> {
+        let device_id = self.device_id.as_deref()?;
         let rows = crate::usage_bar::device_profile_rows(cx);
         let (targets, blocker) = switch_targets(
             &rows,
-            &device_id,
+            device_id,
             self.agent,
             self.current_account(cx).as_deref(),
             self.can_switch(cx),
             self.working,
         );
-        if targets.is_empty() {
+        (!targets.is_empty()).then_some((targets, blocker))
+    }
+
+    /// EXP-863 — the rows of the sheet's "Accounts" section: ONLY the accounts
+    /// the run is NOT on (the active one is the sheet's header), each with its
+    /// caption + health, the Switch control, its dense usage cards and — for
+    /// an account-level refusal only — the reason. `None` when there is no
+    /// other account, so the caller omits the section.
+    pub(crate) fn render_account_rows(
+        &self,
+        targets: &[SwitchTarget],
+        cx: &App,
+    ) -> Option<AnyElement> {
+        let device_id = self.device_id.clone()?;
+        let others: Vec<&SwitchTarget> = targets.iter().filter(|target| !target.current).collect();
+        if others.is_empty() {
             return None;
         }
         let muted = cx.theme().muted_foreground;
-        let switchable = targets.iter().any(|target| target.blocked.is_none() && !target.current);
-        let mut block = v_flex().w_full().min_w_0().gap_1p5().child(
-            div()
-                .text_xs()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(muted)
-                .child(SECTION_TITLE),
-        );
-        for (index, target) in targets.iter().enumerate() {
+        let mut block = v_flex().w_full().min_w_0().gap_2p5();
+        for (index, target) in others.into_iter().enumerate() {
             let session_id = self.session_id.clone();
             let device = device_id.clone();
             let local = self.local;
             let profile_id = target.profile_id.clone();
-            let offerable = target.blocked.is_none() && !target.current;
-            let reason = target.blocked.clone();
-            let mut row = v_flex()
-                .w_full()
-                .min_w_0()
-                .gap_0p5()
-                .child(
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .items_center()
-                        .gap_1p5()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_xs()
-                                .child(SharedString::from(target.caption.clone())),
-                        )
-                        .when(target.current, |this| {
-                            this.child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_2xs()
-                                    .text_color(muted)
-                                    .child("in use"),
-                            )
-                        })
-                        // EXP-849: the control is DISABLED with its reason, never
-                        // hidden — a switch that silently disappears mid-run
-                        // reads as a bug, and the reason is the whole point.
-                        .when(!target.current, |this| {
-                            this.child(
-                                Button::new(("session-use-account", index))
-                                    .ghost()
-                                    .cursor_pointer()
-                                    .xsmall()
-                                    .label(SWITCH_LABEL)
-                                    .disabled(!offerable)
-                                    .on_click(move |_, window, cx| {
-                                        switch_to(
-                                            session_id.clone(),
-                                            Some(device.clone()),
-                                            local,
-                                            profile_id.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    }),
-                            )
-                        }),
-                );
+            let offerable = target.blocked.is_none();
+            let mut row = v_flex().w_full().min_w_0().gap_1().child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .child(SharedString::from(target.caption.clone())),
+                    )
+                    .children(crate::usage_bar::health_badge(target.health, cx))
+                    // EXP-849: the control is DISABLED with its reason, never
+                    // hidden — a switch that silently disappears mid-run
+                    // reads as a bug, and the reason is the whole point.
+                    .child(
+                        Button::new(("session-use-account", index))
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .label(SWITCH_LABEL)
+                            .disabled(!offerable)
+                            .on_click(move |_, window, cx| {
+                                switch_to(
+                                    session_id.clone(),
+                                    Some(device.clone()),
+                                    local,
+                                    profile_id.clone(),
+                                    window,
+                                    cx,
+                                );
+                            }),
+                    ),
+            );
             if let Some(usage) = target.usage.as_ref().filter(|usage| !usage.windows.is_empty()) {
                 row = row.child(crate::usage_bar::render_usage_cards_dense(
                     self.agent,
@@ -370,32 +392,46 @@ impl SwitchContext {
                     cx,
                 ));
             }
-            // The reason sits on the ROW it refuses — a single note at the
-            // bottom would not say which account it was about.
-            if let Some(reason) = reason.filter(|_| !target.current) {
+            // EXP-863: only the ACCOUNT's own refusal sits on its row; a
+            // run-level one (busy, offline, agent, build) is the footer's,
+            // said once for the whole sheet.
+            if let Some(reason) = target.row_refusal() {
                 row = row.child(
                     div()
                         .text_2xs()
                         .text_color(muted)
-                        .child(SharedString::from(reason)),
+                        .child(SharedString::from(reason.to_string())),
                 );
             }
             block = block.child(row);
         }
-        if let Some(blocker) = blocker {
+        Some(block.into_any_element())
+    }
+}
+
+impl SwitchContext {
+    /// EXP-849 — the account block on its own (the rate-limit wall's "Switch
+    /// account" popover, `steer_viewer`): the "Accounts" title, the OTHER
+    /// accounts' rows and the one footer note ([`footer_note`]). `None` when
+    /// the machine reported no account for the agent, or holds no other one
+    /// — a popover that can only explain itself is worse than none. The
+    /// session header's usage sheet composes the same pieces itself, with
+    /// the active account and the context meter above them.
+    pub(crate) fn render(&self, cx: &App) -> Option<AnyElement> {
+        let (targets, blocker) = self.resolve(cx)?;
+        let rows = self.render_account_rows(&targets, cx)?;
+        let mut block = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .child(crate::usage_bar::sheet_section_title(SECTION_TITLE, cx))
+            .child(rows);
+        if let Some(note) = footer_note(&targets, blocker.as_ref()) {
             block = block.child(
                 div()
                     .text_2xs()
-                    .text_color(muted)
-                    .child(SharedString::from(blocker.message())),
-            );
-        } else if switchable {
-            // EXP-849: said ONCE, where the switch is offered.
-            block = block.child(
-                div()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(COST_NOTE),
+                    .text_color(cx.theme().muted_foreground.opacity(0.8))
+                    .child(note),
             );
         }
         Some(block.into_any_element())
@@ -670,6 +706,61 @@ mod tests {
         assert!(targets[0].current && targets[0].profile_id == "0a1b2c3d");
     }
 
+    /// EXP-863: a refusal is said ONCE. An account-level reason (signed out,
+    /// re-login) belongs on its row; a run-level one (busy, offline, agent,
+    /// build) is the footer's and never repeats under a row. No other account
+    /// at all: no footer — the section is hidden, and so is the cost note.
+    #[test]
+    fn refusals_are_said_once_row_or_footer() {
+        let rows = vec![
+            row(coding::SYSTEM_PROFILE, true, Health::Ok),
+            row("0a1b2c3d", true, Health::Ok),
+            row("deadbeef", false, Health::SignedOut),
+            row("badc0ffe", true, Health::NeedsRelogin),
+        ];
+        let by_id = |targets: &[SwitchTarget], id: &str| {
+            targets.iter().find(|t| t.profile_id == id).unwrap().clone()
+        };
+
+        // Idle: the broken accounts carry their own sentence, the healthy one
+        // none, and the footer is the cost note.
+        let (targets, blocker) =
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, true, false);
+        assert_eq!(
+            by_id(&targets, "deadbeef").row_refusal(),
+            Some("Sign in to this account on that machine first.")
+        );
+        assert_eq!(
+            by_id(&targets, "badc0ffe").row_refusal(),
+            Some("This account needs a re-login on that machine.")
+        );
+        assert_eq!(by_id(&targets, "0a1b2c3d").row_refusal(), None);
+        assert_eq!(footer_note(&targets, blocker.as_ref()), Some(COST_NOTE));
+
+        // Mid-turn: the footer says busy ONCE and no row repeats it.
+        let (targets, blocker) =
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, true, true);
+        assert_eq!(
+            footer_note(&targets, blocker.as_ref()),
+            Some("The agent is working — switching waits for the turn to finish.")
+        );
+        assert!(targets.iter().all(|target| target.row_refusal().is_none()));
+
+        // One login only: nothing to switch to, nothing to say.
+        let (targets, blocker) =
+            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, true, false);
+        assert_eq!(footer_note(&targets, blocker.as_ref()), None);
+
+        // Only broken other accounts: their rows say why, the footer names
+        // the machine's state — two different sentences.
+        let broken = vec![rows[0].clone(), rows[2].clone()];
+        let (targets, blocker) =
+            switch_targets(&broken, "dev-1", CodingAgent::Claude, None, true, false);
+        let footer = footer_note(&targets, blocker.as_ref()).unwrap();
+        assert_eq!(footer, SwitchBlocker::NoOtherAccount.message());
+        assert_ne!(Some(footer), by_id(&targets, "deadbeef").row_refusal());
+    }
+
     /// The copy is the ×4 copy, byte for byte (Android
     /// `SessionAccountSwitch`, iOS `SessionAccountSwitch`, web
     /// `session-account-switch.tsx`).
@@ -680,8 +771,7 @@ mod tests {
         assert_eq!(WALL_SWITCH_LABEL, "Switch account");
         assert_eq!(
             COST_NOTE,
-            "Switching continues this run under the other account. The agent re-reads the \
-             transcript once, which costs tokens."
+            "The run continues under the other account. Re-reading the transcript once costs tokens."
         );
         assert_eq!(CONTINUATION_NOTE, "Continues an earlier run");
         assert_eq!(

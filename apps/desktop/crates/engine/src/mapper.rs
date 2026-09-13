@@ -1899,6 +1899,29 @@ impl Mapper {
         emit(out, event, None);
     }
 
+    /// EXP-861: is a compaction open right now? The host's queue gate reads
+    /// it beside the turn signal — a message sent mid-compaction is held
+    /// exactly like one sent mid-turn.
+    pub fn compacting(&self) -> bool {
+        self.compacting_since.is_some()
+    }
+
+    /// EXP-861: publish the queue slot — the messages the host holds behind
+    /// the running turn, in FULL (an empty list closes every client's bar).
+    /// The texts are the person's own words: redacted like a `user_message`
+    /// and cut to the relay's per-message cap.
+    pub fn publish_queue(&mut self, messages: &[(String, String)], out: &mut MapOut) {
+        let messages = messages
+            .iter()
+            .take(steer::QUEUE_MAX)
+            .map(|(id, text)| steer::QueuedMessage {
+                id: id.clone(),
+                text: self.clean(text, steer::QUEUE_TEXT_MAX),
+            })
+            .collect();
+        emit(out, ActivityEvent::queue(messages), None);
+    }
+
     fn start_compaction(&mut self, trigger: Option<&str>, out: &mut MapOut) {
         if self.compacting_since.is_some() {
             return;

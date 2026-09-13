@@ -816,6 +816,13 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.compactionTimeoutSeconds, 180)
     }
 
+    /// EXP-861: the queued-messages strip's captions — byte-identical ×4 (web
+    /// `QUEUE_STRIP_TITLE`/`QUEUE_REMOVE_LABEL`, Android, desktop).
+    func testQueueCaptionsAreTheLockedLiterals() {
+        XCTAssertEqual(AgentFeed.queueStripTitle, "Queued")
+        XCTAssertEqual(AgentFeed.queueRemoveLabel, "Remove from queue")
+    }
+
     // MARK: - Live agent config + usage (EXP-746)
 
     func testApplyConfigStateFoldsAFullSnapshot() {

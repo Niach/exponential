@@ -189,6 +189,8 @@ const LATEST_WINS_KINDS = new Set([
   // and one room may hold WORKFLOW_SLOT_CAP of them.
   `background_tasks`,
   `workflow`,
+  // EXP-861: the queued user messages behind a running turn.
+  `queue`,
 ])
 // Replay order for the latest-wins slots — CANONICAL, not a leftover: this is
 // the order every join replay hands the slots to a client. The keyed
@@ -200,6 +202,7 @@ const LATEST_REPLAY_ORDER = [
   `usage`,
   `rate_limit`,
   `turn`,
+  `queue`,
   `workflow`,
   `background_tasks`,
   `diff`,
@@ -625,6 +628,24 @@ export class Hub {
         // Same gating as `input` — a joined (owner-minted) viewer.
         if (!room.activityMembers.has(conn)) return
         room.publisher.sock.send(frame({ t: `kill` }))
+        return
+      }
+
+      case `interrupt`: {
+        const room = this.roomFor(conn)
+        if (!room || !room.publisher) return
+        // Same gating as `input` — a joined (owner-minted) viewer.
+        if (!room.activityMembers.has(conn)) return
+        room.publisher.sock.send(frame({ t: `interrupt` }))
+        return
+      }
+
+      case `unqueue`: {
+        const room = this.roomFor(conn)
+        if (!room || !room.publisher) return
+        // Same gating as `input`.
+        if (!room.activityMembers.has(conn)) return
+        room.publisher.sock.send(frame({ t: `unqueue`, id: msg.id }))
         return
       }
 

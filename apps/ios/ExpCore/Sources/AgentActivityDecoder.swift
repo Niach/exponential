@@ -151,6 +151,9 @@ public enum AgentActivityEvent: Equatable, Sendable {
     case compaction(AgentCompactionEdge)
     /// EXP-850 §2: the FULL current list — an empty array closes the strip.
     case backgroundTasks([AgentBackgroundTask])
+    /// EXP-861: the FULL current queue, latest-wins — an empty array clears
+    /// the strip.
+    case queue([QueuedMessage])
     /// EXP-850 §3: latest-wins per `id`.
     case workflow(AgentWorkflow)
 }
@@ -229,6 +232,8 @@ public enum AgentActivityDecoder {
             return .compaction(compaction(event))
         case "background_tasks":
             return .backgroundTasks(backgroundTasks(event))
+        case "queue":
+            return .queue(queue(event))
         case "workflow":
             guard let workflow = workflow(event) else { return nil }
             return .workflow(workflow)
@@ -372,6 +377,18 @@ public enum AgentActivityDecoder {
                 description: description,
                 toolId: string(row["toolId"])
             )
+        }
+    }
+
+    /// EXP-861: the whole queue, oldest first. A row without an id or a text
+    /// cannot be revoked or drawn, so it is skipped; a frame without a
+    /// readable `messages` array reads as empty (the device's "nothing
+    /// queued"), never as "keep".
+    static func queue(_ event: [String: Any]) -> [QueuedMessage] {
+        guard let rows = event["messages"] as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let id = string(row["id"]), let text = row["text"] as? String else { return nil }
+            return QueuedMessage(id: id, text: text)
         }
     }
 

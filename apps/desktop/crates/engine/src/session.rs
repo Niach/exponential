@@ -308,9 +308,18 @@ impl EngineSession {
         self.0.ctx.terminals.kill(terminal_id);
     }
 
-    /// Interrupt the running turn without ending the session.
+    /// Interrupt the running turn without ending the session. EXP-861: a
+    /// Stop also drops the messages held queued behind the turn.
     pub fn cancel_turn(&self) {
         self.send(EngineCommand::Cancel);
+    }
+
+    /// EXP-861: revoke ONE message the host holds queued behind the running
+    /// turn — the local composer's × on the queue bar (a viewer's arrives as
+    /// the relay `unqueue` frame). The re-published `queue` slot is the
+    /// confirmation; an unknown id is a no-op.
+    pub fn unqueue(&self, id: &str) {
+        self.send(EngineCommand::Unqueue(id.to_string()));
     }
 
     pub fn turn_signal(&self) -> Arc<steer::TurnSignal> {
@@ -560,6 +569,8 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
         blocked: Mutex::new(None),
+        prompt_queue: Mutex::new(std::collections::VecDeque::new()),
+        queue_commands: OnceLock::new(),
         last_activity: Mutex::new(std::time::Instant::now()),
         failure: Mutex::new(None),
         exit: ExitState::default(),
@@ -585,6 +596,9 @@ where
     A: ConnectTo<Client> + 'static,
 {
     let (commands, inbox) = flume::unbounded();
+    // EXP-861: the queue drains through the command loop, so the context
+    // needs the loop's own inbox handle.
+    let _ = ctx.queue_commands.set(commands.clone());
     let lifecycle = RunLifecycle::attach(Arc::clone(&ctx), kill, commands.clone())?;
     let thread_ctx = Arc::clone(&ctx);
     let spawned = std::thread::Builder::new()

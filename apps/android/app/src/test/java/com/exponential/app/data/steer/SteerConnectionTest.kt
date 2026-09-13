@@ -962,6 +962,108 @@ class SteerConnectionTest {
         }
     }
 
+    // ── EXP-861: the device's message queue ─────────────────────────────
+
+    @Test
+    fun unqueueSendsExactlyTheFrameDropsTheLineAndRefillsAnEmptyDraft() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit(
+                """{"t":"activity","event":{"kind":"queue","messages":""" +
+                    """[{"id":"m1","text":"later please"},{"id":"m2","text":"and this"}]}}""",
+            )
+            waitUntil("the queue slot") { connection.activity.value.queue.size == 2 }
+            assertTrue(connection.activity.value.feed.size == 1)
+            connection.unqueue("m1")
+            waitUntil("the unqueue frame") { socket.sent.contains("""{"t":"unqueue","id":"m1"}""") }
+            // Optimistic: the line is gone before the device republishes.
+            assertEquals(listOf("m2"), connection.activity.value.queue.map { it.id })
+            // The EMPTY draft takes the text back so it can be edited.
+            assertEquals("later please", connection.draft.value)
+            // A draft in progress is never clobbered.
+            connection.unqueue("m2")
+            waitUntil("the second frame") { socket.sent.contains("""{"t":"unqueue","id":"m2"}""") }
+            assertEquals("later please", connection.draft.value)
+            assertTrue(connection.activity.value.queue.isEmpty())
+            // An id nothing holds sends nothing.
+            connection.unqueue("m1")
+            assertEquals(2, socket.sent.count { it.contains(""""t":"unqueue"""") })
+            // A parked viewer has no socket to revoke over.
+            socket.emit("""{"t":"activity","event":{"kind":"queue","messages":[{"id":"m3","text":"x"}]}}""")
+            waitUntil("the republished slot") { connection.activity.value.queue.size == 1 }
+            connection.park()
+            connection.unqueue("m3")
+            assertEquals(2, socket.sent.count { it.contains(""""t":"unqueue"""") })
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun noLocalEchoWhileTheTurnIsStartedOrCompacting() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity","event":{"kind":"turn","state":"started"}}""")
+            waitUntil("mid-turn") { connection.activity.value.turnState == TURN_STATE_STARTED }
+            // Sending is UNCHANGED on the wire: chunks, then the submit frame.
+            assertTrue(connection.sendMessage("queued one"))
+            waitUntil("the submit frame") { socket.sent.contains("""{"t":"input","data":"\r"}""") }
+            assertTrue(socket.sent.any { it.contains(""""data":"queued one"""") })
+            // The device holds it: no local user row until it is delivered…
+            assertEquals(1, connection.activity.value.feed.size)
+            // …and the delivered row is NOT swallowed as an echo.
+            socket.emit("""{"t":"activity","event":{"kind":"user_message","text":"queued one"}}""")
+            waitUntil("the delivered row") { connection.activity.value.feed.size == 2 }
+            // Compacting suppresses the echo the same way.
+            socket.emit("""{"t":"activity","event":{"kind":"turn","state":"ended"}}""")
+            socket.emit("""{"t":"activity","event":{"kind":"compaction","phase":"started"}}""")
+            waitUntil("compacting") { connection.activity.value.compacting != null }
+            assertTrue(connection.sendMessage("queued two"))
+            assertEquals(2, connection.activity.value.feed.size)
+            socket.emit("""{"t":"activity","event":{"kind":"compaction","phase":"ended"}}""")
+            waitUntil("compacted") { connection.activity.value.compacting == null }
+            // Idle again: the local echo is back (the marker row + the echo).
+            val before = connection.activity.value.feed.size
+            assertTrue(connection.sendMessage("live one"))
+            assertEquals(before + 1, connection.activity.value.feed.size)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun theSessionEndingDropsTheQueueAndClearRateLimitDropsTheWall() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity","event":{"kind":"queue","messages":[{"id":"m1","text":"x"}]}}""")
+            socket.emit(
+                """{"t":"activity","event":{"kind":"rate_limit","status":"rejected",""" +
+                    """"window":"five_hour","resetsAt":4102444800}}""",
+            )
+            waitUntil("both slots") {
+                connection.activity.value.queue.isNotEmpty() && connection.activity.value.rateLimit != null
+            }
+            // EXP-866: the switch drops the wall at once, nothing else.
+            connection.clearRateLimit()
+            assertNull(connection.activity.value.rateLimit)
+            assertEquals(1, connection.activity.value.queue.size)
+            // EXP-861: the run ending drops what it was holding.
+            socket.emit("""{"t":"bye","outcome":"ended"}""")
+            // The relay hangs up right behind its bye.
+            socket.hangUp()
+            waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
+            assertTrue(connection.activity.value.queue.isEmpty())
+        } finally {
+            connection.close()
+        }
+    }
+
     // ── EXP-796: earlier pages need an open socket ───────────────────────
 
     @Test

@@ -1574,6 +1574,72 @@ describe(`activity event kinds`, () => {
     expect(kept[0].id).toBe(`w5zr2977l`)
   })
 
+  // EXP-861: `queue` is a latest-wins slot too — the device's held user
+  // messages, replayed right after `turn` (before the workflow cards) so a
+  // late joiner draws the bar above its composer at once. An EMPTY list is
+  // "nothing queued", a frame like any other.
+  test(`queue is latest-wins, replayed after turn and before the workflow cards`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, { kind: `turn`, state: `started` })
+    activity(hub, pub, {
+      kind: `queue`,
+      messages: [{ id: `m1`, text: `first` }],
+    })
+    const two = {
+      kind: `queue`,
+      messages: [
+        { id: `m1`, text: `first` },
+        { id: `m2`, text: `second ![image](/api/attachments/x)` },
+      ],
+      at: 9,
+    }
+    activity(hub, pub, two)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `turn`,
+      `queue`,
+      `diff`,
+    ])
+    expect(member.events()[2]).toEqual(two as never)
+    expect(room(hub).activityLog.length).toBe(1)
+
+    const emptied = { kind: `queue`, messages: [] }
+    activity(hub, pub, emptied)
+    expect(slot(hub, `queue`)).toEqual(emptied as never)
+    // A message without an id drops the WHOLE frame; the slot keeps the
+    // last good list.
+    activity(hub, pub, { kind: `queue`, messages: [{ text: `no id` }] })
+    expect(slot(hub, `queue`)).toEqual(emptied as never)
+  })
+
+  // EXP-861: `unqueue` and EXP-790's `interrupt` reach the publisher under
+  // the same membership gate as `input` (`interrupt` was sent by every client
+  // since EXP-790 and silently dropped here until now).
+  test(`unqueue and interrupt require room membership and reach the publisher`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const stranger = new FakeSocket()
+    hub.onOpen(stranger, claims({ role: `viewer`, sub: `x`, sessionId: `sess-1` }))
+    hub.onMessage(stranger, JSON.stringify({ t: `unqueue`, id: `m1` }))
+    hub.onMessage(stranger, JSON.stringify({ t: `interrupt` }))
+    expect(pub.lastFrame(`unqueue`)).toBeUndefined()
+    expect(pub.lastFrame(`interrupt`)).toBeUndefined()
+
+    const steerer = connectMember(hub, { sub: `s` })
+    hub.onMessage(steerer, JSON.stringify({ t: `unqueue`, id: `m1` }))
+    expect(pub.lastFrame(`unqueue`)).toEqual({ t: `unqueue`, id: `m1` })
+    hub.onMessage(steerer, JSON.stringify({ t: `interrupt` }))
+    expect(pub.lastFrame(`interrupt`)).toEqual({ t: `interrupt` })
+    // A blank id never forwards.
+    hub.onMessage(steerer, JSON.stringify({ t: `unqueue`, id: `` }))
+    expect(pub.framesOf(`unqueue`).length).toBe(1)
+  })
+
   // EXP-850 §3: `workflow` is latest-wins PER ID — one frame per card, all of
   // them replayed between `turn` and `background_tasks`.
   test(`workflow is latest-wins per id, replayed before background_tasks`, () => {

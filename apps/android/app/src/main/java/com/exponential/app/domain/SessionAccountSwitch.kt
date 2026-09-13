@@ -58,8 +58,7 @@ object SessionAccountSwitch {
      * transcript — one extra context read, not a per-message surcharge.
      */
     const val COST_NOTE =
-        "Switching continues this run under the other account. The agent re-reads the " +
-            "transcript once, which costs tokens."
+        "The run continues under the other account. Re-reading the transcript once costs tokens."
 
     /** The continuation byline a resumed run's screen carries. */
     const val CONTINUATION_NOTE = "Continues an earlier run"

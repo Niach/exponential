@@ -6,6 +6,10 @@ import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.BACKGROUND_TASK_KIND_OTHER
+import com.exponential.app.domain.QUEUE_REMOVE_LABEL
+import com.exponential.app.domain.QUEUE_STRIP_TITLE
+import com.exponential.app.domain.QueuedMessage
+import com.exponential.app.domain.clearQueue
 import com.exponential.app.domain.TOOL_KIND_WAIT
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_DONE
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_ERROR
@@ -2046,6 +2050,59 @@ class AgentFeedTest {
         )
         assertEquals(0L, state.feedBytes)
         assertEquals(0L, state.nextEventId)
+    }
+
+    // ── EXP-861: the device's message queue ─────────────────────────────────
+
+    @Test
+    fun `the queue is a latest-wins slot a republish replaces and an empty list clears`() {
+        val one = ActivityFeedState().applying(
+            event("""{"kind":"queue","messages":[{"id":"m1","text":"first"}],"at":1}"""),
+        )
+        // State beside the feed, never a row — and it weighs nothing.
+        assertTrue(one.feed.isEmpty())
+        assertEquals(0L, one.feedBytes)
+        assertEquals(0L, one.nextEventId)
+        assertEquals(listOf(QueuedMessage("m1", "first")), one.queue)
+        // A republish is the WHOLE queue: it replaces, never merges.
+        val two = one.applying(
+            event(
+                """{"kind":"queue","messages":[{"id":"m2","text":"second"},""" +
+                    """{"id":"m3","text":"![image](/api/attachments/a1)"}]}""",
+            ),
+        )
+        assertEquals(listOf("m2", "m3"), two.queue.map { it.id })
+        assertEquals("![image](/api/attachments/a1)", two.queue.last().text)
+        // An entry without an id cannot be revoked and one without text is
+        // not a message: both are skipped, the rest still lists.
+        val partial = two.applying(
+            event("""{"kind":"queue","messages":[{"id":"m4"},{"text":"no id"},{"id":"m5","text":"ok"}]}"""),
+        )
+        assertEquals(listOf("m5"), partial.queue.map { it.id })
+        // No `messages` array at all: the previous list survives.
+        assertEquals(listOf("m5"), partial.applying(event("""{"kind":"queue"}""")).queue.map { it.id })
+        // An EMPTY array is meaningful — nothing is queued — and clears the bar.
+        assertTrue(partial.applying(event("""{"kind":"queue","messages":[]}""")).queue.isEmpty())
+        // The session ending under it drops it the same way.
+        assertTrue(partial.clearQueue().queue.isEmpty())
+    }
+
+    @Test
+    fun `a replay swap starts from a state with nothing queued`() {
+        // The connection re-folds a replay from a FRESH state: a queue the
+        // replay does not restate is gone, like every other slot.
+        val stale = ActivityFeedState().applying(
+            event("""{"kind":"queue","messages":[{"id":"m1","text":"first"}]}"""),
+        )
+        assertEquals(1, stale.queue.size)
+        val refolded = ActivityFeedState().applying(event("""{"kind":"turn","state":"ended"}"""))
+        assertTrue(refolded.queue.isEmpty())
+    }
+
+    @Test
+    fun `the queue captions are the shared strings`() {
+        assertEquals("Queued", QUEUE_STRIP_TITLE)
+        assertEquals("Remove from queue", QUEUE_REMOVE_LABEL)
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────

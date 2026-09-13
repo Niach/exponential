@@ -248,9 +248,25 @@ pub(crate) enum EngineCommand {
     },
     /// Replay history through the mapper (`session/load`).
     LoadHistory,
+    /// EXP-861: revoke ONE message held in the prompt queue (a viewer's
+    /// `unqueue` frame, the local composer's ×). Unknown ids are a no-op.
+    Unqueue(String),
+    /// EXP-861: the turn ended (or a compaction closed) with messages held
+    /// — start them now, oldest first. Sent by [`SessionCtx::dispatch`] on
+    /// the idle edge, never by a client.
+    DrainQueue,
     Shutdown {
         outcome: &'static str,
     },
+}
+
+/// EXP-861: one user message the host holds back while a turn runs or a
+/// compaction is open. `announce` is the text every client's bar shows (and
+/// the future `user_message` row); `prompt` is what [`start_turn`] gets.
+pub(crate) struct QueuedPrompt {
+    pub(crate) id: String,
+    pub(crate) announce: String,
+    pub(crate) prompt: TurnPrompt,
 }
 
 /// One user message as ACP content blocks.
@@ -614,6 +630,8 @@ struct FeedState {
     /// EXP-850 §2: the bottom strip's list — the FULL current set every time,
     /// so only the newest frame matters.
     background_tasks: Option<LocalFeedEvent>,
+    /// EXP-861: the queue slot — the held messages, whole, newest frame only.
+    queue: Option<LocalFeedEvent>,
     /// EXP-850 §3: the `workflow` cards, latest-wins PER ID and kept in
     /// first-appearance order, exactly like `ActivityJournal::workflows`.
     /// A running workflow republishes its card up to once a second for
@@ -635,6 +653,7 @@ impl FeedState {
             steer::ActivityEvent::Usage { .. } => Some(&mut self.usage),
             steer::ActivityEvent::RateLimit { .. } => Some(&mut self.rate_limit),
             steer::ActivityEvent::Turn { .. } => Some(&mut self.turn),
+            steer::ActivityEvent::Queue { .. } => Some(&mut self.queue),
             steer::ActivityEvent::BackgroundTasks { .. } => Some(&mut self.background_tasks),
             steer::ActivityEvent::Diff { .. } => Some(&mut self.diff),
             _ => None,
@@ -771,6 +790,7 @@ impl LocalFeed {
             &state.usage,
             &state.rate_limit,
             &state.turn,
+            &state.queue,
         ]
         .into_iter()
         .flatten()
@@ -1003,6 +1023,18 @@ pub(crate) struct SessionCtx {
     /// touched only on a rate-limit EDGE and once per tick, never on the hot
     /// event path.
     pub(crate) blocked: Mutex<Option<steer::SessionBlocked>>,
+    /// EXP-861: the user messages held back while a turn runs or a
+    /// compaction is open, oldest first — the CLI's own "queued messages"
+    /// behaviour, but on the device so every viewer (and a reconnecting one)
+    /// sees the same bar and can revoke a line. Published whole as the
+    /// `queue` slot on every change; drained through [`EngineCommand::
+    /// DrainQueue`] on the idle edge.
+    pub(crate) prompt_queue: Mutex<std::collections::VecDeque<QueuedPrompt>>,
+    /// EXP-861: the command loop's own inbox, so the drain can be requested
+    /// from [`SessionCtx::dispatch`] (which runs on whatever thread delivered
+    /// the idle edge). Set once by `spawn_engine`; absent on a bare test
+    /// context, where nothing drains.
+    pub(crate) queue_commands: OnceLock<flume::Sender<EngineCommand>>,
     /// FEED-25: when the agent last produced anything the mapper emitted (or
     /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
     /// snapshots never advance it.
@@ -1030,7 +1062,110 @@ impl SessionCtx {
         if out_is_activity(&out) {
             self.touch_activity();
         }
+        // EXP-861: the two edges that can reopen the queue's gate — the turn
+        // ending, a compaction closing. Read before `deliver` consumes the
+        // vec; acted on after, so the gate reads the state this step set.
+        let gate_edge = out.idle == Some(true)
+            || out.wire.iter().any(|event| {
+                matches!(
+                    event,
+                    steer::ActivityEvent::Compaction {
+                        phase: steer::frames::CompactionPhase::Ended,
+                        ..
+                    }
+                )
+            });
         self.deliver(out);
+        if gate_edge {
+            self.request_drain();
+        }
+    }
+
+    /// EXP-861: may a new message start a turn right now? `false` while a
+    /// turn is running or a compaction is open — the message is held.
+    pub(crate) fn prompt_gate_open(&self) -> bool {
+        self.turn_signal.is_idle() && !self.with_mapper(|mapper| mapper.compacting())
+    }
+
+    /// EXP-861: ask the command loop to start the held messages, if any and
+    /// if the gate is open. Cheap when nothing is queued (one lock, no send).
+    fn request_drain(&self) {
+        let held = self
+            .prompt_queue
+            .lock()
+            .map(|queue| !queue.is_empty())
+            .unwrap_or(false);
+        if !held || !self.prompt_gate_open() {
+            return;
+        }
+        if let Some(commands) = self.queue_commands.get() {
+            let _ = commands.send(EngineCommand::DrainQueue);
+        }
+    }
+
+    /// EXP-861: publish the `queue` slot as it stands — every client's bar
+    /// (an empty list closes it).
+    pub(crate) fn publish_queue(&self) {
+        let messages: Vec<(String, String)> = self
+            .prompt_queue
+            .lock()
+            .map(|queue| {
+                queue
+                    .iter()
+                    .map(|held| (held.id.clone(), held.announce.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut out = MapOut::default();
+        self.with_mapper(|mapper| mapper.publish_queue(&messages, &mut out));
+        self.deliver(out);
+    }
+
+    /// EXP-861: hold one message behind the running turn. Past the relay's
+    /// cap the oldest is NOT dropped — the newest is refused instead (the
+    /// person can see the bar is full), so nothing typed earlier vanishes.
+    fn enqueue_prompt(&self, announce: String, prompt: TurnPrompt) -> bool {
+        let accepted = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                if queue.len() >= steer::QUEUE_MAX {
+                    return false;
+                }
+                queue.push_back(QueuedPrompt {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    announce,
+                    prompt,
+                });
+                true
+            })
+            .unwrap_or(false);
+        if accepted {
+            self.publish_queue();
+        } else {
+            log::warn!(
+                "engine: session {} holds {} queued messages already; the newest was dropped",
+                self.session_id,
+                steer::QUEUE_MAX
+            );
+        }
+        accepted
+    }
+
+    /// EXP-861: drop every held message (a Stop) and say so.
+    fn clear_prompt_queue(&self) {
+        let had_any = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                let had_any = !queue.is_empty();
+                queue.clear();
+                had_any
+            })
+            .unwrap_or(false);
+        if had_any {
+            self.publish_queue();
+        }
     }
 
     /// FEED-25: one engine-authored notice into the transcript — the stall
@@ -1619,31 +1754,71 @@ fn handle_command(
         EngineCommand::Prompt(blocks) => {
             let text = blocks_text(&blocks);
             let prompt = if ctx.attachments.is_some() && steer::has_image_embed(&text) {
-                TurnPrompt::Localize(text)
+                TurnPrompt::Localize(text.clone())
             } else {
                 TurnPrompt::Ready(LocalizedPrompt {
-                    announce: text,
+                    announce: text.clone(),
                     blocks,
                 })
             };
-            start_turn(cx, ctx, session_id, prompt, turns)
+            gate_or_start(cx, ctx, session_id, text, prompt, turns)
         }
-        // Mid-turn steering: a `session/prompt` that arrives while a turn is
-        // running IS the steer seam — the adapter folds it into the live turn
-        // (codex `turn/steer`, claude's queued or folded-in user message).
-        // It is still a TURN here: counted, and its stop reason folded when
-        // it answers, so `idle` waits for the follow-up instead of firing on
-        // the first prompt's `result` and letting an `AfterTurn` kill
-        // (EXP-637) end the run mid-answer.
-        EngineCommand::Steer(text) => start_turn(
+        // EXP-861: a message that arrives while a turn is running (or a
+        // compaction is open) is HELD, never folded into the live turn — the
+        // CLI's own queued-messages behaviour, on the device so every viewer
+        // shares one bar. It starts as its own turn on the idle edge
+        // ([`EngineCommand::DrainQueue`]), announced then, so the transcript
+        // shows it where the agent actually read it.
+        EngineCommand::Steer(text) => gate_or_start(
             cx,
             ctx,
             session_id,
+            text.clone(),
             TurnPrompt::Ready(LocalizedPrompt::plain(text)),
             turns,
         ),
-        EngineCommand::Cancel => cancel_turn(cx, ctx, session_id, true),
+        // EXP-861: a Stop drops what the person queued as well as the turn
+        // (the `cancel_queued` semantics, now for the host's own queue); the
+        // stall watchdog's interrupt keeps it — those messages are what it
+        // is rescuing.
+        EngineCommand::Cancel => {
+            ctx.clear_prompt_queue();
+            cancel_turn(cx, ctx, session_id, true)
+        }
         EngineCommand::Interrupt => cancel_turn(cx, ctx, session_id, false),
+        EngineCommand::Unqueue(id) => {
+            let removed = ctx
+                .prompt_queue
+                .lock()
+                .map(|mut queue| {
+                    let before = queue.len();
+                    queue.retain(|held| held.id != id);
+                    queue.len() != before
+                })
+                .unwrap_or(false);
+            if removed {
+                ctx.publish_queue();
+            }
+        }
+        EngineCommand::DrainQueue => {
+            if !ctx.prompt_gate_open() {
+                return true;
+            }
+            let held: Vec<QueuedPrompt> = ctx
+                .prompt_queue
+                .lock()
+                .map(|mut queue| queue.drain(..).collect())
+                .unwrap_or_default();
+            if held.is_empty() {
+                return true;
+            }
+            // The bar closes BEFORE the rows appear, so no client shows a
+            // message in both places for a frame.
+            ctx.publish_queue();
+            for queued in held {
+                start_turn(cx, ctx, session_id, queued.prompt, turns);
+            }
+        }
         EngineCommand::SetConfig { id, value } => {
             let sent = cx.send_request(SetSessionConfigOptionRequest::new(
                 session_id.clone(),
@@ -1725,10 +1900,11 @@ fn handle_command(
             } else {
                 format!("/{name} {args}")
             };
-            start_turn(
+            gate_or_start(
                 cx,
                 ctx,
                 session_id,
+                text.clone(),
                 TurnPrompt::Ready(LocalizedPrompt::plain(text)),
                 turns,
             );
@@ -1761,6 +1937,26 @@ fn handle_command(
         }
     }
     true
+}
+
+/// EXP-861: the queue gate in front of [`start_turn`]. Between turns (and
+/// outside a compaction) the prompt starts at once; otherwise it is held and
+/// the `queue` slot republished. The gate is read on the command loop, the
+/// same thread that starts turns, so two messages cannot both slip through
+/// one idle moment out of order.
+fn gate_or_start(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    announce: String,
+    prompt: TurnPrompt,
+    turns: &Arc<TurnGate>,
+) {
+    if ctx.prompt_gate_open() {
+        start_turn(cx, ctx, session_id, prompt, turns);
+    } else {
+        ctx.enqueue_prompt(announce, prompt);
+    }
 }
 
 /// `session/cancel`, with the EXP-784 queued flag: `cancel_queued` is the
@@ -2351,6 +2547,7 @@ mod tests {
                 LocalFeedEvent::Activity { event, .. } => Some(match event {
                     steer::ActivityEvent::Narration { .. } => "narration",
                     steer::ActivityEvent::Turn { .. } => "turn",
+                    steer::ActivityEvent::Queue { .. } => "queue",
                     steer::ActivityEvent::Workflow(_) => "workflow",
                     steer::ActivityEvent::BackgroundTasks { .. } => "background_tasks",
                     steer::ActivityEvent::Diff { .. } => "diff",

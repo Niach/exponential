@@ -22,11 +22,13 @@ import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.TURN_STATE_STARTED
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.clearCompaction
+import com.exponential.app.domain.clearQueue
 import com.exponential.app.domain.clearTurn
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.feedItemBytes
@@ -519,9 +521,10 @@ class SteerConnection internal constructor(
         // EXP-724: the run is over — whatever it was compacting, it is not
         // compacting now, and the strip must not outlive the session.
         // EXP-848: the same for the turn slot — a run that ended mid-turn must
-        // not keep reading as working.
+        // not keep reading as working. EXP-861: and the queue — a run that is
+        // over delivers nothing it was holding.
         if (next is AgentPhase.Ended) {
-            _activity.value = _activity.value.clearCompaction().clearTurn()
+            _activity.value = _activity.value.clearCompaction().clearTurn().clearQueue()
             armCompactionTimeout(null)
         }
     }
@@ -1053,7 +1056,10 @@ class SteerConnection internal constructor(
         }
         _activity.value = next
         // EXP-724: the swap re-derived the compaction state from the replay —
-        // arm the backstop for a start it carried, drop it otherwise.
+        // arm the backstop for a start it carried, drop it otherwise. The
+        // other slots (`turn`, `background_tasks`, `rate_limit` and EXP-861's
+        // `queue`) were re-derived the same way: the fold started from a
+        // fresh state, so whatever the replay did not restate is gone.
         armCompactionTimeout(next.compacting)
         Log.i(
             TAG,
@@ -1100,14 +1106,25 @@ class SteerConnection internal constructor(
     fun sendMessage(text: String): Boolean {
         if (text.isEmpty()) return false
         val socket = ws ?: return false
-        // Local echo (EXP-78): show the sent message immediately; its
-        // transcript-derived `user_message` event is deduped via the FIFO.
-        recentEchoes.addLast(text.trim() to System.currentTimeMillis())
-        while (recentEchoes.size > ECHO_CAP) recentEchoes.removeFirst()
-        _activity.value = _activity.value.appendUserMessage(text)
-        // Sent mid-replay (EXP-656): the staged log predates it, so record it
-        // to be re-appended when the swap lands, or it disappears on commit.
-        stagedFrames?.let { stagedLocalEchoes.add(text) }
+        // EXP-861: sent while the agent is mid-turn or compacting, the DEVICE
+        // holds the message and publishes it in the `queue` slot; the real
+        // `user_message` row lands when it is delivered. No local echo then
+        // (and no echo entry, or the delivered row would be swallowed as a
+        // duplicate). The raw slot values, NOT the working predicate.
+        val held = _activity.value.let {
+            it.turnState == TURN_STATE_STARTED || it.compacting != null
+        }
+        if (!held) {
+            // Local echo (EXP-78): show the sent message immediately; its
+            // transcript-derived `user_message` event is deduped via the FIFO.
+            recentEchoes.addLast(text.trim() to System.currentTimeMillis())
+            while (recentEchoes.size > ECHO_CAP) recentEchoes.removeFirst()
+            _activity.value = _activity.value.appendUserMessage(text)
+            // Sent mid-replay (EXP-656): the staged log predates it, so record
+            // it to be re-appended when the swap lands, or it disappears on
+            // commit.
+            stagedFrames?.let { stagedLocalEchoes.add(text) }
+        }
         scope.launch {
             runCatching {
                 var i = 0
@@ -1341,6 +1358,40 @@ class SteerConnection internal constructor(
         scope.launch {
             runCatching { socket.send("""{"t":"interrupt"}""") }
         }
+    }
+
+    /**
+     * EXP-861: revoke a message the device is holding for the agent's next
+     * turn — the X on the queue bar. Fire-and-forget like [interrupt]: the
+     * next `queue` event is the confirmation, but the line goes at once so
+     * the tap reads. An EMPTY draft takes the text back so it can be edited
+     * (the CLI's "edit queued message"); a draft in progress is never
+     * clobbered. Unknown ids (already delivered or revoked) send nothing.
+     */
+    fun unqueue(id: String) {
+        val socket = ws ?: return
+        val current = _activity.value
+        val entry = current.queue.firstOrNull { it.id == id } ?: return
+        _activity.value = current.copy(queue = current.queue.filterNot { it.id == id })
+        if (_draft.value.isBlank()) _draft.value = entry.text
+        val frame = buildJsonObject {
+            put("t", "unqueue")
+            put("id", id)
+        }
+        scope.launch {
+            runCatching { socket.send(json.encodeToString(JsonObject.serializer(), frame)) }
+        }
+    }
+
+    /**
+     * EXP-866: drop the live rate-limit slot the moment the person switches
+     * account. The wall belongs to the login being left; the continuation
+     * publishes its own `rate_limit` if the other login is limited too, and
+     * until then nothing may keep reading as walled.
+     */
+    fun clearRateLimit() {
+        val current = _activity.value
+        if (current.rateLimit != null) _activity.value = current.copy(rateLimit = null)
     }
 
     /** EXP-783 — whether there is transcript BELOW the oldest row on screen

@@ -459,6 +459,24 @@ fun agentWorking(
 ): Boolean = live && !sessionEnded && turnState == TURN_STATE_STARTED &&
     !awaitingInput && !needsInput && !blocked && !compacting
 
+// ── EXP-861: the device's message queue, as a latest-wins slot ──────────────
+//
+// A message sent while the agent is mid-turn or compacting is HELD on the
+// device and delivered when the turn ends; the engine publishes the WHOLE
+// queue as ONE `queue` event (oldest first, ≤20), replayed on join right after
+// `turn`. Never a feed row: the real `user_message` arrives when the message
+// is delivered, which is also why a client sending into a running turn skips
+// its local echo (see `SteerConnection.sendMessage`).
+
+/** One held message: the person's text as written (image embeds included). */
+data class QueuedMessage(val id: String, val text: String)
+
+/** The queue bar's accessibility label. Byte-identical ×4. */
+const val QUEUE_STRIP_TITLE = "Queued"
+
+/** The per-line X that revokes a held message. Byte-identical ×4. */
+const val QUEUE_REMOVE_LABEL = "Remove from queue"
+
 /** A chip whose value is blank — the CLI's own default. Byte-identical ×4. */
 const val CONFIG_DEFAULT_VALUE_LABEL = "CLI default"
 
@@ -1207,6 +1225,10 @@ data class ActivityFeedState(
     /** EXP-850 (S2): what the machine is running in the background, as ONE
      *  latest-wins list — an empty one closes the strip above the composer. */
     val backgroundTasks: List<BackgroundTask> = emptyList(),
+    /** EXP-861: what the device holds for the agent's next turn, as ONE
+     *  latest-wins list — an empty one closes the queue bar above the
+     *  composer. Reset with the other slots: replay swap, session end. */
+    val queue: List<QueuedMessage> = emptyList(),
     /** EXP-850 (S3): one card per workflow, latest-wins PER ID, in
      *  first-appearance order and capped at [WORKFLOW_SLOT_CAP] (oldest id
      *  evicted). Never feed rows: a card is patched onto the `tool` row
@@ -1583,6 +1605,24 @@ fun ActivityFeedState.applyActivityEvent(
             )
         }
     }
+    // EXP-861: the device's held messages, ONE latest-wins list — an EMPTY
+    // array clears the bar (nothing is queued any more); only a frame with no
+    // `messages` array at all leaves the previous list standing. An entry
+    // without an id cannot be revoked, so it is skipped rather than shown.
+    "queue" -> {
+        val raw = event["messages"] as? JsonArray
+        if (raw == null) {
+            this
+        } else {
+            copy(
+                queue = raw.orEmptyList { message ->
+                    val id = message.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
+                    val text = message.str("text") ?: return@orEmptyList null
+                    QueuedMessage(id = id, text = text)
+                },
+            )
+        }
+    }
     // EXP-850 (S3): one card per workflow, latest-wins PER ID. Never a feed
     // row — the screen patches it onto the `tool` row carrying the same id.
     "workflow" -> {
@@ -1755,6 +1795,11 @@ fun ActivityFeedState.clearCompaction(): ActivityFeedState =
  *  reading as working. */
 fun ActivityFeedState.clearTurn(): ActivityFeedState =
     if (turnState == TURN_STATE_ENDED) this else copy(turnState = TURN_STATE_ENDED)
+
+/** EXP-861: drop the held messages — the session ended under us, and a run
+ *  that is over delivers nothing. */
+fun ActivityFeedState.clearQueue(): ActivityFeedState =
+    if (queue.isEmpty()) this else copy(queue = emptyList())
 
 /** A locally-echoed steered message, shown before its transcript twin. */
 fun ActivityFeedState.appendUserMessage(text: String): ActivityFeedState =

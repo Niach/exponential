@@ -62,6 +62,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -108,6 +109,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -141,6 +143,9 @@ import com.exponential.app.domain.ToolResultPreview
 import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.BackgroundTask
+import com.exponential.app.domain.QUEUE_REMOVE_LABEL
+import com.exponential.app.domain.QUEUE_STRIP_TITLE
+import com.exponential.app.domain.QueuedMessage
 import com.exponential.app.domain.WorkflowAgent
 import com.exponential.app.domain.WorkflowState
 import com.exponential.app.domain.backgroundTaskLabel
@@ -1332,6 +1337,15 @@ fun AgentSessionScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
+            // EXP-861: what the device holds for the agent's next turn — one
+            // line per queued message, each with the X that revokes it.
+            // Never while the run is over: an ended run delivers nothing. The
+            // composer stays live beneath it.
+            if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
+                QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
+                Spacer(Modifier.height(8.dp))
+            }
+
             // The ONE menu above the composer. `/` commands and the three
             // composer triggers are already mutually exclusive on CONTENT (a
             // slash command matches only a draft that opens with `/`, the
@@ -2489,6 +2503,63 @@ private fun BackgroundWorkStrip(tasks: List<BackgroundTask>, waits: List<String>
         }
     }
 }
+
+/**
+ * EXP-861: the queue bar above the composer — the messages the device is
+ * holding for the agent's next turn, oldest first, each on ONE truncated line
+ * (a multi-line message reads as one) with the ghost X that revokes it
+ * ([QUEUE_REMOVE_LABEL]). Same recipe as [BackgroundWorkStrip]; the bar itself
+ * reads as [QUEUE_STRIP_TITLE] to a screen reader.
+ */
+@Composable
+private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow()
+            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
+            .semantics { contentDescription = QUEUE_STRIP_TITLE }
+            .testTag("queue-strip"),
+    ) {
+        messages.forEach { message ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = ExpIcons.uiQueued,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+                Text(
+                    message.text.replace(QUEUE_LINE_WHITESPACE, " ").trim(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { onRemove(message.id) },
+                    modifier = Modifier.size(28.dp).testTag("queue-remove"),
+                ) {
+                    Icon(
+                        imageVector = ExpIcons.uiClose,
+                        contentDescription = QUEUE_REMOVE_LABEL,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** EXP-861: a queued message renders on one line — newlines and runs of
+ *  whitespace collapse to a single space before the ellipsis. */
+private val QUEUE_LINE_WHITESPACE = Regex("\\s+")
 
 /** One strip line: the concept glyph every client draws (repeat for a background task, clock for a wait) and the bare text. */
 @Composable

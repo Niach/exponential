@@ -309,42 +309,6 @@ pub(crate) fn derive_origin(
     previous.list_origin()
 }
 
-/// EXP-827: where a SESSION screen's Back goes — the place the run was opened
-/// from, not whatever happens to sit on the window's history.
-///
-/// Back used to be a plain [`go_back`], so a reader who walked from the session
-/// to two other issues and back landed on an unrelated issue. A session knows
-/// better: its tab carries the list it was opened beside ([`TabOrigin`], the
-/// [`derive_origin`] breadcrumb), so
-///
-/// * opened from the Agent page / anything context-free (`ToolWindow::Sessions`)
-///   → the Agent page, where its row is;
-/// * opened from the Automations page's run log (`ToolWindow::Automations`,
-///   EXP-862) → that page, where its row is — an unattended run has no row on
-///   the Agent page;
-/// * opened from a LIST beside an issue the run is bound to → that issue's
-///   detail, which offers Watch again;
-/// * anything else (a batch, an action, a chat run opened from a board) → the
-///   Agent page.
-///
-/// Pure, so every combination is a unit test below.
-pub(crate) fn session_back_target(origin: Option<&TabOrigin>, issue_id: Option<&str>) -> Screen {
-    use crate::sidebar::ToolWindow;
-    // The two RUN lists: a run opened from either goes back to the list, not
-    // to the issue it happens to be bound to.
-    let from_run_list = origin
-        .map(|origin| matches!(origin.tool, ToolWindow::Sessions | ToolWindow::Automations))
-        .unwrap_or(true);
-    let automations = origin.is_some_and(|origin| origin.tool == ToolWindow::Automations);
-    match issue_id {
-        Some(issue_id) if !from_run_list => Screen::IssueDetail {
-            issue_id: issue_id.to_string(),
-        },
-        _ if automations => Screen::Automations,
-        _ => Screen::Chat,
-    }
-}
-
 /// Go to `screen` the way BACK goes there: when it is already the top of the
 /// back stack this is a plain [`go_back`] (the history pops, the forward stack
 /// gets the screen we left), otherwise a normal navigation to it. Used by the
@@ -1971,58 +1935,6 @@ mod tests {
         // A plain LIST screen never gets a left-column list of its own.
         assert_eq!(derive_origin(Some(&board_screen), None, &inbox_screen), None);
         assert_eq!(derive_origin(Some(&board_screen), None, &Screen::Reviews), None);
-    }
-
-    /// EXP-827: a session's Back follows the breadcrumb, not history — the
-    /// issue it was opened beside, or the list its row is in.
-    #[test]
-    fn session_back_follows_the_tab_origin() {
-        use crate::sidebar::{InboxTab, ToolWindow};
-        let inbox = TabOrigin {
-            tool: ToolWindow::Inbox,
-            board_id: None,
-            inbox_tab: Some(InboxTab::Inbox),
-        };
-        let board = TabOrigin {
-            tool: ToolWindow::BoardIssues,
-            board_id: Some("b1".into()),
-            inbox_tab: None,
-        };
-        let sessions = TabOrigin {
-            tool: ToolWindow::Sessions,
-            board_id: None,
-            inbox_tab: None,
-        };
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        // Opened from a board / the Inbox beside its issue: back to the issue
-        // (where Watch again is).
-        assert_eq!(session_back_target(Some(&board), Some("i1")), issue);
-        assert_eq!(session_back_target(Some(&inbox), Some("i1")), issue);
-        // Opened from the Agent page: back to the Agent page, even for an
-        // issue-bound run — the list the row is in is the one to return to.
-        assert_eq!(session_back_target(Some(&sessions), Some("i1")), Screen::Chat);
-        // EXP-862: opened from the Automations page's run log — back THERE,
-        // issue-bound or not. An unattended run has no row on the Agent page,
-        // so sending Back to it would land on a list the run is not in.
-        let automations = TabOrigin {
-            tool: ToolWindow::Automations,
-            board_id: None,
-            inbox_tab: None,
-        };
-        assert_eq!(
-            session_back_target(Some(&automations), Some("i1")),
-            Screen::Automations
-        );
-        assert_eq!(
-            session_back_target(Some(&automations), None),
-            Screen::Automations
-        );
-        // A batch / action / chat run has no issue to return to.
-        assert_eq!(session_back_target(Some(&board), None), Screen::Chat);
-        // No tab origin at all (a closed tab, a fresh window): the Agent page.
-        assert_eq!(session_back_target(None, Some("i1")), Screen::Chat);
     }
 
     /// EXP-818: go-back parks the screen it left for go-forward; a real

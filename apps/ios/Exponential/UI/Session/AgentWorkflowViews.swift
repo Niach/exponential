@@ -124,6 +124,51 @@ struct AgentBottomStrip: View {
     }
 }
 
+/// EXP-861: the queued-messages strip directly above the composer — one line
+/// per message the device is holding until the turn (or compaction) ends,
+/// the same recipe as `AgentBottomStrip` plus a trailing ghost X that revokes
+/// the message (`{"t":"unqueue","id"}`). The caller hides it when the queue
+/// is empty or the run is over.
+struct AgentQueueStrip: View {
+    let messages: [QueuedMessage]
+    let onRemove: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(messages) { message in
+                HStack(spacing: 8) {
+                    AppIcon(AppIcons.uiQueued, size: 11)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Text(message.text)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Button {
+                        onRemove(message.id)
+                    } label: {
+                        AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(AgentFeed.queueRemoveLabel)
+                    .accessibilityIdentifier("agent-queue-remove")
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassRow()
+        .padding(.horizontal, 14)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(AgentFeed.queueStripTitle)
+        .accessibilityIdentifier("agent-queue-strip")
+    }
+}
+
 /// EXP-856 §4: a second copy of a live agent started (a `SendMessage` to a
 /// running agent resumes it from its transcript, and that copy edits the same
 /// files). An amber warning row carrying the wire's sentence VERBATIM — under

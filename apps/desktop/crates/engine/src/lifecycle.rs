@@ -284,6 +284,20 @@ fn attach_publisher(
         attachments: ctx.attachments.clone(),
         commands: Some(Arc::clone(&command_link)),
         config: Some(Arc::clone(&config_link)),
+        // EXP-790/EXP-861: a viewer's Stop is the user's cancel — the turn
+        // AND the queue go; a revoke drops one held message.
+        interrupt: Some({
+            let commands = commands.clone();
+            Arc::new(move || {
+                let _ = commands.send(EngineCommand::Cancel);
+            }) as Arc<dyn Fn() + Send + Sync>
+        }),
+        unqueue: Some({
+            let commands = commands.clone();
+            Arc::new(move |id: String| {
+                let _ = commands.send(EngineCommand::Unqueue(id));
+            }) as Arc<dyn Fn(String) + Send + Sync>
+        }),
     };
 
     let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {

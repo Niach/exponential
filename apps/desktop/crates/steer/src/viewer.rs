@@ -338,6 +338,14 @@ impl ViewerHandle {
         self.send_frames(vec![r#"{"t":"interrupt"}"#.to_string()])
     }
 
+    /// EXP-861: revoke ONE message the device holds queued behind the
+    /// running turn. Fire-and-forget like [`ViewerHandle::send_interrupt`]:
+    /// the device's next `queue` frame is the confirmation. `false` when
+    /// the socket is down or not joined.
+    pub fn send_unqueue(&self, id: &str) -> bool {
+        self.send_frames(vec![ClientFrame::Unqueue { id: id.to_string() }.to_json()])
+    }
+
     /// A wakeup nudge (the machine woke, the network came back, the host
     /// device came online): cut short a pending backoff and redial now.
     ///

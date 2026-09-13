@@ -192,6 +192,7 @@ public enum AppIcons {
         "link-2",
         "list",
         "list-checks",
+        "list-end",
         "list-ordered",
         "list-todo",
         "list-tree",
@@ -673,6 +674,8 @@ public enum AppIcons {
     public static let uiPrivate: String = "lock"
     /// Concept `ui-properties`.
     public static let uiProperties: String = "sliders-horizontal"
+    /// Concept `ui-queued`.
+    public static let uiQueued: String = "list-end"
     /// Concept `ui-redock`.
     public static let uiRedock: String = "arrow-down-left"
     /// Concept `ui-refresh`.

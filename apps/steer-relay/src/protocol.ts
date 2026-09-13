@@ -66,6 +66,17 @@ export const answerFrame = z.object({
 })
 
 export const killFrame = z.object({ t: z.literal(`kill`) })
+// EXP-790: the Stop button of a live session — interrupt the running turn
+// (and drop what the agent holds queued behind it) WITHOUT ending the run.
+// Gated exactly like `input`. Every client has sent it since EXP-790; the
+// relay only started forwarding it with EXP-861.
+export const interruptFrame = z.object({ t: z.literal(`interrupt`) })
+// EXP-861: revoke ONE queued message by the id the `queue` slot named. Gated
+// exactly like `input`; fire-and-forget — the next `queue` frame confirms.
+export const unqueueFrame = z.object({
+  t: z.literal(`unqueue`),
+  id: z.string().min(1).max(128),
+})
 export const byeFrame = z.object({
   t: z.literal(`bye`),
   outcome: z.string().max(64).optional(),
@@ -111,6 +122,7 @@ export const setModeFrame = z.object({
 //   rate_limit:        the agent's wall       { kind, status, resetsAt?, message? }                     (latest replaces prior)
 //   turn:              the turn edge          { kind, state, startedAt?, tokens? }                      (latest replaces prior)
 //   background_tasks:  the bottom strip       { kind, tasks[] }                                         (latest replaces prior)
+//   queue:             held user messages     { kind, messages[{id,text}] }                             (latest replaces prior)
 //   workflow:          one Workflow card      { kind, id, name, status, phases[], agents[], … }         (latest replaces prior PER ID)
 //
 // EXP-850 / EXP-853 / EXP-856 pinned the last three plus `toolKind: "wait"`,
@@ -195,6 +207,10 @@ export const SUBAGENT_STATUSES = contract.subagentStatus.values as [
  *  `steer::BACKGROUND_TASKS_MAX` / `WORKFLOW_PHASES_MAX` /
  *  `WORKFLOW_AGENTS_MAX`, which the publisher truncates to first. */
 export const BACKGROUND_TASKS_MAX = 32
+// EXP-861: how many user messages one run holds queued behind a running turn
+// (the desktop engine's own cap), and how much of each the slot carries.
+export const QUEUE_MAX = 20
+export const QUEUE_TEXT_MAX = 8192
 export const WORKFLOW_PHASES_MAX = 32
 export const WORKFLOW_AGENTS_MAX = 64
 
@@ -472,6 +488,24 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
       .max(BACKGROUND_TASKS_MAX),
     at: z.number().optional(),
   }),
+  // EXP-861: the user messages the device holds QUEUED behind a running turn
+  // or a compaction, in FULL and in order (oldest first; an empty array =
+  // nothing queued, the bar closes). LATEST-WINS state like `turn`, never a
+  // transcript row: the device delivers them when the turn ends and each one
+  // then arrives as an ordinary `user_message`. A viewer revokes one with the
+  // `unqueue` frame; the next `queue` frame is the confirmation.
+  z.object({
+    kind: z.literal(`queue`),
+    messages: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(128),
+          text: z.string().max(QUEUE_TEXT_MAX),
+        })
+      )
+      .max(QUEUE_MAX),
+    at: z.number().optional(),
+  }),
   // EXP-850 §3: one claude `Workflow` run's card. LATEST-WINS PER ID — the
   // relay keeps one frame per `workflow:{id}` key and replays them after the
   // log, before `background_tasks`. `id` is the `Workflow` tool call's own
@@ -584,6 +618,8 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   inputFrame,
   answerFrame,
   killFrame,
+  interruptFrame,
+  unqueueFrame,
   setConfigFrame,
   setModeFrame,
   byeFrame,
@@ -704,6 +740,10 @@ export type ServerFrame =
   | { t: `set_config`; id: string; value: string }
   | { t: `set_mode`; id: string }
   | { t: `kill` }
+  // EXP-790/EXP-861: Stop the running turn (relay → publisher).
+  | { t: `interrupt` }
+  // EXP-861: revoke one queued message (relay → publisher).
+  | { t: `unqueue`; id: string }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch
   // defaults) and an online device should heartbeat NOW instead of on its

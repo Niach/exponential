@@ -165,6 +165,14 @@ pub struct PublisherHooks {
     /// are no keystrokes that could express them. `None` (tests) is a
     /// documented no-op.
     pub config: Option<Arc<ConfigLink>>,
+    /// EXP-790/EXP-861: a viewer's Stop (`interrupt`) → the engine cancels
+    /// the running turn and drops its queued messages. `None` (tests) is a
+    /// documented no-op.
+    pub interrupt: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// EXP-861: a viewer revoking ONE queued message (`unqueue {id}`) → the
+    /// engine drops it and republishes the `queue` slot. `None` (tests) is a
+    /// documented no-op.
+    pub unqueue: Option<Arc<dyn Fn(String) + Send + Sync>>,
 }
 
 /// [`PublisherHooks::attachments`] over an account's tRPC client (EXP-511):
@@ -1046,6 +1054,19 @@ async fn pump_connection(
                                 config.submit(ConfigChange::Mode { id });
                             }
                         }
+                        // EXP-790/EXP-861: a viewer's Stop. Never through
+                        // `input_tx` — the ESC keystroke path is the TUI's,
+                        // and this frame is what every client sends.
+                        Some(ServerFrame::Interrupt) => {
+                            if let Some(interrupt) = &hooks.interrupt {
+                                interrupt();
+                            }
+                        }
+                        Some(ServerFrame::Unqueue { id }) => {
+                            if let Some(unqueue) = &hooks.unqueue {
+                                unqueue(id);
+                            }
+                        }
                         Some(ServerFrame::Kill) => {
                             // §8.4: relay kill → end the session. The kill hook
                             // kills the child (whose exit hook ends the synced
@@ -1361,6 +1382,8 @@ mod tests {
             attachments: None,
             commands: None,
             config: None,
+            interrupt: None,
+            unqueue: None,
         }
     }
 

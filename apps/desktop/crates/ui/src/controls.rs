@@ -256,19 +256,9 @@ pub(crate) fn ghost_icon_button(
 }
 
 /// The size of a back glyph on every client (EXP-862): 16px, the `icon-sm`
-/// rung's glyph, whether it sits in [`back_button`] or bare in a back ROW.
+/// rung's glyph, bare in a back ROW (EXP-863 retired the session header's
+/// Back button; the sidebar carries navigation).
 const BACK_GLYPH: f32 = 16.;
-
-/// EXP-862 — the session header's Back: a borderless 32px [`ghost_icon_button`]
-/// carrying the 16px chevron. The arrow-in-a-circle is retired ×4; web's
-/// md+ session header wears `size="icon-sm"`, Android `TopBarBackButton`
-/// borderless, iOS keeps the system chevron.
-///
-/// The tooltip is part of the control, not the caller's: "Back" is the same
-/// word on every surface that has one.
-pub(crate) fn back_button(id: impl Into<gpui::ElementId>, cx: &App) -> gpui_component::button::Button {
-    ghost_icon_button(id, back_glyph(), cx).tooltip("Back")
-}
 
 /// The BARE back glyph (EXP-862), for the back ROWS where the whole row is
 /// the target (the settings nav's and the list nav's "‹ Boards"): a nested

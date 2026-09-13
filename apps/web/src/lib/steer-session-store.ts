@@ -7,6 +7,7 @@ import {
   parseRateLimit,
   parseSessionUsage,
   parseBackgroundTasks,
+  parseQueue,
   parseToolKind,
   parseToolPreview,
   parseTurnState,
@@ -32,6 +33,7 @@ import {
   type AnswerStates,
   type BackgroundTask,
   type EchoEntry,
+  type QueuedMessage,
   type SessionConfigState,
   type SessionRateLimitState,
   type SessionUsageState,
@@ -308,6 +310,14 @@ export type ActivityEvent =
       tasks?: unknown
       at?: number
     }
+  // EXP-861: the messages the DEVICE holds until the current turn (or
+  // compaction) ends — the FULL queue on every frame, so an empty array
+  // clears the strip. A latest-wins slot; never a feed row.
+  | {
+      kind: `queue`
+      messages?: unknown
+      at?: number
+    }
   // EXP-850 §3: a workflow's live card — latest-wins PER `id` (the spawning
   // `Workflow` tool call's id), patched onto the tool row with that id.
   | {
@@ -549,6 +559,9 @@ export interface SteerSessionSnapshot {
   /** EXP-850 §2: what the CLI is running in the background — the strip above
    *  the composer. Empty = no strip. */
   backgroundTasks: BackgroundTask[]
+  /** EXP-861: the messages the device is holding for the next turn — the
+   *  strip above the composer. Empty = no strip. */
+  queue: QueuedMessage[]
   /** EXP-850 §3: every workflow this run published, by id (the spawning
    *  `Workflow` call's id). A SIDE MAP, never feed rows: the tool row with
    *  that id renders as the card. */
@@ -639,6 +652,14 @@ export interface SteerSessionStore {
    *  the publisher cancels the turn and the feed shows the outcome. False =
    *  the socket is down and nothing went out. */
   interrupt(): boolean
+  /** EXP-861: revoke a queued message. Fire-and-forget like `interrupt`: the
+   *  device's next `queue` frame is the confirmation; the entry is dropped
+   *  from the local slot right away. False = the socket is down. */
+  unqueue(id: string): boolean
+  /** EXP-866: drop the live rate-limit slot NOW — called when the person
+   *  requests an account switch, so the wall does not outlive the run it
+   *  belonged to. The device's next `rate_limit` frame re-arms it if real. */
+  clearRateLimit(): void
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
   removeDraftImage(url: string): void
@@ -704,6 +725,8 @@ export function createSteerSessionStore(
   // EXP-850 §2/§3: the two new latest-wins slots. `workflows` is keyed per
   // workflow id, in first-appearance order (a Map preserves insertion order).
   let backgroundTasks: BackgroundTask[] = []
+  // EXP-861: the device-held queue, the seventh latest-wins slot.
+  let queue: QueuedMessage[] = []
   let workflows = new Map<string, WorkflowState>()
   let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
@@ -762,6 +785,7 @@ export function createSteerSessionStore(
     turnStartedAt,
     turnTokens,
     backgroundTasks,
+    queue,
     workflows,
     runningWorkflow: null,
     answerStates,
@@ -786,6 +810,7 @@ export function createSteerSessionStore(
       turnStartedAt,
       turnTokens,
       backgroundTasks,
+      queue,
       workflows,
       runningWorkflow: newestRunningWorkflow([...workflows.values()]),
       answerStates,
@@ -1174,6 +1199,13 @@ export function createSteerSessionStore(
         if (tasks) backgroundTasks = tasks
         return
       }
+      case `queue`: {
+        // EXP-861: the FULL queue, so an empty array closes the strip; an
+        // unreadable payload keeps the previous list (the same rule).
+        const messages = parseQueue(event)
+        if (messages) queue = messages
+        return
+      }
       case `workflow`: {
         // EXP-850 §3: latest-wins PER id in a side map — never a feed row.
         // The tool row that spawned it carries the same id and renders as the
@@ -1340,6 +1372,8 @@ export function createSteerSessionStore(
     turnStartedAt = null
     turnTokens = null
     backgroundTasks = []
+    // EXP-861: the replay restates the device's queue too.
+    queue = []
     workflows = new Map()
     clearCompaction()
     // Seeded BEFORE the fold so a replayed `answer_ack`/`question_resolved`
@@ -1420,6 +1454,7 @@ export function createSteerSessionStore(
       turnStartedAt,
       turnTokens,
       backgroundTasks,
+      queue,
       workflows,
     }
     feed = []
@@ -1450,6 +1485,7 @@ export function createSteerSessionStore(
     turnStartedAt = savedSlots.turnStartedAt
     turnTokens = savedSlots.turnTokens
     backgroundTasks = savedSlots.backgroundTasks
+    queue = savedSlots.queue
     workflows = savedSlots.workflows
     if (page.length === 0) {
       historyExhausted = true
@@ -1815,6 +1851,9 @@ export function createSteerSessionStore(
           phase = { kind: `ended`, detail: detail ?? undefined }
           // A run that ended mid-fold is not compacting any more (EXP-724).
           clearCompaction()
+          // EXP-861: nothing is queued on a run that is over — the device
+          // dropped its queue with the turn it was waiting for.
+          queue = []
           commit()
           onEnded()
           return
@@ -2065,6 +2104,13 @@ export function createSteerSessionStore(
     sendMessage(text) {
       if (!text || !sendInput(text)) return false
       ws?.send(JSON.stringify({ t: `input`, data: `\r` }))
+      // EXP-861: sent while the agent is mid-turn or compacting (the RAW slot
+      // values, not the full working predicate), the DEVICE queues it — the
+      // next `queue` frame shows it in the strip and the real `user_message`
+      // row arrives when it is delivered. No echo: an echo here would sit in
+      // the transcript ahead of the turn it is waiting on, and its dedupe
+      // would then swallow the real row.
+      if (turnState === `started` || compacting !== null) return true
       pushEcho(recentEchoes, text, Date.now())
       // Sent mid-replay: the staged history predates it, so the commit has
       // to put it back (unless the replay turns out to carry it).
@@ -2113,6 +2159,24 @@ export function createSteerSessionStore(
     },
     interrupt() {
       return sendInterruptFrame()
+    },
+    /** EXP-861: the strip's X. The frame is exactly `{"t":"unqueue","id"}`;
+     *  the entry leaves the local slot at once (the device's next `queue`
+     *  frame either confirms it or, if the message was already delivered,
+     *  the transcript row says so). */
+    unqueue(id) {
+      if (ws?.readyState !== WebSocket.OPEN) return false
+      ws.send(JSON.stringify({ t: `unqueue`, id }))
+      if (queue.some((entry) => entry.id === id)) {
+        queue = queue.filter((entry) => entry.id !== id)
+        commit()
+      }
+      return true
+    },
+    clearRateLimit() {
+      if (rateLimit === null) return
+      rateLimit = null
+      commit()
     },
     setDraftText(text) {
       draftText = text

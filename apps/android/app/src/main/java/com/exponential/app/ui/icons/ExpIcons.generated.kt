@@ -3381,6 +3381,52 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `list-end`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "list-end",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M16 5H3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 12H3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 19H3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m16 16-3 3 3 3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 5v12a2 2 0 0 1-2 2h-6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `list-ordered`: ImageVector by lazy {
         ImageVector.Builder(
             name = "list-ordered",
@@ -6413,6 +6459,7 @@ public object ExpIcons {
         "link-2" -> `link-2`
         "list" -> `list`
         "list-checks" -> `list-checks`
+        "list-end" -> `list-end`
         "list-ordered" -> `list-ordered`
         "list-todo" -> `list-todo`
         "list-tree" -> `list-tree`
@@ -6890,6 +6937,8 @@ public object ExpIcons {
     public val uiPrivate: ImageVector get() = `lock`
     /** Concept `ui-properties`. */
     public val uiProperties: ImageVector get() = `sliders-horizontal`
+    /** Concept `ui-queued`. */
+    public val uiQueued: ImageVector get() = `list-end`
     /** Concept `ui-redock`. */
     public val uiRedock: ImageVector get() = `arrow-down-left`
     /** Concept `ui-refresh`. */

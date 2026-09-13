@@ -723,9 +723,6 @@ pub(crate) fn detail_column() -> gpui::Div {
 pub struct SettingsNavPanel {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
-    /// EXP-456: the top strip's window-drag latch (the vendored `TitleBar`
-    /// `should_move` pattern, same as the rail's own strip).
-    should_move: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -747,7 +744,6 @@ impl SettingsNavPanel {
         Self {
             nav,
             shared,
-            should_move: false,
             _subscriptions: subscriptions,
         }
     }
@@ -811,7 +807,7 @@ impl SettingsNavPanel {
 }
 
 impl Render for SettingsNavPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -904,18 +900,6 @@ impl Render for SettingsNavPanel {
             }
         }
 
-        // EXP-456: the nav occupies the rail's slot, so its top 34px sit in
-        // the window-decoration band as a drag/zoom region. EXP-862: one
-        // recipe for every occupant of that column (`left_column_top_strip`),
-        // which also owns the "only where the macOS lights float over it"
-        // rule.
-        let top_strip = crate::app_title_bar::left_column_top_strip(
-            "settings-nav-titlebar-strip",
-            |this: &mut Self| &mut this.should_move,
-            window,
-            cx,
-        );
-
         // EXP-456: the back affordance — web parity with the settings
         // sidebar's header row. Direct calls, not action dispatch (EXP-17).
         let back_row = nav_back_row("settings-nav-back", "Settings", cx)
@@ -937,10 +921,9 @@ impl Render for SettingsNavPanel {
             // Shell root's one ground like the rail does (a wash here read as
             // a lighter block with a hard right edge next to the content).
             .text_color(cx.theme().sidebar_foreground)
-            // EXP-760: no strip means no 34px reserve — the back row takes
-            // the same 8px top inset the rail's first row does.
-            .when(top_strip.is_none(), |nav| nav.pt_2())
-            .children(top_strip)
+            // EXP-863: the column's titlebar strip and its fixed header (team
+            // switcher, Search, New issue) are the `Shell`'s, above this
+            // pane — the nav starts at its back row.
             .child(back_row)
             .child(
                 div()
