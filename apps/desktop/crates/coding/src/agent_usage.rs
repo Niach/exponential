@@ -841,10 +841,9 @@ impl AgentStatusPayload {
 /// exception is identity: a rate-limit frame names nobody, so a due beat
 /// with no cached account still spends one probe to name it — for an agent
 /// whose probe CAN name one ([`probe_names_account`]). EXP-819: claude's
-/// live frame covers only the session and weekly windows; the endpoint's
-/// other windows keep their last polled numbers for as long as the session
-/// keeps turning (an idle gap past the shared TTL, or the session's end,
-/// hands the beat back to the poll).
+/// live frame covers only the session and weekly windows, so the endpoint is
+/// still read every [`usage_cache::LIVE_ENDPOINT_POLL_SECS`] for the others
+/// (the model-scoped weekly, credits) — they used to freeze for the whole run.
 ///
 /// EXP-808: the pass covers every ACCOUNT PROFILE of every agent, not just
 /// the device's active login — each profile's numbers land in its own
@@ -935,7 +934,16 @@ fn collect_inner(
         // poll policy. EXP-808: a rate-limit frame names no LOGIN either, so
         // the live numbers only ever answer for the ACTIVE profile — the one
         // a run without an explicit account lands on.
-        match target.active.then(|| live_probe(agent, &entry, now)).flatten() {
+        let live = target.active.then(|| live_probe(agent, &entry, now)).flatten();
+        // A PARTIAL frame (claude) never carries the endpoint's other windows,
+        // so the endpoint keeps its own slower cadence under a live session —
+        // otherwise the model-scoped weekly froze at its pre-run number for
+        // as long as the run kept turning.
+        let endpoint_owed = live.is_some()
+            && live_source(agent) == Some(LiveSource::Partial)
+            && target.may_poll
+            && usage_cache::live_endpoint_due(&entry, now);
+        match live.filter(|_| !endpoint_owed) {
             Some(probe) => {
                 // Read BEFORE the apply: `apply_outcome` stamps `fetched_at`,
                 // which is what `poll_due` keys on.
@@ -988,13 +996,14 @@ fn collect_inner(
                 }
             }
             // No live session (or its numbers went stale): today's path.
-            None if target.may_poll && usage_cache::poll_due(&entry, now) => {
+            None if target.may_poll && (endpoint_owed || usage_cache::poll_due(&entry, now)) => {
                 polled = true;
                 changed = true;
                 // Claim the slot BEFORE the (slow) fetch and persist it, so the
                 // sibling process sharing this token (IDE vs daemon) sees the
                 // poll as taken instead of spending a second request.
                 entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
+                entry.endpoint_due_at_secs = Some(now + usage_cache::LIVE_ENDPOINT_POLL_SECS);
                 cache.insert(cache_id.clone(), entry.clone());
                 usage_cache::save(data_dir, &cache);
                 let probe = probe_agent(
@@ -1013,6 +1022,7 @@ fn collect_inner(
                     apply_account(&mut accounts, &id, &target, account);
                 }
                 usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
+                usage_cache::schedule_live_endpoint(&mut entry, now);
                 cache.insert(cache_id.clone(), entry.clone());
             }
             None => {}
@@ -2404,8 +2414,8 @@ mod tests {
     /// EXP-819 — a live claude session moves the session and weekly windows
     /// per turn, inside the poll floor, WITHOUT touching the endpoint's
     /// model-scoped row: it keeps the last polled numbers instead of
-    /// vanishing. The cache entry is fresh and not due, so the pass owes the
-    /// endpoint nothing (and a claude probe would name no account anyway).
+    /// vanishing. The cache entry is fresh and not due (its endpoint stamp
+    /// included), so the pass owes the endpoint nothing.
     #[test]
     fn live_claude_windows_lay_over_the_endpoint_report() {
         let _lock = live_lock();
@@ -2469,6 +2479,40 @@ mod tests {
         drop(session);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Live frames restamp `fetched_at`/`next_poll_at` on every turn, so the
+    /// endpoint's own schedule under a live claude run is a separate stamp: a
+    /// poll sets it no sooner than the live cadence or any backoff it earned,
+    /// a live apply leaves it alone, and a forced refresh makes it owed now.
+    #[test]
+    fn a_live_run_still_owes_the_endpoint_its_other_windows() {
+        let now = 50_000;
+        let mut entry = AgentCacheEntry::default();
+        assert!(usage_cache::live_endpoint_due(&entry, now), "never polled = owed");
+
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(Vec::new()), now, "s");
+        usage_cache::schedule_live_endpoint(&mut entry, now);
+        assert_eq!(entry.endpoint_due_at_secs, Some(now + usage_cache::LIVE_ENDPOINT_POLL_SECS));
+
+        // A burst of live applies keeps pushing the poll clock forward…
+        for tick in 1..=30 {
+            let windows = vec![UsageWindow { key: "session".into(), percent: tick, ..Default::default() }];
+            usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(windows), now + u64::from(tick) * 20, "s");
+        }
+        assert!(!usage_cache::poll_due(&entry, now + 600));
+        // …but the endpoint still comes due on its own cadence.
+        assert!(!usage_cache::live_endpoint_due(&entry, now + 599));
+        assert!(usage_cache::live_endpoint_due(&entry, now + 600));
+
+        // A refused keychain read backs the owed poll off for its full hour.
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Failed, None, now, "s");
+        entry.credential_denied_until_secs = Some(now + usage_cache::CREDENTIAL_DENIED_BACKOFF_SECS);
+        usage_cache::schedule_live_endpoint(&mut entry, now);
+        assert!(!usage_cache::live_endpoint_due(&entry, now + 1_800));
+
+        assert_eq!(usage_cache::force_due(&mut entry, now), Ok(()));
+        assert!(usage_cache::live_endpoint_due(&entry, now));
     }
 
     /// Only codex's probe names the login; a live claude session never owes
@@ -2551,6 +2595,7 @@ mod tests {
             }),
             fetched_at_secs: now,
             next_poll_at_secs: now + 10_000,
+            endpoint_due_at_secs: Some(now + 10_000),
             ..AgentCacheEntry::default()
         }
     }
