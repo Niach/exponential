@@ -1,5 +1,6 @@
 import { createFileRoute, Navigate, redirect } from "@tanstack/react-router"
 import { useSessionRow } from "@/hooks/use-agents-data"
+import { issueCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 
@@ -46,9 +47,12 @@ function SessionIssueRedirect() {
       />
     )
   }
-  // Settled without an issue to show — an issue-less run or an unknown id —
-  // back to the run's own page. A row that names an issue waits for it.
-  const waitingOnIssue = Boolean(row?.session.issueId) && !row?.issue
+  // Settled without an issue to show — an issue-less run, an unknown id, or
+  // an issue that is gone once the issues shape is ready — back to the run's
+  // own page. A row that names an issue waits for it only while it may still
+  // be syncing.
+  const waitingOnIssue =
+    Boolean(row?.session.issueId) && !row?.issue && !issueCollection.isReady()
   if (team && currentUserId && isReady && !waitingOnIssue) {
     return (
       <Navigate

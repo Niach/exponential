@@ -185,6 +185,30 @@ describe(`reconcileLive`, () => {
     sig,
   })
 
+  // EXP-870 review: a past run of an issue being READ is never rebound to the
+  // issue's live run under the reader.
+  it(`keeps the run the URL shows bound`, () => {
+    const state = {
+      v: 1 as const,
+      dismissed: {},
+      tabs: [
+        {
+          key: `issue:i1` as const,
+          kind: `issue` as const,
+          issueId: `i1`,
+          face: `run` as const,
+          runId: `past`,
+          from: null,
+          live: false,
+        },
+      ],
+    }
+    const viewed = reconcileLive(state, [run(`live`, `i1`)], `past`)
+    expect(viewed.tabs[0]).toMatchObject({ runId: `past`, live: false })
+    const elsewhere = reconcileLive(state, [run(`live`, `i1`)], null)
+    expect(elsewhere.tabs[0]).toMatchObject({ runId: `live`, live: true })
+  })
+
   it(`adds every live run of mine without touching existing tabs`, () => {
     const start = state([
       { kind: `issue`, issueId: `i9`, face: `issue`, runId: null, from: `inbox`, live: false },

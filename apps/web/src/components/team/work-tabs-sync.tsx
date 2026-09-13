@@ -96,6 +96,7 @@ export function WorkTabsSync({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, routeKey])
 
+  const viewedRunId = path?.kind === `run` ? path.runId : null
   const { runs, isReady, now } = useMyLiveRuns(teamId, userId, 30_000)
   const live = useMemo<LiveRun[]>(
     () =>
@@ -111,10 +112,10 @@ export function WorkTabsSync({
 
   useEffect(() => {
     if (!isReady) return
-    updateWorkTabs(teamId, (state) => reconcileLive(state, live))
+    updateWorkTabs(teamId, (state) => reconcileLive(state, live, viewedRunId))
     // `liveKey` is the runs' value identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, liveKey, isReady])
+  }, [teamId, liveKey, isReady, viewedRunId])
 
   // Prune against the collections themselves (not a live query whose deps
   // lag the tab list by a render — that would drop a tab the instant it is

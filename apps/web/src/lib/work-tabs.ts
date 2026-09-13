@@ -121,24 +121,31 @@ export function routePathFromLocation(
   const rest = pathname.match(/^\/t\/[^/]+(\/.*)?$/)?.[1]?.replace(/\/$/, ``)
   if (!rest) return null
   const token = from ? from : null
-  const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
-  if (issue) {
-    return {
-      kind: `issue`,
-      boardSlug: decodeURIComponent(issue[1]),
-      identifier: decodeURIComponent(issue[2]),
-      from: token,
+  // A hand-typed path with a broken `%` escape is simply not a work item —
+  // never an exception in the team layout.
+  const decode = (value: string) => {
+    try {
+      return decodeURIComponent(value)
+    } catch {
+      return null
     }
   }
+  const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
+  if (issue) {
+    const boardSlug = decode(issue[1])
+    const identifier = decode(issue[2])
+    if (boardSlug === null || identifier === null) return null
+    return { kind: `issue`, boardSlug, identifier, from: token }
+  }
   const run = rest.match(/^\/sessions\/([^/]+)$/)
-  if (run) return { kind: `run`, runId: decodeURIComponent(run[1]), from: token }
+  if (run) {
+    const runId = decode(run[1])
+    return runId === null ? null : { kind: `run`, runId, from: token }
+  }
   const thread = rest.match(/^\/support\/([^/]+)$/)
   if (thread) {
-    return {
-      kind: `support`,
-      threadId: decodeURIComponent(thread[1]),
-      from: token,
-    }
+    const threadId = decode(thread[1])
+    return threadId === null ? null : { kind: `support`, threadId, from: token }
   }
   return null
 }
@@ -295,7 +302,11 @@ export interface LiveRun {
  */
 export function reconcileLive(
   state: WorkTabsState,
-  runs: readonly LiveRun[]
+  runs: readonly LiveRun[],
+  // The run the URL is showing right now: a tab bound to it is being READ
+  // (a past run of an issue that also has a live one), so it is never
+  // rebound out from under the reader.
+  viewedRunId: string | null = null
 ): WorkTabsState {
   const liveById = new Map(runs.map((run) => [run.runId, run]))
   const liveByIssue = new Map<string, LiveRun>()
@@ -317,7 +328,7 @@ export function reconcileLive(
       return { ...tab, live }
     }
     let runId = tab.runId
-    if (!runId || !liveById.has(runId)) {
+    if ((!runId || !liveById.has(runId)) && (viewedRunId === null || runId !== viewedRunId)) {
       const issueRun = liveByIssue.get(tab.issueId)
       if (issueRun && !bound.has(issueRun.runId)) runId = issueRun.runId
     }

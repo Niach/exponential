@@ -832,8 +832,7 @@ export function IssueDetailView({
 
   // EXP-851 / EXP-870: back returns to the LIST this issue was opened from
   // (`originListNavigation`, the list nav's own back row), else the issue's
-  // board. The phone header and the md+ chevron a hidden sidebar brings back
-  // share it.
+  // board. The phone header uses it.
   const goBackToList = () => {
     void navigate(
       (originListNavigation(teamSlug, parseOrigin(origin)) ?? {
