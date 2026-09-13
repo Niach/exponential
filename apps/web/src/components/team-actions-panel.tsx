@@ -159,6 +159,10 @@ function ActionRow({
     <ListRow
       interactive
       onClick={isOwner && !action.builtin ? onEdit : undefined}
+      // A clickable row is a button to assistive tech; without its own name
+      // it would be called after everything inside it, including the "..."
+      // menu's label, and mask that control.
+      aria-label={isOwner && !action.builtin ? action.name : undefined}
     >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
