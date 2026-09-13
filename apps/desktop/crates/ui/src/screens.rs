@@ -1502,13 +1502,9 @@ impl ScreensPanel {
     /// `cx.notify()`; nothing here recomputes them.
     fn sync_session_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.rekey_run_tabs(window, cx);
-        self.reconcile_live_tabs(cx);
         let (swaps, ended) = {
             let sessions = Store::global(cx).collections().coding_sessions.read(cx);
             let open = self.open_session_ids();
-            if open.is_empty() {
-                return;
-            }
             let rows: Vec<(String, Option<String>)> = sessions
                 .iter()
                 .map(|row| (row.id.clone(), row.resumed_from_id.clone()))
@@ -1537,6 +1533,9 @@ impl ScreensPanel {
         for (old_id, new_id) in swaps {
             self.take_over_session_tab(&old_id, &new_id, window, cx);
         }
+        // EXP-870: AFTER the resume swap — a resumed run takes its
+        // predecessor's tab rather than getting a second one.
+        self.reconcile_live_tabs(cx);
     }
 
     /// EXP-870: a run tab opened before its row synced has no issue yet. Once
