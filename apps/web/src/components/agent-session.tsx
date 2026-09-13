@@ -29,7 +29,6 @@ import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { DetailBackChevron } from "@/components/team/detail-back-chevron"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
   ACCOUNTS_SECTION_TITLE,
@@ -1121,10 +1120,8 @@ export function AgentSessionView({
         </>
       ) : (
         <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
-          {/* EXP-870: the back chevron only while Cmd+B hides the sidebar —
-              otherwise the compact rail and the list nav's back row are the
-              way out (desktop parity: its session header has none). */}
-          <DetailBackChevron onBack={onBack} />
+          {/* EXP-870: no back control on md+ — the compact rail and the list
+              nav's back row are the way out (desktop parity). */}
           {faceToggle && <div className="shrink-0 pl-1">{faceToggle}</div>}
           <div className="flex min-w-0 flex-1 flex-col items-center">
             <div className="flex w-full min-w-0 items-center justify-center gap-1.5">

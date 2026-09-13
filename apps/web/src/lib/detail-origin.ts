@@ -210,8 +210,7 @@ export function originBoardSlug(origin: DetailOrigin): string | null {
 }
 
 /** EXP-870: the ONE "back to the list" navigation — the list nav's back row,
- * the session route's Back, the issue's phone back and the md+ back chevron a
- * Cmd+B-hidden sidebar brings back all land here. `null` for no origin: each
+ * the session route's Back and the issue's phone back all land here. `null` for no origin: each
  * caller owns its own fallback (a session goes to the Agent page, an issue to
  * its board). Pure, so the destinations are a test. */
 export function originListNavigation(

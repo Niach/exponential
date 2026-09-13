@@ -24,7 +24,7 @@
 //! carries navigation), then the read-only Plan chip, Pin, Context, Diff,
 //! Merge and Stop in a right-aligned group; under it, for an issue-bound
 //! run, the issue's own header (EXP-863: `IssueHeader`'s rows over a
-//! read-only title; EXP-870: the face control flips back to the issue). The
+//! read-only title; EXP-870: the header's face control flips back to the issue). The
 //! transcript view keeps everything that
 //! is about the conversation itself (the feed, the banners, the diff pane the
 //! Diff pill toggles, the composer), which is why it renders headerless here
@@ -601,7 +601,11 @@ impl SessionScreenView {
         )
     }
 
-    fn render_header(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_header(
+        &mut self,
+        face: Option<AnyElement>,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         // EXP-778: the pin toggle needs the run's team; a local start ahead
         // of its synced echo has no row yet and simply shows no toggle.
         let pin_team_id = self
@@ -760,7 +764,9 @@ impl SessionScreenView {
             .py_1p5()
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            .child(div().flex_1().min_w_0())
+            // EXP-870: the tab's `Issue | Run` control leads the header, where
+            // the web session header carries it.
+            .child(h_flex().flex_1().min_w_0().items_center().children(face))
             .child(identity)
             .child(
                 h_flex()
@@ -978,17 +984,13 @@ impl SessionScreenView {
             .get(&issue_id)
             .cloned()?;
         let header = self.ensure_header(&issue_id, window, cx);
-        // EXP-870: the band's leading control flips the tab back to its Issue
-        // face (it replaced the "Open issue" pill — the run and its issue are
-        // one tab now).
-        let face = crate::screens::face_toggle(&issue_id, window, cx);
         // The header entity's rows are built through `entity.update` from
         // this render (the detail view's `render_header` precedent) — they
         // never call back into this view synchronously. The empty trailing
         // slot keeps the chip row's session mode (no launcher, no Merge).
         let (top_row, chip_row) = header.update(cx, |header, cx| {
             (
-                header.top_row(&issue, face, cx),
+                header.top_row(&issue, None, cx),
                 header.chip_row(&issue, Some(gpui::Empty.into_any_element()), cx),
             )
         });
@@ -1255,7 +1257,10 @@ impl Focusable for SessionScreenView {
 
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let header = self.render_header(cx);
+        let face = self
+            .issue_id(cx)
+            .and_then(|issue_id| crate::screens::face_toggle(&issue_id, window, cx));
+        let header = self.render_header(face, cx);
         let issue_band = self.render_issue_band(window, cx);
         // EXP-849: the continuation byline sits directly under the subject —
         // it is about THIS run's history, not about its result.

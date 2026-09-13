@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Entity, Global, KeyBinding, Window, WindowId,
+    AnyWindowHandle, App, AppContext as _, Entity, Global, Window, WindowId,
 };
 use sync::Store;
 
@@ -193,7 +193,10 @@ impl Screen {
     /// A screen that carries a list holds it in the screens panel's transient
     /// slot rather than a tab entry (`ScreensPanel::transient_origin`).
     pub(crate) fn carries_list(&self) -> bool {
-        self.is_detail() || matches!(self, Screen::PrDiff { .. } | Screen::Chat)
+        // EXP-791/EXP-870: a terminal is FULL WIDTH — this machine's shell is
+        // not a step in any list, so it never inherits one.
+        (self.is_detail() && !matches!(self, Screen::Terminal { .. }))
+            || matches!(self, Screen::PrDiff { .. } | Screen::Chat)
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
@@ -492,7 +495,7 @@ pub struct Navigation {
     screen: Option<Screen>,
     back_stack: Vec<Screen>,
     /// EXP-818: what [`go_back`] left, so [`go_forward`] (the mouse's
-    /// forward button, `Alt+Right`) can re-enter it. Cleared by every REAL
+    /// forward button, `cmd-]`) can re-enter it. Cleared by every REAL
     /// navigation — the browser rule.
     forward_stack: Vec<Screen>,
     /// The explicitly selected board (the top-bar picker) — the primary
@@ -1247,7 +1250,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
     }
 }
 
-/// EXP-818: re-enter what [`go_back`] left (`cmd-]` / `Alt+Right`, the mouse
+/// EXP-818: re-enter what [`go_back`] left (`cmd-]`, the mouse
 /// forward button). No-op with nothing forward.
 pub fn go_forward(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
@@ -1526,22 +1529,14 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &GoForward, cx| {
         on_active_window(cx, |window, cx| go_forward(window, cx));
     });
-    // App-global back/forward bindings (§8.11): `cmd-[` / `cmd-]` on macOS,
-    // `Alt+Left` / `Alt+Right` everywhere (the browser chords). `None`
-    // context = fires regardless of focus, matching the ⌘K search binding.
-    // EXP-818: the mouse's back/forward buttons dispatch the same two
-    // actions from the shell root (`shell::Shell::render`).
+    // App-global back/forward bindings (§8.11): `cmd-[` / `cmd-]` on macOS.
+    // EXP-870: no Alt+arrow chords — the mouse's back/forward buttons
+    // dispatch the same two actions from the shell root
+    // (`shell::Shell::render`).
     #[cfg(target_os = "macos")]
     cx.bind_keys([
-        KeyBinding::new("cmd-[", GoBack, None),
-        KeyBinding::new("alt-left", GoBack, None),
-        KeyBinding::new("cmd-]", GoForward, None),
-        KeyBinding::new("alt-right", GoForward, None),
-    ]);
-    #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([
-        KeyBinding::new("alt-left", GoBack, None),
-        KeyBinding::new("alt-right", GoForward, None),
+        gpui::KeyBinding::new("cmd-[", GoBack, None),
+        gpui::KeyBinding::new("cmd-]", GoForward, None),
     ]);
 }
 

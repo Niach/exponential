@@ -803,7 +803,8 @@ impl IssueHeader {
     /// auto-subscription and the `issue_subscribers` shape stay. EXP-760
     /// folded copy-link and delete into the menu. EXP-791 retired the
     /// prev/next switcher.) EXP-870: `leading` is the tab's `Issue | Run`
-    /// face control (`screens::face_toggle`), on the left.
+    /// face control (`screens::face_toggle`), just left of the pin — the
+    /// web header's order.
     pub(crate) fn top_row(
         &mut self,
         issue: &Issue,
@@ -817,8 +818,8 @@ impl IssueHeader {
             .min_w_0()
             .px(px(DETAIL_GUTTER))
             .pt_2()
-            .children(leading)
             .child(div().flex_1().min_w_0())
+            .children(leading)
             // EXP-778: the personal pin toggle — a pinned issue lands in the
             // rail's Pinned section. Needs the team (the board's) to address
             // the toggle; a not-yet-synced board hides it for a repaint.

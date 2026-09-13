@@ -35,7 +35,6 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = `17rem`
 const SIDEBAR_WIDTH_MOBILE = `18rem`
 const SIDEBAR_WIDTH_ICON = `3rem`
-const SIDEBAR_KEYBOARD_SHORTCUT = `b`
 
 type SidebarContextProps = {
   state: `expanded` | `collapsed`
@@ -56,12 +55,6 @@ function useSidebar() {
   }
 
   return context
-}
-
-/** EXP-870: the sidebar context when a provider is mounted, else null — for
- *  detail views that may render outside the team layout (stories, tests). */
-function useSidebarIfMounted() {
-  return React.useContext(SidebarContext)
 }
 
 function SidebarProvider({
@@ -100,28 +93,13 @@ function SidebarProvider({
   )
 
   // Helper to toggle the sidebar. On mobile the sidebar drawer is retired
-  // (EXP-189: the MobileTabBar is the navigation), so toggling is a no-op —
-  // this also keeps Cmd+B from opening the dead drawer.
+  // (EXP-189: the MobileTabBar is the navigation), so toggling is a no-op.
+  // EXP-870: no keyboard shortcut toggles the sidebar at all.
   const toggleSidebar = React.useCallback(() => {
     if (isMobile) return
     setOpen((open) => !open)
   }, [isMobile, setOpen])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
-        event.preventDefault()
-        toggleSidebar()
-      }
-    }
-
-    window.addEventListener(`keydown`, handleKeyDown)
-    return () => window.removeEventListener(`keydown`, handleKeyDown)
-  }, [toggleSidebar])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -746,5 +724,4 @@ export {
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,
-  useSidebarIfMounted,
 }

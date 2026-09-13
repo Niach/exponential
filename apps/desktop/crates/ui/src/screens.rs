@@ -1333,7 +1333,7 @@ impl ScreensPanel {
         };
         // EXP-851: only a screen that can sit beside a list gets that far —
         // a list screen and every full page show the rail and own no tab.
-        if !screen.carries_list() {
+        if !screen.carries_list() && !screen.is_detail() {
             return;
         }
         // EXP-851: the breadcrumb rule — the list comes from the screen we

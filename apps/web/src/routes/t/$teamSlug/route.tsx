@@ -128,8 +128,7 @@ function TeamLayout() {
   useSteerSessionReaper(team?.id, user?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
-  // search, unconditionally (mirrors the Cmd+B sidebar-toggle handler in
-  // `components/ui/sidebar.tsx`).
+  // search, unconditionally (EXP-870: the app's one navigation chord).
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === `f` && (event.metaKey || event.ctrlKey)) {

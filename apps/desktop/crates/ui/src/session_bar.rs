@@ -90,6 +90,9 @@ actions!(
         NextTerminalTab,
         /// Switch to the previous terminal tab.
         PrevTerminalTab,
+        /// A new plain shell tab from ANYWHERE in the window — the rail
+        /// footer's terminal button as a chord (`cmd-t` / `ctrl-t`).
+        NewTerminal,
     ]
 );
 
@@ -189,6 +192,18 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTerminalTab, Some(KEY_CONTEXT)),
         KeyBinding::new("ctrl-shift-tab", PrevTerminalTab, Some(KEY_CONTEXT)),
     ]);
+    // The new-terminal chord works from every screen, not only from inside a
+    // terminal (it used to be bound to the terminal's key context alone, so
+    // pressing it anywhere else did nothing). Off macOS it is `ctrl-t`
+    // OUTSIDE a terminal only: inside one, `ctrl-t` belongs to the shell
+    // (transpose), and `ctrl-shift-t` above opens the tab.
+    cx.on_action(|_: &NewTerminal, cx| {
+        crate::navigation::on_active_window(cx, |window, cx| open_new_shell(window, cx));
+    });
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new("cmd-t", NewTerminal, None)]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new("ctrl-t", NewTerminal, Some("!TerminalScreen"))]);
 }
 
 /// The per-window session bar: owner of that window's [`TerminalManager`]

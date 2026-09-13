@@ -265,7 +265,8 @@ const BACK_GLYPH: f32 = 16.;
 /// button inside a clickable row is a second hit target for the same action,
 /// so those rows take the glyph alone and keep their own click.
 pub(crate) fn back_glyph() -> Icon {
-    Icon::from(crate::icons::registry::UI_CHEVRON_LEFT)
+    // EXP-870: the `ui-back` CONCEPT (an arrow), the web back rows' glyph.
+    Icon::from(crate::icons::registry::UI_BACK)
         .size(px(BACK_GLYPH))
         .flex_shrink_0()
 }

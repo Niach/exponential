@@ -711,7 +711,7 @@ fn rail_row(
 ) -> gpui::Stateful<gpui::Div> {
     rail_row_lead(
         id,
-        icon.xsmall().flex_shrink_0().into_any_element(),
+        icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
         label,
         active,
         None,
@@ -926,7 +926,7 @@ impl RailView {
                     // square — the issue glyph stands in, the tooltip names it.
                     let lead = if self.compact {
                         Icon::new(registry::NAV_ISSUES)
-                            .xsmall()
+                            .with_size(gpui_component::Size::Medium)
                             .flex_shrink_0()
                             .text_color(muted)
                             .into_any_element()
@@ -1014,7 +1014,7 @@ impl RailView {
                         .clone()
                         .unwrap_or_else(|| "Untitled action".to_string());
                     let lead = crate::icons::action_icon(action.icon.as_deref())
-                        .xsmall()
+                        .with_size(gpui_component::Size::Medium)
                         .flex_shrink_0()
                         .into_any_element();
                     let action_id = action.id.clone();
@@ -1162,7 +1162,7 @@ impl RailView {
         };
         // EXP-870: the compact square already wears its label as a tooltip;
         // a richer caller tooltip (Source Control's sync stamp) replaces it.
-        let lead = icon.xsmall().flex_shrink_0().into_any_element();
+        let lead = icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element();
         let label: SharedString = match (&tooltip, self.compact) {
             (Some(text), true) => text.clone(),
             _ => label.into(),
@@ -1215,7 +1215,7 @@ impl RailView {
         active: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let lead = icon.xsmall().flex_shrink_0().into_any_element();
+        let lead = icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element();
         self.entry(id, lead, label, active, badge, cx)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                 // EXP-851: the rail is not a list — an entry never lends one
@@ -1443,7 +1443,7 @@ impl RailView {
             let compact = self.compact;
             self.entry(
                 ("rail-board", index),
-                icon.xsmall().flex_shrink_0().into_any_element(),
+                icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
                 SharedString::from(board.name.clone()),
                 active,
                 None,

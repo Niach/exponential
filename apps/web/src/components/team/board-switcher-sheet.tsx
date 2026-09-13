@@ -110,8 +110,8 @@ export function BoardSwitcherSheet({
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="flex flex-col gap-4 px-2 pb-2">
               {/* EXP-778/818: the phone's ONLY route to the Pinned list — the
-                  sidebar that carries it on md+ is a keyboard away (Cmd+B),
-                  and the natives put pins in this very sheet. Current team
+                  sidebar carries it on md+, and the natives put pins in this
+                  very sheet. Current team
                   only: a pin is per team, like the sidebar group. */}
               <PinnedSheetSection
                 teamId={team?.id}

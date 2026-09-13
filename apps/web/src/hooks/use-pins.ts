@@ -101,7 +101,7 @@ export function usePinToggle(
 // A pin only renders when its target resolves, which every pin surface has to
 // decide the same way. `usePinnedEntries` does the resolving once so a second
 // surface — the phone's board-switcher sheet, which is the only Pinned there is
-// without a keyboard (Cmd+B opens the sidebar) — renders the same rows the
+// on a phone — renders the same rows the
 // sidebar group does.
 
 export type PinnedEntry =

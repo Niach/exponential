@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { DetailBackChevron } from "@/components/team/detail-back-chevron"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -1061,12 +1060,6 @@ export function IssueDetailView({
               className={`${DETAIL_STICKY_BAND_CLASS} pb-3`}
             >
               <div className="mx-auto flex max-w-3xl items-start gap-2">
-                {/* EXP-870: back to the list, only while Cmd+B hides the
-                    sidebar. */}
-                <DetailBackChevron
-                  onBack={goBackToList}
-                  className="mt-4 ml-2 shrink-0"
-                />
                 <div className="min-w-0 flex-1">{titleField}</div>
                 <div className="flex shrink-0 items-center gap-1 pt-4 pr-4">
                   {faceToggle}
