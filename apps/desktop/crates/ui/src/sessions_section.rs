@@ -26,15 +26,17 @@
 use std::collections::HashSet;
 
 use gpui::{
-    div, App, Entity, Hsla, IntoElement, ParentElement, Render, SharedString,
+    div, App, Entity, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen, TabOrigin};
-use crate::queries::{self, CodingSessionDisplay};
-use crate::run_rows::{self, RunRowFold, RunRowKill, RunRowLead, RunRowSpec};
+use crate::queries;
+use crate::run_rows::{
+    self, PastRunFacts, PastRunSpec, RunRowFold, RunRowKill, RunningRunFacts, RunningRunSpec,
+};
 use crate::surface::{glass_section_band_fold, glass_section_header};
 
 /// EXP-862 — how often a list re-derives itself on the CLOCK. Both sections
@@ -54,26 +56,15 @@ const NO_RUNNING_COPY: &str = "No agents running right now.";
 /// callbacks need it mutably).
 #[derive(Clone)]
 struct RunningRow {
-    session_id: String,
     /// EXP-827: where the row sits in the session TREE
     /// ([`domain::session_tree::nest_sessions`]) — a run a run started.
     depth: usize,
     has_children: bool,
-    identifier: Option<SharedString>,
-    title: SharedString,
-    caption: Option<SharedString>,
-    /// EXP-850 §8: the run's agent caption (the newest running workflow's) —
-    /// the row's second line.
-    agent_caption: Option<SharedString>,
-    tone: Hsla,
-    /// The machine's name, for the kill confirm ("… on Studio").
-    device_label: Option<String>,
+    /// EXP-874: what the row draws (the shared `run_rows` derivation).
+    facts: RunningRunFacts,
     /// `Some` while THIS process hosts the run — the kill goes straight to the
     /// host instead of out through the relay.
     local: Option<LocalSessionHost>,
-    /// Web `ownsLiveRow`: the row is the caller's and still live, and a paused
-    /// host is never killed (it resumes when the lid opens).
-    killable: bool,
 }
 
 /// EXP-862: the short-circuit for the derived rows. Hand-written because a
@@ -81,17 +72,10 @@ struct RunningRow {
 /// it is only whether this process hosts the run.
 impl PartialEq for RunningRow {
     fn eq(&self, other: &Self) -> bool {
-        self.session_id == other.session_id
-            && self.depth == other.depth
+        self.depth == other.depth
             && self.has_children == other.has_children
-            && self.identifier == other.identifier
-            && self.title == other.title
-            && self.caption == other.caption
-            && self.agent_caption == other.agent_caption
-            && self.tone == other.tone
-            && self.device_label == other.device_label
+            && self.facts == other.facts
             && self.local.is_some() == other.local.is_some()
-            && self.killable == other.killable
     }
 }
 
@@ -125,7 +109,15 @@ impl RunningSessionsSection {
             collapsed: HashSet::new(),
             show_when_empty: false,
             list_origin: None,
-            _subscriptions: watch_run_collections(cx, |this: &mut Self, cx| this.refresh(cx)),
+            _subscriptions: {
+                let mut subscriptions =
+                    watch_run_collections(cx, |this: &mut Self, cx| this.refresh(cx));
+                // EXP-874: the rows' Merge circles paint the shared two-click
+                // state (armed / merging / conflict).
+                let merge_state = crate::pr_merge::MergeState::global(cx);
+                subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
+                subscriptions
+            },
             _tick: tick(cx, |this: &mut Self, cx| this.refresh(cx)),
         }
     }
@@ -228,64 +220,19 @@ impl RunningSessionsSection {
             |session| session.started_at.as_deref(),
         );
 
-        let issues = collections.issues.read(cx);
-        let devices = collections.devices.read(cx);
-        let theme = cx.theme();
         tree.into_iter()
             .map(|tree_row| {
-                let depth = tree_row.depth;
-                let has_children = tree_row.has_children;
                 let session = tree_row.session;
-                let issue = session
-                    .issue_id
-                    .as_deref()
-                    .and_then(|issue_id| issues.get(issue_id));
-                let presentation =
-                    queries::session_device_presentation(session, devices.iter(), now * 1_000);
-                let display = queries::coding_session_display(
-                    session,
-                    // EXP-734: an issue-less run (action/chat) carries its own
-                    // PR state on the row.
-                    issue
-                        .and_then(|issue| issue.pr_state.as_deref())
-                        .or(session.pr_state.as_deref()),
-                );
-                let paused = queries::session_is_paused(display, &presentation);
+                let host = hosts.iter().find(|(id, _)| id == &session.id).map(|(_, host)| host);
                 // EXP-850 §8: a run this process hosts reads the engine's own
                 // caption signal (it WROTE the column; waiting for the echo
-                // would only add latency), every other row the synced one —
-                // the `session_agent_busy` precedence, one rule.
-                let local_caption = hosts
-                    .iter()
-                    .find(|(id, _)| id == &session.id)
-                    .and_then(|(_, host)| host.session.caption_signal().get());
+                // would only add latency), every other row the synced one.
+                let local_caption = host.and_then(|host| host.session.caption_signal().get());
                 RunningRow {
-                    session_id: session.id.clone(),
-                    agent_caption: queries::session_agent_caption(session, local_caption, now)
-                        .map(SharedString::from),
-                    depth,
-                    has_children,
-                    identifier: issue.map(|issue| SharedString::from(issue.identifier.clone())),
-                    title: session_title(session, issue),
-                    caption: Some(SharedString::from(running_caption(
-                        presentation.label.as_deref(),
-                        display,
-                        paused,
-                        run_rows::run_started_at(session),
-                        now,
-                    ))),
-                    // EXP-862: the ONE dot mapping, shared with the rail,
-                    // the screens and the steer header.
-                    tone: queries::session_dot_tone(
-                        queries::SessionDotFacts::from_display(display, false, paused),
-                        theme.muted_foreground,
-                    ),
-                    device_label: presentation.label.clone(),
-                    local: hosts
-                        .iter()
-                        .find(|(id, _)| id == &session.id)
-                        .map(|(_, host)| host.clone()),
-                    killable: !paused,
+                    depth: tree_row.depth,
+                    has_children: tree_row.has_children,
+                    facts: run_rows::running_run_facts(session, local_caption, now, cx),
+                    local: host.cloned(),
                 }
             })
             .collect()
@@ -310,7 +257,7 @@ impl Render for RunningSessionsSection {
         let rows = drop_collapsed(
             self.rows.iter().collect::<Vec<_>>(),
             &self.collapsed,
-            |row| row.session_id.as_str(),
+            |row| row.facts.session_id.as_str(),
             |row| row.depth,
         );
         if rows.is_empty() && !self.show_when_empty {
@@ -330,13 +277,21 @@ impl Render for RunningSessionsSection {
         }
         let list_origin = self.list_origin.clone();
         for (index, row) in rows.into_iter().enumerate() {
-            let open_id = row.session_id.clone();
+            let open_id = row.facts.session_id.clone();
             let list_origin = list_origin.clone();
-            let fold = fold_for(row.session_id.clone(), row.has_children, &self.collapsed, cx);
-            let kill = row.killable.then(|| {
-                let session_id = row.session_id.clone();
+            let fold = fold_for(
+                row.facts.session_id.clone(),
+                row.has_children,
+                &self.collapsed,
+                cx,
+            );
+            // Web `ownsLiveRow`: a paused host is never killed (it resumes
+            // when the lid opens). EXP-874: the kill rides the row's
+            // right-click menu, not a trailing button.
+            let kill = (!row.facts.paused).then(|| {
+                let session_id = row.facts.session_id.clone();
                 let local = row.local.clone();
-                let device_label = row.device_label.clone();
+                let device_label = row.facts.device_label.clone();
                 RunRowKill {
                     // EXP-849 fix-up: one verb, wherever the run is hosted.
                     label: SharedString::from("Stop session"),
@@ -353,31 +308,28 @@ impl Render for RunningSessionsSection {
             });
             // EXP-862: the row whose session is on screen wears the flat
             // list's selected paint, like every other list here.
-            let active = open_session.as_deref() == Some(row.session_id.as_str());
-            column = column.child(run_rows::render_run_row_active(
-                RunRowSpec {
+            let active = open_session.as_deref() == Some(row.facts.session_id.as_str());
+            let element = run_rows::render_running_run_row(
+                RunningRunSpec {
                     id_prefix: "running-run",
                     index,
-                    lead: RunRowLead::Live(row.tone),
                     depth: row.depth,
                     fold,
-                    identifier: row.identifier.clone(),
-                    title: row.title.clone(),
-                    caption: row.caption.clone(),
-                    subcaption: row.agent_caption.clone(),
-                    on_open: Some(Box::new(move |_, window, cx| {
+                    facts: row.facts.clone(),
+                    on_open: Box::new(move |_, window, cx| {
                         crate::session_screen::open_session_with_origin(
                             &open_id,
                             list_origin.clone(),
                             window,
                             cx,
                         );
-                    })),
+                    }),
                     kill,
                 },
                 active,
                 cx,
-            ));
+            );
+            column = column.child(element);
         }
         // The section carries its OWN top spacing (the page column has no
         // `gap`): a `gap_6` parent would reserve 24px for an empty section
@@ -397,14 +349,10 @@ impl Render for RunningSessionsSection {
 /// One finished row, flattened like [`RunningRow`].
 #[derive(Clone, PartialEq)]
 struct PastRow {
-    session_id: String,
     /// EXP-827: the session tree, exactly as Running nests it.
     depth: usize,
     has_children: bool,
-    identifier: Option<SharedString>,
-    title: SharedString,
-    byline: SharedString,
-    agent: Option<coding::CodingAgent>,
+    facts: PastRunFacts,
 }
 
 pub(crate) struct PastSessionsSection {
@@ -485,35 +433,11 @@ impl PastSessionsSection {
             |session| session.parent_session_id.as_deref(),
             |session| session.started_at.as_deref(),
         );
-        let issues = collections.issues.read(cx);
-        let devices = collections.devices.read(cx);
         tree.into_iter()
-            .map(|tree_row| {
-                let depth = tree_row.depth;
-                let has_children = tree_row.has_children;
-                let session = tree_row.session;
-                let issue = session
-                    .issue_id
-                    .as_deref()
-                    .and_then(|issue_id| issues.get(issue_id));
-                let presentation =
-                    queries::session_device_presentation(session, devices.iter(), now * 1_000);
-                PastRow {
-                    session_id: session.id.clone(),
-                    depth,
-                    has_children,
-                    identifier: issue.map(|issue| SharedString::from(issue.identifier.clone())),
-                    title: session_title(session, issue),
-                    byline: SharedString::from(run_rows::past_run_byline(
-                        session,
-                        presentation.label.as_deref(),
-                        now,
-                    )),
-                    agent: session
-                        .agent
-                        .as_deref()
-                        .and_then(coding::CodingAgent::parse),
-                }
+            .map(|tree_row| PastRow {
+                depth: tree_row.depth,
+                has_children: tree_row.has_children,
+                facts: run_rows::past_run_facts(tree_row.session, now, cx),
             })
             .collect()
     }
@@ -540,40 +464,38 @@ impl Render for PastSessionsSection {
         let rows = drop_collapsed(
             self.rows.iter().collect::<Vec<_>>(),
             &self.collapsed,
-            |row| row.session_id.as_str(),
+            |row| row.facts.session_id.as_str(),
             |row| row.depth,
         );
         let mut column = v_flex().min_w_0();
         let list_origin = self.list_origin.clone();
         for (index, row) in rows.iter().enumerate() {
-            let open_id = row.session_id.clone();
+            let open_id = row.facts.session_id.clone();
             let list_origin = list_origin.clone();
-            let fold = fold_for(row.session_id.clone(), row.has_children, &self.collapsed, cx);
-            let active = open_session.as_deref() == Some(row.session_id.as_str());
-            column = column.child(run_rows::render_run_row_active(
-                RunRowSpec {
+            let fold = fold_for(
+                row.facts.session_id.clone(),
+                row.has_children,
+                &self.collapsed,
+                cx,
+            );
+            let active = open_session.as_deref() == Some(row.facts.session_id.as_str());
+            column = column.child(run_rows::render_past_run_row(
+                PastRunSpec {
                     id_prefix: "past-run",
                     index,
-                    lead: RunRowLead::Agent(row.agent),
                     depth: row.depth,
                     fold,
-                    identifier: row.identifier.clone(),
-                    title: row.title.clone(),
-                    caption: Some(row.byline.clone()),
-                    // A finished run's last workflow is history, not a status
-                    // line (EXP-850 §8 gates the caption on liveness).
-                    subcaption: None,
+                    facts: row.facts.clone(),
                     // EXP-773: a plain link. The transcript and Resume live in
                     // the fullscreen session view now.
-                    on_open: Some(Box::new(move |_, window, cx| {
+                    on_open: Box::new(move |_, window, cx| {
                         crate::session_screen::open_session_with_origin(
                             &open_id,
                             list_origin.clone(),
                             window,
                             cx,
                         );
-                    })),
-                    kill: None,
+                    }),
                 },
                 active,
                 cx,
@@ -694,70 +616,9 @@ fn watch_run_collections<V: 'static>(
         }),
         cx.observe(&collections.issues, move |this, _, cx| refresh(this, cx)),
         cx.observe(&collections.devices, move |this, _, cx| refresh(this, cx)),
+        // EXP-874: a running row's action button carries the action's icon.
+        cx.observe(&collections.actions, move |this, _, cx| refresh(this, cx)),
     ]
-}
-
-/// The row's subject line: the issue title, a sync placeholder while that
-/// issue row is missing, the action-name snapshot (a chat run's reads "Chat",
-/// EXP-615), else the batch. Mirrors the dock chip's rule — EXP-746 D6
-/// deletes that copy with the chips — and is byte-identical ×4 for the Past
-/// rows below: web `pastRunTitle`, iOS `PastRuns.title`, Android
-/// `pastRunTitle`, all locked by `a row titles itself from whatever it has`.
-fn session_title(
-    session: &domain::rows::CodingSession,
-    issue: Option<&domain::rows::Issue>,
-) -> SharedString {
-    if let Some(issue) = issue {
-        let title = issue.title.trim();
-        return SharedString::from(if title.is_empty() {
-            "Untitled issue".to_string()
-        } else {
-            title.to_string()
-        });
-    }
-    if session.issue_id.is_some() {
-        return SharedString::from("Issue syncing…");
-    }
-    match session.action_name.as_deref() {
-        Some(name) if !name.trim().is_empty() => SharedString::from(name.to_string()),
-        _ => SharedString::from("Batch run"),
-    }
-}
-
-/// A Running row's caption: where it runs, what it is doing, since when.
-/// Parts the row cannot prove are dropped rather than guessed.
-fn running_caption(
-    device_label: Option<&str>,
-    display: CodingSessionDisplay,
-    paused: bool,
-    started_at: Option<&str>,
-    now_epoch: i64,
-) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(label) = device_label.map(str::trim).filter(|label| !label.is_empty()) {
-        parts.push(label.to_string());
-    }
-    parts.push(
-        if paused {
-            // EXP-550: an offline host means the run is parked, not dead.
-            "Paused"
-        } else {
-            match display {
-                CodingSessionDisplay::Running => "Running",
-                CodingSessionDisplay::NeedsInput => "Needs input",
-                CodingSessionDisplay::Review => "In review",
-                CodingSessionDisplay::Done => "Done",
-            }
-        }
-        .to_string(),
-    );
-    if let Some(at) = started_at {
-        let when = crate::comments::relative_time(at, now_epoch);
-        if !when.is_empty() {
-            parts.push(when);
-        }
-    }
-    parts.join(" · ")
 }
 
 #[cfg(test)]
@@ -769,93 +630,6 @@ mod tests {
     #[test]
     fn the_empty_running_band_copy_is_locked() {
         assert_eq!(NO_RUNNING_COPY, "No agents running right now.");
-    }
-
-    /// A live row says where it runs, what it is doing and since when — and
-    /// says nothing it cannot prove (an unknown machine drops the name, a row
-    /// without a start stamp drops the time).
-    #[test]
-    fn a_running_caption_names_the_machine_and_the_state() {
-        let now = 1_700_000_000;
-        let started = chrono::DateTime::from_timestamp(now - 120, 0)
-            .expect("timestamp")
-            .to_rfc3339();
-        assert_eq!(
-            running_caption(
-                Some("Studio"),
-                CodingSessionDisplay::Running,
-                false,
-                Some(&started),
-                now
-            ),
-            "Studio · Running · 2 minutes ago"
-        );
-        // EXP-550: the offline host wins over the display word.
-        assert_eq!(
-            running_caption(
-                Some("Studio"),
-                CodingSessionDisplay::NeedsInput,
-                true,
-                None,
-                now
-            ),
-            "Studio · Paused"
-        );
-        assert_eq!(
-            running_caption(None, CodingSessionDisplay::Review, false, None, now),
-            "In review"
-        );
-    }
-
-    /// The subject line falls back the way the dock chip always did: the
-    /// issue's title, a sync placeholder while the issue is missing, the
-    /// action's name, else the batch. Byte-identical ×4 (web `pastRunTitle`,
-    /// iOS `PastRuns.title`, Android `pastRunTitle`) so Running and Past name
-    /// the same run the same way on every client.
-    #[test]
-    fn a_row_titles_itself_from_whatever_it_has() {
-        let row = |value: serde_json::Value| -> domain::rows::CodingSession {
-            serde_json::from_value(value).expect("row")
-        };
-        let issue = |title: &str| -> domain::rows::Issue {
-            serde_json::from_value(serde_json::json!({
-                "id": "i-1",
-                "board_id": "b-1",
-                "identifier": "EXP-1",
-                "number": 1,
-                "title": title,
-                "status": "in_progress",
-                "priority": "none",
-            }))
-            .expect("issue")
-        };
-        let scoped = row(serde_json::json!({ "id": "s-0", "issue_id": "i-1" }));
-        assert_eq!(
-            session_title(&scoped, Some(&issue("Fix the sync loop"))),
-            SharedString::from("Fix the sync loop")
-        );
-        assert_eq!(
-            session_title(&scoped, Some(&issue("  "))),
-            SharedString::from("Untitled issue")
-        );
-        let batch = row(serde_json::json!({ "id": "s-1" }));
-        assert_eq!(session_title(&batch, None), SharedString::from("Batch run"));
-        let action = row(serde_json::json!({ "id": "s-2", "action_name": "Release train" }));
-        assert_eq!(
-            session_title(&action, None),
-            SharedString::from("Release train")
-        );
-        // A chat run carries "Chat" as its action snapshot (EXP-615), so no
-        // client sniffs the `exp/chat-` branch for a name.
-        let chat = row(serde_json::json!({
-            "id": "s-4", "action_name": "Chat", "branch": "exp/chat-1a2b3c4d"
-        }));
-        assert_eq!(session_title(&chat, None), SharedString::from("Chat"));
-        let syncing = row(serde_json::json!({ "id": "s-3", "issue_id": "i-1" }));
-        assert_eq!(
-            session_title(&syncing, None),
-            SharedString::from("Issue syncing…")
-        );
     }
 
     /// EXP-827: a collapsed parent takes its WHOLE subtree off the list — its

@@ -58,7 +58,9 @@ struct AutomationsDerived {
     rows: Vec<AutomationRow>,
     /// The "Recent automated runs" log, newest first, already capped to
     /// [`RECENT_RUNS_CAP`].
-    recent_runs: Vec<domain::rows::CodingSession>,
+    /// EXP-874: each run's row facts (a live run draws as a running row, an
+    /// ended one as a past row).
+    recent_runs: Vec<run_rows::RunListFacts>,
 }
 
 /// One automation row's data: the automation itself plus everything the
@@ -132,7 +134,13 @@ impl AutomationsDerived {
         Self {
             team_id,
             rows,
-            recent_runs: runs.into_iter().take(RECENT_RUNS_CAP).collect(),
+            recent_runs: {
+                let now = chrono::Utc::now().timestamp();
+                runs.iter()
+                    .take(RECENT_RUNS_CAP)
+                    .map(|session| run_rows::RunListFacts::derive(session, now, cx))
+                    .collect()
+            },
         }
     }
 }
@@ -159,6 +167,10 @@ impl AutomationsView {
             subscriptions.push(cx.observe(&devices, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&sessions, |this, _, cx| this.refresh(cx)));
         }
+        // EXP-874: the live run rows' Merge circles paint the shared
+        // two-click state.
+        let merge_state = crate::pr_merge::MergeState::global(cx);
+        subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
         let derived = AutomationsDerived::compute(cx, active_team_id(&nav, cx));
         Self {
             nav,
@@ -389,7 +401,7 @@ impl AutomationsView {
     fn render_automations(&self, is_owner: bool, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
         let now_ms = chrono::Utc::now().timestamp_millis();
-        let runs = &self.derived.recent_runs;
+        let runs = self.derived.recent_runs.clone();
 
         let rows: gpui::AnyElement = if self.derived.rows.is_empty() {
             crate::controls::empty_state(
@@ -432,48 +444,35 @@ impl AutomationsView {
                     .child("Nothing has fired yet."),
             );
         }
-        for (index, session) in runs.iter().enumerate() {
-            let open_id = session.id.clone();
-            // EXP-746: the row itself lives in `run_rows` now — the Devices
-            // screen's Running and Past lists draw the same card. EXP-773
-            // flattened it to a plain link: the transcript, the run's summary
-            // and Resume are the fullscreen session view's, not the list's.
-            let parts = run_rows::automation_row_parts(session, now_ms / 1000);
-            run_rows_column = run_rows_column.child(run_rows::render_run_row(
-                run_rows::RunRowSpec {
-                    id_prefix: "run",
-                    index,
-                    lead: run_rows::RunRowLead::Automation,
-                    // Automated runs are flat: an automation fires ONE run,
-                    // and a sub-session it starts is listed on the Agent page.
-                    depth: 0,
-                    fold: None,
-                    identifier: None,
-                    title: parts.title,
-                    caption: Some(parts.caption),
-                    // An automated run's list is not a live status surface
-                    // (EXP-850 §8 names the session lists); nothing to say.
-                    subcaption: None,
-                    on_open: Some(Box::new(move |_, window, cx| {
-                        // EXP-862: the run opens PINNED to this log, so its
-                        // left column lists the other automated runs and its
-                        // Back comes back here (an unattended run has no row
-                        // on the Agent page).
-                        crate::session_screen::open_session_with_origin(
-                            &open_id,
-                            Some(crate::navigation::TabOrigin {
-                                tool: crate::sidebar::ToolWindow::Automations,
-                                board_id: None,
-                                inbox_tab: None,
-                            }),
-                            window,
-                            cx,
-                        );
-                    })),
-                    kill: None,
-                },
+        for (index, facts) in runs.iter().enumerate() {
+            let open_id = facts.session_id().to_string();
+            // EXP-874: the shared run rows — a live automated run is a running
+            // row (its trailing button opens the automation), an ended one a
+            // past row. Every row opens the fullscreen session view.
+            let element = run_rows::render_run_list_row(
+                "run",
+                index,
+                facts.clone(),
+                false,
+                Box::new(move |_, window, cx| {
+                    // EXP-862: the run opens PINNED to this log, so its left
+                    // column lists the other automated runs and its Back
+                    // comes back here (an unattended run has no row on the
+                    // Agent page).
+                    crate::session_screen::open_session_with_origin(
+                        &open_id,
+                        Some(crate::navigation::TabOrigin {
+                            tool: crate::sidebar::ToolWindow::Automations,
+                            board_id: None,
+                            inbox_tab: None,
+                        }),
+                        window,
+                        cx,
+                    );
+                }),
                 cx,
-            ));
+            );
+            run_rows_column = run_rows_column.child(element);
         }
         body = body.child(recent.child(run_rows_column));
         body.into_any_element()

@@ -547,3 +547,80 @@ export function usePastRuns(
     }
   }, [past, issueRows, boards, devices, now, isReady, teamId, currentUserId])
 }
+
+// ── Arbitrary session rows (EXP-874) ─────────────────────────────────────────
+
+/** What the shared session list rows (`components/session-list-rows.tsx`)
+ * render off — an `AgentSessionRow` minus the user join. */
+export type SessionListRow = Pick<
+  AgentSessionRow,
+  `session` | `issue` | `board` | `device` | `paused` | `mergeTarget`
+>
+
+/**
+ * EXP-874: joins an ARBITRARY set of session rows (the Automations lists'
+ * automated runs — not the caller's own person-started ones `useAgentsData`
+ * serves) into row shape: the issue + board, the live device label and
+ * online-ness, and the Merge target (the issue, else the run's own chore PR).
+ * A batch run's representative-issue lookup is `useAgentsData`'s alone.
+ */
+export function useSessionListRows(
+  teamId: string | undefined,
+  sessions: readonly CodingSession[]
+): SessionListRow[] {
+  const issueIds = useMemo(() => {
+    const ids = [
+      ...new Set(
+        sessions
+          .map((session) => session.issueId)
+          .filter((id): id is string => id !== null)
+      ),
+    ]
+    ids.sort()
+    return ids
+  }, [sessions])
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, issueIds))
+        : undefined,
+    [issueIds.join(`,`)]
+  )
+  const { data: deviceRows } = useLiveQuery(
+    (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
+    [teamId]
+  )
+  const boards = useTeamBoards(teamId)
+  const now = useNow(30_000)
+
+  return useMemo(() => {
+    const devices = (deviceRows ?? []) as Device[]
+    const issueMap = new Map(
+      ((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])
+    )
+    const boardMap = new Map(boards.map((board) => [board.id, board]))
+    return sessions.map((session) => {
+      const issue = session.issueId ? issueMap.get(session.issueId) : undefined
+      const device = resolveSessionDevice(session, devices, now)
+      return {
+        session,
+        issue,
+        board: issue ? boardMap.get(issue.boardId) : undefined,
+        device,
+        paused:
+          session.status !== `ended` &&
+          sessionIsPaused(
+            sessionDisplayState(session, rowPrState(session, issue)),
+            device
+          ),
+        mergeTarget: issue
+          ? { kind: `issue`, issue }
+          : session.prUrl && session.prNumber != null
+            ? { kind: `session`, session }
+            : undefined,
+      } satisfies SessionListRow
+    })
+  }, [sessions, issueRows, deviceRows, boards, now])
+}

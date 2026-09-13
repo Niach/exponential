@@ -109,16 +109,6 @@ func sessionStateColor(_ state: CodingSessionDisplayState) -> Color {
     }
 }
 
-/// The word beside the dot on a parked row; nil while the run is simply going.
-func sessionStateLabel(_ state: CodingSessionDisplayState) -> String? {
-    switch state {
-    case .needsInput: "Needs input"
-    case .review: "Ready for review"
-    case .done: "Done"
-    case .running: nil
-    }
-}
-
 /// The title beside the identifier, one rule for the list and the steering
 /// header: an issueless run is an action run when it carries its `action_name`
 /// snapshot (EXP-253), else a batch run — never "Untitled issue". A

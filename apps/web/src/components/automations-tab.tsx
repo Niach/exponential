@@ -7,7 +7,13 @@ import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { EndedSessionRow } from "@/components/agent-session-row"
+import { pastRunRowByline } from "@/components/agent-session-row"
+import {
+  PastSessionRow,
+  RunningSessionRow,
+} from "@/components/session-list-rows"
+import { useSessionListRows } from "@/hooks/use-agents-data"
+import { sessionIdentity } from "@/lib/session-identity"
 import type { DetailOrigin } from "@/lib/detail-origin"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -326,6 +332,12 @@ export function AutomationsTab({
     return byAutomation
   }, [automatedRuns])
 
+  // EXP-874: the newest ten, joined into the shared session rows' shape.
+  const recentRuns = useSessionListRows(
+    teamId,
+    useMemo(() => automatedRuns.slice(0, 10), [automatedRuns])
+  )
+
   const actionById = useMemo(
     () => new Map((actions ?? []).map((action) => [action.id, action])),
     [actions]
@@ -441,49 +453,39 @@ export function AutomationsTab({
             </div>
           ) : (
             <div className="flex flex-col gap-0">
-              {automatedRuns.slice(0, 10).map((session) =>
-                // EXP-637: an ENDED run has a close-out to expand into.
-                // EXP-686: a live one has no self-reported state left to
-                // show — it just says "Running", and the whole row opens the
-                // run's session page.
-                session.status === `ended` ? (
-                  <EndedSessionRow
+              {recentRuns.map((row) => {
+                const { session } = row
+                // The action that fired: the row's `actionName` snapshot, or
+                // the live action's name when the snapshot is missing.
+                const title =
+                  row.issue || !session.actionId
+                    ? sessionIdentity(row).subject
+                    : (session.actionName ??
+                      actionById.get(session.actionId)?.name ??
+                      `Action`)
+                const onOpen = () =>
+                  // EXP-862: opened from Automations, so Back returns here
+                  // and the sidebar keeps the automated-runs list.
+                  openSession(session, { origin: AUTOMATIONS_ORIGIN })
+                return session.status === `ended` ? (
+                  <PastSessionRow
                     key={session.id}
-                    row={{ session }}
-                    // EXP-862: opened from Automations, so Back returns here
-                    // and the sidebar keeps the automated-runs list.
-                    origin={AUTOMATIONS_ORIGIN}
-                    title={
-                      session.actionName ??
-                      (session.actionId
-                        ? actionById.get(session.actionId)?.name
-                        : null) ??
-                      `Action`
-                    }
+                    sessionId={session.id}
+                    title={title}
+                    identifier={row.issue?.identifier ?? null}
+                    byline={pastRunRowByline(row)}
+                    onOpen={onOpen}
                   />
                 ) : (
-                  <ListRow
+                  <RunningSessionRow
                     key={session.id}
-                    interactive
-                    className="gap-2 text-sm"
-                    onClick={() =>
-                      openSession(session, { origin: AUTOMATIONS_ORIGIN })
-                    }
-                    data-testid={`automated-run-${session.id}`}
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {session.actionName ??
-                        (session.actionId
-                          ? actionById.get(session.actionId)?.name
-                          : null) ??
-                        `Action`}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {`Running · ${relativeTime(session.createdAt)}`}
-                    </span>
-                  </ListRow>
+                    row={row}
+                    isOwner={isOwner}
+                    steerEnabled={steerEnabled}
+                    onOpen={onOpen}
+                  />
                 )
-              )}
+              })}
             </div>
           )}
         </div>

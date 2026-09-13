@@ -680,11 +680,16 @@ impl Shell {
             rail_slot.w(px(rail_w(anim.occupant))).into_any_element()
         };
 
+        // EXP-874: the hairline between the rail and the panel (web
+        // `border-l border-glass-stroke` on the panel slot) — the slot only
+        // exists while a panel is up, so the line does too.
         let panel_slot = div()
             .h_full()
             .flex_shrink_0()
             .relative()
-            .overflow_hidden();
+            .overflow_hidden()
+            .border_l_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
         let panel_slot = match (anim.swapping, anim.from_occupant, anim.occupant) {
             (false, _, LeftOccupant::Rail) => None,
             (false, _, occupant) => Some(
