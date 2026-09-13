@@ -566,13 +566,15 @@ impl WysiwygDescription {
                 self.staged.push(staged);
             }
         }
+        // EXP-868: no `sync_refs` here. The chip snapshot is team data, not
+        // document data — the collection observers keep it live — and a
+        // whole-team scan per keystroke made typing crawl.
         self.sync_images(cx);
-        self.sync_refs(cx);
     }
 
     /// Refresh the member/issue snapshot the pill decorator reads. Runs on
-    /// init and every change — newly synced members/issues decorate on the
-    /// next edit (or reopen).
+    /// init and whenever a collection behind it moves
+    /// ([`Self::schedule_ref_refresh`]).
     fn sync_refs(&mut self, cx: &mut Context<Self>) {
         if let Some(team_id) = self.team_id.clone() {
             refresh_ref_state(&self.refs, &team_id, cx);
@@ -753,11 +755,18 @@ impl WysiwygDescription {
         // retry timer for something that cannot succeed).
         let mut media: HashMap<String, gpui_markdown_editor::MediaInfo> = HashMap::new();
         let origin = crate::queries::instance_origin(cx);
-        for block in crate::markdown::parse::markdown_to_blocks_for(
-            &markdown,
-            crate::markdown::parse::SoftBreakMode::Space,
-            origin.as_deref(),
-        ) {
+        // EXP-868: this runs per keystroke — a document with no attachment
+        // path cannot hold a media link, so skip the full block parse.
+        let blocks = if markdown.contains("/api/attachments/") {
+            crate::markdown::parse::markdown_to_blocks_for(
+                &markdown,
+                crate::markdown::parse::SoftBreakMode::Space,
+                origin.as_deref(),
+            )
+        } else {
+            Vec::new()
+        };
+        for block in blocks {
             let crate::markdown::ContentBlock::AttachmentLink { url, .. } = block else {
                 continue;
             };

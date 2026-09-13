@@ -622,6 +622,26 @@ impl Collections {
         out
     }
 
+    /// EXP-868: [`Self::issues_in_team`] without the clone and the sort — a
+    /// BORROWED, unordered view for the hot paths (render-time pickers,
+    /// per-keystroke snapshots) that filter or project before they own
+    /// anything. Cloning every issue (descriptions included) there made the
+    /// whole window stutter on each redraw.
+    pub fn issue_refs_in_team<'a>(&'a self, team_id: &str, cx: &'a App) -> Vec<&'a Issue> {
+        let board_ids: std::collections::HashSet<&str> = self
+            .boards
+            .read(cx)
+            .iter()
+            .filter(|p| p.team_id == team_id)
+            .map(|p| p.id.as_str())
+            .collect();
+        self.issues
+            .read(cx)
+            .iter()
+            .filter(|i| board_ids.contains(i.board_id.as_str()))
+            .collect()
+    }
+
     /// EXP-736: every relation row touching `issue_id`, from EITHER side —
     /// the shape syncs rows scoped by the SOURCE issue's board, and a row
     /// whose `related_issue_id` is this issue is the inverse side of the same

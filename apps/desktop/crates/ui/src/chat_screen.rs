@@ -44,7 +44,9 @@
 //! four drawn once per page from a pool byte-identical to the web's
 //! `CHAT_SUGGESTIONS` (locked below).
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -186,7 +188,7 @@ fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
 /// The checked issues and everything their launch needs.
 struct IssueSubject {
     /// The picker's pool (open team issues + the seeded ones).
-    rows: Vec<IssueRow>,
+    rows: Rc<Vec<IssueRow>>,
     checked: HashSet<String>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
@@ -202,6 +204,15 @@ struct IssueSubject {
 struct ActionSubject {
     action_id: String,
     picks: ActionInputPicks,
+}
+
+/// EXP-868: what [`ChatScreenView::team_pool`] is valid for.
+#[derive(Clone, PartialEq, Eq)]
+struct TeamPoolKey {
+    team_id: String,
+    issues: u64,
+    boards: u64,
+    issue_statuses: u64,
 }
 
 /// What the composer is about to start — chips OR chip, never both.
@@ -288,6 +299,11 @@ pub(crate) struct ChatScreenView {
     pending_pr: Option<String>,
     pending_icon: Option<String>,
     issue_search: Entity<InputState>,
+    /// EXP-868: the `#` tool's pool while nothing is picked, keyed by the
+    /// team and the revisions of every collection it reads. The composer
+    /// renders on EVERY window redraw (a caret blink, a keystroke anywhere),
+    /// and rebuilding the pool each time made typing crawl.
+    team_pool: RefCell<Option<(TeamPoolKey, Rc<Vec<IssueRow>>)>>,
     /// The team's connected repos (`repositories.list`, one fetch per team).
     team_repos: Vec<ActionRepoRow>,
     repos_team: Option<String>,
@@ -417,6 +433,7 @@ impl ChatScreenView {
             pending_pr: None,
             pending_icon: None,
             issue_search,
+            team_pool: RefCell::new(None),
             team_repos: Vec::new(),
             repos_team: None,
             chat_repo: None,
@@ -553,7 +570,7 @@ impl ChatScreenView {
         self.probe_generation += 1;
         let had_subject = !matches!(self.subject, Subject::None);
         self.subject = Subject::Issues(IssueSubject {
-            rows,
+            rows: Rc::new(rows),
             checked: checked.clone(),
             repos: HashMap::new(),
             resumables: HashMap::new(),
@@ -1203,7 +1220,7 @@ impl ChatScreenView {
                 let sessions = coding_flow::LocalSessions::global(cx);
                 let store = Store::global(cx);
                 let now = chrono::Utc::now().timestamp();
-                for row in &issues.rows {
+                for row in issues.rows.iter() {
                     if !issues.checked.contains(&row.issue_id) {
                         continue;
                     }
@@ -1742,9 +1759,29 @@ impl ChatScreenView {
         Some(fields.into_any_element())
     }
 
+    /// EXP-868: the open team pool behind the `#` tool, rebuilt only when
+    /// the team or one of the collections it reads has moved.
+    fn team_pool(&self, team_id: &str, cx: &App) -> Rc<Vec<IssueRow>> {
+        let collections = Store::global(cx).collections();
+        let key = TeamPoolKey {
+            team_id: team_id.to_string(),
+            issues: collections.issues.read(cx).revision(),
+            boards: collections.boards.read(cx).revision(),
+            issue_statuses: collections.issue_statuses.read(cx).revision(),
+        };
+        if let Some((cached_key, rows)) = self.team_pool.borrow().as_ref() {
+            if *cached_key == key {
+                return rows.clone();
+            }
+        }
+        let rows = Rc::new(issue_picker::snapshot_rows(cx, team_id, &HashSet::new()));
+        *self.team_pool.borrow_mut() = Some((key, rows.clone()));
+        rows
+    }
+
     /// The `#` tool: the issue picker popover.
     fn issue_tool(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let (rows, checked, notes): (Vec<IssueRow>, HashSet<String>, Vec<(String, SharedString)>) =
+        let (rows, checked, notes): (Rc<Vec<IssueRow>>, HashSet<String>, Vec<(String, SharedString)>) =
             match &self.subject {
                 Subject::Issues(issues) => (
                     issues.rows.clone(),
@@ -1770,7 +1807,7 @@ impl ChatScreenView {
                 _ => (
                     self.team_id
                         .as_deref()
-                        .map(|team| issue_picker::snapshot_rows(cx, team, &HashSet::new()))
+                        .map(|team| self.team_pool(team, cx))
                         .unwrap_or_default(),
                     HashSet::new(),
                     Vec::new(),
@@ -1780,7 +1817,7 @@ impl ChatScreenView {
             .tooltip("Pick issues");
         issue_picker::issue_picker_popover(
             trigger,
-            &rows,
+            rows,
             &checked,
             &self.issue_search,
             notes,
@@ -2484,7 +2521,7 @@ mod tests {
         );
         // An issue subject never reads an action hint.
         let issues = Subject::Issues(IssueSubject {
-            rows: Vec::new(),
+            rows: Rc::default(),
             checked: HashSet::new(),
             repos: HashMap::new(),
             resumables: HashMap::new(),
