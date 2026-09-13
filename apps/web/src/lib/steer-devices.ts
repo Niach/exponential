@@ -377,18 +377,25 @@ export function deviceProfileUsage(
  *   - a spent window with no reset, or one already past — nothing to wait for.
  * Among the spent windows the one that resets LAST binds: that is when the
  * agent can actually work again.
+ *
+ * EXP-869: a per-MODEL window (`model:<name>`, e.g. claude's "Fable only")
+ * walls only a start on THAT model — a spent Fable window leaves Opus
+ * startable. An unknown `model` (the machine picks its default) fails open.
  */
 export function deviceUsageWallAt(
   device: UsageReporting,
   agent: string,
   account: string | undefined,
+  model: string | undefined,
   now: Date
 ): Date | null {
   const usage = deviceProfileUsage(device, agent, account)
   if (!usageIsFresh(usage, now)) return null
+  const modelKey = model ? `model:${model.trim().toLowerCase()}` : undefined
   let wallAt = 0
   for (const window of usage?.windows ?? []) {
     if (window.percent < 100) continue
+    if (window.key.startsWith(`model:`) && window.key !== modelKey) continue
     const at = window.resetsAt ? new Date(window.resetsAt).getTime() : NaN
     if (!Number.isFinite(at) || at <= now.getTime()) continue
     if (at > wallAt) wallAt = at

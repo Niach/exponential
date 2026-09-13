@@ -581,10 +581,17 @@ export const steerRouter = router({
       const requireUsageHeadroom = (
         device: TargetDevice,
         agent: string,
-        account: string | undefined
+        account: string | undefined,
+        model: string | undefined
       ) => {
         if (input.allowRateLimited) return
-        const wallAt = deviceUsageWallAt(device, agent, account, new Date())
+        const wallAt = deviceUsageWallAt(
+          device,
+          agent,
+          account,
+          model,
+          new Date()
+        )
         if (!wallAt) return
         const clock = `${String(wallAt.getUTCHours()).padStart(2, `0`)}:${String(
           wallAt.getUTCMinutes()
@@ -1103,7 +1110,7 @@ export const steerRouter = router({
               : `${actionAgent} is not installed on that device`,
           })
         }
-        requireUsageHeadroom(device, actionAgent, input.account)
+        requireUsageHeadroom(device, actionAgent, input.account, input.model)
         requireStartPromptCap(device, prompt)
 
         const result = await relayPostStart(config, {
@@ -1220,7 +1227,7 @@ export const steerRouter = router({
             : `${agent} is not installed on that device`,
         })
       }
-      requireUsageHeadroom(device, agent, input.account)
+      requireUsageHeadroom(device, agent, input.account, input.model)
       requireStartPromptCap(device, prompt)
 
       const options = {
