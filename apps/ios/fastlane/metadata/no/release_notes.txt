@@ -5,7 +5,6 @@
 - Agent-siden holder kjøringene dine: tidligere kjøringer brettes bak et tall du kan åpne, og når ingenting kjører, ligger skrivefeltet midt på siden
 - Logg inn der kontoen er: enhetsinnstillingene holder navn, deling og agentens standarder, mens innlogging, valg av aktiv konto og fjerning nå ligger på kontobrikkene
 - Legg til en konto: Add account ligger i Accounts-overskriften og logger en ny konto inn på en enhet, og en pluss ved en konto logger den samme inn på en annen enhet
-- Et board på én linje: ikonet, fargen og navnet deler én linje når du oppretter et board, og fargevelgeren åpner seg som et ark med fargeprøver
 - Issue-filtre er borte: filterknappen og pillene er borte fra board og innboks, søk dekker det de ble brukt til, og gruppering og statusbånd blir
 - Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én liste, og en ukjent e-post blir rett og slett en ny konto
 - Arbeidsindikatoren stopper når agenten stopper: den følger nå agentens virkelige tur i stedet for tilkoblingen, viser hva den gjør med tid og tokens, og Stop ligger i overskriften til økten
@@ -15,9 +14,4 @@
 - Kontoer som forteller sannheten: tilstanden til en agentkonto kommer fra en ekte forbruksmåling, så en død innlogging viser «Needs re-login» i stedet for «Signed in»
 - Devices er reparasjonssiden: hver maskin viser agentinnloggingene den har, og en brikke tilbyr riktig reparasjon, ny innlogging for en utløpt eller bruk denne kontoen her for en maskinen ikke bruker
 - Bytt konto midt i en kjøring: en Claude-kjøring som treffer grensen sin kan fortsette på en annen konto fra forbruksarket eller grensevarselet, som en ny kjøring knyttet til den gamle
-- Maskinen du trykket på: avspillingsknappen til en maskin åpner feltet med akkurat den maskinen valgt, og feltet sier hvorfor når en maskin ikke kan ta kjøringen
 - Tilbake dit du kom fra: forlater du en økt, havner du tilbake på issuet, boardet eller innboksen du åpnet den fra, og en kjøring startet av en annen kjøring ligger under den
-- Watch i stedet for Coding now: din egen pågående kjøring på et issue er en Watch-knapp blant issuets egenskaper, ikke et eget kort
-- Chatforslag: en ny chat tilbyr forslagsbrikker å starte fra
-- Ingen festeknapper på telefonen: det finnes ingen sidestolpe å feste til, så Pin er borte fra issues, økter og actions; fester du gjorde på maskinen, vises fortsatt i board-velgeren
-- Pensjonerte agenter blir borte: en maskin på en eldre versjon som fortsatt melder en fjernet agent, gir aldri en rad, en fane eller et valg i velgeren

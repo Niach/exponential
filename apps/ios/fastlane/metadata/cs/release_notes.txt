@@ -5,7 +5,6 @@
 - Stránka Agent drží tvoje běhy: minulé běhy se složí za počet, který můžeš otevřít, a když nic neběží, sedí pole pro psaní uprostřed stránky
 - Přihlašuj se tam, kde je účet: v nastavení zařízení zůstává název, sdílení a výchozí hodnoty agenta, zatímco přihlášení, volba aktivního účtu a jeho odebrání jsou teď na odznacích účtu
 - Přidání účtu: Add account sedí v záhlaví Accounts a přihlásí nový účet na zařízení, a plus u účtu přihlásí tentýž účet na dalším zařízení
-- Board na jednom řádku: ikona, barva a název sdílejí při zakládání boardu jediný řádek a výběr barvy se otevře jako list se vzorky
 - Filtry issues jsou pryč: tlačítko filtru a jeho štítky zmizely z boardu i z doručených, hledání pokryje, k čemu sloužily, a seskupení i pásy stavů zůstávají
 - Pokračovat e-mailem nebo přístupovým klíčem: přihlas se šestimístným kódem, který ti přijde e-mailem, nebo přes Face ID či Touch ID; všechny možnosti jsou v jednom seznamu a neznámý e-mail se prostě stane novým účtem
 - Ukazatel práce skončí, když skončí agent: sleduje teď skutečný tah agenta místo spojení, ukazuje, co právě dělá, i s časem a tokeny, a Stop je v záhlaví relace
@@ -15,9 +14,4 @@
 - Účty, které říkají pravdu: stav účtu agenta pochází ze skutečného měření spotřeby, takže mrtvé přihlášení hlásí „Needs re-login“ místo „Signed in“
 - Devices je stránka oprav: každý stroj vypisuje přihlášení agentů, která drží, a štítek nabídne tu správnou opravu, nové přihlášení u vypršelého nebo použití účtu právě tady u toho, který stroj nepoužívá
 - Změna účtu uprostřed běhu: běh Claude, který narazí na limit, může pokračovat pod jiným účtem z přehledu spotřeby nebo z hlášky o limitu, jako nový běh navázaný na ten původní
-- Stroj, na který jsi klepl: tlačítko přehrání u stroje otevře pole s tímto strojem už vybraným a pole řekne, proč stroj běh vzít nemůže
 - Zpátky tam, odkud jsi přišel: odchod z relace tě vrátí na issue, board nebo do doručené pošty, odkud jsi ji otevřel, a běh spuštěný jiným během je vnořený pod ním
-- Watch místo Coding now: tvůj vlastní živý běh na issue je štítek Watch mezi vlastnostmi issue, ne samostatná karta
-- Návrhy do chatu: nový chat nabídne štítky s návrhy, čím začít
-- Na telefonu žádná tlačítka připnutí: není tu postranní panel, kam připínat, takže Pin zmizel z issues, relací i actions; připnutí udělaná na počítači se dál ukazují v přepínači boardů
-- Vyřazení agenti zůstanou pryč: stroj na starším sestavení, který stále hlásí odebraného agenta, nikdy nevytvoří řádek, záložku ani položku ve výběru

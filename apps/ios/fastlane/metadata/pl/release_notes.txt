@@ -5,7 +5,6 @@
 - Strona Agent trzyma twoje uruchomienia: minione uruchomienia składają się za licznikiem, który możesz otworzyć, a gdy nic nie działa, pole pisania stoi na środku strony
 - Loguj się tam, gdzie jest konto: ustawienia urządzenia trzymają nazwę, udostępnianie i domyślne ustawienia agenta, a logowanie, wybór aktywnego konta i jego usunięcie są teraz na plakietkach konta
 - Dodanie konta: Add account jest w nagłówku Accounts i loguje nowe konto na urządzeniu, a plus przy koncie loguje to samo konto na kolejnym urządzeniu
-- Board w jednym wierszu: ikona, kolor i nazwa dzielą przy tworzeniu boardu jeden wiersz, a wybór koloru otwiera się jako arkusz z próbkami
 - Filtry issues zniknęły: przycisk filtra i jego pigułki opuściły board i skrzynkę, wyszukiwanie pokrywa to, do czego służyły, a grupowanie i pasy statusów zostają
 - Kontynuuj e-mailem albo kluczem dostępu: zaloguj się sześciocyfrowym kodem wysłanym na pocztę albo przez Face ID czy Touch ID; wszystkie opcje są na jednej liście, a nieznany adres po prostu staje się nowym kontem
 - Wskaźnik pracy kończy się razem z agentem: śledzi teraz prawdziwą turę agenta zamiast połączenia, pokazuje, co robi, wraz z czasem i tokenami, a Stop jest w nagłówku sesji
@@ -15,9 +14,4 @@
 - Konta, które mówią prawdę: stan konta agenta pochodzi z prawdziwego pomiaru zużycia, więc martwe logowanie pokazuje „Needs re-login” zamiast „Signed in”
 - Devices to strona napraw: każda maszyna wypisuje konta agentów, które trzyma, a znacznik proponuje właściwą naprawę, ponowne logowanie do wygasłego albo użycie tego konta tutaj przy takim, którego maszyna nie używa
 - Zmiana konta w trakcie przebiegu: przebieg Claude, który trafi na limit, może iść dalej na innym koncie z arkusza zużycia albo z komunikatu o limicie, jako nowy przebieg powiązany z poprzednim
-- Maszyna, którą dotknąłeś: przycisk odtwarzania przy maszynie otwiera pole z tą właśnie maszyną wybraną, a pole mówi, dlaczego maszyna nie może przyjąć przebiegu
 - Powrót tam, skąd przyszedłeś: wyjście z sesji odsyła cię z powrotem do issue, boardu albo skrzynki, z której ją otworzyłeś, a przebieg uruchomiony przez inny przebieg jest zagnieżdżony pod nim
-- Watch zamiast Coding now: twój własny trwający przebieg na issue to pastylka Watch we właściwościach issue, a nie osobna karta
-- Podpowiedzi w czacie: nowy czat proponuje żetony z pomysłami na start
-- Na telefonie nie ma przycisków przypinania: nie ma paska bocznego, do którego można by przypiąć, więc Pin zniknął z issues, sesji i actions; przypięcia zrobione na komputerze wciąż widać w przełączniku boardów
-- Wycofani agenci zostają wycofani: maszyna na starszej wersji, która wciąż zgłasza usuniętego agenta, nigdy nie tworzy wiersza, zakładki ani pozycji na liście wyboru

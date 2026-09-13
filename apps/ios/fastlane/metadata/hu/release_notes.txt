@@ -5,7 +5,6 @@
 - Az Agent oldal tartja a futásaidat: a korábbi futások egy szám mögé hajtódnak össze, amit kinyithatsz, és ha semmi sem fut, a szerkesztőmező az oldal közepén ül
 - Ott jelentkezz be, ahol a fiók van: az eszközbeállításokban marad a név, a megosztás és az ügynök alapértékei, a bejelentkezés, az aktív fiók választása és az eltávolítás pedig a fiókcímkékre került
 - Fiók hozzáadása: az Add account az Accounts fejlécében ül, és új fiókot léptet be egy eszközön, a fióknál lévő plusz pedig ugyanazt lépteti be egy másik eszközön
-- Egy board egy sorban: board létrehozásakor az ikon, a szín és a név egyetlen soron osztozik, a színválasztó pedig mintalapként nyílik meg
 - Az issue-szűrők eltűntek: a szűrőgomb és a pirulái elhagyták a boardot és a beérkezetteket, a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
 - Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen listában van, és egy ismeretlen e-mail-cím egyszerűen új fiók lesz
 - A munkajelzés akkor ér véget, amikor az ügynök: mostantól az ügynök valódi körét követi a kapcsolat helyett, mutatja, mit csinál, idővel és tokenekkel, a Stop pedig a munkamenet fejlécében van
@@ -15,9 +14,4 @@
 - Fiókok, amelyek igazat mondanak: az ügynökfiók állapota valódi használatmérésből jön, így egy halott bejelentkezés „Needs re-login” feliratot mutat a „Signed in” helyett
 - A Devices a javítás oldala: minden gép felsorolja a nála lévő ügynökfiókokat, és egy címke a megfelelő javítást kínálja, újbóli bejelentkezést a lejárthoz, vagy ennek a fióknak a használatát itt ahhoz, amelyiket a gép nem használja
 - Fiókváltás futás közben: a korlátjába ütköző Claude-futás másik fiókkal folytatható a használati lapról vagy a korlátüzenetből, új futásként, amely a régihez kapcsolódik
-- Az a gép, amelyre koppintottál: a gép lejátszás gombja úgy nyitja meg a mezőt, hogy pont az a gép van kiválasztva, és a mező megmondja, ha egy gép nem tudja elvállalni a futást
 - Vissza oda, ahonnan jöttél: a munkamenetből kilépve visszakerülsz arra az issue-ra, boardra vagy postaládába, ahonnan megnyitottad, és a másik futás által indított futás alatta beágyazva jelenik meg
-- Watch a Coding now helyett: a saját élő futásod egy issue-n Watch gomb az issue tulajdonságai között, nem külön kártya
-- Csevegési javaslatok: az új csevegés javaslatcímkéket kínál a kezdéshez
-- Nincs kitűzés gomb a telefonon: nincs oldalsáv, ahová kitűzhetnél, így a Pin eltűnt az issue-król, a munkamenetekről és az actionökről; az asztali gépen kitűzöttek továbbra is látszanak a boardváltóban
-- A kivezetett ügynökök kint maradnak: a régebbi kiadást futtató gép, amely még jelent egy eltávolított ügynököt, soha nem hoz létre sort, fület vagy választólista-bejegyzést

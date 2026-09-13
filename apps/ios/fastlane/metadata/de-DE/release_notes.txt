@@ -5,7 +5,6 @@
 - Die Agent-Seite hält deine Läufe: vergangene Läufe klappen hinter einer Zahl zusammen, die du öffnen kannst, und wenn nichts läuft, sitzt das Eingabefeld in der Mitte der Seite
 - Anmelden dort, wo das Konto ist: die Geräteeinstellungen behalten Name, Freigabe und Agenten-Standards, während Anmelden, die Wahl des aktiven Logins und das Entfernen jetzt auf den Konto-Chips sitzen
 - Konto hinzufügen: „Add account“ sitzt in der Accounts-Kopfzeile und meldet ein neues Login auf einem Gerät an, und ein Plus an einem Konto meldet dasselbe auf einem weiteren Gerät an
-- Ein Board in einer Zeile: Symbol, Farbe und Name teilen sich beim Anlegen eines Boards eine einzige Zeile, und die Farbauswahl öffnet sich als Blatt mit Farbfeldern
 - Issue-Filter sind weg: der Filterknopf und seine Pillen haben Board und Posteingang verlassen, die Suche deckt ab, wofür sie da waren, und Gruppierung und Statusbänder bleiben
 - Weiter mit E-Mail oder mit einem Passkey: melde dich mit einem 6-stelligen Code an, der dir zugeschickt wird, oder mit Face ID oder Touch ID; alle Wege stehen in einer einzigen Liste, und eine unbekannte E-Mail wird einfach zu einem neuen Konto
 - Der Arbeitshinweis endet, wenn der Agent fertig ist: er folgt jetzt dem echten Zug des Agenten statt der Verbindung, zeigt die laufende Tätigkeit mit Dauer und Tokens, und „Stop“ sitzt in der Kopfzeile der Session
@@ -15,9 +14,4 @@
 - Konten, die die Wahrheit sagen: der Zustand eines Agentenkontos kommt aus einer echten Verbrauchsabfrage, eine tote Anmeldung zeigt also „Needs re-login“ statt „Signed in“
 - „Devices“ ist die Reparaturseite: jedes Gerät listet die Agenten-Logins auf, die es hält, und ein Chip bietet die passende Reparatur an, neu anmelden bei einem abgelaufenen oder dieses Konto hier verwenden bei einem, das das Gerät nicht nutzt
 - Konto mitten im Lauf wechseln: ein Claude-Lauf am Limit kann über das Verbrauchs-Sheet oder den Limit-Hinweis mit einem anderen Konto weiterlaufen, als neuer Lauf, der mit dem alten verknüpft ist
-- Das Gerät, das du getippt hast: der Play-Button eines Geräts öffnet das Eingabefeld mit genau diesem Gerät, und das Eingabefeld sagt, warum ein Gerät den Lauf nicht übernehmen kann
 - Zurück, wo du hergekommen bist: verlässt du eine Session, landest du wieder beim Issue, Board oder in der Inbox, von wo du sie geöffnet hast, und ein Lauf, den ein anderer Lauf gestartet hat, steht eingerückt darunter
-- „Watch“ statt „Coding now“: dein eigener laufender Lauf an einem Issue ist ein „Watch“-Chip in den Eigenschaften des Issues statt einer eigenen Karte
-- Chat-Vorschläge: ein neuer Chat bietet Vorschlags-Chips zum Anfangen
-- Keine Pin-Buttons am Telefon: es gibt keine Seitenleiste zum Anheften, also ist „Pin“ bei Issues, Sessions und Actions verschwunden; am Desktop gesetzte Pins erscheinen weiterhin im Board-Umschalter
-- Ausgemusterte Agenten bleiben weg: ein Gerät mit älterem Build, das noch einen entfernten Agenten meldet, erzeugt weder eine Zeile noch einen Tab noch einen Eintrag in der Auswahl

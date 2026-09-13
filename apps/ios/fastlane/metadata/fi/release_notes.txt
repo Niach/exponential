@@ -5,7 +5,6 @@
 - Agent-sivu pitää ajosi: menneet ajot taittuvat luvun taakse, jonka voit avata, ja kun mikään ei ole käynnissä, kirjoituskenttä asettuu keskelle sivua
 - Kirjaudu siellä, missä tili on: laiteasetuksiin jäävät nimi, jakaminen ja agentin oletukset, kun taas kirjautuminen, aktiivisen tilin valinta ja poisto ovat nyt tilimerkeissä
 - Lisää tili: Add account on Accounts-otsikossa ja kirjaa uuden tilin laitteeseen, ja tilin vieressä oleva plus kirjaa saman tilin toiseen laitteeseen
-- Board yhdellä rivillä: kuvake, väri ja nimi jakavat yhden rivin, kun luot boardin, ja värivalitsin avautuu värilaattojen arkkina
 - Issue-suodattimet ovat poissa: suodatinpainike ja sen pillerit lähtivät boardilta ja saapuneista, haku kattaa sen mihin niitä käytettiin, ja ryhmittely ja tilapalkit jäävät
 - Jatka sähköpostilla tai avainkoodilla: kirjaudu sisään sähköpostiin lähetetyllä 6-numeroisella koodilla tai Face ID:llä tai Touch ID:llä; kaikki vaihtoehdot ovat yhdessä listassa, ja tuntemattomasta osoitteesta syntyy yksinkertaisesti uusi tili
 - Työskentelyn merkki loppuu, kun agentti lopettaa: se seuraa nyt agentin todellista vuoroa yhteyden sijaan, näyttää mitä se tekee kestoineen ja tokeneineen, ja Stop on istunnon otsikkorivillä
@@ -15,9 +14,4 @@
 - Tilit, jotka kertovat totuuden: agenttitilin kunto tulee todellisesta käyttömittauksesta, joten kuollut kirjautuminen näyttää tekstin ”Needs re-login” eikä ”Signed in”
 - Devices on korjaussivu: jokainen kone listaa hallussaan olevat agenttikirjautumiset, ja merkki tarjoaa oikean korjauksen, uuden kirjautumisen vanhentuneeseen tai tämän tilin käyttöönoton siihen, jota kone ei käytä
 - Tilin vaihto kesken ajon: rajaansa törmännyt Claude-ajo voi jatkaa toisella tilillä käyttönäkymästä tai rajailmoituksesta, uutena ajona joka on kytketty edelliseen
-- Kone, jota napautit: koneen toistopainike avaa kentän niin, että juuri se kone on valittuna, ja kenttä kertoo, miksi kone ei voi ottaa ajoa
 - Takaisin sinne mistä tulit: istunnosta poistuminen vie takaisin siihen issueen, boardiin tai saapuneisiin, josta sen avasit, ja toisen ajon käynnistämä ajo näkyy sen alla
-- Watch eikä Coding now: oma käynnissä oleva ajosi issuella on Watch-painike issuen tiedoissa eikä enää oma korttinsa
-- Keskusteluehdotukset: uusi keskustelu tarjoaa ehdotusmerkkejä aloittamiseen
-- Puhelimessa ei ole kiinnityspainikkeita: sivupalkkia, johon kiinnittää, ei ole, joten Pin on poissa issueista, istunnoista ja actioneista; työpöydällä tehdyt kiinnitykset näkyvät yhä boardin vaihtajassa
-- Poistetut agentit pysyvät poissa: vanhempaa versiota ajava kone, joka yhä ilmoittaa poistetun agentin, ei koskaan tuota riviä, välilehteä eikä valintaa valitsimeen

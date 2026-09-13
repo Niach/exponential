@@ -5,7 +5,6 @@
 - La página Agent sostiene tus ejecuciones: las pasadas se pliegan tras un contador que puedes abrir, y cuando no hay nada en marcha el campo de escritura queda en el centro de la página
 - Entra donde está la cuenta: los ajustes del dispositivo guardan el nombre, el uso compartido y los valores por defecto del agente, mientras que entrar, elegir la cuenta activa y quitarla viven ahora en las etiquetas de cuenta
 - Añadir una cuenta: Add account está en la cabecera de Accounts para entrar con una cuenta nueva en un dispositivo, y un más sobre una cuenta la inicia en otro
-- Un board en una fila: el icono, el color y el nombre comparten una sola fila al crear un board, y el selector de color se abre como una hoja de muestras
 - Los filtros de issues ya no están: el botón de filtro y sus pastillas se van del board y de la bandeja de entrada, la búsqueda cubre lo que hacían, y la agrupación y las bandas de estado se quedan
 - Continuar con el correo, o con una clave de acceso: entra con un código de 6 dígitos enviado por correo, o con Face ID o Touch ID; todas las opciones están en una sola lista, y un correo desconocido simplemente crea una cuenta nueva
 - El indicador de trabajo termina cuando termina el agente: ahora sigue el turno real del agente en lugar de la conexión, muestra lo que está haciendo con el tiempo y los tokens, y Stop está en la cabecera de la sesión
@@ -15,9 +14,4 @@
 - Cuentas que dicen la verdad: el estado de una cuenta de agente sale de una consulta de uso real, así que un inicio de sesión caído indica «Needs re-login» en lugar de «Signed in»
 - Devices es la página de reparación: cada máquina enumera las cuentas de agente que tiene, y una etiqueta ofrece la reparación adecuada, volver a entrar en una caducada o usar esta cuenta aquí en una que la máquina no está usando
 - Cambiar de cuenta a mitad de ejecución: una ejecución de Claude que llega a su límite puede seguir con otra cuenta desde la hoja de uso o el aviso de límite, como una ejecución nueva enlazada a la anterior
-- La máquina que tocaste: el botón de reproducción de una máquina abre el compositor con esa máquina ya seleccionada, y el compositor dice por qué una máquina no puede aceptar la ejecución
 - Volver a donde estabas: salir de una sesión te devuelve a la issue, el tablero o la bandeja de entrada desde donde la abriste, y una ejecución lanzada por otra aparece anidada debajo
-- Watch en lugar de Coding now: tu propia ejecución en curso sobre una issue es una píldora Watch en las propiedades de la issue y no una tarjeta aparte
-- Sugerencias de chat: un chat nuevo ofrece fichas de sugerencias para empezar
-- Sin botones de anclaje en el teléfono: no hay barra lateral donde anclar, así que Pin desaparece de las issues, las sesiones y las acciones; los anclajes hechos en el escritorio siguen apareciendo en el selector de tableros
-- Los agentes retirados no vuelven: una máquina con una versión antigua que aún informa de un agente eliminado no genera ninguna fila, ninguna pestaña ni ninguna entrada en el selector
