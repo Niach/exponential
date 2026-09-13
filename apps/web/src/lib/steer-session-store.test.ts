@@ -1070,6 +1070,110 @@ describe(`sending`, () => {
     const { store } = makeStore()
     expect(store.unqueue(`m1`)).toBe(false)
   })
+
+  // The engine gates on ITS turn state, the echo on this viewer's: sent while
+  // another viewer's turn was running, the message is echoed here AND held by
+  // the device. The `queue` frame naming it takes the echo row back — the
+  // strip is its only home — so a delivery long after ECHO_TTL_MS renders
+  // the real row exactly once instead of beside a stale echo.
+  it(`a queue frame takes back the echo of a message the engine held`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    expect(store.sendMessage(`held one`)).toBe(true)
+    expect(store.getSnapshot().feed).toEqual([
+      expect.objectContaining({ kind: `user_message`, text: `held one` }),
+    ])
+    socket.frame({
+      t: `activity`,
+      event: { kind: `queue`, messages: [{ id: `m1`, text: `held one` }] },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([])
+    expect(store.getSnapshot().queue).toEqual([{ id: `m1`, text: `held one` }])
+
+    // Delivered well past the echo TTL: no echo left to dedupe against, and
+    // no stale row to double it.
+    await vi.advanceTimersByTimeAsync(6 * 60_000)
+    socket.frame({ t: `activity`, event: { kind: `queue`, messages: [] } })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `user_message`, text: `held one` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toEqual([])
+    expect(
+      store.getSnapshot().feed.filter((item) => item.kind === `user_message`)
+    ).toEqual([expect.objectContaining({ text: `held one` })])
+    store.dispose()
+  })
+
+  it(`a queue frame leaves echoes it does not name alone`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    expect(store.sendMessage(`keep me`)).toBe(true)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `queue`, messages: [{ id: `m1`, text: `someone else` }] },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([
+      expect.objectContaining({ kind: `user_message`, text: `keep me` }),
+    ])
+    // Its own delivery still dedupes against the surviving echo.
+    socket.frame({ t: `activity`, event: { kind: `user_message`, text: `keep me` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    store.dispose()
+  })
+
+  // The queue dies with the run — the held text goes back to the composer
+  // (the strip's X path) instead of vanishing with an unattended end.
+  it(`an ended run hands the queued text back to an empty draft, in order`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `queue`,
+        messages: [
+          { id: `m1`, text: `first` },
+          { id: `m2`, text: `second` },
+        ],
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `bye`, outcome: `ended` })
+    socket.serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`ended`)
+    expect(store.getSnapshot().queue).toEqual([])
+    expect(store.getDraftSnapshot().text).toBe(`first\nsecond`)
+    store.dispose()
+  })
+
+  it(`an ended run appends the queued text after a non-empty draft`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    store.setDraftText(`typing this`)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `queue`, messages: [{ id: `m1`, text: `held` }] },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `bye`, outcome: `ended` })
+    socket.serverClose(4001)
+    expect(store.getDraftSnapshot().text).toBe(`typing this\n\nheld`)
+    store.dispose()
+  })
+
+  it(`an ended run with nothing queued leaves the draft alone`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    store.setDraftText(`typing this`)
+    socket.frame({ t: `bye`, outcome: `ended` })
+    socket.serverClose(4001)
+    expect(store.getDraftSnapshot().text).toBe(`typing this`)
+    store.dispose()
+  })
 })
 
 // EXP-672: answers go out ONLY as the semantic `answer` frame, naming the
@@ -1661,9 +1765,19 @@ describe(`queue slot (EXP-861)`, () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.frame(queueEvent([{ id: `m1`, text: `one` }]))
-    socket.frame({ t: `activity`, event: { kind: `queue` } })
+    socket.frame({ t: `activity`, event: { kind: `queue`, messages: `nope` } })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().queue).toHaveLength(1)
+    store.dispose()
+  })
+
+  it(`a frame without messages clears the list, as on iOS and Android`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(queueEvent([{ id: `m1`, text: `one` }]))
+    socket.frame({ t: `activity`, event: { kind: `queue` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toEqual([])
     store.dispose()
   })
 

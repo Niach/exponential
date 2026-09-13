@@ -60,6 +60,20 @@ Viewer → publisher, gated like `input`:
 A Stop (local Escape or the `interrupt` frame) empties the queue; a
 `session/cancel` from the stall watchdog does not.
 
+Delivery on the idle edge: the engine publishes `messages: []` FIRST, then
+starts every held message as its own turn, oldest first, back to back — one
+`user_message` row each, in send order. The agent's CLI may still fold
+messages 2..N into the turn already running (claude's own queued-messages
+behaviour, codex `turn/steer`); the rows and their order are the engine's
+and stay correct regardless. A message that lands ON the edge (after the
+turn ended, before the drain ran) starts BEHIND the held ones, never ahead.
+A run that ends with messages still held (kill, unattended
+`sessions_end`, crash) does NOT publish an empty slot on its way out: its
+last `queue` frame lists the undelivered messages, so a client can rescue
+the text on the `ended` edge (the web moves it into the composer draft).
+Every run seeds `messages: []` at start, so a resumed run never replays its
+predecessor's bar.
+
 ## 3. `workflow` (latest-wins per workflow id)
 
 ```

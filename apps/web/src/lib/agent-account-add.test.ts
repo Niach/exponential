@@ -125,26 +125,43 @@ describe(`addAccountLoginTarget`, () => {
 })
 
 describe(`nextProfileLabel`, () => {
-  it(`numbers one past the reported profiles`, () => {
+  function withProfiles(labels: string[]): Device {
+    return device({
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `system`, label: `Default`, signedIn: true },
+            ...labels.map((label, i) => ({ id: `p${i + 1}`, label, signedIn: true })),
+          ],
+        },
+      },
+    })
+  }
+
+  it(`starts at 2 with only the ambient login`, () => {
     expect(nextProfileLabel(device({}), `claude`, `Claude`)).toBe(`Claude account 2`)
+    expect(nextProfileLabel(withProfiles([]), `claude`, `Claude`)).toBe(`Claude account 2`)
+  })
+
+  it(`skips the numbers still in use`, () => {
     expect(
-      nextProfileLabel(
-        device({
-          agentAccounts: {
-            claude: {
-              signedIn: true,
-              profiles: [
-                { id: `system`, signedIn: true },
-                { id: `p1`, signedIn: true },
-                { id: `p2`, signedIn: false },
-              ],
-            },
-          },
-        }),
-        `claude`,
-        `Claude`
-      )
+      nextProfileLabel(withProfiles([`Claude account 2`, `Claude account 3`]), `claude`, `Claude`)
     ).toBe(`Claude account 4`)
+  })
+
+  it(`reuses a gap left by a removed profile instead of re-issuing a taken label`, () => {
+    // "account 2" was removed: counting would say "account 3", which is
+    // already a usable profile, and the sign-in sheet would land at open.
+    expect(nextProfileLabel(withProfiles([`Claude account 3`]), `claude`, `Claude`)).toBe(
+      `Claude account 2`
+    )
+  })
+
+  it(`matches labels exactly — case and agent name included`, () => {
+    expect(
+      nextProfileLabel(withProfiles([`claude account 2`, `Codex account 2`]), `claude`, `Claude`)
+    ).toBe(`Claude account 2`)
   })
 })
 

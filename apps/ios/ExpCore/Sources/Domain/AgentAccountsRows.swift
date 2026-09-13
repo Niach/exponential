@@ -592,16 +592,22 @@ public enum AgentAccountsRows {
             : AddLoginTarget(profileId: systemProfileId, newProfileLabel: nil)
     }
 
-    /// `Claude Code account 2` — one past the logins the machine reports for
-    /// the agent (the ambient one counts as the first). Web/Android
-    /// `nextProfileLabel`; `agentLabel` is resolved by the caller, since the
-    /// agent's display name lives in the app target.
+    /// `Claude Code account 2` — the smallest N ≥ 2 whose `<agent> account N`
+    /// is not already the label of a profile the machine reports for the
+    /// agent (exact, case-sensitive). Counting profiles instead re-issued a
+    /// label that still existed after an earlier one was removed
+    /// (`[system, "account 3"]` → "account 3"), and `loginLanded` then saw
+    /// the sign-in as already landed. Web/Android `nextProfileLabel`, same
+    /// rule; `agentLabel` is resolved by the caller, since the agent's
+    /// display name lives in the app target.
     public static func nextProfileLabel(
         _ account: AgentAccount?,
         agentLabel: String
     ) -> String {
-        let held = max((account?.profiles ?? []).count, 1)
-        return clampProfileLabel("\(agentLabel) account \(held + 1)")
+        let taken = Set((account?.profiles ?? []).map { $0.label ?? "" })
+        var n = 2
+        while taken.contains("\(agentLabel) account \(n)") { n += 1 }
+        return clampProfileLabel("\(agentLabel) account \(n)")
     }
 
     /// EXP-862: whether an account row offers its bare "+" at all (web

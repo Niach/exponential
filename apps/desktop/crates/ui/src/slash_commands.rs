@@ -33,10 +33,11 @@ const MENU_LIMIT: usize = 8;
 ///
 /// EXP-746: unless the run published a `config_state` (`acp`). Only the ACP
 /// engine publishes one, and an ACP run for claude/codex always stamps its
-/// id, so an agent-less one is an EXTERNAL agent — the synced column takes
-/// contract values only and has none for it — and its curated catalog is
-/// empty. Mirrored ×4 (`steerAgentId` on web, `SlashCommands.agentId` on iOS
-/// and Android).
+/// id, so an agent-less ACP row can only be a LEGACY synced row from an
+/// external agent. External agents were retired in EXP-862; the `External`
+/// arm survives solely so those old rows keep an empty curated catalog
+/// instead of claude's. Mirrored ×4 (`steerAgentId` on web,
+/// `SlashCommands.agentId` on iOS and Android).
 pub(crate) fn agent_of(row: &domain::rows::CodingSession, acp: bool) -> SessionAgent {
     agent_from_id(row.agent.as_deref(), acp)
 }

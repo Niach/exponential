@@ -46,13 +46,17 @@ function SettingsLayout() {
   // start scrolled out of frame ("…torage"). Bring it into view once the row
   // is populated — permissions land async, so this keys on the item count
   // rather than plain mount. `nearest` on both axes means an already-visible
-  // tab is left alone and the page never scrolls vertically.
+  // tab is left alone and the page never scrolls vertically. EXP-862: the
+  // strip also lists the boards (they hydrate off Electric, separately from
+  // permissions), so a board page keys on that count too — or its own row
+  // could still be off-screen when the nav items settled first.
   const navRef = useRef<HTMLElement | null>(null)
+  const boardRows = showBoards ? boards.length : 0
   useEffect(() => {
     navRef.current
       ?.querySelector(`[aria-current="page"]`)
       ?.scrollIntoView({ inline: `nearest`, block: `nearest` })
-  }, [navItems.length])
+  }, [navItems.length, boardRows])
 
   return (
     <div

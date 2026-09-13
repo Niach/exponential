@@ -1,3 +1,12 @@
+- Jonossa olevat viestit: agentin työskennellessä lähetetty viesti odottaa Queued-palkissa kirjoituskentän yläpuolella, ja kun poistat sen, teksti palaa luonnokseen
+- Stop, joka menee perille: käynnissä olevassa istunnossa Stop keskeyttää nyt oikeasti meneillään olevan vuoron sen sijaan että katoaisi matkalla, ja tyhjentää sen takana olevan jonon
+- Hillitymmät painikkeet: vain se yksi toiminto, jota varten näkymä on, säilyttää täytetyn ympyrän; poisto, sulkeminen, päivitys, nuolet ja ...-valikot ovat nyt pelkkiä kuvakkeita
+- Valitsimet näyttävät, mitä ne valitsevat: agenttivalitsin kantaa Claude Coden tai Codexin merkkiä painikkeessa ja jokaisen nimen vieressä, ja laitevalikot alkavat kannettavan tai palvelimen kuvakkeella
+- Agent-sivu pitää ajosi: menneet ajot taittuvat luvun taakse, jonka voit avata, ja kun mikään ei ole käynnissä, kirjoituskenttä asettuu keskelle sivua
+- Kirjaudu siellä, missä tili on: laiteasetuksiin jäävät nimi, jakaminen ja agentin oletukset, kun taas kirjautuminen, aktiivisen tilin valinta ja poisto ovat nyt tilimerkeissä
+- Lisää tili: Add account on Accounts-otsikossa ja kirjaa uuden tilin laitteeseen, ja tilin vieressä oleva plus kirjaa saman tilin toiseen laitteeseen
+- Board yhdellä rivillä: kuvake, väri ja nimi jakavat yhden rivin, kun luot boardin, ja värivalitsin avautuu värilaattojen arkkina
+- Issue-suodattimet ovat poissa: suodatinpainike ja sen pillerit lähtivät boardilta ja saapuneista, haku kattaa sen mihin niitä käytettiin, ja ryhmittely ja tilapalkit jäävät
 - Jatka sähköpostilla tai avainkoodilla: kirjaudu sisään sähköpostiin lähetetyllä 6-numeroisella koodilla tai Face ID:llä tai Touch ID:llä; kaikki vaihtoehdot ovat yhdessä listassa, ja tuntemattomasta osoitteesta syntyy yksinkertaisesti uusi tili
 - Työskentelyn merkki loppuu, kun agentti lopettaa: se seuraa nyt agentin todellista vuoroa yhteyden sijaan, näyttää mitä se tekee kestoineen ja tokeneineen, ja Stop on istunnon otsikkorivillä
 - Exponentialin työkalukortit: kun agentti kutsuu Exponentialia, historiassa näkyy selkeä teksti kuten ”Creating issue” tai ”Opened pull request” ja sen jälkeen esikatselu tuloksesta

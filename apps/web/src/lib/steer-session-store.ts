@@ -22,6 +22,7 @@ import {
   failAnswer,
   isAnswerLocked,
   pushEcho,
+  takeQueuedEchoes,
   resumesAfterCompaction,
   spliceBeforeQuestion,
   upsertQuestion,
@@ -825,6 +826,17 @@ export function createSteerSessionStore(
     draftSnapshot = { text: draftText, images: draftImages }
     notify()
   }
+  /** EXP-861: the queue dies with the run (an unattended end, a kill, a
+   *  crash) — the held text is handed back to the composer, in order, the
+   *  way the strip's X hands one entry back, rather than lost. A non-empty
+   *  draft keeps its place; the queued text lands after a blank line. */
+  const restoreQueueToDraft = () => {
+    if (queue.length === 0) return
+    const held = queue.map((entry) => entry.text).join(`\n`)
+    queue = []
+    draftText = draftText.trim() ? `${draftText}\n\n${held}` : held
+    commitDraft()
+  }
 
   const clearAckTimer = (key: string) => {
     const timer = ackTimers.get(key)
@@ -1203,7 +1215,17 @@ export function createSteerSessionStore(
         // EXP-861: the FULL queue, so an empty array closes the strip; an
         // unreadable payload keeps the previous list (the same rule).
         const messages = parseQueue(event)
-        if (messages) queue = messages
+        if (!messages) return
+        queue = messages
+        // A message this client echoed that the engine is HOLDING: the strip
+        // is its only home until delivery, so the echo row goes (see
+        // takeQueuedEchoes — otherwise a delivery past ECHO_TTL_MS doubles it).
+        const taken = takeQueuedEchoes(recentEchoes, messages)
+        const rowIds = new Set<number>()
+        for (const echo of taken) {
+          if (echo.rowId !== undefined) rowIds.add(echo.rowId)
+        }
+        if (rowIds.size > 0) setFeed(feed.filter((row) => !rowIds.has(row.id)))
         return
       }
       case `workflow`: {
@@ -1398,7 +1420,11 @@ export function createSteerSessionStore(
     }
     // `currentSeq` stays on the replay's last event: the echoes below are this
     // client's own rows and belong right after it.
+    // …unless the replay's `queue` says the device is still HOLDING one: the
+    // strip carries it until delivery (the same rule as the live frame).
+    const heldTexts = new Set(queue.map((entry) => entry.text.trim()))
     for (const text of echoes) {
+      if (heldTexts.has(text.trim())) continue
       if (!tailCarriesEcho(text, echoes.length + 1)) {
         append({ kind: `user_message`, text })
       }
@@ -1852,8 +1878,9 @@ export function createSteerSessionStore(
           // A run that ended mid-fold is not compacting any more (EXP-724).
           clearCompaction()
           // EXP-861: nothing is queued on a run that is over — the device
-          // dropped its queue with the turn it was waiting for.
-          queue = []
+          // dropped its queue with the turn it was waiting for, so the text
+          // goes back to the draft.
+          restoreQueueToDraft()
           commit()
           onEnded()
           return
@@ -1867,6 +1894,7 @@ export function createSteerSessionStore(
             scheduleRedial()
           } else {
             phase = { kind: `ended` }
+            restoreQueueToDraft()
             commit()
             onEnded()
           }
@@ -2111,10 +2139,6 @@ export function createSteerSessionStore(
       // the transcript ahead of the turn it is waiting on, and its dedupe
       // would then swallow the real row.
       if (turnState === `started` || compacting !== null) return true
-      pushEcho(recentEchoes, text, Date.now())
-      // Sent mid-replay: the staged history predates it, so the commit has
-      // to put it back (unless the replay turns out to carry it).
-      if (staged !== null) stagedEchoes.push(text)
       // The echo is this client's own row: it sits directly after the newest
       // event it has seen, so the feed's sequences stay monotonic.
       const row = {
@@ -2123,6 +2147,11 @@ export function createSteerSessionStore(
         text,
         seq: currentSeq,
       }
+      // Keyed to its row: a `queue` frame naming this text takes both back.
+      pushEcho(recentEchoes, text, Date.now(), row.id)
+      // Sent mid-replay: the staged history predates it, so the commit has
+      // to put it back (unless the replay turns out to carry it).
+      if (staged !== null) stagedEchoes.push(text)
       setFeed([...feed, row], [row])
       commit()
       return true

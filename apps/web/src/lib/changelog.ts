@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-queued-messages-and-one-session-header`,
+    date: `2026-09-13`,
+    title: `Messages that wait their turn, Stop that reaches the machine, and one session header`,
+    summary: `A message sent while the agent is working waits in a Queued bar until the turn ends, Stop from the web and the phone now interrupts the run, the desktop session header and usage sheet match the web, the sidebar issue list gets bulk edits, and a run that switched accounts no longer stays marked rate limited.`,
+    body: `- **Queued messages**: send while the agent is still working or compacting and the message waits in a Queued bar above the composer, on web, desktop, iOS and Android. Its × removes it from the queue, an empty draft takes the text back, and Stop drops the queue with the turn. The message shows in the transcript the moment the agent takes it.
+- **Stop reaches the machine**: Stop pressed on the web or the phone now interrupts the running turn on the machine. Every client had been sending it; the relay was dropping it.
+- **One session header**: the desktop session header lost its Back button, centers the run's identity like the web, carries a quieter Plan chip and the web's usage and open-issue icons, and the issue band is the real issue header with Open issue in the Watch slot.
+- **One usage sheet**: the usage overlay has the same structure on web and desktop: the active account once, Context, the windows, the other accounts, and one footer note.
+- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, pinned rows unpin on hover, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
+- **Switching accounts clears the wall**: a run ended by an account switch no longer keeps Rate limited on its row for good, and a resumed run no longer re-arms a rate limit from its replayed transcript.`,
+  },
+  {
     id: `2026-09-ui-refinement`,
     date: `2026-09-12`,
     title: `A quieter interface: ghost buttons, pickers that show what they pick, and settings that flatten out`,

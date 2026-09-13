@@ -1,3 +1,12 @@
+- Beskeder i kø: sender du noget, mens agenten stadig arbejder, venter det i en Queued-bjælke over skrivefeltet, og fjerner du det, ryger teksten tilbage i kladden
+- Stop, der når frem: Stop i en kørende session afbryder nu den igangværende tur i stedet for at blive væk undervejs, og det rydder det, der står i kø bagved
+- Roligere knapper: kun den ene handling, en skærm findes til, beholder en udfyldt cirkel; fjern, luk, opdater, pilene og ...-menuerne er nu almindelige tegn
+- Vælgere, der viser, hvad de vælger: agentvælgeren bærer mærket for Claude Code eller Codex på knappen og ved siden af hvert navn, og enhedsmenuer starter med et laptop- eller serverikon
+- Agent-siden holder dine kørsler: tidligere kørsler foldes bag et tal, du kan åbne, og når intet kører, sidder skrivefeltet midt på siden
+- Log ind, hvor kontoen er: enhedsindstillinger holder navn, deling og agentens standarder, mens login, valget af den aktive konto og fjernelse nu ligger på kontochipsene
+- Tilføj en konto: Add account sidder i Accounts-overskriften og logger en ny konto ind på en enhed, og et plus ved en konto logger den samme ind på en anden enhed
+- Et board på én linje: ikonet, farven og navnet deler én linje, når du opretter et board, og farvevælgeren åbner som et ark med farveprøver
+- Issue-filtre er væk: filterknappen og dens pills er væk fra board og indbakke, søgning dækker det, de blev brugt til, og gruppering og statusbånd bliver
 - Fortsæt med e-mail eller med en adgangsnøgle: log ind med en 6-cifret kode, du får tilsendt, eller med Face ID eller Touch ID; alle muligheder står i én liste, og en ukendt e-mail bliver bare til en ny konto
 - Arbejdsindikatoren stopper, når agenten stopper: den følger nu agentens rigtige tur i stedet for forbindelsen, viser hvad den laver med tid og tokens, og Stop ligger i sessionens overskrift
 - Kort for Exponential-værktøjer: når agenten kalder Exponential, viser forløbet en enkel tekst som „Creating issue“ eller „Opened pull request“ og derefter et smugkig på resultatet

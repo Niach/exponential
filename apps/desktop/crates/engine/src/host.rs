@@ -1644,6 +1644,11 @@ where
             let mut out = MapOut::default();
             ctx.with_mapper(|mapper| mapper.set_turn(steer::TurnState::Ended, true, &mut out));
             ctx.dispatch(out);
+            // EXP-861: and the `queue` slot, empty — a run that ends with
+            // messages held keeps them in its last frame (see `Shutdown`),
+            // so a resumed run's inherited history would otherwise replay a
+            // bar full of lines this engine never held.
+            ctx.publish_queue();
 
             if ctx.replay {
                 // A transcript replay has nothing to steer: `session/load`
@@ -1801,22 +1806,8 @@ fn handle_command(
             }
         }
         EngineCommand::DrainQueue => {
-            if !ctx.prompt_gate_open() {
-                return true;
-            }
-            let held: Vec<QueuedPrompt> = ctx
-                .prompt_queue
-                .lock()
-                .map(|mut queue| queue.drain(..).collect())
-                .unwrap_or_default();
-            if held.is_empty() {
-                return true;
-            }
-            // The bar closes BEFORE the rows appear, so no client shows a
-            // message in both places for a frame.
-            ctx.publish_queue();
-            for queued in held {
-                start_turn(cx, ctx, session_id, queued.prompt, turns);
+            if ctx.prompt_gate_open() {
+                drain_queue(cx, ctx, session_id, turns);
             }
         }
         EngineCommand::SetConfig { id, value } => {
@@ -1926,6 +1917,20 @@ fn handle_command(
         }
         EngineCommand::Shutdown { outcome } => {
             ctx.set_outcome(outcome);
+            // EXP-861: messages still held at the end are NOT dropped from
+            // the slot — the run ends with the last `queue` frame listing
+            // them, so a client can rescue the text on its `ended` edge (the
+            // web moves it into the composer draft) instead of losing what
+            // the person typed. Republished here so that guarantee holds
+            // regardless of what the loop's epilogue emits after this.
+            let held = ctx
+                .prompt_queue
+                .lock()
+                .map(|queue| !queue.is_empty())
+                .unwrap_or(false);
+            if held {
+                ctx.publish_queue();
+            }
             // EXP-758: ask before the transport insists. The connection is
             // about to go away and the child's stdin with it (`ChildGuard`
             // closes it, then SIGTERMs), so this is the agent's chance to
@@ -1944,6 +1949,14 @@ fn handle_command(
 /// the `queue` slot republished. The gate is read on the command loop, the
 /// same thread that starts turns, so two messages cannot both slip through
 /// one idle moment out of order.
+///
+/// An open gate with messages still HELD is the idle edge caught between
+/// `dispatch` opening it and the loop reading its [`EngineCommand::
+/// DrainQueue`]: a command already ahead of that request in the inbox (or a
+/// steer landing right on the edge) would otherwise start first and the held
+/// lines would sit out a whole extra turn. So the held messages drain HERE,
+/// oldest first, and the new one starts behind them — send order on the
+/// transcript either way; the drain request that follows finds nothing.
 fn gate_or_start(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
@@ -1953,9 +1966,35 @@ fn gate_or_start(
     turns: &Arc<TurnGate>,
 ) {
     if ctx.prompt_gate_open() {
+        drain_queue(cx, ctx, session_id, turns);
         start_turn(cx, ctx, session_id, prompt, turns);
     } else {
         ctx.enqueue_prompt(announce, prompt);
+    }
+}
+
+/// EXP-861: start every held message as its own turn, oldest first, and
+/// close the bar. Called on the command loop only, with the gate open; a
+/// no-op when nothing is held (no frame either).
+fn drain_queue(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    turns: &Arc<TurnGate>,
+) {
+    let held: Vec<QueuedPrompt> = ctx
+        .prompt_queue
+        .lock()
+        .map(|mut queue| queue.drain(..).collect())
+        .unwrap_or_default();
+    if held.is_empty() {
+        return;
+    }
+    // The bar closes BEFORE the rows appear, so no client shows a message
+    // in both places for a frame.
+    ctx.publish_queue();
+    for queued in held {
+        start_turn(cx, ctx, session_id, queued.prompt, turns);
     }
 }
 

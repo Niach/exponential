@@ -1,3 +1,12 @@
+- Wiadomości w kolejce: wiadomość wysłana, gdy agent jeszcze pracuje, czeka na pasku Queued nad polem pisania, a po usunięciu jej tekst wraca do wersji roboczej
+- Stop, który dociera: Stop w trwającej sesji naprawdę przerywa bieżącą turę, zamiast ginąć po drodze, i odrzuca to, co czeka w kolejce za nią
+- Spokojniejsze przyciski: wypełnione kółko zostaje tylko przy jednej akcji, dla której dany ekran istnieje; usuwanie, zamykanie, odświeżanie, strzałki i menu ... są teraz zwykłymi znakami
+- Listy wyboru pokazują, co wybierają: wybór agenta nosi znak Claude Code albo Codex na przycisku i obok każdej nazwy, a menu urządzeń zaczyna się ikoną laptopa lub serwera
+- Strona Agent trzyma twoje uruchomienia: minione uruchomienia składają się za licznikiem, który możesz otworzyć, a gdy nic nie działa, pole pisania stoi na środku strony
+- Loguj się tam, gdzie jest konto: ustawienia urządzenia trzymają nazwę, udostępnianie i domyślne ustawienia agenta, a logowanie, wybór aktywnego konta i jego usunięcie są teraz na plakietkach konta
+- Dodanie konta: Add account jest w nagłówku Accounts i loguje nowe konto na urządzeniu, a plus przy koncie loguje to samo konto na kolejnym urządzeniu
+- Board w jednym wierszu: ikona, kolor i nazwa dzielą przy tworzeniu boardu jeden wiersz, a wybór koloru otwiera się jako arkusz z próbkami
+- Filtry issues zniknęły: przycisk filtra i jego pigułki opuściły board i skrzynkę, wyszukiwanie pokrywa to, do czego służyły, a grupowanie i pasy statusów zostają
 - Kontynuuj e-mailem albo kluczem dostępu: zaloguj się sześciocyfrowym kodem wysłanym na pocztę albo przez Face ID czy Touch ID; wszystkie opcje są na jednej liście, a nieznany adres po prostu staje się nowym kontem
 - Wskaźnik pracy kończy się razem z agentem: śledzi teraz prawdziwą turę agenta zamiast połączenia, pokazuje, co robi, wraz z czasem i tokenami, a Stop jest w nagłówku sesji
 - Karty narzędzi Exponential: gdy agent wywoła Exponential, historia pokazuje prosty podpis w rodzaju „Creating issue” albo „Opened pull request”, a po zakończeniu podgląd wyniku

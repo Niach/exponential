@@ -1,3 +1,12 @@
+- Mesaje în coadă: un mesaj trimis în timp ce agentul încă lucrează așteaptă într-o bară Queued deasupra câmpului de scris, iar dacă îl scoți, textul revine în ciornă
+- Stop care ajunge la agent: într-o sesiune vie, Stop întrerupe acum cu adevărat tura în curs în loc să se piardă pe drum și aruncă ce așteaptă în coadă
+- Butoane mai discrete: doar acțiunea principală a unui ecran păstrează un cerc plin; ștergerea, închiderea, reîmprospătarea, săgețile și meniurile ... sunt acum simple semne
+- Selectoare care arată ce aleg: selectorul de agent poartă semnul Claude Code sau Codex pe buton și lângă fiecare nume, iar meniurile de dispozitive încep cu o pictogramă de laptop sau de server
+- Pagina Agent îți ține rulările: rulările trecute se pliază în spatele unui număr pe care îl poți deschide, iar când nu rulează nimic, câmpul de scris stă la mijlocul paginii
+- Autentifică-te acolo unde e contul: setările dispozitivului păstrează numele, partajarea și valorile implicite ale agentului, în timp ce autentificarea, alegerea contului activ și ștergerea stau acum pe etichetele de cont
+- Adaugă un cont: Add account stă în antetul Accounts și autentifică un cont nou pe un dispozitiv, iar un plus lângă un cont îl autentifică pe alt dispozitiv
+- Un board pe un singur rând: la crearea unui board, pictograma, culoarea și numele împart un singur rând, iar selectorul de culoare se deschide ca o foaie cu mostre
+- Filtrele de issue-uri au dispărut: butonul de filtrare și pastilele lui au plecat din board și din inbox, căutarea acoperă la ce erau folosite, iar gruparea și benzile de status rămân
 - Continuă cu e-mailul sau cu o cheie de acces: intră cu un cod din 6 cifre trimis pe e-mail, ori cu Face ID sau Touch ID; toate variantele stau într-o singură listă, iar o adresă necunoscută devine pur și simplu un cont nou
 - Indicatorul de lucru se oprește când se oprește agentul: urmărește acum tura reală a agentului în locul conexiunii, arată ce face, cu durata și tokenurile, iar Stop stă în antetul sesiunii
 - Carduri pentru uneltele Exponential: când agentul apelează Exponential, istoricul arată o descriere simplă precum „Creating issue” sau „Opened pull request”, iar la final o previzualizare a rezultatului

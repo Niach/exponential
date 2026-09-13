@@ -347,13 +347,14 @@ fun AgentsScreen(
                                         )
                                     },
                                     onAddHere = { device ->
+                                        // Named after the ACCOUNT, like web and
+                                        // iOS: the same "+" names the profile the
+                                        // same on every client.
                                         val target = AgentAccountsRows.addAccountLoginTarget(
                                             device,
                                             group.agent,
-                                            AgentAccountsRows.nextProfileLabel(
-                                                device,
-                                                group.agent,
-                                                agentLabel(group.agent),
+                                            AgentAccountsRows.clampProfileLabel(
+                                                AgentAccountsRows.caption(group),
                                             ),
                                         )
                                         loginTarget = AgentLoginTarget(
@@ -858,6 +859,8 @@ private fun MachineRow(
             // EXP-862: and `account-remove` for the destructive entry — the
             // server refuses the command on a build without it.
             canRemove = device.canRemoveAccount,
+            // …which the server ALSO gates on `agent-login`.
+            canAgentLogin = device.canAgentLogin,
             commandStates = commandStates,
             onSetDefault = onSetAccountDefault,
             onRemove = onRemoveAccount,
@@ -887,6 +890,8 @@ private fun MachineAccountChips(
     canSwitch: Boolean,
     /** …and `account-remove`, for the destructive entry. */
     canRemove: Boolean,
+    /** …and `agent-login`, which a removal needs as well. */
+    canAgentLogin: Boolean,
     commandStates: Map<String, DeviceCommandUiState>,
     onSetDefault: (DeviceAccountChip) -> Unit,
     onRemove: (DeviceAccountChip) -> Unit,
@@ -904,6 +909,7 @@ private fun MachineAccountChips(
                     actionable = actionable,
                     canSwitch = canSwitch,
                     canRemove = canRemove,
+                    canAgentLogin = canAgentLogin,
                     state = commandStates[deviceAccountCommandKey(deviceId, chip)],
                     onSetDefault = { onSetDefault(chip) },
                     onRemove = { onRemove(chip) },
@@ -934,6 +940,7 @@ private fun MachineAccountChip(
     actionable: Boolean,
     canSwitch: Boolean,
     canRemove: Boolean,
+    canAgentLogin: Boolean,
     state: DeviceCommandUiState?,
     onSetDefault: () -> Unit,
     onRemove: () -> Unit,
@@ -948,7 +955,12 @@ private fun MachineAccountChip(
     // machine's default and can be removed from it. Empty = the chip is a
     // statement (a teammate's machine, an offline one, the ambient login).
     val actions = if (actionable) {
-        AgentAccountsRows.chipActions(chip, canSwitchAccount = canSwitch, canRemoveAccount = canRemove)
+        AgentAccountsRows.chipActions(
+            chip,
+            canSwitchAccount = canSwitch,
+            canRemoveAccount = canRemove,
+            canAgentLogin = canAgentLogin,
+        )
     } else {
         emptyList()
     }
@@ -1225,6 +1237,7 @@ private fun DeviceChip(
             row,
             canSwitchAccount = device.canSwitchAccount,
             canRemoveAccount = device.canRemoveAccount,
+            canAgentLogin = device.canAgentLogin,
         )
     } else {
         emptyList()

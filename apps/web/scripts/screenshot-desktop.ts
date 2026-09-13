@@ -250,6 +250,37 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
   },
 ]
 
+// EXP-785: a `tool` row needs its ACP `id` and contract `toolKind` (the hub
+// drops it otherwise, `event.id: invalid_type`), and settles through a
+// `tool_update` folded in by that id. The feed above stays readable by name;
+// the wire shape is stamped here. `seq` numbers every published event.
+const TOOL_KIND_BY_NAME: Record<string, string> = {
+  Read: `read`,
+  Grep: `search`,
+  Glob: `search`,
+  Bash: `execute`,
+  Edit: `edit`,
+  Write: `edit`,
+}
+
+function publishFeed(send: (frame: Record<string, unknown>) => void) {
+  let seq = 0
+  let toolIndex = 0
+  for (const raw of FEED) {
+    if (raw.kind !== `tool`) {
+      send({ t: `activity`, event: raw, seq: seq++ })
+      continue
+    }
+    const id = typeof raw.id === `string` ? raw.id : `stub-tool-${++toolIndex}`
+    const toolKind =
+      typeof raw.toolKind === `string`
+        ? raw.toolKind
+        : (TOOL_KIND_BY_NAME[String(raw.name)] ?? `other`)
+    send({ t: `activity`, event: { ...raw, id, toolKind }, seq: seq++ })
+    send({ t: `activity`, event: { kind: `tool_update`, id, status: `completed` }, seq: seq++ })
+  }
+}
+
 function required(config: SteerRelayConfig | null): SteerRelayConfig {
   if (config) return config
   console.error(
@@ -415,7 +446,10 @@ async function main() {
       // Full-history re-publish, exactly like the desktop does on reconnect:
       // reset first so the relay's replay log never doubles.
       send({ t: `activity_reset` })
-      for (const event of FEED) send({ t: `activity`, event })
+      // EXP-783: `seq` is required on every activity frame since the round-11
+      // cleanup made it non-optional; a frame without it is dropped by the hub
+      // (`seq: invalid_type`) and the steering feed never appears.
+      publishFeed(send)
     },
   })
 

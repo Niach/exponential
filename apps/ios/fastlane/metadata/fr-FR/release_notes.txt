@@ -1,3 +1,12 @@
+- Messages en file d'attente : un message envoyé pendant que l'agent travaille attend dans une barre Queued au-dessus du champ de saisie, et le retirer remet le texte dans votre brouillon
+- Stop qui arrive jusqu'à l'agent : dans une session en cours, Stop interrompt vraiment le tour en train de tourner au lieu de se perdre en route, et il vide ce qui attend derrière
+- Des boutons plus discrets : seule l'action principale d'un écran garde un cercle plein ; supprimer, fermer, actualiser, les chevrons et les menus ... sont désormais de simples glyphes
+- Des sélecteurs qui montrent ce qu'ils choisissent : le sélecteur d'agent porte la marque Claude Code ou Codex sur le bouton et à côté de chaque nom, et les menus d'appareils portent une icône d'ordinateur ou de serveur
+- La page Agent porte vos runs : les runs passés se replient derrière un compteur que vous pouvez ouvrir, et quand rien ne tourne, le champ de saisie se place au milieu de la page
+- Se connecter là où est le compte : les réglages d'appareil gardent le nom, le partage et les valeurs par défaut de l'agent, tandis que la connexion, le choix du compte actif et la suppression vivent maintenant sur les puces de compte
+- Ajouter un compte : Add account se trouve dans l'en-tête Accounts pour connecter un nouveau compte sur un appareil, et un plus sur un compte le connecte sur un autre appareil
+- Un board en une ligne : l'icône, la couleur et le nom partagent une seule ligne à la création d'un board, et le sélecteur de couleur s'ouvre en feuille de pastilles
+- Les filtres d'issues ont disparu : le bouton de filtre et ses pastilles quittent le board et la boîte de réception, la recherche couvre leur usage, et le regroupement et les bandes de statut restent
 - Continuer avec l'e-mail, ou avec une clé d'accès : connectez-vous avec un code à 6 chiffres envoyé par e-mail, ou avec Face ID ou Touch ID ; toutes les options tiennent dans une seule liste, et une adresse inconnue devient simplement un nouveau compte
 - L'indicateur de travail s'arrête quand l'agent s'arrête : il suit le vrai tour de l'agent au lieu de la connexion, affiche ce qu'il fait avec la durée et les tokens, et Stop se trouve dans l'en-tête de la session
 - Cartes d'outils Exponential : quand l'agent appelle Exponential, l'historique montre une légende simple comme « Creating issue » ou « Opened pull request », puis un aperçu du résultat

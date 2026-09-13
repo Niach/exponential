@@ -247,12 +247,14 @@ fn count_lines(path: &Path) -> u64 {
 
 /// Which latest-wins slot an event owns, if any — the file's mirror of
 /// `journal::slot_of`. Replay order is the relay's `LATEST_REPLAY_ORDER`
-/// (`config_state`, `usage`, `rate_limit`, `turn`, `workflow`,
+/// (`config_state`, `usage`, `rate_limit`, `turn`, `queue`, `workflow`,
 /// `background_tasks`, `diff`; EXP-784 added the third, EXP-848 the fourth,
-/// EXP-850 the keyed workflow block and the background-task strip).
+/// EXP-861 the fifth, EXP-850 the keyed workflow block and the
+/// background-task strip). Seven slots in all.
 const SLOT_COUNT: usize = 7;
 /// The slots replayed BEFORE the keyed workflow cards (`config_state`,
-/// `usage`, `rate_limit`, `turn`); `background_tasks` and `diff` follow them.
+/// `usage`, `rate_limit`, `turn`, `queue`); `background_tasks` and `diff`
+/// follow them.
 const SLOTS_BEFORE_WORKFLOWS: usize = 5;
 
 /// EXP-850 §3: how many workflow cards one file's fold keeps — the in-memory

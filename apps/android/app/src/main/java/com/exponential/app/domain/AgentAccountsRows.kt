@@ -317,6 +317,8 @@ object AgentAccountsRows {
      * [canSwitchAccount] is the machine's `account-switch` cap and
      * [canRemoveAccount] its `account-remove` one: the server refuses either
      * command without it, so an older machine simply does not offer that entry.
+     * [canAgentLogin] is its `agent-login` cap, which the server ALSO requires
+     * for a removal (web `devices.ts` `agentProfileRemove`).
      * The AMBIENT login ([SYSTEM_PROFILE_ID]) can never be removed — it is the
      * agent CLI's own config dir, which Exponential never created.
      */
@@ -327,11 +329,14 @@ object AgentAccountsRows {
         profileId: String,
         canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
+        canAgentLogin: Boolean,
     ): List<String> {
         if (!signedIn || health == AgentHealth.NeedsRelogin) return listOf(ACTION_SIGN_IN)
         val out = mutableListOf<String>()
         if (!active && canSwitchAccount) out += ACTION_SET_DEFAULT
-        if (canRemoveAccount && profileId.isNotBlank() && profileId != SYSTEM_PROFILE_ID) {
+        if (canRemoveAccount && canAgentLogin && profileId.isNotBlank() &&
+            profileId != SYSTEM_PROFILE_ID
+        ) {
             out += ACTION_REMOVE
         }
         return out
@@ -342,6 +347,7 @@ object AgentAccountsRows {
         chip: DeviceAccountChip,
         canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
+        canAgentLogin: Boolean,
     ): List<String> = chipActions(
         signedIn = chip.signedIn,
         health = chip.health,
@@ -349,6 +355,7 @@ object AgentAccountsRows {
         profileId = chip.profileId,
         canSwitchAccount = canSwitchAccount,
         canRemoveAccount = canRemoveAccount,
+        canAgentLogin = canAgentLogin,
     )
 
     /** [chipActions] for an account row's machine chip. */
@@ -356,6 +363,7 @@ object AgentAccountsRows {
         row: AgentProfileUsageRow,
         canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
+        canAgentLogin: Boolean,
     ): List<String> = chipActions(
         signedIn = row.signedIn,
         health = row.health,
@@ -363,6 +371,7 @@ object AgentAccountsRows {
         profileId = row.profileId,
         canSwitchAccount = canSwitchAccount,
         canRemoveAccount = canRemoveAccount,
+        canAgentLogin = canAgentLogin,
     )
 
     /**
@@ -454,13 +463,29 @@ object AgentAccountsRows {
     private fun usableLogin(profile: AgentAccountProfile): Boolean =
         profile.signedIn && AgentHealthRules.of(profile) != AgentHealth.NeedsRelogin
 
+    /** The server's clamp on a profile label (web `MAX_PROFILE_LABEL`). */
+    const val MAX_PROFILE_LABEL = 64
+
     /**
-     * `Claude Code account 2` — one past the logins the machine reports for the
-     * agent (the ambient one counts as the first). Web `nextProfileLabel`.
+     * Trimmed and cut to the server's limit, so the label the machine names
+     * its new config dir with is the one that was asked for. Web/iOS
+     * `clampProfileLabel`.
+     */
+    fun clampProfileLabel(label: String): String = label.trim().take(MAX_PROFILE_LABEL)
+
+    /**
+     * `Claude Code account 2` — the smallest N >= 2 whose label is not already
+     * one of the machine's logins for the agent (exact match), so a removed
+     * "account 2" is reused rather than colliding with a surviving "account 3".
+     * Web/iOS `nextProfileLabel`, same rule.
      */
     fun nextProfileLabel(device: SteerDevice, agent: String, agentLabel: String): String {
-        val held = device.agentAccounts?.get(agent)?.profiles.orEmpty().size.coerceAtLeast(1)
-        return "$agentLabel account ${held + 1}"
+        val taken = device.agentAccounts?.get(agent)?.profiles.orEmpty()
+            .map { it.label.orEmpty() }
+            .toSet()
+        var n = 2
+        while ("$agentLabel account $n" in taken) n += 1
+        return clampProfileLabel("$agentLabel account $n")
     }
 
     /** The fullest window's percent, or 0 for a row with no usage at all. */

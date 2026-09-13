@@ -531,24 +531,44 @@ class AgentAccountsRowsTest {
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
         assertEquals(
             listOf("Sign in"),
-            AgentAccountsRows.chipActions(signedOut, canSwitchAccount = true, canRemoveAccount = true),
+            AgentAccountsRows.chipActions(
+                signedOut,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+            ),
         )
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
         assertEquals(
             listOf("Sign in"),
-            AgentAccountsRows.chipActions(expired, canSwitchAccount = true, canRemoveAccount = true),
+            AgentAccountsRows.chipActions(
+                expired,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+            ),
         )
         // Healthy and not the machine's login: both entries.
         val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
         assertEquals(
             listOf("Set as default", "Remove account"),
-            AgentAccountsRows.chipActions(other, canSwitchAccount = true, canRemoveAccount = true),
+            AgentAccountsRows.chipActions(
+                other,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+            ),
         )
         // Healthy and already the default: only the removal.
         val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
         assertEquals(
             listOf("Remove account"),
-            AgentAccountsRows.chipActions(current, canSwitchAccount = true, canRemoveAccount = true),
+            AgentAccountsRows.chipActions(
+                current,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+            ),
         )
     }
 
@@ -571,11 +591,21 @@ class AgentAccountsRowsTest {
         // its cap, so an older machine simply does not offer that entry.
         assertEquals(
             listOf("Remove account"),
-            AgentAccountsRows.chipActions(other, canSwitchAccount = false, canRemoveAccount = true),
+            AgentAccountsRows.chipActions(
+                other,
+                canSwitchAccount = false,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+            ),
         )
         assertEquals(
             listOf("Set as default"),
-            AgentAccountsRows.chipActions(other, canSwitchAccount = true, canRemoveAccount = false),
+            AgentAccountsRows.chipActions(
+                other,
+                canSwitchAccount = true,
+                canRemoveAccount = false,
+                canAgentLogin = true,
+            ),
         )
         // The AMBIENT login is the agent CLI's own config dir — not ours to
         // delete, whatever the machine advertises.
@@ -584,7 +614,19 @@ class AgentAccountsRowsTest {
                 chip("system", active = true),
                 canSwitchAccount = true,
                 canRemoveAccount = true,
+                canAgentLogin = true,
             ).isEmpty(),
+        )
+        // `agent_profile_remove` ALSO needs `agent-login` server-side: a
+        // machine advertising `account-remove` without it offers no removal.
+        assertEquals(
+            listOf("Set as default"),
+            AgentAccountsRows.chipActions(
+                other,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = false,
+            ),
         )
     }
 
@@ -790,8 +832,9 @@ class AgentAccountsRowsTest {
                 ),
             ),
         )
+        // A profile whose label is not an "account N" takes no number.
         assertEquals(
-            "Claude Code account 3",
+            "Claude Code account 2",
             AgentAccountsRows.nextProfileLabel(twoProfiles, "claude", "Claude Code"),
         )
         // The label follows the AGENT asked about, not the machine's busiest.
@@ -808,6 +851,42 @@ class AgentAccountsRowsTest {
             "Claude Code account 2",
             AgentAccountsRows.nextProfileLabel(empty, "claude", "Claude Code"),
         )
+    }
+
+    @Test
+    fun `the next profile label takes the smallest free number`() {
+        fun device(vararg labels: String) = steerDevice(
+            "dev",
+            agentAccounts = mapOf(
+                "claude" to AgentAccount(
+                    signedIn = true,
+                    profiles = listOf(
+                        AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = true, active = true),
+                    ) + labels.mapIndexed { i, label ->
+                        AgentAccountProfile(id = "p$i", label = label, signedIn = true)
+                    },
+                ),
+            ),
+        )
+        // "account 2" was removed: its number is free again, never a duplicate 3.
+        assertEquals(
+            "Claude Code account 2",
+            AgentAccountsRows.nextProfileLabel(device("Claude Code account 3"), "claude", "Claude Code"),
+        )
+        assertEquals(
+            "Claude Code account 4",
+            AgentAccountsRows.nextProfileLabel(
+                device("Claude Code account 2", "Claude Code account 3"),
+                "claude",
+                "Claude Code",
+            ),
+        )
+    }
+
+    @Test
+    fun `a profile label is trimmed and clamped to the server limit`() {
+        assertEquals("work", AgentAccountsRows.clampProfileLabel("  work "))
+        assertEquals(64, AgentAccountsRows.clampProfileLabel("x".repeat(80)).length)
     }
 
     // EXP-862: the sign-in sheet's self-close rule, on the TARGETED login.

@@ -2079,8 +2079,8 @@ class AgentFeedTest {
             event("""{"kind":"queue","messages":[{"id":"m4"},{"text":"no id"},{"id":"m5","text":"ok"}]}"""),
         )
         assertEquals(listOf("m5"), partial.queue.map { it.id })
-        // No `messages` array at all: the previous list survives.
-        assertEquals(listOf("m5"), partial.applying(event("""{"kind":"queue"}""")).queue.map { it.id })
+        // No `messages` array at all: the slot is replaced whole, so it clears.
+        assertTrue(partial.applying(event("""{"kind":"queue"}""")).queue.isEmpty())
         // An EMPTY array is meaningful — nothing is queued — and clears the bar.
         assertTrue(partial.applying(event("""{"kind":"queue","messages":[]}""")).queue.isEmpty())
         // The session ending under it drops it the same way.

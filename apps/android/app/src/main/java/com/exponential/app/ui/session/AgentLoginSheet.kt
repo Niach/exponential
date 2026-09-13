@@ -114,8 +114,12 @@ internal fun AgentLoginSheet(
         )
     }
 
-    val state = commandStates[agentLoginCommandKey(target.agent)]
-    val codeState = commandStates[agentLoginCodeCommandKey(target.agent)]
+    val state = commandStates[
+        agentLoginCommandKey(device.deviceId, target.agent, target.profileId, target.newProfileLabel)
+    ]
+    val codeState = commandStates[
+        agentLoginCodeCommandKey(device.deviceId, target.agent, target.profileId, target.newProfileLabel)
+    ]
     GlassSheet(
         title = "Sign in",
         onDismiss = onDismiss,
@@ -136,7 +140,14 @@ internal fun AgentLoginSheet(
                 // to be listening for it, which is the same gate as the login.
                 canEnterCode = device.online && device.isMine,
                 onEnterCode = { code ->
-                    viewModel.agentLoginCode(device.deviceId, target.agent, code, device.online)
+                    viewModel.agentLoginCode(
+                        device.deviceId,
+                        target.agent,
+                        code,
+                        device.online,
+                        profileId = target.profileId,
+                        newProfileLabel = target.newProfileLabel,
+                    )
                 },
             )
             CommandCaption(codeState)
