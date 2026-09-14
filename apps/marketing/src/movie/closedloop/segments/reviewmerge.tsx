@@ -26,16 +26,14 @@ import {
   type CursorKey,
 } from "../../ships/rig"
 import {
-  BoardActions,
   BoardTool,
-  SidebarPane,
 } from "../../ships/surfaces/board"
 import {
   CutoutPanel,
-  ExpandedRail,
+  CompactRail,
+  ListNav,
   TitleBar,
   type ChromeTab,
-  type RailSession,
 } from "../../ships/surfaces/chrome"
 import {
   PrDiffPane,
@@ -134,11 +132,6 @@ const TAB_151: ChromeTab = {
 // Phone placement in COMP coordinates inside the camera layer.
 const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
-// EXP-791: EXP-151's run is still up while the PR merges, so the rail keeps
-// its Sessions row.
-const RAIL_SESSIONS: RailSession[] = [
-  { identifier: NEW_ISSUE_ID, label: CL_ISSUE.title },
-]
 
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const ReviewMergeSegment: React.FC<SegmentProps> = ({
@@ -176,37 +169,45 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
           <WindowChassis>
             <TitleBar
               frame={frame}
-              tabs={[{ ...TAB_151, status: heroStatus }]}
+              tabs={[
+                frame >= B.mergedAt
+                  ? { ...TAB_151, status: heroStatus }
+                  : // EXP-870/877: the live run rides its issue's tab in the
+                    // Claude group, green while its PR is open; the merge
+                    // ends the run and the tab falls back to the issue chip
+                    { ...TAB_151, liveDot: C.green },
+              ]}
               activeId="exp151"
             />
-            <ExpandedRail
+            {/* EXP-870: the run is a live TAB (the rail's Sessions section
+                is gone); the Agent entry counts it until the merge ends it */}
+            <CompactRail
               frame={frame}
               active="board"
               dots={["reviews"]}
               dotColor={C.green}
+              agentCount={frame >= B.mergedAt ? 0 : 1}
               boardName={CL.project}
-              sessions={RAIL_SESSIONS}
               userName={CL.user}
               userInitial={CL.initials}
             />
+            {/* the board's ListNav stays beside the PrDiff main view */}
+            <ListNav title={CL.project}>
+              <BoardTool
+                frame={frame}
+                rows={CL_BOARD}
+                overrides={{
+                  [NEW_ISSUE_ID]: {
+                    status: frame >= B.mergedAt ? "done" : "in_progress",
+                  },
+                }}
+                selectedId={NEW_ISSUE_ID}
+                density="nav"
+              />
+            </ListNav>
 
-            {/* EXP-723: everything below the band lives in the cutout panel */}
+            {/* EXP-723: the main view lives in the cutout panel */}
             <CutoutPanel>
-              {/* sidebar: the board's issue list — the PrDiff is a CENTER
-                  screen, so the list pane behind it stays put (EXP-706) */}
-              <SidebarPane actions={<BoardActions />}>
-                <BoardTool
-                  frame={frame}
-                  rows={CL_BOARD}
-                  overrides={{
-                    [NEW_ISSUE_ID]: {
-                      status: frame >= B.mergedAt ? "done" : "in_progress",
-                    },
-                  }}
-                  selectedId={NEW_ISSUE_ID}
-                />
-              </SidebarPane>
-
               {/* center: the PrDiff screen (what a Reviews row opens) */}
               <div
                 style={{

@@ -172,7 +172,7 @@ export function ActionsDocsPage() {
 
             <DocShot
               view="automations-list"
-              caption="The Automations tab: each row's trigger, machine, agent, next and last run, and its on/off switch"
+              caption="The Automations tab: each row's trigger, machine, agent, last run, and its on/off switch"
             />
 
             <p>
@@ -220,13 +220,13 @@ export function ActionsDocsPage() {
             />
 
             <p>
-              Each row carries its trigger sentence, its machine, its{` `}
-              <strong>next</strong> run and how the <strong>last</strong> one
-              ended, plus a switch to disable it without deleting it and a{` `}
+              Each row carries its trigger sentence, its machine, its agent
+              and how the <strong>last</strong> run ended, plus a switch to
+              disable it without deleting it and a{` `}
               <strong>…</strong> menu to edit or delete. Below the list,{` `}
               <strong>Recent automated runs</strong> is the record of what
-              actually fired; each finished run keeps the summary its agent
-              wrote.
+              actually fired, in the same run rows as the Agent page; open one
+              to read its transcript.
             </p>
             <DocsCallout kind="note" title="An automation fills in nothing">
               Nobody is there to answer a prompt, so an enabled automation
@@ -270,10 +270,9 @@ export function ActionsDocsPage() {
               </li>
               <li>
                 <strong>Chat</strong>: a free prompt with no issue attached
-                and no repository required. It is the launcher&apos;s{` `}
-                <strong>Chat</strong> tab (and the app&apos;s own{` `}
-                <a href="/docs/coding/#watch-steer">chat page</a>) rather than
-                a list row; with a repository picked the run gets its own{` `}
+                and no repository required. It is the{` `}
+                <a href="/docs/coding/#watch-steer">Agent page</a> composer
+                with nothing chipped rather than a list row; with a repository picked the run gets its own{` `}
                 <code>exp/chat-&lt;id&gt;</code> worktree, without one it runs
                 in a scratch directory. Either way it steers like any other
                 session.

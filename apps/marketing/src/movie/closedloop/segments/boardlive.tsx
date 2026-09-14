@@ -22,14 +22,12 @@ import {
   type CamKey,
   type CursorKey,
 } from "../../ships/rig"
+import { BoardTool, listNavRowCenter } from "../../ships/surfaces/board"
 import {
-  BoardActions,
-  BoardTool,
-  SidebarPane,
-} from "../../ships/surfaces/board"
-import {
+  CompactRail,
   CutoutPanel,
-  ExpandedRail,
+  LIST_NAV_BODY_TOP,
+  ListNav,
   TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
@@ -103,22 +101,20 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 ])
 
 // ── Cursors (window-local coords) ───────────────────────────────────────────
-// The list pane starts inside the cutout panel (y 40) under the 44px Filter
-// header, so row 0 sits at window y 84 and every row is 28 tall; the pane's
-// left edge is the panel's (x 218). Contract group order
-// (backlog → in progress → done) puts, BEFORE the drag:
-//   h:backlog 84 · EXP-151 112 · EXP-149 140 · EXP-150 168 · EXP-145 196 ·
-//   EXP-146 224 · h:in-progress 252 · EXP-148 280 · h:done 308 · EXP-144 336 ·
-//   EXP-147 364
-// AFTER it, EXP-149 lands at 280 (under EXP-148) and EXP-150 rises to 140;
-// everything from h:in-progress down is unmoved. Cursor Ys are row centers
-// (top + 14).
+// EXP-870: the board list is the left column's ListNav beside the open
+// detail (window x 48–320), its rows under the back row. The hover lands on
+// EXP-150 where Mara's regroup leaves it — derived from the ListNav layout
+// of the post-drag board, so the pointer follows the row metrics.
+const AFTER_DRAG = CL_BOARD.map((row) =>
+  row.id === REMOTE_DRAG_ID ? { ...row, status: "in_progress" as const } : row
+)
+const LIVE_EDIT_ROW = listNavRowCenter(AFTER_DRAG, LIVE_EDIT_ID, LIST_NAV_BODY_TOP)
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 52, x: 900, y: 420 },
-  { f: 80, x: 399, y: 154 }, // EXP-150, where the regroup leaves it
-  { f: 150, x: 399, y: 154 },
-  { f: 168, x: 399, y: 154 },
+  { f: 80, x: LIVE_EDIT_ROW.x, y: LIVE_EDIT_ROW.y }, // EXP-150, where the regroup leaves it
+  { f: 150, x: LIVE_EDIT_ROW.x, y: LIVE_EDIT_ROW.y },
+  { f: 168, x: LIVE_EDIT_ROW.x, y: LIVE_EDIT_ROW.y },
   { f: 190, x: 900, y: 500 },
 ]
 
@@ -175,7 +171,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
         <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
-            <ExpandedRail
+            <CompactRail
               frame={frame}
               active="board"
               dots={frame >= B.pushAt + 2 ? ["inbox"] : []}
@@ -183,21 +179,22 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               userName={CL.user}
               userInitial={CL.initials}
             />
+            {/* EXP-870: the list EXP-151 was opened from, beside the rail */}
+            <ListNav title={CL.project}>
+              <BoardTool
+                frame={frame}
+                rows={CL_BOARD}
+                overrides={overrides}
+                hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
+                selectedId={NEW_ISSUE_ID}
+                regroup={regroup}
+                flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
+                density="nav"
+              />
+            </ListNav>
 
-            {/* EXP-723: everything below the band lives in the cutout panel */}
+            {/* EXP-723: the main view lives in the cutout panel */}
             <CutoutPanel>
-              <SidebarPane actions={<BoardActions />}>
-                <BoardTool
-                  frame={frame}
-                  rows={CL_BOARD}
-                  overrides={overrides}
-                  hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
-                  selectedId={NEW_ISSUE_ID}
-                  regroup={regroup}
-                  flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
-                />
-              </SidebarPane>
-
               {/* center: EXP-151 open in Backlog — the state feedback wraps into */}
               <div
                 style={{

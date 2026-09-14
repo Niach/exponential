@@ -1,35 +1,30 @@
-// surfaces/detail.tsx — IssueDetailPane: the issue-detail center pane.
-// EXP-471 rebuilt it against shots/issue-detail/desktop.webp — the post-EXP-282
-// desktop detail has NO properties sidebar and NO rich-text toolbar:
-//   · a top row that is ONE round "…" menu, right-aligned (EXP-760 folded
-//     Copy link and Delete into it and retired the pager; the Subscribe
-//     toggle went with EXP-723)
-//   · the big title
-//   · ONE bordered PROPERTIES PILL BAR (status · priority · assignee · label ·
-//     due · board · origin — issue_header.rs `chip_row`) with the light
-//     "▷ Start coding" pill at its trailing end
-//   · that launcher becomes "● Coding… / ⊗ Stop" while a LOCAL run is up
-//     (coding_flow.rs); EXP-698 suppresses the synced coding-now CARD for a
-//     local run, so this pane never draws one
-//   · relations, when the issue has any: EXP-760 made them plain group
-//     headings BELOW the description, and an issue with none draws nothing
-//   · the markdown description, then the emoji / image / attach affordance row
-//   · a full-bleed hairline, "Activity (n)", the timeline: muted event lines
-//     ending in their time, comment CARDS on the 28px gutter rail that each
-//     close with a "Leave a reply…" row (EXP-723/741), and the composer.
+// surfaces/detail.tsx — IssueDetailPane: the ISSUE face of a top tab, and the
+// ONE WorkHeader both faces share (EXP-877; pixel truth
+// shots/issue-detail/desktop.webp + crates/ui/src/work_header.rs):
+//   · the fixed header, capped to the work column: the 24/32 semibold title
+//     with the right cluster top-aligned beside it — the `Issue | Run | +N -M`
+//     face toggle (hidden until a run exists), the pin, the `…` menu
+//   · the properties TRAY under it (status · priority · assignee · label ·
+//     due · board · origin — glass pills in a section-filled card) with the
+//     ONE coding action at its right edge: "▷ Start coding", or "⊗ Stop"
+//     while my run is live
+//   · a hairline, then the body in the same column: the markdown
+//     description, the emoji / image / attach affordance row, a full-bleed
+//     hairline, "Activity (n)", the timeline (muted event lines ending in
+//     their time, comment CARDS on the 28px gutter rail that each close with
+//     a "Leave a reply…" row, EXP-723/741) and the composer.
 // EXP-723 raised the app rem 13 → 14, so the transcribed text sizes below
 // carry the 14/13 step (12 → 13, 13 → 14, 23 → 25).
-// Pixel truth: the committed store shot (1440×900 @1.25) — pane-local Ys were
-// transcribed off it. All frames are composition-global; the assembler passes
-// `frame` down (no useCurrentFrame here).
+// All frames are composition-global; the assembler passes `frame` down (no
+// useCurrentFrame here).
 //
-// Coordinates: the pane lays out in PANE-LOCAL px. The assembler places it at
-// window-local (684, 34) — right of the expanded rail + tool window, under the
-// 34px titlebar. Default size 884×917 (dock collapsed).
+// Coordinates: the pane lays out in PANE-LOCAL px and fills the cutout
+// panel's main view (default WIN.panel size). `bodyOnly` drops the header so
+// a caller flipping faces can keep ONE header over a sliding body.
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, EASE, POP, UI_FONT, WIN } from "../theme"
+import { C, EASE, MONO_FONT, POP, UI_FONT, WIN } from "../theme"
 import { BOARD, HERO, IDENTITY, LABELS } from "../fixtures"
 import type { IssueStatus, Priority } from "../fixtures"
 
@@ -42,15 +37,9 @@ const PRIMARY_BG = "#ededed" // the light Start coding / New Issue pill
 const PRIMARY_FG = "#18181b"
 
 // ── Layout constants (pane-local) ────────────────────────────────────────────
-const DEFAULT_W = WIN.w - WIN.rail - WIN.sidebar // 884
-const DEFAULT_H = WIN.h - WIN.titleBar // the panel runs to the window's edge
-// The app left-aligns the detail content at 28px. MAX_COL caps the header
-// block (pager · title · properties bar) and PROSE_W the running text, so the
-// description and activity never run under the phone the clips float over the
-// window's right edge.
-const MAX_COL = 760
+const DEFAULT_W = WIN.panel.w
+const DEFAULT_H = WIN.panel.h
 const PROSE_W = 600
-const PAD_X = 28
 
 // ── Tiny inline icons (lucide-like, stroke currentColor) ─────────────────────
 type IconProps = { size?: number; sw?: number; style?: React.CSSProperties }
@@ -248,9 +237,11 @@ const Prop: React.FC<{
       display: "flex",
       alignItems: "center",
       gap: 5,
-      padding: "0 8px",
+      padding: "0 9px",
       borderRadius: 999,
       border: `1px solid ${C.strokeCard}`,
+      backgroundColor: C.fillCard,
+      flex: "none",
     }}
   >
     <Icon size={13} style={{ color }} />
@@ -352,11 +343,303 @@ const HERO_ISSUE: DetailIssueContent = {
   projectColor: IDENTITY.projectColor,
 }
 
+// ── The ONE work header (EXP-877 work_header.rs, web `WorkHeader`) ───────────
+// Shared by the issue face and the run face of a top tab, fixed above the
+// body and capped to the 896px work column. Row 1: the 24/32 semibold title
+// with the right cluster top-aligned on the same line — the face toggle
+// (`Issue | Run | +N -M`, HIDDEN below two items), the pin, the `…` menu.
+// Row 2: the properties TRAY (glass_tray: 12/8 insets, 6 gap, section fill
+// + card hairline) with the ONE coding action at its right edge — Start
+// coding, or Stop while my run is live. A hairline closes the header.
+// The app's 896px `WORK_COLUMN_W` at the film's 1.09 window step.
+export const WORK_COLUMN_W = 976
+export const DETAIL_GUTTER = 16
+const TITLE_PT = 16
+const TITLE_LINE = 32
+const TITLE_PB = 4
+const TRAY_H = 42
+const HEADER_PB = 12
+export const WORK_HEADER_H =
+  TITLE_PT + TITLE_LINE + TITLE_PB + TRAY_H + HEADER_PB + 1
+
+const IcPin: React.FC<IconProps> = (p) => (
+  <Svg {...p} sw={1.8}>
+    <path d="M12 17v5" />
+    <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+  </Svg>
+)
+
+export type WorkFace = `issue` | `run`
+
+export type WorkHeaderProps = {
+  frame: number
+  issue: DetailIssueContent
+  status: IssueStatus
+  priority: Priority
+  width: number
+  /** Global frame a run of mine exists from — the toggle pops in. */
+  runAt?: number
+  /** Global frame the active face flips Issue → Run (the pill slides). */
+  runFaceAt?: number
+  /** The run's diff item (`+N -M`), from its global frame. */
+  diff?: { add: number; del: number; at: number }
+  /** My run is live: Start coding → Stop. */
+  codingNow?: { at: number; out?: number }
+}
+
+const FACE_ISSUE_W = 58
+const FACE_RUN_W = 50
+const faceDiffW = (add: number, del: number) =>
+  24 + Math.round((`+${add}`.length + `-${del}`.length) * 7.8) + 4
+
+export const WorkHeader: React.FC<WorkHeaderProps> = ({
+  frame,
+  issue,
+  status,
+  priority,
+  width,
+  runAt,
+  runFaceAt,
+  diff,
+  codingNow,
+}) => {
+  const st = STATUS_META[status]
+  const pr = PRIO_META[priority]
+  const colW = Math.min(WORK_COLUMN_W, width)
+  const codingActive =
+    codingNow !== undefined &&
+    frame >= codingNow.at &&
+    (codingNow.out === undefined || frame < codingNow.out + 4)
+  const togglePop = popIn(frame, runAt)
+  const diffPop = popIn(frame, diff?.at)
+  const faceT =
+    runFaceAt === undefined
+      ? 0
+      : interpolate(frame, [runFaceAt, runFaceAt + 8], [0, 1], CLAMP_EASE)
+  const showToggle = runAt !== undefined && frame >= runAt
+  const showDiff = showToggle && diff !== undefined && frame >= diff.at
+
+  const faceItem = (
+    label: React.ReactNode,
+    w: number,
+    active: boolean
+  ): React.ReactElement => (
+    <span
+      style={{
+        position: `relative`,
+        width: w,
+        height: `100%`,
+        flex: `none`,
+        display: `flex`,
+        alignItems: `center`,
+        justifyContent: `center`,
+        fontSize: 14,
+        color: active ? C.text : C.muted,
+      }}
+    >
+      {label}
+    </span>
+  )
+
+  return (
+    <div
+      style={{
+        position: `relative`,
+        width,
+        height: WORK_HEADER_H,
+        boxSizing: `border-box`,
+        borderBottom: `1px solid ${C.strokeRow}`,
+        fontFamily: UI_FONT,
+        color: C.text,
+      }}
+    >
+      <div style={{ width: colW, margin: `0 auto`, position: `relative` }}>
+        {/* row 1: the title · the right cluster, top-aligned */}
+        <div style={{ display: `flex`, alignItems: `flex-start` }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: `${TITLE_PT}px ${DETAIL_GUTTER}px ${TITLE_PB}px`,
+              fontSize: 25,
+              fontWeight: 600,
+              lineHeight: `${TITLE_LINE}px`,
+              letterSpacing: -0.3,
+              whiteSpace: `nowrap`,
+              overflow: `hidden`,
+              textOverflow: `ellipsis`,
+            }}
+          >
+            {issue.title}
+          </div>
+          <div
+            style={{
+              flex: `none`,
+              display: `flex`,
+              alignItems: `center`,
+              gap: 4,
+              paddingTop: TITLE_PT - 2,
+              paddingRight: DETAIL_GUTTER,
+              color: C.muted,
+            }}
+          >
+            {showToggle ? (
+              <div
+                style={{
+                  position: `relative`,
+                  height: 36,
+                  boxSizing: `border-box`,
+                  display: `flex`,
+                  alignItems: `center`,
+                  padding: 3,
+                  borderRadius: 999,
+                  border: `1px solid ${C.strokeSection}`,
+                  backgroundColor: C.fillSection,
+                  scale: String(0.9 + 0.1 * Math.min(1, togglePop)),
+                  opacity: Math.min(1, togglePop * 1.5),
+                }}
+              >
+                {/* the active capsule slides Issue → Run */}
+                <span
+                  style={{
+                    position: `absolute`,
+                    top: 3,
+                    bottom: 3,
+                    left: 3 + faceT * FACE_ISSUE_W,
+                    width: FACE_ISSUE_W + (FACE_RUN_W - FACE_ISSUE_W) * faceT,
+                    boxSizing: `border-box`,
+                    borderRadius: 999,
+                    border: `1px solid ${C.strokeActive}`,
+                    backgroundColor: C.fillActive,
+                  }}
+                />
+                {faceItem(`Issue`, FACE_ISSUE_W, faceT < 0.5)}
+                {faceItem(`Run`, FACE_RUN_W, faceT >= 0.5)}
+                {showDiff && diff ? (
+                  <span
+                    style={{
+                      display: `flex`,
+                      overflow: `hidden`,
+                      width: faceDiffW(diff.add, diff.del) * Math.min(1, diffPop),
+                    }}
+                  >
+                    {faceItem(
+                      <span style={{ display: `flex`, gap: 4, fontFamily: MONO_FONT, fontSize: 13 }}>
+                        <span style={{ color: C.diffAdd }}>{`+${diff.add}`}</span>
+                        <span style={{ color: C.destructive }}>{`-${diff.del}`}</span>
+                      </span>,
+                      faceDiffW(diff.add, diff.del),
+                      false
+                    )}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            <span style={{ width: 30, height: 30, display: `flex`, alignItems: `center`, justifyContent: `center` }}>
+              <IcPin size={15} />
+            </span>
+            <span style={{ width: 30, height: 30, display: `flex`, alignItems: `center`, justifyContent: `center` }}>
+              <IcEllipsis size={16} />
+            </span>
+          </div>
+        </div>
+
+        {/* row 2: the properties tray + the ONE coding action */}
+        <div style={{ padding: `0 ${DETAIL_GUTTER}px` }}>
+          <div
+            style={{
+              height: TRAY_H,
+              boxSizing: `border-box`,
+              display: `flex`,
+              alignItems: `center`,
+              flexWrap: `nowrap`,
+              overflow: `hidden`,
+              gap: 6,
+              padding: `8px 12px`,
+              borderRadius: 12,
+              border: `1px solid ${C.strokeCard}`,
+              backgroundColor: C.fillSection,
+            }}
+          >
+            <Prop Icon={st.Icon} color={st.color}>
+              {st.label}
+            </Prop>
+            <Prop Icon={pr.Icon} color={pr.color}>
+              {pr.label}
+            </Prop>
+            <Prop Icon={IcCircleUser}>{issue.assigneeName ?? `Unassigned`}</Prop>
+            {issue.label ? (
+              <Prop Icon={IcTag}>
+                {issue.label.name.charAt(0).toUpperCase() +
+                  issue.label.name.slice(1)}
+              </Prop>
+            ) : null}
+            {issue.due ? <Prop Icon={IcCalendarDays}>{issue.due}</Prop> : null}
+            <Prop Icon={IcCode} color={issue.projectColor ?? `#818cf8`}>
+              {issue.project ?? IDENTITY.project}
+            </Prop>
+            {issue.origin ? (
+              <Prop Icon={IcMessageSquare}>{issue.origin}</Prop>
+            ) : null}
+            <span style={{ flex: 1, minWidth: 4 }} />
+            {codingActive ? (
+              <div
+                style={{
+                  height: 26,
+                  flex: `none`,
+                  boxSizing: `border-box`,
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: 5,
+                  padding: `0 10px`,
+                  borderRadius: 999,
+                  border: `1px solid ${C.strokeCard}`,
+                  backgroundColor: C.fillCard,
+                  color: C.destructive,
+                  fontSize: 13,
+                  whiteSpace: `nowrap`,
+                }}
+              >
+                <IcCircleX size={13} />
+                Stop
+              </div>
+            ) : (
+              <div
+                style={{
+                  height: 26,
+                  flex: `none`,
+                  boxSizing: `border-box`,
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: 6,
+                  padding: `0 12px`,
+                  borderRadius: 999,
+                  backgroundColor: PRIMARY_BG,
+                  color: PRIMARY_FG,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  whiteSpace: `nowrap`,
+                }}
+              >
+                <IcPlay size={12} sw={1.8} />
+                Start coding
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── The pane ──────────────────────────────────────────────────────────────────
 export type IssueDetailPaneProps = {
   frame: number
-  /** Springs the coding-now banner in; Start coding → Stop while active. */
+  /** My run is live: the header's Start coding → Stop. */
   codingNow?: { at: number; out?: number }
+  /** Render the BODY only — the caller draws the fixed WorkHeader itself
+   * (a tab flipping faces keeps ONE header while the body swaps). */
+  bodyOnly?: boolean
   /** Whole pane slides in from the right 46px + fades over 20f. */
   slideInAt?: number
   /** Properties STATUS value (board truth changes over the film). */
@@ -377,6 +660,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
   issue = HERO_ISSUE,
   width = DEFAULT_W,
   height = DEFAULT_H,
+  bodyOnly = false,
 }) => {
   const slide =
     slideInAt === undefined
@@ -396,25 +680,13 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
           )}px 0px`,
         }
 
-  // Coding-now banner + Start coding → Stop swap.
-  const pillPop = popIn(frame, codingNow?.at)
-  const pillOut =
-    codingNow?.out === undefined
-      ? 1
-      : interpolate(frame, [codingNow.out, codingNow.out + 8], [1, 0], CLAMP)
-  const bannerT = Math.min(1, pillPop) * pillOut
-  const codingActive =
-    codingNow !== undefined &&
-    frame >= codingNow.at &&
-    (codingNow.out === undefined || frame < codingNow.out + 4)
-
-  const st = STATUS_META[status]
-  const pr = PRIO_META[priority]
-  const colW = Math.min(MAX_COL, width - 2 * PAD_X)
-  const col: React.CSSProperties = { marginLeft: PAD_X, width: colW }
+  // The body shares the header's centred work column (EXP-877); PROSE_W
+  // caps the running text so it never runs under the phone the clips float
+  // over the window's right edge.
+  const colLeft = (width - Math.min(WORK_COLUMN_W, width)) / 2 + DETAIL_GUTTER
   const prose: React.CSSProperties = {
-    marginLeft: PAD_X,
-    width: Math.min(PROSE_W, colW),
+    marginLeft: colLeft,
+    width: Math.min(PROSE_W, width - 2 * colLeft),
   }
 
   return (
@@ -432,166 +704,22 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
         translate: slide.translate,
       }}
     >
-      <div style={{ ...col, paddingTop: 4 }}>
-        {/* issue_header::top_row — EXP-760 folded Copy link and Delete into
-            ONE round "…" menu, right-aligned, and the pager went with them. */}
-        <div
-          style={{
-            height: 20,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            color: C.muted,
-          }}
-        >
-          <div
-            style={{
-              width: 20,
-              height: 20,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 999,
-              border: `1px solid ${C.strokeCard}`,
-              backgroundColor: C.fillCard,
-            }}
-          >
-            <IcEllipsis size={13} />
-          </div>
-        </div>
-
-        {/* title */}
-        <div
-          style={{
-            marginTop: 16,
-            height: 32,
-            fontSize: 25,
-            fontWeight: 700,
-            letterSpacing: -0.3,
-            lineHeight: "32px",
-          }}
-        >
-          {issue.title}
-        </div>
-
-        {/* the properties pill bar */}
-        <div
-          style={{
-            marginTop: 10,
-            minHeight: 40,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            // EXP-601: the chips WRAP inside the tray (`flex_wrap` over a
-            // definite width) rather than pushing the launcher off the edge.
-            flexWrap: "wrap",
-            columnGap: 5,
-            rowGap: 8,
-            padding: "6px 7px 6px 14px",
-            borderRadius: 12,
-            border: `1px solid ${C.strokeCard}`,
-          }}
-        >
-          <Prop Icon={st.Icon} color={st.color}>
-            {st.label}
-          </Prop>
-          <Prop Icon={pr.Icon} color={pr.color}>
-            {pr.label}
-          </Prop>
-          <Prop Icon={IcCircleUser}>{issue.assigneeName ?? "Unassigned"}</Prop>
-          {issue.label ? (
-            <Prop Icon={IcTag}>
-              {issue.label.name.charAt(0).toUpperCase() +
-                issue.label.name.slice(1)}
-            </Prop>
-          ) : null}
-          {issue.due ? <Prop Icon={IcCalendarDays}>{issue.due}</Prop> : null}
-          <Prop Icon={IcCode} color={issue.projectColor ?? "#818cf8"}>
-            {issue.project ?? IDENTITY.project}
-          </Prop>
-          {/* EXP-496 origin chip — a widget-filed issue always carries it
-              (issue_header.rs `origin_chip`), right after the Board chip. */}
-          {issue.origin ? (
-            <Prop Icon={IcMessageSquare}>{issue.origin}</Prop>
-          ) : null}
-          {/* EXP-601: the action floats on the tray's right edge (`ml_auto`),
-              keeping its distance from the chips even after they wrap. */}
-          <div
-            style={{
-              marginLeft: "auto",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-          {/* EXP-698 / coding_flow.rs: a LOCAL run turns the launcher into a
-              content-sized status dot + label beside Stop — and suppresses the
-              synced coding-now card, which would only double it. */}
-          {codingActive ? (
-            <div
-              style={{
-                flex: "none",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                color: C.muted,
-                opacity: bannerT,
-                whiteSpace: "nowrap",
-              }}
-            >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  flex: "none",
-                  borderRadius: 999,
-                  backgroundColor: C.green,
-                }}
-              />
-              Coding…
-            </div>
-          ) : null}
-          <div
-            style={{
-              height: 26,
-              flex: "none",
-              boxSizing: "border-box",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "0 14px",
-              borderRadius: 999,
-              backgroundColor: codingActive ? C.fillCard : PRIMARY_BG,
-              border: codingActive ? `1px solid ${C.strokeCard}` : undefined,
-              color: codingActive ? C.text : PRIMARY_FG,
-              fontSize: 13.5,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {codingActive ? (
-              <>
-                <IcCircleX size={13} style={{ color: C.destructive }} />
-                Stop
-              </>
-            ) : (
-              <>
-                <IcPlay size={12} sw={1.8} />
-                Start coding
-              </>
-            )}
-          </div>
-          </div>
-        </div>
-
-      </div>
+      {bodyOnly ? null : (
+        <WorkHeader
+          frame={frame}
+          issue={issue}
+          status={status}
+          priority={priority}
+          width={width}
+          codingNow={codingNow}
+        />
+      )}
 
       {/* description + the emoji / image / attach affordances */}
       <div style={prose}>
         <div
           style={{
-            marginTop: 14,
+            marginTop: 16,
             display: "flex",
             flexDirection: "column",
             gap: 12,

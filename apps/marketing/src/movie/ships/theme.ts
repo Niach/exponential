@@ -121,21 +121,27 @@ export const R = {
   sheet: 24,
 } as const
 
-// Desktop window metrics (window-local px) — the POST-EXP-253/282/723 shell:
-// no top bar (tabs are glass chips in the 34px decoration band), ONE
-// always-open labelled rail (208, sidebar.rs RAIL_W) sitting bare on the
-// ground, and the working surface as EXP-723's CUTOUT PANEL: a rounded card
-// inset 6px under the band and 10px on the other three sides (shell.rs
-// PANEL_MARGIN / PANEL_MARGIN_TOP) holding the issue-list tool window (520),
-// the center. The detail pane has no properties
-// sidebar since EXP-471 — its properties are the pill bar under the title
-// (shots/issue-detail/desktop.webp).
+// Desktop window metrics (window-local px) — the POST-EXP-870/877 shell:
+// no top bar (tabs are glass chips in the 44px work-tabs band,
+// app_title_bar.rs WORK_TABS_BAND_H), a LEFT COLUMN that owns the window's
+// left edge (shell.rs) and the working surface as EXP-723's CUTOUT PANEL (a
+// rounded card flush under the band — PANEL_MARGIN_TOP 0 since EXP-877 —
+// and 10px in from the other three sides). Beside an open detail the left
+// column is the rail FOLDED to its 48px icon column (COMPACT_RAIL_WIDTH)
+// plus the 272px ListNav (LEFT_COLUMN_WIDTH) the detail was picked from,
+// under the column's fixed header (team switcher · Search · New issue). The
+// panel holds the ONE main view — the retired 520px issue-list tool window
+// lived inside it until EXP-851.
 const WIN_W = 1568
 const WIN_H = 980
-const TITLE_BAR = 34
-const RAIL_W = 208
+const TITLE_BAR = 44
+const LEFT_STRIP = 34 // the traffic-light strip atop the left column
+const LEFT_HEADER = 40 // render_left_column_header, h40
+const RAIL_W = 48
+const LIST_NAV_W = 272
+const LEFT_COLUMN = RAIL_W + LIST_NAV_W
 const PANEL_MARGIN = 10
-const PANEL_MARGIN_TOP = 6
+const PANEL_MARGIN_TOP = 0
 export const WIN = {
   w: WIN_W,
   h: WIN_H,
@@ -143,16 +149,19 @@ export const WIN = {
   y: 50,
   radius: 10,
   titleBar: TITLE_BAR,
-  rail: RAIL_W,
-  sidebar: 520, // issue-list tool window (sidebar.rs DEFAULT_DOCK_WIDTH)
-  row: 28, // board row height
+  leftStrip: LEFT_STRIP,
+  leftHeader: LEFT_HEADER,
+  rail: RAIL_W, // the compact icon rail
+  listNav: LIST_NAV_W, // the ListNav beside it
+  leftColumn: LEFT_COLUMN,
+  row: 28, // list row height
   // The cutout panel rect, window-local. `right`/`bottom` are the panel's
   // far edges, so a surface pinned inside it uses `WIN.w - WIN.panel.right`
   // as its CSS `right` inset.
   panel: {
-    x: RAIL_W + PANEL_MARGIN,
+    x: LEFT_COLUMN + PANEL_MARGIN,
     y: TITLE_BAR + PANEL_MARGIN_TOP,
-    w: WIN_W - RAIL_W - 2 * PANEL_MARGIN,
+    w: WIN_W - LEFT_COLUMN - 2 * PANEL_MARGIN,
     h: WIN_H - TITLE_BAR - PANEL_MARGIN_TOP - PANEL_MARGIN,
     right: WIN_W - PANEL_MARGIN,
     bottom: WIN_H - PANEL_MARGIN,

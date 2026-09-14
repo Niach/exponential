@@ -1,44 +1,35 @@
-/* ─── Full-page web issue detail ───
-   Mirrors apps/web issue-detail-view.tsx after EXP-568/723/736/741:
-   breadcrumb bar with the position switcher / copy-link / delete actions
-   (the Subscribe toggle is gone since EXP-723), then ONE centered max-w-3xl
-   reading column — big title, the properties GLASS CARD (no sidebar rail any
-   more), the "Coding now" glass row, the markdown
-   description with the editor's insert rail, and the activity timeline
-   (issue-timeline.tsx + comment-rows/*) whose comment cards end in the
-   "Leave a reply…" row. */
+/* ─── The work view: one tab, three faces (EXP-870/877) ───
+   Mirrors apps/web issue-detail-view.tsx + sessions/$sessionId.tsx: the ONE
+   work header (WorkHeader.tsx — title, Issue | Run | +N -M toggle, pin, "…",
+   properties tray) fixed above the face. The issue face is the markdown
+   description with the editor's insert rail, "Add sub-issues", and the
+   activity timeline (issue-timeline.tsx + comment-rows/*) whose comment
+   cards end in the "Leave a reply…" row. The breadcrumb bar and the
+   "Coding now" row are gone: the tabs strip and the tray's Stop replaced
+   them. */
 import { useState } from "react"
 import {
   getIssue,
-  ISSUES,
   ISSUE_ACTIVITY,
   ISSUE_BODY,
-  PRIORITY_LABEL,
-  STATUS_LABEL,
   type ActivityItem,
-  type Issue,
   type IssueStatus,
 } from "../ide/data"
 import { useWeb } from "./state"
-import { StatusGlyph, PriorityGlyph, WebAvatar } from "./bits"
-import { AGENT_SESSIONS, WEB_BOARD, WEB_USER } from "./data"
+import { StatusGlyph, WebAvatar } from "./bits"
+import { sessionFor, WEB_USER } from "./data"
+import { WebWorkHeader } from "./WorkHeader"
+import { WebDiffFace, WebRunFace } from "./RunFace"
 import {
   ICON_3,
   ICON_35,
   ICON_4,
-  IcCalendar,
-  IcChevDown,
-  IcChevRight,
-  IcChevUp,
-  IcCode,
-  IcDevices,
   IcHash,
   IcImage,
   IcPaperclip,
-  IcEllipsis,
+  IcPlus,
   IcSmile,
   IcSubmit,
-  IcTag,
 } from "./icons"
 
 function Description({ issueId }: { issueId: string }) {
@@ -144,54 +135,8 @@ function ActivityRow({ item }: { item: ActivityItem }) {
   )
 }
 
-/* The properties card (issue-properties-panel.tsx): ghost `size=xs` pills in
-   a rounded-xl glass card at the top of the reading column. */
-function PropsCard({ issue }: { issue: Issue }) {
-  return (
-    <div className="web-propsband">
-      <div className="web-propscard">
-        <button className="web-prop is-click" type="button">
-          <StatusGlyph status={issue.status} size={ICON_3} />
-          {STATUS_LABEL[issue.status]}
-        </button>
-        <button className="web-prop is-click" type="button">
-          <PriorityGlyph priority={issue.priority} size={ICON_3} />
-          {PRIORITY_LABEL[issue.priority]}
-        </button>
-        <button className="web-prop is-click" type="button">
-          <WebAvatar person={issue.assignee} size={ICON_4} />
-          {issue.assignee ? issue.assignee.name : `Unassigned`}
-        </button>
-        <button className="web-prop is-click" type="button">
-          <IcTag size={ICON_3} />
-          {issue.labels?.length ? (
-            issue.labels.map((l) => (
-              <span key={l.name} className="web-prop-labels">
-                <span className="web-label-dot" style={{ background: l.color }} />
-                {l.name}
-              </span>
-            ))
-          ) : (
-            <span>Label</span>
-          )}
-        </button>
-        <button className="web-prop is-click" type="button">
-          <IcCalendar size={ICON_3} />
-          {issue.due ?? `Due date`}
-        </button>
-        <span className="web-boardchip">
-          <IcCode size={ICON_35} style={{ color: WEB_BOARD.color }} />
-          {WEB_BOARD.name}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-export function WebIssueDetail({ issueId }: { issueId: string }) {
-  const { interactive, closeIssue } = useWeb()
-  const issue = getIssue(issueId)
-  const session = AGENT_SESSIONS.find((s) => s.issueId === issue.id)
+function IssueFace({ issueId }: { issueId: string }) {
+  const { interactive } = useWeb()
   const [draft, setDraft] = useState(``)
   const [extra, setExtra] = useState<ActivityItem[]>([])
 
@@ -211,145 +156,108 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
     setDraft(``)
   }
 
-  const activity = ISSUE_ACTIVITY[issue.id] ?? []
-  const index = Math.max(0, ISSUES.findIndex((i) => i.id === issue.id)) + 1
+  const activity = ISSUE_ACTIVITY[issueId] ?? []
 
   return (
-    <div className="web-page">
-      <div className="web-crumbs">
-        <button
-          className={`web-crumb-board${interactive ? ` is-click` : ``}`}
-          type="button"
-          onClick={interactive ? closeIssue : undefined}
-        >
-          <IcCode size={ICON_35} style={{ color: WEB_BOARD.color }} />
-          <span className="web-crumb-boardname">{WEB_BOARD.name}</span>
-        </button>
-        <IcChevRight size={ICON_3} className="web-crumb-sep" />
-        <span className="web-crumb-id">{issue.id}</span>
-        <IcChevRight size={ICON_3} className="web-crumb-sep" />
-        <span className="web-crumb-title">{issue.title}</span>
-        <div className="web-crumb-actions">
-          <span className="web-position">
-            {index} / {ISSUES.length}
-          </span>
-          <button className="web-icbtn is-click" type="button" title="Previous issue">
-            <IcChevUp size={ICON_4} />
-          </button>
-          <button className="web-icbtn is-click" type="button" title="Next issue">
-            <IcChevDown size={ICON_4} />
-          </button>
-          <span className="web-vrule" />
-          {/* EXP-760: Copy link and Delete fold into ONE round "…" menu
-              (issue-actions-menu.tsx), which also offers Add relation. */}
-          <button className="web-icbtn is-glass is-round is-click" type="button" title="Actions">
-            <IcEllipsis size={ICON_4} />
-          </button>
+    <div className="web-detail-scroll">
+      <div className="web-workcol">
+        <div className="web-editor">
+          <Description issueId={issueId} />
+          <div className="web-editrail">
+            <span className="web-editrail-btn">
+              <IcSmile size={ICON_4} />
+            </span>
+            <span className="web-editrail-btn">
+              <IcImage size={ICON_4} />
+            </span>
+            <span className="web-editrail-btn">
+              <IcPaperclip size={ICON_4} />
+            </span>
+          </div>
         </div>
-      </div>
 
-      <div className="web-detail-scroll">
-        <div className="web-col">
-          <div className="web-issue-title">{issue.title}</div>
-          <PropsCard issue={issue} />
+        {/* sub-issue-composer.tsx: the ghost "Add sub-issues" row. */}
+        <button className="web-subissues is-click" type="button">
+          <IcPlus size={ICON_35} />
+          Add sub-issues
+        </button>
 
-          {session && (
-            <div className="web-codingstack">
-              <div className="web-glassrow">
-                <span className="web-codingbadge">
-                  <span className="web-codingdot" />
-                  Coding now
-                </span>
-                <span className="web-codingwho">
-                  {`${WEB_USER.name} · ${session.device}`}
-                </span>
-                {/* Pill mode="action" primary — the accent fill for the one
-                    call to action in the row; the glyph is `nav-devices`
-                    (issue-coding-rows.tsx), never a raw eye. */}
-                <button
-                  className="web-outlinebtn is-primary is-click"
-                  type="button"
-                >
-                  <IcDevices size={ICON_3} />
-                  Watch
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="web-editor">
-            <Description issueId={issue.id} />
-            <div className="web-editrail">
-              <span className="web-editrail-btn">
-                <IcSmile size={ICON_4} />
-              </span>
+        <div className="web-timeline">
+          <div className="web-timeline-head">{`Activity (${activity.length + extra.length + 1})`}</div>
+          <EventRow actor={WEB_USER.name} text="created the issue" time="3 days ago" />
+          {activity.map((item, i) => (
+            <ActivityRow key={i} item={item} />
+          ))}
+          {extra.map((item, i) => (
+            <ActivityRow key={`x${i}`} item={item} />
+          ))}
+          {/* comment-composer.tsx: a rounded-xl card whose footer row
+              carries the insert affordances and the send button. */}
+          <div className="web-composer">
+            <textarea
+              className="web-composer-input"
+              placeholder="Leave a comment…"
+              rows={2}
+              value={draft}
+              readOnly={!interactive}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={
+                interactive
+                  ? (e) => {
+                      if (e.key === `Enter` && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault()
+                        submit()
+                      }
+                    }
+                  : undefined
+              }
+            />
+            <div className="web-composer-foot">
               <span className="web-editrail-btn">
                 <IcImage size={ICON_4} />
               </span>
               <span className="web-editrail-btn">
                 <IcPaperclip size={ICON_4} />
               </span>
-            </div>
-          </div>
-
-          <div className="web-timeline">
-            <div className="web-timeline-head">{`Activity (${activity.length + extra.length})`}</div>
-            <EventRow actor={WEB_USER.name} text="created the issue" time="3 days ago" />
-            {activity.map((item, i) => (
-              <ActivityRow key={i} item={item} />
-            ))}
-            {extra.map((item, i) => (
-              <ActivityRow key={`x${i}`} item={item} />
-            ))}
-            {/* comment-composer.tsx: a rounded-2xl muted card whose footer
-                row carries the insert affordances and the send button. */}
-            <div className="web-composer">
-              <textarea
-                className="web-composer-input"
-                placeholder="Leave a reply…"
-                rows={2}
-                value={draft}
-                readOnly={!interactive}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={
-                  interactive
-                    ? (e) => {
-                        if (e.key === `Enter` && (e.metaKey || e.ctrlKey)) {
-                          e.preventDefault()
-                          submit()
-                        }
-                      }
-                    : undefined
-                }
-              />
-              <div className="web-composer-foot">
-                <span className="web-editrail-btn">
-                  <IcImage size={ICON_4} />
-                </span>
-                <span className="web-editrail-btn">
-                  <IcPaperclip size={ICON_4} />
-                </span>
-                <span className="web-editrail-btn">
-                  <IcHash size={ICON_4} />
-                </span>
-                <span className="web-editrail-btn">
-                  <IcSmile size={ICON_4} />
-                </span>
-                <button
-                  className={`web-send${interactive && draft.trim() ? ` is-click` : ``}`}
-                  type="button"
-                  disabled={!draft.trim()}
-                  onClick={interactive ? submit : undefined}
-                  title="Send comment"
-                  aria-label="Send comment"
-                >
-                  <IcSubmit size={27.75} />
-                </button>
-              </div>
+              <span className="web-editrail-btn">
+                <IcHash size={ICON_4} />
+              </span>
+              <span className="web-editrail-btn">
+                <IcSmile size={ICON_4} />
+              </span>
+              <button
+                className={`web-send${interactive && draft.trim() ? ` is-click` : ``}`}
+                type="button"
+                disabled={!draft.trim()}
+                onClick={interactive ? submit : undefined}
+                title="Send comment"
+                aria-label="Send comment"
+              >
+                <IcSubmit size={27.75} />
+              </button>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+export function WebIssueDetail({ issueId }: { issueId: string }) {
+  const { face: picked } = useWeb()
+  const issue = getIssue(issueId)
+  /* A face the issue has no run for is hidden, never shown empty. */
+  const face = sessionFor(issue.id) ? picked : `issue`
+  return (
+    <div className="web-page">
+      <WebWorkHeader issue={issue} />
+      {face === `run` ? (
+        <WebRunFace issueId={issue.id} />
+      ) : face === `diff` ? (
+        <WebDiffFace issueId={issue.id} />
+      ) : (
+        <IssueFace issueId={issue.id} />
+      )}
     </div>
   )
 }

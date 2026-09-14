@@ -12,14 +12,11 @@ import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
 import { C, EASE, PAGE_FONT, WIN } from "../../ships/theme"
 import { ExpLogo, WindowChassis } from "../../ships/rig"
+import { BoardTool } from "../../ships/surfaces/board"
 import {
-  BoardActions,
-  BoardTool,
-  SidebarPane,
-} from "../../ships/surfaces/board"
-import {
+  CompactRail,
   CutoutPanel,
-  ExpandedRail,
+  ListNav,
   TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
@@ -116,27 +113,28 @@ const MacScreenFrozen: React.FC = () => {
     >
       <WindowChassis>
         <TitleBar frame={FROZEN} tabs={[TAB_151]} activeId="exp151" />
-        <ExpandedRail
+        <CompactRail
           frame={FROZEN}
           active="board"
           boardName={CL.project}
           userName={CL.user}
           userInitial={CL.initials}
         />
+        <ListNav title={CL.project}>
+          <BoardTool
+            frame={FROZEN}
+            rows={CL_BOARD}
+            overrides={{
+              [NEW_ISSUE_ID]: { status: "done" },
+              [REMOTE_DRAG_ID]: { status: "in_progress" },
+              [LIVE_EDIT_ID]: { assignee: "JL" },
+            }}
+            selectedId={NEW_ISSUE_ID}
+            prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
+            density="nav"
+          />
+        </ListNav>
         <CutoutPanel>
-          <SidebarPane actions={<BoardActions />}>
-            <BoardTool
-              frame={FROZEN}
-              rows={CL_BOARD}
-              overrides={{
-                [NEW_ISSUE_ID]: { status: "done" },
-                [REMOTE_DRAG_ID]: { status: "in_progress" },
-                [LIVE_EDIT_ID]: { assignee: "JL" },
-              }}
-              selectedId={NEW_ISSUE_ID}
-              prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
-            />
-          </SidebarPane>
           <div
             style={{
               position: "absolute",

@@ -56,16 +56,163 @@ export const WEB_USER = {
 
 export const WEB_DEVICE = `Danny's MacBook Pro`
 
-/* Live coding sessions — the agent dock strip along the bottom of the main
-   pane, and the Agents nav count. */
-export type AgentSession = { issueId: string; device: string }
+/* ─── Coding runs (EXP-870/874/877) ───
+   Every live run of mine owns a WORK TAB, grouped by agent in the strip
+   above the card; the Agent nav entry counts them. A run is the Run face of
+   its issue's tab. */
+export type DemoAgent = `claude` | `codex`
+
+export type RunState = `working` | `review`
+
+export type AgentSession = {
+  id: string
+  issueId: string
+  agent: DemoAgent
+  device: string
+  state: RunState
+  /* The Run face's `+N -M` diff label. */
+  additions: number
+  deletions: number
+  /* The composer footer: model word + the context ring's percent. */
+  model: string
+  contextPercent: number
+  started: string
+}
+
+export const AGENT_LABEL: Record<DemoAgent, string> = {
+  claude: `Claude Code`,
+  codex: `Codex`,
+}
 
 export const AGENT_SESSIONS: AgentSession[] = [
-  { issueId: `EXP-8`, device: WEB_DEVICE },
-  { issueId: `EXP-11`, device: WEB_DEVICE },
+  {
+    id: `run-8`,
+    issueId: `EXP-8`,
+    agent: `claude`,
+    device: WEB_DEVICE,
+    state: `working`,
+    additions: 24,
+    deletions: 6,
+    model: `Fable`,
+    contextPercent: 38,
+    started: `started 12 min ago`,
+  },
+  {
+    id: `run-11`,
+    issueId: `EXP-11`,
+    agent: `codex`,
+    device: WEB_DEVICE,
+    state: `review`,
+    additions: 82,
+    deletions: 14,
+    model: `GPT-5.5`,
+    contextPercent: 61,
+    started: `started 2 hours ago`,
+  },
 ]
 
 export const AGENTS_RUNNING = AGENT_SESSIONS.length
+
+export const sessionFor = (issueId: string): AgentSession | undefined =>
+  AGENT_SESSIONS.find((s) => s.issueId === issueId)
+
+/* The Agent page's folded "Past" list (EXP-862: folded by default). */
+export const PAST_RUNS: { identifier: string | null; title: string; byline: string }[] = [
+  { identifier: `EXP-5`, title: `Side-by-side diff view`, byline: `${WEB_DEVICE} · yesterday` },
+  { identifier: null, title: `Weekly standup digest`, byline: `${WEB_DEVICE} · 3 days ago` },
+]
+
+/* Launch suggestions above the Agent page composer (action-suggestions.ts). */
+export const AGENT_SUGGESTIONS = [`Fix #`, `Review #`, `Find duplicate issues and link them`]
+
+/* ─── The Run face transcript (agent-session.tsx rows) ───
+   Narration = the agent's prose; `group` = a collapsed run of tool calls
+   wearing the contract toolGroupSummary caption; `edit` = one settled edit
+   row; `question` = the answerable AskUserQuestion card. Owned here rather
+   than borrowed from ide/data so the web recreation stands on its own. */
+export type RunRow =
+  | { kind: `narration`; text: string }
+  | { kind: `group`; caption: string; detail?: string }
+  | { kind: `edit`; path: string; detail: string }
+  | { kind: `user`; text: string }
+  | { kind: `question`; text: string; options: { title: string; sub: string }[] }
+
+export const RUN_FEED: Record<string, RunRow[]> = {
+  [`EXP-8`]: [
+    {
+      kind: `narration`,
+      text: `On it. I'll find where the viewer loses the stream first: a stale feed after a relay drop is usually a socket nobody re-opens.`,
+    },
+    { kind: `group`, caption: `Read 3 files · searched 2 times` },
+    {
+      kind: `narration`,
+      text: `Confirmed: the viewer opens its socket once and never re-dials. On close it should back off, reconnect and replay from the last acked seq.`,
+    },
+    {
+      kind: `edit`,
+      path: `apps/web/src/lib/steer-session-store.ts`,
+      detail: `reconnect with backoff`,
+    },
+    { kind: `group`, caption: `Ran 2 commands · edited 1 file` },
+    {
+      kind: `narration`,
+      text: `Killing the relay mid-run now recovers in under 2s and the feed resumes where it stopped. Typecheck and the steering tests are clean.`,
+    },
+    {
+      kind: `question`,
+      text: `The backoff caps at 15s. Keep that, or make the cap a team setting?`,
+      options: [
+        { title: `Keep the 15s cap`, sub: `One less setting, and it matches the relay's own backoff` },
+        { title: `Make it a team setting`, sub: `A settings row and a migration on top of this PR` },
+      ],
+    },
+  ],
+  [`EXP-11`]: [
+    {
+      kind: `narration`,
+      text: `Adding j/k and arrow-key navigation to the board list, with Enter opening the focused issue.`,
+    },
+    { kind: `group`, caption: `Read 4 files · edited 3 files` },
+    { kind: `edit`, path: `apps/web/src/components/issue-list.tsx`, detail: `roving focus` },
+    { kind: `group`, caption: `Ran 3 commands` },
+    {
+      kind: `narration`,
+      text: `Tests pass. Pushed exp/EXP-11 and opened PR #214, ready for review.`,
+    },
+  ],
+}
+
+/* ─── The diff face (session-diff-face.tsx) ─── */
+export type DiffLine = { old: number | null; new: number | null; kind: `ctx` | `add` | `del`; text: string }
+
+export type DiffFile = { path: string; additions: number; deletions: number; hunk?: string; lines?: DiffLine[] }
+
+export const RUN_DIFF: DiffFile[] = [
+  {
+    path: `apps/web/src/lib/steer-session-store.ts`,
+    additions: 18,
+    deletions: 4,
+    hunk: `@@ -88,9 +88,23 @@ export function createSteerSessionStore(`,
+    lines: [
+      { old: 88, new: 88, kind: `ctx`, text: `  const connect = () => {` },
+      { old: 89, new: 89, kind: `ctx`, text: `    const ws = new WebSocket(ticketUrl(sessionId))` },
+      { old: 90, new: null, kind: `del`, text: `    ws.onclose = () => setPhase({ kind: \`ended\` })` },
+      { old: null, new: 90, kind: `add`, text: `    ws.onclose = () => {` },
+      { old: null, new: 91, kind: `add`, text: `      if (closed) return` },
+      { old: null, new: 92, kind: `add`, text: `      const delay = Math.min(15_000, 500 * 2 ** attempt++)` },
+      { old: null, new: 93, kind: `add`, text: `      retry = setTimeout(connect, delay)` },
+      { old: null, new: 94, kind: `add`, text: `    }` },
+      { old: 91, new: 95, kind: `ctx`, text: `    ws.onopen = () => {` },
+      { old: 92, new: null, kind: `del`, text: `      ws.send(hello())` },
+      { old: null, new: 96, kind: `add`, text: `      attempt = 0` },
+      { old: null, new: 97, kind: `add`, text: `      ws.send(hello({ resumeFrom: lastAckedSeq }))` },
+      { old: 93, new: 98, kind: `ctx`, text: `    }` },
+      { old: 94, new: 99, kind: `ctx`, text: `    socket = ws` },
+    ],
+  },
+  { path: `apps/web/src/lib/steer-session-store.test.ts`, additions: 5, deletions: 0 },
+  { path: `apps/steer-relay/src/room.ts`, additions: 1, deletions: 2 },
+]
 
 /* ─── Support (helpdesk) threads — server-only tables in the real app,
    so the demo carries its own conversation fixtures. Mirrors the real

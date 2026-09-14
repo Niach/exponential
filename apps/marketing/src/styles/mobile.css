@@ -368,6 +368,10 @@ button.mob-backbtn {
 }
 
 .mob-fab {
+  position: relative;
+  padding: 0;
+  border: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -646,17 +650,53 @@ button.mob-backbtn {
   color: var(--st-progress);
 }
 
-/* Live steer viewer — "Live · <device>" centered, stop square trailing */
+/* A live run's compact header — dot + id + title over the status line,
+   the Stop / "…" capsule trailing (EXP-877). */
 .mob-steer-title {
   flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.mob-steer-line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.mob-steer-name {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mob-steer-caps {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px 0 4px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  flex: none;
 }
 
 .mob-steer-device {
-  font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg-muted);
 }
@@ -665,12 +705,83 @@ button.mob-backbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+  flex: none;
+}
+
+/* Agent page: the composer card, filled group bands, circle buttons. */
+.mob-agentcard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 12px 16px 0;
+  padding: 12px 12px 8px 14px;
+  border-radius: 18px;
+  background: var(--bg-elev);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  flex: none;
+}
+
+.mob-agentcard-field {
+  font-size: 14px;
+  color: var(--fg-dim);
+}
+
+.mob-agentcard-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--fg-muted);
+}
+
+.mob-agentcard-send {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--fg-dim);
+}
+
+.mob-band {
+  display: flex;
+  align-items: center;
+  margin: 12px 16px 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.mob-band-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+
+.mob-circlebtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   background: var(--bg-elev);
-  color: var(--pr-high);
+  color: var(--fg);
   flex: none;
+}
+
+.mob-agent-meta.is-amber {
+  color: var(--st-progress);
+}
+
+.mob-agent-meta.is-green {
+  color: var(--st-review);
 }
 
 /* Chat-style scrubbed activity feed — narration bubbles + tool rows */
@@ -798,6 +909,7 @@ button.mob-backbtn {
   font-size: 13.5px;
 }
 
+/* The round `ui-submit` glyph — a circled arrow, so no fill of its own. */
 .mob-composer-send {
   display: inline-flex;
   align-items: center;
@@ -805,8 +917,7 @@ button.mob-backbtn {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background: #e5e5e5;
-  color: var(--bg-elev);
+  color: var(--fg-muted);
   flex: none;
 }
 
@@ -917,10 +1028,9 @@ button.mob-backbtn {
 
 /* ─── Agent page (mag-*) — the iOS recreation (EXP-825/845) ───
    The ONE launcher: the pushed "Agent" detail with `AgentComposerCard`
-   (ExpUI `GlassComposer`: subject chips · field · tool row with the LABELLED
-   primary submit pill), `AgentOptionsRow`'s glass pills under it and the
-   caller's sessions below. It replaced the three-tab Start-coding sheet this
-   block used to recreate.
+   (ExpUI `GlassComposer`: subject chips · field · tool row with the round
+   submit glyph, EXP-827), `AgentOptionsRow`'s glass pills under it and the
+   caller's runs below as filled bands over flat rows (EXP-818/874).
 
    EVERY length here is an iOS POINT: `.mag-screen` is the phone's own 414pt-
    wide canvas and `.mag-phone` scales the whole thing down with ONE
@@ -963,19 +1073,33 @@ button.mob-backbtn {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── The pushed detail's inline nav bar (no tab bar on a detail) ── */
+/* ── The pushed detail's nav bar: round glass back, centred title ── */
 .mag-nav {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 44px;
-  padding: 0 12px;
+  justify-content: center;
+  height: 60px;
+  padding: 0 18.5px;
   flex: none;
 }
 
 .mag-back {
+  position: absolute;
+  left: 18.5px;
+  top: 10px;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.059);
+  border: 1px solid rgba(255, 255, 255, 0.102);
   color: #fff;
+}
+
+.mag-back svg {
   transform: rotate(180deg);
 }
 
@@ -1056,23 +1180,22 @@ button.mob-backbtn {
   flex: 1;
 }
 
-/* GlassPill, primary: #e5e5e5 fill with #171717 content (DesignTokens). */
+/* GlassComposerSubmitButton: the round `ui-submit` glyph (a circled arrow,
+   so no fill of its own), primary-tinted while there is something to send. */
 .mag-submit {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 34px;
   height: 34px;
-  padding: 0 14px;
   border-radius: 999px;
-  background: #e5e5e5;
-  color: #171717;
-  font-size: 15px;
-  font-weight: 500;
-  white-space: nowrap;
+  color: #e5e5e5;
 }
 
 /* ── AgentOptionsRow: one horizontally scrolling line of glass pills ── */
 .mag-options {
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1082,6 +1205,7 @@ button.mob-backbtn {
 }
 
 .mag-pill {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1121,50 +1245,103 @@ button.mob-backbtn {
   background: #171717;
 }
 
-/* ── The caller's sessions under the options row ── */
-.mag-sectionlabel {
-  margin: 20px 18.5px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.66);
+/* ── The caller's runs: GlassSectionBand over flat rows (EXP-818/874) ── */
+.mag-mark {
+  display: flex;
+}
+
+.mag-band {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  margin: 22px 18.5px 0;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.039);
+  font-size: 17px;
   flex: none;
 }
 
-.mag-card.is-list {
-  margin-top: 8.5px;
-  overflow: hidden;
+.mag-band.is-fold {
+  margin-top: 12px;
 }
 
+.mag-band-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mag-band-count .mag-pillchev {
+  transform: rotate(90deg);
+}
+
+/* RunningSessionRow: 12/12 padding, the text column then 44pt circles. */
 .mag-srow {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 56px;
-  padding: 0 18.5px;
-}
-
-.mag-srow + .mag-srow {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 0 18.5px;
+  padding: 14px 14px;
+  flex: none;
 }
 
 .mag-srow-main {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
   flex: 1;
   min-width: 0;
 }
 
+.mag-srow-line1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mag-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #22c55e;
+  flex: none;
+}
+
 .mag-srow-title {
-  font-size: 15px;
+  font-size: 17px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .mag-srow-caption {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mag-srow-state {
+  color: #22c55e;
+}
+
+.mag-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.059);
+  border: 1px solid rgba(255, 255, 255, 0.102);
+  color: #fff;
+  flex: none;
 }
 
 .mag-glyph {

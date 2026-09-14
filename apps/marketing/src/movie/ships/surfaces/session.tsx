@@ -1,38 +1,35 @@
-// surfaces/session.tsx — SessionScreen: a coding run as the desktop shows it
-// since EXP-746/773/791. What replaced the bottom terminal dock this file's
-// predecessor drew: a run is a FULL-WIDTH screen (or, from an issue, the
-// transcript sliding in over the issue's body), and what streams in it is the
+// surfaces/session.tsx — SessionScreen: the RUN face of a top tab, as the
+// desktop shows it since EXP-746/773/791/877. What streams in it is the
 // agent's own narration and its tool calls over ACP — never a PTY.
 //
-// Anatomy (session_screen.rs render_header / steer_viewer.rs feed /
-// session_extras::changes_bar):
-//   · header: status dot · mono identifier · subject · the phase caption
-//     naming the machine · the Kill-session glyph
-//   · the transcript in its reading column (design-tokens `transcript`:
-//     736 measure, 48 gutters, prose 14/22, tool rows 12/18) — a sparkle
-//     glyph before prose, a wrench before a tool row, your own steer as a
-//     right-aligned message
-//   · the collapsed "Latest changes" bar
-//   · ONE composer: free text answers every card, and there is no mid-session
-//     model/effort/plan control beside it (EXP-790)
+// Anatomy (steer_viewer.rs feed + render_composer / render_composer_footer):
+//   · the fixed WORK HEADER is the caller's (detail.tsx WorkHeader): one
+//     header across the Issue and Run faces, its toggle carrying the run's
+//     `+N -M` diff item — the bottom "Latest changes" band is GONE (EXP-877)
+//   · the transcript in the work column (896px, ×1.09 here) — a sparkle glyph before
+//     prose, a wrench before a tool row, your own steer as a right-aligned
+//     message
+//   · ONE composer, one row: the field and the round Send/Stop button (no
+//     tools in the card), over a FOOTER that carries the attach `+` on the
+//     left and the model pin + the context RING on the right; a pane-wide
+//     hairline sits above it
 //
 // Window-local px, like the other ships surfaces: the 1568-wide window is
 // 1.09× the captured 1440 desktop, so the app's rems carry that step
-// (text_sm 12.25 → 13.5, text_xs 10.5 → 11.5, the 736 measure → 800).
+// (text_sm 12.25 → 13.5, text_xs 10.5 → 11.5).
 
 import React from "react"
-import { interpolate, spring } from "remotion"
-import { C, EASE, MONO_FONT, POP, R, UI_FONT } from "../theme"
+import { interpolate } from "remotion"
+import { C, EASE, MONO_FONT, R, UI_FONT } from "../theme"
 import type { SessionEvent } from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const CLAMP_EASE = { ...CLAMP, easing: EASE } as const
 
-const HEADER_H = 38
-const CHANGES_H = 28
-const COMPOSER_H = 44
-const MEASURE = 800
-const GUTTER = 52
+const COMPOSER_H = 46
+const FOOTER_H = 30
+const MEASURE = 976 // work_header WORK_COLUMN_W 896 at the 1.09 step
+const GUTTER = 16
 const TEXT_BODY = 15
 const LINE_BODY = 24
 const TEXT_TOOL = 13
@@ -59,8 +56,8 @@ const Svg: React.FC<IconProps & { children: React.ReactNode }> = ({
   </svg>
 )
 
-// coding-assistant = sparkles, coding-tool = wrench, coding-stop = circle-x,
-// ui-submit = circle-arrow-up, ui-file = file (packages/icons/icons.json).
+// coding-assistant = sparkles, coding-tool = wrench, ui-stop = circle-stop,
+// ui-add = plus (packages/icons/icons.json).
 const SparklesIcon: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
@@ -75,24 +72,6 @@ const CircleStopIcon: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="10" />
     <rect x="9" y="9" width="6" height="6" rx="1" />
-  </Svg>
-)
-const CircleArrowUpIcon: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m16 12-4-4-4 4" />
-    <path d="M12 16V8" />
-  </Svg>
-)
-const FileIcon: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-  </Svg>
-)
-const ChevronRightIcon: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="m9 18 6-6-6-6" />
   </Svg>
 )
 const PlusIcon: React.FC<IconProps> = (p) => (
@@ -239,40 +218,55 @@ const FeedRow: React.FC<{
   )
 }
 
+// usage_sheet::context_ring — a 16px progress circle, the glass foreground
+// at 30% while the window is comfortable (usage_bar severity_color).
+const ContextRing: React.FC<{ percent: number }> = ({ percent }) => {
+  const r = 6.5
+  const c = 2 * Math.PI * r
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" style={{ display: "block" }}>
+      <circle cx="8" cy="8" r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth={2} />
+      <circle
+        cx="8"
+        cy="8"
+        r={r}
+        fill="none"
+        stroke="rgba(250,250,250,0.30)"
+        strokeWidth={2}
+        strokeDasharray={`${(c * percent) / 100} ${c}`}
+        transform="rotate(-90 8 8)"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 export type SessionScreenProps = {
   frame: number
   width: number
   height: number
-  /** Mono identifier in the header (an issue run names its issue). */
-  identifier?: string
-  subject: string
-  /** The phase caption — "Working · <machine>", "Needs your input · …". */
-  caption: string
-  /** The header dot's tone; amber while the run waits on you. */
-  tone?: string
   events: SessionEvent[]
   /** Global frame each event lands on (same length as `events`). */
   schedule: readonly number[]
   /** Global frame the composer pulses on — a steer landing from elsewhere. */
   inputGlow?: number
-  /** The changes bar's counts; omitted until the run has edited something. */
-  changes?: { add: number; del: number; at: number }
   composerPlaceholder?: string
+  /** The footer's model pin (`config_state.options[model]`). */
+  model?: string
+  /** The context window's fill, 0–100. */
+  contextPercent?: number
 }
 
 export const SessionScreen: React.FC<SessionScreenProps> = ({
   frame,
   width,
   height,
-  identifier,
-  subject,
-  caption,
-  tone = C.green,
   events,
   schedule,
   inputGlow,
-  changes,
-  composerPlaceholder = "Message the agent… (/ for commands)",
+  composerPlaceholder = "Type / for commands",
+  model = "Opus",
+  contextPercent = 34,
 }) => {
   const shown = events
     .map((event, i) => ({ event, at: schedule[i] ?? 0 }))
@@ -281,10 +275,6 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({
     inputGlow === undefined
       ? 0
       : interpolate(frame, [inputGlow, inputGlow + 6, inputGlow + 22], [0, 1, 0], CLAMP)
-  const changesIn =
-    changes === undefined
-      ? 0
-      : spring({ frame: frame - changes.at, fps: 30, config: POP })
 
   return (
     <div
@@ -299,71 +289,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({
         color: C.text,
       }}
     >
-      {/* render_header */}
-      <div
-        style={{
-          flex: "none",
-          height: HEADER_H,
-          boxSizing: "border-box",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "0 12px",
-          borderBottom: `1px solid ${C.strokeRow}`,
-        }}
-      >
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            flex: "none",
-            borderRadius: 999,
-            backgroundColor: tone,
-          }}
-        />
-        {identifier ? (
-          <span
-            style={{
-              flex: "none",
-              fontFamily: MONO_FONT,
-              fontSize: 11.5,
-              color: C.muted,
-            }}
-          >
-            {identifier}
-          </span>
-        ) : null}
-        <span
-          style={{
-            flex: "none",
-            maxWidth: 380,
-            fontSize: 13.5,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {subject}
-        </span>
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 11.5,
-            color: C.muted,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {caption}
-        </span>
-        <span style={{ flex: "none", color: C.muted, display: "flex" }}>
-          <CircleStopIcon size={13} />
-        </span>
-      </div>
-
-      {/* the transcript in its reading column */}
+      {/* the transcript in the work column */}
       <div
         style={{
           flex: 1,
@@ -377,7 +303,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({
         <div
           style={{
             width: "100%",
-            maxWidth: MEASURE,
+            maxWidth: MEASURE - 2 * GUTTER,
             display: "flex",
             flexDirection: "column",
           }}
@@ -388,64 +314,72 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({
         </div>
       </div>
 
-      {/* session_extras::changes_bar — collapsed, over the composer */}
-      {changes && changesIn > 0 ? (
-        <div
-          style={{
-            flex: "none",
-            height: CHANGES_H,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "0 12px",
-            borderTop: `1px solid ${C.strokeRow}`,
-            fontSize: TEXT_TOOL,
-            opacity: changesIn,
-          }}
-        >
-          <span style={{ color: C.dim, display: "flex", flex: "none" }}>
-            <ChevronRightIcon size={12} />
-          </span>
-          <span style={{ color: "rgba(161,161,161,0.6)", display: "flex", flex: "none" }}>
-            <FileIcon size={12} />
-          </span>
-          <span style={{ flex: 1, color: C.muted }}>Latest changes</span>
-          <span style={{ fontFamily: MONO_FONT, color: C.diffAdd }}>
-            {`+${changes.add}`}
-          </span>
-          <span style={{ fontFamily: MONO_FONT, color: C.diffDel }}>
-            {`−${changes.del}`}
-          </span>
-        </div>
-      ) : null}
-
-      {/* the ONE composer */}
+      {/* the composer band: a pane-wide hairline, the card + its footer in
+          the work column */}
       <div
         style={{
           flex: "none",
-          height: COMPOSER_H,
-          boxSizing: "border-box",
+          borderTop: `1px solid ${C.strokeRow}`,
+          padding: `10px ${GUTTER}px 8px`,
           display: "flex",
-          alignItems: "center",
-          gap: 8,
-          margin: "8px 12px 12px",
-          padding: "0 12px",
-          borderRadius: R.section,
-          border: `1px solid ${glow > 0 ? C.strokeActive : C.strokeCard}`,
-          backgroundColor: glow > 0 ? C.fillActive : C.fillRow,
-          boxShadow: glow > 0 ? `0 0 0 ${2 * glow}px rgba(255,255,255,0.08)` : "none",
+          justifyContent: "center",
         }}
       >
-        <span style={{ flex: 1, minWidth: 0, fontSize: TEXT_BODY, color: C.muted }}>
-          {composerPlaceholder}
-        </span>
-        <span style={{ flex: "none", color: C.muted, display: "flex" }}>
-          <PlusIcon size={13} />
-        </span>
-        <span style={{ flex: "none", color: C.primary, display: "flex" }}>
-          <CircleArrowUpIcon size={17} />
-        </span>
+        <div style={{ width: "100%", maxWidth: MEASURE - 2 * GUTTER }}>
+          <div
+            style={{
+              height: COMPOSER_H,
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "0 7px 0 14px",
+              borderRadius: 16,
+              border: `1px solid ${glow > 0 ? C.strokeActive : C.strokeCard}`,
+              backgroundColor: glow > 0 ? C.fillActive : C.fillCard,
+              boxShadow: glow > 0 ? `0 0 0 ${2 * glow}px rgba(255,255,255,0.08)` : "none",
+            }}
+          >
+            <span style={{ flex: 1, minWidth: 0, fontSize: TEXT_BODY, color: C.muted }}>
+              {composerPlaceholder}
+            </span>
+            {/* the ONE round button — Stop while the agent works */}
+            <span
+              style={{
+                width: 32,
+                height: 32,
+                flex: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: C.text,
+              }}
+            >
+              <CircleStopIcon size={20} />
+            </span>
+          </div>
+          {/* render_composer_footer: attach · · · model · context ring */}
+          <div
+            style={{
+              height: FOOTER_H,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 4px 0",
+              color: C.muted,
+              fontSize: 12,
+            }}
+          >
+            <span style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <PlusIcon size={14} />
+            </span>
+            <span style={{ flex: 1 }} />
+            <span style={{ padding: "0 6px" }}>{model}</span>
+            <span style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <ContextRing percent={contextPercent} />
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   )

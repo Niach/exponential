@@ -1,4 +1,8 @@
-/* ─── Left sidebar panel — switches by active rail tool ─── */
+/* ─── The list surfaces (sidebar.rs ListPanel, EXP-851/870): a board or the
+   Inbox renders EITHER as the full-width main view (the list screen a rail
+   entry opens) or as the ListNav beside an open issue — a back row over the
+   simplified list, the open issue highlighted. Reviews is a full-page
+   screen. ─── */
 import { useState } from "react"
 import {
   INBOX_ITEMS,
@@ -8,11 +12,13 @@ import {
   type InboxType,
 } from "./data"
 import { useIde } from "./state"
-import { BoardPanel, IssueRow } from "./Board"
+import { BoardPanel, GROUPS, IssueRow } from "./Board"
 import { FilesPanel } from "./Files"
 import { ScPanel } from "./SourceControl"
 import { ACTIVE_BOARD } from "./Rail"
+import { StatusIcon } from "./bits"
 import {
+  IcChevLeft,
   IcCircleDot,
   IcCircleUser,
   IcGitMerge,
@@ -39,7 +45,7 @@ const inboxIcon: Record<InboxType, IdeIcon> = {
    "Mark all read" rides the strip's trailing edge as an ICON-ONLY ghost
    button (NOTIFICATION_MARK_READ = list-checks) and only while something is
    unread. */
-function InboxPanel() {
+export function InboxScreen() {
   const { interactive, inboxRead, markInboxRead, markAllInboxRead, openIssue } = useIde()
   const [tab, setTab] = useState<`inbox` | `my-issues`>(`inbox`)
   const unreadLeft = INBOX_ITEMS.some((n) => n.unread && !inboxRead.has(n.id))
@@ -95,7 +101,7 @@ function InboxPanel() {
                   interactive
                     ? () => {
                         markInboxRead(n.id)
-                        openIssue(n.issueId)
+                        openIssue(n.issueId, true)
                       }
                     : undefined
                 }
@@ -226,10 +232,57 @@ export function SidebarPanel() {
       ) : tool === `source-control` ? (
         <ScPanel />
       ) : tool === `inbox` ? (
-        <InboxPanel />
+        <InboxScreen />
       ) : (
         <BoardPanel />
       )}
+    </div>
+  )
+}
+
+/* The ListNav (EXP-851/870): the settings nav's back row, labelled with the
+   list the issue came from, over plain rows — status glyph, identifier,
+   title. The back row hops one layer out: the list becomes the main view
+   and the rail unfolds. */
+export function ListNav() {
+  const { tool, active, interactive, closeListNav, openIssue, collapsedGroups } = useIde()
+  const label = tool === `inbox` ? `Inbox` : ACTIVE_BOARD.name
+  const openId = active?.startsWith(`issue:`) ? active.slice(`issue:`.length) : null
+  const ids =
+    tool === `inbox`
+      ? Array.from(new Set(INBOX_ITEMS.map((n) => n.issueId)))
+      : GROUPS.flatMap((g) =>
+          collapsedGroups.has(g.status)
+            ? []
+            : ISSUES.filter((i) => i.status === g.status).map((i) => i.id),
+        )
+  return (
+    <div className="ide-listnav">
+      <button
+        className={`ide-listnav-back${interactive ? ` is-click` : ``}`}
+        type="button"
+        onClick={interactive ? closeListNav : undefined}
+      >
+        <IcChevLeft size={14} />
+        <span>{label}</span>
+      </button>
+      <div className="ide-listnav-rows">
+        {ids.map((id) => {
+          const issue = ISSUES.find((i) => i.id === id)
+          if (!issue) return null
+          return (
+            <div
+              key={id}
+              className={`ide-listnav-row${id === openId ? ` is-open` : ``}${interactive ? ` is-click` : ``}`}
+              onClick={interactive ? () => openIssue(id, true) : undefined}
+            >
+              <StatusIcon status={issue.status} size={12} />
+              <span className="ide-listnav-id">{issue.id}</span>
+              <span className="ide-listnav-title">{issue.title}</span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

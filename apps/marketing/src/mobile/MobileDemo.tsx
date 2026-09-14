@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
-import { Wifi } from "lucide-react"
+import { CircleArrowUp, CircleX, FileText, MessageCircle, Wifi } from "lucide-react"
 import {
   IcBot,
   IcChev,
   IcChevDown,
   IcChevLeft,
   IcChevSwap,
+  IcChevUp,
   IcCircle,
-  IcCompose,
   IcGitMerge,
   IcGitPr,
+  IcHash,
   IcInbox,
-  IcInfo,
   IcLifeBuoy,
   IcListFilter,
   IcListTodo,
@@ -21,25 +21,21 @@ import {
   IcMinus,
   IcMonitor,
   IcMore,
-  IcSearch,
-  IcSend,
+  IcPlay,
+  IcPlus,
   IcSettings,
   IcSignalHigh,
   IcSignalMedium,
   IcSparkles,
-  IcSquare,
   IcUserPlus,
   IcWrench,
 } from "../components/icons"
 import {
   mobAgents,
   mobAssigned,
-  mobDesktops,
   mobDetailIssue,
   mobInboxItems,
   mobProjects,
-  mobSearchQuery,
-  mobSearchResults,
   mobSteerDiff,
   mobSteerFeed,
   type MobAgentState,
@@ -207,12 +203,13 @@ const Avatar = ({
 )
 
 /* ─── Tabs / tour plumbing ───
-   The native MobileTabBar order: Issues · My Work · Support · Agents ·
-   Reviews · Search (icon-only) + the detached compose FAB; Support and
-   Reviews render for fidelity but stay inert — the demo keeps only the
-   tabs that carry a full recreation. `steer` is the Agents sub-screen. */
+   The native MobileTabBar order: Issues · Inbox · Support · Devices ·
+   Actions · Reviews (icon-only) + the detached Agent circle (EXP-818/825);
+   Support, Devices, Actions and Reviews render for fidelity but stay inert —
+   the demo keeps only the tabs that carry a full recreation. `steer` is a
+   run pushed from the Agent page. */
 
-type MobTab = `issues` | `mywork` | `agents` | `steer` | `search`
+type MobTab = `issues` | `mywork` | `agents` | `steer`
 
 const TOUR: { tab: MobTab }[] = [
   { tab: `issues` },
@@ -241,7 +238,7 @@ const IssueRow = ({ issue }: { issue: MobIssue }) => (
   </div>
 )
 
-/* ─── Bottom dock (6 icon-only tabs + compose FAB) ─── */
+/* ─── Bottom dock (6 icon-only tabs + the Agent circle) ─── */
 
 const DockBtn = ({
   active,
@@ -296,35 +293,40 @@ const BottomBar = ({
         active={tab === `mywork`}
         onClick={() => onTab(`mywork`)}
         dot={inboxUnread ? `unread` : undefined}
-        label={`My Work`}
+        label={`Inbox`}
       >
         <IcInbox size={18} />
       </DockBtn>
       <DockBtn active={false} onClick={() => {}} label={`Support`}>
         <IcLifeBuoy size={18} />
       </DockBtn>
-      <DockBtn
-        active={tab === `agents` || tab === `steer`}
-        onClick={() => onTab(`agents`)}
-        dot={`green`}
-        label={`Agents`}
-      >
+      <DockBtn active={false} onClick={() => {}} label={`Devices`}>
+        <IcMonitor size={18} />
+      </DockBtn>
+      <DockBtn active={false} onClick={() => {}} label={`Actions`}>
         <IcBot size={18} />
       </DockBtn>
-      <DockBtn active={false} onClick={() => {}} label={`Reviews`}>
+      <DockBtn
+        active={false}
+        onClick={() => {}}
+        dot={`green`}
+        label={`Reviews`}
+      >
         <IcGitPr size={18} />
       </DockBtn>
-      <DockBtn
-        active={tab === `search`}
-        onClick={() => onTab(`search`)}
-        label={`Search`}
-      >
-        <IcSearch size={18} />
-      </DockBtn>
     </div>
-    <div className={`mob-fab`}>
-      <IcCompose size={20} />
-    </div>
+    <button
+      type={`button`}
+      className={
+        tab === `agents` || tab === `steer` ? `mob-fab is-active` : `mob-fab`
+      }
+      onClick={() => onTab(`agents`)}
+      tabIndex={-1}
+      aria-label={`Agent`}
+    >
+      <MessageCircle size={21} strokeWidth={1.8} />
+      <span className={`mob-dock-dot mob-dock-dot-green`} />
+    </button>
   </div>
 )
 
@@ -385,101 +387,81 @@ const IssuesScreen = ({
   )
 }
 
-/* ─── Search tab — cross-project search + assigned-to-you block ─── */
+/* ─── Agent page — the ONE launcher (EXP-825): the composer card (field,
+   `#` / ▶ / `+` tools, the round submit glyph), then the caller's runs as
+   filled bands over flat rows — the EXP-874 unified RunningSessionRow: state
+   dot, identifier + title, the status line (`Needs input · <device>` in
+   amber, `<device> · started 5m ago` muted), circular trailing buttons. ─── */
 
-const SearchScreen = () => (
-  <>
-    <h2 className={`mob-title`}>Search</h2>
-    <div className={`mob-search mob-search-live`}>
-      <IcSearch size={16} />
-      <span className={`mob-search-query`}>{mobSearchQuery}</span>
-      <span className={`mob-caret`} />
-    </div>
-    <div className={`mob-list mob-list-scrollpad`}>
-      <div className={`mob-section-head`}>Exponential</div>
-      {mobSearchResults.map((issue) => (
-        <IssueRow key={issue.identifier} issue={issue} />
-      ))}
-      <div className={`mob-section-head`}>Assigned to you</div>
-      {mobAssigned.map((issue) => (
-        <IssueRow key={issue.identifier} issue={issue} />
-      ))}
-    </div>
-  </>
-)
-
-/* ─── Agents tab — online desktops (remote Start coding) + running
-   sessions with their coding-session state lines ─── */
-
-const AGENT_STATE: Record<
-  MobAgentState,
-  { label: string; tone: `green` | `amber` }
-> = {
-  live: { label: `Live`, tone: `green` },
-  needs_input: { label: `Needs input`, tone: `amber` },
-  ready: { label: `Ready for review`, tone: `green` },
+const AGENT_STATE: Record<MobAgentState, { line: (d: string) => string; tone: `muted` | `green` | `amber` }> = {
+  live: { line: (d) => `${d} · started 5 min. ago`, tone: `muted` },
+  needs_input: { line: (d) => `Needs input · ${d}`, tone: `amber` },
+  ready: { line: (d) => `Ready for review · ${d}`, tone: `green` },
 }
 
 const AgentsScreen = ({ onOpenSteer }: { onOpenSteer: () => void }) => (
   <>
-    <h2 className={`mob-title is-center`}>Agents</h2>
+    <h2 className={`mob-title is-center`}>Agent</h2>
+    <div className={`mob-agentcard`}>
+      <span className={`mob-agentcard-field`}>Ask the agent…</span>
+      <span className={`mob-agentcard-tools`}>
+        <IcHash size={16} />
+        <IcPlay size={16} />
+        <IcPlus size={16} />
+        <span className={`mob-agentcard-send`}>
+          <CircleArrowUp size={24} strokeWidth={1.8} />
+        </span>
+      </span>
+    </div>
     <div className={`mob-list mob-list-scrollpad`}>
-      <div className={`mob-section-head`}>My desktops</div>
-      {mobDesktops.map((device) => (
-        <div key={device} className={`mob-row mob-desktop-row`}>
-          <IcMonitor size={15} className={`mob-desktop-icon`} />
-          <span className={`mob-desktop-name`}>{device}</span>
-          <span className={`mob-startpill`}>Start coding</span>
-        </div>
-      ))}
-      <div className={`mob-section-head`}>Running</div>
-      {mobAgents.map((agent, i) => {
+      <div className={`mob-band`}>Running</div>
+      {mobAgents.map((agent) => {
         const state = AGENT_STATE[agent.state]
         return (
           <button
             key={agent.identifier}
             type={`button`}
             className={`mob-row mob-agent-row`}
-            onClick={i === 0 ? onOpenSteer : undefined}
+            onClick={agent.state === `live` ? onOpenSteer : undefined}
             tabIndex={-1}
           >
-            <span
-              className={
-                state.tone === `amber`
-                  ? `mob-agent-dot is-amber`
-                  : `mob-agent-dot`
-              }
-            />
             <span className={`mob-agent-main`}>
               <span className={`mob-agent-line1`}>
-                <span className={`mob-row-id`}>{agent.identifier}</span>
-                <span className={`mob-agent-title`}>{agent.title}</span>
-              </span>
-              <span className={`mob-agent-meta`}>
                 <span
                   className={
                     state.tone === `amber`
-                      ? `mob-agent-state is-amber`
-                      : `mob-agent-state`
+                      ? `mob-agent-dot is-amber`
+                      : `mob-agent-dot`
                   }
-                >
-                  {state.label}
-                </span>
-                {` ${agent.device}`}
+                />
+                <span className={`mob-row-id`}>{agent.identifier}</span>
+                <span className={`mob-agent-title`}>{agent.title}</span>
+              </span>
+              <span className={`mob-agent-meta is-${state.tone}`}>
+                {state.line(agent.device)}
               </span>
             </span>
-            <IcInfo size={15} className={`mob-row-chev`} />
+            <span className={`mob-circlebtn`}>
+              <FileText size={15} strokeWidth={1.8} />
+            </span>
           </button>
         )
       })}
+      <div className={`mob-band`}>
+        Past
+        <span className={`mob-band-count`}>
+          2 <IcChevDown size={12} />
+        </span>
+      </div>
     </div>
   </>
 )
 
-/* ─── Live steer viewer — the native AgentSessionView: "Live · <device>"
-   header (no issue title up there), sparkles narration WITHOUT bubbles,
-   wrench tool rows, pinned "Latest changes" chip, message composer.
-   No terminal rendering on mobile or web. ─── */
+/* ─── A live run (AgentSessionView, phone) — the compact header: back, the
+   state dot + identifier + title over the status line, and a capsule with
+   the red Stop and "…" (EXP-877); sparkles narration WITHOUT bubbles, wrench
+   tool rows, the floating "Changes +N −M" bar and the one-row steer
+   composer. No terminal rendering on mobile or web. ─── */
 
 const SteerScreen = ({ onBack }: { onBack: () => void }) => (
   <>
@@ -494,11 +476,18 @@ const SteerScreen = ({ onBack }: { onBack: () => void }) => (
         <IcChevLeft size={19} stroke={2.2} />
       </button>
       <span className={`mob-steer-title`}>
-        <span className={`mob-agent-dot`} />
-        <span className={`mob-steer-device`}>Live · dennis-mbp.local</span>
+        <span className={`mob-steer-line1`}>
+          <span className={`mob-agent-dot`} />
+          <span className={`mob-row-id`}>EXP-12</span>
+          <span className={`mob-steer-name`}>Attachment paste uploads</span>
+        </span>
+        <span className={`mob-steer-device`}>dennis-mbp.local · started 5 min. ago</span>
       </span>
-      <span className={`mob-stopbtn`}>
-        <IcSquare size={14} />
+      <span className={`mob-steer-caps`}>
+        <span className={`mob-stopbtn`} aria-label={`Stop`}>
+          <CircleX size={15} strokeWidth={2} />
+        </span>
+        <IcMore size={16} />
       </span>
     </div>
     <div className={`mob-feed`}>
@@ -516,33 +505,28 @@ const SteerScreen = ({ onBack }: { onBack: () => void }) => (
           </div>
         )
       )}
-      <div className={`mob-feed-typing`}>
-        <span className={`mob-agent-dot`} />
-        Claude is working…
-      </div>
     </div>
     <div className={`mob-steer-input`}>
       <div className={`mob-diffchip`}>
-        <IcGitMerge size={13} />
-        <span className={`mob-diffchip-label`}>Latest changes</span>
+        <FileText size={13} strokeWidth={1.8} />
+        <span className={`mob-diffchip-label`}>Changes</span>
         <span className={`mob-diffchip-stats`}>
-          {`${mobSteerDiff.files} file`}
-          <span className={`mob-diff-add`}>{` +${mobSteerDiff.add}`}</span>
+          <span className={`mob-diff-add`}>{`+${mobSteerDiff.add}`}</span>
           <span className={`mob-diff-del`}>{` −${mobSteerDiff.del}`}</span>
         </span>
-        <IcChev size={14} className={`mob-row-chev`} />
+        <IcChevUp size={13} className={`mob-row-chev`} />
       </div>
       <div className={`mob-steer-fieldrow`}>
-        <span className={`mob-steer-field`}>Message the agent…</span>
+        <span className={`mob-steer-field`}>Type / for commands</span>
         <span className={`mob-composer-send`}>
-          <IcSend size={15} />
+          <CircleArrowUp size={22} strokeWidth={1.8} />
         </span>
       </div>
     </div>
   </>
 )
 
-/* ─── My Work tab — Inbox + My Issues merged (native MobileTabBar) ─── */
+/* ─── Inbox tab — Inbox + My Issues segments (native MobileTabBar) ─── */
 
 const inboxIcon = (type: MobInboxType) => {
   if (type === `pr_opened`) return <IcGitPr size={14} />
@@ -555,7 +539,7 @@ const MyWorkScreen = () => {
   const [seg, setSeg] = useState<`inbox` | `issues`>(`inbox`)
   return (
     <>
-      <h2 className={`mob-title is-center`}>My Work</h2>
+      <h2 className={`mob-title is-center`}>Inbox</h2>
       <div className={`mob-segment`}>
         {(
           [
@@ -670,7 +654,7 @@ const IssueScreen = () => {
   )
 }
 
-/* ─── Interactive app shell (4-tab dock + FAB, tour) ─── */
+/* ─── Interactive app shell (6-tab dock + Agent circle, tour) ─── */
 
 const AppShell = ({
   reduce,
@@ -719,8 +703,6 @@ const AppShell = ({
             projIdx={projIdx}
             cycleProject={() => setProjIdx((i) => (i + 1) % mobProjects.length)}
           />
-        ) : tab === `search` ? (
-          <SearchScreen />
         ) : tab === `agents` ? (
           <AgentsScreen onOpenSteer={() => goto(`steer`)} />
         ) : tab === `steer` ? (

@@ -186,71 +186,29 @@
 }
 /* EXP-760: demoted (a PR is open) Start coding wears the plain glass pill —
    Merge takes the white one. */
-.ide-btn-glass {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  font-size: var(--f-sm);
-  font-weight: 500;
-  white-space: nowrap;
-  flex: none;
-  border: 1px solid var(--g-stroke-row);
-  background: var(--g-fill-row);
-  color: var(--ide-fg);
-}
 /* coding_flow.rs: the local run's status dot + label beside Stop. */
-.ide-codingnow {
-  display: inline-flex;
-  align-items: center;
-  gap: 5.25px;
-  flex: none;
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-  white-space: nowrap;
-}
 
 /* ─────────────────────────── Rail (labelled sidebar) ─────────────────────── */
 
 .ide-rail {
   position: relative;
-  width: 208px; /* sidebar.rs RAIL_W — EXP-723: one width, always open */
+  width: 272px; /* shell.rs LEFT_COLUMN_WIDTH — EXP-870: never leaves */
   flex: none;
   height: 100%;
   display: flex;
   flex-direction: column;
   gap: 3.5px;
   padding: 0 7px 7px;
-  /* EXP-285: the rail is the ONE lighter column; EXP-293 makes it the glass
-     one, so the blurred desktop behind the window bleeds through. */
-  background: rgba(255, 255, 255, 0.058);
+  /* EXP-767: the rail paints nothing — it sits on the one page gradient. */
   color: var(--ide-fg);
   overflow: hidden;
 }
 /* The wallpaper bleed the 0.72 sidebar alpha lets through. */
-.ide-rail::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(140% 30% at 0% 88%, rgba(120, 70, 190, 0.13), transparent 72%),
-    radial-gradient(110% 22% at 25% 72%, rgba(190, 90, 110, 0.07), transparent 72%),
-    radial-gradient(90% 18% at 0% 58%, rgba(90, 70, 190, 0.08), transparent 72%);
-}
+
 .ide-rail > * {
   position: relative;
 }
 
-.ide-rail-strip {
-  height: 34px;
-  flex: none;
-  display: flex;
-  align-items: center;
-}
 .ide-lights {
   display: inline-flex;
   align-items: center;
@@ -545,7 +503,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  margin: 6px 10px 10px;
+  /* EXP-877: flush under the 44px work-tabs band. */
+  margin: 0 10px 10px;
   border: 1px solid var(--g-stroke-card);
   border-radius: 12px;
   background: var(--g-fill-panel);
@@ -553,83 +512,6 @@
 }
 
 /* Titlebar: tab strip + New Issue (app_title_bar.rs, 34px, hairline under). */
-.ide-titlebar {
-  height: 34px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding-left: 12px;
-  padding-right: 8px;
-  /* EXP-723: NO fill and no hairline of its own — the band is bare ground
-     above the panel, which is what makes the panel read as a cutout. */
-}
-.ide-tabstrip {
-  display: flex;
-  align-items: center;
-  gap: 3.5px;
-  min-width: 0;
-  overflow: hidden;
-}
-.ide-tab {
-  height: 26px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 3.5px;
-  padding: 0 7px;
-  border-radius: 10px;
-  font-size: var(--f-sm);
-  color: var(--ide-muted);
-  white-space: nowrap;
-}
-.ide-tab:hover {
-  background: var(--g-fill-row);
-}
-.ide-tab.is-active {
-  background: var(--g-fill-active);
-  color: var(--ide-fg);
-}
-.ide-tab-id {
-  font-family: var(--ide-mono);
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-}
-.ide-tab-title {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ide-tab-tools {
-  display: inline-flex;
-  align-items: center;
-  gap: 1.75px;
-  margin-left: 3.5px;
-}
-.ide-tab-undock {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  visibility: hidden;
-}
-.ide-tab:hover .ide-tab-undock {
-  visibility: visible;
-  color: var(--ide-muted);
-}
-.ide-tab-x {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  color: var(--ide-dim);
-}
-.ide-tab-x.is-click:hover {
-  background: var(--g-fill-row);
-  color: var(--ide-fg);
-}
 
 /* EXP-449: fixed 96px solid button — primary_button (h_6, px_2p5, radius 10). */
 
@@ -671,22 +553,6 @@
   padding: 13px 16px;
   color: var(--ide-muted);
   font-size: var(--f-sm);
-}
-.ide-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-.ide-empty-title {
-  font-size: var(--f-md);
-  font-weight: 500;
-}
-.ide-empty-sub {
-  font-size: var(--f-sm);
-  color: var(--ide-muted);
 }
 
 /* Tool-window head (Files / Source Control / Inbox / Reviews). */
@@ -944,68 +810,31 @@
 /* centered_column: max 768px, mx auto (DETAIL_COLUMN_W). */
 .ide-col {
   width: 100%;
-  max-width: 768px;
+  max-width: 896px;
   margin: 0 auto;
 }
-.ide-issue-header {
-  flex: none;
-  border-bottom: 1px solid var(--g-stroke-row);
-}
-.ide-issue-toprow {
-  height: 26.5px;
-  display: flex;
-  align-items: center;
-  gap: 1.75px;
-  padding: 0 16px;
-}
-.ide-issue-toprow .ide-icbtn {
-  width: 20px;
-  height: 20px;
-}
 /* issue_header::render_actions_menu — the round "…" the top row now is. */
-.ide-roundbtn {
-  width: 22px;
-  height: 22px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-card);
-  color: var(--ide-muted);
-}
-.ide-issue-title {
-  /* Textarea text_2xl / SEMIBOLD / line_height rems(2.) inside the header's
-     pt_3 · pb_1 stack — the tray lands at y=110 in the reference frame. */
-  padding: 13px 16px 10px;
-  font-size: 21px;
-  font-weight: 600;
-  line-height: 26px;
-  letter-spacing: -0.012em;
-}
-.ide-issue-chiprow {
-  padding: 0 16px 10.5px;
-}
 
 /* surface::glass_tray — one wrapping tray, radius 12, white 4% over 10%. */
 .ide-tray {
+  margin: 8px 16px 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3.5px;
-  padding: 3.5px 5.25px;
+  gap: 6px;
+  padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid var(--g-stroke-card);
   background: var(--g-fill-section);
 }
 /* pickers::chip_button — ghost web_xs (h24, px8, capsule). */
 .ide-tchip {
-  height: 24px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   gap: 5.25px;
-  padding: 0 8px;
+  padding: 0 9px;
+  border: 1px solid var(--g-stroke-card);
   border-radius: 999px;
   font-size: var(--f-xs);
   font-weight: 500;
@@ -1018,7 +847,7 @@
   color: var(--ide-muted);
 }
 .ide-tray .ide-chip {
-  height: 24px;
+  height: 26px;
 }
 .ide-tray-action {
   margin-left: auto;
@@ -1030,75 +859,10 @@
 
 /* issue_detail::coding_now_card (EXP-698) — a full-width glass TRAY holding
    the state badge, the identity caption and the Watch action. */
-.ide-issue-agentrow {
-  margin: 0 16px 7px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 5px 5px 5px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--g-stroke-section);
-  background: var(--g-fill-section);
-}
-.ide-nowpill {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5.25px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(34, 197, 94, 0.4);
-  color: #22c55e;
-  font-size: var(--f-xs);
-  white-space: nowrap;
-}
-.ide-nowcaption {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--f-sm);
-  color: var(--ide-muted);
-}
-.ide-nowwatch {
-  flex: none;
-  height: 22px;
-  gap: 5.25px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: var(--f-xs);
-}
 /* issue_header::merge_button — the Sm capsule at the tray's right edge and,
    with a PR open, the header's ONE emphasised (white) pill: merging is what
    the reader came to do, so Start coding stands down to glass beside it
    (EXP-760, `header_action_styles`). */
-.ide-mergepr {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5.25px;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--ide-primary);
-  color: var(--ide-primary-fg);
-  font-size: var(--f-xs);
-}
-.ide-mergepr.is-armed {
-  background: var(--g-fill-card);
-  border: 1px solid rgba(239, 68, 68, 0.5);
-  color: #ef4444;
-}
-.ide-nowdot {
-  width: 5.25px;
-  height: 5.25px;
-  flex: none;
-  border-radius: 999px;
-  background: #22c55e;
-}
 .ide-issue-body {
   flex: 1;
   min-height: 0;
@@ -1831,65 +1595,18 @@
   flex-direction: column;
 }
 /* render_header: px_3 / py_2 over the row hairline. */
-.ide-session-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 10.5px;
-  border-bottom: 1px solid var(--g-stroke-row);
-}
-.ide-session-dot {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 999px;
-  background: #22c55e;
-}
-.ide-session-dot.is-waiting {
-  background: #f59e0b;
-}
-.ide-session-dot.is-ended {
-  background: var(--ide-dim);
-}
-.ide-session-id {
-  flex: none;
-  font-family: var(--ide-mono);
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-}
-.ide-session-subject {
-  flex: none;
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--f-sm);
-}
-.ide-session-caption {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-}
 
-/* The transcript's reading column (EXP-787, design-tokens `transcript`):
-   736px of measure centred in at least 48px of gutter. */
+/* The transcript sits in the shared 896px work column (EXP-877). */
 .ide-feed {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 48px;
+  padding: 16px 0;
 }
 .ide-feed-col {
-  width: 100%;
-  max-width: 736px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
+  padding: 0 16px;
 }
 /* The gap ladder is the space ABOVE a row, chosen from the row before it:
    two prose rows 12, prose meeting a tool row 12, two tool rows 8. */
@@ -1965,6 +1682,8 @@
   font-weight: 500;
 }
 .ide-answeropt {
+  width: 100%;
+  text-align: left;
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -2004,59 +1723,11 @@
 }
 
 /* session_extras::changes_bar — collapsed, over the composer. */
-.ide-changes {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 5.25px;
-  padding: 5.25px 10.5px;
-  border-top: 1px solid var(--g-stroke-row);
-  font-size: 12px;
-}
-.ide-changes-label {
-  flex: 1;
-  min-width: 0;
-  color: var(--ide-muted);
-}
-.ide-changes-add {
-  font-family: var(--ide-mono);
-  color: #22c55e;
-}
-.ide-changes-del {
-  font-family: var(--ide-mono);
-  color: #ef4444;
-}
 
 /* The ONE composer (EXP-790): free text answers every card, so there is no
    in-card input and no mid-session mode control beside it. */
-.ide-steer {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 7px 10.5px 10.5px;
-  padding: 8px 10.5px;
-  border: 1px solid var(--g-stroke-card);
-  border-radius: 12px;
-  background: var(--g-fill-row);
-}
-.ide-steer-placeholder {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  color: var(--ide-muted);
-}
-.ide-steer-tool {
-  flex: none;
-  color: var(--ide-muted);
-}
 /* `ui-submit` is itself a circled arrow — the chrome stays a ghost circle
    and the glyph carries the tint. */
-.ide-steer-send {
-  flex: none;
-  display: inline-flex;
-  color: var(--ide-primary);
-}
 .ide-caret {
   display: inline-block;
   width: 7px;
@@ -2104,14 +1775,16 @@
 .ide-chat {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 24px;
+  overflow-y: auto;
 }
 .ide-chat-col {
   width: 100%;
-  max-width: 660px;
+  max-width: 720px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2203,7 +1876,21 @@
   color: var(--ide-muted);
 }
 .ide-cmp-submit {
+  display: inline-flex;
+  color: var(--ide-primary);
+}
+.ide-cmp-submit:disabled {
+  opacity: 0.4;
+}
+.ide-cmp-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 6px 0 8px;
   border-radius: 999px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
 }
 /* Options row B: pickers as plain muted words with a chevron, nothing boxed. */
 .ide-cmp-options {
@@ -2255,4 +1942,592 @@
 .ide-switch.is-on .ide-switch-knob {
   transform: translateX(12px);
   background: #fff;
+}
+
+/* ─────────────── EXP-870/874/877: shell, tabs, work header, runs ─────────────── */
+
+/* The LEFT COLUMN: the traffic-light strip over the rail (+ the ListNav). */
+.ide-left {
+  flex: none;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ide-rail-strip {
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+}
+.ide-left-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.ide-rail {
+  height: auto;
+  min-height: 0;
+}
+/* The compact rail: 48px of 32px icon squares. */
+.ide-rail.is-compact {
+  width: 48px;
+  padding: 0 8px 8px;
+  align-items: center;
+}
+.ide-rail.is-compact .ide-rail-div {
+  width: 100%;
+}
+.ide-rail.is-compact .ide-rail-gear {
+  width: 32px;
+  height: 28px;
+}
+.ide-railsq {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--ide-fg);
+}
+.ide-railsq.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-railsq.is-active {
+  background: var(--g-fill-active);
+}
+.ide-railsq-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+}
+.ide-railsq-badge .ide-rail-count {
+  min-width: 12px;
+  height: 12px;
+  font-size: 8px;
+}
+.ide-railsq-badge svg {
+  width: 9px;
+  height: 9px;
+}
+/* EXP-870: the Agent entry's live-run COUNT. */
+.ide-rail-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #22c55e;
+  color: #0a0a0a;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* The ListNav: the back row over the simplified list (sidebar.rs). */
+.ide-listnav {
+  width: 272px;
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 7px 7px 4px;
+}
+.ide-listnav-back {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 7px;
+  border-radius: 10px;
+  font-size: var(--f-sm);
+  font-weight: 500;
+  color: var(--ide-fg);
+}
+.ide-listnav-back.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-listnav-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+.ide-listnav-row {
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: var(--f-sm);
+}
+.ide-listnav-row.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-listnav-row.is-open {
+  background: var(--g-fill-active);
+}
+.ide-listnav-id {
+  flex: none;
+  font-family: var(--ide-mono);
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-listnav-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The 44px work-tabs band: bare ground, 32px chips centred (EXP-877). */
+.ide-titlebar {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+}
+.ide-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.ide-tabgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-right: 6px;
+}
+.ide-tabgroup-mark {
+  width: 26px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+.ide-tabgroup-fold {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--ide-muted);
+}
+.ide-tabgroup-fold.is-click:hover {
+  background: var(--g-fill-row);
+  color: var(--ide-fg);
+}
+.ide-tab {
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: var(--f-sm);
+  color: var(--ide-muted);
+  white-space: nowrap;
+}
+.ide-tab:hover {
+  background: var(--g-fill-row);
+}
+/* The glass ACTIVE fill (EXP-877: the panel fill read as unselected). */
+.ide-tab.is-active {
+  background: var(--g-fill-active);
+  border-color: var(--g-stroke-row);
+  color: var(--ide-fg);
+}
+.ide-tab-id {
+  font-family: var(--ide-mono);
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-tab-title {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-tab-x {
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--ide-dim);
+  visibility: hidden;
+}
+.ide-tab:hover .ide-tab-x,
+.ide-tab.is-active .ide-tab-x {
+  visibility: visible;
+}
+.ide-tab-x.is-click:hover {
+  background: var(--g-fill-row);
+  color: var(--ide-fg);
+}
+.ide-rundot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: #22c55e;
+}
+.ide-rundot.is-waiting {
+  background: #f59e0b;
+}
+.ide-rundot.is-ended {
+  background: var(--ide-dim);
+}
+
+/* The ONE work header (work_header.rs): fixed, hairline under it. */
+.ide-workhead {
+  flex: none;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--g-stroke-row);
+}
+.ide-workcol {
+  width: 100%;
+  max-width: 896px;
+  margin: 0 auto;
+}
+.ide-workhead-row {
+  display: flex;
+  align-items: flex-start;
+}
+.ide-worktitle {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 16px 4px;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+.ide-workhead-right {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px 0 0;
+}
+.ide-headicon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--ide-muted);
+}
+/* The `Issue | Run | +N −M` capsule (controls::segmented). */
+.ide-seg {
+  height: 36px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  margin-right: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-row);
+  background: var(--g-fill-section);
+}
+.ide-seg-item {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: var(--f-sm);
+  color: var(--ide-muted);
+  white-space: nowrap;
+}
+.ide-seg-item.is-click:hover {
+  color: var(--ide-fg);
+}
+.ide-seg-item.is-active {
+  background: var(--g-fill-active);
+  color: var(--ide-fg);
+  box-shadow: inset 0 0 0 1px var(--g-stroke-card);
+}
+.ide-seg-diff {
+  display: inline-flex;
+  gap: 5px;
+  font-family: var(--ide-mono);
+  font-size: var(--f-xs);
+}
+/* surface::glass_pill_button (Sm) and its primary twin. */
+.ide-pill {
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
+  color: var(--ide-fg);
+  font-size: var(--f-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ide-pill.is-click:hover {
+  background: var(--g-fill-active);
+}
+.ide-pill.is-primary {
+  border-color: transparent;
+  background: var(--ide-primary);
+  color: var(--ide-primary-fg);
+}
+.ide-pill.is-primary.is-click:hover {
+  background: #fff;
+}
+.ide-pill.is-armed {
+  background: var(--g-fill-card);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
+}
+.ide-pill:disabled {
+  opacity: 0.6;
+}
+
+/* Run face extras: your own messages, the end line, answered cards. */
+.ide-feed-row.is-user {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.ide-feed-user {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
+  font-size: 14px;
+  line-height: 22px;
+}
+.ide-feed-end {
+  margin-top: 16px;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-answercard.is-answered {
+  opacity: 0.7;
+}
+.ide-answeropt.is-click:hover {
+  background: var(--g-fill-active);
+}
+
+/* EXP-877: the one-row steer composer with its inline send, and the
+   footer under it (attach · model · context ring). */
+.ide-steerwrap {
+  flex: none;
+  padding: 8px 0 12px;
+}
+.ide-steer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px;
+  height: 46px;
+  padding: 0 8px 0 16px;
+  border: 1px solid var(--g-stroke-card);
+  border-radius: 16px;
+  background: var(--g-fill-card);
+}
+.ide-steer-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.ide-steer-input::placeholder {
+  color: var(--ide-muted);
+}
+.ide-steer-send {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ide-primary);
+}
+.ide-steer-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 22px 0;
+  color: var(--ide-muted);
+  font-size: var(--f-xs);
+}
+.ide-steer-tool,
+.ide-steer-model,
+.ide-ctxring {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* EXP-877: the Diff face — file cards in the work column. */
+.ide-diffpage {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 0;
+}
+.ide-filecard {
+  margin: 0 16px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-section);
+  overflow: hidden;
+}
+.ide-filecard-head {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-family: var(--ide-mono);
+  font-size: var(--f-sm);
+}
+.ide-filecard-letter {
+  color: #facc15;
+}
+.ide-filecard-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-filecard-body {
+  border-top: 1px solid var(--g-stroke-row);
+}
+.ide-filecard-body .ide-diff-file {
+  display: none;
+}
+
+/* The Agent page's run bands (run_rows.rs, EXP-874). */
+.ide-runbands {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ide-band {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--g-fill-section);
+  font-size: var(--f-sm);
+  font-weight: 500;
+  color: var(--ide-fg);
+}
+.ide-band-count {
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-runrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.ide-runrow.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-runrow-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ide-runrow-line1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.ide-runrow-id {
+  flex: none;
+  font-family: var(--ide-mono);
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-runrow-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-sm);
+  font-weight: 500;
+}
+.ide-runrow-caption,
+.ide-runrow-status {
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-runrow-status.is-amber {
+  color: #f59e0b;
+}
+.ide-runrow-status.is-green {
+  color: #22c55e;
+}
+.ide-circlebtn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
+  color: var(--ide-muted);
+}
+.ide-circlebtn.is-click:hover {
+  background: var(--g-fill-active);
+  color: var(--ide-fg);
+}
+.ide-circlebtn.is-armed {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
 }

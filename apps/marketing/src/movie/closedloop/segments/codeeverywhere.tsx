@@ -4,8 +4,9 @@
 // chip box, the icon-only play circle), the real Agent page pushes in (the
 // chipped issue · the prompt field · Device · Agent · Model — a long dwell,
 // this IS the film's launcher) and on Start the desktop reacts SIMULTANEOUSLY — the
-// run's SESSION slides in over the issue body (EXP-791), a Sessions row
-// appears in the rail, EXP-151 FLIPs Backlog → In Progress. The "Start sent"
+// tab joins the strip's Claude group and the work header grows its
+// Issue | Run toggle (EXP-870/877), the Run face's transcript slides in under
+// that ONE header, EXP-151 FLIPs Backlog → In Progress. The "Start sent"
 // toast confirms, the phone flips to the session screen, mirrors the feed,
 // and a typed steer lands in the transcript as a message. ONE static framing
 // — no camera moves (EXP-388). No local desktop cursor: the hands are on the
@@ -17,7 +18,7 @@
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
-import { PAGE_FONT, WIN } from "../../ships/theme"
+import { C, PAGE_FONT, WIN } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -25,19 +26,19 @@ import {
   shotKeys,
   type CamKey,
 } from "../../ships/rig"
+import { BoardTool } from "../../ships/surfaces/board"
 import {
-  BoardActions,
-  BoardTool,
-  SidebarPane,
-} from "../../ships/surfaces/board"
-import {
+  CompactRail,
   CutoutPanel,
-  ExpandedRail,
+  ListNav,
   TitleBar,
   type ChromeTab,
-  type RailSession,
 } from "../../ships/surfaces/chrome"
-import { IssueDetailPane } from "../../ships/surfaces/detail"
+import {
+  IssueDetailPane,
+  WORK_HEADER_H,
+  WorkHeader,
+} from "../../ships/surfaces/detail"
 import { SessionScreen } from "../../ships/surfaces/session"
 import type { SessionEvent } from "../../ships/fixtures"
 import { StartPhone } from "../surfaces/startphone"
@@ -122,21 +123,15 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
   { at: 108, s: 1.7, x: 334, y: 590 }, // phone session feed + dock band
 ])
 
+// EXP-870/877: an issue and its run are ONE tab — once the run is live the
+// chip moves into the strip's Claude group wearing its liveness dot.
 const TAB_151 = (frame: number): ChromeTab => ({
   id: "exp151",
   identifier: NEW_ISSUE_ID,
   label: CL_ISSUE.title,
   status: frame >= B.simul ? "in_progress" : "backlog",
+  liveDot: frame >= B.simul ? C.green : undefined,
 })
-// EXP-791: the rail is the ONE navigation for coding runs — the started run
-// appears as a Sessions row while it works.
-const RAIL_SESSIONS: RailSession[] = [
-  {
-    identifier: NEW_ISSUE_ID,
-    label: CL_ISSUE.title,
-    popAt: B.simul,
-  },
-]
 
 // Phone placement in COMP coordinates inside the camera layer — over the
 // window's LEFT edge (the board is carried context; the detail pane and its
@@ -197,27 +192,27 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
         <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar frame={frame} tabs={[TAB_151(frame)]} activeId="exp151" />
-            <ExpandedRail
+            <CompactRail
               frame={frame}
               active="board"
+              agentCount={frame >= B.simul ? 1 : 0}
               boardName={CL.project}
-              sessions={frame >= B.simul ? RAIL_SESSIONS : []}
               userName={CL.user}
               userInitial={CL.initials}
             />
+            <ListNav title={CL.project}>
+              <BoardTool
+                frame={frame}
+                rows={CL_BOARD}
+                overrides={overrides}
+                selectedId={NEW_ISSUE_ID}
+                regroup={regroup}
+                density="nav"
+              />
+            </ListNav>
 
-            {/* EXP-723: everything below the band lives in the cutout panel */}
+            {/* EXP-723: the main view lives in the cutout panel */}
             <CutoutPanel>
-              <SidebarPane actions={<BoardActions />}>
-                <BoardTool
-                  frame={frame}
-                  rows={CL_BOARD}
-                  overrides={overrides}
-                  selectedId={NEW_ISSUE_ID}
-                  regroup={regroup}
-                />
-              </SidebarPane>
-
               <div
                 style={{
                   position: "absolute",
@@ -228,44 +223,66 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
                   overflow: "hidden",
                 }}
               >
+                {/* EXP-877: ONE fixed work header across both faces — the
+                    toggle pops in with the run, its capsule slides to Run as
+                    the transcript arrives, and the run's +N -M lands in it */}
+                <WorkHeader
+                  frame={frame}
+                  issue={CL_ISSUE}
+                  status={heroStatus}
+                  priority="none"
+                  width={CENTER_W}
+                  runAt={B.simul}
+                  runFaceAt={B.sessionSlide}
+                  diff={{ add: 27, del: 6, at: B.feed[3] }}
+                  codingNow={{ at: B.simul }}
+                />
                 <div
                   style={{
                     position: "absolute",
-                    inset: 0,
-                    translate: `${-slide * CENTER_W}px 0px`,
+                    left: 0,
+                    right: 0,
+                    top: WORK_HEADER_H,
+                    bottom: 0,
+                    overflow: "hidden",
                   }}
                 >
-                  <IssueDetailPane
-                    frame={frame}
-                    status={heroStatus}
-                    priority="none"
-                    issue={CL_ISSUE}
-                    width={CENTER_W}
-                    height={paneH}
-                  />
-                </div>
-                {slide > 0 ? (
                   <div
                     style={{
                       position: "absolute",
                       inset: 0,
-                      translate: `${(1 - slide) * CENTER_W}px 0px`,
+                      translate: `${-slide * CENTER_W}px 0px`,
                     }}
                   >
-                    <SessionScreen
+                    <IssueDetailPane
                       frame={frame}
+                      status={heroStatus}
+                      priority="none"
+                      issue={CL_ISSUE}
                       width={CENTER_W}
-                      height={paneH}
-                      identifier={NEW_ISSUE_ID}
-                      subject={CL_ISSUE.title}
-                      caption={`Working · ${CL.machine}`}
-                      events={FEED_EVENTS}
-                      schedule={FEED_SCHEDULE}
-                      inputGlow={B.steerGlow}
-                      changes={{ add: 27, del: 6, at: B.feed[3] }}
+                      height={paneH - WORK_HEADER_H}
+                      bodyOnly
                     />
                   </div>
-                ) : null}
+                  {slide > 0 ? (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        translate: `${(1 - slide) * CENTER_W}px 0px`,
+                      }}
+                    >
+                      <SessionScreen
+                        frame={frame}
+                        width={CENTER_W}
+                        height={paneH - WORK_HEADER_H}
+                        events={FEED_EVENTS}
+                        schedule={FEED_SCHEDULE}
+                        inputGlow={B.steerGlow}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </CutoutPanel>
           </WindowChassis>

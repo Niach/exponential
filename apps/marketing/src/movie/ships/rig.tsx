@@ -110,7 +110,7 @@ export const wallpaperBackground = (dx = 0, dy = 0): string =>
 // The desktop window chassis at comp coords — put window-local content inside.
 // EXP-359 glass: an NSVisualEffectView recreation — the wallpaper replica
 // below, then the zinc page gradient painted in TWO region layers at the
-// desktop's alphas (rail column 0.72, content 0.96 — theme lib.rs
+// desktop's alphas (the left column 0.72, content 0.96 — theme lib.rs
 // glass_sidebar_alpha/glass_content_alpha) so the wallpaper genuinely bleeds
 // through, glassier on the left.
 // Stops = theme.ts C.bgTop / C.bgBottom (#0c0c0f / #111114, EXP-723).
@@ -158,7 +158,7 @@ export const WindowChassis: React.FC<{
         top: 0,
         bottom: 0,
         left: 0,
-        width: WIN.rail,
+        width: WIN.leftColumn,
         background: gradientAt(GLASS.railAlpha),
       }}
     />
@@ -167,7 +167,7 @@ export const WindowChassis: React.FC<{
         position: "absolute",
         top: 0,
         bottom: 0,
-        left: WIN.rail,
+        left: WIN.leftColumn,
         right: 0,
         background: gradientAt(GLASS.contentAlpha),
       }}
