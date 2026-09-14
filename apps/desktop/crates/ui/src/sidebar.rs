@@ -1687,21 +1687,18 @@ impl Render for RailView {
         // EXP-878: Drafts — a CONDITIONAL entry directly under Inbox, shown
         // only while this user has drafts in the active team (or is standing
         // on the page itself, so the rail never yanks the row out from under
-        // the screen you are looking at). The count rides as a muted pill:
-        // drafts are a pile to clear, not an alert.
-        let drafts_count = active_team_id(&self.nav, cx)
-            .map(|id| crate::drafts::drafts_in_team(&id, cx).len())
-            .unwrap_or(0);
+        // the screen you are looking at). No badge: number badges are gone
+        // (EXP-880), and drafts are a pile to clear, not an alert.
+        let has_drafts = active_team_id(&self.nav, cx)
+            .is_some_and(|id| !crate::drafts::drafts_in_team(&id, cx).is_empty());
         let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
-        let drafts_entry = (drafts_count > 0 || on_drafts).then(|| {
-            let badge =
-                (drafts_count > 0).then(|| RailBadge::Count(drafts_count, cx.theme().muted_foreground));
+        let drafts_entry = (has_drafts || on_drafts).then(|| {
             self.rail_screen_entry(
                 "rail-drafts",
                 Icon::from(icons::registry::NAV_DRAFTS),
                 "Drafts",
                 Screen::Drafts,
-                badge,
+                None,
                 cx,
             )
         });
