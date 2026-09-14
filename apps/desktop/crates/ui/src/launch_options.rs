@@ -508,9 +508,46 @@ fn inline_switch<V: Render>(
         .into_any_element()
 }
 
+/// EXP-877 — THE choice pin: `trigger` with a checked-item menu of
+/// `choices`, calling `on_pick` with the chosen VALUE. The one place a
+/// (label, value) list becomes a dropdown, so the launch pins and the
+/// transcript composer's model picker read the same and cannot drift apart.
+///
+/// `on_pick` takes the host view because every caller writes somewhere on it
+/// — a `ChoiceSelect` entity here ([`choice_menu`]), a `/model <alias>`
+/// message in the steer viewer.
+pub(crate) fn choice_pin<V: Render>(
+    trigger: Button,
+    choices: &'static [(&'static str, &'static str)],
+    picked: String,
+    on_pick: impl Fn(&mut V, &str, &mut Window, &mut Context<V>) + 'static,
+    cx: &mut Context<V>,
+) -> impl IntoElement {
+    let view = cx.entity().downgrade();
+    let on_pick = std::rc::Rc::new(on_pick);
+    trigger.dropdown_menu(move |mut menu, _window, _cx| {
+        for (label, value) in choices {
+            let view = view.clone();
+            let on_pick = on_pick.clone();
+            let value = (*value).to_string();
+            let checked = picked == value;
+            menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
+                move |_, window, cx| {
+                    if let Some(view) = view.upgrade() {
+                        let value = value.clone();
+                        let on_pick = on_pick.clone();
+                        view.update(cx, |view, cx| on_pick(view, &value, window, cx));
+                    }
+                },
+            ));
+        }
+        menu
+    })
+}
+
 /// Hangs a model/effort choice menu off `trigger`, writing the pick into the
-/// section's `ChoiceSelect` (the same entity the grouped cluster's select
-/// row edits, so the two never disagree).
+/// section's `ChoiceSelect` (the same entity the grouped cluster's select row
+/// edits, so the two never disagree) — [`choice_pin`] with that write.
 fn choice_menu<V: Render>(
     trigger: Button,
     choices: &'static [(&'static str, &'static str)],
@@ -519,29 +556,19 @@ fn choice_menu<V: Render>(
     access: fn(&mut V) -> &mut LaunchOptionsSection,
     cx: &mut Context<V>,
 ) -> impl IntoElement {
-    let view = cx.entity().downgrade();
-    trigger.dropdown_menu(move |mut menu, _window, _cx| {
-        for (label, value) in choices {
-            let view = view.clone();
-            let value = (*value).to_string();
-            let checked = picked == value;
-            menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
-                move |_, window, cx| {
-                    if let Some(view) = view.upgrade() {
-                        let value = value.clone();
-                        view.update(cx, |view, cx| {
-                            let state = select(access(view)).clone();
-                            state.update(cx, |state, cx| {
-                                state.set_selected_value(&SharedString::from(value), window, cx)
-                            });
-                            cx.notify();
-                        });
-                    }
-                },
-            ));
-        }
-        menu
-    })
+    choice_pin(
+        trigger,
+        choices,
+        picked,
+        move |view: &mut V, value: &str, window, cx| {
+            let state = select(access(view)).clone();
+            state.update(cx, |state, cx| {
+                state.set_selected_value(&SharedString::from(value.to_string()), window, cx)
+            });
+            cx.notify();
+        },
+        cx,
+    )
 }
 
 /// The Account pin's label: the picked profile's, else the ambient login's.

@@ -2179,6 +2179,44 @@ mod tests {
         );
     }
 
+    /// EXP-877 — the wire's ONE surviving option, `model`, both ways: the
+    /// engine publishes a VALUE with no `values` (switching is a `/model
+    /// <alias>` message, not a menu pick), and a publisher that DOES describe
+    /// its values still parses into them. `values: None` is the wire's
+    /// "read-only on this run" and must not decay into an empty menu.
+    #[test]
+    fn config_state_carries_the_model_option_with_or_without_values() {
+        let bare: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus"}]}"#,
+        )
+        .unwrap();
+        let ActivityEvent::ConfigState { options, .. } = &bare else {
+            panic!("a config_state: {bare:?}");
+        };
+        assert_eq!(
+            options,
+            &vec![ConfigOption {
+                category: Some("model".to_string()),
+                value: Some("opus".to_string()),
+                ..ConfigOption::new("model", "Model")
+            }]
+        );
+        assert!(options[0].values.is_none(), "no menu on the wire");
+
+        let described: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"model","label":"Model","value":"sonnet","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}]}"#,
+        )
+        .unwrap();
+        let ActivityEvent::ConfigState { options, .. } = &described else {
+            panic!("a config_state: {described:?}");
+        };
+        assert_eq!(options[0].value.as_deref(), Some("sonnet"));
+        assert_eq!(
+            options[0].values.as_deref(),
+            Some(&[ConfigValue::new("opus", "Opus"), ConfigValue::new("sonnet", "Sonnet")][..])
+        );
+    }
+
     #[test]
     fn config_state_parses_a_frame_that_omits_modes_and_commands() {
         // Proves the `#[serde(default)]` on every optional: an internally

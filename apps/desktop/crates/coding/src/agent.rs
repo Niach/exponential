@@ -118,6 +118,27 @@ impl CodingAgent {
     }
 }
 
+/// EXP-877 — the alias a RESOLVED claude model id belongs to
+/// (`claude-opus-4-6[1m]` → `opus`), or `None` for anything outside
+/// [`MODEL_ALIASES`].
+///
+/// The CLI reports whatever id it actually resolved (`system/init`, the
+/// `PostModelSwitch` hook, a refusal fallback), and that id is not what the
+/// picker offers — the picker's vocabulary is the contract's three aliases.
+/// Folding the report back onto an alias is what lets the republished
+/// `config_state` confirm a `/model <alias>` switch instead of showing a
+/// value no menu entry matches. The `[1m]` suffix is a context window, not a
+/// tier, so it folds onto the same alias.
+pub fn claude_model_alias(reported: &str) -> Option<&'static str> {
+    let lowered = reported.trim().to_ascii_lowercase();
+    let bare = lowered.split('[').next().unwrap_or_default().trim();
+    let family = match bare.strip_prefix("claude-") {
+        Some(rest) => rest.split('-').next().unwrap_or_default(),
+        None => bare,
+    };
+    MODEL_ALIASES.iter().copied().find(|alias| *alias == family)
+}
+
 impl std::fmt::Display for CodingAgent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.id())
@@ -171,6 +192,28 @@ mod tests {
             assert!(agent.allows_blank_model(), "{agent}");
         }
         assert!(!CodingAgent::Codex.supports_plan_mode());
+    }
+
+    /// EXP-877: a resolved id folds back onto the alias the picker offers —
+    /// the 1M suffix is a window, not a tier — and anything else is None so
+    /// the composer falls back to printing the raw id.
+    #[test]
+    fn resolved_claude_ids_fold_back_onto_their_alias() {
+        for (reported, alias) in [
+            ("claude-fable-5-1", "fable"),
+            ("claude-opus-4-6", "opus"),
+            ("claude-opus-4-6[1m]", "opus"),
+            ("claude-sonnet-4-5", "sonnet"),
+            // The aliases themselves round-trip, whatever the casing.
+            ("fable", "fable"),
+            ("opus", "opus"),
+            (" Sonnet ", "sonnet"),
+        ] {
+            assert_eq!(claude_model_alias(reported), Some(alias), "{reported}");
+        }
+        for unknown in ["", "claude-3-5-haiku", "gpt-5.6-sol", "haiku", "claude-"] {
+            assert_eq!(claude_model_alias(unknown), None, "{unknown}");
+        }
     }
 
     #[test]

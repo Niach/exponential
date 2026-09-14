@@ -41,7 +41,7 @@ use std::time::{Duration, Instant};
 use agent_client_protocol::schema::v1::{
     AvailableCommand, ContentBlock, ContentChunk, CreateElicitationRequest, ElicitationMode,
     ElicitationPropertySchema, PermissionOption, PermissionOptionKind, RequestPermissionRequest,
-    SessionConfigOption,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions,
     SessionModeState, SessionNotification, SessionUpdate, StopReason, ToolCall, ToolCallContent,
     ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
@@ -226,6 +226,12 @@ pub struct Mapper {
 
 #[derive(Default)]
 struct ConfigSnapshot {
+    /// EXP-877: the live option list. EXP-772 emptied it (the mid-session
+    /// model/effort/fast pickers went), and EXP-877 brought back exactly ONE
+    /// entry — the `model` VALUE, so a viewer can say which model the run is
+    /// on. Nothing here is a menu: the adapters publish a value with no
+    /// `values`, switching is the `/model <alias>` prompt.
+    options: Vec<steer::ConfigOption>,
     current_mode: Option<String>,
     modes: Option<Vec<steer::ConfigMode>>,
     commands: Option<Vec<steer::ConfigCommand>>,
@@ -580,9 +586,14 @@ impl Mapper {
                     Some(steer::truncate(&update.current_mode_id.0, ID_MAX));
                 self.emit_config_state(out);
             }
-            // EXP-772: option chips are gone from every client, so an agent's
-            // option vocabulary is no longer news the wire carries.
-            SessionUpdate::ConfigOptionUpdate(_) => {}
+            // EXP-877: the adapter republishes its options whenever the model
+            // moves (`/model`, a refusal fallback), and that is the ONLY way a
+            // viewer learns the current one — the snapshot is latest-wins, so
+            // an unchanged republish dedupes to nothing in `emit_config_state`.
+            SessionUpdate::ConfigOptionUpdate(update) => {
+                self.config_state.options = self.map_options(&update.config_options);
+                self.emit_config_state(out);
+            }
             // A session-row fact, not a feed row — unless its `_meta` carries
             // the EXP-784 rate-limit slot (claude's `rate_limit_event` and its
             // synthetic "You've hit your…" notices ride a no-op one).
@@ -984,14 +995,15 @@ impl Mapper {
     /// WHOLE and clamped (`steer::clamp_config_state`), because
     /// `config_state` is latest-wins state, not a delta.
     ///
-    /// EXP-772: `_options` is IGNORED. Model/effort/fast pickers left the
-    /// steering UI on every client, so the snapshot carries modes and
-    /// commands only; the parameter stays so an agent may keep answering with
-    /// its own vocabulary.
+    /// EXP-877: `options` folds again — the adapters publish exactly one
+    /// entry, the `model` VALUE (no `values`, so no client draws a menu off
+    /// it). An EMPTY list is not a clearing edge: `session/set_mode` answers
+    /// with modes alone, and dropping the model on it would blank the
+    /// composer's picker for the rest of the run.
     pub fn on_session_state(
         &mut self,
         modes: Option<&SessionModeState>,
-        _options: &[SessionConfigOption],
+        options: &[SessionConfigOption],
         commands: &[AvailableCommand],
         out: &mut MapOut,
     ) {
@@ -1012,6 +1024,9 @@ impl Mapper {
                     })
                     .collect(),
             );
+        }
+        if !options.is_empty() {
+            self.config_state.options = self.map_options(options);
         }
         if !commands.is_empty() {
             let mapped = self.map_commands(commands);
@@ -1764,6 +1779,67 @@ impl Mapper {
     /// command catalog is built from files in the REPO (claude's
     /// `.claude/commands`), so a description is exactly as
     /// likely to quote a token as any other text the run produces.
+    /// EXP-877: the agent's option list, wire-shaped. An EMPTY select list
+    /// maps to `values: None` — the wire's "read-only on this run" (a menu of
+    /// nothing is not a menu), which is exactly what the adapters publish for
+    /// `model` now that switching is a `/model <alias>` prompt.
+    fn map_options(&self, options: &[SessionConfigOption]) -> Vec<steer::ConfigOption> {
+        options
+            .iter()
+            .map(|option| {
+                let (value, values) = match &option.kind {
+                    SessionConfigKind::Select(select) => {
+                        let values: Vec<steer::ConfigValue> = match &select.options {
+                            SessionConfigSelectOptions::Ungrouped(list) => list
+                                .iter()
+                                .map(|value| steer::ConfigValue {
+                                    id: steer::truncate(&value.value.0, ID_MAX),
+                                    label: self.clean(&value.name, OPTION_LABEL_MAX),
+                                })
+                                .collect(),
+                            SessionConfigSelectOptions::Grouped(groups) => groups
+                                .iter()
+                                .flat_map(|group| group.options.iter())
+                                .map(|value| steer::ConfigValue {
+                                    id: steer::truncate(&value.value.0, ID_MAX),
+                                    label: self.clean(&value.name, OPTION_LABEL_MAX),
+                                })
+                                .collect(),
+                            // `#[non_exhaustive]`: an unknown grouping still
+                            // renders as a read-only chip.
+                            _ => Vec::new(),
+                        };
+                        (
+                            Some(steer::truncate(&select.current_value.0, ID_MAX)),
+                            (!values.is_empty()).then_some(values),
+                        )
+                    }
+                    SessionConfigKind::Boolean(boolean) => (
+                        Some(boolean.current_value.to_string()),
+                        Some(vec![
+                            steer::ConfigValue {
+                                id: "true".to_string(),
+                                label: "On".to_string(),
+                            },
+                            steer::ConfigValue {
+                                id: "false".to_string(),
+                                label: "Off".to_string(),
+                            },
+                        ]),
+                    ),
+                    _ => (None, None),
+                };
+                steer::ConfigOption {
+                    id: steer::truncate(&option.id.0, ID_MAX),
+                    label: self.clean(&option.name, OPTION_LABEL_MAX),
+                    category: option.category.as_ref().map(category_id),
+                    value,
+                    values,
+                }
+            })
+            .collect()
+    }
+
     fn map_commands(&self, commands: &[AvailableCommand]) -> Vec<steer::ConfigCommand> {
         commands
             .iter()
@@ -1785,9 +1861,11 @@ impl Mapper {
 
     fn build_config_state(&self) -> ActivityEvent {
         let mut event = ActivityEvent::ConfigState {
-            // EXP-772: ALWAYS empty. Modes (plan on/off) and the `/` catalog
-            // are the whole mid-session steering vocabulary now.
-            options: Vec::new(),
+            // EXP-877: the `model` VALUE and nothing else (EXP-772 emptied
+            // this and EXP-790 keeps every option launch-time). Modes (plan
+            // on/off) and the `/` catalog are still the whole mid-session
+            // steering vocabulary.
+            options: self.config_state.options.clone(),
             current_mode: self.config_state.current_mode.clone(),
             modes: self.config_state.modes.clone(),
             commands: self.config_state.commands.clone(),
@@ -2619,6 +2697,19 @@ pub fn clamp_usage(event: &mut ActivityEvent) {
         .map(|cost| cost.clamp(0.0, USAGE_COST_MAX));
 }
 
+
+/// The wire's grouping hint for an option's ACP category — a machine field,
+/// so it is the id, never a label.
+fn category_id(category: &SessionConfigOptionCategory) -> String {
+    match category {
+        SessionConfigOptionCategory::Model => "model".to_string(),
+        SessionConfigOptionCategory::ThoughtLevel => "effort".to_string(),
+        SessionConfigOptionCategory::ModelConfig => "model_config".to_string(),
+        SessionConfigOptionCategory::Mode => "mode".to_string(),
+        SessionConfigOptionCategory::Other(other) => other.clone(),
+        _ => "other".to_string(),
+    }
+}
 
 fn message_id(chunk: &ContentChunk) -> Option<String> {
     chunk.message_id.as_ref().map(|id| id.0.to_string())
@@ -3601,11 +3692,12 @@ mod tests {
     }
 
     #[test]
-    fn config_state_is_one_clamped_whole_snapshot_without_options() {
-        // EXP-772: the agent may advertise a whole option vocabulary; the
-        // snapshot carries modes and commands ONLY, and `options` is empty.
+    fn config_state_is_one_clamped_whole_snapshot_carrying_the_model_value() {
+        // EXP-877: the snapshot carries modes, commands AND the `model`
+        // option the adapters publish — a VALUE with no `values`, because a
+        // switch is the `/model <alias>` prompt, not a menu pick.
         use agent_client_protocol::schema::v1::{
-            SessionConfigSelectOption, SessionMode, SessionModeId,
+            SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode, SessionModeId,
         };
         let mut mapper = mapper();
         let mut out = MapOut::default();
@@ -3620,18 +3712,16 @@ mod tests {
             "model",
             "Model",
             "opus",
-            vec![
-                SessionConfigSelectOption::new("opus", "Opus"),
-                SessionConfigSelectOption::new("sonnet", "Sonnet"),
-            ],
-        )];
+            Vec::<SessionConfigSelectOption>::new(),
+        )
+        .category(SessionConfigOptionCategory::Model)];
         let commands = vec![AvailableCommand::new("compact", "Compact the context")];
         mapper.on_session_state(Some(&modes), &options, &commands, &mut out);
         assert_eq!(
             serde_json::to_value(&out.wire[0]).expect("config_state serializes"),
             json!({
                 "kind": "config_state",
-                "options": [],
+                "options": [{"id": "model", "label": "Model", "category": "model", "value": "opus"}],
                 "currentMode": "plan",
                 "modes": [
                     {"id": "plan", "label": "Plan"},
@@ -3639,6 +3729,76 @@ mod tests {
                 ],
                 "commands": [{"name": "compact", "description": "Compact the context"}]
             })
+        );
+
+        // A `session/set_mode` answer carries modes alone — the model must
+        // SURVIVE it (an empty list is not a clearing edge).
+        let mut after_mode = MapOut::default();
+        let building = SessionModeState::new(
+            SessionModeId::new("bypassPermissions"),
+            vec![
+                SessionMode::new(SessionModeId::new("plan"), "Plan"),
+                SessionMode::new(SessionModeId::new("bypassPermissions"), "Build"),
+            ],
+        );
+        mapper.on_session_state(Some(&building), &[], &[], &mut after_mode);
+        let json = serde_json::to_value(&after_mode.wire[0]).expect("config_state serializes");
+        assert_eq!(json["options"][0]["value"], json!("opus"));
+        assert_eq!(json["currentMode"], json!("bypassPermissions"));
+    }
+
+    /// EXP-877: the model moves mid-run (`/model`, a refusal fallback), the
+    /// adapter republishes its options, and THAT re-emit is how a viewer
+    /// learns. An unchanged republish is still deduped (EXP-758).
+    #[test]
+    fn a_config_option_update_republishes_the_model_once() {
+        use agent_client_protocol::schema::v1::{
+            ConfigOptionUpdate, SessionConfigSelectOption,
+        };
+        let option = |value: &str| {
+            SessionConfigOption::select(
+                "model",
+                "Model",
+                value.to_string(),
+                Vec::<SessionConfigSelectOption>::new(),
+            )
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                vec![option("opus")],
+            ))),
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("config_state serializes")["options"],
+            json!([{"id": "model", "label": "Model", "value": "opus"}])
+        );
+
+        // The same options again say nothing.
+        let mut again = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                vec![option("opus")],
+            ))),
+            &mut again,
+        );
+        assert!(again.wire.is_empty(), "{:?}", again.wire);
+
+        // A real switch is one frame.
+        let mut switched = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                vec![option("sonnet")],
+            ))),
+            &mut switched,
+        );
+        assert_eq!(switched.wire.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&switched.wire[0]).expect("config_state serializes")["options"]
+                [0]["value"],
+            json!("sonnet")
         );
     }
 

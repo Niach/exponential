@@ -304,10 +304,6 @@ pub(crate) struct SteerSessionView {
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
-    /// Whether this view paints its OWN header. The session screen paints a
-    /// wider one around this view and turns it off, so the transcript never
-    /// carries two identity rows (EXP-746).
-    chrome: bool,
     phase: ViewerPhase,
     connected: bool,
     /// EXP-696 wakeups: the last seen edge states, so only a TRANSITION back
@@ -348,12 +344,6 @@ pub(crate) struct SteerSessionView {
     mention: Entity<crate::mention_input::MentionInput>,
     /// The team the completion source was last pointed at.
     mention_team: Option<String>,
-    /// EXP-790: the composer card's measured width, for the tool row's
-    /// wrap decision ([`tool_row_wraps`]).
-    composer_width: std::rc::Rc<std::cell::Cell<Pixels>>,
-    /// …and whether the tool row is on its own line right now (the
-    /// hysteresis state).
-    tools_wrapped: std::cell::Cell<bool>,
     /// EXP-820: the inline free-text field, open on at most one option row.
     inline: Option<InlineAnswer>,
     /// EXP-820: the answered step of a multi-question ask the reader
@@ -393,8 +383,7 @@ pub(crate) struct SteerSessionView {
     extras: crate::session_extras::LocalExtras,
     /// EXP-773: the parse of the published worktree diff, and the per-file
     /// diff the pane renders. EXP-850 §11 moved the surface from a bottom
-    /// band to a right-hand PANE; the parse stayed here, because the pane
-    /// splits this view's own column.
+    /// band to a PANE; EXP-877 made that pane a full page under the header.
     changes: Option<crate::changes_bar::ChangesSnapshot>,
     changes_diff: Entity<crate::diff::DiffView>,
     /// EXP-850 §11: whether the diff pane is open, whether its file list is
@@ -405,19 +394,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-862: WHAT the pane shows — the whole branch, one turn's files or
     /// one edit.
     diff_scope: DiffScope,
-    /// EXP-862: the width the reader dragged the pane to (clamped into the
-    /// view on every read). `None` until they drag it or a previous session
-    /// persisted one ([`crate::ui_prefs`]).
-    diff_width: Option<f32>,
-    /// EXP-862: a drag is in flight — the gap between the pointer and the
-    /// pane's left edge when the handle went down, so the edge follows the
-    /// pointer without jumping to it.
-    diff_resize: Option<Pixels>,
-    /// The view's own measured width — what [`crate::diff_pane::pane_width`]
-    /// splits (the composer's `composer_width` recipe) — and its right edge
-    /// in WINDOW coordinates, which is what a drag measures the pane from.
+    /// The view's own measured width (the recorded-px canvas recipe) — the
+    /// transcript's bubble cap reads it.
     view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
-    view_right: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// EXP-850 §12: the per-turn file cards, keyed by the row they hang
     /// under, rebuilt once per frame by [`Self::sync_list`].
     file_cards: HashMap<FeedItemId, crate::session_rows::FileCard>,
@@ -608,7 +587,6 @@ impl SteerSessionView {
             row: None,
             feed: SteerFeed::new(),
             source,
-            chrome: true,
             phase: ViewerPhase::Connecting,
             connected: false,
             device_offline: false,
@@ -621,8 +599,6 @@ impl SteerSessionView {
             input,
             mention,
             mention_team: None,
-            composer_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
-            tools_wrapped: std::cell::Cell::new(false),
             inline: None,
             editing_step: None,
             // Seeded TRUE: a view built over an already-pending card takes
@@ -653,12 +629,7 @@ impl SteerSessionView {
             diff_list_open: true,
             diff_selected: 0,
             diff_scope: DiffScope::Session,
-            // The width is the READER's and one drag settles it for every
-            // session, so it is read back from disk, not re-learned per run.
-            diff_width: crate::ui_prefs::diff_pane_width(),
-            diff_resize: None,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
-            view_right: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             file_cards: HashMap::new(),
             expanded_cards: HashSet::new(),
             expanded_agents: HashSet::new(),
@@ -764,54 +735,6 @@ impl SteerSessionView {
             });
         }
         this
-    }
-
-    /// EXP-746: hand the header to the hosting screen (see [`Self::chrome`]).
-    pub(crate) fn set_chrome(&mut self, chrome: bool) {
-        self.chrome = chrome;
-    }
-
-    /// `(identifier, subject)` for whoever paints the header.
-    pub(crate) fn header_identity(&self, cx: &App) -> (Option<SharedString>, SharedString) {
-        self.identity(cx)
-    }
-
-    /// The header's liveness dot tone and its caption, resolved together
-    /// because both read the same four facts (paused, awaiting an answer,
-    /// the phase, and FEED-26's stale-activity clock).
-    pub(crate) fn header_status(&self, cx: &App) -> (gpui::Hsla, String) {
-        let paused = self.paused(cx);
-        let awaiting = !self.active.is_empty();
-        let stale = self.stale_minutes(paused, awaiting);
-        let device = self.device(cx);
-        let label = phase_label(
-            &self.phase,
-            device.label.as_deref(),
-            awaiting,
-            paused,
-            stale,
-        );
-        // EXP-850 §5/§7: while a workflow RUNS, what the run is doing beats
-        // where it is doing it — the caption becomes the workflow's own
-        // (the ×4 `workflowCaption`), exactly as the working row's does.
-        let label = match self.header_workflow_caption(paused, awaiting) {
-            Some(caption) => caption,
-            None => label,
-        };
-        (
-            self.phase_tone(cx, paused, awaiting, stale.is_some()),
-            label,
-        )
-    }
-
-    /// The running workflow's caption, when it is what the header should say:
-    /// a LIVE run that is neither paused nor waiting on an answer (both of
-    /// those are the reader's business and outrank a progress line).
-    fn header_workflow_caption(&self, paused: bool, awaiting: bool) -> Option<String> {
-        if paused || awaiting || self.phase != ViewerPhase::Live {
-            return None;
-        }
-        self.running_workflow_caption()
     }
 
     /// The builtin agent behind this session, for the usage sheet's device
@@ -1833,7 +1756,7 @@ impl SteerSessionView {
             }),
         };
         if !sent {
-            self.notice = Some(SharedString::from("The session is no longer connected"));
+            self.notice = Some(SharedString::from(NOT_CONNECTED));
             cx.notify();
             return;
         }
@@ -2284,7 +2207,7 @@ impl SteerSessionView {
             return;
         }
         if plan_reject && !text.is_empty() && !self.deliver(&text) {
-            self.notice = Some(SharedString::from("The session is no longer connected"));
+            self.notice = Some(SharedString::from(NOT_CONNECTED));
         }
         window.focus(&self.focus_handle, cx);
         cx.notify();
@@ -2514,14 +2437,17 @@ impl SteerSessionView {
         self.diff_open
     }
 
-    /// Open or shut the pane (the header's Diff pill). Opening builds the
-    /// rows — they are only worth rendering when visible.
-    ///
-    /// The pill is the WHOLE BRANCH (EXP-862), so opening through it always
-    /// returns the pane to the session scope.
-    pub(crate) fn toggle_diff(&mut self, cx: &mut gpui::Context<Self>) {
-        self.diff_open = !self.diff_open;
-        if self.diff_open {
+    /// EXP-877 — the diff is a FACE of the run (the work header's
+    /// `Issue | Run | +N -M` toggle switches to it), so the host SETS it.
+    /// Opening builds the rows — they are only worth rendering when visible —
+    /// and always returns the pane to the session scope (the toggle item is
+    /// the WHOLE BRANCH, EXP-862).
+    pub(crate) fn set_diff_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
+        if self.diff_open == open {
+            return;
+        }
+        self.diff_open = open;
+        if open {
             self.diff_scope = DiffScope::Session;
             self.diff_selected = 0;
             self.rebuild_changes_diff(cx);
@@ -2585,13 +2511,11 @@ impl SteerSessionView {
             })
             .collect();
         let scope_label = self.scope_label(files.len());
-        let width = px(self.diff_pane_width());
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
                 files,
                 selected: self.diff_selected,
                 list_open: self.diff_list_open,
-                width,
                 scope_label,
                 diff: self.changes_diff.clone(),
                 on_close: Box::new(|this: &mut Self, cx| {
@@ -2605,59 +2529,12 @@ impl SteerSessionView {
                 on_show_session: Box::new(|this: &mut Self, cx| {
                     this.open_diff_scoped(DiffScope::Session, None, cx);
                 }),
-                on_resize: Box::new(|this: &mut Self, down_x: Pixels, cx| {
-                    this.begin_diff_resize(down_x, cx);
-                }),
                 on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
                     this.select_diff_file(index, cx);
                 }),
             },
             cx,
         ))
-    }
-
-    /// The pane's width right now: what the reader dragged it to, else §11's
-    /// opening share — always clamped into the view it splits (a width
-    /// remembered from a wider window must not eat this one's transcript).
-    fn diff_pane_width(&self) -> f32 {
-        let total = f32::from(self.view_width.get());
-        match self.diff_width {
-            Some(width) => crate::diff_pane::clamp_pane_width(width, total),
-            None => crate::diff_pane::pane_width(total),
-        }
-    }
-
-    /// EXP-862 — the left edge went down: remember how far the pointer sits
-    /// from it, so the drag moves the edge rather than teleporting it under
-    /// the cursor. The rest of the gesture is captured by the view's ROOT
-    /// (the pointer leaves an 8px strip instantly).
-    fn begin_diff_resize(&mut self, down_x: Pixels, cx: &mut gpui::Context<Self>) {
-        let left_edge = f32::from(self.view_right.get()) - self.diff_pane_width();
-        self.diff_resize = Some(px(left_edge - f32::from(down_x)));
-        cx.notify();
-    }
-
-    /// A drag frame: the edge follows the pointer, clamped.
-    fn drag_diff_resize(&mut self, position: Pixels, cx: &mut gpui::Context<Self>) {
-        let Some(offset) = self.diff_resize else {
-            return;
-        };
-        let total = f32::from(self.view_width.get());
-        let requested = f32::from(self.view_right.get()) - (f32::from(position) + f32::from(offset));
-        self.diff_width = Some(crate::diff_pane::clamp_pane_width(requested, total));
-        cx.notify();
-    }
-
-    /// The button came up: the width the reader settled on is the width every
-    /// session opens at from now on.
-    fn end_diff_resize(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.diff_resize.take().is_none() {
-            return;
-        }
-        if let Some(width) = self.diff_width {
-            crate::ui_prefs::set_diff_pane_width(width);
-        }
-        cx.notify();
     }
 
     /// The Merge target this run offers, or `None` once it is over
@@ -2964,7 +2841,7 @@ impl SteerSessionView {
                     .as_ref()
                     .is_some_and(|handle| handle.send_interrupt())
                 {
-                    self.notice = Some(SharedString::from("The session is no longer connected"));
+                    self.notice = Some(SharedString::from(NOT_CONNECTED));
                 }
             }
         }
@@ -2990,7 +2867,7 @@ impl SteerSessionView {
             if self.deliver(&text) {
                 self.clear_draft(window, cx);
             } else {
-                self.notice = Some(SharedString::from("The session is no longer connected"));
+                self.notice = Some(SharedString::from(NOT_CONNECTED));
             }
             cx.notify();
             return;
@@ -3031,7 +2908,7 @@ impl SteerSessionView {
                             this.clear_draft(window, cx);
                         } else {
                             this.notice =
-                                Some(SharedString::from("The session is no longer connected"));
+                                Some(SharedString::from(NOT_CONNECTED));
                         }
                     }
                     Err((resolved, error)) => {
@@ -3066,6 +2943,26 @@ impl SteerSessionView {
             None => session.send_prompt(message.to_string()),
         }
         true
+    }
+
+    /// EXP-877 — send `text` to the agent as a message, WITHOUT going near
+    /// the composer. The model picker's whole implementation: `/model
+    /// <alias>` is a prompt the CLI acts on, so [`Self::deliver`] — the same
+    /// routine Enter ends up in — queues it mid-turn like anything else and
+    /// the republished `config_state` is the confirmation.
+    ///
+    /// Deliberately NOT "type it into the field and press Enter": that
+    /// clobbered a half-written draft, and a pick made while one was in the
+    /// field either did nothing or left `/model opus` sitting there when the
+    /// send bailed. A refusal is a notice, never silence.
+    fn send_command(&mut self, text: &str, cx: &mut gpui::Context<Self>) {
+        if !self.run_open() {
+            self.notice = Some(SharedString::from(NOT_CONNECTED));
+            cx.notify();
+            return;
+        }
+        self.notice = (!self.deliver(text)).then(|| SharedString::from(NOT_CONNECTED));
+        cx.notify();
     }
 
     fn clear_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -3110,47 +3007,7 @@ impl SteerSessionView {
             this.stage_images(read, window, cx)
         });
     }
-
-    // ── Kill ───────────────────────────────────────────────────────────────
-
-    pub(crate) fn prompt_kill(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let label = self.device(cx).label;
-        let view = cx.entity().downgrade();
-        let description = if self.is_local() {
-            LOCAL_KILL_DESCRIPTION.to_string()
-        } else {
-            kill_description(label.as_deref())
-        };
-        // EXP-849 fix-up: ONE verb for ending a run — "Stop", the same word
-        // Android and iOS already use. "Kill" described the mechanism, not
-        // what the person is doing.
-        let spec = AlertSpec::new("Stop this coding session?", description, "Stop session")
-        .ok_variant(ButtonVariant::Danger)
-        .on_ok(move |_, cx| {
-            if let Some(view) = view.upgrade() {
-                view.update(cx, |this, cx| this.kill(cx));
-            }
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
-    }
-
-    fn kill(&mut self, cx: &mut gpui::Context<Self>) {
-        // EXP-746: a run THIS process hosts is killed in process — going out
-        // to `steer.killSession` and waiting for the row to sync back would
-        // take the long way round to our own engine.
-        if let Some(session) = self.source.steerable_session() {
-            session.kill("killed");
-            return;
-        }
-        kill_session(&self.session_id, cx);
-    }
 }
-
-/// EXP-746: what an ended session's transcript says about itself. The
-/// remote wording ("The session has ended.") is the publisher's `bye`
-/// outcome when it sent one; this is the fallback every source shares.
-pub(crate) const ENDED_BANNER: &str = "Read-only — this session has ended";
 
 /// A Past row opened off its recorded transcript.
 pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
@@ -3158,13 +3015,6 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 /// …and the same row when the run left nothing to replay (its workspace,
 /// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
-
-/// EXP-746: the confirm body for a run hosted IN this app — the remote
-/// copy's "on <machine>" has nothing to name here, and the worktree promise
-/// is the part that matters either way.
-pub(crate) const LOCAL_KILL_DESCRIPTION: &str =
-    "The agent stops immediately and the session ends. Uncommitted work in the worktree is kept.";
-
 
 /// The confirm copy, byte-identical to the web `useKillSession` dialog.
 pub(crate) fn kill_description(device_label: Option<&str>) -> String {
@@ -3251,19 +3101,38 @@ pub(crate) fn viewer_phase(phase: engine::EnginePhase) -> ViewerPhase {
 /// dump behind a `Failed` phase would push the composer off the screen.
 const FAILURE_BANNER_MAX: usize = 200;
 
-/// EXP-758: the banner an ACP run that DIED renders in place of the plain
-/// [`ENDED_BANNER`]. Pure so the shaping (one line, capped) is unit-tested;
-/// an empty/blank reason degrades to the plain ended wording rather than to
-/// "Session failed: ".
+/// What every failure line starts with, and what one with no reason at all
+/// says instead. Both are the marks [`ended_banner`] recognises.
+const FAILURE_PREFIX: &str = "Session failed: ";
+pub(crate) const FAILURE_FALLBACK: &str = "The session ended with an error.";
+
+/// EXP-758: the banner an ACP run that DIED renders. Pure so the shaping (one
+/// line, capped) is unit-tested; a blank reason still says the run FAILED,
+/// because the exit callback only hands one over when it did (EXP-877: it
+/// used to degrade to the plain "this session has ended" wording, which now
+/// means the opposite — nothing at all).
 pub(crate) fn failure_banner(error: &str) -> String {
     let flattened = error.split_whitespace().collect::<Vec<_>>().join(" ");
     if flattened.is_empty() {
-        return ENDED_BANNER.to_string();
+        return FAILURE_FALLBACK.to_string();
     }
     format!(
-        "Session failed: {}",
+        "{FAILURE_PREFIX}{}",
         steer::truncate(&flattened, FAILURE_BANNER_MAX)
     )
+}
+
+/// EXP-877 — the ONE line an ENDED run may still put over its transcript: a
+/// real failure ([`failure_banner`]). Everything else an `Ended` phase can
+/// carry is a publisher token off the wire (`exit:0`, `history` — how the
+/// ROOM closed), which is not a sentence and not something a reader can act
+/// on; and the plain "this session has ended" strip is gone with them,
+/// because the header's status already says so on every transcript anybody
+/// ever reopens. Pure, so the rule is a unit test rather than a screenshot.
+pub(crate) fn ended_banner(outcome: Option<&str>) -> Option<String> {
+    let outcome = outcome?;
+    (outcome.starts_with(FAILURE_PREFIX) || outcome == FAILURE_FALLBACK)
+        .then(|| outcome.to_string())
 }
 
 /// EXP-758: the engine emits `Failed(reason)` and THEN `Ended`, and the feed
@@ -3466,8 +3335,9 @@ pub(crate) fn clampable(text: &str) -> bool {
 /// typed, so the placeholder is the only hint it exists (every agent's catalog
 /// is non-empty, which is why this is a constant here and a conditional on
 /// web/Android). EXP-820 retired the per-card forks: a pending card hides the
-/// composer and takes its free text inline.
-pub(crate) const COMPOSER_PLACEHOLDER: &str = "Message the agent… (/ for commands)";
+/// composer and takes its free text inline. EXP-877 shortened it to the ONE
+/// thing it has to teach — byte-identical with the web.
+pub(crate) const COMPOSER_PLACEHOLDER: &str = "Type / for commands";
 
 /// EXP-820 — whether the card keyboard (digits, ↑/↓, Enter) is live. A text
 /// field that wants the keys wins: the inline answer field whenever it is
@@ -3554,31 +3424,49 @@ pub(crate) fn answer_digit(keystroke: &gpui::Keystroke) -> Option<usize> {
     }
 }
 
-/// EXP-790 — the composer width under which the tool row leaves the field's
-/// line and drops under it: a 240px field beside the 24px attach glyph, the
-/// 32px round button and the card's own padding and gaps.
-const COMPOSER_INLINE_MIN_WIDTH: f32 = 340.;
-
-/// How much wider than the threshold the card must get again before the row
-/// comes back up. Without it a width sitting on the threshold — a pane being
-/// dragged, a textarea growing a line — would flap between the two layouts
-/// on every frame.
-const TOOL_ROW_WRAP_HYSTERESIS: f32 = 24.;
-
 /// EXP-818: how much of the transcript column a user bubble may take (web
 /// `max-w-[85%]`), and the narrowest bubble worth drawing.
 const USER_BUBBLE_MAX_FRACTION: f32 = 0.85;
 const USER_BUBBLE_MIN_W: f32 = 48.;
 
-/// EXP-790 — whether the composer's tool row wraps under the field at `width`
-/// when it takes `needed` to sit beside it, given whether it is `wrapped` right
-/// now. Wraps as soon as the width falls short; un-wraps only once the width
-/// clears the threshold by [`TOOL_ROW_WRAP_HYSTERESIS`].
-pub(crate) fn tool_row_wraps(width: f32, needed: f32, wrapped: bool) -> bool {
-    if wrapped {
-        width < needed + TOOL_ROW_WRAP_HYSTERESIS
-    } else {
-        width < needed
+/// EXP-877 — the transcript composer's FOOTER: plan state and attach on the
+/// left, the model and the context ring on the right, all UNDER the card.
+/// (EXP-790 put the tools inside the card and wrapped them onto their own
+/// line on a narrow pane; the wrap flapped while the pane was dragged and the
+/// row competed with the field for the card's width. A footer never wraps
+/// because nothing in it grows.)
+const PLAN_MODE_FOOTER: &str = "Plan mode";
+
+/// The `config_state.options` id the footer's model pin reads (EXP-877 — the
+/// only option the wire carries).
+const CONFIG_MODEL_ID: &str = "model";
+
+/// What a message that could not leave says. One string, so the composer's
+/// send and the footer's model pick report the same failure.
+const NOT_CONNECTED: &str = "The session is no longer connected";
+
+/// EXP-877 — a model VALUE as the footer prints it: the picker's own label
+/// for an alias this build knows (`opus` → `Opus`, byte-identical with
+/// [`crate::coding_selects::MODEL_CHOICES`] and the web's `modelLabel`), else
+/// the raw value with its first letter raised — a codex slug or a tier this
+/// build has never heard of still reads as a name rather than as an id.
+pub(crate) fn model_label(value: &str) -> String {
+    if let Some((label, _)) = crate::coding_selects::MODEL_CHOICES
+        .iter()
+        .find(|(_, alias)| *alias == value)
+    {
+        return (*label).to_string();
+    }
+    if let Some((label, _)) = crate::coding_selects::CODEX_MODEL_CHOICES
+        .iter()
+        .find(|(_, slug)| !slug.is_empty() && *slug == value)
+    {
+        return (*label).to_string();
+    }
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }
 
@@ -3644,147 +3532,6 @@ fn key_chip(index: usize, live: bool, cx: &App) -> AnyElement {
 // ---------------------------------------------------------------------------
 
 impl SteerSessionView {
-    fn render_header(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let paused = self.paused(cx);
-        let device = self.device(cx);
-        let awaiting = !self.active.is_empty();
-        let stale = self.stale_minutes(paused, awaiting);
-        let caption = self
-            .header_workflow_caption(paused, awaiting)
-            .unwrap_or_else(|| {
-                phase_label(
-                    &self.phase,
-                    device.label.as_deref(),
-                    awaiting,
-                    paused,
-                    stale,
-                )
-            });
-        let identity = self.identity(cx);
-        let can_kill = self.can_kill(cx);
-
-        h_flex()
-            .w_full()
-            .flex_shrink_0()
-            .gap_2()
-            .items_center()
-            .px_3()
-            .py_1p5()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            .child(status_dot(self.phase_tone(cx, paused, awaiting, stale.is_some())))
-            .when_some(identity.0, |this, identifier| {
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(identifier),
-                )
-            })
-            .child(
-                div()
-                    .min_w_0()
-                    .max_w(px(280.))
-                    .truncate()
-                    .text_sm()
-                    .child(identity.1),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(caption)),
-            )
-            .when(can_kill, |this| {
-                // EXP-818: the ONE Stop — identical on the hosting machine
-                // and on a watching one.
-                this.child(
-                    crate::session_screen::stop_session_pill("steer-stop", cx).on_click(
-                        cx.listener(|this, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.prompt_kill(window, cx);
-                        }),
-                    ),
-                )
-            })
-            .into_any_element()
-    }
-
-    /// `(identifier, subject)` — the web `sessionIdentity`.
-    fn identity(&self, cx: &App) -> (Option<SharedString>, SharedString) {
-        let Some(row) = self.row.as_ref() else {
-            return (None, SharedString::from("Coding session"));
-        };
-        if let Some(issue_id) = row.issue_id.as_deref() {
-            if let Some(issue) = sync::Store::try_global(cx)
-                .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned())
-            {
-                let title = issue.title.trim();
-                let subject = if title.is_empty() {
-                    "Untitled issue".to_string()
-                } else {
-                    title.to_string()
-                };
-                return (
-                    Some(SharedString::from(issue.identifier.clone())),
-                    SharedString::from(subject),
-                );
-            }
-            return (None, SharedString::from("Issue syncing…"));
-        }
-        (
-            None,
-            SharedString::from(
-                row.action_name
-                    .clone()
-                    .unwrap_or_else(|| "Batch run".to_string()),
-            ),
-        )
-    }
-
-    /// EXP-862 — a thin adapter over [`crate::queries::session_dot_tone`], the
-    /// ONE dot mapping every client paints (the lists, the rail and this
-    /// header disagreed about exactly the two cases that matter: a quiet feed
-    /// and a finished run). What is local to the VIEWER is which facts it can
-    /// prove: the synced row's display, the pending-answer edge, FEED-26's
-    /// stale clock, and a socket that has not joined yet.
-    fn phase_tone(&self, cx: &App, paused: bool, awaiting: bool, stale: bool) -> gpui::Hsla {
-        let muted = cx.theme().muted_foreground;
-        let ended = self.row_ended()
-            || matches!(
-                self.phase,
-                ViewerPhase::Ended { .. } | ViewerPhase::Unauthorized { .. }
-            );
-        let display = self.session_row().map(|row| {
-            crate::queries::coding_session_display(row, row.pr_state.as_deref())
-        });
-        let facts = match display {
-            Some(display) => crate::queries::SessionDotFacts {
-                awaiting,
-                stale,
-                ..crate::queries::SessionDotFacts::from_display(display, ended, paused)
-            },
-            // No row yet: the socket is all this view knows, and a viewer
-            // that has not joined claims nothing.
-            None => crate::queries::SessionDotFacts {
-                ended,
-                paused,
-                awaiting,
-                stale,
-                running: self.phase == ViewerPhase::Live,
-                connecting: !ended && self.phase != ViewerPhase::Live,
-                ..Default::default()
-            },
-        };
-        crate::queries::session_dot_tone(facts, muted)
-    }
-
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
@@ -3909,8 +3656,13 @@ impl SteerSessionView {
             .pt(self.row_gap(ix))
             .child(gutter())
             .child(
+                // EXP-877: the transcript is the SAME work column as the run
+                // header, the issue body and the diff page
+                // ([`crate::work_header::WORK_COLUMN_W`]) — the three faces of
+                // one tab must not each have their own measure, or switching
+                // between them shifts the text sideways.
                 div()
-                    .flex_basis(px(transcript::MAX_WIDTH))
+                    .flex_basis(px(crate::work_header::WORK_COLUMN_W))
                     .flex_shrink(1.)
                     .min_w_0()
                     .child(element),
@@ -4231,8 +3983,16 @@ impl SteerSessionView {
                 longest = width;
             }
         }
-        let column = f32::from(self.composer_width.get());
-        let column = if column > 0. { column } else { transcript::MAX_WIDTH };
+        // EXP-877: the transcript column is the work column, narrowed by a
+        // pane too small to hold it (`transcript_row` lays the row out at
+        // `flex_basis(WORK_COLUMN_W)` with `flex_shrink(1)`). The unmeasured
+        // first frame takes the full column.
+        let view = f32::from(self.view_width.get());
+        let column = if view > 0. {
+            view.min(crate::work_header::WORK_COLUMN_W)
+        } else {
+            crate::work_header::WORK_COLUMN_W
+        };
         let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
         let padded = longest + px(2. * 12. + 2.);
@@ -5284,7 +5044,7 @@ impl SteerSessionView {
                     .as_ref()
                     .is_some_and(|handle| handle.send_unqueue(id))
                 {
-                    self.notice = Some(SharedString::from("The session is no longer connected"));
+                    self.notice = Some(SharedString::from(NOT_CONNECTED));
                     cx.notify();
                     return;
                 }
@@ -6261,11 +6021,13 @@ impl SteerSessionView {
             banners.push(banner(REPLAY_EMPTY_BANNER.to_string()));
         }
         match &self.phase {
-            ViewerPhase::Ended { outcome } => banners.push(banner(
-                outcome
-                    .clone()
-                    .unwrap_or_else(|| ENDED_BANNER.to_string()),
-            )),
+            // EXP-877: an ordinary end is NOT a banner. "The session has
+            // ended." said nothing the header's status did not already say,
+            // and it sat over every transcript anybody ever reopened. A real
+            // FAILURE still gets its line, because that one carries why.
+            ViewerPhase::Ended { outcome } => {
+                banners.extend(ended_banner(outcome.as_deref()).map(banner))
+            }
             ViewerPhase::Unauthorized { detail } => banners.push(banner(
                 detail
                     .clone()
@@ -6305,15 +6067,6 @@ impl SteerSessionView {
     fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
         let stop = self.shows_stop(cx);
-        // EXP-790: the tool row's wrap decision, with hysteresis so a width
-        // hovering around the threshold does not flap between layouts.
-        // The first frame has no measurement yet (0px): keep the tools
-        // inline rather than flashing a wrapped row before the probe lands.
-        let width = f32::from(self.composer_width.get());
-        let wrapped = width > 0.
-            && tool_row_wraps(width, COMPOSER_INLINE_MIN_WIDTH, self.tools_wrapped.get());
-        self.tools_wrapped.set(wrapped);
-        let width_probe = self.composer_width.clone();
         let composer = crate::composer::GlassComposer::new(
             v_flex()
                 .w_full()
@@ -6344,21 +6097,11 @@ impl SteerSessionView {
                 )
                 .into_any_element(),
         )
-        .inline_tools(!wrapped)
-        .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
-        // EXP-698: the attach tool is ALWAYS offered — steer images upload to
-        // the session route, so a batch/action run (no issue at all) attaches
-        // exactly like an issue run. EXP-850 §13: its glyph is `ui-add` on
-        // every steer composer ×4; `editor-image` stayed with the comment and
-        // description editors.
-        .tool(
-            crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
-                .tooltip("Attach image")
-                .disabled(self.sending)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.pick_images(window, cx);
-                })),
-        );
+        // EXP-877: the card is the FIELD and the round button, nothing else
+        // — every tool moved to the footer below it, so nothing competes
+        // with the field for the card's width and nothing wraps.
+        .inline_tools(true)
+        .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)));
         // EXP-790: ONE round button — Stop while the agent works, Send
         // otherwise (and always once there is a draft). Same ring, the glyph
         // swaps. No tooltip — a floating label beside a circled glyph reads
@@ -6379,33 +6122,182 @@ impl SteerSessionView {
                     }
                 })),
         );
+        // EXP-877: the hairline and the background are PANE-wide, the card
+        // and its footer sit in the same centred work column as the header
+        // and the transcript (web `WORK_COLUMN_CLASS` around
+        // `<SteerComposer/>`). A composer that ran edge to edge under a
+        // 896px transcript read as a different surface from the conversation
+        // it belongs to.
         div()
             .w_full()
             .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_center()
             .p_2()
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                div()
-                    .relative()
+                v_flex()
                     .w_full()
                     .min_w_0()
+                    .max_w(px(crate::work_header::WORK_COLUMN_W))
                     .child(
                         crate::composer::glass_composer(composer)
                             .capture_action(cx.listener(Self::on_paste)),
                     )
-                    // The card's width, read back for next frame's wrap
-                    // decision (the canvas paints nothing).
-                    .child(
-                        gpui::canvas(
-                            move |bounds, _, _| width_probe.set(bounds.size.width),
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .size_full(),
-                    ),
+                    .child(self.render_composer_footer(cx)),
             )
             .into_any_element()
+    }
+
+    /// EXP-877 — the row UNDER the composer card. Left: the plan-mode read
+    /// and the attach button. Right: which model the run is on, and how full
+    /// its context window is. Everything here is ABOUT the run rather than
+    /// part of the message, which is why none of it is inside the card any
+    /// more (EXP-790 kept the attach glyph in there and wrapped the row onto
+    /// its own line on a narrow pane; a footer never wraps).
+    fn render_composer_footer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_1()
+            .pt_1()
+            .px_1()
+            // EXP-847: a READ-ONLY read of `config_state.currentMode` — plan
+            // is a launch-time choice (EXP-790), so this says what the run is
+            // doing, it does not offer to change it.
+            .children(self.plan_mode_label().map(|_| {
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(theme::tokens::BLUE.to_hsla())
+                    .child(SharedString::from(PLAN_MODE_FOOTER))
+            }))
+            // EXP-698: the attach tool is ALWAYS offered — steer images upload
+            // to the session route, so a batch/action run (no issue at all)
+            // attaches exactly like an issue run. EXP-850 §13: its glyph is
+            // `ui-add` on every steer composer ×4; `editor-image` stayed with
+            // the comment and description editors.
+            .child(
+                crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
+                    .tooltip("Attach image")
+                    .disabled(self.sending)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.pick_images(window, cx);
+                    })),
+            )
+            .child(div().flex_1().min_w_0())
+            .children(self.render_model_pin(cx))
+            .children(self.render_context_ring(cx))
+            .text_color(muted)
+            .into_any_element()
+    }
+
+    /// EXP-877 — the model the run is on, off `config_state.options[model]`
+    /// (the engine publishes the VALUE; there is no menu on the wire).
+    ///
+    /// Claude gets a PICKER, and picking sends `/model <alias>` to the agent
+    /// as a message: that prompt is how the CLI switches, so it queues
+    /// mid-turn like anything else and the republished `config_state` is the
+    /// confirmation. Nothing is written optimistically — a pick the CLI
+    /// refuses must not leave the footer lying.
+    ///
+    /// Codex has no such prompt, so its model is a plain label. Nothing
+    /// renders at all when the run published no `model` option (an older
+    /// device) or a BLANK one (codex on its CLI default — "CLI default" is a
+    /// launch-picker word, and in a footer that reports what the run IS on it
+    /// would read as the name of a model). Web `sessionModel` ×2.
+    fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let chip = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)?;
+        if chip.value.trim().is_empty() {
+            return None;
+        }
+        let label = SharedString::from(model_label(&chip.value));
+        if self.agent() != SessionAgent::Claude {
+            return Some(
+                div()
+                    .flex_shrink_0()
+                    .px_1()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(label)
+                    .into_any_element(),
+            );
+        }
+        let trigger = Button::new("steer-model")
+            .ghost()
+            .cursor_pointer()
+            .xsmall()
+            .label(label)
+            .disabled(!self.run_open());
+        Some(
+            crate::launch_options::choice_pin(
+                trigger,
+                &crate::coding_selects::MODEL_CHOICES,
+                chip.value.clone(),
+                |view: &mut Self, alias: &str, _window, cx| {
+                    view.send_command(&format!("/model {alias}"), cx);
+                },
+                cx,
+            )
+            .into_any_element(),
+        )
+    }
+
+    /// EXP-877 — the context ring, and the usage sheet it opens. Hidden on a
+    /// replay and once the run is over (a finished run's window is a number
+    /// about a machine that is no longer working) and whenever the run has
+    /// published no window at all.
+    fn render_context_ring(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if self.source.read_only() || self.session_over() {
+            return None;
+        }
+        let usage = self.usage();
+        let percent = crate::usage_bar::context_percent(usage.as_ref())?;
+        let ring = crate::usage_sheet::context_ring("steer-context", percent, usage.as_ref(), cx);
+        let agent = self.builtin_agent();
+        let device_id = self.session_row().and_then(|row| row.device_id.clone());
+        let local = self.is_local();
+        let working = self.working_now();
+        let session_id = self.session_id.to_string();
+        Some(
+            gpui_component::popover::Popover::new("session-usage")
+                .p_2()
+                .trigger(ring)
+                .content(move |_, _window, cx| {
+                    // The machine's rate-limit windows: read from the local
+                    // agent status for a run hosted here, off the synced
+                    // `devices` row for one hosted anywhere else.
+                    let windows = agent.and_then(|agent| {
+                        if local {
+                            crate::device_settings::own_agent_status(cx)
+                                .1
+                                .get(agent.id())
+                                .cloned()
+                        } else {
+                            crate::usage_sheet::device_usage(device_id.as_deref(), agent, cx)
+                        }
+                    });
+                    let switch = agent.map(|agent| crate::account_switch::SwitchContext {
+                        session_id: session_id.clone(),
+                        device_id: device_id.clone(),
+                        local,
+                        agent,
+                        working,
+                    });
+                    crate::usage_sheet::render_usage_sheet(
+                        agent,
+                        usage.as_ref(),
+                        windows.as_ref(),
+                        switch,
+                        cx,
+                    )
+                })
+                .into_any_element(),
+        )
     }
 
     /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
@@ -6889,7 +6781,6 @@ impl Render for SteerSessionView {
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);
         self.sync_card_focus(window, cx);
-        let header = self.chrome.then(|| self.render_header(cx));
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);
         let feed = self.render_feed(cx);
@@ -6916,20 +6807,13 @@ impl Render for SteerSessionView {
         let queue = queue_strip_visible(self.run_open(), self.feed.queue().len())
             .then(|| self.render_queue_strip(cx))
             .flatten();
-        // EXP-850 §11: the diff PANE splits this column — transcript left,
-        // diff right. On a view too narrow for both the pane takes the whole
-        // width (the transcript is one toggle away).
+        // EXP-877: the diff is a FULL PAGE under the header, not a split.
+        // Two things you read, not one thing you read while glancing at the
+        // other — the split gave each half too little, and every reader had
+        // to drag the edge before either was usable.
         let pane = self.render_diff_pane(cx);
-        let width = f32::from(self.view_width.get());
-        let conversation_visible = pane.is_none()
-            || crate::diff_pane::transcript_visible(self.diff_pane_width(), width);
         let width_probe = self.view_width.clone();
-        let right_probe = self.view_right.clone();
-        // EXP-862: while the pane's edge is being dragged the whole view is
-        // the capture surface — an 8px strip loses the pointer on the first
-        // frame, and a gesture that dies mid-drag is worse than no drag.
-        let resizing = self.diff_resize.is_some();
-        let conversation = conversation_visible.then(|| {
+        let conversation = pane.is_none().then(|| {
             v_flex()
                 .flex_1()
                 .h_full()
@@ -6959,7 +6843,6 @@ impl Render for SteerSessionView {
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .children(header)
             .child(
                 div()
                     .relative()
@@ -6969,53 +6852,29 @@ impl Render for SteerSessionView {
                     .min_w_0()
                     .child(
                         // Deliberately NOT `h_flex` — its `items_center`
-                        // would size both columns to their content instead
-                        // of the pane's height.
+                        // would size the child to its content rather than to
+                        // the full height.
                         div()
                             .flex()
-                            .flex_row()
+                            .flex_col()
                             .size_full()
                             .min_w_0()
                             .min_h_0()
                             .children(conversation)
                             .children(pane),
                     )
-                    // The view's width (and its right edge in window
-                    // coordinates, which is what a drag measures the pane
-                    // from), read back for the next frame's split — the
-                    // canvas paints nothing.
+                    // The view's width, read back for the next frame's bubble
+                    // cap — the canvas paints nothing.
                     .child(
                         gpui::canvas(
                             move |bounds, _, _| {
                                 width_probe.set(bounds.size.width);
-                                right_probe.set(bounds.right());
                             },
                             |_, _, _, _| {},
                         )
                         .absolute()
                         .size_full(),
-                    )
-                    .when(resizing, |this| {
-                        this.on_mouse_move(cx.listener(
-                            |this, event: &gpui::MouseMoveEvent, _window, cx| {
-                                this.drag_diff_resize(event.position.x, cx);
-                            },
-                        ))
-                        .on_mouse_up(
-                            gpui::MouseButton::Left,
-                            cx.listener(|this, _: &gpui::MouseUpEvent, _window, cx| {
-                                this.end_diff_resize(cx);
-                            }),
-                        )
-                        // The button may come up anywhere, including over
-                        // another window's edge — the drag ends either way.
-                        .on_mouse_up_out(
-                            gpui::MouseButton::Left,
-                            cx.listener(|this, _: &gpui::MouseUpEvent, _window, cx| {
-                                this.end_diff_resize(cx);
-                            }),
-                        )
-                    }),
+                    ),
             )
     }
 }
@@ -7598,9 +7457,9 @@ mod tests {
             failure_banner(&long).len(),
             "Session failed: ".len() + FAILURE_BANNER_MAX
         );
-        // A blank reason is no reason: the plain ended wording, never
-        // "Session failed: ".
-        assert_eq!(failure_banner("   \n "), ENDED_BANNER);
+        // A blank reason is still a FAILURE — the exit callback only hands
+        // one over when the run died (EXP-877).
+        assert_eq!(failure_banner("   \n "), FAILURE_FALLBACK);
         // The phase mapping carries it.
         assert_eq!(
             viewer_phase(engine::EnginePhase::Failed("boom".to_string())),
@@ -7608,6 +7467,48 @@ mod tests {
                 outcome: Some("Session failed: boom".to_string())
             }
         );
+    }
+
+    /// EXP-877: the footer prints a model's NAME, not its wire value — the
+    /// picker's own label for an alias, the codex label for a slug, and a
+    /// capitalised fallback for anything this build does not know (so a new
+    /// tier still reads as a name). Byte-identical with `MODEL_CHOICES`.
+    #[test]
+    fn the_footer_prints_a_models_name() {
+        assert_eq!(model_label("opus"), "Opus");
+        assert_eq!(model_label("fable"), "Fable");
+        assert_eq!(model_label("sonnet"), "Sonnet");
+        assert_eq!(model_label("gpt-5.6-sol"), "GPT-5.6 Sol");
+        // Unknown to this build: raised, never dropped.
+        assert_eq!(model_label("claude-opus-4-7"), "Claude-opus-4-7");
+        // A BLANK value never reaches here (`render_model_pin` renders
+        // nothing for codex's CLI default), and produces nothing if it does.
+        assert_eq!(model_label(""), "");
+        // The picker's labels ARE the table — a rename there renames here.
+        for (label, value) in crate::coding_selects::MODEL_CHOICES {
+            assert_eq!(model_label(value), label);
+        }
+    }
+
+    /// EXP-877: an ended run banners a FAILURE and nothing else. A plain end
+    /// (the engine's `Ended`) and a publisher's `bye` token (`exit:0`, the
+    /// history handshake's `history`) render no strip at all — the header's
+    /// status is where "ended" belongs.
+    #[test]
+    fn only_a_real_failure_still_banners_an_ended_run() {
+        assert_eq!(
+            ended_banner(Some(&failure_banner("boom"))).as_deref(),
+            Some("Session failed: boom")
+        );
+        assert_eq!(
+            ended_banner(Some(&failure_banner(""))).as_deref(),
+            Some(FAILURE_FALLBACK)
+        );
+        // A plain `bye`, whatever outcome it carried.
+        assert_eq!(ended_banner(None), None);
+        assert_eq!(ended_banner(Some("exit:0")), None);
+        assert_eq!(ended_banner(Some("history")), None);
+        assert_eq!(ended_banner(Some("")), None);
     }
 
     /// EXP-758: `Failed` precedes `Ended`, and the feed closing can add a

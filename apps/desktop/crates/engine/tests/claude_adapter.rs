@@ -23,7 +23,8 @@ use agent_client_protocol::schema::v1::{
     CancelNotification, ListSessionsRequest, LoadSessionRequest, NewSessionRequest,
     NewSessionResponse, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigId, SessionConfigOptionValue, SessionModeId,
+    SessionConfigId, SessionConfigKind, SessionConfigOptionValue, SessionConfigSelectOptions,
+    SessionModeId,
     SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
     StopReason, TextContent, ToolCallContent, ToolKind,
 };
@@ -666,8 +667,9 @@ async fn a_plain_turn_streams_once_and_settles_on_end_turn() {
         run.shape(),
         vec![
             "commands:2".to_string(),
-            // EXP-772: the vocabulary is empty — no option chips anywhere.
-            "config:0".to_string(),
+            // EXP-877: exactly ONE option, the `model` VALUE (EXP-772 took
+            // effort / fast / agent away and they stay away).
+            "config:1".to_string(),
             // No mode event: the init frame reports the CLI's own spelling
             // (`auto`), which clamps to the `bypassPermissions` this run
             // already started in. Only the two modes `available_modes`
@@ -835,10 +837,23 @@ async fn the_new_session_response_carries_the_modes_and_the_config_options() {
     assert_eq!(ids, vec!["plan".to_string(), "bypassPermissions".to_string()]);
     assert_eq!(modes.current_mode_id.0.as_ref(), "bypassPermissions");
 
-    // …and no option chips at all: model / effort / fast / agent left the
-    // mid-session steering UI on every client.
+    // …and exactly ONE option chip: the `model` VALUE, with NO menu values
+    // (EXP-877 — a switch is `/model <alias>` typed as a message; effort /
+    // fast / agent left the mid-session steering UI for good in EXP-772).
     let options = run.session.config_options.as_ref().expect("config options");
-    assert!(options.is_empty(), "{options:?}");
+    assert_eq!(options.len(), 1, "{options:?}");
+    assert_eq!(options[0].id.0.as_ref(), "model");
+    let SessionConfigKind::Select(select) = &options[0].kind else {
+        panic!("the model option is a select: {options:?}");
+    };
+    // The fixture's CLI reports `claude-opus-4-6`, which folds onto the alias
+    // the composer offers.
+    assert_eq!(select.current_value.0.as_ref(), "opus");
+    assert_eq!(
+        select.options,
+        SessionConfigSelectOptions::Ungrouped(Vec::new()),
+        "the wire carries a value, never a menu"
+    );
 }
 
 #[tokio::test]

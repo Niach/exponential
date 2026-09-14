@@ -19,16 +19,16 @@
 //! [`feed_source_for`] is that decision, pure and unit-tested; materializing
 //! it is [`resolve_source`].
 //!
-//! This screen owns the CHROME around that transcript — the EXP-850 §10
-//! header: the identity block, CENTERED (EXP-863: no Back — the sidebar
-//! carries navigation), then the read-only Plan chip, Pin, Context, Diff,
-//! Merge and Stop in a right-aligned group; under it, for an issue-bound
-//! run, the issue's own header (EXP-863: `IssueHeader`'s rows over a
-//! read-only title; EXP-870: the header's face control flips back to the issue). The
-//! transcript view keeps everything that
-//! is about the conversation itself (the feed, the banners, the diff pane the
-//! Diff pill toggles, the composer), which is why it renders headerless here
-//! ([`SteerSessionView::set_chrome`]).
+//! This screen owns the CHROME around that transcript — EXP-877's shared
+//! `work_header::WorkHeader`, the SAME header the issue detail renders: for
+//! an issue-bound run the issue's title, the `Issue | Run | +N -M` face
+//! toggle with the pin and `…` menu, and the property tray trailing Merge PR
+//! + the ONE coding action (Stop / Resume / Start coding, from the run
+//! state); for a chat / action / batch run the run title with `[Run | diff]
+//! [Merge PR] [Stop | Resume]`. The transcript view keeps everything that is
+//! about the conversation itself (the feed, the banners, the full-page diff
+//! the toggle's diff item opens, the composer with its usage readout) and
+//! renders headerless: this screen is the only header.
 //!
 //! Lifetime rule: a view lives exactly as long as its TAB. `ScreensPanel`
 //! creates it on first activation and calls [`SessionScreenView::shutdown`]
@@ -37,21 +37,18 @@
 //! tab as a read-only transcript, which is what [`SessionScreenView::mark_ended`]
 //! marks when the engine reports the exit before the row syncs.
 
+use std::rc::Rc;
+
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FocusHandle,
-    Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled,
-    Subscription, Window,
+    div, AnyElement, App, AppContext as _, Entity, FocusHandle, Focusable, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, notification::Notification, popover::Popover, v_flex,
-    ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    button::Button, h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon,
+    Sizable as _, WindowExt as _,
 };
 
-use crate::account_switch::SwitchContext;
 use crate::coding_flow::{LocalSessions, StartCodingControl};
-use crate::controls::WebText as _;
 use crate::icons::registry;
 use crate::issue_header::IssueHeader;
 use crate::navigation::Screen;
@@ -64,13 +61,6 @@ use crate::steer_viewer::{FeedSource, SteerSessionView};
 /// the EXP-791 slide-in over the issue is gone.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     open_session_inner(session_id, Origin::Derive, window, cx);
-}
-
-/// EXP-851: [`open_session`] from a RAIL row (a pinned run) — the rail is
-/// not a list, so the run opens with no `ListNav` beside
-/// it instead of inheriting whatever the main view was showing.
-pub(crate) fn open_session_from_rail(session_id: &str, window: &mut Window, cx: &mut App) {
-    open_session_inner(session_id, Origin::Rail, window, cx);
 }
 
 /// EXP-862: [`open_session`] from a LIST, which pins that list explicitly —
@@ -94,8 +84,6 @@ pub(crate) fn open_session_with_origin(
 enum Origin {
     /// Let the EXP-851 breadcrumb rule work it out from the screen we leave.
     Derive,
-    /// Opened from the rail: no list at all.
-    Rail,
     /// Opened from a list that names itself.
     List(crate::navigation::TabOrigin),
 }
@@ -120,7 +108,6 @@ fn open_session_inner(
         session_id: session_id.to_string(),
     };
     match origin {
-        Origin::Rail => crate::navigation::navigate_from_rail(window, cx, screen),
         Origin::List(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
         Origin::Derive => crate::navigation::navigate(window, cx, screen),
     }
@@ -342,25 +329,22 @@ pub(crate) struct SessionScreenView {
     /// The ONE transcript renderer, over whichever source [`resolve_source`]
     /// picked. It renders headerless: this screen paints the header.
     inner: Entity<SteerSessionView>,
-    feed: SessionFeed,
     /// The engine reported its exit (D2). The synced row carries the same
     /// truth a round trip later — the inner view reads that one itself.
     ended: bool,
-    /// EXP-773: whether this machine still holds the run's workspace, resolved
-    /// ONCE (the registry parse is a file read; a session screen repaints on
-    /// every feed event). `None` until the run is over — a live run offers no
-    /// Resume.
-    resumable: Option<bool>,
-    /// EXP-800: this install's persistent device id, read off settings.json
-    /// ONCE — the resume decision compares it against the row's `device_id`
-    /// on every repaint.
-    own_device_id: String,
-    /// EXP-863: the issue band IS the issue's header (pin + `…` menu, the
-    /// title, the property tray). Built lazily, once the synced row names an
-    /// `issue_id`; `None` for a batch / action / chat run. The header owns its
-    /// own `StartCodingControl` (its constructor wants one; the session
-    /// screen never renders it — the tray's trailing slot is "Open issue").
+    /// EXP-773/EXP-877: whether this machine still holds a run's workspace
+    /// (a reclaimed worktree is re-created on resume), resolved ONCE per run
+    /// id (the registry parse is a file read; a session screen repaints on
+    /// every feed event) — `work_header::resume_path_cached`'s cache.
+    resumable: Option<(String, bool)>,
+    /// EXP-863/EXP-877: the issue's header entity (the property tray, the
+    /// pin + `…` cluster), built lazily once the synced row names an
+    /// `issue_id`; `None` for a batch / action / chat run. It shares the
+    /// detail's `WorkHeader` frame, launcher included.
     header: Option<Entity<IssueHeader>>,
+    /// The launcher the header above owns — pointed at the run's issue so
+    /// "Start coding" works from the run face too.
+    start_coding: Option<Entity<StartCodingControl>>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -372,8 +356,8 @@ impl SessionScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let (feed, source) = resolve_source(&session_id, cx);
-        Self::build(session_id, feed, source, window, cx)
+        let (_, source) = resolve_source(&session_id, cx);
+        Self::build(session_id, source, window, cx)
     }
 
     /// The REMOTE screen, unconditionally — what `build_screen_content` needs
@@ -385,45 +369,37 @@ impl SessionScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        Self::build(
-            session_id,
-            SessionFeed::Remote,
-            FeedSource::Remote { handle: None },
-            window,
-            cx,
-        )
+        Self::build(session_id, FeedSource::Remote { handle: None }, window, cx)
     }
 
     fn build(
         session_id: String,
-        feed: SessionFeed,
         source: FeedSource,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let inner = cx.new(|cx| {
-            let mut view = SteerSessionView::with_source(session_id.clone(), source, window, cx);
-            view.set_chrome(false);
-            view
-        });
+        let inner =
+            cx.new(|cx| SteerSessionView::with_source(session_id.clone(), source, window, cx));
         // The transcript notifies on every feed change — which is also when
-        // the header's usage and status move.
+        // the header's status moves.
         let mut subscriptions = vec![cx.observe(&inner, |_: &mut Self, _, cx| cx.notify())];
-        // EXP-778: the header's pin toggle reads the per-user pins rows, which
-        // move on no other feed this screen watches.
         if let Some(store) = sync::Store::try_global(cx) {
-            let pins = store.collections().pins.clone();
-            subscriptions.push(cx.observe(&pins, |_: &mut Self, _, cx| cx.notify()));
+            // EXP-877: the header names the run's issue (title, PR state)
+            // straight off the synced row — its arrival, ahead of the issue
+            // header entity that will observe it, must repaint this screen.
+            let issues = store.collections().issues.clone();
+            subscriptions.push(cx.observe(&issues, |_: &mut Self, _, cx| cx.notify()));
         }
-        let own_device_id = crate::queries::own_device_id(cx);
+        // The header's Merge pill arms/spins off the shared merge state.
+        let merge_state = crate::pr_merge::MergeState::global(cx);
+        subscriptions.push(cx.observe(&merge_state, |_: &mut Self, _, cx| cx.notify()));
         Self {
             session_id,
             inner,
-            feed,
             ended: false,
             resumable: None,
-            own_device_id,
             header: None,
+            start_coding: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -443,13 +419,20 @@ impl SessionScreenView {
             Some(header) => header,
             None => {
                 let start_coding = cx.new(StartCodingControl::new);
-                let header = cx.new(|cx| IssueHeader::new(start_coding, window, cx));
+                let header =
+                    cx.new(|cx| IssueHeader::new(start_coding.clone(), window, cx));
                 self._subscriptions
                     .push(cx.observe(&header, |_: &mut Self, _, cx| cx.notify()));
                 self.header = Some(header.clone());
+                self.start_coding = Some(start_coding);
                 header
             }
         };
+        if let Some(start_coding) = &self.start_coding {
+            start_coding.update(cx, |control, cx| {
+                control.set_issue(Some(issue_id.to_string()), cx)
+            });
+        }
         header.update(cx, |header, cx| {
             header.set_issue(Some(issue_id.to_string()), window, cx);
         });
@@ -483,6 +466,26 @@ impl SessionScreenView {
         cx.notify();
     }
 
+    // ── Diff face (EXP-877) ───────────────────────────────────────────────
+
+    /// `+N -M` over the run's published diff — the header toggle's diff item.
+    /// `None` when the run published no diff at all (the item is hidden).
+    pub(crate) fn diff_totals(&self, cx: &App) -> Option<(u32, u32)> {
+        self.inner.read(cx).diff_totals()
+    }
+
+    /// Whether the viewer's full-page diff is up (= the Diff face).
+    pub(crate) fn diff_open(&self, cx: &App) -> bool {
+        self.inner.read(cx).diff_open()
+    }
+
+    /// Show or hide the full-page diff — the toggle's Diff / Run picks, and
+    /// the detail's Diff pick after it flips the tab to this face.
+    pub(crate) fn set_diff_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
+        self.inner.update(cx, |view, cx| view.set_diff_open(open, cx));
+        cx.notify();
+    }
+
     // ── Header ────────────────────────────────────────────────────────────
 
     /// Whether the run is over — the engine's own exit edge, the transcript's
@@ -491,55 +494,28 @@ impl SessionScreenView {
         self.ended || self.inner.read(cx).session_over()
     }
 
-    /// EXP-773 — this machine holds the run's record (a reclaimed worktree
-    /// is re-created on resume), so the header may offer Resume. Resolved
-    /// once per screen (the registry is a file).
-    fn local_resumable(&mut self, cx: &App) -> bool {
-        match self.resumable {
-            Some(known) => known,
-            None => {
-                let known = crate::coding_flow::run_is_resumable_ref(&self.session_id, cx);
-                self.resumable = Some(known);
-                known
-            }
-        }
-    }
-
-    /// Where the header's Resume goes, or `None` while the run is live or no
-    /// machine can take it. EXP-800: the local half is the once-per-screen
-    /// cache above; the remote half is re-read per repaint (one pass over the
-    /// synced `devices` rows — the inner viewer observes that collection, so
-    /// a heartbeat edge repaints this header like the offline caption).
-    fn resume_path(&mut self, cx: &App) -> Option<ResumePath> {
+    /// Where an issue-less run's Resume goes, or `None` while the run is live
+    /// or no machine can take it (EXP-800: the local half is the once-per-run
+    /// cache, the remote half is re-read per repaint — the inner viewer
+    /// observes the devices rows, so a heartbeat edge repaints this header).
+    fn resume_path(&mut self, cx: &mut gpui::Context<Self>) -> Option<ResumePath> {
         if !self.run_over(cx) {
             return None;
         }
-        let local = self.local_resumable(cx);
-        let inner = self.inner.read(cx);
-        let (Some(row), Some(store)) = (inner.session_row(), sync::Store::try_global(cx)) else {
+        let row = self.inner.read(cx).session_row().cloned();
+        let Some(row) = row else {
+            // No synced row: only this machine's registry can answer.
+            let local = match &self.resumable {
+                Some((id, known)) if *id == self.session_id => *known,
+                _ => {
+                    let known = crate::coding_flow::run_is_resumable_ref(&self.session_id, cx);
+                    self.resumable = Some((self.session_id.clone(), known));
+                    known
+                }
+            };
             return local.then_some(ResumePath::Local);
         };
-        let own_device = row.device_id.as_deref() == Some(self.own_device_id.as_str());
-        resume_path_for(
-            local,
-            own_device,
-            row,
-            store.collections().devices.read(cx).iter(),
-            chrono::Utc::now().timestamp_millis(),
-        )
-    }
-
-    /// EXP-773 — the ended run's byline, the one its list row used to carry
-    /// (machine and when, EXP-833). `None` while the row has not synced.
-    fn ended_byline(&self, cx: &App) -> Option<SharedString> {
-        let inner = self.inner.read(cx);
-        let row = inner.session_row()?;
-        let byline = crate::run_rows::past_run_byline(
-            row,
-            inner.device_label(cx).as_deref(),
-            chrono::Utc::now().timestamp(),
-        );
-        (!byline.is_empty()).then(|| SharedString::from(byline))
+        crate::work_header::resume_path_cached(&row, &mut self.resumable, cx)
     }
 
     /// EXP-849 — this run IS the continuation of an earlier one (an ordinary
@@ -601,414 +577,146 @@ impl SessionScreenView {
         )
     }
 
-    fn render_header(
-        &mut self,
-        face: Option<AnyElement>,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        // EXP-778: the pin toggle needs the run's team; a local start ahead
-        // of its synced echo has no row yet and simply shows no toggle.
-        let pin_team_id = self
-            .inner
-            .read(cx)
-            .session_row()
-            .and_then(|row| row.team_id.clone());
-        let muted = cx.theme().muted_foreground;
-        // EXP-773: an ended run wears its list byline and, when this machine
-        // still holds the workspace, the Resume the Past row used to carry.
-        let resume = self.resume_path(cx);
-        // EXP-800: the remote button names the host; the byline below moves
-        // the label, so its copy is taken first.
-        let resume_host = self
-            .inner
-            .read(cx)
-            .device_label(cx)
-            .unwrap_or_else(|| "its machine".to_string());
-        let byline = self.run_over(cx).then(|| self.ended_byline(cx)).flatten();
-        let inner = self.inner.read(cx);
-        let (tone, caption) = inner.header_status(cx);
-        let (identifier, subject) = inner.header_identity(cx);
-        let device = inner.device_label(cx);
-        let can_kill = inner.killable(cx);
-        let usage = inner.usage();
-        let usage_summary = crate::session_extras::context_summary(usage.as_ref());
-        let agent = inner.builtin_agent();
-        // EXP-847: the run is in PLAN mode right now — a read-only chip, never
-        // a control (EXP-790: the mode is a launch-time choice). It clears
-        // itself the moment an approved `ExitPlanMode` moves the mode on.
-        let plan_mode = inner.plan_mode_label();
-        let over = inner.session_over();
-        let local = inner.is_local();
-        let device_id = inner
-            .session_row()
-            .and_then(|row| row.device_id.clone());
-        // EXP-849: read with the other `inner` facts — an account switch is
-        // refused mid-turn, and taking it later would hold this borrow across
-        // the settings read below.
-        let working = inner.working_now();
-        // EXP-850 §10: the Diff pill's totals (hidden without a diff) and
-        // whether the pane is up; §11's pane lives inside the transcript view.
-        let diff_totals = inner.diff_totals();
-        let diff_open = inner.diff_open();
-        // EXP-850 §10: the Merge control the Changes band used to carry — the
-        // ONE merge-target rule, offered only while the run is live.
-        let merge_target = inner.merge_target(cx);
-        // The pill only exists for a LIVE run's own meter (see the header
-        // below) — resolving the machine's windows for a header that will not
-        // show them is a settings read and a jsonb parse per repaint.
-        let shows_usage = usage_summary.is_some()
-            && !over
-            && !self.ended
-            && self.feed != SessionFeed::Replay;
-        // The HOST machine's rate-limit windows: this install's own probe for
-        // a run we host, the synced `devices.agent_usage` for one we do not.
-        let windows = agent.filter(|_| shows_usage).and_then(|agent| {
-            if local {
-                crate::device_settings::own_agent_status(cx)
-                    .1
-                    .get(agent.id())
-                    .cloned()
+    /// The face toggle for this screen: `Issue` when the run is issue-bound,
+    /// `Run`, and the diff item when the run has changes; active = Diff while
+    /// the full-page diff is up, else Run. Issue → the tab's issue face;
+    /// Run / Diff → hide / show the diff in place.
+    fn face_toggle(&self, issue_id: Option<String>, cx: &App) -> Option<AnyElement> {
+        use crate::work_header::{Face, FaceToggle};
+        let inner = self.inner.clone();
+        let spec = FaceToggle {
+            issue: issue_id.is_some(),
+            run: Some(self.session_id.clone()),
+            diff: self.diff_totals(cx),
+            active: if self.diff_open(cx) {
+                Face::Diff
             } else {
-                crate::usage_sheet::device_usage(device_id.as_deref(), agent, cx)
-            }
-        });
-
-        // EXP-849: the usage readout is also the ACCOUNT control — which login
-        // this run is spending and, for claude between turns, which other one
-        // it could continue on. Built here (it needs the store and the run
-        // registry) and handed to the sheet as plain data.
-        let switch = shows_usage
-            .then(|| {
-                agent.map(|agent| SwitchContext {
-                    session_id: self.session_id.clone(),
-                    device_id: device_id.clone(),
-                    local,
-                    agent,
-                    working,
-                })
-            })
-            .flatten();
-        // The status caption already names the device when the transcript
-        // knows it (`phase_label`); append it only when it does not. An ENDED
-        // run reads its full byline instead (machine, agent, who ended it,
-        // when).
-        let caption = byline.unwrap_or_else(|| {
-            SharedString::from(match device {
-                Some(device) if !caption.contains(device.as_str()) => {
-                    format!("{caption} · {device}")
-                }
-                _ => caption,
-            })
-        });
-        // EXP-863: the identity is CENTERED like the web header — a spacer on
-        // the left, the two-line identity column in the middle, the controls
-        // right-aligned. The outer two share the slack equally; the right one
-        // keeps its content width (no `min_w_0`), so on a narrow pane the
-        // identity gives way before a control does.
-        let identity = v_flex()
-            .flex_1()
-            .min_w_0()
-            .items_center()
-            .gap_0p5()
-            .child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .justify_center()
-                    .gap_1p5()
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .size_1p5()
-                            .rounded_full()
-                            .bg(tone),
-                    )
-                    .when_some(identifier, |this, identifier| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(muted)
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .child(identifier),
-                        )
-                    })
-                    // EXP-791: no agent pill — the agent is the byline's
-                    // business (an ended run names it there), and the live
-                    // caption's.
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(subject),
-                    ),
-            )
-            .child(
-                div()
-                    .max_w_full()
-                    .min_w_0()
-                    .truncate()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(caption),
-            );
-        h_flex()
-            .w_full()
-            .flex_shrink_0()
-            .gap_2()
-            .items_center()
-            .px_2()
-            .py_1p5()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            // EXP-870: the tab's `Issue | Run` control leads the header, where
-            // the web session header carries it.
-            .child(h_flex().flex_1().min_w_0().items_center().children(face))
-            .child(identity)
-            .child(
-                h_flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    // EXP-847: plan mode, VISIBLE and read-only (EXP-790: the mode
-                    // is a launch-time choice). EXP-863: the web's chip — a bare
-                    // hairline box, no glyph, no fill, 11px muted text.
-                    .when_some(plan_mode.filter(|_| !over), |this, label| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .rounded(px(theme::tokens::radius::SM))
-                                .border_1()
-                                .border_color(cx.theme().border.opacity(0.6))
-                                .px_1p5()
-                                .py_0p5()
-                                .text_2xs()
-                                .text_color(muted)
-                                .whitespace_nowrap()
-                                .child(label),
-                        )
-                    })
-                    // EXP-778/EXP-850 §10: the personal pin toggle — a pinned run
-                    // lands in the rail's Pinned section, live or ended. It sits
-                    // between the Plan chip and the Context pill, and it is a GHOST
-                    // button everywhere a pin renders.
-                    .when_some(pin_team_id, |this, team_id| {
-                        this.child(crate::pins::pin_toggle_button(
-                            "session-pin",
-                            team_id,
-                            domain::contract::PIN_KIND_SESSION,
-                            self.session_id.clone(),
+                Face::Run
+            },
+        };
+        crate::work_header::face_toggle(
+            spec,
+            Rc::new(move |face, window, cx| match face {
+                Face::Issue => {
+                    if let Some(issue_id) = &issue_id {
+                        crate::screens::set_tab_face(
+                            issue_id,
+                            crate::screens::TabFace::Issue,
+                            None,
+                            window,
                             cx,
-                        ))
-                    })
-                    // EXP-746: the session's own context meter. Gone once the run is
-                    // over (a finished run's live numbers are a snapshot of nothing)
-                    // and never on a replay, whose numbers are the ones the run ended
-                    // with, not the ones anything is spending now.
-                    .when_some(
-                        usage_summary.filter(|_| shows_usage),
-                        |this, summary| {
-                            let usage = usage;
-                            this.child(
-                                Popover::new("session-usage")
-                                    .p_2()
-                                    .trigger(
-                                        crate::surface::glass_pill_button(
-                                            "session-usage-pill",
-                                            crate::surface::PillSize::Sm,
-                                            cx,
-                                        )
-                                        .icon(registry::UI_USAGE)
-                                        .label(SharedString::from(summary))
-                                        .tooltip("Usage"),
-                                    )
-                                    .content(move |_, _window, cx| {
-                                        crate::usage_sheet::render_usage_sheet(
-                                            agent,
-                                            usage.as_ref(),
-                                            windows.as_ref(),
-                                            switch.clone(),
-                                            cx,
-                                        )
-                                    }),
-                            )
-                        },
-                    )
-                    // EXP-850 §10: the Diff pill — the `coding-diff` glyph with the
-                    // run's `+N −M`, toggling the pane beside the transcript. Hidden
-                    // when the run has published no diff at all.
-                    .when_some(diff_totals, |this, (additions, deletions)| {
-                        let inner = self.inner.clone();
-                        this.child(
-                            crate::surface::glass_pill(
-                                "session-diff",
-                                crate::surface::PillSize::Sm,
-                                if diff_open {
-                                    crate::surface::PillMode::Select { selected: true }
-                                } else {
-                                    crate::surface::PillMode::Action
-                                },
-                                cx,
-                            )
-                            .tooltip(move |window, cx| {
-                                gpui_component::tooltip::Tooltip::new(if diff_open {
-                                    "Hide changes"
-                                } else {
-                                    "Show changes"
-                                })
-                                .build(window, cx)
-                            })
-                            .child(
-                                Icon::new(registry::CODING_DIFF)
-                                    .with_size(px(crate::surface::PillSize::Sm.glyph())),
-                            )
-                            .child(
-                                div()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .text_color(theme::tokens::GREEN.to_hsla())
-                                    .child(SharedString::from(format!("+{additions}"))),
-                            )
-                            .child(
-                                div()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .text_color(cx.theme().danger)
-                                    .child(SharedString::from(format!("-{deletions}"))),
-                            )
-                            .on_click(cx.listener(move |_, _, _window, cx| {
-                                inner.update(cx, |view, cx| view.toggle_diff(cx));
-                            })),
-                        )
-                    })
-                    // EXP-850 §10: Merge, where the Changes band used to carry it —
-                    // the same two-click arm/confirm control, offered only while the
-                    // run is live and its PR open.
-                    .when_some(merge_target, |this, target| {
-                        let merge_state = crate::pr_merge::MergeState::global(cx);
-                        this.child(
-                            crate::surface::glass_pill(
-                                "session-merge",
-                                crate::surface::PillSize::Sm,
-                                crate::surface::PillMode::Readonly,
-                                cx,
-                            )
-                            .px_0()
-                            .child(crate::changes_bar::merge_button(&target, &merge_state, cx)),
-                        )
-                    })
-                    .when_some(resume, |this, path| {
-                        let session_id = self.session_id.clone();
-                        let button = Button::new("session-resume")
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(registry::RUN_RESUME)
-                            .label("Resume");
-                        match path {
-                            ResumePath::Local => this.child(button.on_click(move |_, window, cx| {
-                                // The ONE desktop resume entry point: the transport
-                                // comes from the recorded run, never from the
-                                // setting.
-                                crate::action_run::resume_run(
-                                    session_id.clone(),
-                                    Some(window.window_handle()),
-                                    false,
-                                    coding::LaunchOrigin::Local,
-                                    cx,
-                                );
-                            })),
-                            ResumePath::Remote { device_id } => {
-                                // EXP-800: the run relaunches on the machine that
-                                // hosted it; the tooltip says so before the click.
-                                let label = resume_host.clone();
-                                this.child(
-                                    button
-                                        .tooltip(SharedString::from(format!("Resume on {label}")))
-                                        .on_click(move |_, window, cx| {
-                                            resume_remote(
-                                                session_id.clone(),
-                                                device_id.clone(),
-                                                label.clone(),
-                                                window,
-                                                cx,
-                                            );
-                                        }),
-                                )
-                            }
-                        }
-                    })
-                    .when(can_kill && !self.ended, |this| {
-                        // EXP-818: ONE Stop, the same pill whether this machine hosts
-                        // the run or another one does — the confirm is the run's own
-                        // (`prompt_kill`: in-process kill or `steer.killSession`).
-                        let inner = self.inner.clone();
-                        this.child(stop_session_pill("session-stop", cx).on_click(
-                            move |_, window, cx| {
-                                inner.update(cx, |view, cx| view.prompt_kill(window, cx));
-                            },
-                        ))
-                    }),
-            )
-            .into_any_element()
+                        );
+                    }
+                }
+                Face::Run => inner.update(cx, |view, cx| view.set_diff_open(false, cx)),
+                Face::Diff => inner.update(cx, |view, cx| view.set_diff_open(true, cx)),
+            }),
+            cx,
+        )
     }
 
-    /// The issue this run is bound to, off the synced row. `None` for a batch
-    /// / action / chat run, and before the row has synced.
-    fn issue_id(&self, cx: &App) -> Option<String> {
-        self.inner
-            .read(cx)
-            .session_row()
-            .and_then(|row| row.issue_id.clone())
-    }
+    /// EXP-877: the shared `WorkHeader`. Issue-bound → the SAME header the
+    /// issue detail renders (a static title, the toggle · pin · `…` cluster,
+    /// the property tray trailing Merge PR + the ONE coding action). Issue-
+    /// less (chat / action / batch) → the run title (`run_rows::run_title`)
+    /// with `[Run | +N -M] [Merge PR] [Stop | Resume]` and no tray.
+    fn render_header(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        use crate::work_header::{CodingAction, WorkHeader};
+        let row = self.inner.read(cx).session_row().cloned();
+        let issue = row
+            .as_ref()
+            .and_then(|row| row.issue_id.as_deref())
+            .and_then(|issue_id| {
+                sync::Store::try_global(cx)?
+                    .collections()
+                    .issues
+                    .read(cx)
+                    .get(issue_id)
+                    .cloned()
+            });
 
-    /// EXP-827/EXP-863 — the ISSUE BAND under the header: the issue's OWN
-    /// header (`IssueHeader`: the pin + `…` top row, a read-only title, the
-    /// property tray) with "Open issue" in the tray's trailing slot where the
-    /// detail view puts Start coding / Watch — a run's own screen has nothing
-    /// to start or watch. The agent row (merge-error caption) is skipped: the
-    /// session header carries Merge itself. `None` for a batch / action /
-    /// chat run, and while the issue row has not synced.
-    fn render_issue_band(
-        &mut self,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let issue_id = self.issue_id(cx)?;
-        let issue = sync::Store::try_global(cx)?
-            .collections()
-            .issues
-            .read(cx)
-            .get(&issue_id)
-            .cloned()?;
-        let header = self.ensure_header(&issue_id, window, cx);
-        // The header entity's rows are built through `entity.update` from
-        // this render (the detail view's `render_header` precedent) — they
-        // never call back into this view synchronously. The empty trailing
-        // slot keeps the chip row's session mode (no launcher, no Merge).
-        let (top_row, chip_row) = header.update(cx, |header, cx| {
-            (
-                header.top_row(&issue, None, cx),
-                header.chip_row(&issue, Some(gpui::Empty.into_any_element()), cx),
-            )
+        if let (Some(row), Some(issue)) = (row.as_ref(), issue) {
+            let title = crate::work_header::title_row(crate::run_rows::run_title(row, Some(&issue)));
+            let toggle = self.face_toggle(Some(issue.id.clone()), cx);
+            let action = crate::work_header::issue_coding_action(
+                &issue.id,
+                Some(self.session_id.as_str()),
+                &mut self.resumable,
+                cx,
+            );
+            let header = self.ensure_header(&issue.id, window, cx);
+            // The header entity's rows are built through `entity.update` from
+            // this render (the detail view's precedent) — they never call
+            // back into this view synchronously.
+            let (right, tray, extra) = header.update(cx, |header, cx| {
+                let right = header.right_cluster(&issue, toggle, cx);
+                let actions = header.issue_actions(&issue, action, cx);
+                (
+                    right,
+                    Some(header.chip_row(&issue, actions, cx)),
+                    header.agent_row(&issue, cx),
+                )
+            });
+            return crate::work_header::render_work_header(
+                WorkHeader {
+                    title,
+                    right,
+                    tray,
+                    extra,
+                },
+                cx,
+            );
+        }
+
+        // Issue-less (or the issue row not synced yet): the run's own title.
+        let title = crate::work_header::title_row(match row.as_ref() {
+            Some(row) => crate::run_rows::run_title(row, None),
+            None => SharedString::from("Loading…"),
         });
-        Some(
-            v_flex()
-                .id(SharedString::from(format!("session-issue-band-{issue_id}")))
-                .w_full()
-                .flex_shrink_0()
-                .min_w_0()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .child(crate::issue_detail::centered_column(
-                    v_flex()
-                        .child(top_row)
-                        .child(crate::issue_header::title_row(&issue))
-                        .child(chip_row),
-                ))
-                .into_any_element(),
+        let mut right: Vec<AnyElement> = Vec::with_capacity(4);
+        right.extend(self.face_toggle(None, cx));
+        let (merge_target, killable, local, device_label) = {
+            let inner = self.inner.read(cx);
+            (
+                inner.merge_target(cx),
+                inner.killable(cx),
+                inner.is_local(),
+                inner.device_label(cx),
+            )
+        };
+        if let Some(target) = merge_target {
+            right.push(crate::work_header::merge_pill("session-merge", &target, true, cx));
+        }
+        let over = self.run_over(cx);
+        if killable && !self.ended && !over {
+            right.extend(crate::work_header::coding_action_button(
+                CodingAction::Stop {
+                    session_id: self.session_id.clone(),
+                    local,
+                    device_label,
+                },
+                None,
+                cx,
+            ));
+        } else if let Some(path) = self.resume_path(cx) {
+            right.extend(crate::work_header::coding_action_button(
+                CodingAction::Resume {
+                    session_id: self.session_id.clone(),
+                    path,
+                    host_label: device_label,
+                },
+                None,
+                cx,
+            ));
+        }
+        crate::work_header::render_work_header(
+            WorkHeader {
+                title,
+                right,
+                tray: None,
+                extra: None,
+            },
+            cx,
         )
     }
 }
@@ -1038,7 +746,7 @@ pub(crate) fn stop_session_pill(id: impl Into<gpui::ElementId>, cx: &App) -> But
 /// (`screens::sync_session_tabs`, also keyed on `resumed_from_id`) still
 /// happens on its own; opening the new row is what makes the click land
 /// somewhere instead of only toasting.
-fn resume_remote(
+pub(crate) fn resume_remote(
     session_id: String,
     device_id: String,
     device_label: String,
@@ -1118,26 +826,20 @@ impl Focusable for SessionScreenView {
 
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let face = self
-            .issue_id(cx)
-            .and_then(|issue_id| crate::screens::face_toggle(&issue_id, window, cx));
-        let header = self.render_header(face, cx);
-        let issue_band = self.render_issue_band(window, cx);
-        // EXP-849: the continuation byline sits directly under the subject —
+        let header = self.render_header(window, cx);
+        // EXP-849: the continuation byline sits directly under the header —
         // it is about THIS run's history, not about its result.
         let continuation = self.render_continuation(cx);
-        // EXP-773: one column — the identity header, EXP-827's issue band,
-        // then the transcript, whose own footer carries the Changes bar and
-        // the composer. The 280px right rail the changes used to live in is
-        // gone, and so is the finished run's summary block: EXP-862 stopped
-        // storing `coding_sessions.summary` at all, so no client renders it.
+        // EXP-773/EXP-877: one column — the shared work header, then the
+        // transcript, whose own footer carries the composer (and the usage
+        // readout). EXP-862 stopped storing `coding_sessions.summary`, so no
+        // finished-run summary block renders anywhere.
         v_flex()
             .size_full()
             .min_w_0()
             .min_h_0()
             .track_focus(&self.focus_handle)
             .child(header)
-            .children(issue_band)
             .children(continuation)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }

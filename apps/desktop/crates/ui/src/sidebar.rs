@@ -654,53 +654,6 @@ fn rail_compact_button(
         })
 }
 
-/// EXP-791: what a Sessions row's badge says about its run. Derived from the
-/// synced row (`ended`), the host's presence (`paused`, EXP-696) and the
-/// `needs_input` attention flag — in that precedence: an ended run has no
-/// badge at all, a paused host shows nothing either (its row dims), and only
-/// a run that is actually working spins or asks for input.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SessionRowState {
-    /// The transcript of a finished run (an open tab).
-    Ended,
-    /// Live, but its host is offline — nothing is happening.
-    Paused,
-    /// The agent is working.
-    Working,
-    /// The agent waits on a plan approval / question.
-    NeedsInput,
-}
-
-pub(crate) fn session_row_state(ended: bool, paused: bool, needs_input: bool) -> SessionRowState {
-    if ended {
-        SessionRowState::Ended
-    } else if paused {
-        SessionRowState::Paused
-    } else if needs_input {
-        SessionRowState::NeedsInput
-    } else {
-        SessionRowState::Working
-    }
-}
-
-impl SessionRowState {
-    /// EXP-818: the row's leading dot — the mobile `sessionStateColor`
-    /// palette (Devices rows and the session header wear the same).
-    fn dot(self, display: queries::CodingSessionDisplay, muted: Hsla) -> Hsla {
-        match self {
-            SessionRowState::Ended => muted.opacity(0.4),
-            SessionRowState::Paused => queries::session_dot_tone(
-                queries::SessionDotFacts::from_display(display, false, true),
-                muted,
-            ),
-            SessionRowState::Working | SessionRowState::NeedsInput => queries::session_dot_tone(
-                queries::SessionDotFacts::from_display(display, false, false),
-                muted,
-            ),
-        }
-    }
-}
-
 fn rail_row(
     id: impl Into<gpui::ElementId>,
     icon: Icon,
@@ -907,7 +860,6 @@ impl RailView {
         let active_screen = resolved_screen(&self.nav, cx);
         let collections = Store::global(cx).collections().clone();
         let muted = cx.theme().muted_foreground;
-        let now = chrono::Utc::now().timestamp();
         let mut out = Vec::with_capacity(pins.len());
         for (index, pin) in pins.iter().enumerate() {
             let Some((kind, target_id)) = crate::pins::pin_target(pin) else {
@@ -959,50 +911,6 @@ impl RailView {
                                     issue_id: issue_id.clone(),
                                 },
                             );
-                        }))
-                }
-                domain::contract::PIN_KIND_SESSION => {
-                    let Some(row) = collections.coding_sessions.read(cx).get(target_id).cloned()
-                    else {
-                        continue;
-                    };
-                    let screen = Screen::Session {
-                        session_id: row.id.clone(),
-                    };
-                    let active = active_screen.as_ref() == Some(&screen);
-                    let title = crate::navigation::screen_title(&screen, cx);
-                    // The Sessions row's dot, derived the same way.
-                    let ended = row.status.as_deref()
-                        == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
-                    let pr_state = row
-                        .issue_id
-                        .as_deref()
-                        .and_then(|issue_id| collections.issues.read(cx).get(issue_id).cloned())
-                        .and_then(|issue| issue.pr_state)
-                        .or_else(|| row.pr_state.clone());
-                    let display = queries::coding_session_display(&row, pr_state.as_deref());
-                    let presentation = queries::session_device_presentation(
-                        &row,
-                        collections.devices.read(cx).iter(),
-                        now * 1_000,
-                    );
-                    let state = session_row_state(
-                        ended,
-                        queries::session_is_paused(display, &presentation),
-                        display == queries::CodingSessionDisplay::NeedsInput,
-                    );
-                    let dot = div()
-                        .flex_shrink_0()
-                        .when(self.compact, |dot| dot.size_2())
-                        .when(!self.compact, |dot| dot.size_1p5())
-                        .rounded_full()
-                        .bg(state.dot(display, muted))
-                        .into_any_element();
-                    let open_id = row.id.clone();
-                    self.entry(("rail-pin", index), dot, title, active, None, cx)
-                        .when(state == SessionRowState::Paused, |row| row.opacity(0.6))
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            crate::session_screen::open_session_from_rail(&open_id, window, cx);
                         }))
                 }
                 domain::contract::PIN_KIND_ACTION => {
@@ -4007,8 +3915,7 @@ impl Render for ListPanel {
 #[cfg(test)]
 mod tests {
     use super::{
-        focused_list, row_origin_for, session_row_state,
-        InboxTab, ListMode, SessionRowState, ToolWindow,
+        focused_list, row_origin_for, InboxTab, ListMode, ToolWindow,
     };
     use crate::navigation::{Screen, TabOrigin};
 
@@ -4153,14 +4060,4 @@ mod tests {
         }
     }
 
-    /// EXP-791: ended beats paused beats needs-input — a finished run never
-    /// spins or asks, an offline host never claims to be working, and only a
-    /// live run on a present host gets the amber dot or the spinner.
-    #[test]
-    fn session_row_state_precedence() {
-        assert_eq!(session_row_state(true, true, true), SessionRowState::Ended);
-        assert_eq!(session_row_state(false, true, true), SessionRowState::Paused);
-        assert_eq!(session_row_state(false, false, true), SessionRowState::NeedsInput);
-        assert_eq!(session_row_state(false, false, false), SessionRowState::Working);
-    }
 }

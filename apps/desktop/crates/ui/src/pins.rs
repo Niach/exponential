@@ -1,12 +1,16 @@
 //! EXP-778 personal pins — the ONE place the desktop reads the per-user
 //! `pins` shape and fires `pins.toggle`.
 //!
-//! A pin names an issue, a coding session or an action (contract `pinKind`).
+//! A pin names an issue or an action. The contract also has `pinKind.session`
+//! and the DB still stores those rows, but EXP-877 retired session pinning:
+//! a run now lives in the top tab strip beside its issue, and a bookmark to
+//! one was a second, staler way to reach the same place. Old rows simply do
+//! not resolve here, so the rail hides them.
+//!
 //! The shape is static per user and NOT team/trash scoped, so every reader
 //! here filters to the ACTIVE team and to targets that still resolve in the
-//! sibling collections (`issues` / `coding_sessions` / `actions`): a pin
-//! whose issue was trashed with its board, or whose session left the
-//! caller's window, is simply hidden — never an empty row, never an error.
+//! sibling collections (`issues` / `actions`): a pin whose issue was trashed
+//! with its board is simply hidden — never an empty row, never an error.
 //!
 //! The toggle is fire-and-forget: the server pins when absent and unpins
 //! when present, and the row re-streams over the shape, so the button's
@@ -26,15 +30,13 @@ use crate::queries;
 
 /// The target a pin row names: `(kind, id)` — or `None` when the row is
 /// malformed (unknown kind, or the id column that kind needs is empty).
+/// EXP-877: `session` is one of those unknown kinds now (see the module doc).
 /// Pure so the resolution rule is testable without a store.
 pub(crate) fn pin_target(pin: &Pin) -> Option<(&'static str, &str)> {
     let kind = pin.kind.as_deref()?;
     let (kind, id) = match kind {
         domain::contract::PIN_KIND_ISSUE => {
             (domain::contract::PIN_KIND_ISSUE, pin.issue_id.as_deref())
-        }
-        domain::contract::PIN_KIND_SESSION => {
-            (domain::contract::PIN_KIND_SESSION, pin.session_id.as_deref())
         }
         domain::contract::PIN_KIND_ACTION => {
             (domain::contract::PIN_KIND_ACTION, pin.action_id.as_deref())
@@ -164,17 +166,16 @@ mod tests {
     #[test]
     fn target_follows_kind_and_tolerates_junk() {
         assert_eq!(pin_target(&pin("p", Some("issue"), None)), Some(("issue", "i-1")));
-        assert_eq!(
-            pin_target(&pin("p", Some("session"), None)),
-            Some(("session", "s-1"))
-        );
         assert_eq!(pin_target(&pin("p", Some("action"), None)), Some(("action", "a-1")));
+        // EXP-877: a session pin is a row the rail no longer renders — the
+        // contract kind survives, the target does not resolve.
+        assert_eq!(pin_target(&pin("p", Some("session"), None)), None);
         // Unknown kind / missing kind → hidden, never a panic.
         assert_eq!(pin_target(&pin("p", Some("board"), None)), None);
         assert_eq!(pin_target(&pin("p", None, None)), None);
         // The kind's own id column is the one that must be set.
-        let mut orphan = pin("p", Some("session"), None);
-        orphan.session_id = None;
+        let mut orphan = pin("p", Some("action"), None);
+        orphan.action_id = None;
         assert_eq!(pin_target(&orphan), None);
         let mut blank = pin("p", Some("issue"), None);
         blank.issue_id = Some(String::new());

@@ -1,81 +1,16 @@
 //! The session's CHANGES vocabulary (EXP-678/688/698, extracted by EXP-746,
 //! repurposed by EXP-850 §11).
 //!
-//! The bottom "Changes" band is GONE: the session's diff opens as a
-//! right-hand pane now ([`crate::diff_pane`]), toggled by the header's Diff
-//! pill. What survived the band is everything that was never chrome — the
-//! diff PARSE and its cache ([`sync`], [`ChangesSnapshot`], [`changes_totals`]),
-//! the Merge button ([`merge_button`], which the session header wears) and
-//! the ONE merge-target rule every session surface applies
-//! ([`merge_target_for_run`], [`merge_meta_for_session`], [`merge_when_live`]).
+//! The bottom "Changes" band is GONE: the session's diff is the run's DIFF
+//! FACE now ([`crate::diff_pane`]), opened by the work header's toggle
+//! (EXP-877). What survived the band is everything that was never chrome —
+//! the diff PARSE and its cache ([`sync`], [`ChangesSnapshot`],
+//! [`changes_totals`]) and the ONE merge-target rule every session surface
+//! applies ([`MergeTarget`], [`merge_target_for_run`],
+//! [`merge_meta_for_session`], [`merge_when_live`]); the Merge pill itself is
+//! `work_header::merge_pill`.
 
-use gpui::{AnyElement, App, ClickEvent, Context, Entity, IntoElement, Render, Styled as _};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    Disableable as _, Sizable as _,
-};
-
-use crate::icons::ExpIcon;
-
-/// The session's Merge pill: the same two-click arm/confirm machinery every
-/// other Merge surface drives ([`crate::pr_merge`]). A failed merge (typically
-/// conflicts) jumps to the Reviews PAGE, where the shared error caption + the
-/// Fix-conflicts button render exactly as a Reviews-originated failure.
-/// Nothing runs on the confirm itself: the server ends the session on merge
-/// (EXP-498).
-pub(crate) fn merge_button<V: Render>(
-    merge: &MergeTarget,
-    merge_state: &Entity<crate::pr_merge::MergeState>,
-    cx: &Context<V>,
-) -> AnyElement {
-    let key = merge.key();
-    let (armed, merging) = {
-        let state = merge_state.read(cx);
-        (state.armed(&key), state.merging(&key))
-    };
-    // EXP-484: one button per surface (the dock's toolbar renders the ACTIVE
-    // tab only), so the id no longer carries a strip index.
-    let mut button = Button::new("merge-session-changes").xsmall();
-    if merging {
-        button = button
-            .outline()
-            .cursor_pointer()
-            .label("Merging…")
-            .loading(true)
-            .disabled(true);
-    } else if armed {
-        button = button
-            .outline()
-            .cursor_pointer()
-            .label("Confirm merge")
-            .danger();
-    } else {
-        button = button
-            .ghost()
-            .cursor_pointer()
-            .icon(ExpIcon::GitMerge)
-            .label("Merge")
-            .tooltip(merge.tooltip());
-    }
-    let target = merge.clone();
-    let button = button.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-        cx.stop_propagation();
-        let handle = window.window_handle();
-        crate::pr_merge::two_click(
-            target.op(),
-            Some(Box::new(move |cx: &mut App| {
-                let _ = handle.update(cx, |_, window, cx| {
-                    // EXP-706: Reviews is a full-page screen now, not a rail
-                    // tool window.
-                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Reviews);
-                });
-            })),
-            None,
-            cx,
-        );
-    }));
-    button.into_any_element()
-}
+use gpui::App;
 
 /// Re-parse a relay-delivered diff only when the host actually delivered a new
 /// one (the raw string is the cache key): a unified-diff parse per repaint of

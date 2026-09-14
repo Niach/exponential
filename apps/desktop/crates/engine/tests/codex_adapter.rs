@@ -25,13 +25,30 @@ use agent_client_protocol::schema::v1::{
     CreateElicitationResponse, ElicitationAcceptAction, ElicitationContentValue,
     ElicitationMode, InitializeRequest, LoadSessionRequest, NewSessionRequest,
     PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigOptionValue, SessionId,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption,
+    SessionConfigOptionValue, SessionConfigSelectOptions, SessionId,
     SessionModeId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionModeRequest, StopReason, TextContent, ToolCallContent, ToolKind,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Client, ConnectionTo};
 use engine::adapters::codex::{CodexAgent, CodexConnection};
+
+/// EXP-877 — the single advertised option's value: `model`, a VALUE with NO
+/// menu values (codex has no `/model` prompt, so the composer draws a label).
+fn model_value(options: &[SessionConfigOption]) -> Option<String> {
+    let option = options.iter().find(|option| option.id.0.as_ref() == "model")?;
+    assert_eq!(options.len(), 1, "{options:?}");
+    let SessionConfigKind::Select(select) = &option.kind else {
+        panic!("the model option is a select: {options:?}");
+    };
+    assert_eq!(
+        select.options,
+        SessionConfigSelectOptions::Ungrouped(Vec::new()),
+        "the wire carries a value, never a menu"
+    );
+    Some(select.current_value.0.to_string())
+}
 use engine::adapters::codex_wire::{AppServer, LineSink};
 use serde_json::{json, Value};
 
@@ -399,8 +416,9 @@ async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
                 modes.available_modes.iter().map(|mode| mode.id.0.to_string()).collect();
             assert_eq!(ids, vec!["plan".to_string(), "bypassPermissions".to_string()]);
             assert_eq!(modes.current_mode_id.0.as_ref(), "bypassPermissions");
+            // EXP-877: ONE option, the `model` VALUE with no menu values.
             let options = session.config_options.clone().expect("config options");
-            assert!(options.is_empty(), "{options:?}");
+            assert_eq!(model_value(&options), Some("gpt-5.4-codex".to_string()));
 
             let response = cx
                 .send_request(PromptRequest::new(
@@ -500,10 +518,10 @@ async fn a_loaded_thread_resumes_and_its_next_turn_runs() {
                 ))
                 .block_task()
                 .await?;
-            // EXP-772: a resume advertises the same empty option vocabulary a
-            // fresh session does.
+            // EXP-877: a resume advertises the same one-value option
+            // vocabulary a fresh session does.
             let options = loaded.config_options.clone().expect("config options");
-            assert!(options.is_empty(), "{options:?}");
+            assert_eq!(model_value(&options), Some("gpt-5.4-codex".to_string()));
 
             let response = cx
                 .send_request(PromptRequest::new(

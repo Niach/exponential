@@ -5,9 +5,12 @@
 //! builds.
 
 use gpui::{div, px, AnyElement, App, IntoElement, ParentElement, SharedString, Styled};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    h_flex, progress::ProgressCircle, v_flex, ActiveTheme as _,
+};
 
-use crate::controls::WebText as _;
+use crate::controls::{WebControl as _, WebText as _};
 
 /// EXP-863 — the usage sheet, the SAME structure the web popover builds:
 ///
@@ -127,6 +130,38 @@ pub(crate) fn render_usage_sheet(
         sheet = sheet.child(slot.child(section));
     }
     sheet.into_any_element()
+}
+
+/// EXP-877 — the composer footer's CONTEXT RING: a 16px radial meter of how
+/// full the run's context window is, in the usual severity tone (muted, amber
+/// from 75 %, destructive from 95 % — [`crate::usage_bar::severity`]). It is
+/// the trigger for [`render_usage_sheet`], so it is a `Button`, and it says
+/// the numbers in its tooltip rather than beside itself: a percentage printed
+/// next to a meter of the same percentage is the same fact twice.
+///
+/// A run with no window to report renders NO ring at all — that is the
+/// caller's check ([`crate::usage_bar::context_percent`] is `None`).
+pub(crate) fn context_ring(
+    id: impl Into<gpui::ElementId>,
+    percent: u8,
+    usage: Option<&steer::SessionUsage>,
+    cx: &App,
+) -> Button {
+    let tone = crate::usage_bar::severity_color(crate::usage_bar::severity(percent), cx);
+    Button::new(id)
+        .ghost()
+        .web_icon_xs()
+        .icon(
+            // `Size::Size(s)` renders at `s * 0.75`, so the ring is asked for
+            // the size that lands ON 16px.
+            gpui_component::Sizable::with_size(
+                ProgressCircle::new("session-context-ring")
+                    .value(f32::from(percent))
+                    .color(tone),
+                px(16. / 0.75),
+            ),
+        )
+        .tooltip(crate::usage_bar::format_context_usage(usage))
 }
 
 /// Another machine's per-agent windows, off the synced `devices` row — the

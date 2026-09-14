@@ -45,7 +45,7 @@ use agent_client_protocol::schema::v1::{
     PlanEntryPriority, PlanEntryStatus, PromptCapabilities, PromptRequest, PromptResponse,
     RequestPermissionOutcome, RequestPermissionRequest, ResumeSessionRequest,
     ResumeSessionResponse, SessionCapabilities, SessionConfigId, SessionConfigOption,
-    SessionConfigOptionValue, SessionId,
+    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption, SessionId,
     SessionInfo, SessionInfoUpdate, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
@@ -98,9 +98,10 @@ const BUILTIN_AGENT_NAMES: [&str; 5] =
     ["claude", "general-purpose", "Explore", "Plan", "statusline-setup"];
 
 /// The config option ids `session/set_config_option` still ACCEPTS. EXP-772
-/// retired the chips themselves — nothing advertises or sends these any more
-/// (`config_options` is empty), and `mode` is gone from the vocabulary
-/// entirely: modes ride the ACP-native `session/set_mode` lane alone.
+/// retired the chips themselves; EXP-877 advertises [`CONFIG_MODEL`] again as
+/// a VALUE only (no menu — a switch is `/model <alias>` typed as a message),
+/// and the rest are accepted but never advertised. `mode` is gone from the
+/// vocabulary entirely: modes ride the ACP-native `session/set_mode` lane alone.
 const CONFIG_MODEL: &str = "model";
 const CONFIG_EFFORT: &str = "effort";
 const CONFIG_FAST: &str = "fast";
@@ -1424,12 +1425,28 @@ impl ClaudeSession {
         Ok(())
     }
 
-    /// EXP-772: EMPTY. Model / effort / fast / agent pickers left the
-    /// mid-session steering UI on every client, so the adapter advertises no
-    /// options at all; `set_config` still ACCEPTS the ids an older publisher
-    /// may send.
+    /// EXP-877: exactly ONE option, the `model` VALUE — no menu values, so no
+    /// client draws a picker off the wire. Effort / fast / agent stay gone
+    /// (EXP-772) and every option stays launch-time (EXP-790); the model is
+    /// here only because the CLI's own `/model` moves it mid-run and a viewer
+    /// otherwise never learns which model it is talking to.
+    ///
+    /// The value is the ALIAS the composer offers ([`coding::claude_model_alias`]),
+    /// falling back to the raw resolved id when the CLI reports a tier this
+    /// build does not know. `set_config` still ACCEPTS the ids an older
+    /// publisher may send.
     fn config_options(&self) -> Vec<SessionConfigOption> {
-        Vec::new()
+        let model = self.lock().model.clone();
+        let current = coding::claude_model_alias(&model)
+            .map(str::to_string)
+            .unwrap_or(model);
+        vec![SessionConfigOption::select(
+            CONFIG_MODEL,
+            "Model",
+            current,
+            Vec::<SessionConfigSelectOption>::new(),
+        )
+        .category(SessionConfigOptionCategory::Model)]
     }
 
     async fn set_config(

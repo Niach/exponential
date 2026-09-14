@@ -84,6 +84,18 @@ use tokens as t;
 /// 16px root, not the component base).
 pub const FONT_SIZE_PX: f32 = 14.0;
 
+/// EXP-877 — Anthropic's brand orange, the ONE place the tab strip's Claude
+/// group mark is tinted. NOT a design token: the token file is the product's
+/// palette, and this is somebody else's mark, carried literally (the desktop
+/// brand assets in `assets/icons/claude.svg` are hand-maintained for the same
+/// reason). Codex has no counterpart — its mark rides the current text colour.
+pub const CLAUDE_BRAND: Hsla = Hsla {
+    h: 14.8 / 360.,
+    s: 0.631,
+    l: 0.596,
+    a: 1.,
+};
+
 /// Build the full Exponential Dark palette as a gpui-component [`ThemeColor`].
 ///
 /// Starts from the component's stock dark palette, then overwrites EVERY field

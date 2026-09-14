@@ -44,7 +44,8 @@ use agent_client_protocol::schema::v1::{
     PermissionOption, PermissionOptionKind, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
     PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome,
     RequestPermissionRequest, SessionCapabilities, SessionConfigOption,
-    PermissionOptionId, SessionConfigOptionValue, SessionId,
+    PermissionOptionId, SessionConfigOptionCategory, SessionConfigOptionValue,
+    SessionConfigSelectOption, SessionId,
     SessionInfo, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
@@ -963,11 +964,27 @@ fn mode_state(shared: &Shared) -> SessionModeState {
     )
 }
 
-/// EXP-772: EMPTY. Model / effort / fast pickers left the mid-session
-/// steering UI on every client; `session/set_config_option` still accepts the
-/// ids ([`apply_config_option`]) for an older publisher.
-fn config_options(_shared: &Shared) -> Vec<SessionConfigOption> {
-    Vec::new()
+/// EXP-877: exactly ONE option, the `model` VALUE — no menu values, so no
+/// client draws a picker off the wire (codex renders it as a plain label; it
+/// has no `/model` prompt to switch with). Effort / fast stay gone (EXP-772)
+/// and every option stays launch-time (EXP-790).
+///
+/// A BLANK value is codex's own "CLI default" (no `-m`), which is a real
+/// answer, not a missing one — the composer simply draws nothing for it.
+fn config_options(shared: &Shared) -> Vec<SessionConfigOption> {
+    let model = shared
+        .config
+        .lock()
+        .ok()
+        .map(|config| config.model.clone())
+        .unwrap_or_default();
+    vec![SessionConfigOption::select(
+        "model",
+        "Model",
+        model,
+        Vec::<SessionConfigSelectOption>::new(),
+    )
+    .category(SessionConfigOptionCategory::Model)]
 }
 
 /// Switch codex's collaboration setting (its plan mode). Silent on a codex

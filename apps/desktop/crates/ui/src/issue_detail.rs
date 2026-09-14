@@ -63,15 +63,15 @@ use crate::navigation::{navigate, Screen};
 use crate::issue_header::{spawn_issue_update, IssueHeader};
 use crate::queries;
 use crate::timeline::IssueTimeline;
-use crate::comments;
 
 /// The detail root's key context (terminal-dock pattern: `key_context` +
 /// `track_focus` + `on_action`, bindings scoped via [`init`]).
 const KEY_CONTEXT: &str = "IssueDetail";
 
-/// The Details body's centered content width (web `max-w-3xl` parity) —
-/// shared with the timeline, whose full-bleed divider re-centers its content
-/// to this same column.
+/// The Details body's centered content width (EXP-877: the shared work
+/// column, web `max-w-4xl`) — shared with the header, the timeline (whose
+/// full-bleed divider re-centers its content to this same column), the
+/// transcript and the diff.
 pub(crate) const DETAIL_COLUMN_W: f32 = crate::work_header::WORK_COLUMN_W;
 
 /// Center a detail column to [`DETAIL_COLUMN_W`] while keeping its width
@@ -280,6 +280,10 @@ pub struct IssueDetailView {
     /// sub-issues" affordance. Cleared on every issue switch — a half-typed
     /// child belongs to the issue it was opened under.
     sub_issue_composer: Option<(Entity<crate::issue_composer::IssueComposer>, Subscription)>,
+    /// EXP-877: the header's Resume decision reads this machine's run
+    /// registry (a file) — cached per run id
+    /// (`work_header::resume_path_cached`), cleared on every issue switch.
+    resumable: Option<(String, bool)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -360,6 +364,7 @@ impl IssueDetailView {
             busy_files: HashSet::new(),
             widget_submission: None,
             sub_issue_composer: None,
+            resumable: None,
             _subscriptions: subscriptions,
         }
     }
@@ -427,6 +432,10 @@ impl IssueDetailView {
         // EXP-760: the composer files onto the OUTGOING issue — it must not
         // survive the swap.
         self.sub_issue_composer = None;
+        // EXP-877: the Resume cache is keyed by run id, but a stale entry
+        // would only be re-read anyway — drop it with the rest of the
+        // per-issue state.
+        self.resumable = None;
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -1837,11 +1846,11 @@ impl IssueDetailView {
             .child(self.timeline.clone())
     }
 
-    /// The FIXED header (EXP-417): top row · title · chips · agent row. Only
-    /// the body below it scrolls, so a long description never scrolls the
-    /// title away. EXP-568 retired the pinned formatting bar that used to
-    /// close this stack — formatting now rides the selection-triggered
-    /// floating rail the editor renders itself.
+    /// The FIXED header (EXP-417/EXP-877): the shared `WorkHeader` — row 1 =
+    /// the editable title with the face toggle · pin · `…` cluster on the
+    /// same line, row 2 = the property tray trailing Merge PR + the ONE
+    /// coding action, then the merge-error caption. Only the body below it
+    /// scrolls, so a long description never scrolls the title away.
     ///
     /// The header entity's rows are built through `entity.update` from this
     /// render (the `render_tab_strip` precedent) — they must never call back
@@ -1852,27 +1861,91 @@ impl IssueDetailView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        use crate::work_header::{Face, FaceToggle};
         let header = self.header.clone();
-        let face = crate::screens::face_toggle(&issue.id, window, cx);
-        let (top_row, chip_row, agent_row) = header.update(cx, |header, cx| {
+        // EXP-870/EXP-877: the tab's face state names the run the Run face
+        // opens (the bound run when mine, else my newest on the issue) —
+        // `None` outside a shell window (an undocked issue has no tab to
+        // flip). The diff item needs that run's open screen for its totals.
+        let face_state = crate::screens::screens_for_window(window, cx)
+            .map(|panel| panel.read(cx).face_state(&issue.id, cx));
+        let run_id = face_state.as_ref().and_then(|state| state.run_id.clone());
+        let diff = run_id.as_deref().and_then(|run_id| {
+            crate::screens::session_views(run_id, cx)
+                .into_iter()
+                .find_map(|view| view.read(cx).diff_totals(cx))
+        });
+        let active = match face_state.as_ref().map(|state| state.active) {
+            Some(crate::screens::TabFace::Run) => Face::Run,
+            _ => Face::Issue,
+        };
+        let toggle = {
+            let issue_id = issue.id.clone();
+            let run_id = run_id.clone();
+            crate::work_header::face_toggle(
+                FaceToggle {
+                    issue: true,
+                    run: run_id.clone(),
+                    diff,
+                    active,
+                },
+                Rc::new(move |face, window, cx| {
+                    let Some(run_id) = run_id.clone() else {
+                        return;
+                    };
+                    match face {
+                        Face::Issue => {}
+                        Face::Run | Face::Diff => {
+                            crate::screens::set_tab_face(
+                                &issue_id,
+                                crate::screens::TabFace::Run,
+                                Some(run_id.clone()),
+                                window,
+                                cx,
+                            );
+                            // Picking Diff = the Run face with the viewer's
+                            // full-page diff open. Routed through the panel
+                            // rather than over `session_views`: the face flip
+                            // above only notifies the navigation, and the
+                            // observer that BUILDS a background run's view
+                            // has not run yet (EXP-877).
+                            crate::screens::set_run_diff_open(
+                                &run_id,
+                                face == Face::Diff,
+                                window,
+                                cx,
+                            );
+                        }
+                    }
+                }),
+                cx,
+            )
+        };
+        let action = crate::work_header::issue_coding_action(
+            &issue.id,
+            run_id.as_deref(),
+            &mut self.resumable,
+            cx,
+        );
+        let title = self.render_title(cx).into_any_element();
+        let (right, tray, extra) = header.update(cx, |header, cx| {
+            let right = header.right_cluster(issue, toggle, cx);
+            let actions = header.issue_actions(issue, action, cx);
             (
-                header.top_row(issue, face, cx),
-                header.chip_row(issue, None, cx),
+                right,
+                Some(header.chip_row(issue, actions, cx)),
                 header.agent_row(issue, cx),
             )
         });
-        v_flex()
-            .w_full()
-            .flex_shrink_0()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            .child(centered_column(
-                v_flex()
-                    .child(top_row)
-                    .child(self.render_title(cx))
-                    .child(chip_row)
-                    .children(agent_row),
-            ))
+        crate::work_header::render_work_header(
+            crate::work_header::WorkHeader {
+                title,
+                right,
+                tray,
+                extra,
+            },
+            cx,
+        )
     }
 }
 
@@ -2200,124 +2273,6 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
         issue.identifier
     ))
 }
-
-/// Is a coding session LIVE on this issue right now? The exact predicate
-/// [`coding_now_card`] picks its session with — the header gates the
-/// Start-coding pill on it (EXP-698 round 5: the card already says the run is
-/// going, so a second "Start coding" beside it is noise; web hides it the same
-/// way in `issue-coding-rows.tsx`).
-pub(crate) fn has_live_coding_session(issue_id: &str, cx: &App) -> bool {
-    let now = chrono::Utc::now().timestamp();
-    Store::global(cx)
-        .collections()
-        .coding_sessions
-        .read(cx)
-        .iter()
-        .any(|session| {
-            session.issue_id.as_deref() == Some(issue_id)
-                && crate::queries::coding_session_is_live(session, now)
-        })
-}
-
-/// EXP-818: the tray's coding slot for an issue with a LIVE run this
-/// process does not host (a local run's slot is `StartCodingControl`
-/// itself). The caller's OWN run — steerable through the relay — gets the
-/// primary **Watch** pill straight into the run's screen; a teammate's run
-/// reads as a muted `● Coding now · Danny` caption, informational only. The
-/// EXP-696/698 "coding now" CARD (badge · byline · Watch on its own row) is
-/// gone: the tray already holds every action, and a second card said the
-/// same thing again.
-pub(crate) fn coding_now_slot(issue_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
-    let collections = Store::global(cx).collections().clone();
-    let now = chrono::Utc::now().timestamp();
-    let session = collections
-        .coding_sessions
-        .read(cx)
-        .iter()
-        .find(|session| {
-            session.issue_id.as_deref() == Some(issue_id)
-                && crate::queries::coding_session_is_live(session, now)
-        })
-        .cloned()?;
-
-    // EXP-696/698: steerable when the run is the caller's OWN. A LOCAL run —
-    // one this very process hosts — is the control's own business; anything
-    // else of the caller's goes through the relay, INCLUDING a run stamped
-    // with this device id that this process does not host (an earlier IDE
-    // process, a second window). No relay, no viewer, so no Watch.
-    let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let own = session.user_id.is_some() && session.user_id == me;
-    let local = crate::coding_flow::LocalSessions::global_ref(cx)
-        .is_some_and(|sessions| sessions.read(cx).session_by_id(&session.id).is_some());
-    if own && (local || crate::queries::remote_start_enabled(cx)) {
-        return Some(watch_pill("coding-now-watch", session.id.clone(), cx).into_any_element());
-    }
-
-    let pr_state = collections
-        .issues
-        .read(cx)
-        .get(issue_id)
-        .and_then(|issue| issue.pr_state.clone());
-    let display = crate::queries::coding_session_display(&session, pr_state.as_deref());
-    let presentation = crate::queries::session_device_presentation(
-        &session,
-        collections.devices.read(cx).iter(),
-        now * 1_000,
-    );
-    let (verb, tone) = if crate::queries::session_is_paused(display, &presentation) {
-        ("Paused", theme::tokens::NEUTRAL)
-    } else {
-        match display {
-            crate::queries::CodingSessionDisplay::NeedsInput => ("Needs input", theme::tokens::YELLOW),
-            crate::queries::CodingSessionDisplay::Review => ("Ready for review", theme::tokens::GREEN),
-            crate::queries::CodingSessionDisplay::Done => ("Done", theme::tokens::BLUE),
-            crate::queries::CodingSessionDisplay::Running => ("Coding now", theme::tokens::GREEN),
-        }
-    };
-    let who = session
-        .user_id
-        .as_deref()
-        .and_then(|id| collections.users.read(cx).get(id).cloned())
-        .map(|user| comments::author_label(Some(&user)));
-    let caption = match who {
-        Some(who) => format!("{verb} · {who}"),
-        None => verb.to_string(),
-    };
-    Some(
-        h_flex()
-            .flex_shrink_0()
-            .gap_1p5()
-            .items_center()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(crate::surface::pill_dot(tone.to_hsla()))
-            .child(SharedString::from(caption))
-            .into_any_element(),
-    )
-}
-
-/// EXP-818: the ONE Watch pill — primary, the monitor glyph (NAV_DEVICES,
-/// not UI_WATCH: the monitor IS the Watch concept on web, iOS and Android),
-/// straight into `session_id`'s own screen. The tray renders it for a local
-/// run (`StartCodingControl`) and a remote one (`coding_now_slot`) alike.
-pub(crate) fn watch_pill(
-    id: &'static str,
-    session_id: String,
-    cx: &App,
-) -> gpui_component::button::Button {
-    crate::surface::glass_pill_button_primary(id, crate::surface::PillSize::Sm)
-        .icon(
-            Icon::new(registry::NAV_DEVICES)
-                .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                .text_color(cx.theme().primary_foreground),
-        )
-        .label("Watch")
-        .tooltip("Open this run and steer it")
-        .on_click(move |_, window, cx| {
-            crate::session_screen::open_session(&session_id, window, cx);
-        })
-}
-
 
 #[cfg(test)]
 mod tests {

@@ -693,43 +693,31 @@ pub(crate) enum RichTabStatus {
     /// A status/agent glyph, already coloured by the caller
     /// (`icons::resolved_status_icon`, `ChipLead::icon`).
     Glyph(gpui_component::Icon),
-    /// A liveness tone dot (the remote session chips).
+    /// A liveness tone dot (`queries::session_dot_tone`) — every run chip.
     Dot(Hsla),
-    /// EXP-870: a run's agent is working — a spinner in the glyph slot.
-    Working,
     None,
 }
 
-/// How wide a [`rich_tab`]'s title may grow before it truncates.
+/// How wide a [`rich_tab`] may grow before its title truncates — the chip's
+/// whole `max-w`, web `DockTab`'s 240px (EXP-877).
+pub(crate) const RICH_TAB_MAX_W: f32 = 240.;
+
+/// How wide a [`rich_tab`]'s title may grow before it truncates. The chip cap
+/// above bounds the row; this bounds the title inside it.
 pub(crate) const RICH_TAB_TITLE_MAX_W: f32 = 180.;
 
-/// How wide a [`rich_tab`]'s trailing caption (` · machine`) may grow.
-pub(crate) const RICH_TAB_CAPTION_MAX_W: f32 = 110.;
-
-/// The content of a [`rich_tab`]. Handlers stay the CALLER's: the three
-/// strips differ on middle-click, context menus, kill-confirms and the
-/// hover-revealed undock, and folding those in here would make the builder a
-/// switchboard.
+/// The content of a [`rich_tab`]. Handlers stay the CALLER's: the two strips
+/// differ on middle-click, context menus and the hover-revealed undock, and
+/// folding those in here would make the builder a switchboard.
 pub(crate) struct RichTab {
     pub(crate) id: ElementId,
     pub(crate) selected: bool,
-    /// A paused host's chip dims whole (EXP-696).
-    pub(crate) paused: bool,
     pub(crate) status: RichTabStatus,
-    /// The mono shortcode ahead of the title (`EXP-698`), 50% foreground.
+    /// The mono shortcode ahead of the title (`EXP-698`), muted.
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: Option<SharedString>,
-    /// A trailing muted caption (` · machine`) after the title.
-    pub(crate) caption: Option<SharedString>,
-    /// A tinted exit-code badge.
+    /// A tinted exit-code badge (a terminal chip whose child exited).
     pub(crate) badge: Option<(SharedString, Hsla)>,
-    /// EXP-760: the chip sits on the WINDOW GROUND rather than inside a card
-    /// — the terminal dock's strip, now that the panel's card closes ABOVE
-    /// it. The default transparent rest state reads as nothing out there, so
-    /// a ground chip carries the card fill inside a card hairline at rest and
-    /// the active fill when selected. The window's screen tabs and the
-    /// bubble's chips are inside a surface and keep the default.
-    pub(crate) ground: bool,
 }
 
 impl RichTab {
@@ -737,93 +725,83 @@ impl RichTab {
         Self {
             id: id.into(),
             selected,
-            paused: false,
             status: RichTabStatus::None,
             identifier: None,
             title: None,
-            caption: None,
             badge: None,
-            ground: false,
         }
     }
-
 }
 
-/// EXP-698 — the ONE RICH tab: the only tab shape left that is not a
-/// [`glass_pill`], because it carries a whole row of content (status glyph,
-/// mono identifier, truncating title, machine caption, exit badge, close/
-/// undock buttons) rather than a word. It is worn by exactly two strips: the
-/// window's top screen tabs (`screens::render_tab_strip`) and the terminal
-/// dock's local + remote chips.
+/// EXP-698/EXP-877 — the ONE RICH tab, now byte-identical with the web chip:
+/// 32px tall, 6px radius, capped at [`RICH_TAB_MAX_W`], `pl 8 / pr 4` (the
+/// short right side is the 24px ghost × the caller appends), `gap 6`, a 14px
+/// lead box holding a 14px glyph or an 8px dot, the mono `text_xs` identifier
+/// and the `text_sm` truncating title.
 ///
-/// Chrome is the retired `tab_chip`'s, unchanged: 26px tall, radius MD,
-/// `px_2p5 gap_1p5 text_sm`, transparent at rest with the glass row fill on
-/// hover, `tab_active` (== `FILL_ACTIVE`) when selected.
+/// Three states and no more: idle = transparent chrome + muted text, hover =
+/// the glass row fill + foreground, active = a card hairline over the panel
+/// fill + foreground. EXP-877 retired the ` · machine` caption (a tab is
+/// chrome, and the machine is on the run's own header), the paused dimming
+/// (a chip that dims reads as disabled) and the working spinner (the steady
+/// liveness dot carries it; the spinner is the LIST's, EXP-848).
 ///
-/// The returned element already carries the standard children in order; the
-/// caller appends its own trailing cluster (close, undock) and every handler.
+/// gpui's rem is 14px ([`theme::FONT_SIZE_PX`]), so every one of these is a
+/// `px()` literal — the spacing helpers would resolve 8px as `px_2` only by
+/// coincidence of the rem.
 pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
     let theme = cx.theme();
-    let foreground = theme.foreground;
     let chip = div()
         .id(tab.id)
-        .h(px(26.))
-        .px_2p5()
+        .h(px(32.))
+        .max_w(px(RICH_TAB_MAX_W))
+        .pl(px(8.))
+        .pr(px(4.))
         .flex()
         .flex_none()
         .items_center()
-        .gap_1p5()
-        .rounded(theme.radius)
-        .cursor_pointer()
-        .text_sm()
-        .when(tab.paused, |chip| chip.opacity(0.6));
-    // EXP-760: on the ground the chip has to BE a surface (fill + hairline);
-    // inside a card it stays the transparent-at-rest tab it always was.
-    let chip = chip.when(tab.ground, |chip| {
-        chip.border_1()
-            .border_color(t::glass::STROKE_CARD.to_hsla())
-    });
+        .gap(px(6.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .cursor_pointer();
     let chip = if tab.selected {
-        chip.bg(if tab.ground {
-            t::glass::FILL_ACTIVE.to_hsla()
-        } else {
-            theme.tab_active
-        })
-        .text_color(theme.tab_active_foreground)
-    } else if tab.ground {
-        chip.bg(t::glass::FILL_CARD.to_hsla())
-            .text_color(theme.tab_foreground)
-            .hover(|style| style.bg(t::glass::FILL_ACTIVE.to_hsla()))
+        chip.border_color(t::glass::STROKE_CARD.to_hsla())
+            .bg(t::glass::FILL_PANEL.to_hsla())
+            .text_color(theme.foreground)
     } else {
-        chip.text_color(theme.tab_foreground)
-            .hover(|style| style.bg(theme.list_hover))
+        chip.text_color(theme.muted_foreground).hover(|style| {
+            style
+                .bg(t::glass::FILL_ACTIVE.to_hsla())
+                .text_color(theme.foreground)
+        })
     };
+    // ONE 14px lead box, so a dot chip and a glyph chip line their titles up
+    // (the strip's `lead_reserve_px` measures this box, not its content).
     chip.map(|chip| match tab.status {
-        RichTabStatus::Glyph(icon) => {
-            chip.child(gpui_component::Sizable::xsmall(icon))
-        }
-        RichTabStatus::Dot(tone) => chip.child(
+        RichTabStatus::None => chip,
+        status => chip.child(
             div()
                 .flex_shrink_0()
-                .size_1p5()
-                .rounded_full()
-                .bg(tone),
+                .size(px(14.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .map(|slot| match status {
+                    RichTabStatus::Glyph(icon) => {
+                        slot.child(gpui_component::Sizable::with_size(icon, px(14.)))
+                    }
+                    RichTabStatus::Dot(tone) => {
+                        slot.child(div().size(px(8.)).rounded_full().bg(tone))
+                    }
+                    RichTabStatus::None => slot,
+                }),
         ),
-        RichTabStatus::Working => chip.child(
-            div().flex_shrink_0().child(
-                gpui_component::Sizable::with_size(
-                    gpui_component::spinner::Spinner::new(),
-                    px(12.),
-                )
-                .color(theme.muted_foreground),
-            ),
-        ),
-        RichTabStatus::None => chip,
     })
     .children(tab.identifier.map(|identifier| {
         div()
+            .flex_shrink_0()
             .text_xs()
-            .text_color(foreground.opacity(0.5))
             .font_family(theme::terminal::FONT_FAMILY)
             .whitespace_nowrap()
             .child(identifier)
@@ -832,18 +810,13 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
         div()
             .max_w(px(RICH_TAB_TITLE_MAX_W))
             .truncate()
+            .text_sm()
+            .font_weight(gpui::FontWeight::NORMAL)
             .child(title)
-    }))
-    .children(tab.caption.map(|caption| {
-        div()
-            .max_w(px(RICH_TAB_CAPTION_MAX_W))
-            .truncate()
-            .text_xs()
-            .text_color(foreground.opacity(0.5))
-            .child(caption)
     }))
     .children(tab.badge.map(|(label, color)| {
         div()
+            .flex_shrink_0()
             .text_xs()
             .px_1()
             .rounded(px(3.))
@@ -887,20 +860,16 @@ mod tests {
 
     /// The rich-tab builder starts EMPTY apart from its identity: every strip
     /// fills only the slots it has, and an unset slot must render nothing
-    /// rather than a placeholder box (the terminal dock's plain terminal tabs
-    /// carry no identifier, the center tabs carry no caption or badge).
+    /// rather than a placeholder box (the bottom bar's terminal tabs carry no
+    /// identifier, the top strip's chips no badge).
     #[test]
     fn rich_tab_builder_defaults_to_identity_only() {
         let tab = RichTab::new("t", true);
         assert!(tab.selected);
-        assert!(!tab.paused);
         assert!(matches!(tab.status, RichTabStatus::None));
         assert!(tab.identifier.is_none());
         assert!(tab.title.is_none());
-        assert!(tab.caption.is_none());
         assert!(tab.badge.is_none());
-        // EXP-760: a chip is INSIDE a card unless the strip says otherwise.
-        assert!(!tab.ground);
     }
 
     /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.
@@ -940,10 +909,12 @@ mod tests {
     }
 
     #[test]
-    fn rich_tab_title_cap_is_shared_with_the_strip_measurement() {
-        // `screens::measure_chip_width` reads this constant for its overflow
+    fn rich_tab_caps_are_shared_with_the_strip_measurement() {
+        // `screens::measure_chip_width` reads these for its overflow
         // computation; a divergence collapses tabs into "+N" too early.
+        // EXP-877: 240px is the WEB chip's cap, byte-identical ×2.
+        assert_eq!(RICH_TAB_MAX_W, 240.);
         assert_eq!(RICH_TAB_TITLE_MAX_W, 180.);
-        assert_eq!(RICH_TAB_CAPTION_MAX_W, 110.);
+        assert!(RICH_TAB_TITLE_MAX_W < RICH_TAB_MAX_W);
     }
 }

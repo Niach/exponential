@@ -81,7 +81,7 @@ pub mod trunk_state;
 pub mod usage_cache;
 pub mod worktree_agents;
 
-pub use agent::CodingAgent;
+pub use agent::{claude_model_alias, CodingAgent};
 pub use argv::{
     permission_args, shell_args, AgentMcp, LaunchOptions, McpServerWire, McpWireTransport,
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
