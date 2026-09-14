@@ -2229,20 +2229,90 @@ fn view_widths() -> &'static std::sync::Mutex<HashMap<(gpui::WindowId, SharedStr
     VIEW_WIDTHS.get_or_init(Default::default)
 }
 
+/// EXP-884: one memoised parse per (window, view id).
+struct ParsedBlocks {
+    source: String,
+    origin: Option<String>,
+    blocks: Rc<Vec<ContentBlock>>,
+    /// The memo tick this entry was last read at — its LRU rank.
+    used: u64,
+}
+
+/// How many parsed views the memo keeps. Sized for a transcript's visible
+/// rows plus their overdraw a few times over, not for a run: an entry is a
+/// copy of its source plus the blocks, so a few hundred is a few MB at most.
+const PARSE_MEMO_CAP: usize = 512;
+
+thread_local! {
+    /// EXP-884: the parsed blocks of recently rendered [`MarkdownView`]s,
+    /// keyed like [`VIEW_WIDTHS`]. `gpui::list` re-renders every visible row
+    /// on every frame, and a comrak parse per prose row per frame was the
+    /// bulk of a scroll frame on a chat-heavy transcript. A hit is one
+    /// string compare; the entry is invalidated by its own source (and the
+    /// instance origin the parse depended on), never by time.
+    static PARSED_BLOCKS: RefCell<(u64, HashMap<(gpui::WindowId, SharedString), ParsedBlocks>)> =
+        RefCell::new((0, HashMap::new()));
+}
+
+/// The blocks for `source` under `key`: the memoised parse when the source
+/// (and origin) are unchanged since that view last rendered, else a fresh
+/// parse that replaces the entry.
+fn parsed_blocks(
+    key: &(gpui::WindowId, SharedString),
+    source: &str,
+    origin: Option<&str>,
+) -> Rc<Vec<ContentBlock>> {
+    PARSED_BLOCKS.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let (tick, entries) = &mut *memo;
+        *tick += 1;
+        if let Some(entry) = entries.get_mut(key) {
+            if entry.source == source && entry.origin.as_deref() == origin {
+                entry.used = *tick;
+                return entry.blocks.clone();
+            }
+        }
+        let blocks = Rc::new(markdown_to_blocks_for(source, SoftBreakMode::Space, origin));
+        if entries.len() >= PARSE_MEMO_CAP {
+            // Over the cap: drop the least recently used half in one pass, so
+            // the sort is paid once per `PARSE_MEMO_CAP / 2` new views.
+            let mut ranked: Vec<(u64, (gpui::WindowId, SharedString))> = entries
+                .iter()
+                .map(|(key, entry)| (entry.used, key.clone()))
+                .collect();
+            ranked.sort_unstable_by_key(|(used, _)| *used);
+            for (_, stale) in ranked.into_iter().take(PARSE_MEMO_CAP / 2) {
+                entries.remove(&stale);
+            }
+        }
+        entries.insert(
+            key.clone(),
+            ParsedBlocks {
+                source: source.to_string(),
+                origin: origin.map(str::to_string),
+                blocks: blocks.clone(),
+                used: *tick,
+            },
+        );
+        blocks
+    })
+}
+
 impl gpui::RenderOnce for MarkdownView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // EXP-824: absolute attachment links lift into media tiles only on
-        // the active instance's origin.
-        let blocks = Rc::new(markdown_to_blocks_for(
-            &self.source,
-            SoftBreakMode::Space,
-            crate::queries::instance_origin(cx).as_deref(),
-        ));
-        let mut children: Vec<gpui::AnyElement> = Vec::new();
         // EXP-233: the width this view painted at on the previous frame (see
         // the long comment below). EXP-726 hoists it above the block loop —
         // a table needs it to decide grow-vs-scroll.
         let key = (window.window_handle().window_id(), self.id.clone());
+        // EXP-824: absolute attachment links lift into media tiles only on
+        // the active instance's origin. EXP-884: memoised per view id —
+        // a re-render of an unchanged body never re-parses it.
+        let blocks = parsed_blocks(
+            &key,
+            &self.source,
+            crate::queries::instance_origin(cx).as_deref(),
+        );
+        let mut children: Vec<gpui::AnyElement> = Vec::new();
         let known_width = view_widths()
             .lock()
             .ok()

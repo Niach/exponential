@@ -398,8 +398,23 @@ pub(crate) struct SteerSessionView {
     /// transcript's bubble cap reads it.
     view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// EXP-850 §12: the per-turn file cards, keyed by the row they hang
-    /// under, rebuilt once per frame by [`Self::sync_list`].
+    /// under. EXP-884: derived state ([`Self::refresh_derived`]), rebuilt
+    /// only when the feed's generation moved.
     file_cards: HashMap<FeedItemId, crate::session_rows::FileCard>,
+    /// EXP-884: the memo behind `file_cards` — each settled edit's patch is
+    /// read once, not once per frame.
+    edit_memo: crate::session_rows::EditMemo,
+    /// EXP-884: the [`SteerFeed::generation`] the derived state (`active`,
+    /// `file_cards`, `subagents`, `strip_lines`, `duplicates`) was computed
+    /// for; `None` before the first derivation.
+    derived_for: Option<u64>,
+    /// EXP-884: `feed.subagents()` — the strip's tabs and the focused tab's
+    /// validity read it twice a frame; it walks and buckets the whole run.
+    subagents: Vec<steer::SubagentSummary>,
+    /// EXP-884: the §1/§2 strip lines, a whole-feed walk for open wait rows.
+    strip_lines: Vec<crate::session_rows::StripLine>,
+    /// EXP-884: the §4 duplicate edges, asked per workflow row.
+    duplicates: Vec<crate::session_rows::DuplicateWarning>,
     /// …and the cards whose `{rest} more` half is unfolded.
     expanded_cards: HashSet<FeedItemId>,
     /// EXP-850 §3: the workflow agents whose nested events are unfolded,
@@ -631,6 +646,11 @@ impl SteerSessionView {
             diff_scope: DiffScope::Session,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             file_cards: HashMap::new(),
+            edit_memo: Default::default(),
+            derived_for: None,
+            subagents: Vec::new(),
+            strip_lines: Vec::new(),
+            duplicates: Vec::new(),
             expanded_cards: HashSet::new(),
             expanded_agents: HashSet::new(),
             duplicates_notified: HashSet::new(),
@@ -693,7 +713,7 @@ impl SteerSessionView {
                 this.feed.apply(event);
             }
             this.sync_changes(cx);
-            this.refresh_active();
+            this.refresh_derived();
             this.connected = false;
             this.phase = ViewerPhase::Ended { outcome: None };
             // The whole run is already here: open on its end.
@@ -828,11 +848,30 @@ impl SteerSessionView {
 
     // ── EXP-776: the cached row projection + list sync ─────────────────────
 
-    /// Re-read the answerable cards off the feed. Called wherever the feed
-    /// mutates (and at the top of every frame), so the header and the rows
-    /// read one cached set instead of rebuilding it per call.
-    fn refresh_active(&mut self) {
+    /// EXP-884 — re-derive every whole-feed projection this view keeps (the
+    /// answerable cards, the subagent summaries, the strip lines, the
+    /// duplicate edges, the per-turn file cards), but ONLY when the feed's
+    /// generation moved since the last derivation.
+    ///
+    /// Called wherever the feed mutates and at the top of every frame. The
+    /// first cut recomputed all of these per frame, straight off the run —
+    /// six walks over every item, one of them re-parsing every edit's diff —
+    /// so a scroll frame on a long transcript cost tens of milliseconds
+    /// before a single row was painted. Now a frame in which nothing arrived
+    /// pays an integer compare, and a streaming frame pays one walk per
+    /// derivation (the diff reads are memoised on top, [`EditMemo`]).
+    fn refresh_derived(&mut self) {
+        let generation = self.feed.generation();
+        if self.derived_for == Some(generation) {
+            return;
+        }
+        self.derived_for = Some(generation);
         self.active = self.feed.active_question_ids();
+        self.subagents = self.feed.subagents();
+        self.strip_lines =
+            crate::session_rows::strip_lines(self.feed.background_tasks(), self.feed.items());
+        self.duplicates = crate::session_rows::duplicate_warnings(self.feed.items());
+        self.file_cards = crate::session_rows::file_cards(self.feed.items(), &self.edit_memo);
     }
 
     /// EXP-848 — the ONE working predicate (identical on all four clients,
@@ -951,6 +990,7 @@ impl SteerSessionView {
             })
         });
         self.extras.prune_before(first);
+        self.edit_memo.prune_before(first);
     }
 
     /// EXP-783 — the index of the oldest item the transcript renders.
@@ -1077,7 +1117,7 @@ impl SteerSessionView {
     /// is a wrong row height rather than a crash: exactly the class of bug
     /// not worth a cache to earn.
     fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
-        self.refresh_active();
+        self.refresh_derived();
         self.reanchor_window();
         if std::mem::take(&mut self.extend_window) {
             self.grow_window();
@@ -1115,8 +1155,8 @@ impl SteerSessionView {
         } else {
             self.orphan_workflows.clear();
         }
-        // EXP-850 §12: the per-turn file cards, derived once per frame.
-        self.file_cards = crate::session_rows::file_cards(self.feed.items());
+        // EXP-850 §12: the per-turn file cards are derived state now
+        // (EXP-884, [`Self::refresh_derived`] above).
         self.prune_dropped_rows();
         // The "Working…" line belongs to the main transcript — a subagent's
         // tab has its own running spinner in the strip.
@@ -1447,7 +1487,7 @@ impl SteerSessionView {
                 self.feed.push_local_message(&text);
             }
         }
-        self.refresh_active();
+        self.refresh_derived();
         self.note_feed_moved(pulse);
         self.note_compaction(was_compacting, cx);
         cx.notify();
@@ -1563,7 +1603,7 @@ impl SteerSessionView {
                         }
                     }
                 }
-                self.refresh_active();
+                self.refresh_derived();
                 self.note_feed_moved(pulse);
                 self.sync_changes(cx);
                 self.note_compaction(was_compacting, cx);
@@ -1675,7 +1715,7 @@ impl SteerSessionView {
                     let was_compacting = this.feed.compacting().is_some();
                     let pulse = feed_pulse(&this.feed);
                     this.feed.force_swap();
-                    this.refresh_active();
+                    this.refresh_derived();
                     this.note_feed_moved(pulse);
                     this.sync_changes(cx);
                     this.note_compaction(was_compacting, cx);
@@ -2365,7 +2405,11 @@ impl SteerSessionView {
             DiffScope::Tool { item } => self.item_diff_files(*item),
             DiffScope::Turn { anchor } => {
                 let mut files: Vec<coding::scm::DiffFile> = Vec::new();
-                for item in crate::session_rows::turn_items(self.feed.items(), *anchor) {
+                for item in crate::session_rows::turn_items(
+                    self.feed.items(),
+                    *anchor,
+                    &self.edit_memo,
+                ) {
                     for file in self.item_diff_files(item) {
                         // Two writes to one file inside a turn are ONE entry,
                         // exactly as the turn's file card counts them.
@@ -2572,9 +2616,11 @@ impl SteerSessionView {
     /// The DUPLICATE warnings belonging to `workflow_id` (§4: they render
     /// under the card, and stay there when it collapses).
     fn workflow_duplicates(&self, workflow_id: &str) -> Vec<crate::session_rows::DuplicateWarning> {
-        crate::session_rows::duplicate_warnings(self.feed.items())
-            .into_iter()
+        // EXP-884: off the derived list, never a fresh walk per workflow row.
+        self.duplicates
+            .iter()
             .filter(|warning| warning.workflow_id.as_deref() == Some(workflow_id))
+            .cloned()
             .collect()
     }
 
@@ -4938,8 +4984,8 @@ impl SteerSessionView {
     /// §1/§2 — the strip directly above the composer: one line per background
     /// task, one per OPEN wait row. `None` when there is neither.
     fn render_task_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let lines =
-            crate::session_rows::strip_lines(self.feed.background_tasks(), self.feed.items());
+        // EXP-884: derived once per feed generation ([`Self::refresh_derived`]).
+        let lines = &self.strip_lines;
         if lines.is_empty() {
             return None;
         }
@@ -5748,8 +5794,8 @@ impl SteerSessionView {
     /// exactly as long as it stays focused, then Main takes over.
     fn active_subagent(&self) -> Option<String> {
         let focused = self.focused_subagent.as_deref()?;
-        let agents = self.feed.subagents();
-        steer::feed::visible_subagent_tabs(&agents, Some(focused))
+        // EXP-884: the derived summaries, not a walk of the run per call.
+        steer::feed::visible_subagent_tabs(&self.subagents, Some(focused))
             .iter()
             .any(|agent| agent.subagent_id == focused)
             .then(|| focused.to_string())
@@ -5775,8 +5821,7 @@ impl SteerSessionView {
     fn render_subagent_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let muted = cx.theme().muted_foreground;
         let active = self.active_subagent();
-        let agents = self.feed.subagents();
-        let tabs = steer::feed::visible_subagent_tabs(&agents, active.as_deref());
+        let tabs = steer::feed::visible_subagent_tabs(&self.subagents, active.as_deref());
         if tabs.is_empty() {
             return None;
         }
@@ -5824,7 +5869,7 @@ impl SteerSessionView {
         }
         let summary = active
             .as_deref()
-            .and_then(|id| agents.iter().find(|agent| agent.subagent_id == id));
+            .and_then(|id| self.subagents.iter().find(|agent| agent.subagent_id == id));
         let column = v_flex()
             .w_full()
             .flex_shrink_0()

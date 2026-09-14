@@ -333,6 +333,49 @@ impl FileCard {
 /// How many rows a card shows before the `{rest} more` toggle (§12).
 pub(crate) const FILE_CARD_ROWS: usize = 5;
 
+/// EXP-884 — the `path +a −d` read of every settled edit row, memoised by
+/// row id.
+///
+/// [`file_cards`] runs on every frame the feed moved, and it used to parse
+/// EVERY edit's unified diff in the run each time (a framed copy of the patch
+/// plus a full hunk parse per row): on a long run that was tens of
+/// milliseconds per frame, growing with the transcript — the EXP-884 lag.
+/// A row's diff is written once by its `tool_update` and never edited, so
+/// the read is cached against the row id and the patch length (the length
+/// guards the one way the bytes could still move: a second update). Entries
+/// leave with their rows ([`Self::prune_before`], the viewer's eviction
+/// hook). Interior mutability so the read-only render paths that share a
+/// card's segmentation ([`turn_items`]) fill it too.
+#[derive(Default)]
+pub(crate) struct EditMemo {
+    by_item: std::cell::RefCell<HashMap<FeedItemId, (usize, Option<FileEdit>)>>,
+}
+
+impl EditMemo {
+    fn edit_of(&self, id: FeedItemId, diff: &str) -> Option<FileEdit> {
+        if let Some((len, edit)) = self.by_item.borrow().get(&id) {
+            if *len == diff.len() {
+                return edit.clone();
+            }
+        }
+        let edit = edit_of(diff);
+        self.by_item
+            .borrow_mut()
+            .insert(id, (diff.len(), edit.clone()));
+        edit
+    }
+
+    /// Drop the entries of rows the feed no longer holds (ids below `first`).
+    pub(crate) fn prune_before(&self, first: FeedItemId) {
+        self.by_item.borrow_mut().retain(|id, _| *id >= first);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.by_item.borrow().len()
+    }
+}
+
 /// §12 — the per-turn file cards, keyed by the row they hang under.
 ///
 /// A segment runs from a user message (or the start of the feed) to the next
@@ -340,8 +383,11 @@ pub(crate) const FILE_CARD_ROWS: usize = 5;
 /// contributes its file. Two writes to one file are ONE row, summed, so the
 /// title counts files rather than calls. A subagent's edits belong to its own
 /// card inside the group, never to the main line's.
-pub(crate) fn file_cards(items: &[FeedItem]) -> HashMap<FeedItemId, FileCard> {
-    turn_segments(items)
+///
+/// EXP-884: the diff reads go through `memo`; the walk itself is a cheap
+/// match per item.
+pub(crate) fn file_cards(items: &[FeedItem], memo: &EditMemo) -> HashMap<FeedItemId, FileCard> {
+    turn_segments(items, memo)
         .into_iter()
         .filter_map(|segment| {
             // The card hangs under the LAST edit row of the segment.
@@ -370,8 +416,12 @@ pub(crate) fn file_cards(items: &[FeedItem]) -> HashMap<FeedItemId, FileCard> {
 /// Extracted from [`file_cards`], so "which rows belong to this turn" is
 /// answered once: a card and the pane it opens can never disagree about what
 /// the turn touched.
-pub(crate) fn turn_items(items: &[FeedItem], anchor: FeedItemId) -> Vec<FeedItemId> {
-    turn_segments(items)
+pub(crate) fn turn_items(
+    items: &[FeedItem],
+    anchor: FeedItemId,
+    memo: &EditMemo,
+) -> Vec<FeedItemId> {
+    turn_segments(items, memo)
         .into_iter()
         // Any row of the segment names it: the anchor stays valid while the
         // turn keeps editing (web keys the scope on the turn the same way).
@@ -386,7 +436,7 @@ pub(crate) fn turn_items(items: &[FeedItem], anchor: FeedItemId) -> Vec<FeedItem
 /// A segment runs from a user message (or the start of the feed) to the next
 /// one. A subagent's edits belong to its own card inside the group, never to
 /// the main line's, so `subagent_id: None` gates both arms.
-fn turn_segments(items: &[FeedItem]) -> Vec<Vec<(FeedItemId, FileEdit)>> {
+fn turn_segments(items: &[FeedItem], memo: &EditMemo) -> Vec<Vec<(FeedItemId, FileEdit)>> {
     let mut segments: Vec<Vec<(FeedItemId, FileEdit)>> = Vec::new();
     let mut open: Vec<(FeedItemId, FileEdit)> = Vec::new();
     for item in items {
@@ -406,7 +456,7 @@ fn turn_segments(items: &[FeedItem]) -> Vec<Vec<(FeedItemId, FileEdit)>> {
                 diff: Some(diff),
                 ..
             } if *settled && edits_files(*tool_kind) => {
-                let Some(edit) = edit_of(diff) else {
+                let Some(edit) = memo.edit_of(item.id, diff) else {
                     continue;
                 };
                 open.push((item.id, edit));
@@ -836,7 +886,8 @@ mod tests {
             user(7),
             next,
         ];
-        let cards = file_cards(&items);
+        let memo = EditMemo::default();
+        let cards = file_cards(&items, &memo);
         assert_eq!(cards.len(), 2);
         let first = cards.get(&4).expect("the first turn's card anchors on its last edit");
         assert_eq!(first.title(), "2 files edited");
@@ -862,14 +913,14 @@ mod tests {
         // EXP-862: the pane scoped to a card reads back the ROWS that card
         // counted — every write, including the second one to a.rs, and
         // nothing from the unsettled edit, the read or the next turn.
-        assert_eq!(turn_items(&items, 4), vec![2, 3, 4]);
-        assert_eq!(turn_items(&items, 8), vec![8]);
+        assert_eq!(turn_items(&items, 4, &memo), vec![2, 3, 4]);
+        assert_eq!(turn_items(&items, 8, &memo), vec![8]);
         // Any row of the turn names it, so a scope opened while the turn was
         // still editing keeps resolving after later writes moved the card's
         // anchor (web keys the scope on the turn the same way).
-        assert_eq!(turn_items(&items, 3), vec![2, 3, 4]);
+        assert_eq!(turn_items(&items, 3, &memo), vec![2, 3, 4]);
         // An id no turn edited asks for nothing.
-        assert!(turn_items(&items, 99).is_empty());
+        assert!(turn_items(&items, 99, &memo).is_empty());
     }
 
     // ── The recorded wire, end to end ─────────────────────────────────────
@@ -1028,6 +1079,157 @@ mod tests {
             *subagent_id = Some("a-1".to_string());
         }
         let items = vec![user(1), tool(2, Some(ToolKind::Read), true, None), nested];
-        assert!(file_cards(&items).is_empty());
+        assert!(file_cards(&items, &EditMemo::default()).is_empty());
+    }
+
+    /// EXP-884: the memo reads each settled edit's patch ONCE, re-reads it
+    /// only when the bytes moved, and forgets rows the feed evicted.
+    #[test]
+    fn the_edit_memo_parses_each_patch_once_and_follows_eviction() {
+        let memo = EditMemo::default();
+        let items = vec![
+            user(1),
+            tool(2, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 2, 1))),
+            tool(3, Some(ToolKind::Edit), true, Some(&patch("src/b.rs", 1, 0))),
+            tool(4, Some(ToolKind::Edit), true, None),
+        ];
+        let first = file_cards(&items, &memo);
+        assert_eq!(memo.len(), 2, "one entry per settled edit WITH a diff");
+        assert_eq!(file_cards(&items, &memo), first);
+        assert_eq!(memo.len(), 2);
+        // A longer patch for the same row is a different read.
+        let mut grown = items.clone();
+        grown[1] = tool(2, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 5, 1)));
+        let card = file_cards(&grown, &memo);
+        assert_eq!(card.get(&3).expect("card").files[0].additions, 5);
+        // Eviction: rows below the surviving first id leave the memo.
+        memo.prune_before(3);
+        assert_eq!(memo.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    //! EXP-884 — the per-frame whole-feed passes on a LONG run, timed. Run
+    //! with `cargo test -p ui --release -- --ignored bench_long_feed --nocapture`.
+    use std::time::Instant;
+
+    fn diff(path: &str, lines: usize) -> String {
+        let mut out = format!("--- a/{path}\n+++ b/{path}\n@@ -1,{lines} +1,{lines} @@\n");
+        for ix in 0..lines {
+            out.push_str(&format!("-old line number {ix} with some text in it\n"));
+            out.push_str(&format!("+new line number {ix} with some other text\n"));
+        }
+        out
+    }
+
+    pub(crate) fn long_feed(turns: usize) -> steer::SteerFeed {
+        let mut feed = steer::SteerFeed::new();
+        let mut call = 0u64;
+        for turn in 0..turns {
+            feed.apply(steer::ActivityEvent::user_message(format!("turn {turn}: please do it")));
+            for n in 0..12 {
+                feed.apply(steer::ActivityEvent::Narration {
+                    text: format!("Narration {n} of turn {turn}. ").repeat(12),
+                    before_question_id: None,
+                    message_id: Some(format!("m-{turn}-{n}")),
+                    subagent_id: None,
+                    at: None,
+                });
+                for _ in 0..2 {
+                    call += 1;
+                    let id = format!("toolu_{call}");
+                    let edit = call % 3 == 0;
+                    feed.apply(steer::ActivityEvent::Tool {
+                        name: if edit { "Edit".into() } else { "Read".into() },
+                        detail: Some(format!("src/file_{}.rs", call % 40)),
+                        id: Some(id.clone()),
+                        tool_kind: Some(if edit { steer::ToolKind::Edit } else { steer::ToolKind::Read }),
+                        subagent_id: None,
+                        at: None,
+                    });
+                    feed.apply(steer::ActivityEvent::tool_update(
+                        id,
+                        Some(steer::ToolUpdateStatus::Completed),
+                        edit.then(|| diff(&format!("src/file_{}.rs", call % 40), 30)),
+                    ));
+                }
+            }
+            let agent = format!("agent-{turn}");
+            feed.apply(steer::ActivityEvent::Subagent {
+                id: agent.clone(),
+                agent_type: "Explore".into(),
+                status: steer::SubagentStatus::Started,
+                detail: None,
+                at: None,
+                tool_calls: None,
+                title: Some("look around".into()),
+                workflow_id: None,
+            });
+            for _ in 0..10 {
+                call += 1;
+                feed.apply(steer::ActivityEvent::Tool {
+                    name: "Grep".into(),
+                    detail: Some("pattern".into()),
+                    id: Some(format!("toolu_{call}")),
+                    tool_kind: Some(steer::ToolKind::Search),
+                    subagent_id: Some(agent.clone()),
+                    at: None,
+                });
+            }
+            feed.apply(steer::ActivityEvent::Subagent {
+                id: agent,
+                agent_type: "Explore".into(),
+                status: steer::SubagentStatus::Completed,
+                detail: Some("done".into()),
+                at: None,
+                tool_calls: Some(10),
+                title: Some("look around".into()),
+                workflow_id: None,
+            });
+        }
+        feed
+    }
+
+    fn timed<T>(label: &str, reps: u32, mut f: impl FnMut() -> T) -> T {
+        let started = Instant::now();
+        let mut out = None;
+        for _ in 0..reps {
+            out = Some(f());
+        }
+        let per = started.elapsed() / reps;
+        eprintln!("{label:<28} {per:>10.1?} per frame");
+        out.unwrap()
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_long_feed() {
+        let feed = long_feed(600);
+        let items = feed.items();
+        eprintln!("items: {} ({} KiB)", items.len(), feed.bytes() / 1024);
+        let reps = 20;
+        timed("active_question_ids", reps, || feed.active_question_ids());
+        timed("file_cards (cold memo)", reps, || {
+            super::file_cards(items, &super::EditMemo::default())
+        });
+        let memo = super::EditMemo::default();
+        super::file_cards(items, &memo);
+        timed("file_cards (warm memo)", reps, || super::file_cards(items, &memo));
+        let prose = "Narration 3 of turn 7. ".repeat(12);
+        timed("markdown parse (1 body)", reps, || crate::markdown::markdown_to_blocks(&prose));
+        timed("collect_subagents x2", reps, || (feed.subagents(), feed.subagents()));
+        timed("strip_lines", reps, || super::strip_lines(feed.background_tasks(), items));
+        timed("duplicate_warnings", reps, || super::duplicate_warnings(items));
+        let start = items.len().saturating_sub(domain::contract::STEER_FEED_WINDOW);
+        let mut rows = Vec::new();
+        timed("row_specs (window)", reps, || feed.row_specs_from_into(start, &mut rows));
+        let held = feed.workflow_ids();
+        timed("window post-passes", reps, || {
+            let mut rows = rows.clone();
+            super::hide_workflow_agent_rows(&mut rows, items, &held);
+            super::pending_last(&mut rows, items);
+            super::orphan_workflow_ids(&rows, items, &held)
+        });
     }
 }

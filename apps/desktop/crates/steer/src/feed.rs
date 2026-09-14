@@ -443,6 +443,13 @@ pub struct SteerFeed {
     /// `push_item` can stamp it without threading it through every arm of
     /// `handle_activity`. Set for exactly the duration of one fold.
     seq: Option<u64>,
+    /// EXP-884: bumped by EVERY mutating entry point (`touch`), so a renderer
+    /// can memoise whole-feed derivations (the open cards, the subagent
+    /// summaries, the per-turn file cards …) and recompute them only when the
+    /// feed actually moved — never on a scroll frame. A counter rather than
+    /// a dirty flag: several views may read one feed, and each keeps the
+    /// generation it last derived from.
+    generation: u64,
 }
 
 impl SteerFeed {
@@ -457,6 +464,12 @@ impl SteerFeed {
 
     pub fn items(&self) -> &[FeedItem] {
         &self.items
+    }
+
+    /// EXP-884: the mutation counter — equal between two reads iff nothing
+    /// in this feed changed in between (items, slots, answers, staging).
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn is_empty(&self) -> bool {
@@ -487,6 +500,7 @@ impl SteerFeed {
     /// Drop the strip without an `ended` frame: the caller's
     /// [`COMPACTION_TIMEOUT`], or the session ending under it.
     pub fn clear_compaction(&mut self) {
+        self.touch();
         self.compacting = None;
     }
 
@@ -520,6 +534,7 @@ impl SteerFeed {
     /// EXP-861: drop one queued message locally — the optimistic half of an
     /// `unqueue`; the device's next `queue` frame is the truth.
     pub fn remove_queued(&mut self, id: &str) {
+        self.touch();
         self.queue.retain(|message| message.id != id);
     }
 
@@ -582,6 +597,7 @@ impl SteerFeed {
 
     /// EXP-783: one `activity` frame WITH its wire sequence.
     pub fn apply_seq(&mut self, seq: Option<u64>, event: ActivityEvent) {
+        self.touch();
         if let Some(staged) = self.staged.as_mut() {
             staged.events.push((seq, event));
             return;
@@ -596,12 +612,14 @@ impl SteerFeed {
     /// staging window; a second reset means the relay superseded the replay
     /// being buffered, not that the reader should lose what is on screen.
     pub fn apply_reset(&mut self) {
+        self.touch();
         self.staged = Some(Staged::default());
     }
 
     /// `activity_synced` (EXP-656) — "the picture is complete, commit it".
     /// A no-op when nothing is staging.
     pub fn apply_synced(&mut self) {
+        self.touch();
         self.commit_staged(None);
     }
 
@@ -612,6 +630,7 @@ impl SteerFeed {
     /// paths ([`SteerFeed::apply_synced`], [`SteerFeed::force_swap`]) are the
     /// ones that still swap the whole transcript.
     pub fn apply_synced_from(&mut self, first_seq: u64) {
+        self.touch();
         self.commit_staged(Some(first_seq));
     }
 
@@ -621,6 +640,7 @@ impl SteerFeed {
     /// [`SteerFeed::apply_synced`] — named apart so the call sites read as
     /// what they are.
     pub fn force_swap(&mut self) {
+        self.touch();
         self.commit_staged(None);
     }
 
@@ -660,6 +680,7 @@ impl SteerFeed {
     /// set; here the scratch makes the same guarantee structurally, and
     /// `an_older_page_never_touches_the_latest_wins_slots` locks it.
     pub fn prepend_page(&mut self, page: Vec<(Option<u64>, ActivityEvent)>) -> usize {
+        self.touch();
         if self.staged.is_some() || page.is_empty() {
             return 0;
         }
@@ -707,6 +728,7 @@ impl SteerFeed {
     /// mid-burst, so the buffer is a partial history of a room this client is
     /// no longer joined to. The next join replays from scratch.
     pub fn discard_staging(&mut self) {
+        self.touch();
         self.staged = None;
     }
 
@@ -716,6 +738,7 @@ impl SteerFeed {
     /// FIFO makes its transcript-derived `user_message` twin a no-op when it
     /// arrives. Returns the new item's id.
     pub fn push_local_message(&mut self, text: &str) -> FeedItemId {
+        self.touch();
         self.push_echo(text);
         if let Some(staged) = self.staged.as_mut() {
             // The replay predates this message; the commit re-appends it if
@@ -731,6 +754,7 @@ impl SteerFeed {
     /// Record a local echo WITHOUT rendering anything — for a message whose
     /// item the caller appends itself.
     pub fn note_local_echo(&mut self, text: &str) {
+        self.touch();
         self.push_echo(text);
     }
 
@@ -738,6 +762,7 @@ impl SteerFeed {
     /// caller then arms an [`ANSWER_ACK_TIMEOUT`] timer that calls
     /// [`SteerFeed::fail_answer`].
     pub fn note_answer_sent(&mut self, key: &str, keys: Vec<String>, labels: Vec<String>) {
+        self.touch();
         self.answers.insert(
             key.to_string(),
             AnswerState {
@@ -751,6 +776,7 @@ impl SteerFeed {
     /// The ack never came — re-enable the card. An already-acked card stays
     /// locked (web `failAnswer`).
     pub fn fail_answer(&mut self, key: &str) {
+        self.touch();
         if let Some(state) = self.answers.get_mut(key) {
             if state.status == AnswerStatus::Sending {
                 state.status = AnswerStatus::Error;
@@ -759,6 +785,12 @@ impl SteerFeed {
     }
 
     // ── Internals ──────────────────────────────────────────────────────────
+
+    /// EXP-884: every `pub fn (&mut self)` calls this first. Cheap enough to
+    /// be unconditional; a bump nobody needed costs one recompute.
+    fn touch(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+    }
 
     fn take_id(&mut self) -> FeedItemId {
         let id = self.next_id;
@@ -2174,6 +2206,28 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
 mod tests {
     use super::*;
     use crate::frames::ConfigValue;
+
+    /// EXP-884: the generation moves on every mutation — a row, a slot, an
+    /// answer lock — and never on a read, so a renderer can memoise
+    /// whole-feed derivations against it.
+    #[test]
+    fn the_generation_moves_on_every_mutation_and_no_read() {
+        let mut feed = SteerFeed::new();
+        let start = feed.generation();
+        let _ = (feed.items(), feed.subagents(), feed.active_question_ids(), feed.row_specs());
+        assert_eq!(feed.generation(), start, "reads never move it");
+        feed.apply(ActivityEvent::narration("hello"));
+        let after_row = feed.generation();
+        assert_ne!(after_row, start);
+        feed.apply(ActivityEvent::turn(crate::frames::TurnState::Started));
+        let after_slot = feed.generation();
+        assert_ne!(after_slot, after_row, "a latest-wins slot counts too");
+        feed.note_answer_sent("q-1", vec!["1".into()], vec!["Yes".into()]);
+        assert_ne!(feed.generation(), after_slot, "an answer lock counts");
+        let before_echo = feed.generation();
+        feed.push_local_message("sent");
+        assert_ne!(feed.generation(), before_echo);
+    }
 
     // Ported from apps/web/src/lib/steer-session-store.test.ts (the reducer
     // half — the socket half lives in `viewer`) and the agent-feed helpers.
