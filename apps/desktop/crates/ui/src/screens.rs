@@ -2005,15 +2005,32 @@ impl ScreensPanel {
         if !stale {
             return;
         }
-        let is_this_diff =
-            |screen: &Screen| matches!(screen, Screen::PrDiff { issue_id: id } if *id == issue_id);
-        crate::navigation::purge_from_history(window, cx, is_this_diff);
-        if self.nav.read(cx).can_go_back() {
-            crate::navigation::go_back(window, cx);
-        } else {
-            crate::navigation::set_screen(window, cx, Some(Screen::Reviews));
-        }
-        crate::navigation::purge_from_history(window, cx, is_this_diff);
+        // EXP-882: deferred — this runs inside THIS panel's own observers, and
+        // `go_back` restores the landed screen's origin through
+        // `screens_for_window(..).read`, a read of the panel mid-update (a
+        // panic: the IDE died on merging from the diff). Both the nav and the
+        // issues observer can schedule it, so the closure re-checks that the
+        // diff is still up.
+        let nav = self.nav.clone();
+        window.defer(cx, move |window, cx| {
+            let this_diff = Screen::PrDiff { issue_id };
+            if resolved_screen(&nav, cx).as_ref() != Some(&this_diff) {
+                return;
+            }
+            let is_this_diff = |screen: &Screen| *screen == this_diff;
+            crate::navigation::purge_from_history(window, cx, is_this_diff);
+            // The last review merged: the queue beside the diff is empty, so
+            // go one layer up to the Reviews page (its empty state, the root
+            // sidebar) rather than back into whatever preceded the diff.
+            let queue_empty = active_team_id(&nav, cx)
+                .is_none_or(|team_id| crate::queries::review_groups(cx, &team_id).is_empty());
+            if !queue_empty && nav.read(cx).can_go_back() {
+                crate::navigation::go_back(window, cx);
+            } else {
+                set_screen(window, cx, Some(Screen::Reviews));
+            }
+            crate::navigation::purge_from_history(window, cx, is_this_diff);
+        });
     }
 
     /// Activate the tab at `ix`: re-select its origin sidebar entry (and
