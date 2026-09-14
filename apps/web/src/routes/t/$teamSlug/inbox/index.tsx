@@ -12,7 +12,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { conceptIcon } from "@/lib/icons.generated"
-import { useDraftEntries } from "@/hooks/use-issue-drafts"
+import { useDraftEntriesWithReady } from "@/hooks/use-issue-drafts"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -26,6 +26,7 @@ const MyIssuesTabIcon = conceptIcon(`ui-assignee`)
 // EXP-878: below md there is no Drafts route — the drafts list is a third
 // segment here, present only while the caller actually has one.
 const DraftsTabIcon = conceptIcon(`nav-drafts`)
+const MarkReadIcon = conceptIcon(`notification-mark-read`)
 
 // The merged personal surface (EXP-186): ONE sidebar entry ("Inbox") with two
 // tabs — the notification stream and the cross-board My Issues list — matching
@@ -77,12 +78,18 @@ function MarkAllReadButton() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return (
+    // EXP-878: on a phone the strip can hold three segments (Inbox, My
+    // Issues, Drafts), which leaves no room for the label — the button
+    // collapses to its glyph there and keeps the text for readers.
     <Button
       variant="ghost"
       size="sm"
+      className="shrink-0"
+      aria-label="Mark all read"
       onClick={() => void trpc.notifications.markAllRead.mutate()}
     >
-      Mark all read
+      <MarkReadIcon className="md:hidden" />
+      <span className="max-md:sr-only">Mark all read</span>
     </Button>
   )
 }
@@ -94,12 +101,18 @@ function InboxPage() {
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const isMobile = useIsMobile()
-  const draftCount = useDraftEntries(team?.id).length
+  const { entries: draftEntries, isReady: draftsReady } =
+    useDraftEntriesWithReady(team?.id)
+  const draftCount = draftEntries.length
   // The segment only exists on a phone that has drafts; anywhere else the
   // sidebar owns the surface. Both conditions can stop holding while the tab
   // is open (the last draft is filed, the viewport widens), so the tab falls
   // back to the inbox rather than rendering a segment that is not there.
-  const draftsTabAvailable = isMobile && draftCount > 0
+  // Until the shapes have synced, a requested `?tab=drafts` is taken at its
+  // word: a cold deep link must not bounce before the rows arrive.
+  const draftsTabAvailable =
+    isMobile &&
+    (draftCount > 0 || (!draftsReady && search.tab === `drafts`))
   const requestedTab: InboxTab =
     search.tab === `my-issues` || search.tab === `drafts`
       ? search.tab
@@ -121,6 +134,7 @@ function InboxPage() {
   }
 
   useEffect(() => {
+    if (!draftsReady) return
     if (requestedTab === `drafts` && !draftsTabAvailable) {
       void navigate({
         to: `/t/$teamSlug/inbox`,
@@ -129,7 +143,7 @@ function InboxPage() {
         replace: true,
       })
     }
-  }, [requestedTab, draftsTabAvailable, navigate, teamSlug])
+  }, [requestedTab, draftsTabAvailable, draftsReady, navigate, teamSlug])
 
   if (!session?.user) return null
 
@@ -160,9 +174,11 @@ function InboxPage() {
                 <TabsTrigger value="drafts" className={SEGMENTED_TAB}>
                   <DraftsTabIcon />
                   Drafts
-                  <span className="text-xs text-foreground/50 tabular-nums">
-                    {draftCount}
-                  </span>
+                  {draftCount > 0 && (
+                    <span className="text-xs text-foreground/50 tabular-nums">
+                      {draftCount}
+                    </span>
+                  )}
                 </TabsTrigger>
               )}
             </TabsList>

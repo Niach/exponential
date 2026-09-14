@@ -502,6 +502,22 @@
         "sha256": "1e655f7193cf765e8dc9b307f12e63fb7733fde29cb7b574570853c538c5405f"
       }
     },
+    "drafts": {
+      "web": {
+        "file": "shots/drafts/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 29002,
+        "sha256": "220788deccaa5009bf0d41a8aa7ccfdd647ef65580dfd3fd683d926c571866dd"
+      },
+      "web-mobile": {
+        "file": "shots/drafts/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 18642,
+        "sha256": "bc1fb5dfb0aaf91346a3325a99ad7c965d867f61b5698790ae8af51110c87b19"
+      }
+    },
     "files": {
       "desktop": {
         "file": "shots/files/desktop.webp",

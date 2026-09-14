@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { issueDraftCollection } from "@/lib/collections"
-import { useTeamBoards } from "@/hooks/use-team-data"
+import { useTeamBoardsWithReady } from "@/hooks/use-team-data"
 import { resolveDraftEntries, type DraftEntry } from "@/lib/issue-drafts"
 import type { IssueDraft } from "@/db/schema"
 
@@ -11,9 +11,14 @@ import type { IssueDraft } from "@/db/schema"
 // resolve — the same "a row renders only when its target resolves" rule the
 // pins surfaces follow.
 
-/** The caller's drafts in a team, unresolved and unsorted. */
-export function useTeamDrafts(teamId: string | undefined): IssueDraft[] {
-  const { data } = useLiveQuery(
+/** The caller's drafts in a team, unresolved and unsorted, plus whether the
+ *  shape has delivered its first snapshot (a DISABLED query reports ready,
+ *  so `teamId` gates it too). */
+export function useTeamDraftsWithReady(teamId: string | undefined): {
+  drafts: IssueDraft[]
+  isReady: boolean
+} {
+  const { data, isReady } = useLiveQuery(
     (query) =>
       teamId
         ? query
@@ -22,7 +27,13 @@ export function useTeamDrafts(teamId: string | undefined): IssueDraft[] {
         : undefined,
     [teamId]
   )
-  return useMemo(() => (data ?? []) as IssueDraft[], [data])
+  const drafts = useMemo(() => (data ?? []) as IssueDraft[], [data])
+  return { drafts, isReady: Boolean(teamId) && isReady }
+}
+
+/** The caller's drafts in a team, unresolved and unsorted. */
+export function useTeamDrafts(teamId: string | undefined): IssueDraft[] {
+  return useTeamDraftsWithReady(teamId).drafts
 }
 
 /** One draft by id — the create dialog's seed when it opens from a row. */
@@ -47,10 +58,24 @@ export function useIssueDraft(
  * board the viewer can no longer see is invisible everywhere at once.
  */
 export function useDraftEntries(teamId: string | undefined): DraftEntry[] {
-  const drafts = useTeamDrafts(teamId)
-  const boards = useTeamBoards(teamId)
-  return useMemo(
+  return useDraftEntriesWithReady(teamId).entries
+}
+
+/**
+ * `useDraftEntries` plus readiness: both the drafts and the boards shape have
+ * delivered their first snapshot. A surface that REDIRECTS away when no draft
+ * exists (the phone inbox's `?tab=drafts`) must wait for this, or a cold deep
+ * link bounces to the inbox before the rows have even arrived.
+ */
+export function useDraftEntriesWithReady(teamId: string | undefined): {
+  entries: DraftEntry[]
+  isReady: boolean
+} {
+  const { drafts, isReady: draftsReady } = useTeamDraftsWithReady(teamId)
+  const { boards, boardsReady } = useTeamBoardsWithReady(teamId)
+  const entries = useMemo(
     () => resolveDraftEntries(drafts, boards ?? [], teamId),
     [drafts, boards, teamId]
   )
+  return { entries, isReady: draftsReady && boardsReady }
 }
