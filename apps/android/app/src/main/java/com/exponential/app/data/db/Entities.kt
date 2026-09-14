@@ -671,6 +671,44 @@ data class PinEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
+// One unsent issue draft (EXP-878, the 22nd Electric shape): the create
+// screen's form, saved when the screen closes with content in it. The shape is
+// static per user (`user_id = me`), NOT team- or trash-scoped — exactly like
+// pins — so a draft renders only once its BOARD resolves from the synced
+// boards table. Every field but the PK defaults: a column absent on the wire
+// must never drop the row (the attachments.uploader_id lesson).
+@Entity(
+    tableName = "issue_drafts",
+    indices = [Index("user_id"), Index("team_id"), Index("board_id")],
+)
+@Serializable
+data class IssueDraftEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String = "",
+    val title: String = "",
+    // Plain GFM, like issues.description. Inline images are already FINAL
+    // `/api/attachments/{id}` URLs — the draft path uploads eagerly, so a
+    // `draft://` placeholder never reaches the server.
+    val description: String = "",
+    // The precise per-team status row; null = the team's Backlog builtin.
+    @ColumnInfo(name = "status_id") @SerialName("status_id") @JsonNames("statusId")
+    val statusId: String? = null,
+    val priority: String = "none",
+    @ColumnInfo(name = "assignee_id") @SerialName("assignee_id") @JsonNames("assigneeId")
+    val assigneeId: String? = null,
+    // A Postgres uuid[] — Electric ships it as the text literal `{a,b}` inside
+    // a JSON string, hence the tolerant serializer (devices.shared_team_ids).
+    @ColumnInfo(name = "label_ids") @SerialName("label_ids") @JsonNames("labelIds")
+    @Serializable(with = PgUuidArraySerializer::class) val labelIds: List<String> = emptyList(),
+    // `YYYY-MM-DD` — the date-only due date (no time of day, REV2-49).
+    @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate")
+    val dueDate: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
 @Entity(tableName = "electric_offsets")
 data class ElectricOffsetEntity(
     @PrimaryKey @ColumnInfo(name = "shape") val shape: String,

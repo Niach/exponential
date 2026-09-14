@@ -134,6 +134,11 @@ interface IssueStatusDao {
     @Query("SELECT * FROM issue_statuses WHERE team_id = :teamId ORDER BY sort_order, created_at, id")
     fun observeByTeam(teamId: String): Flow<List<IssueStatusEntity>>
 
+    // Account-wide (EXP-878): the drafts list spans every team, so it resolves
+    // each row's status against ITS team's rows rather than the active team's.
+    @Query("SELECT * FROM issue_statuses ORDER BY sort_order, created_at, id")
+    fun observeAll(): Flow<List<IssueStatusEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueStatusEntity)
 
@@ -351,6 +356,28 @@ interface PinDao {
     suspend fun deleteById(id: String)
 
     @Query("DELETE FROM pins")
+    suspend fun clear()
+}
+
+// EXP-878: the caller's unsent issue drafts. Like pins, the per-account DB
+// only ever holds the signed-in user's rows (the shape is `user_id = me`), so
+// there is no user filter — and the list is account-wide (every team), because
+// a draft is personal, not board state.
+@Dao
+interface IssueDraftDao {
+    @Query("SELECT * FROM issue_drafts ORDER BY updated_at DESC, created_at DESC")
+    fun observeAll(): Flow<List<IssueDraftEntity>>
+
+    @Query("SELECT * FROM issue_drafts WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<IssueDraftEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: IssueDraftEntity)
+
+    @Query("DELETE FROM issue_drafts WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM issue_drafts")
     suspend fun clear()
 }
 

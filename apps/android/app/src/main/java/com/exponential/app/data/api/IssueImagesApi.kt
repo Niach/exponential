@@ -145,6 +145,39 @@ class IssueImagesApi @Inject constructor(
         )
 
     /**
+     * EXP-878: an inline image uploaded against a DRAFT, before the issue
+     * exists. The create screen uploads eagerly on the draft path (the
+     * issue-detail paste model) so a draft's description carries only final
+     * `/api/attachments/{id}` URLs; `issues.create({draftId})` reparents the
+     * rows to the new issue. Owner-only, same multipart body and response.
+     */
+    suspend fun uploadDraft(
+        accountId: String,
+        draftId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): UploadedImage =
+        post(accountId, "api/issue-drafts/$draftId/files", bytes, filename, contentType)
+
+    /** EXP-878/824: a draft's inline video / audio upload (poster + probe). */
+    suspend fun uploadDraftMedia(
+        accountId: String,
+        draftId: String,
+        media: PreparedMedia,
+    ): UploadedImage =
+        post(
+            accountId,
+            "api/issue-drafts/$draftId/files",
+            media.bytes,
+            media.filename,
+            media.contentType,
+            poster = media.poster,
+            fields = mediaUploadFields(media.width, media.height, media.durationMs),
+            timeoutMs = MEDIA_UPLOAD_TIMEOUT_MS,
+        )
+
+    /**
      * A steer image (EXP-511) uploads against the SESSION, not against an
      * issue: a batch, action or chat run has no issue to hang an attachment
      * on, and gating the attach button on `issueId` meant most runs simply

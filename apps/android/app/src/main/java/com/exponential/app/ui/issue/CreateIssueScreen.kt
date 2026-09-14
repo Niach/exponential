@@ -21,16 +21,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -41,6 +38,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,10 +54,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.IssueDraftAttachment
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.GlassPill
@@ -69,9 +70,7 @@ import com.exponential.app.ui.components.LabelsPickerBlock
 import com.exponential.app.ui.components.MetaRow
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
-import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -79,6 +78,8 @@ import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
+import com.exponential.app.ui.markdown.markdownEmbedUrls
+import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.share.ShareBoardPickerSheet
@@ -100,10 +101,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun CreateIssueScreen(
     onBack: () -> Unit,
-    // The issue was filed: land on it (EXP-596). Never called in "Create more"
-    // mode — the screen stays up for the next issue, and a run of creates has
-    // no single destination.
+    // The issue was filed: land on it (EXP-596).
     onCreated: (String) -> Unit,
+    // EXP-878: the draft being resumed (`board/{boardId}/new?draft={id}`).
+    // Null = a fresh create — the screen still mints an id, but writes nothing
+    // until it closes with content in it.
+    draftId: String? = null,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
     // Share mode (system "Share into Exponential"): the screen has no board
@@ -156,7 +159,6 @@ fun CreateIssueScreen(
     var assigneeId by remember { mutableStateOf<String?>(null) }
     var dueDate by remember { mutableStateOf<String?>(null) }
     var selectedLabelIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var createMore by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
     var assigneeMenuOpen by remember { mutableStateOf(false) }
@@ -174,6 +176,42 @@ fun CreateIssueScreen(
     // exactly like draft images — the picks are held here and uploaded right
     // after the create.
     val pendingFiles = remember { mutableStateListOf<Uri>() }
+    // EXP-878: on the DRAFT path (everything but share mode) the screen owns a
+    // client-minted draft id from the first frame, so an attachment can be
+    // uploaded the moment it is picked — the issue-detail paste model — and
+    // the description only ever carries final `/api/attachments/{id}` URLs.
+    val draftKey = rememberSaveable { draftId ?: UUID.randomUUID().toString() }
+    val draftRow by viewModel.draft.collectAsStateWithLifecycle()
+    val draftMaterialized by viewModel.draftMaterialized.collectAsStateWithLifecycle()
+    // The draft's already-uploaded files (the Files section when resuming).
+    val draftFiles = remember { mutableStateListOf<IssueDraftAttachment>() }
+    // One-shot seed latch: a resumed draft fills the form exactly once, so a
+    // later sync of the same row can never overwrite what is being typed.
+    var seeded by rememberSaveable { mutableStateOf(draftId == null) }
+    // Held until the team's status ROWS arrive — the draft stores a status_id,
+    // which can only be re-pointed once issue_statuses has synced.
+    var pendingDraftStatusId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(draftRow, seeded) {
+        if (seeded) return@LaunchedEffect
+        val row = draftRow ?: return@LaunchedEffect
+        title = row.title
+        description = row.description
+        priority = IssuePriority.fromWire(row.priority)
+        assigneeId = row.assigneeId
+        dueDate = row.dueDate
+        selectedLabelIds = row.labelIds.toSet()
+        pendingDraftStatusId = row.statusId
+        seeded = true
+        // The draft's attachments are deliberately NOT in the attachments
+        // shape (it is scoped to issue-owned rows), so they come over tRPC.
+        // Only the FILE rows belong here: an inline image or clip is already
+        // rendered from the description it is embedded in (EXP-297/824).
+        val files = viewModel.draftAttachments(row.id).filterNot {
+            isInlineImage(it.contentType) || isInlineMedia(it.contentType)
+        }
+        draftFiles.clear()
+        draftFiles.addAll(files)
+    }
     // EXP-487: assignee picker + @-mention candidates are the target team's
     // members only — state.users is the account-wide display lookup.
     val users = state.teamUsers
@@ -187,8 +225,16 @@ fun CreateIssueScreen(
     // again after a share-mode board switch): keep the user's own pick when it
     // still exists, else fall back to that team's backlog status.
     val teamStatuses = state.teamStatuses
-    LaunchedEffect(teamStatuses) {
+    LaunchedEffect(teamStatuses, pendingDraftStatusId) {
         if (teamStatuses.isEmpty()) return@LaunchedEffect
+        // A resumed draft's own status row wins until it resolves (EXP-878);
+        // it stays pending while the team's rows are still landing.
+        val fromDraft = pendingDraftStatusId?.let { id -> teamStatuses.firstOrNull { it.rowId == id } }
+        if (fromDraft != null) {
+            status = fromDraft
+            pendingDraftStatusId = null
+            return@LaunchedEffect
+        }
         val picked = status
         status = teamStatuses.firstOrNull { it.id == picked.id }
             // The pick was made against the CONSTRUCTED fallback set, whose ids
@@ -202,33 +248,61 @@ fun CreateIssueScreen(
 
     val assigneeUser = users.firstOrNull { it.id == assigneeId }
     val isCreating = state.isCreating
-    var confirmDiscard by remember { mutableStateOf(false) }
 
-    // Anything worth a "discard?" prompt: typed/prefilled content or images
-    // queued for upload.
-    val hasUnsavedContent = title.isNotBlank() || description.isNotBlank() ||
-        pendingImages.isNotEmpty() || pendingMedia.isNotEmpty() || pendingFiles.isNotEmpty()
+    // What makes this form worth keeping (EXP-878): a real title, a
+    // description, or at least one file already uploaded against the draft.
+    val hasDraftContent = title.isNotBlank() || description.isNotBlank() || draftFiles.isNotEmpty()
+
+    // The form as a draft row. A `draft://` placeholder is never persisted —
+    // on the draft path uploads are eager, so one can only come from a share
+    // prefill's still-pending images.
+    fun snapshot(): IssueDraftSnapshot {
+        val pending = markdownEmbedUrls(description).filter { it.startsWith(DRAFT_URL_PREFIX) }
+        return IssueDraftSnapshot(
+            id = draftKey,
+            title = title.trim(),
+            description = removeMarkdownImagesByUrl(description, pending),
+            statusId = status.rowId,
+            priority = priority.wire,
+            assigneeId = assigneeId,
+            // Drop selections for labels deleted while drafting, like create.
+            labelIds = selectedLabelIds.filter { id -> state.labels.any { it.id == id } },
+            dueDate = dueDate,
+        )
+    }
 
     // The share prefill is NOT consumed on entry: it lives in an app-singleton
     // (TeamSelection.pendingShare), so backing out and re-entering re-fills
     // the form. It's consumed exactly once — on a successful create (below) or
-    // an explicit discard.
-    fun close(discarding: Boolean) {
-        if (discarding && sharePrefill != null) onSharePrefillConsumed()
+    // once its content has been written somewhere else (a saved draft).
+    fun close(consumePrefill: Boolean) {
+        if (consumePrefill && sharePrefill != null) onSharePrefillConsumed()
         onBack()
     }
 
     fun attemptClose() {
         if (isCreating) return
-        if (hasUnsavedContent) confirmDiscard = true else close(discarding = false)
+        // EXACTLY ONE write per close, never while typing (EXP-878): content
+        // is saved silently as a draft, an emptied existing draft is deleted,
+        // and a blank untouched form writes nothing at all. Share mode keeps
+        // its own pending-upload pipeline and writes no drafts.
+        var wrote = false
+        if (!shareMode) {
+            if (hasDraftContent) {
+                viewModel.persistDraft(snapshot())
+                wrote = true
+            } else if (draftMaterialized) {
+                viewModel.discardDraft(draftKey)
+                wrote = true
+            }
+        }
+        close(consumePrefill = wrote)
     }
 
-    // System back: blocked while a create is in flight (it would cancel the
-    // route's ViewModel scope mid-request), and gated behind a discard
-    // confirmation while the form holds unsaved content.
-    BackHandler(enabled = isCreating || hasUnsavedContent) {
-        if (!isCreating) confirmDiscard = true
-    }
+    // System back always routes through the save-or-discard path; it is a
+    // no-op while a create is in flight (leaving would cancel the route's
+    // ViewModel scope mid-request).
+    BackHandler(enabled = true) { attemptClose() }
 
     // In share mode a board must be chosen before the create can target it.
     val canSubmit = title.isNotBlank() && !isCreating && (!shareMode || selectedBoardId != null)
@@ -253,21 +327,18 @@ fun CreateIssueScreen(
                 pendingImages = pendingImages.toMap(),
                 pendingMedia = pendingMedia.toMap(),
                 pendingFiles = pendingFiles.toList(),
+                // EXP-878: the server reparents this draft's attachments onto
+                // the new issue and deletes the draft in the same transaction.
+                // Only sent once the row actually EXISTS (resumed, or
+                // materialised by an eager upload) — `issues.create` answers
+                // NOT_FOUND for a draft id nothing was ever written under.
+                draftId = draftKey.takeIf { !shareMode && draftMaterialized },
             )
             if (createdId != null) {
                 // The share prefill (if any) made it into this issue — consume
                 // it now so it can't prefill another create.
                 if (sharePrefill != null) onSharePrefillConsumed()
-                if (createMore) {
-                    title = ""
-                    description = ""
-                    selectedLabelIds = emptySet()
-                    pendingImages.clear()
-                    pendingMedia.clear()
-                    pendingFiles.clear()
-                } else {
-                    onCreated(createdId)
-                }
+                onCreated(createdId)
             }
         }
     }
@@ -362,15 +433,28 @@ fun CreateIssueScreen(
                     markdown = description,
                     editable = true,
                     onChange = { description = it },
+                    // EXP-878: on the draft path the pick is uploaded RIGHT
+                    // AWAY against the draft (creating it if needed) and the
+                    // editor gets the final `/api/attachments/{id}` URL — the
+                    // issue-detail model. Share mode keeps the placeholder
+                    // pipeline that uploads after the create.
                     onUploadImage = { uri ->
-                        val placeholder = "draft://${UUID.randomUUID()}"
-                        pendingImages[placeholder] = uri
-                        placeholder
+                        if (shareMode) {
+                            val placeholder = "$DRAFT_URL_PREFIX${UUID.randomUUID()}"
+                            pendingImages[placeholder] = uri
+                            placeholder
+                        } else {
+                            viewModel.uploadDraftImage(snapshot(), uri)
+                        }
                     },
                     onUploadMedia = { prepared ->
-                        val placeholder = "draft://${UUID.randomUUID()}"
-                        pendingMedia[placeholder] = prepared
-                        placeholder
+                        if (shareMode) {
+                            val placeholder = "$DRAFT_URL_PREFIX${UUID.randomUUID()}"
+                            pendingMedia[placeholder] = prepared
+                            placeholder
+                        } else {
+                            viewModel.uploadDraftMedia(snapshot(), prepared)
+                        }
                     },
                     imageUploadEnabled = true,
                     minHeight = 120.dp,
@@ -382,15 +466,34 @@ fun CreateIssueScreen(
                     // EXP-327: the same attach menu as issue detail — images go
                     // into the description, other files become draft
                     // attachments uploaded once the issue exists.
-                    onAttachFile = { pendingFiles.add(it) },
+                    onAttachFile = { uri ->
+                        if (shareMode) {
+                            pendingFiles.add(uri)
+                        } else {
+                            scope.launch {
+                                viewModel.uploadDraftFile(snapshot(), uri)
+                                    ?.let { draftFiles.add(it) }
+                            }
+                        }
+                    },
                 )
 
-                // Draft files, only once there is one (the section never
-                // announces its own emptiness — EXP-327).
+                // Files, only once there is one (the section never announces
+                // its own emptiness — EXP-327). Share mode still holds URIs;
+                // the draft path shows the rows it already uploaded.
                 if (pendingFiles.isNotEmpty()) {
                     DraftFilesSection(
                         files = pendingFiles,
                         onRemove = { pendingFiles.remove(it) },
+                    )
+                }
+                if (draftFiles.isNotEmpty()) {
+                    DraftAttachmentsSection(
+                        files = draftFiles,
+                        onRemove = { attachment ->
+                            draftFiles.remove(attachment)
+                            viewModel.deleteDraftAttachment(attachment.id)
+                        },
                     )
                 }
 
@@ -467,22 +570,6 @@ fun CreateIssueScreen(
                     Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
 
-                // "Create more" is a batch-entry affordance for in-app creation;
-                // a system share is a one-shot, so it's hidden in share mode.
-                if (!shareMode) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Create more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = createMore,
-                            onCheckedChange = { createMore = it },
-                            colors = glassSwitchColors(),
-                            thumbContent = SwitchThumb,
-                        )
-                    }
-                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -572,25 +659,10 @@ fun CreateIssueScreen(
         )
     }
 
-    if (confirmDiscard) {
-        AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            title = { Text("Discard this issue?") },
-            text = { Text("Your title, description and attached images will be lost.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDiscard = false
-                    close(discarding = true)
-                }) {
-                    Text("Discard", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") }
-            },
-        )
-    }
 }
+
+/** The placeholder scheme an image carries while its upload is still pending. */
+private const val DRAFT_URL_PREFIX = "draft://"
 
 
 /**
@@ -634,6 +706,55 @@ private fun DraftFilesSection(files: List<Uri>, onRemove: (Uri) -> Unit) {
                     Icon(
                         ExpIcons.uiClose,
                         contentDescription = "Remove $name",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The files ALREADY uploaded against the draft (EXP-878). Unlike the share
+ * path's pending URIs these are real attachment rows — uploaded the moment they
+ * were picked, so they survive leaving the screen — and removing one deletes it.
+ */
+@Composable
+private fun DraftAttachmentsSection(
+    files: List<IssueDraftAttachment>,
+    onRemove: (IssueDraftAttachment) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "Files",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        for (file in files) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    ExpIcons.uiFile,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = file.filename,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { onRemove(file) }) {
+                    Icon(
+                        ExpIcons.uiClose,
+                        contentDescription = "Remove ${file.filename}",
                         modifier = Modifier.size(18.dp),
                     )
                 }

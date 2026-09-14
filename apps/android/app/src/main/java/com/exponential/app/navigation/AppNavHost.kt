@@ -508,6 +508,10 @@ private fun AuthenticatedNav(
             // "inbox" route is safe.
             PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                // EXP-878: a draft row resumes the create screen on its board.
+                onOpenDraft = { boardId, draftId ->
+                    navController.navigate("board/$boardId/new?draft=$draftId")
+                },
                 // Support-group taps land on the Support tab (the inbox
                 // ViewModel has already selected the group's team).
                 onOpenSupport = {
@@ -628,16 +632,30 @@ private fun AuthenticatedNav(
                 onNewIssue = { navController.navigate("board/$boardId/new") },
             )
         }
-        composable("board/{boardId}/new") {
+        composable(
+            // EXP-878: `?draft={id}` resumes an unsent draft (the Drafts
+            // section of My Work). Optional query arg, declared nullable the
+            // same way the Agent route's seed args are, so a plain
+            // `board/{boardId}/new` still matches.
+            "board/{boardId}/new?draft={draft}",
+            arguments = listOf(
+                navArgument("draft") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
             // The pending share lives in the TeamSelection singleton (not
             // route state), so backing out of this screen and re-entering
             // re-fills the form. The screen consumes it exactly once — on a
-            // successful create or an explicit discard.
+            // successful create or once it was saved as a draft.
             val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
+                draftId = entry.arguments?.getString("draft")?.takeIf { it.isNotBlank() },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
             )

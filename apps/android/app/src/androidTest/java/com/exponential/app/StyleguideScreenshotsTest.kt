@@ -300,7 +300,8 @@ class StyleguideScreenshotsTest {
 
         // --- Create issue: the compose circle on the bottom bar only exists
         // while a board is in view, and CreateIssueScreen dismisses via
-        // "Cancel" (it has no "Back" node).
+        // "Cancel" (it has no "Back" node). EXP-878 needs nothing here: this
+        // shot types NOTHING into the form, so the close writes no draft.
         composeRule.onNode(hasContentDescription("New issue")).performClick()
         flow.waitFor(hasTestTag("create-issue-title-field"), NAV_TIMEOUT)
         flow.waitFor(hasText("New Issue"), NAV_TIMEOUT)

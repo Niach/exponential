@@ -29,6 +29,12 @@ data class CreateIssueInput(
     // Team label ids assigned at create (issues.create inserts the
     // issue_labels joins in the same transaction). Null = none.
     @SerialName("labelIds") val labelIds: List<String>? = null,
+    // EXP-878: the draft this create came from. The server reparents the
+    // draft's attachments to the new issue and deletes the draft row in the
+    // same transaction — so on this path the description's images MUST already
+    // be `/api/attachments/{id}` URLs owned by that draft (nothing is uploaded
+    // after the create). Omitted when null (the shared Json drops nulls).
+    @SerialName("draftId") val draftId: String? = null,
 )
 
 @Serializable

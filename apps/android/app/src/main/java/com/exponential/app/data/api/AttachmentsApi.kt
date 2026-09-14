@@ -72,6 +72,36 @@ class AttachmentsApi @Inject constructor(
         width: Int? = null,
         height: Int? = null,
         durationMs: Long? = null,
+    ): UploadedAttachment = post(
+        accountId, "api/issues/$issueId/files", bytes, filename, contentType,
+        poster = poster, width = width, height = height, durationMs = durationMs,
+    )
+
+    /**
+     * EXP-878: a file attached to a DRAFT, before the issue exists. The create
+     * screen uploads eagerly on the draft path instead of holding the URI until
+     * a create happens, and `issues.create({draftId})` reparents the rows to
+     * the new issue. Owner-only; same body, same response.
+     */
+    suspend fun uploadDraft(
+        accountId: String,
+        draftId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): UploadedAttachment =
+        post(accountId, "api/issue-drafts/$draftId/files", bytes, filename, contentType)
+
+    private suspend fun post(
+        accountId: String,
+        path: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+        poster: ByteArray? = null,
+        width: Int? = null,
+        height: Int? = null,
+        durationMs: Long? = null,
     ): UploadedAttachment {
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
         val baseUrl = account?.instanceUrl
@@ -82,7 +112,7 @@ class AttachmentsApi @Inject constructor(
             poster = poster,
             fields = mediaUploadFields(width, height, durationMs),
         )
-        val response = client.post("$baseUrl/api/issues/$issueId/files") {
+        val response = client.post("${baseUrl.trimEnd('/')}/$path") {
             // 50 MB on a mobile uplink needs far more than the client-wide 30s
             // request budget (and more than the image route's 120s).
             timeout { requestTimeoutMillis = FILE_TRANSFER_TIMEOUT_MS }
