@@ -388,7 +388,8 @@ public enum AgentActivityDecoder {
         guard let rows = event["messages"] as? [[String: Any]] else { return [] }
         return rows.compactMap { row in
             guard let id = string(row["id"]), let text = row["text"] as? String else { return nil }
-            return QueuedMessage(id: id, text: text)
+            // EXP-873: `sent` rides the wire only when true; absent = held.
+            return QueuedMessage(id: id, text: text, sent: row["sent"] as? Bool ?? false)
         }
     }
 

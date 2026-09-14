@@ -962,6 +962,33 @@ class SteerConnectionTest {
         }
     }
 
+    // EXP-873: a Stop drops every message the agent has not read yet (held
+    // and sent alike — the CLI's own `cancel_queued`), so the text goes back
+    // into the composer, in order, instead of vanishing; the device's empty
+    // `queue` event then confirms what the connection already did.
+    @Test
+    fun interruptHandsTheUnreadMessagesBackToTheDraft() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit(
+                """{"t":"activity","event":{"kind":"queue","messages":""" +
+                    """[{"id":"m1","text":"one","sent":true},{"id":"m2","text":"two"}]}}""",
+            )
+            waitUntil("the queue slot") { connection.activity.value.queue.size == 2 }
+            connection.interrupt()
+            waitUntil("the interrupt frame") { socket.sent.contains("""{"t":"interrupt"}""") }
+            assertTrue(connection.activity.value.queue.isEmpty())
+            assertEquals("one\ntwo", connection.draft.value)
+            // A draft in progress keeps its place; nothing queued touches nothing.
+            connection.interrupt()
+            assertEquals("one\ntwo", connection.draft.value)
+        } finally {
+            connection.close()
+        }
+    }
+
     // ── EXP-861: the device's message queue ─────────────────────────────
 
     @Test

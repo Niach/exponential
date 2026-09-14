@@ -544,13 +544,17 @@ pub enum ActivityEvent {
     /// predecessor. `id` is the `Workflow` tool call's own id, so clients
     /// patch the card onto that tool row instead of appending a second one.
     Workflow(crate::workflow::WorkflowState),
-    /// EXP-861: the user messages the DEVICE holds queued behind a running
-    /// turn or a compaction, in FULL and in order (oldest first; an empty
-    /// list = nothing queued, the bar closes). LATEST-WINS state like
-    /// [`ActivityEvent::Turn`] — never a transcript row: each message
-    /// arrives as an ordinary [`ActivityEvent::UserMessage`] the moment the
-    /// engine delivers it. A viewer revokes one with
-    /// [`ClientFrame::Unqueue`]; the next frame here is the confirmation.
+    /// EXP-861: the user messages the agent has NOT read yet, in FULL and
+    /// in order (oldest first; an empty list = nothing queued, the bar
+    /// closes). LATEST-WINS state like [`ActivityEvent::Turn`] — never a
+    /// transcript row: each message arrives as an ordinary
+    /// [`ActivityEvent::UserMessage`] the moment the agent takes it in.
+    /// EXP-873: a message sent mid-turn goes to the agent AT ONCE (claude
+    /// folds it in at its next tool boundary, codex `turn/steer`) and sits
+    /// here as `sent` until the agent's replay of it arrives; one sent
+    /// mid-compaction is HELD on the device until the fold ends. A viewer
+    /// revokes a held one with [`ClientFrame::Unqueue`] (a sent one only
+    /// goes with a Stop); the next frame here is the confirmation.
     Queue {
         messages: Vec<QueuedMessage>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -558,14 +562,20 @@ pub enum ActivityEvent {
     },
 }
 
-/// EXP-861: one held message of the [`ActivityEvent::Queue`] slot.
+/// EXP-861: one unread message of the [`ActivityEvent::Queue`] slot.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct QueuedMessage {
-    /// The engine's own id for the held message — what `unqueue` names.
+    /// The engine's own id for the message — what `unqueue` names.
     pub id: String,
     /// The message as the person wrote it (image embeds as the
     /// `![image](/api/attachments/<id>)` tokens), cut to [`QUEUE_TEXT_MAX`].
     pub text: String,
+    /// EXP-873: already handed to the agent, waiting for it to take the
+    /// message in at its next boundary. No single-line revoke then (the CLI
+    /// has no such control; clients draw no ×) — only a Stop takes it back.
+    /// Absent on the wire = `false` = still held on the device.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sent: bool,
 }
 
 /// EXP-861: the relay's caps on the `queue` slot (`QUEUE_MAX` /
@@ -3073,14 +3083,26 @@ mod tests {
             r#"{"t":"unqueue","id":"m1"}"#
         );
         // The queue slot round-trips with the relay's field names.
-        let queue = ActivityEvent::queue(vec![QueuedMessage {
-            id: "m1".to_string(),
-            text: "first".to_string(),
-        }]);
+        let queue = ActivityEvent::queue(vec![
+            QueuedMessage {
+                id: "m1".to_string(),
+                text: "first".to_string(),
+                sent: false,
+            },
+            QueuedMessage {
+                id: "m2".to_string(),
+                text: "second".to_string(),
+                sent: true,
+            },
+        ]);
         let json = serde_json::to_value(&queue).unwrap();
         assert_eq!(json["kind"], "queue");
         assert_eq!(json["messages"][0]["id"], "m1");
         assert_eq!(json["messages"][0]["text"], "first");
+        // EXP-873: `sent` rides the wire only when true — a held line stays
+        // byte-identical to the EXP-861 shape, and an absent flag reads held.
+        assert!(json["messages"][0].get("sent").is_none());
+        assert_eq!(json["messages"][1]["sent"], true);
         assert_eq!(serde_json::from_value::<ActivityEvent>(json).unwrap(), queue);
         // EXP-746: the relay forwards a viewer's chip change verbatim; the
         // BLANK value ("CLI default") is a legitimate payload, not a

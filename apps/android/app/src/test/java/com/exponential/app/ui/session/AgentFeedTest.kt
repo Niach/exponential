@@ -2073,6 +2073,15 @@ class AgentFeedTest {
         )
         assertEquals(listOf("m2", "m3"), two.queue.map { it.id })
         assertEquals("![image](/api/attachments/a1)", two.queue.last().text)
+        // EXP-873: `sent` rides the wire only when true — a line already with
+        // the agent; absent (or not a boolean) reads as held.
+        val flagged = two.applying(
+            event(
+                """{"kind":"queue","messages":[{"id":"m1","text":"held"},""" +
+                    """{"id":"m2","text":"with the agent","sent":true},{"id":"m3","text":"odd","sent":"yes"}]}""",
+            ),
+        )
+        assertEquals(listOf(false, true, false), flagged.queue.map { it.sent })
         // An entry without an id cannot be revoked and one without text is
         // not a message: both are skipped, the rest still lists.
         val partial = two.applying(

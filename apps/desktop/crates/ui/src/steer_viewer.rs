@@ -1484,7 +1484,18 @@ impl SteerSessionView {
                 }
             }
             ViewerEvent::LocalMessage(text) => {
-                self.feed.push_local_message(&text);
+                // EXP-861/EXP-873: sent while the agent is mid-turn or
+                // compacting (the RAW slot values, ×4 parity), the message
+                // lives in the queue bar until the agent takes it in, and its
+                // `user_message` row arrives THEN — no echo: one here would
+                // sit in the transcript ahead of the tool call the message
+                // actually lands behind, and its dedupe would swallow the
+                // real row.
+                let unread = self.feed.turn_state() == steer::TurnState::Started
+                    || self.feed.compacting().is_some();
+                if !unread {
+                    self.feed.push_local_message(&text);
+                }
             }
         }
         self.refresh_derived();
@@ -2878,18 +2889,40 @@ impl SteerSessionView {
     /// EXP-790: the Stop half of the composer's one button — interrupt the
     /// running turn without ending the run. Local: the engine's cancel;
     /// remote: the interrupt frame down the viewer socket.
-    fn stop_turn(&mut self, cx: &mut gpui::Context<Self>) {
-        match &self.source {
-            FeedSource::Local { session } => session.cancel_turn(),
-            FeedSource::Replay { .. } | FeedSource::Journal { .. } => {}
-            FeedSource::Remote { handle } => {
-                if !handle
-                    .as_ref()
-                    .is_some_and(|handle| handle.send_interrupt())
-                {
-                    self.notice = Some(SharedString::from(NOT_CONNECTED));
-                }
+    ///
+    /// EXP-873: a Stop drops every message the agent has not read yet (the
+    /// queue bar, held and sent alike — the CLI's `cancel_queued`), so their
+    /// text goes back into the composer, in order, rather than vanishing:
+    /// the draft is empty whenever the button shows Stop, and the person
+    /// can edit and re-send. The device's empty `queue` frame confirms.
+    fn stop_turn(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let sent = match &self.source {
+            FeedSource::Local { session } => {
+                session.cancel_turn();
+                true
             }
+            FeedSource::Replay { .. } | FeedSource::Journal { .. } => false,
+            FeedSource::Remote { handle } => handle
+                .as_ref()
+                .is_some_and(|handle| handle.send_interrupt()),
+        };
+        if !sent {
+            if matches!(self.source, FeedSource::Remote { .. }) {
+                self.notice = Some(SharedString::from(NOT_CONNECTED));
+            }
+            cx.notify();
+            return;
+        }
+        let unread = self.feed.take_queue();
+        if !unread.is_empty() {
+            let held = unread
+                .iter()
+                .map(|message| message.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let draft = restore_unread_to_draft(&self.input.read(cx).value(), &held);
+            self.input
+                .update(cx, |state, cx| state.set_value(draft, window, cx));
         }
         cx.notify();
     }
@@ -3397,6 +3430,17 @@ pub(crate) fn keyboard_drives_card(
     slash_open: bool,
 ) -> bool {
     card_pending && !inline_open && (!composer_visible || (draft_empty && !slash_open))
+}
+
+/// EXP-873: the composer draft after a Stop hands the bar's unread text
+/// back — an empty draft becomes the text, a draft in progress keeps its
+/// place and the text lands after a blank line (web parity).
+fn restore_unread_to_draft(draft: &str, held: &str) -> String {
+    if draft.trim().is_empty() {
+        held.to_string()
+    } else {
+        format!("{draft}\n\n{held}")
+    }
 }
 
 /// EXP-861 — whether the queue strip renders: something is held AND the run
@@ -5022,11 +5066,13 @@ impl SteerSessionView {
         Some(column.into_any_element())
     }
 
-    /// EXP-861: the messages the device holds queued behind the running turn
-    /// (or an open compaction) — one line each, directly above the composer,
-    /// each with a × that revokes it and hands the text back to an empty
-    /// draft. The same strip recipe as the background tasks; absent while
-    /// nothing is held.
+    /// EXP-861: the messages the agent has not read yet — held behind an
+    /// open compaction, or sent mid-turn and awaiting the agent's replay
+    /// (EXP-873) — one line each, directly above the composer. A held line
+    /// carries a × that revokes it and hands the text back to an empty
+    /// draft; a sent one cannot be taken back from the agent (only Stop
+    /// does), so it draws none. The same strip recipe as the background
+    /// tasks; absent while nothing is unread.
     fn render_queue_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let queued = self.feed.queue();
         if queued.is_empty() {
@@ -5047,37 +5093,38 @@ impl SteerSessionView {
             let id = message.id.clone();
             let text = message.text.clone();
             let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-            column = column.child(
-                tool_text(h_flex())
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .text_color(muted)
-                    .child(
-                        Icon::new(registry::UI_QUEUED)
-                            .xsmall()
-                            .text_color(muted.opacity(0.7)),
+            let mut row = tool_text(h_flex())
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_center()
+                .text_color(muted)
+                .child(
+                    Icon::new(registry::UI_QUEUED)
+                        .xsmall()
+                        .text_color(muted.opacity(0.7)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(SharedString::from(line)),
+                );
+            if !message.sent {
+                row = row.child(
+                    crate::controls::ghost_icon_button(
+                        ("steer-unqueue", index),
+                        Icon::new(registry::UI_CLOSE).xsmall(),
+                        cx,
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(line)),
-                    )
-                    .child(
-                        crate::controls::ghost_icon_button(
-                            ("steer-unqueue", index),
-                            Icon::new(registry::UI_CLOSE).xsmall(),
-                            cx,
-                        )
-                        .tooltip(QUEUE_REMOVE_LABEL)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.unqueue(&id, &text, window, cx);
-                        })),
-                    ),
-            );
+                    .tooltip(QUEUE_REMOVE_LABEL)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.unqueue(&id, &text, window, cx);
+                    })),
+                );
+            }
+            column = column.child(row);
         }
         Some(column.into_any_element())
     }
@@ -6166,7 +6213,7 @@ impl SteerSessionView {
                 .loading(self.sending)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     if stop {
-                        this.stop_turn(cx);
+                        this.stop_turn(window, cx);
                     } else {
                         this.send(window, cx);
                     }

@@ -248,6 +248,13 @@ final class AgentActivityDecoderTests: XCTestCase {
             QueuedMessage(id: "m1", text: "also check the tests"),
             QueuedMessage(id: "m2", text: "![image](/api/attachments/att-1) and this"),
         ])
+        // EXP-873: `sent` rides the wire only when true — a line already with
+        // the agent; an absent flag (and a non-boolean one) reads as held.
+        guard case let .queue(flagged) = try XCTUnwrap(try decode(#"""
+        {"kind":"queue","messages":[{"id":"m1","text":"held"},
+         {"id":"m2","text":"with the agent","sent":true},{"id":"m3","text":"odd","sent":"yes"}]}
+        """#)) else { return XCTFail("not queue") }
+        XCTAssertEqual(flagged.map(\.sent), [false, true, false])
 
         // An EMPTY array = nothing queued: the strip clears.
         guard case let .queue(empty) = try XCTUnwrap(

@@ -34,45 +34,54 @@ Clients render a compact strip directly above the composer, one line per task
 the strip is absent when both are empty. This is the ×4 "monitors and shell
 commands at the bottom" surface.
 
-## 2b. `queue` (latest-wins slot, EXP-861) and the `unqueue` / `interrupt` frames
+## 2b. `queue` (latest-wins slot, EXP-861/EXP-873) and the `unqueue` / `interrupt` frames
 
 ```
-{ kind: "queue", messages: [{ id, text }], at }
+{ kind: "queue", messages: [{ id, text, sent? }], at }
 ```
-The user messages the DEVICE holds queued behind a running turn or a
-compaction, in full and in order (oldest first; `messages: []` = nothing
-queued). A message sent while the `turn` slot is `started` or a `compaction`
-is open is never folded into the live turn: the engine parks it, publishes
-this slot, and delivers every held message the moment the turn ends (each one
-then arrives as an ordinary `user_message`). `text` ≤ 8192 chars, ≤ 20
-messages. Latest-wins everywhere (relay `LATEST_WINS_KINDS`, journal slot,
-history fold); replay order right after `turn`. Clients render one line per
-message directly above the composer (`ui-queued` glyph, the text truncated,
-a trailing × labelled "Remove from queue"; the bar is labelled "Queued") and
-suppress their own local echo of a message sent while the turn is started or
-a compaction is open — the row appears when the device delivers it.
+The user messages the agent has NOT read yet, in full and in order (oldest
+first; `messages: []` = nothing queued). `text` ≤ 8192 chars, ≤ 20 messages.
+Latest-wins everywhere (relay `LATEST_WINS_KINDS`, journal slot, history
+fold); replay order right after `turn`. Two kinds of line:
+
+- **sent** (`sent: true`, EXP-873): a message sent while the `turn` slot is
+  `started` went to the agent AT ONCE — claude folds it in at its next tool
+  boundary (the CLI's own queued-messages behaviour), codex `turn/steer` —
+  and waits here until the agent's replay of it arrives (claude
+  `--replay-user-messages`): the engine then publishes the slot WITHOUT it
+  and, right behind, its `user_message` row, so the row lands where the agent
+  actually read the message. The idle edge is the safety net: a sent line the
+  agent answered without echoing becomes its row then. An agent that never
+  echoes (codex) announces the row at send time and never lists the line.
+  No per-line revoke: the CLI cannot take one message back — only a Stop.
+- **held** (no `sent`): a message sent while a `compaction` is open is parked
+  on the device and goes to the agent the moment the fold ends (into the
+  running turn as a sent line, or as the next turn, announced at once).
+
+Clients render one line per message directly above the composer (`ui-queued`
+glyph, the text truncated; a held line carries a trailing × labelled "Remove
+from queue", a sent one none; the bar is labelled "Queued") and suppress
+their own local echo of a message sent while the turn is started or a
+compaction is open — the row appears when the agent takes it in.
 
 Viewer → publisher, gated like `input`:
 ```
-{ t: "unqueue", id }      // revoke one held message; the next `queue` frame confirms
+{ t: "unqueue", id }      // revoke one HELD message; the next `queue` frame confirms
+                          // (a sent id: the slot is restated with the line still there)
 { t: "interrupt" }        // EXP-790 Stop: cancel the turn AND drop the queue
 ```
-A Stop (local Escape or the `interrupt` frame) empties the queue; a
-`session/cancel` from the stall watchdog does not.
+A Stop (local Escape or the `interrupt` frame) drops every unread message —
+held on the device and sent-but-unread alike (claude's `cancel_queued`) — and
+every client hands the bar's text back to its composer, in order (an empty
+draft becomes the text; a draft in progress keeps its place, the text lands
+after a blank line). A dropped message never renders as a row. A
+`session/cancel` from the stall watchdog keeps the queue.
 
-Delivery on the idle edge: the engine publishes `messages: []` FIRST, then
-starts every held message as its own turn, oldest first, back to back — one
-`user_message` row each, in send order. The agent's CLI may still fold
-messages 2..N into the turn already running (claude's own queued-messages
-behaviour, codex `turn/steer`); the rows and their order are the engine's
-and stay correct regardless. A message that lands ON the edge (after the
-turn ended, before the drain ran) starts BEHIND the held ones, never ahead.
-A run that ends with messages still held (kill, unattended
+A run that ends with messages still unread (kill, unattended
 `sessions_end`, crash) does NOT publish an empty slot on its way out: its
-last `queue` frame lists the undelivered messages, so a client can rescue
-the text on the `ended` edge (the web moves it into the composer draft).
-Every run seeds `messages: []` at start, so a resumed run never replays its
-predecessor's bar.
+last `queue` frame lists them, so a client can rescue the text on the
+`ended` edge (the same hand-back). Every run seeds `messages: []` at start,
+so a resumed run never replays its predecessor's bar.
 
 ## 3. `workflow` (latest-wins per workflow id)
 

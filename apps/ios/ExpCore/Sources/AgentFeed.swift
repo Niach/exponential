@@ -204,10 +204,16 @@ public struct AgentCompaction: Equatable, Sendable {
 public struct QueuedMessage: Equatable, Sendable, Identifiable {
     public let id: String
     public let text: String
+    /// EXP-873: already handed to the agent (a mid-turn message claude folds
+    /// in at its next tool boundary), awaiting its replay — no per-line
+    /// revoke then, only a Stop takes it back. `false` = still held on the
+    /// device (a compaction is open), revocable with `unqueue`.
+    public let sent: Bool
 
-    public init(id: String, text: String) {
+    public init(id: String, text: String, sent: Bool = false) {
         self.id = id
         self.text = text
+        self.sent = sent
     }
 }
 

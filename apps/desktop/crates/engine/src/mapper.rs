@@ -110,6 +110,11 @@ pub struct MapperConfig {
 #[derive(Default)]
 pub struct MapOut {
     pub wire: Vec<steer::ActivityEvent>,
+    /// EXP-873: the ids of the `queue` entries this step saw the agent take
+    /// in (its replay of a message the host sent mid-turn) — the host drops
+    /// them from its queue and republishes the slot BEFORE these events go
+    /// out, so no client shows a message in the bar and as a row at once.
+    pub consumed: Vec<String>,
     pub local: Vec<LocalFeedEvent>,
     pub needs_input: Option<bool>,
     pub idle: Option<bool>,
@@ -170,6 +175,12 @@ pub struct Mapper {
     /// so it need not wait for an echo): an agent that replays the user's
     /// message (claude's `--replay-user-messages`) is deduped against this.
     pending_echoes: std::collections::VecDeque<String>,
+    /// EXP-873: prompts the host sent MID-TURN and has NOT published yet —
+    /// the `queue` bar's `sent` lines. The agent's replay of one is the
+    /// moment it took the message in (claude inserts it at its next tool
+    /// boundary), so the replay itself becomes the `user_message` row and
+    /// the host is told to drop the bar entry (`MapOut::consumed`).
+    pending_deliveries: std::collections::VecDeque<PendingDelivery>,
     tools: HashMap<String, ToolState>,
     /// Settled tool calls in settle order, evicted past [`SETTLED_TOOLS_MAX`].
     settled_tools: std::collections::VecDeque<String>,
@@ -287,6 +298,16 @@ enum AskRef {
     Elicitation(String),
 }
 
+/// EXP-873: one message the host handed to the agent mid-turn, awaiting the
+/// agent's replay of it. `agent_text` is what the agent received (EXP-825:
+/// image embeds localized into an `Image #N:` manifest), `announce` the text
+/// the row shows — the person's own words.
+struct PendingDelivery {
+    id: String,
+    agent_text: String,
+    announce: String,
+}
+
 /// An ask that has been answered (or cancelled), queued for eviction.
 enum RetiredAsk {
     Permission(String),
@@ -401,6 +422,7 @@ impl Mapper {
             thought: Coalescer::default(),
             user: Coalescer::default(),
             pending_echoes: std::collections::VecDeque::new(),
+            pending_deliveries: std::collections::VecDeque::new(),
             tools: HashMap::new(),
             settled_tools: std::collections::VecDeque::new(),
             subagents: HashMap::new(),
@@ -516,6 +538,16 @@ impl Mapper {
             SessionUpdate::UserMessageChunk(chunk) => {
                 self.flush_message(out);
                 self.flush_thought(out);
+                // EXP-873: an id-less USER chunk is a whole message (the
+                // adapters never stream a user message as deltas — claude
+                // replays each one as one entry, and its interrupt marker is
+                // an entry of its own), so it never joins the one before it:
+                // two replays inside one flush window used to glue into a
+                // single row that matched neither their echoes nor the
+                // interrupt filter.
+                if message_id(chunk).is_none() {
+                    self.flush_user(out);
+                }
                 if let Some(flushed) =
                     self.user.push(message_id(chunk), chunk_subagent, &chunk_text(chunk))
                 {
@@ -837,6 +869,16 @@ impl Mapper {
         self.flush_all(out);
         if matches!(stop, StopReason::Cancelled) {
             self.on_cancel(out);
+        }
+        // EXP-873: every prompt of the turn has answered, so a mid-turn
+        // message whose replay never came was still read (the CLI folded it
+        // without echoing) — it becomes its row now rather than sitting in
+        // the bar forever. A Stop cleared these first (`forget_deliveries`):
+        // a dropped message never renders as read.
+        while let Some(delivered) = self.pending_deliveries.pop_front() {
+            out.consumed.push(delivered.id);
+            let text = self.clean(&delivered.announce, NARRATION_MAX);
+            emit(out, ActivityEvent::user_message(text), None);
         }
         out.idle = Some(true);
         self.set_turn(steer::TurnState::Ended, false, out);
@@ -1301,6 +1343,35 @@ impl Mapper {
         emit(out, ActivityEvent::user_message(text), None);
     }
 
+    /// EXP-873: the host is sending `agent_text` to the agent MID-TURN as
+    /// queue entry `id` — publish nothing now. The agent's replay of it (the
+    /// moment it took the message in) becomes the `user_message` row, with
+    /// `announce` as its text, and names `id` in [`MapOut::consumed`].
+    pub fn on_prompt_sent(&mut self, agent_text: &str, announce: &str, id: &str) {
+        self.pending_deliveries.push_back(PendingDelivery {
+            id: id.to_string(),
+            agent_text: agent_text.trim().to_string(),
+            announce: announce.to_string(),
+        });
+        while self.pending_deliveries.len() > steer::QUEUE_MAX {
+            self.pending_deliveries.pop_front();
+        }
+    }
+
+    /// EXP-873: a Stop — the agent drops what it held behind the turn
+    /// (claude `cancel_queued`), so nothing sent mid-turn is awaited any
+    /// more. The host drops the same entries from its queue; a replay that
+    /// still lands (the agent took the message in on the very edge) renders
+    /// as a plain row, which is the truth.
+    pub fn forget_deliveries(&mut self) {
+        self.pending_deliveries.clear();
+    }
+
+    /// EXP-873: the ids of the mid-turn messages still awaiting a replay.
+    pub fn pending_delivery_ids(&self) -> Vec<String> {
+        self.pending_deliveries.iter().map(|sent| sent.id.clone()).collect()
+    }
+
     /// Remember `text` so the agent's own replay of it is swallowed. Used by
     /// [`Mapper::on_prompt`] and by the adapters' injected prompts (EXP-772).
     fn arm_echo(&mut self, text: &str) {
@@ -1314,11 +1385,29 @@ impl Mapper {
     }
 
     fn emit_user(&mut self, flushed: &Flushed, out: &mut MapOut) {
-        let text = flushed.text.as_str();
+        // EXP-873: a Stop right behind a message lands the CLI's replay of it
+        // and its `[Request interrupted by user]` entry inside one flush
+        // window, glued into one id-less user message — which matched
+        // neither the echo nor the interrupt filter and painted the message
+        // a second time with the marker under it. The marker lines are
+        // stripped BEFORE any matching; what remains is the message.
+        let text = strip_synthetic_interrupts(&flushed.text);
+        let text = text.as_str();
         if text.trim().is_empty() {
             return;
         }
-        if is_synthetic_interrupt(text) {
+        if let Some(at) = self
+            .pending_deliveries
+            .iter()
+            .position(|sent| sent.agent_text == text.trim() || sent.announce == text.trim())
+        {
+            // EXP-873: the agent took in a message the host sent mid-turn —
+            // THIS is the row (the person's own words, never the localized
+            // manifest), and the bar entry goes.
+            let delivered = self.pending_deliveries.remove(at).expect("a matched delivery");
+            out.consumed.push(delivered.id);
+            let text = self.clean(&delivered.announce, NARRATION_MAX);
+            emit(out, ActivityEvent::user_message(text), None);
             return;
         }
         if let Some(at) = self.pending_echoes.iter().position(|sent| sent == text.trim()) {
@@ -1984,17 +2073,19 @@ impl Mapper {
         self.compacting_since.is_some()
     }
 
-    /// EXP-861: publish the queue slot — the messages the host holds behind
-    /// the running turn, in FULL (an empty list closes every client's bar).
-    /// The texts are the person's own words: redacted like a `user_message`
-    /// and cut to the relay's per-message cap.
-    pub fn publish_queue(&mut self, messages: &[(String, String)], out: &mut MapOut) {
+    /// EXP-861: publish the queue slot — the messages the agent has not
+    /// read yet (held on the host, or sent mid-turn and awaiting its replay,
+    /// EXP-873), in FULL (an empty list closes every client's bar). The
+    /// texts are the person's own words: redacted like a `user_message` and
+    /// cut to the relay's per-message cap.
+    pub fn publish_queue(&mut self, messages: &[steer::QueuedMessage], out: &mut MapOut) {
         let messages = messages
             .iter()
             .take(steer::QUEUE_MAX)
-            .map(|(id, text)| steer::QueuedMessage {
-                id: id.clone(),
-                text: self.clean(text, steer::QUEUE_TEXT_MAX),
+            .map(|message| steer::QueuedMessage {
+                id: message.id.clone(),
+                text: self.clean(&message.text, steer::QUEUE_TEXT_MAX),
+                sent: message.sent,
             })
             .collect();
         emit(out, ActivityEvent::queue(messages), None);
@@ -2451,6 +2542,20 @@ impl Mapper {
 /// cannot swallow it — it surfaced as the user's own message, once per
 /// interrupt and again per replay (EXP-780). The clients already render the
 /// cancellation from the turn's stop reason.
+/// EXP-873: `text` without its synthetic interrupt lines — a replayed user
+/// message the CLI glued its `[Request interrupted by user]` entry onto
+/// (same flush window, both id-less) is the message alone again; a text
+/// that was only markers is empty.
+fn strip_synthetic_interrupts(text: &str) -> String {
+    if !text.contains('[') {
+        return text.to_string();
+    }
+    text.lines()
+        .filter(|line| !is_synthetic_interrupt(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn is_synthetic_interrupt(text: &str) -> bool {
     let Some(inner) = text
         .trim()

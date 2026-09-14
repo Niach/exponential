@@ -1358,6 +1358,18 @@ class SteerConnection internal constructor(
         scope.launch {
             runCatching { socket.send("""{"t":"interrupt"}""") }
         }
+        // EXP-873: a Stop drops every message the agent has not read yet
+        // (the queue bar, held and sent alike — the CLI's own
+        // `cancel_queued`), so their text goes back into the composer, in
+        // order, instead of vanishing; the device's empty `queue` event
+        // confirms. A draft in progress keeps its place, the queued text
+        // lands after a blank line (web parity).
+        val current = _activity.value
+        if (current.queue.isNotEmpty()) {
+            val held = current.queue.joinToString("\n") { it.text }
+            _activity.value = current.clearQueue()
+            _draft.value = if (_draft.value.isBlank()) held else "${_draft.value}\n\n$held"
+        }
     }
 
     /**

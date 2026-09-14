@@ -125,10 +125,11 @@ struct AgentBottomStrip: View {
 }
 
 /// EXP-861: the queued-messages strip directly above the composer — one line
-/// per message the device is holding until the turn (or compaction) ends,
-/// the same recipe as `AgentBottomStrip` plus a trailing ghost X that revokes
-/// the message (`{"t":"unqueue","id"}`). The caller hides it when the queue
-/// is empty or the run is over.
+/// per message the agent has not read yet, the same recipe as
+/// `AgentBottomStrip` plus a trailing ghost X that revokes a HELD message
+/// (`{"t":"unqueue","id"}`). EXP-873: a `sent` line (already with the agent,
+/// awaiting its replay) draws no X — only Stop takes it back. The caller
+/// hides the strip when the queue is empty or the run is over.
 struct AgentQueueStrip: View {
     let messages: [QueuedMessage]
     let onRemove: (String) -> Void
@@ -145,17 +146,19 @@ struct AgentQueueStrip: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
-                    Button {
-                        onRemove(message.id)
-                    } label: {
-                        AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
+                    if !message.sent {
+                        Button {
+                            onRemove(message.id)
+                        } label: {
+                            AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .frame(width: 20, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(AgentFeed.queueRemoveLabel)
+                        .accessibilityIdentifier("agent-queue-remove")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(AgentFeed.queueRemoveLabel)
-                    .accessibilityIdentifier("agent-queue-remove")
                 }
             }
         }

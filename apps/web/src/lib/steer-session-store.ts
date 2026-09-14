@@ -831,12 +831,13 @@ export function createSteerSessionStore(
    *  crash) — the held text is handed back to the composer, in order, the
    *  way the strip's X hands one entry back, rather than lost. A non-empty
    *  draft keeps its place; the queued text lands after a blank line. */
-  const restoreQueueToDraft = () => {
-    if (queue.length === 0) return
+  const restoreQueueToDraft = (): boolean => {
+    if (queue.length === 0) return false
     const held = queue.map((entry) => entry.text).join(`\n`)
     queue = []
     draftText = draftText.trim() ? `${draftText}\n\n${held}` : held
     commitDraft()
+    return true
   }
 
   const clearAckTimer = (key: string) => {
@@ -2187,8 +2188,15 @@ export function createSteerSessionStore(
     setMode(id) {
       return sendModeFrame(id)
     },
+    /** EXP-790: Stop. EXP-873: the device drops every message the agent has
+     *  not read yet with the turn (the bar's lines, held and sent alike —
+     *  the CLI's own `cancel_queued`), so their text goes back into the
+     *  composer, in order, instead of vanishing; the empty `queue` frame is
+     *  the confirmation. The draft is empty whenever the button reads Stop. */
     interrupt() {
-      return sendInterruptFrame()
+      if (!sendInterruptFrame()) return false
+      if (restoreQueueToDraft()) commit()
+      return true
     },
     /** EXP-861: the strip's X. The frame is exactly `{"t":"unqueue","id"}`;
      *  the entry leaves the local slot at once (the device's next `queue`

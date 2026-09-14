@@ -1268,10 +1268,14 @@ export function parseRateLimit(event: unknown): SessionRateLimitState | null {
 // strip above the composer. `kind: "queue"` is a latest-wins slot carrying the
 // FULL queue (empty = clear), never a transcript row.
 
-/** One held message, as the person wrote it. */
+/** One unread message, as the person wrote it. EXP-873: `sent` = already
+ *  handed to the agent (a mid-turn message claude folds in at its next tool
+ *  boundary), awaiting its replay — no per-line revoke then, only a Stop
+ *  takes it back; absent = still held on the device (a compaction is open). */
 export interface QueuedMessage {
   id: string
   text: string
+  sent?: true
 }
 
 /** The wire caps: at most 20 entries, ids ≤128 bytes, text ≤8192. */
@@ -1301,7 +1305,7 @@ export function parseQueue(event: unknown): QueuedMessage[] | null {
     const id = typeof raw.id === `string` ? raw.id.trim().slice(0, QUEUE_ID_MAX) : ``
     const text = typeof raw.text === `string` ? raw.text.slice(0, QUEUE_TEXT_MAX) : ``
     if (!id || !text.trim()) continue
-    messages.push({ id, text })
+    messages.push(raw.sent === true ? { id, text, sent: true } : { id, text })
   }
   return messages
 }

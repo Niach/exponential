@@ -1071,6 +1071,41 @@ describe(`sending`, () => {
     expect(store.unqueue(`m1`)).toBe(false)
   })
 
+  // EXP-873: a Stop drops every message the agent has not read yet (held and
+  // sent alike — the CLI's own `cancel_queued`), so the text goes back into
+  // the composer, in order, rather than vanishing; the device's empty `queue`
+  // frame then confirms what the store already did.
+  it(`interrupt hands the unread messages back to the draft`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `queue`,
+        messages: [
+          { id: `m1`, text: `one`, sent: true },
+          { id: `m2`, text: `two` },
+        ],
+      },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().queue).toHaveLength(2)
+    expect(store.interrupt()).toBe(true)
+    expect(socket.sent.at(-1)).toBe(`{"t":"interrupt"}`)
+    expect(store.getSnapshot().queue).toEqual([])
+    expect(store.getDraftSnapshot().text).toBe(`one\ntwo`)
+    // Nothing queued: a Stop touches no draft.
+    store.setDraftText(`keep me`)
+    expect(store.interrupt()).toBe(true)
+    expect(store.getDraftSnapshot().text).toBe(`keep me`)
+    store.dispose()
+  })
+
+  it(`interrupt returns false with no open socket and keeps the queue`, () => {
+    const { store } = makeStore()
+    expect(store.interrupt()).toBe(false)
+  })
+
   // The engine gates on ITS turn state, the echo on this viewer's: sent while
   // another viewer's turn was running, the message is echoed here AND held by
   // the device. The `queue` frame naming it takes the echo row back — the
