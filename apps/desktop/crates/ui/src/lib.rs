@@ -138,6 +138,8 @@ mod timeline;
 mod title_bar;
 mod undock;
 mod usage_bar;
+mod usage_sheet;
+mod work_header;
 mod accounts_section;
 mod undocked_terminal;
 mod update;

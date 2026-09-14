@@ -72,7 +72,7 @@ const KEY_CONTEXT: &str = "IssueDetail";
 /// The Details body's centered content width (web `max-w-3xl` parity) —
 /// shared with the timeline, whose full-bleed divider re-centers its content
 /// to this same column.
-pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
+pub(crate) const DETAIL_COLUMN_W: f32 = crate::work_header::WORK_COLUMN_W;
 
 /// Center a detail column to [`DETAIL_COLUMN_W`] while keeping its width
 /// DEFINITE (EXP-179). As a FLEX item, `max_w` + `mx_auto` disables stretch
