@@ -464,14 +464,20 @@ pub(crate) fn merge_pill(
 /// A READ-ONLY title at the detail's 2xl semibold rung, padded exactly like
 /// the editable title (`IssueDetailView::render_title`) so the baseline never
 /// moves between the issue face and the run face.
-/// Around the 2xl title, issue field and run title alike: web `pt-4` above;
-/// below, the multi-line widget's own inset (`Size::Medium` `input_py`),
-/// which the static row mirrors so the two faces share one title box.
+/// The title block, issue field and run title alike — the web's
+/// `RUN_TITLE_CLASS` / title Textarea to the pixel: `pt-4 pb-1`, 24px
+/// semibold on a 32px line (NOT gpui's `text_2xl`, which is 21px on the
+/// 14px rem), so the two faces share one title box and the header stands
+/// symmetric around a one-line title.
 pub(crate) const TITLE_PT: f32 = 16.;
+pub(crate) const TITLE_PB: f32 = 4.;
+pub(crate) const TITLE_SIZE: f32 = 24.;
+pub(crate) const TITLE_LINE: f32 = 32.;
+/// The multi-line widget's own insets (`Size::Medium` `input_py` /
+/// `input_px`), applied underneath any refined style: the editable title's
+/// wrapper gives them back so its text lands on the block above.
 pub(crate) const TITLE_WIDGET_PY: f32 = 8.;
-/// The same widget's horizontal inset (`Size::Medium` `input_px`).
 pub(crate) const TITLE_WIDGET_PX: f32 = 10.;
-pub(crate) const TITLE_PB: f32 = TITLE_WIDGET_PY;
 /// Web `pb-3` under the header (tray or bare title).
 const HEADER_PB: f32 = 12.;
 
@@ -484,9 +490,9 @@ pub(crate) fn title_row(text: impl Into<SharedString>) -> AnyElement {
         // baseline never moves between the issue face and the run face.
         .pt(px(TITLE_PT))
         .pb(px(TITLE_PB))
-        .text_2xl()
+        .text_size(px(TITLE_SIZE))
         .font_weight(gpui::FontWeight::SEMIBOLD)
-        .line_height(gpui::rems(2.))
+        .line_height(px(TITLE_LINE))
         .child(text.into())
         .into_any_element()
 }

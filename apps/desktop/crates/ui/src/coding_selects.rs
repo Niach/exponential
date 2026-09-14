@@ -92,13 +92,33 @@ pub fn effort_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str
     }
 }
 
-/// The agent's brand mark (EXP-206 — `assets/icons/{claude,codex}.svg`,
-/// rendered theme-tinted like every bundled icon) for the agent tab strips.
+/// The agent's brand mark (EXP-206 — `assets/icons/{claude,codex}.svg`) for
+/// the agent tab strips. Draw it through [`mark_icon`] / [`agent_mark`], never
+/// a bare `Icon::from`: claude's mark is orange (EXP-877).
 pub fn agent_icon(agent: coding::CodingAgent) -> crate::icons::ExpIcon {
     match agent {
         coding::CodingAgent::Claude => crate::icons::ExpIcon::Claude,
         coding::CodingAgent::Codex => crate::icons::ExpIcon::Codex,
     }
+}
+
+/// EXP-877: a brand mark as an [`Icon`] — Claude's in Anthropic's brand orange
+/// ([`theme::CLAUDE_BRAND`], the fill the web, iOS and Android draw), every
+/// other mark in the current text colour (Codex's has no brand colour; the
+/// neutral agents concept is a registry glyph). Size it at the call site.
+pub(crate) fn mark_icon(icon: crate::icons::ExpIcon) -> Icon {
+    let claude = matches!(icon, crate::icons::ExpIcon::Claude);
+    let mark = Icon::from(icon);
+    if claude {
+        mark.text_color(theme::CLAUDE_BRAND)
+    } else {
+        mark
+    }
+}
+
+/// [`mark_icon`] for a shipped agent.
+pub(crate) fn agent_mark(agent: coding::CodingAgent) -> Icon {
+    mark_icon(agent_icon(agent))
 }
 
 /// EXP-862 — THE agent picker, one component per client (web
@@ -130,7 +150,7 @@ pub(crate) fn agent_picker(
     let on_pick = std::rc::Rc::new(on_pick);
     crate::pickers::chip_button(id, cx)
         .tooltip(current.label())
-        .child(Icon::from(agent_icon(current)).size(gpui::px(glyph)))
+        .child(agent_mark(current).size(gpui::px(glyph)))
         .child(
             Icon::from(crate::icons::registry::UI_CHEVRON_DOWN)
                 .size(gpui::px(glyph))
@@ -161,7 +181,7 @@ pub(crate) fn agent_menu_items(
         let on_pick = on_pick.clone();
         menu = menu.item(crate::pickers::option_item(
             SharedString::from(agent.label()),
-            Icon::from(agent_icon(agent)),
+            agent_mark(agent),
             current == Some(agent),
             move |window, cx| on_pick(agent, window, cx),
         ));

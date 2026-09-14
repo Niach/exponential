@@ -65,6 +65,7 @@ internal fun AgentSegmentedTabs(
                 agentIconPainter(value),
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
+                tint = agentIconTint(value),
             )
         },
         embedded = embedded,

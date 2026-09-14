@@ -314,7 +314,9 @@ fn agent_segments<V: Render>(
             segment
                 .id((id, ix))
                 .when(pill.dimmed, |this| this.opacity(0.45))
-                .children(pill.icon.map(|icon| Icon::from(icon).size_3p5()))
+                .children(pill.icon.map(|icon| {
+                    crate::coding_selects::mark_icon(icon).size_3p5()
+                }))
                 .child(pill.label)
                 .when_some(pill.note, |this, note| {
                     this.child(div().text_xs().text_color(muted).child(note))

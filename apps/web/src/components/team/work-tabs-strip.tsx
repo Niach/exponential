@@ -414,7 +414,7 @@ export function WorkTabsStrip({
         className={cn(
           `group/tab flex h-8 max-w-[15rem] shrink-0 items-center rounded-md border border-transparent`,
           active
-            ? `border-glass-stroke-card bg-glass-panel text-foreground`
+            ? `border-glass-stroke-card bg-glass-active text-foreground`
             : `text-muted-foreground hover:bg-glass-active hover:text-foreground`
         )}
       >

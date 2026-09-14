@@ -393,13 +393,16 @@ pub(crate) fn glass_tab_item(active: bool, cx: &App) -> Div {
 /// — Origin, a single-board team's Board) already carry `FILL_CARD`, and
 /// stacking that on itself composites near-opaque and reads as a different
 /// material. The `STROKE_CARD` hairline keeps the tray's edge card-crisp.
+///
+/// Insets are the web tray's (`issue-properties-panel.tsx`: `px-3 py-2
+/// gap-1.5`) — 12 / 8 / 6 px, as `px()` literals because gpui's rem is 14.
 pub(crate) fn glass_tray() -> Div {
     gpui_component::h_flex()
         .flex_wrap()
         .items_center()
-        .gap_1()
-        .px_1p5()
-        .py_1()
+        .gap(px(6.))
+        .px(px(12.))
+        .py(px(8.))
         .rounded(px(t::radius::LG))
         .border_1()
         .border_color(t::glass::STROKE_CARD.to_hsla())
@@ -740,8 +743,9 @@ impl RichTab {
 /// and the `text_sm` truncating title.
 ///
 /// Three states and no more: idle = transparent chrome + muted text, hover =
-/// the glass row fill + foreground, active = a card hairline over the panel
-/// fill + foreground. EXP-877 retired the ` · machine` caption (a tab is
+/// the glass ACTIVE fill + foreground, active = the same active fill inside a
+/// card hairline + foreground (the panel fill read as "not selected" against
+/// the bare ground). EXP-877 retired the ` · machine` caption (a tab is
 /// chrome, and the machine is on the run's own header), the paused dimming
 /// (a chip that dims reads as disabled) and the working spinner (the steady
 /// liveness dot carries it; the spinner is the LIST's, EXP-848).
@@ -767,7 +771,7 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
         .cursor_pointer();
     let chip = if tab.selected {
         chip.border_color(t::glass::STROKE_CARD.to_hsla())
-            .bg(t::glass::FILL_PANEL.to_hsla())
+            .bg(t::glass::FILL_ACTIVE.to_hsla())
             .text_color(theme.foreground)
     } else {
         chip.text_color(theme.muted_foreground).hover(|style| {

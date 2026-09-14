@@ -73,7 +73,9 @@ export function IssuePropertiesTray({
 
   return (
     <div className={`${WORK_COLUMN_CLASS} px-4 pt-3`}>
-      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-popover/40">
+      {/* The IDE's `glass_tray`: the section fill inside the card hairline
+          (`bg-popover/40` vanished against the panel). */}
+      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-glass-section">
         <div className="min-w-0 flex-1">
           <IssuePropertiesPanel
             status={statusOption}

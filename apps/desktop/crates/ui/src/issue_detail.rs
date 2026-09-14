@@ -1678,11 +1678,13 @@ impl IssueDetailView {
             // multi-line widget insets its text box by `TITLE_WIDGET_PX` /
             // `TITLE_WIDGET_PY` underneath any refined style (no public size
             // knob on `Textarea`), so the wrapper gives that much back on the
-            // sides and on top, and nothing at the bottom: title at
-            // `DETAIL_GUTTER` / `TITLE_PT`, `TITLE_PB` under it, on BOTH faces.
+            // sides and on top, and pulls the bottom in to `TITLE_PB` with a
+            // negative margin: title at `DETAIL_GUTTER` / `TITLE_PT`,
+            // `TITLE_PB` under it, on BOTH faces.
             .px(px(DETAIL_GUTTER - crate::work_header::TITLE_WIDGET_PX))
             .pt(px(crate::work_header::TITLE_PT - crate::work_header::TITLE_WIDGET_PY))
             .pb(px(0.))
+            .mb(px(crate::work_header::TITLE_PB - crate::work_header::TITLE_WIDGET_PY))
             // Tab jumps from the title into the description editor (web
             // EXP-10 parity, dialog-shell.tsx). Capture runs before the
             // InputState's own Tab handling; Shift+Tab (`OutdentInline`) is a
@@ -1716,9 +1718,9 @@ impl IssueDetailView {
             .child(
                 Textarea::new(&self.title_input)
                     .appearance(false)
-                    .text_2xl()
+                    .text_size(px(crate::work_header::TITLE_SIZE))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .line_height(gpui::rems(2.))
+                    .line_height(px(crate::work_header::TITLE_LINE))
                     .px_0()
                     .h_auto(),
             )

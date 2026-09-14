@@ -2517,14 +2517,11 @@ impl ScreensPanel {
         chips: Vec<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let (icon, tint) = match group {
-            TabGroup::Claude => (ExpIcon::Claude, Some(theme::CLAUDE_BRAND)),
-            TabGroup::Codex => (ExpIcon::Codex, None),
-        };
-        let mut mark_icon = Icon::new(icon).with_size(px(14.));
-        if let Some(tint) = tint {
-            mark_icon = mark_icon.text_color(tint);
-        }
+        let mark_icon = crate::coding_selects::mark_icon(match group {
+            TabGroup::Claude => ExpIcon::Claude,
+            TabGroup::Codex => ExpIcon::Codex,
+        })
+        .with_size(px(14.));
         let mark = Button::new(("tab-group", group as usize))
             .ghost()
             .web_icon_xs()

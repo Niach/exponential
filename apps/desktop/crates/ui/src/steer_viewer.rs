@@ -4523,11 +4523,16 @@ impl SteerSessionView {
     /// shared settings file, not a speculative flag.
     fn render_working_row(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let glyph = match self.builtin_agent() {
-            Some(agent) => crate::coding_selects::agent_icon(agent),
+        // EXP-877: the brand mark in its own colour (claude orange, like the
+        // web's `AgentBrandMark`); codex and the fallback ride `muted`.
+        let mark = match self.builtin_agent() {
+            Some(coding::CodingAgent::Claude) => {
+                crate::coding_selects::agent_mark(coding::CodingAgent::Claude)
+            }
+            Some(agent) => crate::coding_selects::agent_mark(agent).text_color(muted),
             // An external agent has no brand mark — the generic AGENT
             // concept, the same fallback every run list uses.
-            None => registry::SETTINGS_AGENTS,
+            None => Icon::new(registry::SETTINGS_AGENTS).text_color(muted),
         };
         tool_text(h_flex())
             .w_full()
@@ -4537,7 +4542,7 @@ impl SteerSessionView {
             .child(
                 div()
                     .flex_shrink_0()
-                    .child(Icon::new(glyph).xsmall().text_color(muted))
+                    .child(mark.xsmall())
                     .with_animation(
                         "steer-working-pulse",
                         gpui::Animation::new(WORKING_PULSE)

@@ -27,6 +27,11 @@ use crate::screens::ScreensPanel;
 /// budget can never drift apart.
 const BAR_INSET: f32 = 8.;
 
+/// EXP-877: the height of the main window's tab band — the web's
+/// `WORK_TABS_BAND_CLASS` (`md:h-[44px]`), with the panel starting flush
+/// beneath it (`shell::PANEL_MARGIN_TOP` is 0).
+pub(crate) const WORK_TABS_BAND_H: f32 = 44.;
+
 /// True when this window paints its own chrome. False only on Linux when gpui
 /// fell back to server-side decorations (X11 without a compositor forces
 /// `Decorations::Server`), where the WM already draws a titlebar — rendering
@@ -246,6 +251,11 @@ impl Render for AppTitleBar {
             // stroke is the edge between them — a second rule right above it
             // reads as a double border.
             .border_b_0()
+            // EXP-877: the web's work-tabs band (`WORK_TABS_BAND_CLASS`,
+            // 44px, the 32px chips centred in it, the panel flush under it).
+            // The vendored 34px bar left the chips 1px under the window edge
+            // and a 6px gap above the panel.
+            .h(px(WORK_TABS_BAND_H))
             // EXP-303: with the rail present the vendored 80px macOS
             // traffic-light reserve is wrong — the left column is
             // [`crate::shell::LEFT_COLUMN_WIDTH`] wide and clears the

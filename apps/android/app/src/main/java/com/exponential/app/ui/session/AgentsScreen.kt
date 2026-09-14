@@ -66,6 +66,7 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.agentIconPainter
+import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -320,6 +321,7 @@ fun AgentsScreen(
                                                 agentIconPainter(agent),
                                                 contentDescription = null,
                                                 modifier = Modifier.size(14.dp),
+                                                tint = agentIconTint(agent),
                                             )
                                         },
                                         modifier = Modifier

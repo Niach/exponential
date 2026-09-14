@@ -1051,7 +1051,7 @@ impl Render for AccountsSection {
                             crate::controls::segmented_item(selected, cx)
                                 .id(SharedString::from(format!("accounts-agent-tab-{agent}")))
                                 .children(known.map(|agent| {
-                                    Icon::new(crate::coding_selects::agent_icon(agent))
+                                    crate::coding_selects::agent_mark(agent)
                                         .with_size(px(crate::surface::PillSize::Sm.glyph()))
                                 }))
                                 .child(SharedString::from(label))
