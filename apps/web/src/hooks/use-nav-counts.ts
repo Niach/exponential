@@ -66,7 +66,7 @@ export function useReviewsOpenPrCount(
 
 // Live count of the signed-in user's OWN live coding sessions in the team —
 // `useMyLiveRuns` (EXP-870: the same set the work tabs auto-add). The Agent
-// entry shows the COUNT on both rail states. `needsInput` (EXP-214) is true
+// entry shows a dot while any is live (EXP-880: never the count). `needsInput` (EXP-214) is true
 // while any live session sits on a plan-approval / AskUserQuestion picker —
 // the badges escalate to amber for it.
 export function useAgentsRunningCount(

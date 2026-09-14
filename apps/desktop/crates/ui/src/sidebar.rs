@@ -563,9 +563,6 @@ pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
     Syncing,
-    /// EXP-870: a count pill in the badge colour — the Agent entry's live
-    /// runs (the web `NavCountBadge`).
-    Count(usize, Hsla),
 }
 
 /// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
@@ -590,24 +587,6 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
                     .with_size(px(glyph_px))
                     .color(cx.theme().muted_foreground),
             )
-            .into_any_element(),
-        RailBadge::Count(count, color) => h_flex()
-            .flex_shrink_0()
-            .h(px(14.))
-            .min_w(px(14.))
-            .px(px(3.))
-            .justify_center()
-            .items_center()
-            .rounded_full()
-            .bg(color)
-            .text_color(theme::tokens::BACKGROUND.to_hsla())
-            .text_size(px(10.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(SharedString::from(if count > 99 {
-                "99+".to_string()
-            } else {
-                count.to_string()
-            }))
             .into_any_element(),
     }
 }
@@ -1675,16 +1654,13 @@ impl Render for RailView {
         let agents = active_team_id(&self.nav, cx)
             .map(|id| queries::agents_running(cx, &id))
             .unwrap_or_default();
-        // EXP-870: a COUNT of them now (web parity), in the same palette.
+        // EXP-880: a dot again, never a count (web parity).
         let agent_badge = agents.running.then(|| {
-            RailBadge::Count(
-                agents.count,
-                if agents.needs_input {
-                    theme::tokens::YELLOW.to_hsla()
-                } else {
-                    theme::tokens::GREEN.to_hsla()
-                },
-            )
+            RailBadge::Dot(if agents.needs_input {
+                theme::tokens::YELLOW.to_hsla()
+            } else {
+                theme::tokens::GREEN.to_hsla()
+            })
         });
         // Support tool (EXP-180): rendered ONLY while the active team's
         // synced row carries helpdesk_enabled = true. The badge lights on

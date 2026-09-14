@@ -379,8 +379,8 @@ export function TeamSidebar({
                         </SidebarMenuItem>
                         {/* EXP-818: the Agent page — the composer over the
                             caller's running and past runs (the IDE rail's
-                            Agent entry). EXP-870: its badge is the live-run
-                            COUNT, and the runs themselves are work tabs. */}
+                            Agent entry). EXP-880: its badge is the live-run
+                            dot, and the runs themselves are work tabs. */}
                         <SidebarMenuItem>
                           <SidebarMenuButton
                             asChild

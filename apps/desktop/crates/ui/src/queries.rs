@@ -579,8 +579,6 @@ pub fn inbox_unread(cx: &App) -> bool {
 #[derive(Default)]
 pub(crate) struct AgentsRunning {
     pub running: bool,
-    /// EXP-870: how many — the Agent entry shows the COUNT (web parity).
-    pub count: usize,
     pub needs_input: bool,
 }
 
@@ -603,7 +601,6 @@ pub(crate) fn agents_running(cx: &App, team_id: &str) -> AgentsRunning {
             continue;
         }
         result.running = true;
-        result.count += 1;
         if coding_session_display(session, None) == CodingSessionDisplay::NeedsInput {
             result.needs_input = true;
         }
