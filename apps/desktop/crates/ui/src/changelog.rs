@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-one-work-header",
+    date: "2026-09-14",
+    title: "One header for an issue and its run",
+    summary: "An issue and its coding run now share one header, the diff opens full page, run lists look the same everywhere, and typing in the desktop app is faster.",
+    body: r#"- **One work header**: the Issue and Run faces of a tab share the same title block and header, and the issue's properties sit in a tray beside the run.
+- **Full-page diff**: a run's changes open as their own face in the tab instead of a side pane.
+- **A lighter composer**: the steer composer is one row with an inline send, the context meter sits in it and opens usage and account switching, and the model the run uses is shown and switchable there.
+- **Runs grouped by agent**: live run tabs group under their agent, a live run's tab closes on its own when the run ends, and a run whose machine went offline can be closed.
+- **The same run rows everywhere**: running and past runs read the same in the Agent list, on the Agent page and under Automations, with Merge and Open issue right on the row.
+- **Faster typing on desktop**: the issue picker, the description editor and the sidebar no longer redo work on every keystroke.
+- **Phones**: an ended run can be resumed from the run page, and a run links back to its issue."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-rail-that-stays-and-run-tabs",
     date: "2026-09-13",
     title: "A sidebar that never leaves, and every run in a tab beside its issue",
@@ -56,19 +72,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Pinned items open in place**: a pinned issue, run or action opens full width without swapping the sidebar.
 - **The list opens every time**: on the desktop app, the first issue you open after launch or after switching teams now opens beside its board list.
 - **The same sidebar on both**: the team switcher stays at the top on the web too, the back row is the same size on both, Agent shows how many runs are going, and the web team menu gains Join team."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-email-signup-and-mobile-tidy",
-    date: "2026-09-12",
-    title: "Sign up with your email, and the mobile apps drop what they cannot use",
-    summary: "Continue with email now creates your account on Exponential Cloud, pin buttons are gone from iOS, Android and the phone-width web app, Android's Accounts and Devices pages match the other clients, and a retired agent never shows up again.",
-    body: r#"- **Sign up with email**: on Exponential Cloud, Continue with email creates an account for a new address the moment you enter the code. Until today a new address silently got no mail, because only Google and Apple could create accounts.
-- **No pin buttons where there is no sidebar**: iOS, Android and the phone-width web app no longer offer Pin on issues, sessions and actions. Pins made on the desktop or the wide web app still show in the board switcher's Pinned group.
-- **Accounts and Devices on Android**: the Accounts page keeps only quiet machine chips (an online dot, a check on the active login). Signing in, re-login and "use this account here" moved to the machine row under Devices, as on web, desktop and iOS. On iOS a machine chip now offers the right repair: re-login for an expired login, use this account here for one the machine is not using.
-- **Retired agents stay gone**: a machine still on an older build that reports the removed pi agent no longer produces a row, a tab or a picker entry anywhere. The server strips it from every heartbeat and the stored device data was cleaned up."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored
