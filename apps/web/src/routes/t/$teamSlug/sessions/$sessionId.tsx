@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo } from "react"
 import {
   createFileRoute,
   Link,
@@ -6,63 +6,58 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
-import { toast } from "sonner"
 import { AgentSessionView } from "@/components/agent-session"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
+import { IssueActionsMenu } from "@/components/issue-actions-menu"
+import { IssuePropertiesTray } from "@/components/issue-properties-tray"
+import { IssueTitleField } from "@/components/issue-title-field"
+import { PinToggleButton } from "@/components/pin-toggle-button"
 import { Button } from "@/components/ui/button"
-import { conceptIcon } from "@/lib/icons.generated"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
-import { WorkFaceToggle } from "@/components/team/work-face-toggle"
-import {
-  codingSessionCollection,
-  deviceCollection,
-} from "@/lib/collections"
+import type { WorkFace } from "@/components/team/work-face-toggle"
+import { codingSessionCollection } from "@/lib/collections"
 import {
   CONTINUATION_COST_NOTE,
   CONTINUATION_NOTE,
 } from "@/components/session-account-switch"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
-import {
-  findStartedRun,
-  STARTED_RUN_DEADLINE_MS,
-  STARTED_RUN_SKEW_MS,
-} from "@/lib/started-run-match"
 import { useOpenSession } from "@/hooks/use-open-session"
+import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
-  deviceCanResumeRun,
-  deviceRowIsOnline,
-} from "@/lib/steer-devices"
-import { trpc } from "@/lib/trpc-client"
-import type { CodingSession, Device } from "@/db/schema"
-import { rowPrState, useSessionRow } from "@/hooks/use-agents-data"
-import { useNow } from "@/hooks/use-now"
-import { useSessionDevice } from "@/hooks/use-session-device"
+  rowPrState,
+  useSessionRow,
+  type AgentSessionRow,
+} from "@/hooks/use-agents-data"
+import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 import { sessionIdentity } from "@/lib/session-identity"
 import { useSession } from "@/hooks/use-session"
-import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
 
 // EXP-740: one coding session, FULLSCREEN on its own route — the web twin of
 // the desktop IDE's `Screen::Session` center tab and the natives' pushed
 // Agent-session screen. EXP-851: the view fills the whole content panel on
 // every breakpoint — no shell, no list beside it. The list the run came from
-// is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`), which is what
-// leaves the transcript column room for the diff pane. EXP-870: this is the
-// ONE run URL — an issue's run too, whose issue is the work tab's other face.
+// is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`). EXP-870: this
+// is the ONE run URL — an issue's run too, whose issue is the work tab's other
+// face. EXP-877: `?view=diff` is the run's third face, the full-column diff
+// under the same header (`work-header.tsx`).
 //
 // EXP-312: a LIVE session is visible and steerable by its OWNER alone (the
 // relay ticket mint refuses everyone else). A teammate's session id therefore
 // renders an identity stub with the synced status badge and NO view mount —
 // mounting it would try to mint a ticket the server will refuse.
 
+type SessionSearch = { from?: string; view?: `diff` }
+
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   // EXP-818: `?from=` is WHERE this run was opened from (`lib/detail-origin.ts`
   // — the desktop's `derive_origin`), so Back returns to that list instead of
   // always landing on the Agent page. Absent = the Agent page's own list.
-  validateSearch: (search: Record<string, unknown>): { from?: string } => ({
+  validateSearch: (search: Record<string, unknown>): SessionSearch => ({
     from: typeof search.from === `string` && search.from ? search.from : undefined,
+    view: search.view === `diff` ? `diff` : undefined,
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -77,7 +72,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
-  const { from } = Route.useSearch()
+  const { from, view } = Route.useSearch()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -103,18 +98,6 @@ function SessionPage() {
       }) as never
     )
   }, [navigate, teamSlug, origin])
-  // EXP-870: the run's linked issue is the same work tab's ISSUE face — its
-  // canonical URL, beside the same list (`from` rides along).
-  const issueBoardSlug = row?.board?.slug ?? null
-  const issueIdentifier = row?.issue?.identifier ?? null
-  const openIssue = useCallback(() => {
-    if (!issueBoardSlug || !issueIdentifier) return
-    void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-      params: { teamSlug, boardSlug: issueBoardSlug, issueIdentifier },
-      search: from ? { from } : {},
-    })
-  }, [navigate, teamSlug, issueBoardSlug, issueIdentifier, from])
 
   if (!team || !currentUserId || !isReady) {
     return (
@@ -172,38 +155,146 @@ function SessionPage() {
   }
 
   return (
+    <OwnSessionPage
+      key={session.id}
+      team={team}
+      teamSlug={teamSlug}
+      row={row}
+      session={session}
+      currentUserId={currentUserId}
+      from={from}
+      face={view === `diff` ? `diff` : `run`}
+      onBack={goBack}
+    />
+  )
+}
+
+/** The owner's run: the view plus the issue face's header parts when the run
+ * is issue-bound. A child component so its hooks (permissions, roster, the
+ * property handlers) stay unconditional past the page's early returns. */
+function OwnSessionPage({
+  team,
+  teamSlug,
+  row,
+  session,
+  currentUserId,
+  from,
+  face,
+  onBack,
+}: {
+  team: Team
+  teamSlug: string
+  row: AgentSessionRow
+  session: CodingSession
+  currentUserId: string
+  from: string | undefined
+  face: WorkFace
+  onBack: () => void
+}) {
+  const navigate = useNavigate()
+  const issue: Issue | null = row.issue ?? null
+  const board: Board | null = row.board ?? null
+  const permissions = useTeamPermissions(team)
+  const { users } = useTeamUsers(team.id)
+  const readOnly = issue ? !permissions.canMutateIssue(issue) : true
+  const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
+
+  // EXP-870: the run's linked issue is the same work tab's ISSUE face — its
+  // canonical URL, beside the same list (`from` rides along).
+  const openIssue = useCallback(() => {
+    if (!board || !issue) return
+    void navigate({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: {
+        teamSlug,
+        boardSlug: board.slug,
+        issueIdentifier: issue.identifier,
+      },
+      search: from ? { from } : {},
+    })
+  }, [navigate, teamSlug, board, issue, from])
+
+  // EXP-877: the run and diff faces are the same URL with `?view=` — a
+  // replace, so Back still leaves the run rather than stepping through faces.
+  const onFace = useCallback(
+    (next: WorkFace) => {
+      if (next === `issue`) {
+        openIssue()
+        return
+      }
+      void navigate({
+        to: `/t/$teamSlug/sessions/$sessionId`,
+        params: { teamSlug, sessionId: session.id },
+        search: {
+          ...(from ? { from } : {}),
+          ...(next === `diff` ? { view: `diff` as const } : {}),
+        },
+        replace: true,
+      })
+    },
+    [navigate, teamSlug, session.id, from, openIssue]
+  )
+
+  const issueHeader =
+    issue && board
+      ? {
+          title: <IssueTitleField issue={issue} readOnly={readOnly} />,
+          trailing: (
+            <>
+              <PinToggleButton
+                teamId={team.id}
+                kind="issue"
+                targetId={issue.id}
+                variant="ghost"
+              />
+              <IssueActionsMenu
+                issue={issue}
+                board={board}
+                teamSlug={teamSlug}
+                readOnly={readOnly}
+              />
+            </>
+          ),
+          tray: (
+            <IssuePropertiesTray
+              issue={issue}
+              board={board}
+              users={users}
+              teamId={team.id}
+              currentUserId={currentUserId}
+              readOnly={readOnly}
+              handlers={handlers}
+              preferredSessionId={session.id}
+            />
+          ),
+        }
+      : undefined
+
+  return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The run may END while this page is open — the view stays mounted and
-          read-only, and its work tab stays until closed (EXP-870).
-          Nothing navigates away underneath the user.
-          EXP-773: a finished run carries its close-out under the header — the
-          byline the Past lists used to expand, and Resume on the machine that
-          still holds the worktree. The feed connects to the relay exactly like
-          a live one; the device republishes its journal. */}
+          read-only, and its work tab stays until closed (EXP-870). Nothing
+          navigates away underneath the user. EXP-877: Resume lives in the
+          header's coding action; the feed connects to the relay exactly like a
+          live one and the device republishes its journal. */}
       <AgentSessionView
-        key={session.id}
         session={session}
         currentUserId={currentUserId}
-        identity={identity}
+        identity={sessionIdentity(row)}
         mergeTarget={row.mergeTarget}
         banner={
-          <>
-            {/* EXP-849: a run that was CONTINUED (an account switch, a
-                resume) names the run before and after it, so the chain reads
-                as one conversation instead of three orphans. */}
-            <SessionContinuationBand session={session} />
-            {session.status === `ended` && <EndedRunHeader session={session} />}
-          </>
+          // EXP-849: a run that was CONTINUED (an account switch, a resume)
+          // names the run before and after it, so the chain reads as one
+          // conversation instead of three orphans.
+          <SessionContinuationBand session={session} />
         }
-        issue={row.issue ?? null}
-        onOpenIssue={row.issue && row.board ? openIssue : undefined}
-        faceToggle={
-          row.issue && row.board ? (
-            <WorkFaceToggle face="run" onIssue={openIssue} />
-          ) : undefined
-        }
-        onBack={goBack}
+        face={face}
+        onFace={onFace}
+        onIssueFace={issue && board ? openIssue : undefined}
+        issueHeader={issueHeader}
+        onBack={onBack}
       />
+      {handlers.duplicatePicker}
     </div>
   )
 }
@@ -265,137 +356,4 @@ function SessionContinuationBand({ session }: { session: CodingSession }) {
       )}
     </div>
   )
-}
-
-const ResumeIcon = conceptIcon(`run-resume`)
-
-/** EXP-773: the ended-run block above the transcript — the caption the Past
- * rows carry (lib/past-runs.ts `pastRunByline`) and Resume when the run's
- * machine is online and advertises `resume-run`. EXP-862: the agent's
- * close-out summary is GONE from every client — `exponential_sessions_end`
- * still reports it to the run's parent, the server no longer keeps it and the
- * column left the coding-sessions shape. */
-function EndedRunHeader({ session }: { session: CodingSession }) {
-  const [resuming, setResuming] = useState(false)
-  const device = useSessionDevice(session)
-  const canResume = useCanResumeOn(session)
-  // EXP-818: a resume OPENS the run it started, exactly like a remote start
-  // does (`use-remote-start.ts`): the relaunched run arrives as a NEW row over
-  // Electric, and leaving the reader on the dead one (with a spinner that
-  // never settles) was the whole complaint. `resumedFromId` names it.
-  const openSession = useOpenSession()
-  const [sentAt, setSentAt] = useState<number | null>(null)
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      sentAt !== null
-        ? query.from({ s: codingSessionCollection })
-        : undefined,
-    [sentAt !== null]
-  )
-  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    },
-    []
-  )
-  useEffect(() => {
-    if (sentAt === null) return
-    const match = findStartedRun(
-      (sessionRows ?? []) as CodingSession[],
-      { kind: `resumed`, fromId: session.id },
-      session.userId,
-      sentAt - STARTED_RUN_SKEW_MS
-    )
-    if (!match) return
-    if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    setSentAt(null)
-    setResuming(false)
-    openSession(match)
-  }, [sessionRows, sentAt, session.id, session.userId, openSession])
-
-  const byline = pastRunByline({
-    deviceLabel: device.label ?? session.deviceLabel,
-    relativeTime:
-      pastRunEndedAt(session) > 0
-        ? relativeTime(new Date(pastRunEndedAt(session)))
-        : ``,
-  })
-
-  // The command is only half of it: the button stays busy until the new row
-  // syncs in and its page opens, and says so if the machine never starts it
-  // (the desktop holds the reason — a conflicted worktree, a failed doctor).
-  const resume = async () => {
-    if (!session.deviceId) return
-    setResuming(true)
-    try {
-      await trpc.steer.startSession.mutate({
-        resumeSessionId: session.id,
-        deviceId: session.deviceId,
-      })
-      setSentAt(Date.now())
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-      deadlineRef.current = setTimeout(() => {
-        setSentAt(null)
-        setResuming(false)
-        toast.error(
-          `${device.label ?? `That machine`} never started this run`,
-          { description: `Open the Exponential desktop app there to see why.` }
-        )
-      }, STARTED_RUN_DEADLINE_MS)
-    } catch (e) {
-      setResuming(false)
-      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
-    }
-  }
-
-  return (
-    <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-card/40 px-3 py-2">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {byline || `This run has ended`}
-        </span>
-        {canResume && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            disabled={resuming}
-            onClick={resume}
-          >
-            {resuming ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <ResumeIcon />
-            )}
-            Resume
-          </Button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** EXP-637: Resume relaunches the run on the machine that still holds its
- * worktree — the button is hidden when that machine is offline or too old to
- * resume, rather than failing after the click. */
-function useCanResumeOn(session: CodingSession): boolean {
-  const { data: deviceRows } = useLiveQuery((query) =>
-    query.from({ d: deviceCollection })
-  )
-  const now = useNow(30_000)
-  const deviceId = session.deviceId
-  const userId = session.userId
-  return useMemo(() => {
-    if (!deviceId) return false
-    const rows = ((deviceRows ?? []) as Device[]).filter(
-      (row) => row.deviceId === deviceId
-    )
-    const row = rows.find((r) => r.userId === userId) ?? rows[0]
-    if (!row) return false
-    return (
-      deviceRowIsOnline(row.lastSeenAt, now) &&
-      deviceCanResumeRun({ caps: row.caps ?? [] })
-    )
-  }, [deviceRows, deviceId, userId, now])
 }

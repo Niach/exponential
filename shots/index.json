@@ -401,8 +401,8 @@
         "file": "shots/chat/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 38074,
-        "sha256": "790787b4f48ff7a12318d3ee3df4555e6b29e9713091940d14bf0c52a49e5ce2"
+        "bytes": 41916,
+        "sha256": "f2e3de2b8a1bcdf182e94f763c4163e5e13632e254b054ab79bb43577c27ac65"
       },
       "web-mobile": {
         "file": "shots/chat/web-mobile.webp",
@@ -687,8 +687,8 @@
         "file": "shots/issue-detail/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 67584,
-        "sha256": "6a1504fa910a879117d29e78259dda7d880480daa9ccd4c8f82c2737cfc49e6f"
+        "bytes": 72302,
+        "sha256": "10710838c99645049284ec4cd0a033ef36d9ff7b61bb56d64d11e435bdcc8eed"
       },
       "web-mobile": {
         "file": "shots/issue-detail/web-mobile.webp",
@@ -1518,8 +1518,8 @@
         "file": "shots/steering/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 103604,
-        "sha256": "53ec6e5dbc5967526512a442cecdf73c51cba8771589f30e15ce44b68c8e4fc2"
+        "bytes": 115770,
+        "sha256": "e52302d6b126f188a78f5c1245332543f07a02b629ff8740a0e9677f215260b4"
       },
       "web-mobile": {
         "file": "shots/steering/web-mobile.webp",

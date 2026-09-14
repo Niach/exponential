@@ -4,7 +4,6 @@ import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
-  liveSig,
   pruneTabs,
   reconcileLive,
   routePathFromLocation,
@@ -28,6 +27,9 @@ import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
 //   3. Prune: a tab whose issue or run is gone from its (READY) collection is
 //      dropped — never while a collection is still syncing, so a cold load
 //      cannot wipe the strip.
+//
+// EXP-877: a live run also carries its AGENT down, which is the group its chip
+// sits in on the strip; the strip owns the folding itself.
 
 export function WorkTabsSync({
   teamId,
@@ -103,9 +105,9 @@ export function WorkTabsSync({
       runs.map((run) => ({
         runId: run.id,
         issueId: run.issueId,
-        sig: liveSig(run, now),
+        agent: run.agent,
       })),
-    [runs, now]
+    [runs]
   )
   const liveKey = JSON.stringify(live)
   const { tabs } = useWorkTabs(teamId)

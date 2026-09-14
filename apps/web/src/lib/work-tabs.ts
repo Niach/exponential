@@ -9,11 +9,12 @@
 //     conversation is its own tab.
 //   * EVERY live run of mine in the team (running | in_review, not stale —
 //     automations and remote devices included) gets a tab automatically,
-//     grouped first in stable order. Adding one never navigates.
-//   * Closing a live tab records the run's state SIGNATURE (`LiveSig`): the
-//     tab comes back only when that signature changes (it starts needing
-//     input, it opens its PR). `agentBusy` is deliberately NOT in it — a run
-//     flipping between turns must not re-open a tab every few seconds.
+//     grouped FIRST by agent (`groupedTabs`, contract order) in stable order.
+//     Adding one never navigates.
+//   * EXP-877: a live tab cannot be closed at all — no ×, no Close, and
+//     `closeTabs` skips it. The dismissal memory that used to let one be
+//     hidden until its state changed is gone with it: a run of mine is on the
+//     strip for as long as it is alive.
 //   * Ended runs are never auto-added; a tab whose run ends stays until it is
 //     closed (`live: false`).
 //   * The ACTIVE tab is derived from the URL, never stored.
@@ -22,18 +23,9 @@
 // (`work-tabs.test.ts`). The store is `hooks/use-work-tabs.ts`, the URL→tab
 // wiring `components/team/work-tabs-sync.tsx`.
 
-import type { CodingSession } from "@/db/schema"
-import { blockedBadgeLabel } from "@/lib/agent-usage"
+import { contract } from "@exp/domain-contract"
 
 export type WorkTabFace = `issue` | `run`
-
-/** A run's state signature — what makes a dismissed live tab come back. */
-export interface LiveSig {
-  /** Waiting on the person: a pending question/plan, or a usage wall. */
-  attention: boolean
-  /** Its PR is open (`in_review`). */
-  review: boolean
-}
 
 export type WorkTab =
   | {
@@ -60,11 +52,9 @@ export type WorkTab =
 
 export interface WorkTabsState {
   tabs: WorkTab[]
-  /** Closed live runs → the signature they were closed at. */
-  dismissed: Record<string, LiveSig>
 }
 
-export const EMPTY_WORK_TABS: WorkTabsState = { tabs: [], dismissed: {} }
+export const EMPTY_WORK_TABS: WorkTabsState = { tabs: [] }
 
 /** A tab's identity — one tab per work item. */
 export function tabKey(tab: WorkTab): string {
@@ -85,23 +75,6 @@ export function tabRunId(tab: WorkTab): string | null {
 
 export function tabIsLive(tab: WorkTab): boolean {
   return tab.kind !== `support` && tab.live
-}
-
-/** The signature of one live run. */
-export function liveSig(
-  session: Pick<CodingSession, `status` | `needsInput` | `blocked`>,
-  now: Date
-): LiveSig {
-  return {
-    attention:
-      session.needsInput === true ||
-      blockedBadgeLabel(session.blocked, now) !== null,
-    review: session.status === `in_review`,
-  }
-}
-
-function sameSig(a: LiveSig | undefined, b: LiveSig): boolean {
-  return a !== undefined && a.attention === b.attention && a.review === b.review
 }
 
 // ── The route side ───────────────────────────────────────────────────────────
@@ -286,7 +259,9 @@ export function upsertFromRoute(
 export interface LiveRun {
   runId: string
   issueId: string | null
-  sig: LiveSig
+  /** The run's `coding_sessions.agent` — which group its chip sits in
+   *  (`groupedTabs`); null/unknown reads as claude. */
+  agent: string | null
 }
 
 /**
@@ -295,10 +270,9 @@ export interface LiveRun {
  *   * a tab bound to a live run is `live`; an issue tab with no live binding
  *     binds to its issue's live run (a resume swaps the run under the tab);
  *   * a live run with no tab gets one (face `run`, appended — `orderedTabs`
- *     groups it first) unless it was closed at THIS signature;
- *   * a tab whose run is no longer live keeps its place with `live: false`;
- *   * dismissals of runs that are not live any more are forgotten (ended runs
- *     are never auto-added, so nothing is left for them to suppress).
+ *     groups it first). EXP-877: unconditionally — a live tab cannot be
+ *     closed, so a closed one that is live again simply comes back;
+ *   * a tab whose run is no longer live keeps its place with `live: false`.
  */
 export function reconcileLive(
   state: WorkTabsState,
@@ -339,12 +313,6 @@ export function reconcileLive(
     return { ...tab, runId, live }
   })
 
-  const dismissed: Record<string, LiveSig> = {}
-  for (const [runId, sig] of Object.entries(state.dismissed)) {
-    if (liveById.has(runId)) dismissed[runId] = sig
-    else changed = true
-  }
-
   for (const run of runs) {
     if (bound.has(run.runId)) continue
     // An issue tab may already hold this run's issue with another live run.
@@ -354,8 +322,6 @@ export function reconcileLive(
     ) {
       continue
     }
-    if (sameSig(dismissed[run.runId], run.sig)) continue
-    delete dismissed[run.runId]
     changed = true
     bound.add(run.runId)
     tabs.push(
@@ -372,30 +338,20 @@ export function reconcileLive(
     )
   }
 
-  return changed ? { tabs, dismissed } : state
+  return changed ? { tabs } : state
 }
 
-/** Close tabs. A LIVE tab records its run's signature so reconcile keeps it
- * closed until that changes; `sigOf` is the caller's current signature for a
- * run (null = not live). Closing never ends or kills a run. */
+/** Close tabs. EXP-877: a LIVE tab is never closed — the strip draws no × on
+ * one, its context menu offers no Close, and Close others / Close all pass
+ * over it. Closing never ends or kills a run. */
 export function closeTabs(
   state: WorkTabsState,
-  keys: readonly string[],
-  sigOf: (runId: string) => LiveSig | null
+  keys: readonly string[]
 ): WorkTabsState {
   const closing = new Set(keys)
-  if (!state.tabs.some((tab) => closing.has(tabKey(tab)))) return state
-  const dismissed = { ...state.dismissed }
-  const tabs = state.tabs.filter((tab) => {
-    if (!closing.has(tabKey(tab))) return true
-    const runId = tabRunId(tab)
-    if (runId && tabIsLive(tab)) {
-      const sig = sigOf(runId)
-      if (sig) dismissed[runId] = sig
-    }
-    return false
-  })
-  return { tabs, dismissed }
+  const closable = (tab: WorkTab) => closing.has(tabKey(tab)) && !tabIsLive(tab)
+  if (!state.tabs.some(closable)) return state
+  return { tabs: state.tabs.filter((tab) => !closable(tab)) }
 }
 
 /** Drop tabs whose target no longer resolves (a deleted issue, a run of a
@@ -409,9 +365,66 @@ export function pruneTabs(
   return tabs.length === state.tabs.length ? state : { ...state, tabs }
 }
 
-/** Strip order: live tabs first, each group in its stored order. */
-export function orderedTabs(tabs: readonly WorkTab[]): WorkTab[] {
-  return [...tabs.filter(tabIsLive), ...tabs.filter((tab) => !tabIsLive(tab))]
+// ── Agent groups (EXP-877) ───────────────────────────────────────────────────
+
+/** The group a run belongs to: its agent, normalised. A row without one (or
+ * with a blank) is a claude run — the same rule `AgentBrandMark` draws by. */
+export function tabGroupAgent(agent: string | null | undefined): string {
+  const id = (agent ?? ``).trim().toLowerCase()
+  return id === `` ? KNOWN_AGENTS[0]! : id
+}
+
+const KNOWN_AGENTS: readonly string[] = contract.codingAgent.values
+
+export interface WorkTabGroup {
+  agent: string
+  tabs: WorkTab[]
+}
+
+/**
+ * EXP-877: the live tabs, grouped by AGENT — claude first, then codex (the
+ * contract's own order), then any agent this build does not know, each in the
+ * tabs' stored order. Empty groups are omitted entirely; everything that is
+ * not live is `rest`, untouched and in stored order.
+ */
+export function groupedTabs(
+  tabs: readonly WorkTab[],
+  agentOf: (tab: WorkTab) => string | null | undefined
+): { groups: WorkTabGroup[]; rest: WorkTab[] } {
+  const byAgent = new Map<string, WorkTab[]>()
+  const rest: WorkTab[] = []
+  for (const tab of tabs) {
+    if (!tabIsLive(tab)) {
+      rest.push(tab)
+      continue
+    }
+    const agent = tabGroupAgent(agentOf(tab))
+    const bucket = byAgent.get(agent)
+    if (bucket) bucket.push(tab)
+    else byAgent.set(agent, [tab])
+  }
+  const groups: WorkTabGroup[] = []
+  for (const agent of KNOWN_AGENTS) {
+    const bucket = byAgent.get(agent)
+    if (bucket) {
+      groups.push({ agent, tabs: bucket })
+      byAgent.delete(agent)
+    }
+  }
+  // An agent this build has no contract value for still gets its own group,
+  // after the known ones and in first-seen order.
+  for (const [agent, bucket] of byAgent) groups.push({ agent, tabs: bucket })
+  return { groups, rest }
+}
+
+/** Strip order: the live groups first (contract agent order), then everything
+ * else in its stored order. */
+export function orderedTabs(
+  tabs: readonly WorkTab[],
+  agentOf: (tab: WorkTab) => string | null | undefined = () => null
+): WorkTab[] {
+  const { groups, rest } = groupedTabs(tabs, agentOf)
+  return [...groups.flatMap((group) => group.tabs), ...rest]
 }
 
 /** Where a tab click goes. `issueHref` resolves an issue id to its board slug
@@ -502,19 +515,79 @@ export function partitionTabs(
   return visible
 }
 
+/** One thing the strip lays out, as the packing sees it. `packed` chips
+ * compete for the row; everything else (a group's brand mark, its chevron, a
+ * chip folded into a collapsed group) is ALWAYS drawn and only takes its width
+ * off the budget. */
+export interface StripUnitMetric {
+  packed: boolean
+  width: number
+}
+
+/**
+ * EXP-877: which units the strip renders. The unpacked ones always survive —
+ * a group mark past the packing break would strand its whole group, and its
+ * chevron is what makes room in the first place — so their widths come off
+ * the budget FIRST and only the chips are then packed (`partitionTabs`).
+ * Returns unit indices in order; the packed ones it left out are the "+N".
+ */
+export function partitionUnits(
+  units: readonly StripUnitMetric[],
+  available: number,
+  gap: number,
+  overflowW: number,
+  activeIndex: number | null
+): number[] {
+  const packed: number[] = []
+  let fixed = 0
+  units.forEach((unit, index) => {
+    if (unit.packed) packed.push(index)
+    else fixed += unit.width + gap
+  })
+  // The active unit's slot AMONG the packed ones — an active unit that is not
+  // packed (it is always drawn) commits no width here.
+  const activeAt = activeIndex === null ? -1 : packed.indexOf(activeIndex)
+  const visiblePacked = partitionTabs(
+    packed.map((index) => units[index]!.width),
+    available - fixed,
+    gap,
+    overflowW,
+    activeAt < 0 ? null : activeAt
+  )
+  const keep = new Set(visiblePacked.map((at) => packed[at]!))
+  return units.flatMap((unit, index) =>
+    !unit.packed || keep.has(index) ? [index] : []
+  )
+}
+
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 export function workTabsStorageKey(teamId: string): string {
   return `exp:work-tabs:v1:${teamId}`
 }
 
-function isSig(value: unknown): value is LiveSig {
-  return (
-    typeof value === `object` &&
-    value !== null &&
-    typeof (value as LiveSig).attention === `boolean` &&
-    typeof (value as LiveSig).review === `boolean`
-  )
+/** EXP-877: the collapsed agent groups — a SECOND store, per team and per
+ * window, holding nothing but agent ids (a group folds to its brand mark). */
+export function workTabGroupsStorageKey(teamId: string): string {
+  return `exp:work-tab-groups:v1:${teamId}`
+}
+
+/** Read the collapsed-group list back: a string[] of agent ids, deduped.
+ * Anything malformed is "nothing collapsed". */
+export function parseCollapsedGroups(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  let json: unknown
+  try {
+    json = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(json)) return []
+  const seen = new Set<string>()
+  for (const entry of json) {
+    if (typeof entry === `string` && entry !== ``) seen.add(entry)
+  }
+  return [...seen]
 }
 
 function str(value: unknown): value is string {
@@ -567,7 +640,9 @@ export function parseWorkTabsState(raw: string | null | undefined): WorkTabsStat
     return EMPTY_WORK_TABS
   }
   if (typeof json !== `object` || json === null) return EMPTY_WORK_TABS
-  const source = json as { tabs?: unknown; dismissed?: unknown }
+  // EXP-877: a state written by an older build carries a `dismissed` map —
+  // read past it, the strip has no dismissal memory any more.
+  const source = json as { tabs?: unknown }
   const seen = new Set<string>()
   const tabs: WorkTab[] = []
   for (const entry of Array.isArray(source.tabs) ? source.tabs : []) {
@@ -576,11 +651,5 @@ export function parseWorkTabsState(raw: string | null | undefined): WorkTabsStat
     seen.add(tabKey(tab))
     tabs.push(tab)
   }
-  const dismissed: Record<string, LiveSig> = {}
-  if (typeof source.dismissed === `object` && source.dismissed !== null) {
-    for (const [runId, sig] of Object.entries(source.dismissed)) {
-      if (isSig(sig)) dismissed[runId] = { attention: sig.attention, review: sig.review }
-    }
-  }
-  return { tabs, dismissed }
+  return { tabs }
 }

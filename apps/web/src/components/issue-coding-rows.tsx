@@ -14,7 +14,7 @@ import {
   MonitorUp,
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession, Issue, Board, User } from "@/db/schema"
+import type { CodingSession, Issue, Board } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -25,7 +25,6 @@ import {
   teamMemberCollection,
 } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { displayUserName } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
 import { Pill } from "@/components/ui/pill"
 import { GlassRow } from "@/components/ui/glass-rows"
@@ -51,11 +50,11 @@ const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-ce
 // `border-t` divider rows. Both exported pieces mount as independent siblings
 // of the issue-detail main column (issue-detail-view.tsx owns no wrapper), so
 // each one carries its own stack + gutter. EXP-698 r4 aligns that gutter with
-// the properties band's (`max-w-3xl px-4 pt-3`) — the coding card sits
+// the properties band's (`max-w-4xl px-4 pt-3`) — the coding card sits
 // directly under the band on both viewports, so the two must share an edge.
 function CodingRowStack({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 pt-3 pb-2">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 px-4 pt-3 pb-2">
       {children}
     </div>
   )
@@ -100,7 +99,6 @@ function RunningPing() {
 // unit-tested without dragging the component graph in (EXP-531); re-exported
 // here for the existing importers.
 import {
-  sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
   type SessionDisplayState,
@@ -289,7 +287,6 @@ export function IssueCodingControl({
   board,
   teamId,
   currentUserId,
-  users,
   variant,
   tone = `primary`,
 }: {
@@ -297,7 +294,6 @@ export function IssueCodingControl({
   board: Board
   teamId: string
   currentUserId: string
-  users: User[]
   variant: CodingControlVariant
   tone?: CodingStartTone
 }) {
@@ -310,7 +306,6 @@ export function IssueCodingControl({
       board={board}
       teamId={teamId}
       currentUserId={currentUserId}
-      users={users}
       isMember={isMember}
       steerEnabled={config?.enabled ?? null}
       variant={variant}
@@ -352,7 +347,6 @@ function AgentRow({
   board,
   teamId,
   currentUserId,
-  users,
   isMember,
   steerEnabled,
   variant,
@@ -362,7 +356,6 @@ function AgentRow({
   board: Board
   teamId: string
   currentUserId: string
-  users: User[]
   isMember: boolean
   /** null while steer.config is still loading. */
   steerEnabled: boolean | null
@@ -410,7 +403,6 @@ function AgentRow({
   const latestDevice = useSessionDevice(latest)
 
   if (latest) {
-    const owner = users.find((u) => u.id === latest.userId)
     const paused = sessionIsPaused(
       sessionDisplayState(latest, issue.prState),
       latestDevice
@@ -460,67 +452,12 @@ function AgentRow({
       )
     }
 
-    // EXP-818: the tray's coding SLOT (IDE `coding_now_slot` twin) — the
-    // caller's own run as the primary Watch pill straight into the run's
-    // screen; a teammate's as a muted `● Coding now · name` caption. The
-    // "coding now" card under the tray is gone: the tray already holds every
-    // action, and a second card said the same thing again.
-    if (variant === `start`) {
-      if (ownLatest && steerEnabled) {
-        return (
-          <Pill
-            size="sm"
-            mode="action"
-            primary
-            onClick={() => openSession(ownLatest)}
-          >
-            <WatchIcon />
-            Watch
-          </Pill>
-        )
-      }
-      const state = paused ? null : sessionDisplayState(latest, issue.prState)
-      const verb = paused
-        ? `Paused`
-        : state === `needs_input`
-          ? `Needs input`
-          : state === `review`
-            ? `Ready for review`
-            : state === `done`
-              ? `Done`
-              : `Coding now`
-      // EXP-850 §8: the device-written caption of the run's live workflow —
-      // the second line of this slot, before anything else it says.
-      const caption = sessionAgentCaption(latest)
-      return (
-        <span
-          className="flex min-w-0 shrink-0 flex-col text-xs text-muted-foreground"
-          title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
-        >
-          <span className="flex min-w-0 items-center gap-1.5">
-            {paused ? (
-              <StateDot className="bg-muted-foreground/40" />
-            ) : (
-              <SessionStateDot
-                state={sessionDisplayState(latest, issue.prState)}
-                working={sessionRowIsWorking(latest, issue.prState)}
-              />
-            )}
-            <span className="truncate">
-              {verb}
-              {ownLatest ? `` : ` · ${displayUserName(owner, latest.userId)}`}
-            </span>
-          </span>
-          {caption && (
-            <span className="truncate pl-3.5" title={caption}>
-              {caption}
-            </span>
-          )}
-        </span>
-      )
-    }
+    // EXP-877: the tray's coding slot says nothing about a run any more. A
+    // live run of mine is a top TAB (work-tabs-strip.tsx) and a teammate's is
+    // their own business (EXP-312), so `start` always offers Start coding —
+    // the "Watch" pill and the teammate coding caption are gone.
     // `row` draws nothing any more (EXP-818).
-    return null
+    if (variant === `row`) return null
   }
 
   // Not running: only members can remote-start, and only on a repo-backed

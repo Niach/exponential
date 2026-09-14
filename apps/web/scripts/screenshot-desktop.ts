@@ -231,6 +231,20 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
     kind: `narration`,
     text: `Cold start is down to 740ms on the Pixel 6a, so we're under target.\n\n| Device | Before | After |\n| --- | --- | --- |\n| Pixel 6a | 1.4 s | 740 ms |\n| Galaxy A54 | 1.6 s | 790 ms |\n\nThe markdown editor is still eagerly loaded and worth another ~90ms. Want me to lazy-load it in this same PR?`,
   },
+  // EXP-877: the transcript composer's footer reads two latest-wins slots —
+  // `config_state` (the `model` option = the alias in force, `currentMode` =
+  // the "Plan mode" caption) and `usage` (the context ring's percent). Both
+  // ride the replay after the log, so a joining viewer paints them at once.
+  {
+    kind: `config_state`,
+    options: [{ id: `model`, label: `Model`, value: `fable` }],
+    currentMode: `plan`,
+    modes: [
+      { id: `default`, label: `Default` },
+      { id: `plan`, label: `Plan` },
+    ],
+  },
+  { kind: `usage`, contextUsed: 122_000, contextSize: 200_000, costUsd: 1.42 },
   {
     kind: `question`,
     id: `q-lazy-markdown`,
@@ -266,7 +280,12 @@ const TOOL_KIND_BY_NAME: Record<string, string> = {
 function publishFeed(send: (frame: Record<string, unknown>) => void) {
   let seq = 0
   let toolIndex = 0
+  // EXP-877: a pending question hides the composer (EXP-820), so a capture of
+  // the composer FOOTER (model picker, Plan mode, context ring) opts out of
+  // the closing ask. Capture-only; the catalog's `steering` keeps the ask.
+  const skipQuestion = process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
   for (const raw of FEED) {
+    if (skipQuestion && raw.kind === `question`) continue
     if (raw.kind !== `tool`) {
       send({ t: `activity`, event: raw, seq: seq++ })
       continue

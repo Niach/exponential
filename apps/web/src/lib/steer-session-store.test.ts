@@ -2022,6 +2022,7 @@ describe(`live config + usage (EXP-746)`, () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().feed).toEqual([])
     expect(store.getSnapshot().config).toEqual({
+      options: [],
       modes: [
         { id: `plan`, label: `Plan` },
         { id: `bypassPermissions`, label: `Build` },
@@ -2029,6 +2030,23 @@ describe(`live config + usage (EXP-746)`, () => {
       commands: [{ name: `review`, description: `Review the diff` }],
       currentMode: `plan`,
     })
+    store.dispose()
+  })
+
+  // EXP-877: the option list rides the same slot — the composer footer's
+  // model picker reads it out of the snapshot.
+  it(`config_state carries the option list into the snapshot`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(
+      configEvent({
+        options: [{ id: `model`, label: `Model`, value: `opus` }],
+      })
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().config?.options).toEqual([
+      { id: `model`, label: `Model`, value: `opus` },
+    ])
     store.dispose()
   })
 
@@ -2045,6 +2063,7 @@ describe(`live config + usage (EXP-746)`, () => {
     )
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().config).toEqual({
+      options: [],
       modes: [],
       commands: [],
     })

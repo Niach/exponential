@@ -4,32 +4,12 @@ import { Link, useLocation, useParams, useSearch } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
-import { sessionIdentity } from "@/lib/session-identity"
-import {
-  sessionAgentCaption,
-  sessionDisplayState,
-  sessionRowIsWorking,
-} from "@/lib/coding-session-display"
-import type {
-  Board,
-  CodingSession,
-  Issue,
-  Pin,
-  SyncedAction,
-} from "@/db/schema"
-import {
-  actionCollection,
-  codingSessionCollection,
-  issueCollection,
-} from "@/lib/collections"
-import { RunningIndicator } from "@/components/agent-session-row"
-import { rowPrState } from "@/hooks/use-agents-data"
-import { useOpenSession } from "@/hooks/use-open-session"
+import type { Board, Issue, Pin, SyncedAction } from "@/db/schema"
+import { actionCollection, issueCollection } from "@/lib/collections"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useTeamPins } from "@/hooks/use-pins"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import { cn } from "@/lib/utils"
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -41,11 +21,16 @@ import {
 } from "@/components/ui/sidebar"
 
 // EXP-778: the sidebar's Pinned group — the caller's favourites in this team
-// (issues, coding sessions, actions), in pin order. A row renders only when
-// its target is synced: the pins shape is per user and never trash-scoped,
-// so an issue on a trashed board (or a session of a team the user left)
-// simply has no row until it comes back. Sits between the nav entries and
-// Boards, hidden when empty; hovering a row offers Unpin.
+// (issues and actions), in pin order. A row renders only when its target is
+// synced: the pins shape is per user and never trash-scoped, so an issue on a
+// trashed board simply has no row until it comes back. Sits between the nav
+// entries and Boards, hidden when empty; hovering a row offers Unpin.
+//
+// EXP-877: a pinned SESSION draws nothing any more. A live run of mine is
+// already a top tab (`work-tabs-strip.tsx`) and an ended one belongs to the
+// Agent page's Past list, so a second copy in the sidebar said the same thing
+// twice. `pinKind.session` stays in the contract and old rows stay in the
+// database — they simply resolve to no row.
 
 const UiUnpinIcon = conceptIcon(`ui-unpin`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
@@ -71,41 +56,19 @@ export function SidebarPinned({
  *  render the same list. */
 type ResolvedPin =
   | { kind: `issue`; pin: Pin; issue: Issue; board: Board; active: boolean }
-  | {
-      kind: `session`
-      pin: Pin
-      session: CodingSession
-      issue: Issue | undefined
-      active: boolean
-    }
   | { kind: `action`; pin: Pin; action: SyncedAction; active: boolean }
 
 /** EXP-870: resolve the caller's pins against the synced targets, once, for
  *  both rail states. A pin with no synced target yields nothing. */
 function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
   const boards = useTeamBoards(teamId)
-  const sessionIds = useMemo(
-    () => pins.flatMap((pin) => (pin.sessionId ? [pin.sessionId] : [])),
+  const issueIds = useMemo(
+    () =>
+      [
+        ...new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : []))),
+      ].sort(),
     [pins]
   )
-  const { data: sessions } = useLiveQuery(
-    (query) =>
-      sessionIds.length > 0
-        ? query
-            .from({ s: codingSessionCollection })
-            .where(({ s }) => inArray(s.id, sessionIds))
-        : undefined,
-    [sessionIds]
-  )
-  // The pinned issues plus the pinned sessions' issues — ONE query, so a
-  // session row can name its identifier.
-  const issueIds = useMemo(() => {
-    const ids = new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))
-    for (const session of sessions ?? []) {
-      if (session.issueId) ids.add(session.issueId)
-    }
-    return [...ids].sort()
-  }, [pins, sessions])
   const { data: issues } = useLiveQuery(
     (query) =>
       issueIds.length > 0
@@ -120,8 +83,7 @@ function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
       query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
     [teamId]
   )
-  const { sessionId: routeSessionId, issueIdentifier: routeIssueIdentifier } =
-    useParams({ strict: false })
+  const { issueIdentifier: routeIssueIdentifier } = useParams({ strict: false })
   // EXP-862: a pinned ACTION row is active while the composer is seeded with
   // it — the Agent page's `?action=` (the desktop's `active_chat_action`).
   // The Agent nav entry drops its own highlight for the same reason
@@ -143,9 +105,6 @@ function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
     const issuesById = new Map(
       ((issues ?? []) as Issue[]).map((issue) => [issue.id, issue])
     )
-    const sessionsById = new Map(
-      ((sessions ?? []) as CodingSession[]).map((session) => [session.id, session])
-    )
     const actionsById = new Map(
       ((actions ?? []) as SyncedAction[]).map((action) => [action.id, action])
     )
@@ -164,19 +123,6 @@ function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
           },
         ]
       }
-      if (pin.kind === `session` && pin.sessionId) {
-        const session = sessionsById.get(pin.sessionId)
-        if (!session) return []
-        return [
-          {
-            kind: `session`,
-            pin,
-            session,
-            issue: session.issueId ? issuesById.get(session.issueId) : undefined,
-            active: routeSessionId === session.id,
-          },
-        ]
-      }
       if (pin.kind === `action` && pin.actionId) {
         const action = actionsById.get(pin.actionId)
         if (!action) return []
@@ -186,34 +132,7 @@ function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
       }
       return []
     })
-  }, [
-    pins,
-    boards,
-    issues,
-    sessions,
-    actions,
-    routeIssueIdentifier,
-    routeSessionId,
-    seededActionId,
-  ])
-}
-
-/** A pinned session's display — its identity, dot state and caption. */
-function pinnedSessionDisplay(session: CodingSession, issue: Issue | undefined) {
-  const identity = sessionIdentity({ session, issue })
-  const pinPrState = rowPrState(session, issue)
-  const title = identity.identifier
-    ? identity.subject
-    : (session.actionName ?? (session.issueId ? identity.subject : `Batch run`))
-  return {
-    identity,
-    title,
-    state: sessionDisplayState(session, pinPrState),
-    working: sessionRowIsWorking(session, pinPrState),
-    // A pinned run may be over: an ended row gets the Past list's steady grey
-    // dot, never a live one.
-    ended: session.status === `ended` || session.status === `merged`,
-  }
+  }, [pins, boards, issues, actions, routeIssueIdentifier, seededActionId])
 }
 
 function PinnedRows({
@@ -226,11 +145,10 @@ function PinnedRows({
   teamSlug: string
 }) {
   const resolved = useResolvedPins(pins, teamId)
-  const openSession = useOpenSession()
   const openComposer = useOpenComposer()
 
   const unpin = (pin: Pin) => {
-    const targetId = pin.issueId ?? pin.sessionId ?? pin.actionId
+    const targetId = pin.issueId ?? pin.actionId
     if (!targetId) return
     void trpc.pins.toggle.mutate({ teamId, kind: pin.kind, targetId })
   }
@@ -265,48 +183,6 @@ function PinnedRows({
         </SidebarMenuItem>
       )
     }
-    if (entry.kind === `session`) {
-      const { pin, session, issue } = entry
-      const { identity, title, state, working, ended } = pinnedSessionDisplay(
-        session,
-        issue
-      )
-      // EXP-850 §8: the live run's own caption, the row's second line.
-      const caption = sessionAgentCaption(session)
-      return (
-        <SidebarMenuItem key={pin.id}>
-          <SidebarMenuButton
-            isActive={entry.active}
-            className={cn(PINNED_ROW_COMPACT, caption && `h-auto py-1`)}
-            // EXP-851: a pinned row is context-free — the main menu stays.
-            onClick={() => openSession(session, { origin: null })}
-          >
-            <span className="flex w-4 shrink-0 items-center justify-center">
-              <RunningIndicator state={state} paused={ended} working={working} />
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col items-start">
-              <span className="flex w-full min-w-0 items-center gap-1.5">
-                {identity.identifier && (
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                    {identity.identifier}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 truncate">{title}</span>
-              </span>
-              {caption && (
-                <span
-                  className="w-full truncate text-xs text-muted-foreground"
-                  title={caption}
-                >
-                  {caption}
-                </span>
-              )}
-            </span>
-          </SidebarMenuButton>
-          <UnpinAction label={title} onClick={() => unpin(pin)} />
-        </SidebarMenuItem>
-      )
-    }
     const { pin, action } = entry
     const ActionIcon = getActionIcon(action)
     return (
@@ -314,8 +190,8 @@ function PinnedRows({
         <SidebarMenuButton
           className={PINNED_ROW_COMPACT}
           isActive={entry.active}
-          // EXP-870: context-free like the pinned issue and session rows —
-          // the composer opens full-width, no list nav.
+          // EXP-870: context-free like the pinned issue rows — the composer
+          // opens full-width, no list nav.
           onClick={() => openComposer({ actionId: action.id }, { origin: null })}
           title={`Run ${action.name}`}
         >
@@ -366,7 +242,6 @@ export function SidebarPinnedIcons({
 }) {
   const pins = useTeamPins(teamId)
   const resolved = useResolvedPins(pins, teamId)
-  const openSession = useOpenSession()
   const openComposer = useOpenComposer()
   if (resolved.length === 0) return null
   return (
@@ -387,21 +262,6 @@ export function SidebarPinnedIcons({
                 issueIdentifier: entry.issue.identifier,
               },
             },
-          })
-        }
-        if (entry.kind === `session`) {
-          const { identity, title, state, working, ended } =
-            pinnedSessionDisplay(entry.session, entry.issue)
-          return renderItem({
-            key: entry.pin.id,
-            label: identity.identifier ? `${identity.identifier} ${title}` : title,
-            active: entry.active,
-            icon: (
-              <span className="flex size-4 items-center justify-center">
-                <RunningIndicator state={state} paused={ended} working={working} />
-              </span>
-            ),
-            onClick: () => openSession(entry.session, { origin: null }),
           })
         }
         const ActionIcon = getActionIcon(entry.action)

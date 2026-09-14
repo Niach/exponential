@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
-// EXP-778: the small pin toggle beside a title — issue detail, the session
-// header, the action editor. Pinned rows land in the sidebar's Pinned group;
-// the glyph is the shared `ui-pin` / `ui-unpin` concept.
+// EXP-778: the small pin toggle beside a title — issue detail, the action
+// editor. Pinned rows land in the sidebar's Pinned group; the glyph is the
+// shared `ui-pin` / `ui-unpin` concept. EXP-877: a RUN is never pinned any
+// more — a live one is already a top tab — so no session surface offers this.
 // EXP-858: a pin only means something where a sidebar exists, so these
 // controls render at `md` and up only — the phone layout (and the natives,
 // which dropped their toggles entirely) has no Pinned group to land in. The

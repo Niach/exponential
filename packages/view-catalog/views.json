@@ -430,12 +430,12 @@
       "id": "issue-detail",
       "group": "issues",
       "title": "Issue detail",
-      "blurb": "One issue in full: markdown description, properties rail, activity, and the live \"Coding now\" row when a session is running.",
+      "blurb": "One issue in full: the shared work header (title, Issue | Run face toggle, properties tray ending in the one coding action), markdown description and activity.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
         "anchor": {
-          "text": "Coding now",
+          "testId": "work-face-toggle",
           "timeoutMs": 30000
         },
         "settleMs": 1200
