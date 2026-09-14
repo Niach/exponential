@@ -76,6 +76,11 @@ pub enum Screen {
     /// user's machines and nothing else). Tab-less full-page mode like
     /// Settings (no sidebar, no tab chip), opened from the rail.
     Devices,
+    /// The Drafts page (EXP-878 — the create-issue dialogs this user closed
+    /// with content in them). Tab-less full-page mode like Devices, opened
+    /// from the rail's conditional Drafts entry; context-free, so it lends no
+    /// list to the dialog it reopens.
+    Drafts,
     /// The Actions page (EXP-467 — the web `t/$teamSlug/actions` page 1:1:
     /// the team's action rows; editing lives in the edit dialog).
     /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
@@ -376,6 +381,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Files => "Files".into(),
         Screen::SourceControl => "Source Control".into(),
         Screen::Devices => "Devices".into(),
+        Screen::Drafts => "Drafts".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
         Screen::Chat => "Chat".into(),
@@ -663,6 +669,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // EXP-238: Account merged into Settings — the dev value keeps working.
         "account" => Some(Screen::Settings),
         "devices" => Some(Screen::Devices),
+        // EXP-878: the drafts list.
+        "drafts" => Some(Screen::Drafts),
         "actions" => Some(Screen::Actions),
         "automations" => Some(Screen::Automations),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
@@ -1662,6 +1670,8 @@ mod tests {
     #[test]
     fn dev_screen_values_cover_the_full_page_screens() {
         assert_eq!(parse_dev_screen("devices"), Some(Screen::Devices));
+        // EXP-878: a capture run reaches the Drafts page.
+        assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
         assert_eq!(parse_dev_screen("actions"), Some(Screen::Actions));
         assert_eq!(parse_dev_screen("automations"), Some(Screen::Automations));
         // EXP-706: Reviews joined them (it was a rail TOOL window before).
@@ -1855,6 +1865,7 @@ mod tests {
         for screen in [
             Screen::Settings,
             Screen::Devices,
+            Screen::Drafts,
             Screen::Actions,
             Screen::Files,
             Screen::SourceControl,
@@ -1957,6 +1968,7 @@ mod tests {
         // Files) derives NO list — the rail stays up.
         for previous in [
             Screen::Devices,
+            Screen::Drafts,
             Screen::Actions,
             Screen::Settings,
             Screen::Files,
@@ -2146,6 +2158,7 @@ mod tests {
     async fn full_page_screens_carry_their_own_titles(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             assert_eq!(screen_title(&Screen::Devices, cx), "Devices");
+            assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Automations, cx), "Automations");
             assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");

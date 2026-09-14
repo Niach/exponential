@@ -708,6 +708,15 @@ mod tests {
             ) -> anyhow::Result<crate::markdown::UploadedImage> {
                 unreachable!()
             }
+            fn upload_draft(
+                &self,
+                _: &str,
+                _: &str,
+                _: &str,
+                _: &[u8],
+            ) -> anyhow::Result<crate::markdown::UploadedImage> {
+                unreachable!()
+            }
             fn fetch(&self, _: &str) -> anyhow::Result<Vec<u8>> {
                 *self.0.lock().unwrap() += 1;
                 Ok(b"clip-bytes".to_vec())

@@ -626,66 +626,117 @@ impl WysiwygDescription {
             match upload {
                 Ok(uploaded) => {
                     let _ = this.update_in(cx, |this, window, cx| {
-                        let real_key = images::cache_key(&uploaded.url).to_string();
-                        if let Ok(mut resolutions) = this.shared.resolutions.lock() {
-                            if let Some(existing) = resolutions.get(&staged.draft_url).cloned() {
-                                resolutions.insert(real_key.clone(), existing);
-                            }
-                        }
-                        // EXP-285: carry the probed natural size across the
-                        // draft→real rewrite so there is no one-frame
-                        // letterbox flash before the next sync re-probes.
-                        let draft_size =
-                            this.probed_sizes.get(&staged.draft_url).copied().or_else(|| {
-                                this.shared
-                                    .natural_sizes
-                                    .lock()
-                                    .ok()
-                                    .and_then(|sizes| sizes.get(&staged.draft_url).copied())
-                            });
-                        if let Some(size) = draft_size {
-                            this.probed_sizes.insert(real_key.clone(), size);
-                            if let Ok(mut sizes) = this.shared.natural_sizes.lock() {
-                                sizes.insert(real_key.clone(), size);
-                            }
-                        }
-                        this.images.update(cx, |cache, _cx| {
-                            cache.insert_bytes(
-                                real_key,
-                                &staged.content_type,
-                                staged.bytes.as_ref().clone(),
-                            );
-                        });
-                        let mut map = HashMap::new();
-                        map.insert(staged.draft_url.clone(), uploaded.url.clone());
-                        this.editor
-                            .update(cx, |editor, cx| editor.rewrite_image_sources(&map, cx));
-                        this.refresh_editor_environment(cx);
-                        // Structural commit (masterplan §8.2): the insert has
-                        // no blur to ride on — persist immediately.
-                        this.save_now(window, cx);
+                        this.adopt_uploaded_image(&staged, &uploaded.url, window, cx);
                     });
                 }
                 Err(error) => {
-                    log::warn!("image upload failed: {error}");
                     let _ = this.update_in(cx, |this, window, cx| {
-                        // EXP-261: a failed draft must not linger — it is
-                        // invisible to the user as a `Failed` placeholder yet
-                        // silently stripped from every save. Remove it from
-                        // the document (same path as the context-menu Delete)
-                        // and surface the failure like sibling views do.
-                        this.delete_image(&staged.draft_url, window, cx);
-                        window.push_notification(
-                            Notification::error(SharedString::from(format!(
-                                "Image upload failed: {error}"
-                            ))),
-                            cx,
-                        );
+                        this.drop_failed_image(&staged, &error.to_string(), window, cx);
                     });
                 }
             }
         })
         .detach();
+    }
+
+    /// Swap a staged image's `draft://` source for the canonical
+    /// `/api/attachments/{id}` one it uploaded to, carrying the decoded bytes
+    /// and the probed natural size across, and persist.
+    ///
+    /// EXP-878 made this public: the detail editor uploads through
+    /// [`Self::spawn_upload`], but the create-issue DIALOG uploads onto its
+    /// issue DRAFT (a row the composer owns and must create first), so the
+    /// composer drives the transport itself and lands the result here. One
+    /// adoption path, whichever side ran the upload.
+    pub fn adopt_uploaded_image(
+        &mut self,
+        staged: &StagedImage,
+        uploaded_url: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let real_key = images::cache_key(uploaded_url).to_string();
+        if let Ok(mut resolutions) = self.shared.resolutions.lock() {
+            if let Some(existing) = resolutions.get(&staged.draft_url).cloned() {
+                resolutions.insert(real_key.clone(), existing);
+            }
+        }
+        // EXP-285: carry the probed natural size across the draft→real
+        // rewrite so there is no one-frame letterbox flash before the next
+        // sync re-probes.
+        let draft_size = self.probed_sizes.get(&staged.draft_url).copied().or_else(|| {
+            self.shared
+                .natural_sizes
+                .lock()
+                .ok()
+                .and_then(|sizes| sizes.get(&staged.draft_url).copied())
+        });
+        if let Some(size) = draft_size {
+            self.probed_sizes.insert(real_key.clone(), size);
+            if let Ok(mut sizes) = self.shared.natural_sizes.lock() {
+                sizes.insert(real_key.clone(), size);
+            }
+        }
+        self.images.update(cx, |cache, _cx| {
+            cache.insert_bytes(
+                real_key,
+                &staged.content_type,
+                staged.bytes.as_ref().clone(),
+            );
+        });
+        // The image is a real attachment now — it is no longer staged, so a
+        // submit must not try to upload it a second time.
+        self.staged
+            .retain(|other| other.draft_url != staged.draft_url);
+        let mut map = HashMap::new();
+        map.insert(staged.draft_url.clone(), uploaded_url.to_string());
+        self.editor
+            .update(cx, |editor, cx| editor.rewrite_image_sources(&map, cx));
+        self.refresh_editor_environment(cx);
+        // Structural commit (masterplan §8.2): the insert has no blur to
+        // ride on — persist immediately.
+        self.save_now(window, cx);
+    }
+
+    /// EXP-261: a staged image whose upload failed must not linger — it is
+    /// invisible to the user as a `Failed` placeholder yet silently stripped
+    /// from every save. Remove it from the document (same path as the
+    /// context-menu Delete) and surface the failure like sibling views do.
+    /// Public for the same reason as [`Self::adopt_uploaded_image`].
+    pub fn drop_failed_image(
+        &mut self,
+        staged: &StagedImage,
+        error: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::warn!("image upload failed: {error}");
+        self.staged
+            .retain(|other| other.draft_url != staged.draft_url);
+        self.delete_image(&staged.draft_url, window, cx);
+        window.push_notification(
+            Notification::error(SharedString::from(format!("Image upload failed: {error}"))),
+            cx,
+        );
+    }
+
+    /// EXP-878: append `fragment` as its own paragraph at the BOTTOM of the
+    /// description — the create-issue dialog's draft upload of a video/audio
+    /// file, which joins the description as a plain link (EXP-824) exactly
+    /// like the detail view's `append_to_description`.
+    pub fn append_paragraph(
+        &mut self,
+        fragment: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.markdown(cx);
+        let next = if current.trim().is_empty() {
+            fragment.to_string()
+        } else {
+            format!("{}\n\n{fragment}", current.trim_end())
+        };
+        self.set_markdown(&next, window, cx);
     }
 
     /// Recompute the resolver map from the live document (kicking off fetches
@@ -1799,6 +1850,16 @@ mod tests {
         fn upload_team_session_file(
             &self,
             _team_id: &str,
+            _filename: &str,
+            _content_type: &str,
+            _bytes: &[u8],
+        ) -> anyhow::Result<UploadedImage> {
+            unreachable!("fetch-only stub")
+        }
+
+        fn upload_draft(
+            &self,
+            _draft_id: &str,
             _filename: &str,
             _content_type: &str,
             _bytes: &[u8],

@@ -43,6 +43,9 @@ final class AppDependencies: @unchecked Sendable {
     // EXP-736: typed issue relations (blocks / parent / duplicate /
     // related) — writes go through tRPC, the rows arrive over the shape.
     let relationsApi: RelationsApi
+    // EXP-878: issue drafts — rows sync (22nd shape), the three writes
+    // (upsert / delete / listAttachments) are tRPC.
+    let issueDraftsApi: IssueDraftsApi
     let onboardingApi: OnboardingApi
     // Server-only repositories registry (not a synced shape) — read + link
     // management in team settings (masterplan §7a).
@@ -159,6 +162,7 @@ final class AppDependencies: @unchecked Sendable {
         self.usersApi = UsersApi(trpc: trpc)
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.relationsApi = RelationsApi(trpc: trpc)
+        self.issueDraftsApi = IssueDraftsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)

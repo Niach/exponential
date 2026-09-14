@@ -158,6 +158,20 @@ pub trait AttachmentTransport: Send + Sync {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage>;
 
+    /// EXP-878: upload one attachment to an ISSUE DRAFT —
+    /// `POST /api/issue-drafts/{id}/files`, the same single-part multipart
+    /// `file` and the same response shape as [`Self::upload`], only the path
+    /// differs (owner-only). The create-issue dialog uploads EAGERLY onto
+    /// the draft it is composing in, so a close never has bytes to lose; the
+    /// `issues.create` that files the draft reparents the rows.
+    fn upload_draft(
+        &self,
+        draft_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage>;
+
     /// GET attachment bytes. `url` may be the canonical relative form or
     /// absolute; relative resolves against the instance base URL.
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>>;
@@ -306,6 +320,17 @@ impl AttachmentTransport for HttpAttachmentTransport {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
         let url = format!("{}/api/teams/{team_id}/session-files", self.base_url);
+        self.post_multipart(&url, filename, content_type, bytes)
+    }
+
+    fn upload_draft(
+        &self,
+        draft_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        let url = format!("{}/api/issue-drafts/{draft_id}/files", self.base_url);
         self.post_multipart(&url, filename, content_type, bytes)
     }
 

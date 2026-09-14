@@ -222,7 +222,10 @@ export function TeamStorageSection({
           <ul className="@container flex flex-col gap-2">
             {rows.map((row) => {
               const Icon = getAttachmentIcon(row.contentType)
-              const issue = issuesById.get(row.issueId)
+              // EXP-878: draft-owned rows carry no issue.
+              const issue = row.issueId
+                ? issuesById.get(row.issueId)
+                : undefined
               const boardSlug = issue
                 ? boardSlugById.get(issue.boardId)
                 : undefined

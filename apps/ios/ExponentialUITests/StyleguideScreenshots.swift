@@ -300,11 +300,12 @@ final class StyleguideScreenshots: XCTestCase {
         focus(titleField)
         titleField.typeText("Prefetch avatars before the first board paint")
         snapshot("sg_issue-create", settle: 2)
-        // EXP-687: New issue is a PAGE — Back, then confirm the discard. The
-        // styleguide run must not write anything to the seed.
+        // EXP-878: leaving the compose page with content SAVES a draft (there
+        // is no discard alert any more), and the styleguide run must not write
+        // anything to the seed — clear the title first, which leaves the page
+        // with nothing to keep.
+        clearText(of: titleField)
         app.buttons["Back"].firstMatch.tap()
-        let discardDraft = app.buttons["Discard"].firstMatch
-        if discardDraft.waitForExistence(timeout: 10) { discardDraft.tap() }
         _ = titleField.waitForNonExistence(timeout: 10)
 
         // ── sg_search: the search view with seeded results ───────────────────

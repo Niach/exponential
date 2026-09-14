@@ -39,10 +39,37 @@ pub fn init(cx: &mut App) {
     });
 }
 
+/// Open the dialog blank on `board_id` — the `NewIssue` action, every "+"
+/// and every play button that files an issue.
+///
+/// EXP-878: a blank open still MINTS a draft id. Nothing is written until the
+/// dialog closes with content in it (or a paste needs a row to upload onto),
+/// so an untouched open-and-close is free.
+pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
+    open_with(window, cx, board_id, api::issue_drafts::new_draft_id(), None);
+}
+
+/// EXP-878: reopen a saved draft — the Drafts page's rows. The dialog lands
+/// on the draft's own board with its title, description, picks and file rail
+/// restored, and writes back to the SAME row.
+pub fn open_draft(window: &mut Window, cx: &mut App, draft: &domain::rows::IssueDraftRow) {
+    let Some(board_id) = draft.board_id.clone() else {
+        return;
+    };
+    let seed = crate::drafts::seed_from_row(draft, cx);
+    open_with(window, cx, board_id, draft.id.clone(), Some(seed));
+}
+
 /// Open the dialog. Resolves the board row (prefix, color, team) off
 /// the synced collections; a no-op when the board is unknown (racing a
 /// delete).
-pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
+fn open_with(
+    window: &mut Window,
+    cx: &mut App,
+    board_id: String,
+    draft_id: String,
+    seed: Option<crate::drafts::DraftSeed>,
+) {
     let collections = Store::global(cx).collections();
     let Some(board) = collections.boards.read(cx).get(&board_id).cloned() else {
         log::warn!("[ui] NewIssue for unknown board {board_id}");
@@ -62,7 +89,15 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let team_id = board.team_id.clone();
         let view = cx.new(|cx| {
-            IssueComposer::dialog(board.id.clone(), board.team_id.clone(), max_height, window, cx)
+            IssueComposer::dialog(
+                board.id.clone(),
+                board.team_id.clone(),
+                max_height,
+                draft_id.clone(),
+                seed.clone(),
+                window,
+                cx,
+            )
         });
         let busy = view.clone();
         let submit = view.clone();

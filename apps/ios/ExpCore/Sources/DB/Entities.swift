@@ -893,6 +893,105 @@ extension PinEntity: Codable {
     }
 }
 
+// MARK: - IssueDraft (EXP-878)
+
+// A composed-but-unfiled issue, kept per USER (22nd Electric shape, static
+// `user_id = me` like `pins` — never team- or trash-scoped). A row renders
+// only when its board resolves locally, exactly like a pin resolves its
+// target. `status_id` NULL means the team's Backlog builtin; `label_ids` is a
+// Postgres `uuid[]` on the wire (`{a,b}`), stored here the way
+// `devices.shared_team_ids` is.
+public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "issue_drafts"
+
+    public let id: String
+    public let userId: String
+    public let teamId: String
+    public let boardId: String
+    /// May be empty — a draft is content-bearing through its description or
+    /// its attachments too.
+    public let title: String
+    public let description: String?
+    /// A team `issue_statuses` row id; nil = the team's Backlog builtin.
+    public let statusId: String?
+    /// The issue-priority enum value (`none` when the wire omits it).
+    public let priority: String
+    public let assigneeId: String?
+    public let labelIds: [String]
+    /// `YYYY-MM-DD`, date-only like `issues.due_date` (REV2-49).
+    public let dueDate: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        teamId: String,
+        boardId: String,
+        title: String = "",
+        description: String? = nil,
+        statusId: String? = nil,
+        priority: String = IssuePriority.none.rawValue,
+        assigneeId: String? = nil,
+        labelIds: [String] = [],
+        dueDate: String? = nil,
+        createdAt: String = "",
+        updatedAt: String = ""
+    ) {
+        self.id = id
+        self.userId = userId
+        self.teamId = teamId
+        self.boardId = boardId
+        self.title = title
+        self.description = description
+        self.statusId = statusId
+        self.priority = priority
+        self.assigneeId = assigneeId
+        self.labelIds = labelIds
+        self.dueDate = dueDate
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, description, priority
+        case userId = "user_id"
+        case teamId = "team_id"
+        case boardId = "board_id"
+        case statusId = "status_id"
+        case assigneeId = "assignee_id"
+        case labelIds = "label_ids"
+        case dueDate = "due_date"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: a PARTIAL update off the wire carries only the touched
+// columns, so everything but the identity columns degrades to its schema
+// default rather than killing the row; `label_ids` reads `{a,b}` off the wire
+// and `["a","b"]` back out of GRDB through the shared helper (FEED-33's
+// precedent). A same-file extension keeps encode(to:) synthesis.
+extension IssueDraftEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        userId = try c.decode(String.self, forKey: .userId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        boardId = try c.decode(String.self, forKey: .boardId)
+        // NOT NULL server-side but empty-able, and absent on a partial.
+        title = (try? c.decode(String.self, forKey: .title)) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        statusId = try c.decodeIfPresent(String.self, forKey: .statusId)
+        priority = (try? c.decode(String.self, forKey: .priority)) ?? IssuePriority.none.rawValue
+        assigneeId = try c.decodeIfPresent(String.self, forKey: .assigneeId)
+        labelIds = c.decodeWireStringList(forKey: .labelIds)
+        dueDate = try c.decodeIfPresent(String.self, forKey: .dueDate)
+        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
+    }
+}
+
 // MARK: - Label
 
 public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {

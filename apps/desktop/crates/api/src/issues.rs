@@ -107,6 +107,13 @@ pub struct IssuesCreateInput {
     /// server transaction (the inline sub-issue composer).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// EXP-878: the `issue_drafts` row this create came from. The server
+    /// reparents the draft's attachments onto the new issue and deletes the
+    /// draft in the SAME transaction — which is why a create carrying one
+    /// uploads nothing: every image in `description` is already a
+    /// `/api/attachments/{id}` URL owned by that draft.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_id: Option<String>,
 }
 
 impl IssuesCreateInput {
@@ -122,6 +129,7 @@ impl IssuesCreateInput {
             due_date: None,
             label_ids: None,
             parent_id: None,
+            draft_id: None,
         }
     }
 }
@@ -789,6 +797,24 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
             r#"{"boardId":"p-1","title":"Child","parentId":"i-parent"}"#
+        );
+    }
+
+    #[test]
+    fn create_files_from_a_draft_with_draft_id() {
+        // EXP-878: the create-issue dialog's Dialog presentation hands the
+        // server the draft row it was composing in, so the draft's already
+        // uploaded attachments are reparented and the row deleted in the
+        // same transaction. It stays off the wire for every other create.
+        let mut input = IssuesCreateInput::new("p-1", "From draft");
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","title":"From draft"}"#
+        );
+        input.draft_id = Some("d-1".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","title":"From draft","draftId":"d-1"}"#
         );
     }
 

@@ -10,31 +10,48 @@ import {
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
+import type { IssueDraft } from "@/db/schema"
+
+// EXP-878: the create dialog is a DRAFT editor that happens to be able to file
+// an issue. What these tests lock:
+//   * closing with content KEEPS a draft, silently — no confirm on any path;
+//   * the row's id is minted once per dialog session and reused by every
+//     write, so a close is one idempotent upsert;
+//   * uploads are EAGER: a pasted image creates the draft row, uploads
+//     against it and lands the FINAL `/api/attachments/{id}` URL in the
+//     description — the create path uploads nothing;
+//   * create hands the draft over (`draftId`) and never writes it back.
 
 const mockState = vi.hoisted(() => ({
   attachmentFiles: [] as File[],
-  // EXP-297: non-image files queued through the rail's second (file) button.
   draftFiles: [] as File[],
   boards: [] as Array<Record<string, unknown>>,
   createMutate: vi.fn(),
   updateMutate: vi.fn(),
+  draftUpsert: vi.fn(),
+  draftDelete: vi.fn(),
+  draftListAttachments: vi.fn(),
+  attachmentDelete: vi.fn(),
 }))
 
 const onOpenChange = vi.fn()
+const onCreated = vi.fn()
 const fetchMock = vi.fn()
-const createObjectURL = vi.fn()
-const revokeObjectURL = vi.fn()
 const resizeObserver = vi.fn()
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
     issues: {
-      create: {
-        mutate: mockState.createMutate,
-      },
-      update: {
-        mutate: mockState.updateMutate,
-      },
+      create: { mutate: mockState.createMutate },
+      update: { mutate: mockState.updateMutate },
+    },
+    issueDrafts: {
+      upsert: { mutate: mockState.draftUpsert },
+      delete: { mutate: mockState.draftDelete },
+      listAttachments: { query: mockState.draftListAttachments },
+    },
+    attachments: {
+      delete: { mutate: mockState.attachmentDelete },
     },
   },
 }))
@@ -60,7 +77,6 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       formProps,
       imageUpload,
       onDescriptionChange,
-      onDismissAttempt,
       onOpenChange: handleOpenChange,
       onTitleChange,
       title,
@@ -73,6 +89,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
         focus: () => void
         getMarkdown: () => string
         insertImage: (image: { alt?: string; src: string }) => void
+        insertMedia: (media: { label: string; src: string }) => void
         setMarkdown: (markdown: string) => void
       }>
       footer?: ReactNode
@@ -82,7 +99,6 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
         onOtherFiles?: (files: File[]) => void | Promise<void>
       }
       onDescriptionChange: (markdown: string) => void
-      onDismissAttempt?: () => boolean
       onOpenChange: (open: boolean) => void
       onTitleChange: (value: string) => void
       title: string
@@ -102,6 +118,14 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
         const nextMarkdown = markdownRef.current
           ? `${markdownRef.current}\n![${alt ?? ``}](${src})`
           : `![${alt ?? ``}](${src})`
+
+        markdownRef.current = nextMarkdown
+        onDescriptionChange(nextMarkdown)
+      },
+      insertMedia: ({ label, src }) => {
+        const nextMarkdown = markdownRef.current
+          ? `${markdownRef.current}\n[${label}](${src})`
+          : `[${label}](${src})`
 
         markdownRef.current = nextMarkdown
         onDescriptionChange(nextMarkdown)
@@ -158,41 +182,77 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
         >
           Attach file
         </button>
+        {/* EXP-878: there is exactly ONE close path now — Escape, backdrop and
+            the ✕ all land here, and none of them asks anything. */}
         <button type="button" onClick={() => handleOpenChange(false)}>
           Close dialog
-        </button>
-        {/* Mirrors the real shell's Escape / backdrop path: the caller may
-            claim the dismissal (REV2-60 discard confirm) by returning true. */}
-        <button
-          type="button"
-          onClick={() => {
-            if (onDismissAttempt?.() !== true) {
-              handleOpenChange(false)
-            }
-          }}
-        >
-          Dismiss dialog
         </button>
       </div>
     )
   }),
 }))
 
+const BOARD = {
+  id: `board-1`,
+  teamId: `team-1`,
+  name: `App`,
+  prefix: `APP`,
+  slug: `app`,
+  color: `#6366f1`,
+}
+
+function renderDialog(props: Record<string, unknown> = {}) {
+  return render(
+    <CreateIssueDialog
+      open
+      onOpenChange={onOpenChange}
+      boardColor="#6366f1"
+      boardId="board-1"
+      boardPrefix="APP"
+      users={[]}
+      teamId="team-1"
+      teamSlug="acme"
+      {...props}
+    />
+  )
+}
+
+function uploadedImageResponse() {
+  return {
+    ok: true,
+    json: async () => ({
+      id: `attachment-1`,
+      url: `/api/attachments/attachment-1`,
+      filename: `draft.png`,
+      contentType: `image/png`,
+      sizeBytes: 5,
+    }),
+  }
+}
+
 describe(`CreateIssueDialog`, () => {
   beforeEach(() => {
     mockState.attachmentFiles = []
     mockState.draftFiles = []
-    mockState.boards = []
+    mockState.boards = [BOARD]
     mockState.createMutate.mockReset()
     mockState.updateMutate.mockReset()
+    mockState.draftUpsert.mockReset()
+    mockState.draftDelete.mockReset()
+    mockState.draftListAttachments.mockReset()
+    mockState.attachmentDelete.mockReset()
     onOpenChange.mockReset()
+    onCreated.mockReset()
     fetchMock.mockReset()
-    createObjectURL.mockReset()
-    revokeObjectURL.mockReset()
     resizeObserver.mockReset()
 
-    let blobIndex = 0
-    createObjectURL.mockImplementation(() => `blob:mock-image-${++blobIndex}`)
+    mockState.draftUpsert.mockImplementation(async (input) => ({
+      draft: { id: input.id },
+      txId: 1,
+    }))
+    mockState.draftDelete.mockResolvedValue({ txId: 2, deleted: true })
+    mockState.draftListAttachments.mockResolvedValue([])
+    mockState.attachmentDelete.mockResolvedValue({ txId: 3 })
 
     vi.stubGlobal(`fetch`, fetchMock)
     vi.stubGlobal(
@@ -203,156 +263,139 @@ describe(`CreateIssueDialog`, () => {
         disconnect = vi.fn()
       }
     )
-    vi.stubGlobal(`URL`, {
-      ...URL,
-      createObjectURL,
-      revokeObjectURL,
-    })
   })
 
-  it(`strips draft images from create payload, uploads after create, and saves final markdown`, async () => {
-    const events: string[] = []
-
-    mockState.attachmentFiles = [
-      new File([`image`], `draft.png`, {
-        type: `image/png`,
-      }),
-    ]
-
-    mockState.createMutate.mockImplementation(async (input) => {
-      events.push(`create`)
-      return {
-        issue: {
-          id: `issue-1`,
-          identifier: `APP-1`,
-          ...input,
-        },
-      }
-    })
-
-    fetchMock.mockImplementation(async () => {
-      events.push(`fetch`)
-      return {
-        ok: true,
-        json: async () => ({
-          id: `attachment-1`,
-          url: `/api/attachments/attachment-1`,
-          filename: `draft.png`,
-          contentType: `image/png`,
-          sizeBytes: 5,
-        }),
-      }
-    })
-
-    mockState.updateMutate.mockImplementation(async (input) => {
-      events.push(`update`)
-      return { issue: input }
-    })
-
-    render(
-      <CreateIssueDialog
-        open
-        onOpenChange={onOpenChange}
-        boardColor="#6366f1"
-        boardId="board-1"
-        boardPrefix="APP"
-        users={[]}
-        teamId="team-1"
-      />
-    )
+  // The heart of EXP-878: nothing typed is ever destroyed by a stray Escape.
+  it(`keeps a draft on close, with one upsert and no confirm`, async () => {
+    renderDialog()
 
     fireEvent.change(screen.getByLabelText(`Issue title`), {
-      target: { value: `Draft issue` },
+      target: { value: `Parked for later` },
     })
+    fireEvent.click(screen.getByRole(`button`, { name: `Close dialog` }))
+
+    await waitFor(() => {
+      expect(mockState.draftUpsert).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.queryByText(`Discard draft?`)).toBeNull()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    const input = mockState.draftUpsert.mock.calls[0][0]
+    expect(input).toMatchObject({
+      teamId: `team-1`,
+      boardId: `board-1`,
+      title: `Parked for later`,
+      description: ``,
+      priority: `none`,
+      labelIds: [],
+    })
+    expect(typeof input.id).toBe(`string`)
+    expect(input.id.length).toBeGreaterThan(0)
+    expect(mockState.draftDelete).not.toHaveBeenCalled()
+  })
+
+  it(`writes nothing when an untouched dialog closes`, async () => {
+    renderDialog()
+
+    fireEvent.change(screen.getByLabelText(`Issue description`), {
+      target: { value: `   ` },
+    })
+    fireEvent.click(screen.getByRole(`button`, { name: `Close dialog` }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => {
+      expect(mockState.draftUpsert).not.toHaveBeenCalled()
+    })
+    expect(mockState.draftDelete).not.toHaveBeenCalled()
+  })
+
+  // Emptying an existing draft out is how you throw it away from inside the
+  // dialog — the row must go, not linger as a blank row in the list.
+  it(`deletes the draft when an existing one is emptied`, async () => {
+    const draft = {
+      id: `draft-1`,
+      userId: `user-1`,
+      teamId: `team-1`,
+      boardId: `board-1`,
+      title: `Was a draft`,
+      description: ``,
+      statusId: null,
+      priority: `none`,
+      assigneeId: null,
+      labelIds: [],
+      dueDate: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as unknown as IssueDraft
+
+    renderDialog({ draftId: `draft-1`, draft })
+
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(`Issue title`) as HTMLInputElement).value
+      ).toBe(`Was a draft`)
+    })
+
+    fireEvent.change(screen.getByLabelText(`Issue title`), {
+      target: { value: `` },
+    })
+    fireEvent.click(screen.getByRole(`button`, { name: `Close dialog` }))
+
+    await waitFor(() => {
+      expect(mockState.draftDelete).toHaveBeenCalledWith({ id: `draft-1` })
+    })
+    expect(mockState.draftUpsert).not.toHaveBeenCalled()
+  })
+
+  // Eager uploads: the paste creates the row, posts to the DRAFT route and
+  // puts the final attachment URL straight into the description.
+  it(`creates the draft row on paste and inserts the uploaded URL`, async () => {
+    mockState.attachmentFiles = [
+      new File([`image`], `draft.png`, { type: `image/png` }),
+    ]
+    fetchMock.mockImplementation(async () => uploadedImageResponse())
+
+    renderDialog()
+
     fireEvent.change(screen.getByLabelText(`Issue description`), {
       target: { value: `Intro paragraph` },
     })
-
     fireEvent.click(screen.getByLabelText(`Add image`))
 
     await waitFor(() => {
       expect(
         (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
           .value
-      ).toBe(`Intro paragraph\n![draft.png](blob:mock-image-1)`)
+      ).toBe(`Intro paragraph\n![draft.png](/api/attachments/attachment-1)`)
     })
-    expect(screen.queryByTestId(`issue-attachment-rail`)).toBeNull()
 
-    fireEvent.click(screen.getByRole(`button`, { name: `Create issue` }))
+    expect(mockState.draftUpsert).toHaveBeenCalledTimes(1)
+    const draftId = mockState.draftUpsert.mock.calls[0][0].id
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/issue-drafts/${draftId}/files`)
+  })
+
+  it(`hands the draft to create, uploads nothing, and reports the board`, async () => {
+    mockState.attachmentFiles = [
+      new File([`image`], `draft.png`, { type: `image/png` }),
+    ]
+    fetchMock.mockImplementation(async () => uploadedImageResponse())
+    mockState.createMutate.mockImplementation(async (input) => ({
+      issue: { id: `issue-1`, identifier: `APP-1`, ...input },
+      txId: 7,
+    }))
+
+    renderDialog({ onCreated })
+
+    fireEvent.change(screen.getByLabelText(`Issue title`), {
+      target: { value: `Draft issue` },
+    })
+    fireEvent.click(screen.getByLabelText(`Add image`))
 
     await waitFor(() => {
-      expect(mockState.createMutate).toHaveBeenCalledTimes(1)
-      expect(mockState.updateMutate).toHaveBeenCalledTimes(1)
       expect(fetchMock).toHaveBeenCalledTimes(1)
     })
-
-    expect(mockState.createMutate).toHaveBeenCalledWith({
-      boardId: `board-1`,
-      title: `Draft issue`,
-      status: `backlog`,
-      priority: `none`,
-      assigneeId: undefined,
-      description: `Intro paragraph`,
-      dueDate: undefined,
-      labelIds: undefined,
-    })
-
-    expect(mockState.updateMutate).toHaveBeenCalledWith({
-      id: `issue-1`,
-      description: `Intro paragraph\n![draft.png](/api/attachments/attachment-1)`,
-    })
-
-    expect(events).toEqual([`create`, `fetch`, `update`])
-    expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(revokeObjectURL).toHaveBeenCalledWith(`blob:mock-image-1`)
-  })
-
-  // EXP-586: images exist only inline — deleting one from the description is
-  // the only way to drop it, and its upload must be skipped.
-  it(`skips uploads for draft images removed inline from the description`, async () => {
-    mockState.attachmentFiles = [
-      new File([`image`], `draft.png`, {
-        type: `image/png`,
-      }),
-    ]
-
-    mockState.createMutate.mockResolvedValue({
-      issue: {
-        id: `issue-1`,
-        identifier: `APP-1`,
-      },
-    })
-
-    render(
-      <CreateIssueDialog
-        open
-        onOpenChange={onOpenChange}
-        boardColor="#6366f1"
-        boardId="board-1"
-        boardPrefix="APP"
-        users={[]}
-        teamId="team-1"
-      />
-    )
-
-    fireEvent.change(screen.getByLabelText(`Issue title`), {
-      target: { value: `Draft issue` },
-    })
-    fireEvent.change(screen.getByLabelText(`Issue description`), {
-      target: { value: `Intro paragraph` },
-    })
-    fireEvent.click(screen.getByLabelText(`Add image`))
-
-    await waitFor(() => {
-      expect(
-        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
-          .value
-      ).toBe(`Intro paragraph\n![draft.png](blob:mock-image-1)`)
-    })
-
-    fireEvent.change(screen.getByLabelText(`Issue description`), {
-      target: { value: `Intro paragraph\n` },
-    })
+    const draftId = mockState.draftUpsert.mock.calls[0][0].id
 
     fireEvent.click(screen.getByRole(`button`, { name: `Create issue` }))
 
@@ -366,114 +409,46 @@ describe(`CreateIssueDialog`, () => {
       status: `backlog`,
       priority: `none`,
       assigneeId: undefined,
-      description: `Intro paragraph`,
+      description: `![draft.png](/api/attachments/attachment-1)`,
       dueDate: undefined,
       labelIds: undefined,
+      draftId,
     })
-
-    expect(fetchMock).not.toHaveBeenCalled()
+    // The create consumed the draft — nothing writes it back afterwards, and
+    // nothing is uploaded after the issue exists any more.
+    expect(mockState.draftUpsert).toHaveBeenCalledTimes(1)
+    expect(mockState.draftDelete).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockState.updateMutate).not.toHaveBeenCalled()
-    expect(revokeObjectURL).toHaveBeenCalledWith(`blob:mock-image-1`)
-  })
 
-  // REV2-60: Escape / backdrop must not silently destroy a typed draft.
-  it(`confirms before discarding a dirty draft on Escape or backdrop`, async () => {
-    mockState.attachmentFiles = [
-      new File([`image`], `draft.png`, {
-        type: `image/png`,
-      }),
-    ]
-
-    render(
-      <CreateIssueDialog
-        open
-        onOpenChange={onOpenChange}
-        boardColor="#6366f1"
-        boardId="board-1"
-        boardPrefix="APP"
-        users={[]}
-        teamId="team-1"
-      />
-    )
-
-    fireEvent.change(screen.getByLabelText(`Issue title`), {
-      target: { value: `Draft issue` },
+    expect(onCreated).toHaveBeenCalledWith({
+      issue: expect.objectContaining({ identifier: `APP-1` }),
+      txId: 7,
+      boardSlug: `app`,
     })
-    fireEvent.click(screen.getByLabelText(`Add image`))
-
-    await waitFor(() => {
-      expect(
-        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
-          .value
-      ).toBe(`![draft.png](blob:mock-image-1)`)
-    })
-
-    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))
-
-    expect(await screen.findByText(`Discard draft?`)).toBeTruthy()
-    expect(onOpenChange).not.toHaveBeenCalled()
-    expect(revokeObjectURL).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole(`button`, { name: `Keep editing` }))
-
-    await waitFor(() => {
-      expect(screen.queryByText(`Discard draft?`)).toBeNull()
-    })
-    expect(
-      (screen.getByLabelText(`Issue title`) as HTMLInputElement).value
-    ).toBe(`Draft issue`)
-
-    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))
-    expect(await screen.findByText(`Discard draft?`)).toBeTruthy()
-    fireEvent.click(screen.getByRole(`button`, { name: `Discard draft` }))
-
-    await waitFor(() => {
-      expect(onOpenChange).toHaveBeenCalledWith(false)
-    })
-    expect(revokeObjectURL).toHaveBeenCalledWith(`blob:mock-image-1`)
-    expect(
-      (screen.getByLabelText(`Issue title`) as HTMLInputElement).value
-    ).toBe(``)
   })
 
   // EXP-449: "Follow the caller's board again on the next open" — a successful
   // create closes the dialog, so the pick must not survive into the next one.
   it(`clears the picked board after a successful create`, async () => {
     mockState.boards = [
-      {
-        id: `board-1`,
-        teamId: `team-1`,
-        name: `App`,
-        prefix: `APP`,
-        color: `#6366f1`,
-      },
+      BOARD,
       {
         id: `board-2`,
         teamId: `team-1`,
         name: `Web`,
         prefix: `WEB`,
+        slug: `web`,
         color: `#10b981`,
       },
     ]
 
     mockState.createMutate.mockResolvedValue({
-      issue: {
-        id: `issue-1`,
-        identifier: `WEB-1`,
-      },
+      issue: { id: `issue-1`, identifier: `WEB-1` },
+      txId: 9,
     })
 
-    render(
-      <CreateIssueDialog
-        open
-        onOpenChange={onOpenChange}
-        boardColor="#6366f1"
-        boardId="board-1"
-        boardPrefix="APP"
-        users={[]}
-        teamId="team-1"
-      />
-    )
+    renderDialog({ onCreated })
 
     fireEvent.keyDown(screen.getByRole(`button`, { name: /APP/ }), {
       key: `Enter`,
@@ -502,33 +477,15 @@ describe(`CreateIssueDialog`, () => {
       description: undefined,
       dueDate: undefined,
       labelIds: undefined,
+      draftId: undefined,
     })
+    expect(onCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ boardSlug: `web` })
+    )
     expect(onOpenChange).toHaveBeenCalledWith(false)
 
     await waitFor(() => {
       expect(screen.getByRole(`button`, { name: /APP/ })).toBeTruthy()
     })
-  })
-
-  it(`dismisses immediately when the draft is empty`, () => {
-    render(
-      <CreateIssueDialog
-        open
-        onOpenChange={onOpenChange}
-        boardColor="#6366f1"
-        boardId="board-1"
-        boardPrefix="APP"
-        users={[]}
-        teamId="team-1"
-      />
-    )
-
-    fireEvent.change(screen.getByLabelText(`Issue description`), {
-      target: { value: `   ` },
-    })
-    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))
-
-    expect(screen.queryByText(`Discard draft?`)).toBeNull()
-    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

@@ -8,7 +8,7 @@
 
 import { and, eq, isNotNull, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { attachments, boards } from "@/db/schema"
+import { attachments, boards, issueDrafts } from "@/db/schema"
 import { BOARD_TRASH_RETENTION_MS } from "@exp/db-schema/domain"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
@@ -47,6 +47,19 @@ export async function purgeBoardInTx(
     .from(attachments)
     .where(eq(attachments.boardId, boardId))
 
+  // EXP-878: a DRAFT's attachments carry no board_id (their owner is the
+  // draft, not an issue), so the query above never sees them — but the
+  // board cascade drops the drafts and their rows all the same. Collect them
+  // through issue_drafts or the blobs are stranded in the bucket.
+  const draftAttachmentRows = await tx
+    .select({
+      storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
+    })
+    .from(attachments)
+    .innerJoin(issueDrafts, eq(attachments.draftId, issueDrafts.id))
+    .where(eq(issueDrafts.boardId, boardId))
+
   const deleted = await tx
     .delete(boards)
     .where(
@@ -61,7 +74,10 @@ export async function purgeBoardInTx(
   if (deleted.length === 0) return { purged: false, storageKeys: [] }
   return {
     purged: true,
-    storageKeys: collectAttachmentStorageKeys(attachmentRows),
+    storageKeys: collectAttachmentStorageKeys([
+      ...attachmentRows,
+      ...draftAttachmentRows,
+    ]),
   }
 }
 

@@ -16,6 +16,7 @@ export {
   assertBoardMember,
   getIssueTeamContext,
   getAttachmentTeamContext,
+  getDraftAttachmentTeamContext,
   getSessionAttachmentTeamContext,
   getTeamById,
 } from "@/lib/auth/membership"

@@ -25,7 +25,7 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
 }))
 
-import { attachments, comments, issues } from "@/db/schema"
+import { attachments, comments, issueDrafts, issues } from "@/db/schema"
 import { attachmentsRouter, SWEEP_GRACE_MS } from "@/lib/trpc/attachments"
 
 const ATT_A = `11111111-1111-4111-8111-111111111111`
@@ -39,6 +39,7 @@ interface AttachmentRow {
   issueId?: string
   boardId?: string
   commentId?: string | null
+  draftId?: string | null
   uploaderId?: string | null
   filename: string
   contentType: string
@@ -53,8 +54,11 @@ const state = {
   attachmentRows: [] as AttachmentRow[],
   issueRows: [] as { id: string; description: string | null }[],
   commentRows: [] as { id: string; body: string }[],
+  // EXP-878: draft descriptions are rewritten by the same helper.
+  draftRows: [] as { id: string; description: string | null }[],
   issueUpdates: [] as Record<string, unknown>[],
   commentUpdates: [] as Record<string, unknown>[],
+  draftUpdates: [] as Record<string, unknown>[],
   deletedTables: [] as string[],
 }
 
@@ -75,6 +79,7 @@ function rowsFor(table: unknown) {
   if (table === attachments) return state.attachmentRows
   if (table === issues) return state.issueRows
   if (table === comments) return state.commentRows
+  if (table === issueDrafts) return state.draftRows
   throw new Error(`unexpected table in fake query`)
 }
 
@@ -95,15 +100,17 @@ function makeQueryable() {
         where: () => {
           let rows = rowsFor(table)
           // The fake ignores predicates except for the one filter the tests
-          // exercise: the comment-linked pass (EXP-554) selects exactly `id`
-          // from attachments WHERE comment_id IS NOT NULL.
-          const isCommentLinkedPass =
+          // exercise: the owner-linked pass selects exactly `id` from
+          // attachments WHERE comment_id IS NOT NULL (EXP-554) OR draft_id IS
+          // NOT NULL (EXP-878) — the rows whose OWNING COLUMN is the
+          // reference, so no markdown scan can vouch for them.
+          const isOwnerLinkedPass =
             table === attachments &&
             Object.keys(fields).length === 1 &&
             Object.keys(fields)[0] === `id`
-          if (isCommentLinkedPass) {
+          if (isOwnerLinkedPass) {
             rows = (rows as AttachmentRow[]).filter(
-              (row) => row.commentId != null
+              (row) => row.commentId != null || row.draftId != null
             )
           }
           return thenable(
@@ -118,6 +125,7 @@ function makeQueryable() {
       set: (values: Record<string, unknown>) => ({
         where: async () => {
           if (table === issues) state.issueUpdates.push(values)
+          else if (table === issueDrafts) state.draftUpdates.push(values)
           else state.commentUpdates.push(values)
         },
       }),
@@ -148,8 +156,10 @@ function resetState() {
   state.attachmentRows = []
   state.issueRows = []
   state.commentRows = []
+  state.draftRows = []
   state.issueUpdates = []
   state.commentUpdates = []
+  state.draftUpdates = []
   state.deletedTables = []
   h.assertTeamMember.mockReset()
   h.assertTeamMember.mockResolvedValue(undefined)
@@ -223,6 +233,25 @@ describe(`attachments.delete`, () => {
       { description: `*(deleted image: alt)*` },
     ])
     expect(state.deletedTables).toEqual([`attachments`])
+  })
+
+  // EXP-878: a draft description embedding the deleted row must be rewritten
+  // too — the draft upsert applies the same round-trip guard, so a dead id
+  // left behind would make the draft unsavable the next time its dialog
+  // closes.
+  it(`rewrites the reference out of draft descriptions too (EXP-878)`, async () => {
+    state.attachmentRows = [imageRow()]
+    state.issueRows = []
+    state.commentRows = []
+    state.draftRows = [
+      { id: `draft-1`, description: `wip ![alt](/api/attachments/${ATT_A})` },
+    ]
+
+    await caller.delete({ id: ATT_A })
+
+    expect(state.draftUpdates).toEqual([
+      { description: `wip *(deleted image: alt)*` },
+    ])
   })
 
   it(`leaves untouched bodies alone`, async () => {
@@ -317,6 +346,27 @@ describe(`attachments.sweepUnreferencedImages`, () => {
     expect(h.deleteStorageObjects).not.toHaveBeenCalled()
   })
 
+  // EXP-878: a DRAFT's images live only in an unsaved draft description, so
+  // no issue or comment body can vouch for them. The owning column does.
+  it(`never reclaims draft-owned images (EXP-878)`, async () => {
+    state.attachmentRows = [
+      imageRow({ id: ATT_A, draftId: `draft-1` }),
+      imageRow({
+        id: ATT_B,
+        storageKey: `issues/issue-1/${ATT_B}-old.png`,
+      }),
+    ]
+    state.issueRows = []
+    state.commentRows = []
+
+    const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
+
+    expect(result.deletedCount).toBe(1)
+    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
+      `issues/issue-1/${ATT_B}-old.png`,
+    ])
+  })
+
   it(`never reclaims comment-linked images (EXP-554: linked, not embedded)`, async () => {
     state.attachmentRows = [
       imageRow({ id: ATT_A, commentId: `comment-1` }),
@@ -380,6 +430,16 @@ describe(`attachments.listForTeam`, () => {
     await expect(caller.listForTeam({ teamId: TEAM })).rejects.toThrow(
       `not allowed here`
     )
+  })
+
+  it(`flags draft-owned rows as referenced (EXP-878)`, async () => {
+    state.attachmentRows = [imageRow({ id: ATT_A, draftId: `draft-1` })]
+    state.issueRows = []
+    state.commentRows = []
+
+    const result = await caller.listForTeam({ teamId: TEAM })
+
+    expect(result.attachments[0].referenced).toBe(true)
   })
 
   it(`flags comment-linked rows as referenced (EXP-554)`, async () => {

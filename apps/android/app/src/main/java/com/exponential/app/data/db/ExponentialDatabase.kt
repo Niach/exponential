@@ -27,6 +27,7 @@ import androidx.room.TypeConverters
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         PinEntity::class,
+        IssueDraftEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -261,9 +262,13 @@ import androidx.room.TypeConverters
     // v57 (EXP-864): coding_sessions.summary is GONE — the agent's close-out is
     //      reported to the run that started it, never stored (EXP-862), and the
     //      server column was dropped. Destructive fallback wipes + resyncs.
+    // v58 (EXP-878): issue_drafts table — the caller's unsent issue drafts,
+    //      the 22nd Electric shape, static per user (never team/trash scoped;
+    //      a row renders only once its board resolves locally). New table, so
+    //      the destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 57,
+    version = 58,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -289,5 +294,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
+    abstract fun issueDraftDao(): IssueDraftDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

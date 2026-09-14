@@ -53,6 +53,25 @@ final class AttachmentUploadBodyTests: XCTestCase {
         XCTAssertTrue(text.contains("name=\"durationMs\"\r\n\r\n5000"))
     }
 
+    // EXP-878: a DRAFT upload is the issue upload with one route swapped —
+    // same part name, same media fields, same response. Only the path differs.
+    func testDraftUploadUsesTheIssueDraftsRouteAndTheSameBody() {
+        XCTAssertEqual(
+            AttachmentsApi.draftFilesPath(draftId: "9f1c2d3e"),
+            "/api/issue-drafts/9f1c2d3e/files"
+        )
+        let draftBody = AttachmentsApi.multipartBody(
+            boundary: "B",
+            data: Data("VIDEO".utf8),
+            filename: "clip.mp4",
+            contentType: "video/mp4",
+            media: MediaUploadParts(width: 1280, height: 720, durationMs: 7250)
+        )
+        XCTAssertEqual(String(decoding: draftBody, as: UTF8.self), body(
+            MediaUploadParts(width: 1280, height: 720, durationMs: 7250)
+        ))
+    }
+
     func testFilenameIsSanitizedInTheDisposition() {
         XCTAssertTrue(body(nil, filename: "a\"b\\c\r\nd.mp4").contains("filename=\"a_b_c__d.mp4\""))
     }

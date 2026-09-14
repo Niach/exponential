@@ -11,6 +11,7 @@ import { verifyAttachmentToken } from "@/lib/storage/attachment-token"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
+  getDraftAttachmentTeamContext,
   getSessionAttachmentTeamContext,
 } from "@/lib/team-membership"
 
@@ -117,19 +118,27 @@ async function getAttachment({
     })
   }
 
-  // Issue attachments first; steer images (EXP-702) live in the server-only
-  // session_attachments table but are served from the
-  // SAME url shape — the EXP-511 embed `![image](/api/attachments/{id})` is
-  // load-bearing across every host and viewer, so the fallback happens here
-  // rather than in a second route.
-  const attachment = await getAttachmentTeamContext(params.attachmentId).catch(
-    (error: unknown) => {
-      if (error instanceof TRPCError && error.code === `NOT_FOUND`) {
+  // Issue attachments first; draft attachments (EXP-878) and steer images
+  // (EXP-702) live behind their own owner columns/tables but are served from
+  // the SAME url shape — the EXP-511 embed `![image](/api/attachments/{id})`
+  // is load-bearing across every host and viewer, so the fallbacks happen
+  // here rather than in extra routes. Order matters only for cost: the issue
+  // lookup inner-joins issues and misses on a NULL `issue_id`, the draft
+  // lookup inner-joins issue_drafts and misses on a NULL `draft_id`, and the
+  // session lookup is a different table entirely — the three are disjoint.
+  const notFound = (error: unknown) =>
+    error instanceof TRPCError && error.code === `NOT_FOUND`
+  const attachment = await getAttachmentTeamContext(params.attachmentId)
+    .catch((error: unknown) => {
+      if (notFound(error)) return getDraftAttachmentTeamContext(params.attachmentId)
+      throw error
+    })
+    .catch((error: unknown) => {
+      if (notFound(error)) {
         return getSessionAttachmentTeamContext(params.attachmentId)
       }
       throw error
-    }
-  )
+    })
   if (!tokenAuthorized) {
     await assertTeamMember(session!.user.id, attachment.teamId)
   }

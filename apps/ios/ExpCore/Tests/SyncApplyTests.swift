@@ -472,6 +472,118 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNil(unpinned)
     }
 
+    // EXP-878: an issue_drafts row off the wire — `label_ids` is a Postgres
+    // uuid[] text literal (`{a,b}`), the nullable picks arrive as JSON null,
+    // and the stored [String] reads back through GRDB's JSON encoding.
+    func testIssueDraftInsertDecodesWireLabelIdsAndPersists() async throws {
+        let json = """
+            {"id":"d1","user_id":"u1","team_id":"ws1","board_id":"b1",
+             "title":"Prefetch avatars","description":"body","status_id":null,
+             "priority":"high","assignee_id":null,
+             "label_ids":"{11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222}",
+             "due_date":"2026-10-01",
+             "created_at":"2026-09-14T09:00:00Z","updated_at":"2026-09-14T09:30:00Z"}
+            """
+        let draft = try JSONDecoder().decode(IssueDraftEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(draft.labelIds, [
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        ])
+        XCTAssertNil(draft.statusId)
+        XCTAssertEqual(draft.priority, "high")
+        XCTAssertEqual(draft.dueDate, "2026-10-01")
+
+        let message = ShapeMessage<IssueDraftEntity>.insert(
+            key: #""public"."issue_drafts"/"d1""#, value: draft
+        )
+        try await applyBatch(
+            messages: [message], name: "issue-drafts", table: "issue_drafts", pool: pool
+        )
+        let stored = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d1") }
+        XCTAssertEqual(stored?.title, "Prefetch avatars")
+        XCTAssertEqual(stored?.labelIds.count, 2)
+        XCTAssertNil(stored?.assigneeId)
+
+        // A PARTIAL update (the user re-titles the draft elsewhere) carries
+        // only the touched columns — the tolerant decoder must not need the
+        // rest, and the raw uuid[] literal must still read back as a list.
+        let partial = ShapeMessage<IssueDraftEntity>.partialUpdate(
+            key: #""public"."issue_drafts"/"d1""#,
+            columns: columns([
+                "id": "d1", "title": "Renamed", "label_ids": "{33333333-3333-3333-3333-333333333333}",
+            ])
+        )
+        try await applyBatch(
+            messages: [partial], name: "issue-drafts", table: "issue_drafts", pool: pool
+        )
+        let patched = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d1") }
+        XCTAssertEqual(patched?.title, "Renamed")
+        XCTAssertEqual(patched?.labelIds, ["33333333-3333-3333-3333-333333333333"])
+        // Untouched columns survive the partial.
+        XCTAssertEqual(patched?.priority, "high")
+        XCTAssertEqual(patched?.dueDate, "2026-10-01")
+    }
+
+    // EXP-878: a draft renders ONLY when its board resolves locally (the
+    // shape is per-user and never trash-scoped, exactly like pins), and a
+    // NULL `status_id` resolves to the team's Backlog builtin.
+    func testResolvedDraftsHideMissingBoardsAndDefaultToBacklog() async throws {
+        try await pool.write { db in
+            try BoardEntity(
+                id: "b1", teamId: "ws1", name: "Mobile App", slug: "mobile-app",
+                prefix: "APP", color: "#4f46e5", sortOrder: 1, repositoryId: nil,
+                createdAt: "2026-09-14T09:00:00Z", updatedAt: "2026-09-14T09:00:00Z"
+            ).save(db)
+            // The team's own backlog + one started custom.
+            try IssueStatusEntity(
+                id: "st-backlog", teamId: "ws1", category: "backlog", name: "Backlog",
+                sortOrder: 0, builtinKey: "backlog",
+                createdAt: "2026-09-14T09:00:00Z", updatedAt: "2026-09-14T09:00:00Z"
+            ).save(db)
+            try IssueStatusEntity(
+                id: "st-review", teamId: "ws1", category: "started", name: "Reviewing",
+                color: "#ff8800", sortOrder: 2,
+                createdAt: "2026-09-14T09:00:00Z", updatedAt: "2026-09-14T09:00:00Z"
+            ).save(db)
+            // Newest edit first.
+            try IssueDraftEntity(
+                id: "d-old", userId: "u1", teamId: "ws1", boardId: "b1", title: "Older",
+                createdAt: "2026-09-14T09:00:00Z", updatedAt: "2026-09-14T09:00:00Z"
+            ).save(db)
+            try IssueDraftEntity(
+                id: "d-new", userId: "u1", teamId: "ws1", boardId: "b1", title: "",
+                statusId: "st-review",
+                createdAt: "2026-09-14T09:00:00Z", updatedAt: "2026-09-14T10:00:00Z"
+            ).save(db)
+            // Unresolvable: the board is not synced here (trashed / left team).
+            try IssueDraftEntity(
+                id: "d-gone", userId: "u1", teamId: "ws2", boardId: "b-missing",
+                title: "Orphan",
+                createdAt: "2026-09-14T09:00:00Z", updatedAt: "2026-09-14T11:00:00Z"
+            ).save(db)
+        }
+
+        let rows = try await pool.read { db in try IssueDraftQueries.resolved(db: db) }
+        XCTAssertEqual(rows.map(\.id), ["d-new", "d-old"])
+        XCTAssertEqual(rows[0].status.rowId, "st-review")
+        XCTAssertEqual(rows[0].board.name, "Mobile App")
+        // NULL status_id = the team's Backlog builtin, never a bare fallback.
+        XCTAssertEqual(rows[1].status.rowId, "st-backlog")
+        XCTAssertEqual(rows[1].status.builtinKey, .backlog)
+
+        // Narrowing to a team the drafts do not belong to yields nothing.
+        let other = try await pool.read { db in
+            try IssueDraftQueries.resolved(db: db, teamId: "ws2")
+        }
+        XCTAssertTrue(other.isEmpty)
+
+        // The row itself is still readable by id — only the LIST hides it.
+        let orphan = try await pool.read { db in
+            try IssueDraftQueries.draft(db: db, id: "d-gone")
+        }
+        XCTAssertEqual(orphan?.title, "Orphan")
+    }
+
     func testSupportReplyNotificationInsertPersistsTeamId() async throws {
         // The notifications shape now carries team_id — set on issue-less
         // support_reply rows (the helpdesk ticket's team). An inserted row must

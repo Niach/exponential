@@ -1,4 +1,4 @@
-//! The 21 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 22 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 21 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 22 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, and no
 /// scoping mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 21] = [
+pub const SHAPES: [ShapeSpec; 22] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -622,6 +622,33 @@ pub const SHAPES: [ShapeSpec; 21] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "issue_drafts",
+        path: "/api/shapes/issue-drafts",
+        // EXP-878: the caller's unfiled create-issue dialogs. Like `pins` a
+        // STATIC per-user shape (`user_id = me`), neither team- nor
+        // trash-scoped: a row renders only once its board resolves from the
+        // boards collection (which already carries membership + trash).
+        // `label_ids` is a Postgres `uuid[]` on the wire (the
+        // `devices.shared_team_ids` form). Byte-matches the proxy's
+        // allowlist (apps/web routes/api/shapes/issue-drafts.ts).
+        columns: &[
+            "id",
+            "user_id",
+            "team_id",
+            "board_id",
+            "title",
+            "description",
+            "status_id",
+            "priority",
+            "assignee_id",
+            "label_ids",
+            "due_date",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -634,8 +661,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_21_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 21);
+    fn registry_has_22_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 22);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -921,6 +948,30 @@ mod tests {
         for column in ["user_id", "team_id", "kind", "issue_id", "session_id", "action_id", "sort_order"] {
             assert!(spec.columns.contains(&column), "pins needs {column}");
         }
+    }
+
+    #[test]
+    fn issue_drafts_model_every_composed_field() {
+        // EXP-878: the create dialog restores itself from these columns —
+        // dropping one silently reopens a draft with that field blank.
+        let spec = shape_by_name("issue_drafts").unwrap();
+        for column in [
+            "user_id",
+            "team_id",
+            "board_id",
+            "title",
+            "description",
+            "status_id",
+            "priority",
+            "assignee_id",
+            "label_ids",
+            "due_date",
+        ] {
+            assert!(spec.columns.contains(&column), "issue_drafts needs {column}");
+        }
+        // A static per-user shape like `pins`: no board-trash mirror to
+        // filter on (the board join does that job client-side).
+        assert!(!spec.columns.contains(&"board_deleted_at"));
     }
 
     #[test]

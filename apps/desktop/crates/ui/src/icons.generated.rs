@@ -162,6 +162,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "eye" => ExpIcon::Eye,
         "file" => ExpIcon::File,
         "file-diff" => ExpIcon::FileDiff,
+        "file-pen-line" => ExpIcon::FilePenLine,
         "file-text" => ExpIcon::FileText,
         "fingerprint" => ExpIcon::Fingerprint,
         "flag" => ExpIcon::Flag,
@@ -404,6 +405,8 @@ pub const NAV_CHANGELOG: ExpIcon = ExpIcon::Megaphone;
 pub const NAV_CREATE_ISSUE: ExpIcon = ExpIcon::SquarePen;
 /// Registry concept `nav-devices` -> Lucide `monitor`.
 pub const NAV_DEVICES: ExpIcon = ExpIcon::Monitor;
+/// Registry concept `nav-drafts` -> Lucide `file-pen-line`.
+pub const NAV_DRAFTS: ExpIcon = ExpIcon::FilePenLine;
 /// Registry concept `nav-files` -> Lucide `folder`.
 pub const NAV_FILES: ExpIcon = ExpIcon::Folder;
 /// Registry concept `nav-getting-started` -> Lucide `sparkles`.

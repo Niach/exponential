@@ -157,6 +157,7 @@ public enum AppIcons {
         "eye",
         "file",
         "file-diff",
+        "file-pen-line",
         "file-text",
         "fingerprint",
         "flag",
@@ -402,6 +403,8 @@ public enum AppIcons {
     public static let navCreateIssue: String = "square-pen"
     /// Concept `nav-devices`.
     public static let navDevices: String = "monitor"
+    /// Concept `nav-drafts`.
+    public static let navDrafts: String = "file-pen-line"
     /// Concept `nav-files`.
     public static let navFiles: String = "folder"
     /// Concept `nav-getting-started`.

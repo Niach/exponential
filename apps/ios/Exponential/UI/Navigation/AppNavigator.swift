@@ -27,7 +27,9 @@ enum AppRoute: Hashable {
     /// New issue (EXP-687): a pushed PAGE, not a sheet — back icon top-left,
     /// `Create` pill top-right, exactly like Android's CreateIssueScreen.
     /// Creating replaces this route with the issue it filed.
-    case createIssue(accountId: String, boardId: String)
+    /// EXP-878: `draftId` names the saved draft the page reopens (nil = a
+    /// blank compose, which mints its own id).
+    case createIssue(accountId: String, boardId: String, draftId: String?)
     /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
     /// My Work Support segment or a support_reply push tap.
     case supportThread(accountId: String, threadId: String)
@@ -561,10 +563,10 @@ struct MainNavigator: View {
     /// creating an issue without a board context is ambiguous.
     private var composeRoute: AppRoute? {
         if case let .board(accountId, id)? = path.last {
-            return .createIssue(accountId: accountId, boardId: id)
+            return .createIssue(accountId: accountId, boardId: id, draftId: nil)
         }
         if path.isEmpty, let current = currentBoard {
-            return .createIssue(accountId: current.accountId, boardId: current.boardId)
+            return .createIssue(accountId: current.accountId, boardId: current.boardId, draftId: nil)
         }
         return nil
     }
@@ -680,8 +682,8 @@ struct MainNavigator: View {
         case let .issue(accountId, id):
             IssueDetailView(issueId: id)
                 .environment(\.accountId, accountId)
-        case let .createIssue(accountId, boardId):
-            CreateIssueView(boardId: boardId) { createdId in
+        case let .createIssue(accountId, boardId, draftId):
+            CreateIssueView(boardId: boardId, draftId: draftId) { createdId in
                 if let createdId {
                     replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
                 } else if !path.isEmpty {

@@ -38,6 +38,7 @@ import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as TTeamSlugDraftsRouteImport } from './routes/t/$teamSlug/drafts'
 import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devices'
 import { Route as TTeamSlugAutomationsRouteImport } from './routes/t/$teamSlug/automations'
 import { Route as TTeamSlugAgentRouteImport } from './routes/t/$teamSlug/agent'
@@ -63,6 +64,7 @@ import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/
 import { Route as ApiShapesIssueRelationsRouteImport } from './routes/api/shapes/issue-relations'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
+import { Route as ApiShapesIssueDraftsRouteImport } from './routes/api/shapes/issue-drafts'
 import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
 import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
@@ -107,6 +109,7 @@ import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/
 import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/teams/$teamId/session-files'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
+import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
@@ -269,6 +272,11 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
+const TTeamSlugDraftsRoute = TTeamSlugDraftsRouteImport.update({
+  id: '/drafts',
+  path: '/drafts',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugDevicesRoute = TTeamSlugDevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
@@ -393,6 +401,11 @@ const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
 const ApiShapesIssueEventsRoute = ApiShapesIssueEventsRouteImport.update({
   id: '/api/shapes/issue-events',
   path: '/api/shapes/issue-events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueDraftsRoute = ApiShapesIssueDraftsRouteImport.update({
+  id: '/api/shapes/issue-drafts',
+  path: '/api/shapes/issue-drafts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesDevicesRoute = ApiShapesDevicesRouteImport.update({
@@ -638,6 +651,12 @@ const ApiIssuesIssueIdFilesRoute = ApiIssuesIssueIdFilesRouteImport.update({
   path: '/api/issues/$issueId/files',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiIssueDraftsDraftIdFilesRoute =
+  ApiIssueDraftsDraftIdFilesRouteImport.update({
+    id: '/api/issue-drafts/$draftId/files',
+    path: '/api/issue-drafts/$draftId/files',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiIntegrationsGithubSetupRoute =
   ApiIntegrationsGithubSetupRouteImport.update({
     id: '/api/integrations/github/setup',
@@ -764,6 +783,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
+  '/api/shapes/issue-drafts': typeof ApiShapesIssueDraftsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-relations': typeof ApiShapesIssueRelationsRoute
@@ -789,6 +809,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/drafts': typeof TTeamSlugDraftsRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -797,6 +818,7 @@ export interface FileRoutesByFullPath {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
+  '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
@@ -873,6 +895,7 @@ export interface FileRoutesByTo {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
+  '/api/shapes/issue-drafts': typeof ApiShapesIssueDraftsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-relations': typeof ApiShapesIssueRelationsRoute
@@ -898,6 +921,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/drafts': typeof TTeamSlugDraftsRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -906,6 +930,7 @@ export interface FileRoutesByTo {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
+  '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
@@ -987,6 +1012,7 @@ export interface FileRoutesById {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
+  '/api/shapes/issue-drafts': typeof ApiShapesIssueDraftsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-relations': typeof ApiShapesIssueRelationsRoute
@@ -1012,6 +1038,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/automations': typeof TTeamSlugAutomationsRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/drafts': typeof TTeamSlugDraftsRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
@@ -1020,6 +1047,7 @@ export interface FileRoutesById {
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
+  '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
@@ -1101,6 +1129,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
+    | '/api/shapes/issue-drafts'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-relations'
@@ -1126,6 +1155,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/drafts'
     | '/admin/'
     | '/t/$teamSlug/'
     | '/admin/teams/$teamId'
@@ -1134,6 +1164,7 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
+    | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
@@ -1210,6 +1241,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
+    | '/api/shapes/issue-drafts'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-relations'
@@ -1235,6 +1267,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/drafts'
     | '/admin'
     | '/t/$teamSlug'
     | '/admin/teams/$teamId'
@@ -1243,6 +1276,7 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
+    | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
@@ -1323,6 +1357,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
+    | '/api/shapes/issue-drafts'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-relations'
@@ -1348,6 +1383,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/automations'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/drafts'
     | '/_authenticated/admin/'
     | '/t/$teamSlug/'
     | '/_authenticated/admin/teams_/$teamId'
@@ -1356,6 +1392,7 @@ export interface FileRouteTypes {
     | '/_authenticated/integrations/github/installed'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
+    | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
@@ -1428,6 +1465,7 @@ export interface RootRouteChildren {
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
   ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
+  ApiShapesIssueDraftsRoute: typeof ApiShapesIssueDraftsRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
   ApiShapesIssueRelationsRoute: typeof ApiShapesIssueRelationsRoute
@@ -1451,6 +1489,7 @@ export interface RootRouteChildren {
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
+  ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
   ApiTeamsTeamIdSessionFilesRoute: typeof ApiTeamsTeamIdSessionFilesRoute
@@ -1661,6 +1700,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/t/$teamSlug/drafts': {
+      id: '/t/$teamSlug/drafts'
+      path: '/drafts'
+      fullPath: '/t/$teamSlug/drafts'
+      preLoaderRoute: typeof TTeamSlugDraftsRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/devices': {
       id: '/t/$teamSlug/devices'
       path: '/devices'
@@ -1834,6 +1880,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/issue-events'
       fullPath: '/api/shapes/issue-events'
       preLoaderRoute: typeof ApiShapesIssueEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-drafts': {
+      id: '/api/shapes/issue-drafts'
+      path: '/api/shapes/issue-drafts'
+      fullPath: '/api/shapes/issue-drafts'
+      preLoaderRoute: typeof ApiShapesIssueDraftsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/devices': {
@@ -2144,6 +2197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIssuesIssueIdFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/issue-drafts/$draftId/files': {
+      id: '/api/issue-drafts/$draftId/files'
+      path: '/api/issue-drafts/$draftId/files'
+      fullPath: '/api/issue-drafts/$draftId/files'
+      preLoaderRoute: typeof ApiIssueDraftsDraftIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/integrations/github/setup': {
       id: '/api/integrations/github/setup'
       path: '/api/integrations/github/setup'
@@ -2343,6 +2403,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugAgentRoute: typeof TTeamSlugAgentRoute
   TTeamSlugAutomationsRoute: typeof TTeamSlugAutomationsRoute
   TTeamSlugDevicesRoute: typeof TTeamSlugDevicesRoute
+  TTeamSlugDraftsRoute: typeof TTeamSlugDraftsRoute
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
@@ -2362,6 +2423,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugAgentRoute: TTeamSlugAgentRoute,
   TTeamSlugAutomationsRoute: TTeamSlugAutomationsRoute,
   TTeamSlugDevicesRoute: TTeamSlugDevicesRoute,
+  TTeamSlugDraftsRoute: TTeamSlugDraftsRoute,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
@@ -2424,6 +2486,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
   ApiShapesDevicesRoute: ApiShapesDevicesRoute,
+  ApiShapesIssueDraftsRoute: ApiShapesIssueDraftsRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
   ApiShapesIssueRelationsRoute: ApiShapesIssueRelationsRoute,
@@ -2447,6 +2510,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
+  ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
   ApiSessionsSessionIdFilesRoute: ApiSessionsSessionIdFilesRoute,
   ApiTeamsTeamIdSessionFilesRoute: ApiTeamsTeamIdSessionFilesRoute,

@@ -97,6 +97,29 @@ impl IssueDraft {
         }
     }
 
+    /// EXP-878: adopt a saved DRAFT's picks (the create dialog reopened from
+    /// the Drafts page). Everything the chip row shows comes from the row, so
+    /// the reopened dialog is the one that was closed — including an empty
+    /// assignee on a solo team, which is a deliberate unassign the defaults
+    /// must not undo.
+    pub(crate) fn apply_seed(
+        &mut self,
+        seed: &crate::drafts::DraftSeed,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.status = seed.status.clone();
+        self.priority = seed.priority;
+        self.assignee_id = seed.assignee_id.clone();
+        self.selected_label_ids = seed.label_ids.clone();
+        self.due_date = seed.due_date;
+        // Keep the popover's calendar on the stored day, not on today.
+        self.due_calendar.update(cx, |calendar, cx| {
+            calendar.set_date(Date::Single(seed.due_date), window, cx);
+        });
+        cx.notify();
+    }
+
     /// Back to the open-time defaults, KEEPING the team. The sub-issue
     /// composer stays open after a create, so the next child starts clean.
     pub(crate) fn reset(&mut self, cx: &mut gpui::Context<Self>) {

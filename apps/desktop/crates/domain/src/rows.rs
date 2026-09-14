@@ -301,6 +301,48 @@ pub struct Pin {
     pub updated_at: Option<String>,
 }
 
+/// `issue_drafts` shape row (EXP-878) — one unfiled create-issue dialog,
+/// from a STATIC per-user shape (`user_id = me`), neither team- nor
+/// trash-scoped. A row renders only once its `board_id` resolves in the
+/// boards collection (the pins rule), so a draft on a trashed board is
+/// simply hidden rather than an error.
+///
+/// Every non-PK field is `Option` like [`Pin`]: a partial row degrades to a
+/// blank field, never a dropped draft. `label_ids` arrives as a Postgres
+/// `uuid[]` cell (`{a,b}`, a JSON array, or a single id) — the same tolerant
+/// list parse `DeviceRow::shared_team_ids` takes.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct IssueDraftRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub board_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// EXP-314: the precise `issue_statuses` row; `None` = the team's
+    /// Backlog builtin (what a fresh composer starts on).
+    #[serde(default)]
+    pub status_id: Option<String>,
+    #[serde(default)]
+    pub priority: Option<IssuePriority>,
+    #[serde(default)]
+    pub assignee_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub label_ids: Vec<String>,
+    /// `YYYY-MM-DD` — date only, like `issues.due_date`.
+    #[serde(default)]
+    pub due_date: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `users` shape row (co-member-scoped; the server pins the 6-column
 /// contract list — admin/verification/billing fields never sync).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -1019,6 +1061,53 @@ mod tests {
         assert!(!narrow.is_server());
         assert!(narrow.agent_ids().is_empty());
         assert!(!narrow.is_shared());
+    }
+
+    /// EXP-878: a draft row hydrates from the wire with every optional
+    /// absent, and `label_ids` takes the same `uuid[]` cell forms
+    /// `shared_team_ids` does.
+    #[test]
+    fn issue_draft_row_hydrates_sparsely_and_parses_label_ids() {
+        let bare: IssueDraftRow = serde_json::from_value(serde_json::json!({
+            "id": "d-1",
+        }))
+        .expect("bare draft hydrates");
+        assert_eq!(bare.title, None);
+        assert_eq!(bare.priority, None);
+        assert!(bare.label_ids.is_empty());
+
+        let full: IssueDraftRow = serde_json::from_value(serde_json::json!({
+            "id": "d-1",
+            "user_id": "u-1",
+            "team_id": "t-1",
+            "board_id": "b-1",
+            "title": "Ship it",
+            "description": "Body",
+            "status_id": "s-1",
+            "priority": "high",
+            "assignee_id": "u-2",
+            // The Postgres array literal, exactly like devices.shared_team_ids.
+            "label_ids": "{l-1,l-2}",
+            "due_date": "2026-09-14",
+        }))
+        .expect("full draft hydrates");
+        assert_eq!(full.label_ids, vec!["l-1", "l-2"]);
+        assert_eq!(full.priority, Some(IssuePriority::High));
+        assert_eq!(full.due_date.as_deref(), Some("2026-09-14"));
+
+        // A JSON array and a null cell hydrate too — never a dropped row.
+        let json_array: IssueDraftRow = serde_json::from_value(serde_json::json!({
+            "id": "d-2",
+            "label_ids": ["l-9"],
+        }))
+        .expect("json array hydrates");
+        assert_eq!(json_array.label_ids, vec!["l-9"]);
+        let null_cell: IssueDraftRow = serde_json::from_value(serde_json::json!({
+            "id": "d-3",
+            "label_ids": serde_json::Value::Null,
+        }))
+        .expect("null hydrates");
+        assert!(null_cell.label_ids.is_empty());
     }
 
     /// FEED-33: `shared_team_ids` is a `uuid[]`: the wire cell is the

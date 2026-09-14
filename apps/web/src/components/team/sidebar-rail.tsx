@@ -15,6 +15,7 @@ import {
   useAgentsRunningCount,
   useReviewsOpenPrCount,
 } from "@/hooks/use-nav-counts"
+import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -49,6 +50,7 @@ const NavAgentIcon = conceptIcon(`action-chat`)
 const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
+const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -84,6 +86,33 @@ export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return <NavDot className="bg-primary" placement={placement} />
+}
+
+/** EXP-878: how many drafts the caller is keeping in this team — a NEUTRAL
+ *  count, not an alert: a draft is work you parked, not work waiting on you.
+ *  Zero renders nothing, and the entry itself is hidden at zero. */
+export function DraftsCountBadge({
+  teamId,
+  placement,
+}: {
+  teamId?: string
+  placement: BadgePlacement
+}) {
+  const count = useDraftEntries(teamId).length
+  if (count === 0) return null
+  return (
+    <span
+      data-testid="drafts-count-badge"
+      className={cn(
+        `pointer-events-none absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] leading-none font-semibold text-muted-foreground tabular-nums`,
+        placement === `row`
+          ? `right-2 top-1/2 -translate-y-1/2`
+          : `-right-0.5 -top-0.5`
+      )}
+    >
+      {count > 99 ? `99+` : count}
+    </span>
+  )
 }
 
 /** Unread helpdesk activity in THIS team, for the Support entry. */
@@ -240,6 +269,25 @@ function RailItem({
   )
 }
 
+/** The rail's Drafts button — present only while there IS a draft, directly
+ *  after Inbox in both rail states. */
+function DraftsRailItem({
+  teamId,
+  params,
+}: {
+  teamId?: string
+  params: Record<string, string>
+}) {
+  const count = useDraftEntries(teamId).length
+  if (count === 0) return null
+  return (
+    <RailItem label="Drafts" link={{ to: `/t/$teamSlug/drafts`, params }}>
+      <NavDraftsIcon className="size-4" />
+      <DraftsCountBadge teamId={teamId} placement="icon" />
+    </RailItem>
+  )
+}
+
 export function TeamSidebarRail({
   teamSlug,
   team,
@@ -272,6 +320,7 @@ export function TeamSidebarRail({
           <NavInboxIcon className="size-4" />
           <InboxUnreadBadge placement="icon" />
         </RailItem>
+        <DraftsRailItem teamId={team?.id} params={params} />
         {team?.helpdeskEnabled === true && (
           <RailItem label="Support" link={{ to: `/t/$teamSlug/support`, params }}>
             <NavSupportIcon className="size-4" />

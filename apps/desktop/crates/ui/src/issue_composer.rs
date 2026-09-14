@@ -25,6 +25,17 @@
 //!   submit reads "Create", a ghost ✕ in the card's top-right closes it, and
 //!   Escape closes it too. A successful create CLEARS and stays open (filing
 //!   sub-issues comes in runs).
+//!
+//! EXP-878 — the Dialog presentation, and ONLY it, is backed by an issue
+//! DRAFT ([`DraftIdentity`]): the dialog mints a row id when it opens (or
+//! carries the one it was opened from), and every close path with content in
+//! the form saves it — silently, no "Discard?" anywhere, exactly one write.
+//! Uploads there are EAGER: the first paste/attach ensures the row exists
+//! (one `issueDrafts.upsert`) and then uploads onto the DRAFT, so a close
+//! never has bytes to lose and the create that files it carries only
+//! `draftId` (the server reparents the attachments and deletes the row in the
+//! same transaction). The Inline presentation keeps the staged pipeline
+//! verbatim — a sub-issue card is never a draft.
 
 use std::rc::Rc;
 
@@ -47,7 +58,7 @@ use sync::Store;
 use crate::attachments_row;
 use crate::controls::{glass_input, WebControl as _};
 use crate::icons::registry;
-use crate::markdown::image_paste::strip_draft_images;
+use crate::markdown::image_paste::{markdown_for_save, strip_draft_images, StagedImage};
 use crate::wysiwyg::WysiwygDescription;
 
 /// What an [`IssueComposer`] tells its host.
@@ -93,6 +104,53 @@ enum Presentation {
     Inline,
 }
 
+/// EXP-878: the issue DRAFT a dialog session composes in. The id is minted
+/// client-side when the dialog opens blank ([`api::issue_drafts::new_draft_id`])
+/// or carried over from the row it was opened from, and every write this
+/// dialog makes is keyed by it — so a save, an eager-upload's ensure and the
+/// create's `draftId` all name the same row.
+#[derive(Clone, Debug)]
+struct DraftIdentity {
+    id: String,
+    /// Opened FROM a synced draft row. Emptying such a dialog DELETES the
+    /// row; emptying a never-saved one writes nothing at all.
+    from_existing: bool,
+    /// This dialog still owes a write when it closes. Cleared the moment a
+    /// create succeeds — the server already deleted the row, so the close
+    /// hook must not resurrect it.
+    owed: bool,
+    /// An `issueDrafts.upsert` for this id has landed, so the row exists
+    /// server-side and uploads may target it. Also means an emptied close
+    /// has something to delete.
+    ensured: bool,
+}
+
+/// One eager draft upload, queued so they run ONE at a time: the first job
+/// is what creates the row, and a second upload racing it would 404.
+struct DraftUpload {
+    filename: String,
+    content_type: String,
+    bytes: std::sync::Arc<Vec<u8>>,
+    kind: DraftUploadKind,
+}
+
+enum DraftUploadKind {
+    /// A pasted/dropped inline image, still a `draft://` block in the editor.
+    Image(StagedImage),
+    /// A file picked through the attach button, showing as a staged chip.
+    File(u64),
+}
+
+/// EXP-878: one attachment already uploaded onto the draft — the rail's chip
+/// after an eager upload, and what `issueDrafts.listAttachments` repopulates
+/// when a draft is reopened.
+struct DraftFile {
+    id: String,
+    filename: String,
+    content_type: Option<String>,
+    size_bytes: i64,
+}
+
 pub(crate) struct IssueComposer {
     presentation: Presentation,
     /// The board the issue is filed onto. The dialog's titlebar select writes
@@ -114,9 +172,27 @@ pub(crate) struct IssueComposer {
     description: Entity<WysiwygDescription>,
     /// EXP-760: the status/priority/assignee/labels/due state and its chips.
     draft: Entity<crate::issue_draft::IssueDraft>,
-    /// EXP-335: non-image files queued for the post-create upload.
+    /// EXP-335: non-image files queued for the post-create upload. In the
+    /// Dialog presentation a chip only lives here while its eager upload is
+    /// in flight; it then moves to [`Self::draft_files`].
     staged_files: Vec<StagedDraftFile>,
     next_staged_file_key: u64,
+    /// EXP-878: the draft backing this dialog (`None` inline — a sub-issue
+    /// card is never a draft).
+    draft_row: Option<DraftIdentity>,
+    /// EXP-878: attachments already uploaded onto the draft.
+    draft_files: Vec<DraftFile>,
+    /// EXP-878: `issueDrafts.listAttachments` has answered, so
+    /// [`Self::draft_files`] is the truth. Until it does, a REOPENED draft is
+    /// assumed to hold files — closing it fast must never delete a row whose
+    /// only content is an attachment we had not heard about yet.
+    draft_files_loaded: bool,
+    /// EXP-878: eager uploads waiting their turn, and whether one is running.
+    draft_uploads: Vec<DraftUpload>,
+    draft_uploading: bool,
+    /// EXP-878: `draft://` urls already queued, so the render-time sweep
+    /// claims each pasted image exactly once.
+    claimed_images: std::collections::HashSet<String>,
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
@@ -128,15 +204,22 @@ impl EventEmitter<IssueComposerEvent> for IssueComposer {}
 
 impl IssueComposer {
     /// The create-issue DIALOG's body (a native window fills with this).
+    ///
+    /// EXP-878: `draft_id` is the row this session writes (freshly minted for
+    /// a blank open, the row's own id when reopened from the Drafts page) and
+    /// `seed` the saved content, `None` for a blank open.
     pub(crate) fn dialog(
         board_id: String,
         team_id: String,
         max_height: gpui::Pixels,
+        draft_id: String,
+        seed: Option<crate::drafts::DraftSeed>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let desc_scroll = gpui::ScrollHandle::new();
-        let this = Self::new(
+        let from_existing = seed.is_some();
+        let mut this = Self::new(
             Presentation::Dialog(DialogGrow {
                 desc_scroll: desc_scroll.clone(),
                 max_height,
@@ -147,15 +230,38 @@ impl IssueComposer {
             None,
             team_id,
             "Issue title",
+            seed.as_ref().map(|seed| seed.title.as_str()).unwrap_or(""),
+            seed.as_ref()
+                .map(|seed| seed.description.as_str())
+                .unwrap_or(""),
             window,
             cx,
         );
+        this.draft_row = Some(DraftIdentity {
+            id: draft_id.clone(),
+            from_existing,
+            owed: true,
+            ensured: from_existing,
+        });
+        if let Some(seed) = &seed {
+            this.draft
+                .update(cx, |draft, cx| draft.apply_seed(seed, window, cx));
+            // Draft attachments are server-only rows — the rail is repopulated
+            // over tRPC, never off the (draft-excluding) attachments shape.
+            this.load_draft_files(draft_id, cx);
+        }
         // EXP-288: hand the scroll container's handle to the editor so the
         // caret stays visible while typing/pasting ("we always wanna see
         // what we type").
         this.description.update(cx, |description, cx| {
             description.set_scroll_handle(desc_scroll, cx);
         });
+        // EXP-878: a native dialog closes without a blur — Escape, the
+        // titlebar ✕, the OS window close and a navigation all just drop the
+        // window. Paying the draft out as the view is released is the ONE
+        // place every close path meets (the `device_settings` rename-flush
+        // precedent).
+        cx.on_release(|this, cx| this.flush_draft(cx)).detach();
         this
     }
 
@@ -172,28 +278,37 @@ impl IssueComposer {
             Some(parent.id.clone()),
             team_id,
             "Sub-issue title",
+            "",
+            "",
             window,
             cx,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new(
         presentation: Presentation,
         board_id: String,
         parent_id: Option<String>,
         team_id: String,
         title_placeholder: &'static str,
+        initial_title: &str,
+        initial_markdown: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let title = cx.new(|cx| InputState::new(window, cx).placeholder(title_placeholder));
+        let title = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(title_placeholder)
+                .default_value(initial_title)
+        });
         // Shared configured-editor constructor (§4.5): completion + pills
         // scoped to this team, upload staged (`upload_issue = None`).
         let description = crate::description_editor::build_wysiwyg_editor(
             Some(team_id.clone()),
             None,
             "Add description...",
-            "",
+            initial_markdown,
             None,
             window,
             cx,
@@ -242,6 +357,12 @@ impl IssueComposer {
             draft,
             staged_files: Vec::new(),
             next_staged_file_key: 0,
+            draft_row: None,
+            draft_files: Vec::new(),
+            draft_files_loaded: false,
+            draft_uploads: Vec::new(),
+            draft_uploading: false,
+            claimed_images: std::collections::HashSet::new(),
             submitting: false,
             error: None,
             focused_once: false,
@@ -310,6 +431,293 @@ impl IssueComposer {
         self.submitting
     }
 
+    // -- drafts (dialog only, EXP-878) -----------------------------------------
+
+    /// The composer's current state as a draft write. `None` inline — there
+    /// is no row to write.
+    fn draft_save(&self, cx: &App) -> Option<crate::drafts::DraftSave> {
+        let identity = self.draft_row.as_ref()?;
+        let props = self.draft.read(cx);
+        Some(crate::drafts::DraftSave {
+            id: identity.id.clone(),
+            team_id: props.team_id.clone(),
+            board_id: self.board_id.clone(),
+            title: self.title.read(cx).value().trim().to_string(),
+            // Never a `draft://` url on the wire: a staged image is still
+            // local bytes, and the same derivation backs every persist site.
+            description: markdown_for_save(self.description.read(cx).markdown(cx)),
+            status_id: props.status.status_id.clone(),
+            priority: props.priority,
+            assignee_id: props.assignee_id.clone(),
+            label_ids: props.selected_label_ids.clone(),
+            due_date: props.due_date,
+        })
+    }
+
+    /// EXP-878: the ONE close path. Silent, exactly one write, never while
+    /// typing: content saves, an emptied draft that EXISTS is deleted, and an
+    /// untouched blank open writes nothing at all. A submit in flight owes
+    /// nothing either — [`Self::on_created`] clears the debt before the window
+    /// goes away, and the server deleted the row in the create's transaction.
+    fn flush_draft(&mut self, cx: &mut App) {
+        let Some(identity) = self.draft_row.clone() else {
+            return;
+        };
+        if !identity.owed || self.submitting {
+            return;
+        }
+        if let Some(draft) = self.draft_row.as_mut() {
+            draft.owed = false;
+        }
+        let Some(save) = self.draft_save(cx) else {
+            return;
+        };
+        // A reopened draft whose file list has not landed counts as holding
+        // one: the conservative read keeps a files-only draft alive.
+        let files = if self.draft_files_loaded || !identity.from_existing {
+            self.draft_files.len()
+        } else {
+            1
+        };
+        if crate::drafts::has_content(&save.title, &save.description, files) {
+            crate::drafts::save_draft(save, cx);
+        } else if identity.from_existing || identity.ensured {
+            crate::drafts::delete_draft(identity.id, cx);
+        }
+    }
+
+    /// Repopulate the file rail of a REOPENED draft. Draft-owned attachments
+    /// are server-only rows (the `attachments` shape excludes them), so this
+    /// is the only way to see them again.
+    fn load_draft_files(&mut self, draft_id: String, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let rows = cx
+                .background_executor()
+                .spawn(async move {
+                    api::issue_drafts::issue_drafts_list_attachments(&trpc, &draft_id)
+                })
+                .await;
+            let rows = match rows {
+                Ok(rows) => rows,
+                Err(err) => {
+                    log::warn!("[ui] issueDrafts.listAttachments failed: {err}");
+                    return;
+                }
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.draft_files = rows
+                    .into_iter()
+                    // Inline images and media live IN the description, not in
+                    // the rail — the same split the issue Files section makes.
+                    .filter(|row| {
+                        !crate::issue_files::is_inline_media(row.content_type.as_deref())
+                    })
+                    .map(|row| DraftFile {
+                        id: row.id,
+                        filename: row.filename.unwrap_or_else(|| "file".to_string()),
+                        content_type: row.content_type,
+                        size_bytes: row.size_bytes.unwrap_or(0),
+                    })
+                    .collect();
+                this.draft_files_loaded = true;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Render-time sweep (dialog only): every freshly pasted image the editor
+    /// staged joins the eager-upload queue exactly once. The editor notifies
+    /// on each change and the dialog re-renders right behind it, which is the
+    /// same one-frame seam [`Self::grow_with_content`] rides.
+    fn claim_staged_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.draft_row.is_none() {
+            return;
+        }
+        for staged in self.description.read(cx).staged_images(cx) {
+            if !self.claimed_images.insert(staged.draft_url.clone()) {
+                continue;
+            }
+            self.draft_uploads.push(DraftUpload {
+                filename: staged.filename.clone(),
+                content_type: staged.content_type.clone(),
+                bytes: staged.bytes.clone(),
+                kind: DraftUploadKind::Image(staged),
+            });
+        }
+        self.pump_draft_uploads(window, cx);
+    }
+
+    /// Run the queue ONE job at a time: the first upload is what creates the
+    /// draft row, and a second racing it would upload into nothing.
+    fn pump_draft_uploads(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.draft_uploading || self.draft_uploads.is_empty() {
+            return;
+        }
+        let Some(identity) = self.draft_row.clone() else {
+            return;
+        };
+        let Some(transport) = crate::queries::attachment_transport(cx) else {
+            self.fail_all_draft_uploads("Not signed in.".to_string(), window, cx);
+            return;
+        };
+        // The ensure: ONE upsert per dialog session, with the snapshot as it
+        // stands right now, so the row the bytes land on is a real draft.
+        let ensure = if identity.ensured {
+            None
+        } else {
+            match (crate::queries::trpc_client(cx), self.draft_save(cx)) {
+                (Some(trpc), Some(save)) => Some((trpc, save.to_input())),
+                _ => {
+                    self.fail_all_draft_uploads("Not signed in.".to_string(), window, cx);
+                    return;
+                }
+            }
+        };
+        let job = self.draft_uploads.remove(0);
+        self.draft_uploading = true;
+        let draft_id = identity.id.clone();
+        let filename = job.filename.clone();
+        let content_type = job.content_type.clone();
+        let bytes = job.bytes.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let ensured = match ensure {
+                None => Ok(()),
+                Some((trpc, input)) => {
+                    cx.background_executor()
+                        .spawn(async move {
+                            api::issue_drafts::issue_drafts_upsert(&trpc, &input)
+                                .map(|_| ())
+                                .map_err(|err| err.user_message())
+                        })
+                        .await
+                }
+            };
+            let result = match ensured {
+                Ok(()) => {
+                    let _ = this.update(cx, |this, _| {
+                        if let Some(draft) = this.draft_row.as_mut() {
+                            draft.ensured = true;
+                        }
+                    });
+                    cx.background_executor()
+                        .spawn(async move {
+                            transport
+                                .upload_draft(&draft_id, &filename, &content_type, &bytes)
+                                .map_err(|err| err.to_string())
+                        })
+                        .await
+                }
+                Err(message) => Err(message),
+            };
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.finish_draft_upload(job, result, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Land one eager upload: an image swaps its `draft://` source for the
+    /// canonical one, a video/audio file joins the description as a plain
+    /// link paragraph (EXP-824), everything else becomes a rail chip.
+    fn finish_draft_upload(
+        &mut self,
+        job: DraftUpload,
+        result: Result<crate::markdown::image_paste::UploadedImage, String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.draft_uploading = false;
+        match (job.kind, result) {
+            (DraftUploadKind::Image(staged), Ok(uploaded)) => {
+                self.claimed_images.remove(&staged.draft_url);
+                self.description.update(cx, |description, cx| {
+                    description.adopt_uploaded_image(&staged, &uploaded.url, window, cx);
+                });
+            }
+            (DraftUploadKind::Image(staged), Err(message)) => {
+                self.claimed_images.remove(&staged.draft_url);
+                self.description.update(cx, |description, cx| {
+                    description.drop_failed_image(&staged, &message, window, cx);
+                });
+            }
+            (DraftUploadKind::File(key), Ok(uploaded)) => {
+                self.staged_files.retain(|staged| staged.key != key);
+                match crate::issue_files::description_embed(&job.content_type) {
+                    // EXP-824: media is a link alone in a paragraph, never a
+                    // Files row — the same split the detail view makes.
+                    Some(embed) => {
+                        let fragment = crate::issue_files::description_fragment(
+                            embed,
+                            uploaded.filename.as_deref(),
+                            &uploaded.url,
+                        );
+                        self.description.update(cx, |description, cx| {
+                            description.append_paragraph(&fragment, window, cx);
+                        });
+                    }
+                    None => self.draft_files.push(DraftFile {
+                        id: uploaded.id,
+                        filename: uploaded.filename.unwrap_or(job.filename),
+                        content_type: uploaded.content_type.or(Some(job.content_type)),
+                        size_bytes: uploaded.size_bytes.unwrap_or(job.bytes.len() as i64),
+                    }),
+                }
+            }
+            (DraftUploadKind::File(key), Err(message)) => {
+                self.staged_files.retain(|staged| staged.key != key);
+                self.error = Some(message.into());
+            }
+        }
+        cx.notify();
+        self.pump_draft_uploads(window, cx);
+    }
+
+    /// Nothing to upload through (signed out) — drop every queued job with
+    /// one message rather than leaving half-rendered chips behind.
+    fn fail_all_draft_uploads(
+        &mut self,
+        message: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        for job in std::mem::take(&mut self.draft_uploads) {
+            match job.kind {
+                DraftUploadKind::Image(staged) => {
+                    self.claimed_images.remove(&staged.draft_url);
+                    self.description.update(cx, |description, cx| {
+                        description.drop_failed_image(&staged, &message, window, cx);
+                    });
+                }
+                DraftUploadKind::File(key) => {
+                    self.staged_files.retain(|staged| staged.key != key);
+                }
+            }
+        }
+        self.error = Some(message.into());
+        cx.notify();
+    }
+
+    /// Delete one uploaded draft attachment (the rail chip's ✕). The row is
+    /// server-only, so the chip is dropped locally — there is no echo.
+    fn remove_draft_file(&mut self, attachment_id: String, cx: &mut gpui::Context<Self>) {
+        self.draft_files.retain(|file| file.id != attachment_id);
+        cx.notify();
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(err) = api::attachments::attachments_delete(&trpc, &attachment_id) {
+                    log::warn!("[ui] draft attachment delete failed: {err}");
+                }
+            })
+            .detach();
+    }
+
     // -- window growth (dialog only) -------------------------------------------
 
     /// EXP-288: grow the dialog window with the description content, up to
@@ -366,17 +774,30 @@ impl IssueComposer {
                     .background_executor()
                     .spawn(async move { crate::markdown::read_any_file(&path) })
                     .await;
-                this.update_in(cx, |this, _window, cx| {
+                this.update_in(cx, |this, window, cx| {
                     match result {
                         Ok((filename, content_type, bytes)) => {
                             let key = this.next_staged_file_key;
                             this.next_staged_file_key += 1;
+                            let bytes = std::sync::Arc::new(bytes);
                             this.staged_files.push(StagedDraftFile {
                                 key,
-                                filename,
-                                content_type,
-                                bytes: std::sync::Arc::new(bytes),
+                                filename: filename.clone(),
+                                content_type: content_type.clone(),
+                                bytes: bytes.clone(),
                             });
+                            // EXP-878: in the dialog the bytes go up NOW, onto
+                            // the draft — the chip is only what the upload
+                            // looks like while it runs.
+                            if this.draft_row.is_some() {
+                                this.draft_uploads.push(DraftUpload {
+                                    filename,
+                                    content_type,
+                                    bytes,
+                                    kind: DraftUploadKind::File(key),
+                                });
+                                this.pump_draft_uploads(window, cx);
+                            }
                         }
                         Err(error) => {
                             this.error = Some(format!("{error}").into());
@@ -410,25 +831,38 @@ impl IssueComposer {
         let mut input = api::issues::IssuesCreateInput::new(board_id, title);
         self.draft.read(cx).apply_to_create(&mut input);
         input.parent_id = self.parent_id.clone();
+        input.draft_id = self.draft_row.as_ref().map(|draft| draft.id.clone());
         let markdown = self.description.read(cx).markdown(cx);
-        let staged_images = self.description.read(cx).staged_images(cx);
         let stripped_description = strip_draft_images(&markdown);
         if !stripped_description.is_empty() {
             input.description = Some(stripped_description.clone());
         }
+        // EXP-878: the DRAFT path uploads nothing here — every image in the
+        // description is already a `/api/attachments/{id}` row the draft owns,
+        // and the server reparents them (and the rail's files) inside the
+        // create's own transaction. Only the Inline composer still stages.
+        let is_draft = self.draft_row.is_some();
+        let staged_images = if is_draft {
+            Vec::new()
+        } else {
+            self.description.read(cx).staged_images(cx)
+        };
         // EXP-335: queued non-image draft files ride the same post-create
         // window (cheap Arc clones — the bytes are shared, not copied).
-        let staged_files: Vec<(String, String, std::sync::Arc<Vec<u8>>)> = self
-            .staged_files
-            .iter()
-            .map(|file| {
-                (
-                    file.filename.clone(),
-                    file.content_type.clone(),
-                    file.bytes.clone(),
-                )
-            })
-            .collect();
+        let staged_files: Vec<(String, String, std::sync::Arc<Vec<u8>>)> = if is_draft {
+            Vec::new()
+        } else {
+            self.staged_files
+                .iter()
+                .map(|file| {
+                    (
+                        file.filename.clone(),
+                        file.content_type.clone(),
+                        file.bytes.clone(),
+                    )
+                })
+                .collect()
+        };
 
         let view = cx.entity().downgrade();
         crate::issue_draft::spawn_create(
@@ -468,6 +902,11 @@ impl IssueComposer {
             // is up — land fully scoped on the ISSUE's board (rail tool +
             // active board + tab origin).
             Presentation::Dialog(_) => {
+                // EXP-878: the create deleted the draft in its own
+                // transaction — the release hook must not write it back.
+                if let Some(draft) = self.draft_row.as_mut() {
+                    draft.owed = false;
+                }
                 let board_id = self.board_id.clone();
                 crate::native_dialog::close_then(window, cx, move |window, cx| {
                     crate::navigation::open_issue_scoped(window, cx, issue_id, board_id);
@@ -519,12 +958,45 @@ impl IssueComposer {
         let prefix = self.id_prefix();
         let chip_id = self.file_chip_id();
 
+        // EXP-878: already-uploaded draft attachments first (they survive a
+        // close), then anything still going up.
+        let uploaded: Vec<gpui::AnyElement> = self
+            .draft_files
+            .iter()
+            .enumerate()
+            .map(|(index, file)| {
+                let remove: Option<attachments_row::ChipRemove> = removable.then(|| {
+                    let view = cx.entity().clone();
+                    let id = file.id.clone();
+                    let on_click = Box::new(
+                        move |_: &gpui::ClickEvent, _window: &mut Window, cx: &mut App| {
+                            view.update(cx, |this, cx| this.remove_draft_file(id.clone(), cx));
+                        },
+                    )
+                        as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+                    (
+                        SharedString::from(format!("{prefix}-draft-file-remove-{}", file.id)),
+                        on_click,
+                    )
+                });
+                attachments_row::file_chip(
+                    gpui::ElementId::from(("create-draft-file-chip", index)),
+                    file.filename.clone(),
+                    file.content_type.as_deref(),
+                    file.size_bytes,
+                    remove,
+                    cx,
+                )
+            })
+            .collect();
+
         h_flex()
             .min_w_0()
             .flex_1()
             .gap_1p5()
             .items_center()
             .overflow_hidden()
+            .children(uploaded)
             .children(self.staged_files.iter().map(|file| {
                 let remove: Option<attachments_row::ChipRemove> = removable.then(|| {
                     let view = cx.entity().clone();
@@ -585,7 +1057,7 @@ impl IssueComposer {
                     .child(error.clone())
                     .into_any_element(),
             ),
-            None if !self.staged_files.is_empty() => {
+            None if !self.staged_files.is_empty() || !self.draft_files.is_empty() => {
                 Some(self.attachment_rail(cx).into_any_element())
             }
             None => None,
@@ -623,6 +1095,9 @@ impl IssueComposer {
     // -- presentations ---------------------------------------------------------
 
     fn render_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // EXP-878: adopt anything the editor just staged into the eager
+        // draft-upload queue (the one-frame seam `grow_with_content` rides).
+        self.claim_staged_images(window, cx);
         // EXP-288: expand the window with the description content (up to the
         // cap) before the caret-follow scrolling takes over.
         self.grow_with_content(window, cx);

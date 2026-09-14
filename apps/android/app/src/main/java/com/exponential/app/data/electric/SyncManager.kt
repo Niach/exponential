@@ -27,6 +27,7 @@ import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
+import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
@@ -109,7 +110,7 @@ class SyncManager @Inject constructor(
     @Volatile private var backgroundedAtMs: Long? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 21 shapes each
+    // several pushes can land within the same second, and 22 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -362,7 +363,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (21 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (22 shapes) for $accountId")
             }
         }
     }
@@ -437,6 +438,7 @@ class SyncManager @Inject constructor(
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
+        val issueDraftDao = db.issueDraftDao()
 
         val shapes = listOf(
             launchShape(
@@ -650,6 +652,18 @@ class SyncManager @Inject constructor(
                 onUpdate = { pinDao.upsert(it) },
                 onDelete = { pinDao.deleteById(it.id) },
                 onRefetch = { pinDao.clear() },
+            ),
+            // EXP-878: unsent issue drafts — static per user like pins, never
+            // team/trash scoped (a row renders once its board resolves).
+            launchShape(
+                shape = "issue_drafts", path = "/api/shapes/issue-drafts", tableName = "issue_drafts",
+                serializer = IssueDraftEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issue_drafts"),
+                onInsert = { issueDraftDao.upsert(it) },
+                onUpdate = { issueDraftDao.upsert(it) },
+                onDelete = { issueDraftDao.deleteById(it.id) },
+                onRefetch = { issueDraftDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

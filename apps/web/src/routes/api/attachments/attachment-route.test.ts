@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => ({
   resolveSession: vi.fn(),
   getAttachmentTeamContext: vi.fn(),
+  getDraftAttachmentTeamContext: vi.fn(),
   getSessionAttachmentTeamContext: vi.fn(),
   assertTeamMember: vi.fn(),
   getObject: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock(`@/lib/auth/resolve-bearer`, () => ({
 
 vi.mock(`@/lib/team-membership`, () => ({
   getAttachmentTeamContext: h.getAttachmentTeamContext,
+  getDraftAttachmentTeamContext: h.getDraftAttachmentTeamContext,
   getSessionAttachmentTeamContext: h.getSessionAttachmentTeamContext,
   assertTeamMember: h.assertTeamMember,
 }))
@@ -54,6 +56,10 @@ const ATTACHMENT_ID = `00000000-0000-4000-8000-000000000001`
 beforeEach(() => {
   h.resolveSession.mockReset()
   h.getAttachmentTeamContext.mockReset()
+  h.getDraftAttachmentTeamContext.mockReset()
+  h.getDraftAttachmentTeamContext.mockRejectedValue(
+    new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+  )
   h.getSessionAttachmentTeamContext.mockReset()
   h.assertTeamMember.mockReset()
   h.getObject.mockReset()
@@ -138,6 +144,67 @@ describe(`GET /api/attachments/$attachmentId`, () => {
       ATTACHMENT_ID
     )
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `w-1`)
+  })
+
+  // EXP-878: a DRAFT's attachments are readable BEFORE the issue exists —
+  // the create dialog uploads eagerly and embeds the final URL immediately.
+  // Same url shape, same member-only decision, resolved through the draft.
+  it(`resolves a draft attachment through its draft (EXP-878)`, async () => {
+    h.resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    h.getAttachmentTeamContext.mockRejectedValue(
+      new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    )
+    h.getDraftAttachmentTeamContext.mockResolvedValue({
+      teamId: `w-1`,
+      contentType: `image/png`,
+      filename: `paste.png`,
+      sizeBytes: 4,
+      storageKey: `drafts/d-1/x-paste.png`,
+    })
+    h.getObject.mockResolvedValue({ Body: `body` })
+    h.toResponseBody.mockResolvedValue(`ok!!`)
+
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}`
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(h.getDraftAttachmentTeamContext).toHaveBeenCalledWith(ATTACHMENT_ID)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `w-1`)
+    // The draft is private, but the BYTES are still team-gated, not
+    // owner-gated: the session fallback is never consulted once the draft
+    // resolves.
+    expect(h.getSessionAttachmentTeamContext).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a draft attachment to a non-member`, async () => {
+    h.resolveSession.mockResolvedValue({ user: { id: `outsider` } })
+    h.getAttachmentTeamContext.mockRejectedValue(
+      new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    )
+    h.getDraftAttachmentTeamContext.mockResolvedValue({
+      teamId: `w-1`,
+      contentType: `image/png`,
+      filename: `paste.png`,
+      sizeBytes: 4,
+      storageKey: `drafts/d-1/x-paste.png`,
+    })
+    h.assertTeamMember.mockRejectedValue(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
+    )
+
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}`
+      ),
+    })
+
+    expect(response.status).toBe(403)
+    expect(h.getObject).not.toHaveBeenCalled()
   })
 
   it(`404s when neither table knows the id`, async () => {

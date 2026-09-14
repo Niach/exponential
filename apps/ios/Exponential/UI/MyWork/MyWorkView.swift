@@ -12,6 +12,9 @@ struct MyWorkView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var inboxViewModel: InboxViewModel?
+    /// EXP-878: drafts are observed here, not inside the segment — the segment
+    /// only exists while there is at least one resolvable draft.
+    @State private var draftsViewModel: DraftsViewModel?
     @AppStorage("myWorkSegment") private var segmentRaw = Segment.inbox.rawValue
 
     // Reviews (EXP-147) and Support (EXP-180) each moved out to their own
@@ -20,17 +23,33 @@ struct MyWorkView: View {
     private enum Segment: String, CaseIterable {
         case inbox
         case myIssues
+        /// EXP-878: unfiled issues, account-wide. LABEL-ONLY, like its two
+        /// siblings — the segmented control carries no icons.
+        case drafts
 
         var label: String {
             switch self {
             case .inbox: return "Inbox"
             case .myIssues: return "My Issues"
+            case .drafts: return "Drafts"
             }
         }
     }
 
+    private var hasDrafts: Bool {
+        !(draftsViewModel?.rows.isEmpty ?? true)
+    }
+
+    /// Drafts appear only once there is one to show.
+    private var segments: [Segment] {
+        hasDrafts ? Segment.allCases : [.inbox, .myIssues]
+    }
+
     private var segment: Segment {
-        Segment(rawValue: segmentRaw) ?? .inbox
+        let stored = Segment(rawValue: segmentRaw) ?? .inbox
+        // A persisted "drafts" pick survives the last draft being filed or
+        // deleted — fall back rather than render an empty segment.
+        return segments.contains(stored) ? stored : .inbox
     }
 
     var body: some View {
@@ -39,7 +58,7 @@ struct MyWorkView: View {
 
             VStack(spacing: 0) {
                 GlassSegmentedControl(
-                    options: Segment.allCases,
+                    options: segments,
                     selection: segment,
                     label: { $0.label },
                     badge: { $0 == .inbox ? (inboxViewModel?.totalUnread ?? 0) : 0 },
@@ -57,6 +76,12 @@ struct MyWorkView: View {
                     }
                 case .myIssues:
                     MyIssuesListContent()
+                case .drafts:
+                    if let vm = draftsViewModel {
+                        DraftsListContent(viewModel: vm)
+                    } else {
+                        Color.clear
+                    }
                 }
             }
         }
@@ -79,10 +104,21 @@ struct MyWorkView: View {
                     notificationsApi: deps.notificationsApi
                 )
             }
+            if draftsViewModel == nil {
+                draftsViewModel = DraftsViewModel(
+                    accountId: accountId,
+                    db: deps.db,
+                    api: deps.issueDraftsApi
+                )
+            }
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             inboxViewModel?.startObserving()
+            draftsViewModel?.startObserving()
         }
-        .onDisappear { inboxViewModel?.stopObserving() }
+        .onDisappear {
+            inboxViewModel?.stopObserving()
+            draftsViewModel?.stopObserving()
+        }
     }
 }

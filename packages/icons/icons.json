@@ -81,6 +81,7 @@
     "nav-sign-out": "log-out",
     "nav-team-switcher": "chevrons-up-down",
     "nav-create-issue": "square-pen",
+    "nav-drafts": "file-pen-line",
     "nav-changelog": "megaphone",
     "nav-getting-started": "sparkles",
     "nav-report-bug": "bug",

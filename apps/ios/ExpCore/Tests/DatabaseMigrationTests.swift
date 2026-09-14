@@ -104,7 +104,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
-             "v38_drop_coding_session_summary"]
+             "v38_drop_coding_session_summary",
+             "v39_issue_drafts"]
         )
     }
 
@@ -135,7 +136,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
-             "v38_drop_coding_session_summary"]
+             "v38_drop_coding_session_summary",
+             "v39_issue_drafts"]
         )
     }
 
@@ -194,7 +196,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
-             "v38_drop_coding_session_summary"]
+             "v38_drop_coding_session_summary",
+             "v39_issue_drafts"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -273,7 +276,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v35_attachment_video_metadata",
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
-             "v38_drop_coding_session_summary"]
+             "v38_drop_coding_session_summary",
+             "v39_issue_drafts"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -777,6 +781,49 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(isLive, false)
     }
 
+    // v39 (EXP-878 issue drafts): a store created before the `issue_drafts`
+    // table existed must gain it on upgrade. A brand-new shape has no offset
+    // row, so no shape offset is touched.
+    func testIssueDraftsTableAddedToExistingStore() throws {
+        let pool = try makePool("issue-drafts")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v38_drop_coding_session_summary")
+        try pool.write { db in
+            XCTAssertFalse(try db.tableExists("issue_drafts"))
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('issues', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try pool.read { db in try db.tableExists("issue_drafts") })
+        XCTAssertEqual(
+            try columnNames(pool, "issue_drafts"),
+            ["id", "user_id", "team_id", "board_id", "title", "description",
+             "status_id", "priority", "assignee_id", "label_ids", "due_date",
+             "created_at", "updated_at"]
+        )
+        let indexed = try pool.read { db in
+            Set(try db.indexes(on: "issue_drafts").map(\.columns))
+        }
+        XCTAssertTrue(indexed.contains(["user_id"]))
+        XCTAssertTrue(indexed.contains(["team_id"]))
+        XCTAssertTrue(indexed.contains(["board_id"]))
+        // Other shapes' offsets are untouched.
+        let untouched = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "needs_refetch" FROM "electric_offsets" WHERE "shape" = 'issues'
+                    """
+            )
+        }
+        XCTAssertEqual(untouched?["handle"] as String?, "h")
+        XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
+    }
+
     // The end-state schema must expose the tables + key columns sync writes to,
     // so a green migration can't silently produce the wrong shape. This pins
     // the EXP-180 rename: teams/boards/team_members/team_invites exist, the
@@ -788,7 +835,8 @@ final class DatabaseMigrationTests: XCTestCase {
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
-                      "automations", "issue_statuses", "pins", "electric_offsets"] {
+                      "automations", "issue_statuses", "pins", "issue_drafts",
+                      "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -879,6 +927,23 @@ final class DatabaseMigrationTests: XCTestCase {
             ["id", "user_id", "team_id", "kind", "issue_id", "session_id",
              "action_id", "sort_order", "created_at", "updated_at"]
         )
+
+        // EXP-878: issue drafts are per-user (22nd shape) — the board the
+        // draft files into, the fields the compose page owns, and the uuid[]
+        // label list stored as text like devices.shared_team_ids.
+        let draftCols = try columnNames(pool, "issue_drafts")
+        XCTAssertEqual(
+            draftCols,
+            ["id", "user_id", "team_id", "board_id", "title", "description",
+             "status_id", "priority", "assignee_id", "label_ids", "due_date",
+             "created_at", "updated_at"]
+        )
+        // status_id is NULLABLE: NULL means the team's Backlog builtin.
+        let draftStatusId = try pool.read { db in
+            try db.columns(in: "issue_drafts").first { $0.name == "status_id" }
+        }
+        XCTAssertNotNil(draftStatusId)
+        XCTAssertFalse(draftStatusId?.isNotNull ?? true)
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
         // plus the nullable `status_id` on issues. `issues.status` STAYS as the

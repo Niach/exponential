@@ -60,6 +60,29 @@ async function attachImage(
     mimeType: `image/png`,
     buffer: PNG_BUFFER,
   })
+  // EXP-878: uploads are EAGER now — in the create dialog they go to the
+  // draft's own route and the FINAL attachment URL is what lands in the
+  // description. Wait for that, or the next click races an in-flight upload
+  // (submit is blocked while one is running).
+  await expect(dialog.locator(`img.editor-image`).last()).toHaveAttribute(
+    `src`,
+    /\/api\/attachments\//,
+    { timeout: 20_000 }
+  )
+}
+
+/**
+ * EXP-878: a create LANDS on the issue it just filed. Every board-list
+ * assertion that used to follow a create has to step back explicitly — and
+ * asserting the landing on the way past is the cheapest coverage of it.
+ */
+async function backToBoardAfterCreate(page: Page, app: AppFixture) {
+  await expect(page).toHaveURL(
+    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/issues/`)
+  )
+  await page.goBack()
+  await page.reload()
+  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
 }
 
 test(`creates and edits an issue through the shared issue editor`, async ({
@@ -98,8 +121,7 @@ test(`creates and edits an issue through the shared issue editor`, async ({
 
   await createDialog.getByRole(`button`, { name: `Create issue` }).click()
   await expect(createDialog).toBeHidden()
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+  await backToBoardAfterCreate(page, app)
 
   const createdRow = page
     .locator(`[data-testid^="issue-row-"]`)
@@ -228,17 +250,18 @@ test(`uploads create-time images, shows them in the footer rail, and removes the
   await replaceIssueDescription(page, createDialog, app.issueDescription)
   await attachImage(page, createDialog)
 
+  // EXP-878: the create dialog uploads eagerly into its DRAFT, so the image
+  // is already a real attachment before the issue exists — no blob: URL, and
+  // nothing left to upload after the create.
   const draftImage = createDialog.locator(`img.editor-image`)
   await expect(draftImage).toHaveCount(1)
-  await expect(draftImage).toHaveAttribute(`src`, /^blob:/)
+  await expect(draftImage).toHaveAttribute(`src`, /\/api\/attachments\//)
   // EXP-586: images render inline only — no chip row, no count.
   await expect(createDialog.getByTestId(`issue-attachment-rail`)).toHaveCount(0)
 
   await createDialog.getByRole(`button`, { name: `Create issue` }).click()
   await expect(createDialog).toBeHidden()
-
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+  await backToBoardAfterCreate(page, app)
 
   const createdRow = page
     .locator(`[data-testid^="issue-row-"]`)
@@ -311,9 +334,7 @@ test(`removes uploaded images from the inline hover control`, async ({
   await attachImage(page, createDialog)
   await createDialog.getByRole(`button`, { name: `Create issue` }).click()
   await expect(createDialog).toBeHidden()
-
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+  await backToBoardAfterCreate(page, app)
 
   const createdRow = page
     .locator(`[data-testid^="issue-row-"]`)

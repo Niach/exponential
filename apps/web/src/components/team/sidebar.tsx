@@ -22,6 +22,7 @@ import { TeamListNav } from "@/components/team/list-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import {
   AgentRunningBadge,
+  DraftsCountBadge,
   InboxUnreadBadge,
   ReviewsOpenBadge,
   SupportUnreadBadge,
@@ -30,6 +31,7 @@ import {
   UserMenuItems,
 } from "@/components/team/sidebar-rail"
 import { TeamAvatar } from "@/components/team/team-avatar"
+import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { panelOffset } from "@/lib/detail-origin"
 import { FeedbackButton } from "@/components/feedback-button"
@@ -73,6 +75,7 @@ const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
+const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -126,6 +129,8 @@ export function TeamSidebar({
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const { myTeams } = useTeamMemberships(session?.user?.id)
+  // EXP-878: the Drafts entry exists only while there IS a draft.
+  const draftCount = useDraftEntries(team?.id).length
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -324,6 +329,21 @@ export function TeamSidebar({
                           </SidebarMenuButton>
                           <InboxUnreadBadge placement="row" />
                         </SidebarMenuItem>
+                        {/* EXP-878: Drafts sits directly after Inbox and
+                            exists only while the caller HAS a draft — a
+                            permanent entry for a surface that is empty
+                            almost always would be noise. */}
+                        {draftCount > 0 && (
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                              <Link to="/t/$teamSlug/drafts" params={{ teamSlug }}>
+                                <NavDraftsIcon className="h-4 w-4" />
+                                <span>Drafts</span>
+                              </Link>
+                            </SidebarMenuButton>
+                            <DraftsCountBadge teamId={team?.id} placement="row" />
+                          </SidebarMenuItem>
+                        )}
                         {team?.helpdeskEnabled === true && (
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>

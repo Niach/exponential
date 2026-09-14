@@ -38,7 +38,6 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
   GlassSectionHeader,
-  GlassToggleRow,
 } from "@/components/ui/glass-rows"
 import { Pill } from "@/components/ui/pill"
 
@@ -104,10 +103,6 @@ export interface IssueEditorMobilePropertiesProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
-  /** EXP-698 r4 (create only): keep the form open after a create. Absent =
-   * no toggle row at all, which is what the edit surfaces want. */
-  createMore?: boolean
-  onCreateMoreChange?: (next: boolean) => void
 }
 
 export function IssueEditorMobileProperties({
@@ -129,8 +124,6 @@ export function IssueEditorMobileProperties({
   onAssigneeChange,
   onToggleLabel,
   onDueDateSelect,
-  createMore,
-  onCreateMoreChange,
 }: IssueEditorMobilePropertiesProps) {
   const { options, byId } = useTeamStatusesContext()
   // Only queried when the Board row is asked for (`undefined` skips it).
@@ -356,19 +349,6 @@ export function IssueEditorMobileProperties({
       </div>
 
       {relations && <MobileRelationsSection {...relations} />}
-
-      {/* Android/iOS order: properties card, labels, then the bare
-          "Create more" row (no card of its own). */}
-      {onCreateMoreChange && (
-        <GlassToggleRow
-          id="issue-editor-create-more"
-          label="Create more"
-          checked={createMore === true}
-          disabled={disabled}
-          onCheckedChange={onCreateMoreChange}
-          className="px-4"
-        />
-      )}
     </div>
   )
 }
