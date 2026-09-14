@@ -339,8 +339,11 @@ describe(`component stylesheet`, () => {
     }
   })
 
-  test(`every radius is a ladder step, a capsule or a circle`, () => {
-    const allowed = /^(var\(--r-(sm|md|lg|xl|xl2|xl3)\)|9999px|50%|0)$/
+  test(`every radius is a ladder step, a capsule, a circle or the chip corner`, () => {
+    // `--r-chip` is the ONE sub-ladder corner (EXP-885): the issue chip's 6px,
+    // mirrored from the web's `.issue-chip` and named in styles.ts — never a
+    // literal in a demo.
+    const allowed = /^(var\(--r-(chip|sm|md|lg|xl|xl2|xl3)\)|9999px|50%|0)$/
     for (const match of css.matchAll(/border-radius:\s*([^;}]+)/g)) {
       for (const token of match[1]!.trim().split(/[\s/]+/)) {
         expect(allowed.test(token) ? token : `bad radius "${token}"`).toBe(token)

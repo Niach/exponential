@@ -31,6 +31,7 @@ import {
   svgCheck,
   svgChevronDown,
   svgChevronRight,
+  svgCircleCheck,
   svgCircleDashed,
   svgCircleHelp,
   svgCircleUser,
@@ -263,6 +264,36 @@ function pill(label: string, options: PillOptions = {}): string {
     glyph ?? ``,
     `<span class="label">${escapeHtml(label)}</span>`,
     `</${tag}>`,
+  ].join(``)
+}
+
+/**
+ * The issue chip (EXP-885) — a BADGE, not a control. It names ONE issue and
+ * the only thing its body does is open it; the ✕ is the composer's, and it
+ * lives INSIDE the box. Not a pill: a pill carries a label, this carries an
+ * issue, which is why it is a rounded RECT on every client.
+ */
+interface IssueChipOptions {
+  /** The status glyph — `backlog`'s dashed circle unless said otherwise. */
+  glyph?: string
+  /** Tints that glyph. The default is the muted backlog grey. */
+  status?: `backlog` | `done`
+  /** Composers only: the trailing ✕ inside the chip. */
+  remove?: boolean
+}
+
+function issueChip(identifier: string, title: string, options: IssueChipOptions = {}): string {
+  const { glyph = svgCircleDashed, status = `backlog`, remove = false } = options
+  return [
+    `<span class="cmp-issue-chip"`,
+    status === `backlog` ? `` : ` data-status="${status}"`,
+    remove ? ` data-removable` : ``,
+    `>`,
+    glyph,
+    `<span class="id">${escapeHtml(identifier)}</span>`,
+    `<span class="title">${escapeHtml(title)}</span>`,
+    remove ? `<span class="close">${svgX}</span>` : ``,
+    `</span>`,
   ].join(``)
 }
 
@@ -771,6 +802,29 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         pill(`Create issue`, { size: `md`, primary: true }),
         pill(`Watch`, { primary: true, glyph: svgPlay }),
         `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `issue-chip`,
+    title: `Issue chip`,
+    kind: `Controls`,
+    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift.`,
+    status: {
+      web: ok(`IssueChip`, `apps/web/src/components/issue-chip.tsx`),
+      desktop: ok(`issue_chip`, `apps/desktop/crates/ui/src/issue_chip.rs`),
+      ios: ok(`IssueChip`, `apps/ios/ExpUI/Sources/IssueChip.swift`),
+      android: ok(`IssueChip`, `${ANDROID_COMPONENTS}/IssueChip.kt`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-inline">`,
+        issueChip(`EXP-885`, `One issue chip per platform`),
+        issueChip(`EXP-469`, `Status glyph padding`, { remove: true }),
+        issueChip(`EXP-423`, `The chip is a rounded rect on every client, and a long title truncates`, {
+          glyph: svgCircleCheck,
+          status: `done`,
+        }),
         `</div>`,
       ].join(``),
   },
