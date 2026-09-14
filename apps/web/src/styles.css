@@ -586,13 +586,31 @@ html {
   gap: 0.5rem;
 }
 
+/* EXP-877: the box is centred on the FIRST text line (1.625 line-height),
+   the way the IDE's editor lays it out. The item's paragraph gives up its own
+   vertical margins (they pushed the text 8px under a top-aligned box); the
+   0.5rem rhythm between items moves onto the `li`. */
+.tiptap-content ul[data-type="taskList"] li {
+  margin: 0.5rem 0;
+}
+
 .tiptap-content ul[data-type="taskList"] li > label {
-  margin-top: 0.2rem;
+  display: flex;
+  align-items: center;
+  height: 1.625em;
   user-select: none;
 }
 
 .tiptap-content ul[data-type="taskList"] li > div {
   flex: 1 1 auto;
+}
+
+.tiptap-content ul[data-type="taskList"] li > div > :first-child {
+  margin-top: 0;
+}
+
+.tiptap-content ul[data-type="taskList"] li > div > :last-child {
+  margin-bottom: 0;
 }
 
 .tiptap-content ul[data-type="taskList"] input[type="checkbox"] {

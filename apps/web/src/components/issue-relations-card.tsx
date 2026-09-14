@@ -334,7 +334,7 @@ export function IssueRelationsSection({
   if (rows.length === 0) return null
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-3">
+    <div className="mx-auto w-full max-w-4xl px-4 pt-3">
       <IssueRelationGroups rows={rows} readOnly={readOnly} />
     </div>
   )

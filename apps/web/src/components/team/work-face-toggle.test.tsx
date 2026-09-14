@@ -1,0 +1,101 @@
+import { fireEvent, render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+import {
+  DiffFaceLabel,
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+  WorkFaceToggle,
+} from "@/components/team/work-face-toggle"
+import { RUN_TITLE_CLASS, WorkHeader } from "@/components/work-header"
+import { ISSUE_TITLE_FIELD_CLASS } from "@/components/issue-title-field"
+import {
+  MERGE_PR_LABEL,
+  RESUME_LABEL,
+  STOP_LABEL,
+} from "@/components/run-action-pills"
+
+// EXP-877: the unified work header's face toggle — byte-identical labels
+// with the IDE (`work_header.rs`), hidden faces rather than disabled ones,
+// and no control at all under two faces.
+
+describe(`WorkFaceToggle`, () => {
+  it(`renders nothing under two faces`, () => {
+    const { container } = render(
+      <WorkFaceToggle
+        face="issue"
+        items={[{ face: `issue`, label: ISSUE_FACE_LABEL, onSelect: vi.fn() }]}
+      />
+    )
+    expect(container.innerHTML).toBe(``)
+  })
+
+  it(`lists only the faces it is given and selects by face`, () => {
+    const onRun = vi.fn()
+    render(
+      <WorkFaceToggle
+        face="issue"
+        items={[
+          { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: vi.fn() },
+          { face: `run`, label: RUN_FACE_LABEL, onSelect: onRun },
+        ]}
+      />
+    )
+    expect(screen.getByTestId(`work-face-toggle`)).toBeTruthy()
+    expect(screen.getByText(`Issue`)).toBeTruthy()
+    expect(screen.getByText(`Run`)).toBeTruthy()
+    expect(screen.queryByText(/^\+\d+ -\d+$/)).toBeNull()
+    fireEvent.mouseDown(screen.getByText(`Run`))
+    fireEvent.click(screen.getByText(`Run`))
+    expect(onRun).toHaveBeenCalled()
+  })
+
+  it(`the diff face is the mono +N -M with an ASCII minus and no glyph`, () => {
+    const { container } = render(
+      <DiffFaceLabel additions={12} deletions={3} />
+    )
+    expect(container.textContent).toBe(`+12 -3`)
+    expect(container.querySelector(`svg`)).toBeNull()
+    expect(container.querySelector(`.font-mono`)).not.toBeNull()
+    expect(container.querySelector(`.text-emerald-400`)?.textContent).toBe(`+12`)
+    expect(container.querySelector(`.text-rose-400`)?.textContent).toBe(`-3`)
+  })
+})
+
+describe(`WorkHeader`, () => {
+  it(`is the fixed band with the title, the trailing cluster and the tray`, () => {
+    render(
+      <WorkHeader
+        title={<h1 className={RUN_TITLE_CLASS}>Chat</h1>}
+        trailing={<button type="button">act</button>}
+        tray={<div data-testid="tray" />}
+      />
+    )
+    const header = screen.getByTestId(`work-header`)
+    expect(header.className).toContain(`shrink-0`)
+    expect(header.querySelector(`.max-w-4xl`)).not.toBeNull()
+    expect(screen.getByText(`Chat`)).toBeTruthy()
+    expect(screen.getByText(`act`)).toBeTruthy()
+    expect(screen.getByTestId(`tray`)).toBeTruthy()
+  })
+
+  it(`a run title shares the issue title field's size and padding`, () => {
+    // The baseline must not move when the face flips: every size/padding
+    // token of the Textarea appears on the static title too.
+    for (const token of [`text-2xl`, `font-semibold`, `px-5`, `pt-4`, `pb-1`]) {
+      expect(RUN_TITLE_CLASS.split(/\s+/)).toContain(token)
+      expect(
+        ISSUE_TITLE_FIELD_CLASS.split(/\s+/).map((t) => t.replace(/^!/, ``))
+      ).toContain(token)
+    }
+  })
+})
+
+describe(`shared strings (×2 with the IDE)`, () => {
+  it(`are byte-identical`, () => {
+    expect(ISSUE_FACE_LABEL).toBe(`Issue`)
+    expect(RUN_FACE_LABEL).toBe(`Run`)
+    expect(STOP_LABEL).toBe(`Stop`)
+    expect(RESUME_LABEL).toBe(`Resume`)
+    expect(MERGE_PR_LABEL).toBe(`Merge PR`)
+  })
+})

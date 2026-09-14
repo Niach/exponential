@@ -1937,26 +1937,18 @@ impl Render for StartCodingControl {
         if !self.is_visible(cx) {
             return div().into_any_element();
         }
-        let Some(issue_id) = self.issue_id.clone() else {
+        if self.issue_id.is_none() {
             return div().into_any_element();
-        };
+        }
         // Lazy kicks: the hub (doctor) exists once anything coding renders;
         // the probe follows the current issue.
         let _ = CodingHub::global(cx);
         self.ensure_probe(cx);
 
-        // EXP-818: a run this process hosts is entered through the SAME
-        // Watch pill a remote run gets (`issue_detail::coding_now_slot`) —
-        // the session's own screen carries Stop; the tray only leads there.
-        // (The "Coding… / Stop" pair this control used to grow is gone.)
-        let local_session_id = LocalSessions::global(cx)
-            .read(cx)
-            .get(&issue_id)
-            .map(|session| session.session_id.clone());
-        if let Some(session_id) = local_session_id {
-            return crate::issue_detail::watch_pill("start-coding-watch", session_id, cx)
-                .into_any_element();
-        }
+        // EXP-877: this control is ONLY the launcher. A live run of mine puts
+        // Stop in this slot and an ended resumable one Resume — the header
+        // derives that from the run state (`work_header::coding_action`)
+        // and never asks this control while it does.
 
         // EXP-417: the primary action of the header's agent row — a solid
         // content-sized button; the repo-less retry sits beside it as a

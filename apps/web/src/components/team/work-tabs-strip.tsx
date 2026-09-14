@@ -15,15 +15,22 @@ import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import {
   closeTabs,
-  liveSig,
-  orderedTabs,
-  partitionTabs,
+  groupedTabs,
+  partitionUnits,
   routePathFromLocation,
   tabHref,
+  tabIsLive,
   tabKey,
   type WorkTab,
 } from "@/lib/work-tabs"
-import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
+import {
+  setTabGroupCollapsed,
+  updateWorkTabs,
+  useCollapsedTabGroups,
+  useWorkTabs,
+} from "@/hooks/use-work-tabs"
+import { agentLabel } from "@/components/agent-picker"
+import { AgentBrandMark } from "@/components/agent-brand-mark"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { Button } from "@/components/ui/button"
@@ -45,18 +52,24 @@ import {
 // their tab bar). The model is `lib/work-tabs.ts`, the writer
 // `work-tabs-sync.tsx`; this only draws it:
 //
-//   * chips in `orderedTabs` order (live runs first), the ACTIVE one derived
+//   * EXP-877: the LIVE runs come first, GROUPED BY AGENT (`groupedTabs`) —
+//     each group is its brand mark, its chips, then a `<` that folds the group
+//     down to the mark alone (per team, per window). Navigating to a chip in a
+//     folded group unfolds it, so the active chip is never hidden.
+//   * the ordinary tabs follow in their stored order, the ACTIVE one derived
 //     from the URL — never stored;
-//   * a chip's lead is the run's state (amber waiting on you, green PR open,
-//     the ping while the agent works) or, without a live run, the issue's
-//     status glyph / a muted dot;
-//   * right-click: Close / Close others / Close all — closing a live run's tab
-//     hides it until its state changes and NEVER stops the run;
+//   * a chip's lead is the live run's state dot (the ping while the agent
+//     works), else the issue's status glyph, else a muted dot;
+//   * a LIVE chip cannot be closed at all (EXP-877): no ×, no Close, and
+//     Close others / Close all pass over it;
 //   * chips that do not fit collapse into a trailing "+N" menu
-//     (`partitionTabs`, measured against the real chips).
+//     (`partitionUnits`, measured against the real chips; the group marks
+//     and chevrons are always drawn, and a folded chip measures zero and
+//     never reaches that menu).
 
 const UiCloseIcon = conceptIcon(`ui-close`)
 const NavSupportIcon = conceptIcon(`nav-support`)
+const UiChevronLeftIcon = conceptIcon(`ui-chevron-left`)
 
 interface ChipModel {
   key: string
@@ -64,7 +77,18 @@ interface ChipModel {
   identifier: string | null
   title: string
   lead: React.ReactNode
+  /** EXP-877: a live chip is permanent — no ×, no Close. */
+  live: boolean
+  /** Inside a folded group: mounted at zero width, out of reach. */
+  folded: boolean
 }
+
+/** One thing the strip lays out, in order. Group marks and chevrons are
+ *  measured exactly like chips so the overflow packing keeps working. */
+type StripUnit =
+  | { kind: `group`; agent: string; collapsed: boolean }
+  | { kind: `chip`; chip: ChipModel }
+  | { kind: `chevron`; agent: string }
 
 /** Support thread subjects, fetched once per thread per page load — the
  *  helpdesk tables are server-only (never synced). */
@@ -109,23 +133,27 @@ export function WorkTabsStrip({
 }) {
   const navigate = useNavigate()
   const state = useWorkTabs(teamId)
-  const tabs = useMemo(() => orderedTabs(state.tabs), [state.tabs])
+  const collapsedGroups = useCollapsedTabGroups(teamId)
 
   const issueIds = useMemo(
     () =>
-      [...new Set(tabs.flatMap((tab) => (tab.kind === `issue` ? [tab.issueId] : [])))].sort(),
-    [tabs]
+      [
+        ...new Set(
+          state.tabs.flatMap((tab) => (tab.kind === `issue` ? [tab.issueId] : []))
+        ),
+      ].sort(),
+    [state.tabs]
   )
   const runIds = useMemo(
     () =>
       [
         ...new Set(
-          tabs.flatMap((tab) =>
+          state.tabs.flatMap((tab) =>
             tab.kind !== `support` && tab.runId ? [tab.runId] : []
           )
         ),
       ].sort(),
-    [tabs]
+    [state.tabs]
   )
   const { data: issueRows } = useLiveQuery(
     (query) =>
@@ -159,6 +187,21 @@ export function WorkTabsStrip({
     [boards]
   )
 
+  // EXP-877: the live tabs by agent (contract order), then everything else.
+  const { groups, rest } = useMemo(
+    () =>
+      groupedTabs(state.tabs, (tab) =>
+        tab.kind !== `support` && tab.runId
+          ? (runsById.get(tab.runId)?.agent ?? null)
+          : null
+      ),
+    [state.tabs, runsById]
+  )
+  const tabs = useMemo(
+    () => [...groups.flatMap((group) => group.tabs), ...rest],
+    [groups, rest]
+  )
+
   // The active tab, off the URL alone.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeKey = useMemo(() => {
@@ -183,7 +226,27 @@ export function WorkTabsStrip({
     return match ? tabKey(match) : null
   }, [pathname, tabs, issuesById, boardSlugById])
 
-  const chips: ChipModel[] = tabs.map((tab) => {
+  // A live tab that becomes ACTIVE unfolds its group — and only then, so a
+  // group folded by hand while reading one of its runs stays folded.
+  const activeGroupAgent = useMemo(() => {
+    const group = groups.find((entry) =>
+      entry.tabs.some((tab) => tabKey(tab) === activeKey)
+    )
+    return group?.agent ?? null
+  }, [activeKey, groups])
+  // `activeKey` is a dependency in its own right: moving between two runs of
+  // the SAME agent must unfold that group again, and on a cold load the runs
+  // have not synced their agent yet — every live tab reads as claude until
+  // they do, so the effect has to fire again when the real one resolves.
+  useEffect(() => {
+    if (activeGroupAgent) setTabGroupCollapsed(teamId, activeGroupAgent, false)
+  }, [teamId, activeKey, activeGroupAgent])
+
+  const collapsedSet = useMemo(
+    () => new Set(collapsedGroups),
+    [collapsedGroups]
+  )
+  const chipOf = (tab: WorkTab, folded: boolean): ChipModel => {
     const key = tabKey(tab)
     if (tab.kind === `support`) {
       return {
@@ -192,6 +255,8 @@ export function WorkTabsStrip({
         identifier: null,
         title: ``,
         lead: <NavSupportIcon className="size-3.5 text-muted-foreground" />,
+        live: false,
+        folded,
       }
     }
     const run = tab.runId ? runsById.get(tab.runId) : undefined
@@ -207,10 +272,24 @@ export function WorkTabsStrip({
       identifier: identity.identifier,
       title: identity.subject,
       lead: <ChipLead tab={tab} run={run} issue={issue} />,
+      live: tabIsLive(tab),
+      folded,
     }
-  })
+  }
 
-  // ── Overflow: measure every chip in a hidden row, pack the visible ones.
+  const units: StripUnit[] = []
+  for (const group of groups) {
+    const collapsed = collapsedSet.has(group.agent)
+    units.push({ kind: `group`, agent: group.agent, collapsed })
+    for (const tab of group.tabs) {
+      units.push({ kind: `chip`, chip: chipOf(tab, collapsed) })
+    }
+    if (!collapsed) units.push({ kind: `chevron`, agent: group.agent })
+  }
+  for (const tab of rest) units.push({ kind: `chip`, chip: chipOf(tab, false) })
+  const chips = units.flatMap((unit) => (unit.kind === `chip` ? [unit.chip] : []))
+
+  // ── Overflow: measure every unit in a hidden row, pack the visible ones.
   const containerRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
   const overflowMeasureRef = useRef<HTMLButtonElement>(null)
@@ -220,9 +299,15 @@ export function WorkTabsStrip({
   // `gap-1` is rem-based and the md+ root font is 1.15625rem, so the gap is
   // measured too rather than assumed.
   const [gap, setGap] = useState(4)
-  const chipSignature = chips.map((chip) => `${chip.key}|${chip.title}`).join(`\n`)
+  const chipSignature = units
+    .map((unit) =>
+      unit.kind === `chip`
+        ? `${unit.chip.key}|${unit.chip.title}|${unit.chip.folded ? `-` : `+`}`
+        : `${unit.kind}:${unit.agent}`
+    )
+    .join(`\n`)
 
-  const hasChips = chips.length > 0
+  const hasChips = units.length > 0
   const measureChips = () => {
     const node = measureRef.current
     if (!node) return
@@ -239,12 +324,12 @@ export function WorkTabsStrip({
     }
   }
 
-  // Re-measure when the chip set changes (before paint, so a new tab never
+  // Re-measure when the unit set changes (before paint, so a new tab never
   // flashes past the edge)…
   useLayoutEffect(measureChips, [chipSignature])
 
   // …and whenever the strip or a chip resizes: a window resize, the sidebar
-  // width change, a support subject that arrives late.
+  // width change, a group folding shut, a support subject that arrives late.
   useEffect(() => {
     const container = containerRef.current
     const measure = measureRef.current
@@ -264,30 +349,41 @@ export function WorkTabsStrip({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasChips])
 
-  const activeIndex = chips.findIndex((chip) => chip.key === activeKey)
+  const activeIndex = units.findIndex(
+    (unit) => unit.kind === `chip` && unit.chip.key === activeKey
+  )
+  // Only the UNFOLDED chips are packed: a group's mark and its chevron are
+  // always drawn (a mark past the break would strand its whole group, and the
+  // chevron is what makes room), and a folded chip is mounted at zero width.
+  const packedUnit = (unit: StripUnit) =>
+    unit.kind === `chip` && !unit.chip.folded
   const visible = useMemo(() => {
-    if (widths.length !== chips.length || available === 0) {
-      return chips.map((_, index) => index)
+    if (widths.length !== units.length || available === 0) {
+      return units.map((_, index) => index)
     }
-    return partitionTabs(
-      widths,
+    return partitionUnits(
+      units.map((unit, index) => ({
+        packed: packedUnit(unit),
+        width: widths[index]!,
+      })),
       available,
       gap,
       overflowW,
       activeIndex < 0 ? null : activeIndex
     )
-    // chips are rebuilt every render; their identity is `chipSignature`.
+    // units are rebuilt every render; their identity is `chipSignature`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widths, available, gap, overflowW, activeIndex, chipSignature])
   const visibleSet = new Set(visible)
-  const hidden = chips.filter((_, index) => !visibleSet.has(index))
+  // A folded chip is mounted at zero width, never a "+N" row.
+  const hidden = units.flatMap((unit, index) =>
+    packedUnit(unit) && !visibleSet.has(index)
+      ? [(unit as { chip: ChipModel }).chip]
+      : []
+  )
 
-  const sigOf = (runId: string) => {
-    const run = runsById.get(runId)
-    return run && run.status !== `ended` ? liveSig(run, new Date()) : null
-  }
   const close = (keys: string[]) =>
-    updateWorkTabs(teamId, (current) => closeTabs(current, keys, sigOf))
+    updateWorkTabs(teamId, (current) => closeTabs(current, keys))
 
   const open = (tab: WorkTab) => {
     const href = tabHref(teamSlug, tab, (issueId) => {
@@ -300,29 +396,34 @@ export function WorkTabsStrip({
     if (href) void navigate(href as never)
   }
 
-  if (chips.length === 0) return null
+  if (units.length === 0) return null
 
-  const allKeys = chips.map((chip) => chip.key)
+  // Close others / Close all never reach a live chip (`closeTabs` enforces it
+  // too — this only keeps the menu honest).
+  const closableKeys = chips
+    .filter((chip) => !chip.live)
+    .map((chip) => chip.key)
   const renderChip = (chip: ChipModel, interactive: boolean) => {
     const active = chip.key === activeKey
+    const reachable = interactive && !chip.folded
     const body = (
       <div
         key={chip.key}
-        data-testid={interactive ? `work-tab-${chip.key}` : undefined}
+        data-testid={reachable ? `work-tab-${chip.key}` : undefined}
         data-active={active || undefined}
         className={cn(
           `group/tab flex h-8 max-w-[15rem] shrink-0 items-center rounded-md border border-transparent`,
           active
-            ? `border-glass-stroke-card bg-glass-panel text-foreground`
+            ? `border-glass-stroke-card bg-glass-active text-foreground`
             : `text-muted-foreground hover:bg-glass-active hover:text-foreground`
         )}
       >
         <Button
           variant="ghost"
           size="sm"
-          tabIndex={interactive ? undefined : -1}
+          tabIndex={reachable ? undefined : -1}
           className="h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pr-1 pl-2 font-normal"
-          onClick={interactive ? () => open(chip.tab) : undefined}
+          onClick={reachable ? () => open(chip.tab) : undefined}
           aria-current={active ? `page` : undefined}
         >
           <span className="flex size-3.5 shrink-0 items-center justify-center">
@@ -341,33 +442,104 @@ export function WorkTabsStrip({
             )}
           </span>
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          tabIndex={interactive ? undefined : -1}
-          className="mr-1 shrink-0"
-          aria-label="Close tab"
-          onClick={interactive ? () => close([chip.key]) : undefined}
-        >
-          <UiCloseIcon />
-        </Button>
+        {/* EXP-877: a live run's tab is permanent — it has no close button at
+            all, and its context menu offers no Close. */}
+        {!chip.live && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            tabIndex={reachable ? undefined : -1}
+            className="mr-1 shrink-0"
+            aria-label="Close tab"
+            onClick={reachable ? () => close([chip.key]) : undefined}
+          >
+            <UiCloseIcon />
+          </Button>
+        )}
       </div>
     )
-    if (!interactive) return body
+    // The fold: a grid track that slides from 1fr to 0fr, so the chips of a
+    // folded group take no width at all (and never reach the "+N" menu).
+    const wrapped = (
+      <div
+        key={chip.key}
+        aria-hidden={chip.folded || undefined}
+        inert={chip.folded || undefined}
+        className={cn(
+          `grid min-w-0 shrink-0 overflow-hidden transition-[grid-template-columns,opacity] duration-standard ease-standard motion-reduce:transition-none`,
+          chip.folded ? `grid-cols-[0fr] opacity-0` : `grid-cols-[1fr] opacity-100`
+        )}
+      >
+        <div className="min-w-0">{body}</div>
+      </div>
+    )
+    if (!reachable) return wrapped
     return (
       <ContextMenu key={chip.key}>
-        <ContextMenuTrigger asChild>{body}</ContextMenuTrigger>
+        <ContextMenuTrigger asChild>{wrapped}</ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => close([chip.key])}>Close</ContextMenuItem>
+          {!chip.live && (
+            <ContextMenuItem onSelect={() => close([chip.key])}>
+              Close
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
-            disabled={chips.length < 2}
-            onSelect={() => close(allKeys.filter((key) => key !== chip.key))}
+            disabled={closableKeys.filter((key) => key !== chip.key).length === 0}
+            onSelect={() => close(closableKeys.filter((key) => key !== chip.key))}
           >
             Close others
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => close(allKeys)}>Close all</ContextMenuItem>
+          <ContextMenuItem
+            disabled={closableKeys.length === 0}
+            onSelect={() => close(closableKeys)}
+          >
+            Close all
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+    )
+  }
+
+  const renderUnit = (unit: StripUnit, index: number, interactive: boolean) => {
+    if (unit.kind === `chip`) return renderChip(unit.chip, interactive)
+    if (unit.kind === `group`) {
+      return (
+        <Button
+          key={`group:${unit.agent}`}
+          variant="ghost"
+          size="icon-xs"
+          tabIndex={interactive ? undefined : -1}
+          className="shrink-0"
+          aria-expanded={!unit.collapsed}
+          aria-label={`${agentLabel(unit.agent)} runs`}
+          title={`${agentLabel(unit.agent)} runs`}
+          onClick={
+            interactive
+              ? () => setTabGroupCollapsed(teamId, unit.agent, !unit.collapsed)
+              : undefined
+          }
+        >
+          <AgentBrandMark agent={unit.agent} className="size-3.5" />
+        </Button>
+      )
+    }
+    return (
+      <Button
+        key={`chevron:${unit.agent}:${index}`}
+        variant="ghost"
+        size="icon-xs"
+        tabIndex={interactive ? undefined : -1}
+        className="shrink-0 text-muted-foreground"
+        aria-label="Collapse"
+        title="Collapse"
+        onClick={
+          interactive
+            ? () => setTabGroupCollapsed(teamId, unit.agent, true)
+            : undefined
+        }
+      >
+        <UiChevronLeftIcon />
+      </Button>
     )
   }
 
@@ -376,7 +548,7 @@ export function WorkTabsStrip({
       className="relative flex h-full min-w-0 flex-1 items-center"
       data-testid="work-tabs-strip"
     >
-      {/* The measurement row: every chip at its natural width, invisible and
+      {/* The measurement row: every unit at its natural width, invisible and
           out of the tab order and the accessibility tree. */}
       <div
         ref={measureRef}
@@ -384,7 +556,7 @@ export function WorkTabsStrip({
         inert
         className="pointer-events-none invisible absolute top-0 left-0 flex w-max gap-1"
       >
-        {chips.map((chip) => renderChip(chip, false))}
+        {units.map((unit, index) => renderUnit(unit, index, false))}
       </div>
       <Button
         ref={overflowMeasureRef}
@@ -398,8 +570,8 @@ export function WorkTabsStrip({
       </Button>
 
       <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1">
-        {chips.map((chip, index) =>
-          visibleSet.has(index) ? renderChip(chip, true) : null
+        {units.map((unit, index) =>
+          visibleSet.has(index) ? renderUnit(unit, index, true) : null
         )}
         {hidden.length > 0 && (
           <DropdownMenu>
@@ -441,9 +613,9 @@ export function WorkTabsStrip({
   )
 }
 
-/** A chip's lead glyph (the desktop's `live_chip_state` precedence): a live
- *  run waiting on you amber, with its PR open green, working the ping, idle
- *  the steady dot; else the issue's status glyph, or a muted dot. */
+/** A chip's lead glyph: a live run's state dot (the EXP-848 ping while the
+ *  agent works), else the issue's status glyph, else a muted dot for an ended
+ *  run that has no issue behind it. */
 function ChipLead({
   tab,
   run,
@@ -455,25 +627,13 @@ function ChipLead({
 }) {
   const live = tab.kind !== `support` && tab.live && run && run.status !== `ended`
   if (live) {
-    const sig = liveSig(run, new Date())
-    if (sig.attention) {
-      return <span className={`size-2 rounded-full ${SESSION_DOT_CLASS.needs_input}`} />
-    }
-    if (sig.review) {
-      return <span className={`size-2 rounded-full ${SESSION_DOT_CLASS.review}`} />
-    }
     const prState = issue?.prState ?? run.prState
-    if (sessionRowIsWorking(run, prState)) {
-      return (
-        <RunningIndicator
-          state={sessionDisplayState(run, prState)}
-          working
-        />
-      )
-    }
-    // A live run between turns keeps its steady dot, not the issue glyph
-    // (desktop `session_chip_content`).
-    return <span className={`size-2 rounded-full ${SESSION_DOT_CLASS.running}`} />
+    return (
+      <RunningIndicator
+        state={sessionDisplayState(run, prState)}
+        working={sessionRowIsWorking(run, prState)}
+      />
+    )
   }
   if (issue) {
     return <IssueStatusIcon issue={issue} className="size-3.5!" />

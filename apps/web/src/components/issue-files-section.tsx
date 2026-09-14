@@ -153,7 +153,7 @@ export function IssueFilesSection({
     // EXP-698 r4: the same gutter the coding / PR cards use, so every card
     // down the reading column shares an edge.
     <div
-      className="mx-auto w-full max-w-3xl px-4 pt-3 pb-2"
+      className="mx-auto w-full max-w-4xl px-4 pt-3 pb-2"
       data-testid="issue-files-section"
     >
       <GlassSectionHeader

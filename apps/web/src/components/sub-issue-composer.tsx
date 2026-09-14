@@ -108,7 +108,7 @@ export function SubIssueComposer({
 
   if (!open) {
     return (
-      <div className="mx-auto w-full max-w-3xl px-4 pt-3">
+      <div className="mx-auto w-full max-w-4xl px-4 pt-3">
         <Button
           variant="ghost"
           size="sm"
@@ -123,7 +123,7 @@ export function SubIssueComposer({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-3">
+    <div className="mx-auto w-full max-w-4xl px-4 pt-3">
       <div className="flex flex-col gap-2 rounded-xl border border-glass-stroke-card bg-popover/40 p-3">
         <div className="flex min-w-0 items-center gap-2">
           <StatusIcon option={status} className="size-4 shrink-0" />

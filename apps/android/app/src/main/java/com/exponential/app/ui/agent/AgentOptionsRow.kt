@@ -49,6 +49,7 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.agentIconPainter
+import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
@@ -250,6 +251,7 @@ internal fun AgentPickerPill(
                     agentIconPainter(agent),
                     contentDescription = null,
                     modifier = Modifier.size(13.dp),
+                    tint = agentIconTint(agent),
                 )
             },
             trailing = if (enabled) {
@@ -297,6 +299,7 @@ internal fun AgentMenuItems(
                     agentIconPainter(option),
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
+                    tint = agentIconTint(option),
                 )
             },
             trailingIcon = if (option == selected) {

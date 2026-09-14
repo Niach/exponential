@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type * as React from "react"
-import { Files, Link2 } from "lucide-react"
+import { Files } from "lucide-react"
 import { toast } from "sonner"
 import { conceptIcon } from "@/lib/icons.generated"
 import { useNavigate } from "@tanstack/react-router"
@@ -9,10 +9,8 @@ import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
-  formatDateForMutation,
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
-  type IssuePriority,
 } from "@/lib/domain"
 import {
   uploadIssueFile,
@@ -27,60 +25,36 @@ import { isInlineMediaAttachment } from "@/lib/attachment-files"
 import { useSession } from "@/hooks/use-session"
 import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { IconTooltip } from "@/components/icon-tooltip"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Textarea } from "@/components/ui/textarea"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import { statusUpdatePayload } from "@/lib/team-statuses"
+import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 import {
   MarkdownEditor,
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
-import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
-import {
-  IssueRelationsSection,
-  RELATION_SIDES,
-  pickLabel,
-  useAddRelation,
-} from "@/components/issue-relations-card"
+import { IssueRelationsSection } from "@/components/issue-relations-card"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
 import { SubIssueComposer } from "@/components/sub-issue-composer"
-import { SessionMergeButton } from "@/components/session-merge-button"
-import { mergeTargetProps } from "@/hooks/use-agents-data"
-import { useIsTeamMember } from "@/components/issue-coding-rows"
-import { useSteerConfig } from "@/components/agent-session"
-import { DETAIL_STICKY_BAND_CLASS } from "@/components/team/app-shell"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
+import { IssueActionsMenu, issueUrlFor } from "@/components/issue-actions-menu"
+import { IssuePropertiesTray } from "@/components/issue-properties-tray"
+import { IssueTitleField } from "@/components/issue-title-field"
+import { WORK_COLUMN_CLASS, WorkHeader } from "@/components/work-header"
 
-const UiMoreIcon = conceptIcon(`ui-more`)
-const RelationSectionIcon = conceptIcon(`relation-section`)
-const UiDeleteIcon = conceptIcon(`ui-delete`)
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
 interface IssueDetailViewProps {
   issue: Issue
-  issueLabelIds: string[]
   users: User[]
   board: Board
   teamSlug: string
@@ -93,8 +67,8 @@ interface IssueDetailViewProps {
   /** The session→issue hop draws its own back-to-run header, so the issue's
    *  phone header would be a second bar on the same line. */
   showMobileHeader?: boolean
-  /** EXP-870: the md+ header's `Issue | Run` toggle (`WorkFaceToggle`) — the
-   *  issue and its run are one work tab with two faces. */
+  /** EXP-870/877: the md+ work header's face toggle (`WorkFaceToggle`) — the
+   *  issue and its run are one work tab with faces. */
   faceToggle?: React.ReactNode
 }
 
@@ -147,7 +121,6 @@ function DuplicateOfBanner({
 
 export function IssueDetailView({
   issue,
-  issueLabelIds,
   users,
   board,
   teamSlug,
@@ -186,7 +159,6 @@ export function IssueDetailView({
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
 
-  const [title, setTitle] = useState(issue.title)
   const [description, setDescription] = useState(
     getIssueDescriptionText(issue.description)
   )
@@ -197,52 +169,14 @@ export function IssueDetailView({
   // EXP-568: the floating phone bar steps aside while the description is being
   // written — the keyboard formatting rail owns the bottom edge then.
   const [descriptionFocused, setDescriptionFocused] = useState(false)
-  // The band's measured height feeds the editor's scroll-into-view insets so
-  // the caret never hides under it; a ResizeObserver tracks it live (the
-  // title wraps, the toolbar row wraps — the height is dynamic).
-  const [stickyBandHeight, setStickyBandHeight] = useState(0)
-  // Memoized so React attaches it exactly once. An inline callback is a new
-  // identity every render, which makes React detach and re-attach the ref on
-  // every commit — i.e. tear down and rebuild the observer on every keystroke
-  // in the title or the description. The returned cleanup is React 19's ref
-  // cleanup, so there is no `null` detach call to handle either.
-  const setStickyBand = useCallback((node: HTMLDivElement) => {
-    setStickyBandHeight(node.offsetHeight)
-    const observer = new ResizeObserver(() => {
-      setStickyBandHeight(node.offsetHeight)
-    })
-    observer.observe(node)
-    return () => {
-      observer.disconnect()
-      setStickyBandHeight(0)
-    }
-  }, [])
-
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const statusOption = resolveStatus(issue)
 
-  // EXP-760: Merge moved into the properties card, so this view owns the two
-  // signals SessionMergeButton needs — membership (the recovery run's launcher)
-  // and whether the relay is configured at all. The button self-hides unless
-  // the linked PR is open.
-  const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
-  const steerConfig = useSteerConfig()
-  const prOpen = issue.prState === `open`
-
-  // The "Add relation" flow behind the header `…` menu and the list row's
-  // context menu — one hook, one picker (issue-relations-card.tsx).
-  const addRelation = useAddRelation(issue.id)
-
-  const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
-    issueId: issue.id,
-    onStatusChange: async (next) => {
-      if (readOnly) return
-      await trpc.issues.update.mutate({
-        id: issue.id,
-        ...statusUpdatePayload(next),
-      })
-    },
-  })
+  // EXP-877: ONE definition per property mutation, shared with the session
+  // route's issue face (`use-issue-property-handlers.ts`); the hook also owns
+  // the issue's label ids and the duplicate-status picker.
+  const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
+  const { issueLabelIds, duplicatePicker } = handlers
 
   const incomingDescription = getIssueDescriptionText(issue.description)
   const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
@@ -274,7 +208,6 @@ export function IssueDetailView({
 
   // Full reset when navigating to a different issue.
   useEffect(() => {
-    setTitle(issue.title)
     applyIncomingDescription(incomingDescription)
     setAttachmentStatus(null)
   }, [issue.id])
@@ -288,14 +221,6 @@ export function IssueDetailView({
       .mutate({ issueId: issue.id })
       .catch(() => {})
   }, [issue.id])
-
-  // Sync title from Electric when another client changes it,
-  // but skip if the local value matches what we'd save (user is editing).
-  useEffect(() => {
-    if (issue.title !== title && issue.title !== title.trim()) {
-      setTitle(issue.title)
-    }
-  }, [issue.title])
 
   // Sync description from Electric when another client changes it — without
   // clobbering typing in progress. An incoming value the editor already shows
@@ -315,14 +240,6 @@ export function IssueDetailView({
     if (normalizedLocal !== lastSavedDescriptionRef.current) return
     applyIncomingDescription(incomingDescription)
   }, [normalizedIncoming])
-
-  const handleTitleBlur = async () => {
-    if (readOnly) return
-    const trimmed = title.trim()
-    if (trimmed && trimmed !== issue.title) {
-      await trpc.issues.update.mutate({ id: issue.id, title: trimmed })
-    }
-  }
 
   const queueDescriptionSave = async (nextDescription: string) => {
     if (readOnly) return
@@ -512,60 +429,9 @@ export function IssueDetailView({
     }
   }
 
-  // EXP-57: the server renumbers the issue in the target board, so both the
-  // board slug AND the identifier change — await the issues txId, then hop to
-  // the issue's new canonical URL. Shared by the properties picker and the
-  // phone `…` menu (EXP-687).
-  const handleBoardChange = async (boardId: string) => {
-    if (readOnly) return
-    const {
-      txId,
-      issue: moved,
-      boardSlug,
-    } = await trpc.issues.move.mutate({ id: issue.id, boardId })
-    await issueCollection.utils.awaitTxId(txId)
-    void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-      params: {
-        teamSlug,
-        boardSlug,
-        issueIdentifier: moved.identifier,
-      },
-    })
-  }
-
-  // EXP-698 r5: ONE definition per property mutation — the desktop band and
-  // the phone sheet are two renderings of the same panel, and a closure that
-  // exists twice is a rule that can disagree with itself.
-  const handlePriorityChange = async (priority: IssuePriority) => {
-    if (readOnly) return
-    await trpc.issues.update.mutate({ id: issue.id, priority })
-  }
-
-  const handleAssigneeChange = async (assigneeId: string | null) => {
-    if (readOnly) return
-    await trpc.issues.update.mutate({ id: issue.id, assigneeId })
-  }
-
-  const handleToggleLabel = async (labelId: string) => {
-    if (readOnly) return
-    if (issueLabelIds.includes(labelId)) {
-      await trpc.issueLabels.remove.mutate({ issueId: issue.id, labelId })
-      return
-    }
-    await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
-  }
-
-  const handleDueDateSelect = async (date: Date | undefined) => {
-    if (readOnly) return
-    await trpc.issues.update.mutate({
-      id: issue.id,
-      dueDate: formatDateForMutation(date),
-    })
-  }
-
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
-  // once it commits, land back on the board.
+  // once it commits, land back on the board. The phone `…` menu's path; the
+  // md+ header menu carries its own (`issue-actions-menu.tsx`).
   const handleDeleteIssue = async () => {
     await trpc.issues.delete.mutate({ id: issue.id })
     void navigate({
@@ -575,8 +441,6 @@ export function IssueDetailView({
     })
   }
 
-  const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
-
   const codingFab =
     currentUserId && isMobile ? (
       <IssueCodingControl
@@ -584,55 +448,11 @@ export function IssueDetailView({
         board={board}
         teamId={teamId}
         currentUserId={currentUserId}
-        users={users}
         variant="fab"
       />
     ) : null
 
-  // EXP-616: "Start coding" is a capsule at the trailing end of the properties
-  // card (desktop parity with the IDE) — it no longer gets a row of its own
-  // below the description. Desktop only: on phones the floating bar's circle
-  // still owns the start, and the properties card there is the same node.
-  const codingStartButton =
-    currentUserId && !isMobile ? (
-      <IssueCodingControl
-        issue={issue}
-        board={board}
-        teamId={teamId}
-        currentUserId={currentUserId}
-        users={users}
-        variant="start"
-        // Two accent pills in one slot say nothing about which one to press:
-        // Start coding steps down to glass while Merge is white (EXP-760).
-        tone={prOpen ? `glass` : `primary`}
-      />
-    ) : null
-
-  const propsPanel = (
-    <IssuePropertiesPanel
-      status={statusOption}
-      onStatusChange={handleStatusChange}
-      priority={issue.priority}
-      onPriorityChange={handlePriorityChange}
-      assigneeId={issue.assigneeId}
-      onAssigneeChange={handleAssigneeChange}
-      users={users}
-      teamId={teamId}
-      selectedLabelIds={issueLabelIds}
-      onToggleLabel={handleToggleLabel}
-      dueDate={dueDate}
-      onDueDateSelect={handleDueDateSelect}
-      source={issue.source}
-      boardColor={board.color}
-      boardPrefix={board.prefix}
-      boardIcon={board.icon}
-      boardRepositoryId={board.repositoryId}
-      boardId={issue.boardId}
-      issueIdentifier={issue.identifier}
-      onBoardChange={handleBoardChange}
-      disabled={readOnly}
-    />
-  )
+  const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
   // EXP-698 r5 — the phone's properties SHEET is the create form's row list,
   // not the desktop chip band: Status / Priority / Assignee / Due date /
@@ -652,151 +472,35 @@ export function IssueDetailView({
         boardId: issue.boardId,
         teamId,
         issueIdentifier: issue.identifier,
-        onBoardChange: handleBoardChange,
+        onBoardChange: handlers.handleBoardChange,
       }}
-      onStatusChange={handleStatusChange}
-      onPriorityChange={handlePriorityChange}
-      onAssigneeChange={handleAssigneeChange}
-      onToggleLabel={handleToggleLabel}
-      onDueDateSelect={handleDueDateSelect}
+      onStatusChange={handlers.handleStatusChange}
+      onPriorityChange={handlers.handlePriorityChange}
+      onAssigneeChange={handlers.handleAssigneeChange}
+      onToggleLabel={handlers.handleToggleLabel}
+      onDueDateSelect={handlers.handleDueDateSelect}
       relations={{ issueId: issue.id, readOnly }}
     />
   )
 
-  // EXP-568: properties live at the TOP of the reading column on every
-  // viewport, inside their own glass card — no sidebar, no border-to-border
-  // band welded to the header.
-  // EXP-760: Merge sits INSIDE the properties card, right of Start coding —
-  // the IDE's `chip_row` arrangement. It replaces the stale main-column merge
-  // card the coding rows used to draw, and unlike Start coding it renders on
-  // EVERY viewport: a phone would otherwise have no way to merge at all.
-  const mergeButton =
-    currentUserId && isMember && prOpen ? (
-      <SessionMergeButton
-        {...mergeTargetProps({ kind: `issue`, issue })}
-        variant="default"
-        size="sm"
-        label="Merge PR"
-        steerEnabled={steerConfig?.enabled === true}
-      />
-    ) : null
-
-  const propsBand = (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-3">
-      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-popover/40">
-        <div className="min-w-0 flex-1">{propsPanel}</div>
-        {/* min-w-0, not shrink-0: the "waiting for the desktop" caption beside
-            the capsule truncates rather than squeezing the property pills. */}
-        {(codingStartButton || mergeButton) && (
-          <div className="flex min-w-0 items-center gap-1.5 pr-3">
-            {codingStartButton}
-            {mergeButton}
-          </div>
-        )}
-      </div>
-    </div>
+  // EXP-877: row 2 of the work header — the properties tray with Merge and
+  // the ONE coding action inside it (`issue-properties-tray.tsx`). The phone
+  // renders the same node at the top of its scroll column, minus the coding
+  // action: its floating bar's circle owns the start there.
+  const propsTray = (showCodingAction: boolean) => (
+    <IssuePropertiesTray
+      issue={issue}
+      board={board}
+      users={users}
+      teamId={teamId}
+      currentUserId={currentUserId}
+      readOnly={readOnly}
+      handlers={handlers}
+      showCodingAction={showCodingAction}
+    />
   )
 
-  // Header actions shared by the desktop breadcrumb and the compact phone
-  // header below — one definition each, two arrangements. EXP-791: the
-  // prev/next switcher and its "N / total" counter are gone (the IDE's
-  // `render_switcher` twin went with them); the round `…` is what remains.
-  const issueUrl = `${typeof window === `undefined` ? `` : window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
-
-  // EXP-760: ONE round `…` on the breadcrumb — Copy link · Add relation ▸ ·
-  // Unmark duplicate (conditional) · Delete issue ▸ Confirm delete. It
-  // replaces the copy-link / unmark / trash trio: three permanent circles for
-  // actions taken once a week, where the IDE (`issue_header.rs`) and both
-  // natives already collapse everything but the switcher into one menu.
-  const actionsMenu = (
-    <DropdownMenu>
-      <IconTooltip label="More actions">
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="Issue actions">
-            <UiMoreIcon />
-          </Button>
-        </DropdownMenuTrigger>
-      </IconTooltip>
-      <DropdownMenuContent align="end" className="w-[14rem]">
-        <DropdownMenuItem
-          onSelect={() => {
-            if (typeof navigator === `undefined` || !navigator.clipboard) return
-            navigator.clipboard.writeText(issueUrl).then(
-              () => toast.success(`Link copied`),
-              () => {
-                // Clipboard denied (permissions/insecure context) — the toast
-                // would be a lie, so say nothing.
-              }
-            )
-          }}
-        >
-          <Link2 className="size-4" />
-          Copy link
-        </DropdownMenuItem>
-
-        {!readOnly && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <RelationSectionIcon className="size-4" />
-              Add relation
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-[12rem]">
-              {RELATION_SIDES.filter((entry) => entry.pickable).map((entry) => {
-                const Icon = entry.icon
-                return (
-                  <DropdownMenuItem
-                    key={entry.side}
-                    onSelect={() => addRelation.pick(entry)}
-                  >
-                    <Icon className="size-4" />
-                    {pickLabel(entry.type, entry.direction)}
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-
-        {!readOnly && issue.duplicateOfId && (
-          <DropdownMenuItem
-            onSelect={() => {
-              void trpc.issues.update.mutate({
-                id: issue.id,
-                duplicateOfId: null,
-              })
-            }}
-          >
-            <UiUndoIcon className="size-4" />
-            Unmark duplicate
-          </DropdownMenuItem>
-        )}
-
-        {/* No separator above a destructive item (EXP-687): the red is the
-            divider, on every client. Confirm on a second step, matching the
-            list row's context menu. */}
-        {!readOnly && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger variant="destructive">
-              <UiDeleteIcon className="size-4" />
-              Delete issue
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-[14rem]">
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  void handleDeleteIssue()
-                }}
-              >
-                <UiDeleteIcon className="size-4" />
-                Confirm delete
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-
+  const issueUrl = issueUrlFor(teamSlug, board.slug, issue.identifier)
 
   // EXP-778: the small pin toggle beside the title — pinned issues land in
   // the sidebar's Pinned group on every client.
@@ -815,7 +519,7 @@ export function IssueDetailView({
   // (EXP-687), the way the iOS and Android toolbars already do.
   const mobileMenu = (
     <IssueDetailMobileMenu
-      issueTitle={title}
+      issueTitle={issue.title}
       issueUrl={issueUrl}
       teamId={teamId}
       boardId={issue.boardId}
@@ -823,10 +527,8 @@ export function IssueDetailView({
       duplicateOfId={issue.duplicateOfId ?? null}
       readOnly={readOnly}
       onDelete={handleDeleteIssue}
-      onMoveBoard={handleBoardChange}
-      onUnmarkDuplicate={() => {
-        void trpc.issues.update.mutate({ id: issue.id, duplicateOfId: null })
-      }}
+      onMoveBoard={handlers.handleBoardChange}
+      onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
     />
   )
 
@@ -866,41 +568,11 @@ export function IssueDetailView({
     <DuplicateOfBanner
       duplicateOfId={issue.duplicateOfId}
       readOnly={readOnly}
-      onUnmark={() => {
-        void trpc.issues.update.mutate({ id: issue.id, duplicateOfId: null })
-      }}
+      onUnmark={handlers.handleUnmarkDuplicate}
     />
   ) : null
 
-  // A wrapping textarea (field-sizing-content), not an Input — long titles
-  // must wrap on narrow viewports instead of clipping (EXP-189). Enter
-  // commits via blur; titles stay single-logical-line.
-  const titleField = (
-    <Textarea
-      value={title}
-      rows={1}
-      onBlur={() => void handleTitleBlur()}
-      onChange={(e) => setTitle(e.target.value.replace(/\n/g, ``))}
-      onKeyDown={(e) => {
-        if (e.key === `Enter`) {
-          e.preventDefault()
-          e.currentTarget.blur()
-        }
-      }}
-      placeholder="Issue title"
-      disabled={readOnly}
-      // EXP-424: ProseMirror's image drag carries the image URL as
-      // `text/plain`, which a textarea happily accepts — an image dragged
-      // within the description would otherwise land as a URL in the title and
-      // save on blur. Refuse every drop here; the editor keeps its own.
-      onDragOver={(e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = `none`
-      }}
-      onDrop={(e) => e.preventDefault()}
-      className="min-h-0 resize-none bg-transparent dark:bg-transparent border-none shadow-none !text-2xl font-semibold px-5 pt-4 pb-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
-    />
-  )
+  const titleField = <IssueTitleField issue={issue} readOnly={readOnly} />
 
   const editor = (
     <div className="px-1">
@@ -912,7 +584,6 @@ export function IssueDetailView({
         onBlur={() => void handleDescriptionBlur()}
         placeholder="Add description..."
         onFocusChange={setDescriptionFocused}
-        topScrollInset={isMobile ? undefined : stickyBandHeight}
         imageUpload={{
           enabled: !readOnly,
           uploading: activeUploadCount > 0,
@@ -1013,7 +684,7 @@ export function IssueDetailView({
             safe-area padding + a gap); the tab bar itself is hidden on this
             route, so nothing else is reserved here. */}
         <div className="flex-1 overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
-          {propsBand}
+          {propsTray(false)}
           {titleField}
           {editor}
           {attachmentError}
@@ -1042,33 +713,32 @@ export function IssueDetailView({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* EXP-818: no breadcrumb row — the IDE's header is the title over the
-          property tray with the ⋯ beside the title, and the sidebar's board
-          row already says where you are. */}
+      {/* EXP-818: no breadcrumb row — the sidebar's board row already says
+          where you are. EXP-877: the header is the ONE work header the
+          session route renders too, FIXED above the scrolling body (the
+          IDE's `work_header.rs`): title | face toggle · pin · `…`, then the
+          properties tray with Merge and the coding action inside it. */}
       {duplicateBanner}
+      <WorkHeader
+        title={titleField}
+        trailing={
+          <>
+            {faceToggle}
+            {pinToggle}
+            <IssueActionsMenu
+              issue={issue}
+              board={board}
+              teamSlug={teamSlug}
+              readOnly={readOnly}
+            />
+          </>
+        }
+        tray={propsTray(true)}
+      />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {/* EXP-760: the band pins the TITLE AND the properties (IDE
-                parity) — scrolling a long description used to leave the status
-                and assignee behind, which is exactly when they are needed. The
-                measured node is unchanged, so `topScrollInset` still keeps the
-                caret clear of it. */}
-            <div
-              ref={setStickyBand}
-              className={`${DETAIL_STICKY_BAND_CLASS} pb-3`}
-            >
-              <div className="mx-auto flex max-w-3xl items-start gap-2">
-                <div className="min-w-0 flex-1">{titleField}</div>
-                <div className="flex shrink-0 items-center gap-1 pt-4 pr-4">
-                  {faceToggle}
-                  {pinToggle}
-                  {actionsMenu}
-                </div>
-              </div>
-              {propsBand}
-            </div>
-            <div className="mx-auto max-w-3xl">
+            <div className={WORK_COLUMN_CLASS}>
               {editor}
               {attachmentError}
               {filesSection}
@@ -1087,7 +757,6 @@ export function IssueDetailView({
         </div>
       </div>
       {duplicatePicker}
-      {addRelation.dialog}
     </div>
   )
 }

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest"
 import {
   closeTabs,
   EMPTY_WORK_TABS,
-  liveSig,
+  groupedTabs,
   orderedTabs,
+  parseCollapsedGroups,
   parseWorkTabsState,
   partitionTabs,
+  partitionUnits,
   pruneTabs,
   reconcileLive,
   routePathFromLocation,
@@ -14,8 +16,8 @@ import {
   tabHref,
   tabKey,
   upsertFromRoute,
+  workTabGroupsStorageKey,
   type LiveRun,
-  type LiveSig,
   type WorkTab,
   type WorkTabsState,
 } from "@/lib/work-tabs"
@@ -24,11 +26,7 @@ import {
 // `live_tab_plan` / `partition_tabs` tests walk (apps/desktop/crates/ui/src/
 // screens.rs).
 
-const QUIET: LiveSig = { attention: false, review: false }
-const ATTENTION: LiveSig = { attention: true, review: false }
-
-const state = (tabs: WorkTab[], dismissed: Record<string, LiveSig> = {}) =>
-  ({ tabs, dismissed }) satisfies WorkTabsState
+const state = (tabs: WorkTab[]) => ({ tabs }) satisfies WorkTabsState
 
 const keys = (s: WorkTabsState) => s.tabs.map(tabKey)
 
@@ -156,41 +154,17 @@ describe(`upsertFromRoute`, () => {
   })
 })
 
-describe(`liveSig`, () => {
-  const now = new Date(`2026-09-13T12:00:00Z`)
-  it(`reads attention off needsInput or a usage wall, review off in_review`, () => {
-    expect(liveSig({ status: `running`, needsInput: false, blocked: null }, now)).toEqual(QUIET)
-    expect(liveSig({ status: `running`, needsInput: true, blocked: null }, now)).toEqual(ATTENTION)
-    expect(
-      liveSig(
-        {
-          status: `running`,
-          needsInput: false,
-          blocked: { kind: `rate_limit` } as never,
-        },
-        now
-      )
-    ).toEqual(ATTENTION)
-    expect(liveSig({ status: `in_review`, needsInput: false, blocked: null }, now)).toEqual({
-      attention: false,
-      review: true,
-    })
-  })
-})
-
 describe(`reconcileLive`, () => {
-  const run = (runId: string, issueId: string | null, sig = QUIET): LiveRun => ({
-    runId,
-    issueId,
-    sig,
-  })
+  const run = (
+    runId: string,
+    issueId: string | null,
+    agent: string | null = `claude`
+  ): LiveRun => ({ runId, issueId, agent })
 
   // EXP-870 review: a past run of an issue being READ is never rebound to the
   // issue's live run under the reader.
   it(`keeps the run the URL shows bound`, () => {
     const state = {
-      v: 1 as const,
-      dismissed: {},
       tabs: [
         {
           key: `issue:i1` as const,
@@ -258,45 +232,39 @@ describe(`reconcileLive`, () => {
     expect(reconcileLive(EMPTY_WORK_TABS, [])).toBe(EMPTY_WORK_TABS)
   })
 
-  it(`keeps a closed live tab closed until its signature changes`, () => {
-    const open = reconcileLive(EMPTY_WORK_TABS, [run(`s1`, null)])
-    const closed = closeTabs(open, [`run:s1`], () => QUIET)
-    expect(closed.tabs).toEqual([])
-    expect(closed.dismissed).toEqual({ s1: QUIET })
-    // Same signature: stays closed.
-    expect(reconcileLive(closed, [run(`s1`, null)])).toBe(closed)
-    // It starts needing input: back, and the dismissal is spent.
-    const back = reconcileLive(closed, [run(`s1`, null, ATTENTION)])
+  // EXP-877: there is no dismissal memory any more — a live tab that somehow
+  // left the strip (an older build's stored state) simply comes straight back.
+  it(`re-adds a live run whose tab is gone`, () => {
+    const closed = state([])
+    const back = reconcileLive(closed, [run(`s1`, null)])
     expect(keys(back)).toEqual([`run:s1`])
-    expect(back.dismissed).toEqual({})
-  })
-
-  it(`forgets dismissals of runs that are no longer live`, () => {
-    const s = reconcileLive(state([], { s1: QUIET }), [])
-    expect(s.dismissed).toEqual({})
   })
 })
 
 describe(`closeTabs`, () => {
-  it(`records live runs only, and never a support or ended tab`, () => {
+  // EXP-877: a LIVE tab is permanent — closing the strip around it leaves it
+  // standing, whether it is a run-only tab or an issue tab bound to a run.
+  it(`never removes a live tab`, () => {
     const s = state([
       { kind: `run`, runId: `live`, from: null, live: true },
       { kind: `run`, runId: `ended`, from: null, live: false },
       { kind: `support`, threadId: `t1`, from: null },
       { kind: `issue`, issueId: `i1`, face: `issue`, runId: `s3`, from: null, live: true },
     ])
-    const closed = closeTabs(
-      s,
-      [`run:live`, `run:ended`, `support:t1`, `issue:i1`],
-      (runId) => (runId === `ended` ? null : ATTENTION)
-    )
-    expect(closed.tabs).toEqual([])
-    expect(closed.dismissed).toEqual({ live: ATTENTION, s3: ATTENTION })
+    const closed = closeTabs(s, [
+      `run:live`,
+      `run:ended`,
+      `support:t1`,
+      `issue:i1`,
+    ])
+    expect(keys(closed)).toEqual([`run:live`, `issue:i1`])
   })
 
-  it(`is a no-op for unknown keys`, () => {
+  it(`is a no-op for unknown keys and for live-only closes`, () => {
     const s = state([{ kind: `support`, threadId: `t1`, from: null }])
-    expect(closeTabs(s, [`issue:nope`], () => null)).toBe(s)
+    expect(closeTabs(s, [`issue:nope`])).toBe(s)
+    const live = state([{ kind: `run`, runId: `s1`, from: null, live: true }])
+    expect(closeTabs(live, [`run:s1`])).toBe(live)
   })
 })
 
@@ -323,6 +291,85 @@ describe(`pruneTabs / orderedTabs`, () => {
       `support:t1`,
       `issue:i1`,
     ])
+  })
+})
+
+// EXP-877: the live tabs are grouped by AGENT, in the contract's own order.
+describe(`groupedTabs`, () => {
+  const liveRun = (runId: string): WorkTab => ({
+    kind: `run`,
+    runId,
+    from: null,
+    live: true,
+  })
+  const tabs: WorkTab[] = [
+    liveRun(`codex1`),
+    { kind: `support`, threadId: `t1`, from: null },
+    liveRun(`claude1`),
+    { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
+    liveRun(`other1`),
+    liveRun(`claude2`),
+  ]
+  const agents: Record<string, string | null> = {
+    "run:codex1": `codex`,
+    "run:claude1": null,
+    "run:other1": `gemini`,
+    "run:claude2": `Claude`,
+  }
+  const agentOf = (tab: WorkTab) => agents[tabKey(tab)] ?? null
+
+  it(`orders claude, codex, then the agents this build does not know`, () => {
+    const { groups, rest } = groupedTabs(tabs, agentOf)
+    expect(groups.map((group) => [group.agent, group.tabs.map(tabKey)])).toEqual([
+      [`claude`, [`run:claude1`, `run:claude2`]],
+      [`codex`, [`run:codex1`]],
+      [`gemini`, [`run:other1`]],
+    ])
+    // The rest keeps its stored order, untouched.
+    expect(rest.map(tabKey)).toEqual([`support:t1`, `issue:i1`])
+    expect(orderedTabs(tabs, agentOf).map(tabKey)).toEqual([
+      `run:claude1`,
+      `run:claude2`,
+      `run:codex1`,
+      `run:other1`,
+      `support:t1`,
+      `issue:i1`,
+    ])
+  })
+
+  it(`omits empty groups`, () => {
+    expect(
+      groupedTabs([liveRun(`codex1`)], () => `codex`).groups.map((g) => g.agent)
+    ).toEqual([`codex`])
+    expect(groupedTabs([], () => null).groups).toEqual([])
+    expect(
+      groupedTabs(
+        [{ kind: `support`, threadId: `t1`, from: null }],
+        () => null
+      ).groups
+    ).toEqual([])
+  })
+})
+
+describe(`parseCollapsedGroups`, () => {
+  it(`reads an agent id list, dropping junk`, () => {
+    expect(parseCollapsedGroups(JSON.stringify([`claude`, `codex`]))).toEqual([
+      `claude`,
+      `codex`,
+    ])
+    expect(parseCollapsedGroups(JSON.stringify([`claude`, `claude`]))).toEqual([
+      `claude`,
+    ])
+    expect(parseCollapsedGroups(JSON.stringify([1, ``, `codex`]))).toEqual([
+      `codex`,
+    ])
+    for (const raw of [null, undefined, ``, `{nope`, `42`, `{}`]) {
+      expect(parseCollapsedGroups(raw)).toEqual([])
+    }
+  })
+
+  it(`keys per team`, () => {
+    expect(workTabGroupsStorageKey(`t1`)).toBe(`exp:work-tab-groups:v1:t1`)
   })
 })
 
@@ -420,17 +467,83 @@ describe(`partitionTabs`, () => {
   })
 })
 
+// EXP-877: the strip lays out group marks and chevrons beside the chips —
+// only the chips are packed, the rest is always drawn.
+describe(`partitionUnits`, () => {
+  const GAP = 3.5
+  const OVERFLOW = 22
+  const chip = (width: number) => ({ packed: true, width })
+  const fixed = (width: number) => ({ packed: false, width })
+
+  it(`never drops a group mark or a chevron, however tight the row`, () => {
+    // [mark][chip][chip][chevron][mark] with room for barely one chip.
+    const units = [fixed(20), chip(100), chip(100), fixed(20), fixed(20)]
+    const visible = partitionUnits(units, 160, GAP, OVERFLOW, null)
+    expect(visible).toContain(0)
+    expect(visible).toContain(3)
+    expect(visible).toContain(4)
+    // At least one chip survives, and the second one is the "+N".
+    expect(visible).toEqual([0, 1, 3, 4])
+  })
+
+  it(`charges the fixed units to the budget before packing the chips`, () => {
+    const units = [fixed(20), chip(100), chip(100)]
+    // Room for both chips only once the mark is paid for.
+    const both = 20 + GAP + 100 + GAP + 100
+    expect(partitionUnits(units, both, GAP, OVERFLOW, null)).toEqual([0, 1, 2])
+    expect(partitionUnits(units, both - 1, GAP, OVERFLOW, null)).toEqual([0, 1])
+  })
+
+  it(`keeps the ACTIVE chip visible, counted among the chips only`, () => {
+    const units = [fixed(20), chip(100), chip(100), chip(100)]
+    // Unit index 3 is the active chip: it displaces the last packed one.
+    const visible = partitionUnits(
+      units,
+      20 + GAP + 200 + GAP + OVERFLOW + GAP,
+      GAP,
+      OVERFLOW,
+      3
+    )
+    expect(visible).toEqual([0, 1, 3])
+    // An ACTIVE unit that is not packed (a folded chip, a mark) is simply
+    // always drawn and commits no width of its own.
+    expect(
+      partitionUnits([fixed(20), chip(100)], 400, GAP, OVERFLOW, 0)
+    ).toEqual([0, 1])
+  })
+
+  it(`is every unit when everything fits, and nothing for no units`, () => {
+    const units = [fixed(20), chip(50), fixed(20)]
+    expect(partitionUnits(units, 400, GAP, OVERFLOW, null)).toEqual([0, 1, 2])
+    expect(partitionUnits([], 400, GAP, OVERFLOW, null)).toEqual([])
+    // Fixed units alone never overflow.
+    expect(partitionUnits([fixed(80), fixed(80)], 10, GAP, OVERFLOW, null)).toEqual([
+      0, 1,
+    ])
+  })
+})
+
 describe(`parseWorkTabsState`, () => {
   it(`round-trips a stored state`, () => {
-    const s = state(
-      [
-        { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `inbox`, live: true },
-        { kind: `run`, runId: `s2`, from: null, live: false },
-        { kind: `support`, threadId: `t1`, from: `support` },
-      ],
-      { s3: ATTENTION }
-    )
+    const s = state([
+      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `inbox`, live: true },
+      { kind: `run`, runId: `s2`, from: null, live: false },
+      { kind: `support`, threadId: `t1`, from: `support` },
+    ])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
+  })
+
+  // EXP-877: a state written before the dismissal memory was deleted still
+  // reads — the key is simply dropped.
+  it(`tolerates a legacy dismissed key`, () => {
+    expect(
+      parseWorkTabsState(
+        JSON.stringify({
+          tabs: [{ kind: `run`, runId: `s1`, from: null, live: true }],
+          dismissed: { s1: { attention: true, review: false } },
+        })
+      )
+    ).toEqual({ tabs: [{ kind: `run`, runId: `s1`, from: null, live: true }] })
   })
 
   it(`reads corrupt or foreign data as an empty strip`, () => {
@@ -448,7 +561,6 @@ describe(`parseWorkTabsState`, () => {
             // A run face with no run falls back to the issue face.
             { kind: `issue`, issueId: `i1`, face: `run`, runId: null },
           ],
-          dismissed: { s1: { attention: true }, s2: QUIET },
         })
       )
     ).toEqual({
@@ -456,7 +568,6 @@ describe(`parseWorkTabsState`, () => {
         { kind: `run`, runId: `s1`, from: null, live: false },
         { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
       ],
-      dismissed: { s2: QUIET },
     })
   })
 })

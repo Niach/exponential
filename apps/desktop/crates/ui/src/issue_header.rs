@@ -4,12 +4,13 @@
 //! It is an entity for its state (calendars, picker queries, busy flags, the
 //! ~12 collection subscriptions) but NOT a view — the detail view interleaves
 //! its rows with the title block it owns itself, so this renders through
-//! three builders called from the host's render: [`IssueHeader::top_row`]
-//! (switcher · copy-link · `…` · delete), [`IssueHeader::chip_row`]
-//! (Status · Priority · Assignee · Labels · Due date · Board · Origin) and
-//! [`IssueHeader::agent_row`] (the coding-now card, with Merge PR and Fix
-//! conflicts). The host observes this entity so a builder's `cx.notify()`
-//! reaches it.
+//! builders called from the host's render and assembled into the shared
+//! `work_header::WorkHeader` (EXP-877): [`IssueHeader::right_cluster`]
+//! (face toggle · pin · `…`), [`IssueHeader::chip_row`] (Status · Priority ·
+//! Assignee · Labels · Due date · Board · Origin, trailing
+//! [`IssueHeader::issue_actions`]: Merge PR + the ONE coding action) and
+//! [`IssueHeader::agent_row`] (the merge-error caption). The host observes
+//! this entity so a builder's `cx.notify()` reaches it.
 //!
 //! Every control mutates immediately through tRPC (`issues.update` /
 //! `issueLabels.add|remove`) in the §4.1 un-gated form — the Electric echo
@@ -133,13 +134,6 @@ impl IssueHeader {
         ] {
             subscriptions.push(subscription);
         }
-        // EXP-698: the coding-now card's Watch pill is gated on the steer
-        // config, which is fetched ONCE and lands after this header mounts —
-        // without an observer the header renders on the "no relay" default
-        // and never asks again, so the pill never appears.
-        let steer_config = crate::queries::steer_config(cx);
-        subscriptions.push(cx.observe(&steer_config, |_, _, cx| cx.notify()));
-
         Self {
             issue_id: None,
             due_calendar,
@@ -658,53 +652,51 @@ impl IssueHeader {
             issue.branch.is_some(),
         );
         let issue_id = issue.id.clone();
-        // EXP-698: the ONE capsule at the `Sm` rung — it rides inside the
-        // coding-now tray beside the state badge, so it wears the tray's own
-        // chip scale rather than the 32px control box it had as a lone row.
-        // EXP-760: the PRIMARY (white) pill of the header. With a PR open,
-        // merging is what the reader came to do — Start coding stands down to
-        // the glass paint beside it (`header_action_styles`).
-        let mut button = if swapped {
-            glass_pill_button("header-merge-pr", PillSize::Sm, cx)
-        } else {
-            crate::surface::glass_pill_button_primary("header-merge-pr", PillSize::Sm)
-        }
-        .icon(
-            Icon::from(ExpIcon::GitMerge)
-                .with_size(px(PillSize::Sm.glyph()))
-                .text_color(if armed {
-                    cx.theme().danger
-                } else if swapped {
-                    cx.theme().muted_foreground
-                } else {
-                    cx.theme().primary_foreground
-                }),
-        )
-        .label(if merging {
-            "Merging…"
-        } else if armed {
-            "Confirm merge"
-        } else if swapped {
-            "Retry merge"
-        } else {
-            "Merge PR"
-        })
-        .tooltip("Merge the pull request: completes every linked issue and closes its coding sessions")
-        .on_click(cx.listener(move |_, _, _, cx| {
-            crate::pr_merge::two_click(
-                crate::pr_merge::MergeOp::MergeIssuePr {
-                    issue_id: issue_id.clone(),
-                },
-                None,
-                None,
+        // EXP-877: the plain slot IS the shared Merge pill (`work_header::
+        // merge_pill`, the ONE look on the detail, the session screen and the
+        // run face) — primary: with a PR open, merging is what the reader
+        // came to do, and Start coding stands down to the glass paint beside
+        // it (`header_action_styles`).
+        if !swapped {
+            return crate::work_header::merge_pill(
+                "header-merge-pr",
+                &crate::changes_bar::MergeTarget::Issue { issue_id },
+                true,
                 cx,
             );
-        }));
+        }
+        // EXP-698: the ONE capsule at the `Sm` rung, glass while Fix
+        // conflicts holds the primary paint.
+        let mut button = glass_pill_button("header-merge-pr", PillSize::Sm, cx)
+            .icon(
+                Icon::from(ExpIcon::GitMerge)
+                    .with_size(px(PillSize::Sm.glyph()))
+                    .text_color(if armed {
+                        cx.theme().danger
+                    } else {
+                        cx.theme().muted_foreground
+                    }),
+            )
+            .label(if merging {
+                "Merging…"
+            } else if armed {
+                "Confirm merge"
+            } else {
+                "Retry merge"
+            })
+            .tooltip("Merge the pull request: completes every linked issue and closes its coding sessions")
+            .on_click(cx.listener(move |_, _, _, cx| {
+                crate::pr_merge::two_click(
+                    crate::pr_merge::MergeOp::MergeIssuePr {
+                        issue_id: issue_id.clone(),
+                    },
+                    None,
+                    None,
+                    cx,
+                );
+            }));
         if merging {
             button = button.disabled(true);
-        }
-        if !swapped {
-            return button.into_any_element();
         }
         h_flex()
             .items_center()
@@ -798,32 +790,25 @@ impl IssueHeader {
             })
     }
 
-    /// EXP-277/EXP-417: the header's top row — the `…` actions menu, right.
-    /// (EXP-723 retired the Subscribe toggle on every client;
-    /// auto-subscription and the `issue_subscribers` shape stay. EXP-760
-    /// folded copy-link and delete into the menu. EXP-791 retired the
-    /// prev/next switcher.) EXP-870: `leading` is the tab's `Issue | Run`
-    /// face control (`screens::face_toggle`), just left of the pin — the
-    /// web header's order.
-    pub(crate) fn top_row(
+    /// EXP-877: the work header's row-1 right cluster — `[leading?] [pin]
+    /// [… menu]`, where `leading` is the tab's face toggle
+    /// (`work_header::face_toggle`), just left of the pin — the web header's
+    /// order. (EXP-723 retired the Subscribe toggle on every client; EXP-760
+    /// folded copy-link and delete into the menu; EXP-791 retired the
+    /// prev/next switcher.)
+    pub(crate) fn right_cluster(
         &mut self,
         issue: &Issue,
         leading: Option<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        h_flex()
-            .w_full()
-            .gap_0p5()
-            .items_center()
-            .min_w_0()
-            .px(px(DETAIL_GUTTER))
-            .pt_2()
-            .child(div().flex_1().min_w_0())
-            .children(leading)
-            // EXP-778: the personal pin toggle — a pinned issue lands in the
-            // rail's Pinned section. Needs the team (the board's) to address
-            // the toggle; a not-yet-synced board hides it for a repaint.
-            .children(self.team_id_of(issue, cx).map(|team_id| {
+    ) -> Vec<gpui::AnyElement> {
+        let mut cluster = Vec::with_capacity(3);
+        cluster.extend(leading);
+        // EXP-778: the personal pin toggle — a pinned issue lands in the
+        // rail's Pinned section. Needs the team (the board's) to address
+        // the toggle; a not-yet-synced board hides it for a repaint.
+        if let Some(team_id) = self.team_id_of(issue, cx) {
+            cluster.push(
                 crate::pins::pin_toggle_button(
                     "issue-pin",
                     team_id,
@@ -831,25 +816,60 @@ impl IssueHeader {
                     issue.id.clone(),
                     cx,
                 )
-            }))
-            .child(self.render_actions_menu(issue, cx))
-            .into_any_element()
+                .into_any_element(),
+            );
+        }
+        cluster.push(self.render_actions_menu(issue, cx).into_any_element());
+        cluster
     }
 
-    /// EXP-417: the mobile-style chip row under the title — Start coding ·
-    /// Status · Priority · Assignee · Labels · Due date · Board · Origin,
-    /// the launcher first (EXP-426), property-ish chips next and the
-    /// navigation-ish Board last. Wraps inside the detail view's
-    /// `centered_column`, which supplies the definite width `flex_wrap` needs.
+    /// EXP-877: the tray's trailing action cluster — `[Merge PR while the PR
+    /// is open] [the ONE coding action]`. The coding action comes from the
+    /// run STATE (`work_header::coding_action`): an own live run → Stop, an
+    /// own ended resumable run → Resume, otherwise the launcher (primary
+    /// unless the PR is open, then glass — `header_action_styles`). The
+    /// launcher is the entity this header owns; it hides itself on a
+    /// repo-less board (`is_visible`).
+    pub(crate) fn issue_actions(
+        &mut self,
+        issue: &Issue,
+        action: crate::work_header::CodingAction,
+        cx: &mut gpui::Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
+        let pr_open = issue.pr_state.as_deref() == Some("open");
+        let start_visible = matches!(action, crate::work_header::CodingAction::Start)
+            && self.start_coding.read(cx).is_visible(cx);
+        let styles = header_action_styles(start_visible, pr_open);
+        self.start_coding
+            .update(cx, |control, cx| control.set_demoted(styles.demote_start, cx));
+        let mut actions = Vec::with_capacity(2);
+        if styles.merge {
+            actions.push(self.merge_button(issue, cx).into_any_element());
+        }
+        match action {
+            crate::work_header::CodingAction::Start => {
+                if styles.start_coding {
+                    actions.push(self.start_coding.clone().into_any_element());
+                }
+            }
+            other => actions.extend(crate::work_header::coding_action_button(other, None, cx)),
+        }
+        actions
+    }
+
+    /// EXP-417: the mobile-style chip row under the title — Status ·
+    /// Priority · Assignee · Labels · Due date · Board · Origin, property-ish
+    /// chips first and the navigation-ish Board last. Wraps inside the
+    /// detail view's `centered_column`, which supplies the definite width
+    /// `flex_wrap` needs.
     ///
-    /// EXP-863: `trailing` is the SESSION screen's slot — its "Open issue"
-    /// pill takes the place of the launcher / Watch cluster (a run's own
-    /// screen has nothing to start or watch), so both stand down when it is
-    /// `Some`. The detail view passes `None` and keeps the launcher rule.
+    /// EXP-877: `actions` is the trailing cluster at the tray's right edge
+    /// (`ml_auto`; actions, so they keep their visual distance from the
+    /// chips even after wrapping) — [`Self::issue_actions`] on every host.
     pub(crate) fn chip_row(
         &mut self,
         issue: &Issue,
-        trailing: Option<gpui::AnyElement>,
+        actions: Vec<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         // EXP-50: a team with exactly one human member has no assignment
@@ -857,43 +877,10 @@ impl IssueHeader {
         // assignment keeps the data correct). Multi-member (and the not-yet-
         // synced 0-member snapshot) keeps the picker.
         let solo_team = self.member_users(issue, cx).len() == 1;
-        // Gated: the control renders an empty div when hidden (no repo),
-        // which would still occupy a gap slot in the row.
-        //
-        // EXP-698 round 5: it also stands down while the coding-now CARD is
-        // up — a live run already carries its own state and Watch, so the
-        // launcher beside it is noise (web `issue-coding-rows.tsx` returns
-        // null for the start variant on a live session). A LOCAL run is the
-        // exception: `agent_row` suppresses the card for those because this
-        // very control turns into "Coding… / Stop" — hiding it there would
-        // strand the run with no way to stop it.
-        let local_running = LocalSessions::global_ref(cx)
-            .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
-            .unwrap_or(false);
-        let coding_visible = trailing.is_none() && self.start_coding.read(cx).is_visible(cx);
-        let live = crate::issue_detail::has_live_coding_session(&issue.id, cx);
-        let start_coding = coding_visible && (local_running || !live);
-        // EXP-818: a live run this process does NOT host takes the control's
-        // slot instead — the caller's own run as a Watch pill, a teammate's
-        // as a muted caption.
-        let coding_slot = (coding_visible && !start_coding && live)
-            .then(|| crate::issue_detail::coding_now_slot(&issue.id, cx))
-            .flatten();
-        // EXP-760: which of the two trailing actions show, and which one is
-        // the emphasised (white) one.
-        // EXP-863: on the session screen the header's own Merge pill already
-        // shows, so the tray's Merge stands down with the launcher cluster.
-        let styles = header_action_styles(
-            start_coding,
-            trailing.is_none() && issue.pr_state.as_deref() == Some("open"),
-        );
-        self.start_coding
-            .update(cx, |control, cx| control.set_demoted(styles.demote_start, cx));
 
         // EXP-568/EXP-601: everything lives in ONE glass tray — the property
-        // chips grow from the left, Start coding floats on the right edge of
-        // the same card (`ml_auto`; an action, so it keeps its visual
-        // distance from the chips even after wrapping).
+        // chips grow from the left, the actions float on the right edge of
+        // the same card.
         let properties = crate::surface::glass_tray()
             .child(self.status_control(issue, cx))
             .child(self.priority_control(issue, cx))
@@ -904,22 +891,14 @@ impl IssueHeader {
             .child(self.due_control(issue, cx))
             .children(self.board_chip(issue, cx))
             .children(self.origin_chip(issue, cx))
-            // EXP-760: BOTH header actions live at the tray's right edge now
-            // — Start coding and, while the PR is open, Merge. The stale
-            // merge card below the tray is gone.
-            .when(styles.any() || coding_slot.is_some() || trailing.is_some(), |tray| {
+            .when(!actions.is_empty(), |tray| {
                 tray.child(
                     h_flex()
                         .ml_auto()
                         .flex_shrink_0()
                         .items_center()
                         .gap_1()
-                        .when(styles.start_coding, |row| {
-                            row.child(self.start_coding.clone())
-                        })
-                        .children(coding_slot)
-                        .children(trailing)
-                        .when(styles.merge, |row| row.child(self.merge_button(issue, cx))),
+                        .children(actions),
                 )
             });
 
@@ -927,8 +906,9 @@ impl IssueHeader {
             .w_full()
             .items_center()
             .px(px(DETAIL_GUTTER))
-            // EXP-601: a small gap between the prop bar and the description.
-            .pb_3()
+            // Web `pt-3` between the title row and the tray; the header's own
+            // `pb-3` (work_header) is the gap to the description.
+            .pt(px(12.))
             // flex_1 + min_w_0: the tray takes the full column width, which
             // is what gives its own `flex_wrap` a definite width to wrap the
             // chips against (a shrink-to-fit tray would size to max-content
@@ -1014,30 +994,6 @@ use gpui::prelude::FluentBuilder as _;
 // ---------------------------------------------------------------------------
 // Pieces
 // ---------------------------------------------------------------------------
-
-/// EXP-863 — the issue title as a READ-ONLY block, the same 2xl semibold
-/// rung and [`DETAIL_GUTTER`] inset as the detail view's editable title
-/// (`IssueDetailView::render_title`), for a host that shows the header
-/// without owning a title input (the session screen's issue band).
-pub(crate) fn title_row(issue: &Issue) -> gpui::AnyElement {
-    let title = issue.title.trim();
-    let title = SharedString::from(if title.is_empty() {
-        "Untitled issue".to_string()
-    } else {
-        title.to_string()
-    });
-    div()
-        .w_full()
-        .min_w_0()
-        .px(px(DETAIL_GUTTER))
-        .pt_3()
-        .pb_1()
-        .text_2xl()
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .line_height(gpui::rems(2.))
-        .child(title)
-        .into_any_element()
-}
 
 /// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
 /// with the issue-row context menu's Labels submenu (§4.2).

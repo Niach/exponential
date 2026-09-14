@@ -1,7 +1,9 @@
 import { useCallback, useSyncExternalStore } from "react"
 import {
   EMPTY_WORK_TABS,
+  parseCollapsedGroups,
   parseWorkTabsState,
+  workTabGroupsStorageKey,
   workTabsStorageKey,
   type WorkTabsState,
 } from "@/lib/work-tabs"
@@ -72,7 +74,77 @@ export function useWorkTabs(teamId: string | undefined): WorkTabsState {
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
+// ── EXP-877: the collapsed agent groups ──────────────────────────────────────
+// A second store on the same rails: which live-run groups are folded to their
+// brand mark, per team and per window. Values are plain agent ids; a snapshot
+// is cached so `useSyncExternalStore` sees a stable array.
+
+const EMPTY_GROUPS: string[] = []
+const groupCache = new Map<string, string[]>()
+const groupListeners = new Map<string, Set<() => void>>()
+
+function readGroups(teamId: string): string[] {
+  const cached = groupCache.get(teamId)
+  if (cached) return cached
+  let raw: string | null = null
+  try {
+    raw = window.sessionStorage.getItem(workTabGroupsStorageKey(teamId))
+  } catch {
+    raw = null
+  }
+  const collapsed = parseCollapsedGroups(raw)
+  groupCache.set(teamId, collapsed)
+  return collapsed
+}
+
+/** Fold or unfold one agent's group. A no-op write notifies nobody. */
+export function setTabGroupCollapsed(
+  teamId: string,
+  agent: string,
+  collapsed: boolean
+): void {
+  const current = readGroups(teamId)
+  if (current.includes(agent) === collapsed) return
+  const next = collapsed
+    ? [...current, agent]
+    : current.filter((id) => id !== agent)
+  groupCache.set(teamId, next)
+  try {
+    window.sessionStorage.setItem(
+      workTabGroupsStorageKey(teamId),
+      JSON.stringify(next)
+    )
+  } catch {
+    // Memory-only for this window — the strip still folds.
+  }
+  for (const listener of groupListeners.get(teamId) ?? []) listener()
+}
+
+export function useCollapsedTabGroups(teamId: string | undefined): string[] {
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (!teamId) return () => {}
+      let set = groupListeners.get(teamId)
+      if (!set) {
+        set = new Set()
+        groupListeners.set(teamId, set)
+      }
+      set.add(listener)
+      return () => {
+        set.delete(listener)
+      }
+    },
+    [teamId]
+  )
+  const snapshot = useCallback(
+    () => (teamId ? readGroups(teamId) : EMPTY_GROUPS),
+    [teamId]
+  )
+  return useSyncExternalStore(subscribe, snapshot, snapshot)
+}
+
 /** Test seam: forget every cached team state. */
 export function resetWorkTabsStore(): void {
   cache.clear()
+  groupCache.clear()
 }

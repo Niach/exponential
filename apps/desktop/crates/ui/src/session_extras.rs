@@ -645,9 +645,9 @@ pub(crate) fn render_wire_diff(
         .into_any_element()
 }
 
-/// EXP-772: the composer's ONE chip — the session MODE. Model, effort and
-/// every other option picker left the mid-session UI: an agent is configured
-/// when it starts, and the only thing worth flipping mid-run is plan on/off.
+/// The read of ONE steering value: the session MODE ([`mode_chip`]) or one
+/// `config_state.options` entry ([`option_chip`]). EXP-772 took the mid-session
+/// pickers away; EXP-877 brought back exactly one read, the model.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ConfigChip {
     /// The mode id in force.
@@ -694,6 +694,34 @@ pub(crate) fn mode_chip(config: Option<&steer::SessionConfig>) -> Option<ConfigC
     })
 }
 
+/// EXP-877 — the read of ONE `config_state.options` entry by id, generalising
+/// [`mode_chip`] over the option list instead of the mode list.
+///
+/// `value_label` resolves the same way the mode chip's does: the matching
+/// `values` entry's label, else the raw value, else the "default" label. The
+/// engine publishes `model` VALUE-ONLY (no `values`, because switching is a
+/// `/model <alias>` message rather than a menu pick), so the middle branch is
+/// the live one — but a publisher that does describe its values still reads
+/// as its own labels.
+pub(crate) fn option_chip(config: Option<&steer::SessionConfig>, id: &str) -> Option<ConfigChip> {
+    let option = config?.options.iter().find(|option| option.id == id)?;
+    let value = option.value.clone().unwrap_or_default();
+    let values = option.values.clone().unwrap_or_default();
+    let value_label = values
+        .iter()
+        .find(|entry| entry.id == value)
+        .map(|entry| entry.label.clone())
+        .filter(|label| !label.is_empty())
+        .or_else(|| (!value.is_empty()).then(|| value.clone()))
+        .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
+    Some(ConfigChip {
+        value,
+        label: option.label.clone(),
+        value_label,
+        values,
+    })
+}
+
 /// The mode id every plan-capable agent advertises.
 pub(crate) const PLAN_MODE_ID: &str = "plan";
 
@@ -725,14 +753,6 @@ pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<
         build_id: build.id.clone(),
         active: config.current_mode.as_deref() == Some(plan.id.as_str()),
     })
-}
-
-/// The header's compact context read (`124k / 200k`) — the sheet spells out
-/// the percent and the cost.
-pub(crate) fn context_summary(usage: Option<&steer::SessionUsage>) -> Option<String> {
-    let full = crate::usage_bar::format_context_usage(usage);
-    let (head, _) = full.split_once(" (")?;
-    Some(head.to_string())
 }
 
 #[cfg(test)]
@@ -1041,8 +1061,8 @@ mod tests {
 
     fn config(modes: &[(&str, &str)], current: Option<&str>) -> steer::SessionConfig {
         steer::SessionConfig {
-            // EXP-772: the engine publishes an EMPTY option list now — the
-            // mid-session model/effort pickers are gone on every client.
+            // EXP-877: the option list carries the `model` value and nothing
+            // else; the mode tests below do not need it.
             options: Vec::new(),
             current_mode: current.map(str::to_string),
             modes: modes
@@ -1074,6 +1094,60 @@ mod tests {
         );
     }
 
+    /// EXP-877: the composer's model read. A publisher that describes its
+    /// values reads as their LABELS; the engine's value-only `model` (the live
+    /// case — switching is a `/model <alias>` message, not a menu) reads as
+    /// the raw value; a blank value falls back to the default label; an
+    /// option nobody published is `None`, and the picker then draws nothing.
+    #[test]
+    fn the_model_option_reads_its_value() {
+        let with = |options: Vec<steer::frames::ConfigOption>| steer::SessionConfig {
+            options,
+            current_mode: None,
+            modes: Vec::new(),
+            commands: Vec::new(),
+        };
+        let described = with(vec![steer::frames::ConfigOption {
+            value: Some("opus".to_string()),
+            values: Some(vec![
+                steer::frames::ConfigValue::new("fable", "Fable"),
+                steer::frames::ConfigValue::new("opus", "Opus"),
+                steer::frames::ConfigValue::new("sonnet", "Sonnet"),
+            ]),
+            ..steer::frames::ConfigOption::new("model", "Model")
+        }]);
+        let chip = option_chip(Some(&described), "model").expect("the model option");
+        assert_eq!(
+            (chip.label.as_str(), chip.value.as_str(), chip.value_label.as_str()),
+            ("Model", "opus", "Opus")
+        );
+        assert_eq!(chip.values.len(), 3);
+
+        // Value only (what the engine publishes): the value names itself and
+        // there is no menu on the wire.
+        let bare = with(vec![steer::frames::ConfigOption {
+            value: Some("sonnet".to_string()),
+            ..steer::frames::ConfigOption::new("model", "Model")
+        }]);
+        let chip = option_chip(Some(&bare), "model").expect("the model option");
+        assert_eq!(chip.value_label, "sonnet");
+        assert!(chip.values.is_empty());
+
+        // Blank = the CLI's own default (codex with no `-m`).
+        let blank = with(vec![steer::frames::ConfigOption {
+            value: Some(String::new()),
+            ..steer::frames::ConfigOption::new("model", "Model")
+        }]);
+        assert_eq!(
+            option_chip(Some(&blank), "model").expect("the model option").value_label,
+            crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL
+        );
+
+        // Nothing published under that id, and no config at all.
+        assert!(option_chip(Some(&bare), "effort").is_none());
+        assert!(option_chip(None, "model").is_none());
+    }
+
     /// EXP-772: exactly two modes with `plan` among them is the toggle shape;
     /// anything else falls back to the chip.
     #[test]
@@ -1102,17 +1176,5 @@ mod tests {
         )))
         .is_none());
         assert!(plan_mode_toggle(None).is_none());
-    }
-
-    /// The header shows the tokens; the sheet adds the percent and the cost.
-    #[test]
-    fn the_header_summary_drops_the_percent() {
-        let usage = steer::SessionUsage {
-            context_used: 124_000,
-            context_size: 200_000,
-            cost_usd: None,
-        };
-        assert_eq!(context_summary(Some(&usage)), Some("124k / 200k".to_string()));
-        assert_eq!(context_summary(None), None);
     }
 }

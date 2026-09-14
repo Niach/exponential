@@ -1,0 +1,699 @@
+//! EXP-877 — the ONE work header shared by the issue face, the run face and
+//! the diff face of a top tab (issue detail + session screen), byte-identical
+//! with the web `WorkHeader`.
+//!
+//! Row 1: the title (the detail's editable input, a static [`title_row`]
+//! elsewhere) with the right cluster on the SAME line, top-aligned — the
+//! [`face_toggle`] (`Issue | Run | +N -M`), then, for an issue, its pin and
+//! `…` menu. Row 2 (issue-bound only): the property tray, trailing
+//! `[Merge PR] [the ONE coding action]` at its right edge. The coding action
+//! is derived from the run STATE ([`coding_action`]), never from the face on
+//! show: an own live run → Stop, an own ended resumable run → Resume, else
+//! Start coding. Fixed (never scrolls with the body); the column caps at
+//! [`WORK_COLUMN_W`], the same as the issue body, transcript and diff.
+
+use std::rc::Rc;
+
+use gpui::{
+    div, prelude::FluentBuilder as _, px, AnyElement, App, InteractiveElement as _,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
+};
+use gpui_component::{
+    button::Button, h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+};
+use sync::Store;
+
+use crate::changes_bar::MergeTarget;
+use crate::coding_flow::{LocalSessions, StartCodingControl};
+use crate::icons::{registry, ExpIcon};
+use crate::issue_detail::{centered_column, DETAIL_GUTTER};
+use crate::session_screen::ResumePath;
+use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
+
+/// The shared work column width — web `max-w-4xl` (896px): header, issue
+/// body, transcript and the full-page diff all cap to it.
+pub(crate) const WORK_COLUMN_W: f32 = 896.;
+
+// ---------------------------------------------------------------------------
+// Face toggle
+// ---------------------------------------------------------------------------
+
+/// Which face of a top tab is up. `Diff` = the Run face with the viewer's
+/// full-page diff open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Face {
+    Issue,
+    Run,
+    Diff,
+}
+
+/// What the toggle offers: an `Issue` item for an issue-bound tab, a `Run`
+/// item when a run exists (its id), a diff item when that run has changes
+/// (`+N -M`). Unavailable items are HIDDEN, never disabled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FaceToggle {
+    pub issue: bool,
+    pub run: Option<String>,
+    pub diff: Option<(u32, u32)>,
+    pub active: Face,
+}
+
+impl FaceToggle {
+    /// The items in web order, pure so the visibility rule can be pinned.
+    pub(crate) fn items(&self) -> Vec<Face> {
+        let mut items = Vec::with_capacity(3);
+        if self.issue {
+            items.push(Face::Issue);
+        }
+        if self.run.is_some() {
+            items.push(Face::Run);
+            if self.diff.is_some() {
+                items.push(Face::Diff);
+            }
+        }
+        items
+    }
+}
+
+/// The callback a toggle pick lands on.
+pub(crate) type OnPickFace = Rc<dyn Fn(Face, &mut Window, &mut App)>;
+
+/// The `Issue | Run | +N -M` segmented control. `None` below two items — a
+/// one-item toggle names nothing to switch to.
+pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Option<AnyElement> {
+    let items = spec.items();
+    if items.len() < 2 {
+        return None;
+    }
+    // The web `TabsList` capsule as-is (h-9, 3px inset, `px-3 text-sm`
+    // triggers) — `controls::segmented` already mirrors it; only the width
+    // changes from full to content.
+    let mut control = crate::controls::segmented(cx).w_auto().flex_shrink_0();
+    for face in items {
+        let active = spec.active == face;
+        let on_pick = on_pick.clone();
+        let item = crate::controls::segmented_item(active, cx)
+            .id(match face {
+                Face::Issue => "tab-face-issue",
+                Face::Run => "tab-face-run",
+                Face::Diff => "tab-face-diff",
+            })
+            .flex_none()
+            .px_3()
+            .text_sm()
+            .map(|item| match face {
+                Face::Issue => item.child("Issue"),
+                Face::Run => item.child("Run"),
+                Face::Diff => {
+                    let (additions, deletions) = spec.diff.unwrap_or_default();
+                    item.child(diff_label(additions, deletions, cx))
+                }
+            })
+            .when(!active, |item| {
+                item.on_click(move |_, window, cx| on_pick(face, window, cx))
+            });
+        control = control.child(item);
+    }
+    Some(control.into_any_element())
+}
+
+/// The diff item's `+N -M` (ASCII minus), mono, additions in the shared
+/// green and deletions in the danger tint — no glyph.
+fn diff_label(additions: u32, deletions: u32, cx: &App) -> AnyElement {
+    h_flex()
+        .gap_1()
+        .font_family(theme::terminal::FONT_FAMILY)
+        .child(
+            div()
+                .text_color(theme::tokens::GREEN.to_hsla())
+                .child(SharedString::from(format!("+{additions}"))),
+        )
+        .child(
+            div()
+                .text_color(cx.theme().danger)
+                .child(SharedString::from(format!("-{deletions}"))),
+        )
+        .into_any_element()
+}
+
+// ---------------------------------------------------------------------------
+// The ONE coding action
+// ---------------------------------------------------------------------------
+
+/// The header's one coding action, derived from the run state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CodingAction {
+    /// My run is live: Stop (the run's own confirm).
+    Stop {
+        session_id: String,
+        /// This process hosts the run (the in-process kill); otherwise the
+        /// relay's `killSession` reaches the machine named by `device_label`.
+        local: bool,
+        device_label: Option<String>,
+    },
+    /// My newest run ended and a machine can take it back up.
+    Resume {
+        session_id: String,
+        path: ResumePath,
+        host_label: Option<String>,
+    },
+    /// Nothing of mine to act on: the launcher.
+    Start,
+}
+
+/// The web `issue-coding-action.tsx` target order, pure: the bound run while
+/// it is mine AND live; else my newest LIVE run on the issue (running /
+/// in_review inside the stale window) — so an own live run never hides
+/// behind a newer ended or stale one; else my newest run overall (whatever
+/// its state — a newer stale-running row outranks an older ended one, and
+/// then earns Start coding, never Resume on the older run). `None` = no run
+/// of mine on the issue.
+pub(crate) fn coding_target<'a>(
+    rows: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
+    issue_id: &str,
+    bound: Option<&str>,
+    me: &str,
+    now_epoch: i64,
+) -> Option<&'a domain::rows::CodingSession> {
+    let mine: Vec<&domain::rows::CodingSession> = rows
+        .into_iter()
+        .filter(|row| row.issue_id.as_deref() == Some(issue_id) && row.user_id.as_deref() == Some(me))
+        .collect();
+    let newest = |rows: &[&'a domain::rows::CodingSession]| -> Option<&'a domain::rows::CodingSession> {
+        rows.iter()
+            .copied()
+            .max_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)))
+    };
+    let live: Vec<&domain::rows::CodingSession> = mine
+        .iter()
+        .copied()
+        .filter(|row| crate::queries::coding_session_is_live(row, now_epoch))
+        .collect();
+    if let Some(bound) = bound {
+        if let Some(row) = live.iter().copied().find(|row| row.id == bound) {
+            return Some(row);
+        }
+    }
+    newest(&live).or_else(|| newest(&mine))
+}
+
+/// The pure rule. `target` is the run the tab is about ([`coding_target`]);
+/// a run that is not mine (a teammate's) never yields anything but Start, a
+/// live one Stop, an ENDED one Resume when a machine can take it, anything
+/// else (a stale-running row, an unresumable end) Start.
+pub(crate) fn coding_action(
+    target: Option<&domain::rows::CodingSession>,
+    me: Option<&str>,
+    now_epoch: i64,
+    local: bool,
+    device_label: Option<String>,
+    resume: Option<ResumePath>,
+) -> CodingAction {
+    let Some(target) = target else {
+        return CodingAction::Start;
+    };
+    let own = target.user_id.is_some() && target.user_id.as_deref() == me;
+    if !own {
+        return CodingAction::Start;
+    }
+    if crate::queries::coding_session_is_live(target, now_epoch) {
+        return CodingAction::Stop {
+            session_id: target.id.clone(),
+            local,
+            device_label,
+        };
+    }
+    let ended = target.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+    match resume {
+        Some(path) if ended => CodingAction::Resume {
+            session_id: target.id.clone(),
+            path,
+            host_label: device_label,
+        },
+        _ => CodingAction::Start,
+    }
+}
+
+/// [`coding_target`] over the synced rows, as its row. `None` when I have no
+/// synced run on the issue.
+pub(crate) fn issue_run_row(
+    issue_id: &str,
+    bound: Option<&str>,
+    cx: &App,
+) -> Option<domain::rows::CodingSession> {
+    let me = crate::queries::active_account(cx)?.user_id;
+    let store = Store::try_global(cx)?;
+    let sessions = store.collections().coding_sessions.read(cx);
+    let now = chrono::Utc::now().timestamp();
+    coding_target(sessions.iter(), issue_id, bound, &me, now).cloned()
+}
+
+/// [`coding_action`] for an issue, off the synced rows, this process's local
+/// registry and the devices rows. `resumable` is the caller's once-per-run
+/// cache of the registry read (`(session_id, resumable)`): the registry is a
+/// file, and a header repaints on every feed event.
+pub(crate) fn issue_coding_action(
+    issue_id: &str,
+    bound: Option<&str>,
+    resumable: &mut Option<(String, bool)>,
+    cx: &mut App,
+) -> CodingAction {
+    let now = chrono::Utc::now().timestamp();
+    // A local start ahead of its synced echo is still my live run.
+    let local_by_issue = LocalSessions::global_ref(cx)
+        .and_then(|sessions| sessions.read(cx).get(issue_id).map(|s| s.session_id.clone()));
+    let target = issue_run_row(issue_id, bound, cx);
+    let Some(target) = target else {
+        return match local_by_issue {
+            Some(session_id) => CodingAction::Stop {
+                session_id,
+                local: true,
+                device_label: None,
+            },
+            None => CodingAction::Start,
+        };
+    };
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let local = LocalSessions::global_ref(cx)
+        .is_some_and(|sessions| sessions.read(cx).session_by_id(&target.id).is_some());
+    let device_label = target
+        .device_id
+        .as_deref()
+        .and_then(|device_id| crate::queries::device_label_for_id(cx, device_id));
+    let ended = target.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+    let resume = ended.then(|| resume_path_cached(&target, resumable, cx)).flatten();
+    coding_action(Some(&target), me.as_deref(), now, local, device_label, resume)
+}
+
+/// [`crate::session_screen::resume_path_for`] over the cached registry read.
+pub(crate) fn resume_path_cached(
+    session: &domain::rows::CodingSession,
+    resumable: &mut Option<(String, bool)>,
+    cx: &mut App,
+) -> Option<ResumePath> {
+    let local = match resumable {
+        Some((id, known)) if *id == session.id => *known,
+        _ => {
+            let known = crate::coding_flow::run_is_resumable_ref(&session.id, cx);
+            *resumable = Some((session.id.clone(), known));
+            known
+        }
+    };
+    let own_device_id = crate::queries::own_device_id(cx);
+    let store = Store::try_global(cx)?;
+    let own_device = session.device_id.as_deref() == Some(own_device_id.as_str());
+    crate::session_screen::resume_path_for(
+        local,
+        own_device,
+        session,
+        store.collections().devices.read(cx).iter(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+}
+
+/// The pill for a [`CodingAction`]. `start` is the launcher entity of the
+/// host that has one (the issue detail / an issue-bound session screen);
+/// without it a `Start` renders nothing.
+pub(crate) fn coding_action_button(
+    action: CodingAction,
+    start: Option<&gpui::Entity<StartCodingControl>>,
+    cx: &App,
+) -> Option<AnyElement> {
+    match action {
+        CodingAction::Stop {
+            session_id,
+            local,
+            device_label,
+        } => Some(
+            crate::session_screen::stop_session_pill("work-stop", cx)
+                .on_click(move |_, window, cx| {
+                    let host = local
+                        .then(|| {
+                            LocalSessions::global_ref(cx).and_then(|sessions| {
+                                sessions
+                                    .read(cx)
+                                    .session_by_id(&session_id)
+                                    .map(|session| session.host.clone())
+                            })
+                        })
+                        .flatten();
+                    crate::session_bar::prompt_kill_session(
+                        host,
+                        device_label.clone(),
+                        session_id.clone(),
+                        window,
+                        cx,
+                    );
+                })
+                .into_any_element(),
+        ),
+        CodingAction::Resume {
+            session_id,
+            path,
+            host_label,
+        } => {
+            let button = resume_pill("work-resume", cx);
+            Some(match path {
+                ResumePath::Local => button
+                    .on_click(move |_, window, cx| {
+                        // The ONE desktop resume entry point: the transport
+                        // comes from the recorded run, never from the setting.
+                        crate::action_run::resume_run(
+                            session_id.clone(),
+                            Some(window.window_handle()),
+                            false,
+                            coding::LaunchOrigin::Local,
+                            cx,
+                        );
+                    })
+                    .into_any_element(),
+                ResumePath::Remote { device_id } => {
+                    // EXP-800: the run relaunches on the machine that hosted
+                    // it; the tooltip says so before the click.
+                    let label = host_label.unwrap_or_else(|| "its machine".to_string());
+                    let tooltip = SharedString::from(format!("Resume on {label}"));
+                    button
+                        .tooltip(tooltip)
+                        .on_click(move |_, window, cx| {
+                            crate::session_screen::resume_remote(
+                                session_id.clone(),
+                                device_id.clone(),
+                                label.clone(),
+                                window,
+                                cx,
+                            );
+                        })
+                        .into_any_element()
+                }
+            })
+        }
+        CodingAction::Start => start.map(|start| start.clone().into_any_element()),
+    }
+}
+
+/// The Resume pill — glass, `Sm`, the resume glyph and the word "Resume".
+pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, cx: &App) -> Button {
+    glass_pill_button(id, PillSize::Sm, cx)
+        .icon(
+            Icon::new(registry::RUN_RESUME)
+                .with_size(px(PillSize::Sm.glyph()))
+                .text_color(cx.theme().muted_foreground),
+        )
+        .label("Resume")
+        .tooltip("Resume this run")
+}
+
+// ---------------------------------------------------------------------------
+// Merge
+// ---------------------------------------------------------------------------
+
+/// The ONE Merge look: a `Sm` pill (primary or glass) with the merge glyph,
+/// two-click armed (`Merge PR` → `Confirm merge`, then `Merging…` until the
+/// Electric echo settles) through [`crate::pr_merge::two_click`].
+pub(crate) fn merge_pill(
+    id: impl Into<gpui::ElementId>,
+    target: &MergeTarget,
+    primary: bool,
+    cx: &mut App,
+) -> AnyElement {
+    let key = target.key();
+    let (armed, merging) = {
+        let state = crate::pr_merge::MergeState::global(cx);
+        let state = state.read(cx);
+        (state.armed(&key), state.merging(&key))
+    };
+    let glyph = if armed {
+        cx.theme().danger
+    } else if primary {
+        cx.theme().primary_foreground
+    } else {
+        cx.theme().muted_foreground
+    };
+    let target = target.clone();
+    let mut button = if primary {
+        glass_pill_button_primary(id, PillSize::Sm)
+    } else {
+        glass_pill_button(id, PillSize::Sm, cx)
+    }
+    .icon(
+        Icon::from(ExpIcon::GitMerge)
+            .with_size(px(PillSize::Sm.glyph()))
+            .text_color(glyph),
+    )
+    .label(if merging {
+        "Merging…"
+    } else if armed {
+        "Confirm merge"
+    } else {
+        "Merge PR"
+    })
+    .tooltip(target.tooltip())
+    .on_click(move |_, _, cx| {
+        crate::pr_merge::two_click(target.op(), None, None, cx);
+    });
+    if merging {
+        button = button.disabled(true);
+    }
+    button.into_any_element()
+}
+
+// ---------------------------------------------------------------------------
+// The header frame
+// ---------------------------------------------------------------------------
+
+/// A READ-ONLY title at the detail's 2xl semibold rung, padded exactly like
+/// the editable title (`IssueDetailView::render_title`) so the baseline never
+/// moves between the issue face and the run face.
+/// The title block, issue field and run title alike — the web's
+/// `RUN_TITLE_CLASS` / title Textarea to the pixel: `pt-4 pb-1`, 24px
+/// semibold on a 32px line (NOT gpui's `text_2xl`, which is 21px on the
+/// 14px rem), so the two faces share one title box and the header stands
+/// symmetric around a one-line title.
+pub(crate) const TITLE_PT: f32 = 16.;
+pub(crate) const TITLE_PB: f32 = 4.;
+pub(crate) const TITLE_SIZE: f32 = 24.;
+pub(crate) const TITLE_LINE: f32 = 32.;
+/// The multi-line widget's own insets (`Size::Medium` `input_py` /
+/// `input_px`), applied underneath any refined style: the editable title's
+/// wrapper gives them back so its text lands on the block above.
+pub(crate) const TITLE_WIDGET_PY: f32 = 8.;
+pub(crate) const TITLE_WIDGET_PX: f32 = 10.;
+/// Web `pb-3` under the header (tray or bare title).
+const HEADER_PB: f32 = 12.;
+
+pub(crate) fn title_row(text: impl Into<SharedString>) -> AnyElement {
+    div()
+        .w_full()
+        .min_w_0()
+        .px(px(DETAIL_GUTTER))
+        // Web `pt-4 pb-1`: the SAME block the editable title uses, so the
+        // baseline never moves between the issue face and the run face.
+        .pt(px(TITLE_PT))
+        .pb(px(TITLE_PB))
+        .text_size(px(TITLE_SIZE))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .line_height(px(TITLE_LINE))
+        .child(text.into())
+        .into_any_element()
+}
+
+/// The pieces of one header.
+pub(crate) struct WorkHeader {
+    /// Row 1, left: the title block (it carries its own gutter + `pt_3`).
+    pub title: AnyElement,
+    /// Row 1, right, top-aligned with the title: `[toggle] [pin] [menu]`.
+    pub right: Vec<AnyElement>,
+    /// Row 2: the property tray (issue-bound only).
+    pub tray: Option<AnyElement>,
+    /// A slim extra row under the tray (the merge-error caption).
+    pub extra: Option<AnyElement>,
+}
+
+/// The fixed header frame: a hairline under it, the content centered to
+/// [`WORK_COLUMN_W`].
+pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
+    let WorkHeader {
+        title,
+        right,
+        tray,
+        extra,
+    } = header;
+    let row1 = h_flex()
+        .w_full()
+        .items_start()
+        .child(div().flex_1().min_w_0().child(title))
+        .child(
+            h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                // Web `pt-4 pr-4`: top-aligned with the title's own `pt-4`.
+                .pt(px(TITLE_PT))
+                .pr(px(DETAIL_GUTTER))
+                .children(right),
+        );
+    v_flex()
+        .w_full()
+        .flex_shrink_0()
+        // Web `pb-3`: the one bottom inset, whether a tray follows or not.
+        .pb(px(HEADER_PB))
+        .border_b_1()
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .child(centered_column(
+            v_flex().child(row1).children(tray).children(extra),
+        ))
+        .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(id: &str, user: Option<&str>, status: &str) -> domain::rows::CodingSession {
+        // No `updated_at`: a live status without a heartbeat stamp counts as
+        // live (`coding_session_is_live`), which keeps the fixture clock-free.
+        session_at(id, user, status, "2026-01-01T00:00:00Z", None)
+    }
+
+    /// A row with an explicit start and, optionally, a heartbeat stamp.
+    fn session_at(
+        id: &str,
+        user: Option<&str>,
+        status: &str,
+        started_at: &str,
+        updated_at: Option<&str>,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "issue_id": "issue-1",
+            "status": status,
+            "started_at": started_at,
+            "updated_at": updated_at,
+            "user_id": user,
+        }))
+        .unwrap()
+    }
+
+    const NOW: i64 = 1_800_000_000;
+
+    fn stamp(epoch: i64) -> String {
+        chrono::DateTime::from_timestamp(epoch, 0)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    }
+
+    /// An own LIVE run never hides behind a NEWER ended one: the target is
+    /// the live row and the action is Stop (the web `ownLive` order).
+    #[test]
+    fn a_live_run_behind_a_newer_ended_one_is_still_stop() {
+        let running = domain::contract::CODING_SESSION_STATUS_RUNNING;
+        let ended = domain::contract::CODING_SESSION_STATUS_ENDED;
+        let older_live = session_at("a", Some("me"), running, &stamp(NOW - 3_600), Some(&stamp(NOW - 10)));
+        let newer_ended = session_at("b", Some("me"), ended, &stamp(NOW - 60), Some(&stamp(NOW - 30)));
+        let rows = [newer_ended.clone(), older_live.clone()];
+        let target = coding_target(rows.iter(), "issue-1", None, "me", NOW);
+        assert_eq!(target.map(|row| row.id.as_str()), Some("a"));
+        // Even when the tab is bound to the ended run: bound only wins live.
+        let bound = coding_target(rows.iter(), "issue-1", Some("b"), "me", NOW);
+        assert_eq!(bound.map(|row| row.id.as_str()), Some("a"));
+        assert!(matches!(
+            coding_action(target, Some("me"), NOW, false, None, Some(ResumePath::Local)),
+            CodingAction::Stop { ref session_id, .. } if session_id == "a"
+        ));
+    }
+
+    /// A newer STALE running row (no heartbeat inside the window) is not
+    /// live, so it is the newest-overall target, and it earns Start coding —
+    /// never Resume on the older ended run behind it.
+    #[test]
+    fn a_newer_stale_run_over_an_older_ended_one_is_start() {
+        let running = domain::contract::CODING_SESSION_STATUS_RUNNING;
+        let ended = domain::contract::CODING_SESSION_STATUS_ENDED;
+        let stale_secs = domain::contract::CODING_SESSION_STALE_MS / 1000 + 60;
+        let older_ended = session_at("a", Some("me"), ended, &stamp(NOW - 7_200), Some(&stamp(NOW - 7_000)));
+        let newer_stale = session_at("b", Some("me"), running, &stamp(NOW - 3_600), Some(&stamp(NOW - stale_secs)));
+        let rows = [older_ended, newer_stale];
+        let target = coding_target(rows.iter(), "issue-1", None, "me", NOW);
+        assert_eq!(target.map(|row| row.id.as_str()), Some("b"));
+        assert_eq!(
+            coding_action(target, Some("me"), NOW, false, None, Some(ResumePath::Local)),
+            CodingAction::Start
+        );
+        // A teammate's live row never enters the selection.
+        let theirs = [session_at("c", Some("them"), running, &stamp(NOW), Some(&stamp(NOW)))];
+        assert!(coding_target(theirs.iter(), "issue-1", None, "me", NOW).is_none());
+    }
+
+    /// An own LIVE run is Stop, whichever machine hosts it.
+    #[test]
+    fn own_live_run_is_stop() {
+        let row = session("s1", Some("me"), domain::contract::CODING_SESSION_STATUS_RUNNING);
+        let action = coding_action(Some(&row), Some("me"), NOW, false, Some("Mac".into()), None);
+        assert_eq!(
+            action,
+            CodingAction::Stop {
+                session_id: "s1".into(),
+                local: false,
+                device_label: Some("Mac".into()),
+            }
+        );
+        let local = coding_action(Some(&row), Some("me"), NOW, true, None, None);
+        assert!(matches!(local, CodingAction::Stop { local: true, .. }));
+    }
+
+    /// An own ENDED run with a resume path is Resume; without one, Start.
+    #[test]
+    fn own_ended_run_resumes_only_with_a_path() {
+        let row = session("s1", Some("me"), domain::contract::CODING_SESSION_STATUS_ENDED);
+        let action = coding_action(
+            Some(&row),
+            Some("me"),
+            NOW,
+            false,
+            Some("Mac".into()),
+            Some(ResumePath::Local),
+        );
+        assert_eq!(
+            action,
+            CodingAction::Resume {
+                session_id: "s1".into(),
+                path: ResumePath::Local,
+                host_label: Some("Mac".into()),
+            }
+        );
+        assert_eq!(
+            coding_action(Some(&row), Some("me"), NOW, false, None, None),
+            CodingAction::Start
+        );
+    }
+
+    /// Nothing of mine — no run, a teammate's run (live or not), or no
+    /// signed-in account — is Start. A teammate's run never yields Stop.
+    #[test]
+    fn nothing_own_is_start() {
+        assert_eq!(coding_action(None, Some("me"), NOW, false, None, None), CodingAction::Start);
+        let theirs = session("s2", Some("them"), domain::contract::CODING_SESSION_STATUS_RUNNING);
+        assert_eq!(
+            coding_action(Some(&theirs), Some("me"), NOW, false, None, Some(ResumePath::Local)),
+            CodingAction::Start
+        );
+        let anon = session("s3", None, domain::contract::CODING_SESSION_STATUS_RUNNING);
+        assert_eq!(coding_action(Some(&anon), None, NOW, false, None, None), CodingAction::Start);
+    }
+
+    /// The toggle hides what is unavailable and needs two items to exist.
+    #[test]
+    fn face_toggle_items_follow_availability() {
+        let issue_only = FaceToggle { issue: true, run: None, diff: None, active: Face::Issue };
+        assert_eq!(issue_only.items(), vec![Face::Issue]);
+        let run_only = FaceToggle { issue: false, run: Some("r".into()), diff: None, active: Face::Run };
+        assert_eq!(run_only.items(), vec![Face::Run]);
+        let with_run = FaceToggle { issue: true, run: Some("r".into()), diff: None, active: Face::Issue };
+        assert_eq!(with_run.items(), vec![Face::Issue, Face::Run]);
+        let with_diff = FaceToggle { issue: false, run: Some("r".into()), diff: Some((3, 1)), active: Face::Diff };
+        assert_eq!(with_diff.items(), vec![Face::Run, Face::Diff]);
+        // A diff without a run is not a face.
+        let orphan_diff = FaceToggle { issue: true, run: None, diff: Some((3, 1)), active: Face::Issue };
+        assert_eq!(orphan_diff.items(), vec![Face::Issue]);
+    }
+}

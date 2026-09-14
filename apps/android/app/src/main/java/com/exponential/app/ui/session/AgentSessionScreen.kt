@@ -215,6 +215,7 @@ import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.agentIconPainter
+import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.StatusIcon
@@ -2461,7 +2462,10 @@ private fun WorkingIndicatorRow(
             agentIconPainter(agent.orEmpty()),
             contentDescription = null,
             modifier = Modifier.size(13.dp).alpha(pulse),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            tint = agentIconTint(
+                agent.orEmpty(),
+                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            ),
         )
         Text(
             workingCaption(startedAt, tokens, nowMs, workflowCaption),

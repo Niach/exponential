@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -441,11 +442,15 @@ internal fun agentLabel(value: String): String = when (value) {
 }
 
 /**
- * Monochrome brand marks derived from the desktop IDE's SVG icons (EXP-208).
+ * Brand marks derived from the desktop IDE's SVG icons (EXP-208).
  * EXP-849: only the agents we ship have a mark — a historical `pi` row, or any
  * agent id this build does not know, gets the NEUTRAL concept glyph rather
  * than silently wearing claude's — the `settings-agents` concept, the same
  * neutral-glyph rule the desktop falls back to.
+ *
+ * Pair every `Icon(agentIconPainter(x))` with `tint = agentIconTint(x, …)`:
+ * EXP-877 gave claude's drawable its own brand orange (the fill the web, iOS
+ * and the IDE draw), so it must NOT take the content colour.
  */
 @Composable
 internal fun agentIconPainter(value: String): Painter = when (value) {
@@ -453,6 +458,15 @@ internal fun agentIconPainter(value: String): Painter = when (value) {
     "codex" -> painterResource(R.drawable.ic_agent_codex)
     else -> rememberVectorPainter(ExpIcons.settingsAgents)
 }
+
+/**
+ * The tint for [agentIconPainter]'s glyph: claude's mark keeps its own brand
+ * orange (`Color.Unspecified` = draw the drawable as authored); every other
+ * mark takes [fallback], the content colour by default.
+ */
+@Composable
+internal fun agentIconTint(value: String, fallback: Color = LocalContentColor.current): Color =
+    if (value == "claude") Color.Unspecified else fallback
 
 internal fun modelLabel(value: String): String = when (value) {
     CLI_DEFAULT_MODEL -> "CLI default"

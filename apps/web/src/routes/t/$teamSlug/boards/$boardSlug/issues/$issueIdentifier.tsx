@@ -1,20 +1,20 @@
 import { useMemo } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import {
-  codingSessionCollection,
-  issueCollection,
-  issueLabelCollection,
-} from "@/lib/collections"
+import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { issueSessionTarget } from "@/hooks/use-open-session"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useWorkTabs } from "@/hooks/use-work-tabs"
-import type { CodingSession, Issue, IssueLabel } from "@/db/schema"
+import type { CodingSession, Issue } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueDetailView } from "@/components/issue-detail-view"
-import { WorkFaceToggle } from "@/components/team/work-face-toggle"
+import {
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+  WorkFaceToggle,
+} from "@/components/team/work-face-toggle"
 
 type IssueSearch = { from?: string }
 
@@ -68,24 +68,11 @@ function IssueDetailPage() {
   // boards one, and claiming "not found" in that window is a lie (REV2-32).
   const issueReady = Boolean(board) && issuesQueryReady
 
-  const { data: issueLabels } = useLiveQuery(
-    (query) =>
-      issue
-        ? query
-            .from({ issueLabels: issueLabelCollection })
-            .where(({ issueLabels }) => eq(issueLabels.issueId, issue.id))
-        : undefined,
-    [issue?.id]
-  )
-  const issueLabelIds = ((issueLabels ?? []) as IssueLabel[]).map(
-    (row) => row.labelId
-  )
-
   const permissions = useTeamPermissions(team)
 
   // EXP-870: the Run face — the run this issue's work tab is bound to, else
-  // the issue's newest run of mine (`issueSessionTarget`, the Watch pill's
-  // rule). No such run = the toggle's Run side is disabled.
+  // the issue's newest run of mine (`issueSessionTarget`). No such run = the
+  // toggle has one face and does not render (EXP-877).
   const navigate = useNavigate()
   const { data: authSession } = useSession()
   const { data: runRows } = useLiveQuery(
@@ -153,7 +140,6 @@ function IssueDetailPage() {
   return (
     <IssueDetailView
       issue={issue}
-      issueLabelIds={issueLabelIds}
       users={users}
       board={board}
       teamSlug={teamSlug}
@@ -163,16 +149,23 @@ function IssueDetailPage() {
       faceToggle={
         <WorkFaceToggle
           face="issue"
-          onRun={
-            runTarget
-              ? () =>
-                  void navigate({
-                    to: `/t/$teamSlug/sessions/$sessionId`,
-                    params: { teamSlug, sessionId: runTarget.id },
-                    search: search.from ? { from: search.from } : {},
-                  })
-              : undefined
-          }
+          items={[
+            { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: () => {} },
+            ...(runTarget
+              ? [
+                  {
+                    face: `run` as const,
+                    label: RUN_FACE_LABEL,
+                    onSelect: () =>
+                      void navigate({
+                        to: `/t/$teamSlug/sessions/$sessionId`,
+                        params: { teamSlug, sessionId: runTarget.id },
+                        search: search.from ? { from: search.from } : {},
+                      }),
+                  },
+                ]
+              : []),
+          ]}
         />
       }
     />

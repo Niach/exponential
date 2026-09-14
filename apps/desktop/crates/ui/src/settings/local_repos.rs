@@ -783,7 +783,7 @@ impl LocalReposPane {
                         };
                         menu = menu.menu_with_icon_and_disabled(
                             agent.label(),
-                            Icon::from(crate::coding_selects::agent_icon(*agent)),
+                            crate::coding_selects::agent_mark(*agent),
                             Box::new(action),
                             repository_id.is_none(),
                         );

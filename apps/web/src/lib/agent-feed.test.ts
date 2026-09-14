@@ -9,6 +9,7 @@ import {
   modeChip,
   parseConfigState,
   planModeChipLabel,
+  sessionModel,
   planModeToggle,
   parseRateLimit,
   parseSessionUsage,
@@ -1060,31 +1061,70 @@ describe(`config state`, () => {
     ...over,
   })
 
-  // EXP-772: options are gone from the state entirely — an older publisher
-  // still sends them, the fold simply drops them.
-  it(`parseConfigState drops malformed modes, commands and every option`, () => {
+  it(`parseConfigState drops malformed options, modes and commands`, () => {
     const parsed = parseConfigState(
       state({
-        options: [{ id: `model`, label: `Model`, value: `opus` }],
+        options: [{ id: `model`, label: `Model`, value: `opus` }, 3],
         modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }, 7],
         commands: [{ name: `review`, description: `Review the diff` }, null],
         currentMode: `plan`,
       })
     )
     expect(parsed).toEqual({
+      options: [{ id: `model`, label: `Model`, value: `opus` }],
       modes: [{ id: `plan`, label: `Plan`, description: `Read-only` }],
       commands: [{ name: `review`, description: `Review the diff` }],
       currentMode: `plan`,
     })
-    // An options-only payload from an older publisher is still a config
-    // state — it just carries no modes and no commands.
+    // An options-only payload is still a config state — it just carries no
+    // modes and no commands.
     expect(
       parseConfigState({ kind: `config_state`, options: [] })
-    ).toEqual({ modes: [], commands: [] })
+    ).toEqual({ options: [], modes: [], commands: [] })
+    // A payload with modes only leaves the option list empty.
+    expect(
+      parseConfigState({ kind: `config_state`, modes: [] })
+    ).toEqual({ options: [], modes: [], commands: [] })
     // Not a config state at all — the caller keeps its previous snapshot.
     expect(parseConfigState({ kind: `config_state` })).toBeNull()
     expect(parseConfigState(null)).toBeNull()
     expect(parseConfigState([])).toBeNull()
+  })
+
+  // EXP-877: the composer footer's model picker reads exactly one option.
+  it(`sessionModel reads the model option's value`, () => {
+    const config = parseConfigState(
+      state({
+        options: [
+          { id: `effort`, value: `high` },
+          {
+            id: `model`,
+            label: `Model`,
+            value: `opus`,
+            values: [{ id: `opus`, label: `Opus` }, { id: `sonnet` }, 4],
+          },
+        ],
+      })
+    )
+    expect(config?.options[1]).toEqual({
+      id: `model`,
+      label: `Model`,
+      value: `opus`,
+      values: [
+        { id: `opus`, label: `Opus` },
+        { id: `sonnet`, label: `sonnet` },
+      ],
+    })
+    expect(sessionModel(config)).toBe(`opus`)
+    // A blank or absent value is "the CLI's own default" — nothing to show.
+    expect(
+      sessionModel(parseConfigState(state({ options: [{ id: `model`, value: `` }] })))
+    ).toBeNull()
+    expect(
+      sessionModel(parseConfigState(state({ options: [{ id: `model` }] })))
+    ).toBeNull()
+    expect(sessionModel(parseConfigState(state({ options: [] })))).toBeNull()
+    expect(sessionModel(null)).toBeNull()
   })
 
   it(`parseSessionUsage refuses a zero context size`, () => {

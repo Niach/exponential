@@ -10,19 +10,17 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession, Issue, User } from "@/db/schema"
+import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   mergeTargetProps,
   type SessionMergeTarget,
 } from "@/hooks/use-agents-data"
 import { SessionMergeButton } from "@/components/session-merge-button"
-import { PinToggleButton } from "@/components/pin-toggle-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
@@ -101,7 +99,6 @@ import {
   type ExpToolDisplay,
   type ExpToolPreview,
   type RowClass,
-  type SessionConfigState,
   type SessionRateLimitState,
   type SessionUsageState,
   type BackgroundStripLine,
@@ -120,7 +117,31 @@ import {
 } from "@/lib/session-file-cards"
 import { SESSION_DOT_CLASS, type SessionDotTone } from "@/lib/session-dot"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
-import { SessionDiffPane } from "@/components/session-diff-pane"
+import {
+  canWidenDiffScope,
+  SessionDiffFace,
+} from "@/components/session-diff-face"
+import { SteerComposer } from "@/components/steer-composer"
+import { ContextRing } from "@/components/context-ring"
+import {
+  MergePrPill,
+  ResumeRunPill,
+  StopRunPill,
+} from "@/components/run-action-pills"
+import {
+  DiffFaceLabel,
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+  WorkFaceToggle,
+  type WorkFace,
+  type WorkFaceItem,
+} from "@/components/team/work-face-toggle"
+import {
+  RUN_TITLE_CLASS,
+  WORK_COLUMN_CLASS,
+  WorkHeader,
+} from "@/components/work-header"
+import { useCanResumeOn } from "@/hooks/use-resume-run"
 import { SessionFileCard } from "@/components/session-file-card"
 import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-card"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
@@ -128,68 +149,34 @@ import {
   mergeAgentCommands,
   parseSteerCommand,
   steerAgentId,
-  steerCommandConfirmCopy,
   steerCommandsFor,
   COMPACTED_LABEL,
   COMPACTING_LABEL,
-  type SteerCommand,
 } from "@/lib/steer-commands"
-import {
-  SlashCommandMenu,
-  useSlashCommandMenu,
-} from "@/components/steer-command-menu"
 import {
   acquireSteerSession,
   type FeedItem,
   type QuestionItem,
   type QuestionOption,
-  type SteerSessionStore,
   type ToolItem,
   type ViewerPhase,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueRefPill } from "@/components/issue-ref-pill"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { PriorityIcon } from "@/components/issue-properties/priority-dropdown"
-import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
-import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
-import {
-  buildSteerImageMessage,
-  insertImageMarker,
-  MAX_STEER_IMAGES,
-  parseSteerMessage,
-  renumberImageMarkers,
-} from "@/lib/steer-image-message"
+import { parseSteerMessage } from "@/lib/steer-image-message"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Composer,
-  ComposerSubmit,
-  ComposerTool,
-} from "@/components/composer"
-import {
-  MentionTextarea,
-  type MentionTextareaHandle,
-} from "@/components/mention-textarea"
+import { Composer, ComposerSubmit } from "@/components/composer"
 import { Progress } from "@/components/ui/progress"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Popover,
   PopoverContent,
@@ -205,11 +192,9 @@ const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingPlanIcon = conceptIcon(`coding-plan`)
-const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
-const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiHelpIcon = conceptIcon(`ui-help`)
@@ -217,12 +202,10 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
-const CodingDiffIcon = conceptIcon(`coding-diff`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
-const NavIssuesIcon = conceptIcon(`nav-issues`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
 const UiSelectedIcon = conceptIcon(`ui-selected`)
@@ -256,7 +239,7 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 /** The centred reading column every transcript row sits in: the measure plus
  *  one gutter either side, with the gutter as padding from `sm:` up (a phone
  *  cannot afford 48px of it, so it keeps the old 12). */
-const TRANSCRIPT_COLUMN = `mx-auto w-full max-w-[calc(var(--transcript-max-width)_+_2_*_var(--transcript-gutter))] px-3 sm:px-[var(--transcript-gutter)]`
+const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 sm:px-[var(--transcript-gutter)]`
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
  *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
@@ -335,9 +318,10 @@ export function AgentSessionView({
   identity,
   mergeTarget,
   banner,
-  issue = null,
-  onOpenIssue,
-  faceToggle,
+  face,
+  onFace,
+  onIssueFace,
+  issueHeader,
   onBack,
 }: {
   session: CodingSession
@@ -353,15 +337,23 @@ export function AgentSessionView({
   /** EXP-773: a strip between the header and the feed — the session route's
    *  ended-run close-out (byline, Resume). */
   banner?: React.ReactNode
-  /** EXP-827: the run's linked issue (its synced row), drawn as a band under
-   *  the header with an "Open issue" pill — `onOpenIssue` switches the pane
-   *  to the issue while the sessions list stays. */
-  issue?: Issue | null
-  onOpenIssue?: () => void
-  /** EXP-870: the md+ header's `Issue | Run` toggle (`WorkFaceToggle`) — the
-   *  run's linked issue is the same work tab's other face. When present it
-   *  replaces the issue band's "Open issue" pill on md+. */
-  faceToggle?: React.ReactNode
+  /** EXP-877: which face of the work tab this page shows — `run` (the
+   *  transcript) or `diff` (the run's changes, full column). `issue` is a
+   *  navigation the route performs (`onIssueFace`). */
+  face: WorkFace
+  onFace: (face: WorkFace) => void
+  /** EXP-870: the run's linked issue is the same work tab's other face — its
+   *  canonical URL. Absent on issue-less runs (no `Issue` face). */
+  onIssueFace?: () => void
+  /** EXP-877: an issue-bound run wears the ISSUE's header — the editable
+   *  title, the pin + `…` cluster and the properties tray (with the ONE
+   *  coding action inside it). Absent = a run header: the run title, Merge
+   *  and Stop/Resume on the right. */
+  issueHeader?: {
+    title: ReactNode
+    trailing?: ReactNode
+    tray?: ReactNode
+  }
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
 }) {
@@ -403,14 +395,12 @@ export function AgentSessionView({
   )
 
   const [diffOpen, setDiffOpen] = useState(false)
-  /** EXP-850 §11: the md+ diff PANE beside the transcript, and the file it is
-   *  scrolled to (null = the top of the list). */
-  const [diffPaneOpen, setDiffPaneOpen] = useState(false)
+  /** EXP-877: the file the diff FACE is scrolled to (null = the top). */
   const [diffFile, setDiffFile] = useState<string | null>(null)
-  /** EXP-862: WHAT the pane is showing — the whole session (the header's Diff
-   *  pill) or the files of ONE turn (a file card's row), named by its anchor
-   *  so the scope tracks the card as the feed grows. The chip in the pane's
-   *  header returns to the session. */
+  /** EXP-862: WHAT the diff face is showing — the whole session (the face
+   *  toggle) or the files of ONE turn (a file card's row), named by its
+   *  anchor so the scope tracks the card as the feed grows. The chip in the
+   *  face returns to the session. */
   const [diffTurn, setDiffTurn] = useState<number | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   /** EXP-866: an account switch has been requested for THIS run — the live
@@ -722,6 +712,11 @@ export function AgentSessionView({
     dialog: killDialog,
   } = useKillSession(session, currentUserId, device.label, paused)
   const canKill = live && ownsLiveRow
+  /** EXP-877: Resume in the run header (issue-less runs) — an issue-bound
+   *  run's tray decides for itself (`issue-coding-action.tsx`). */
+  const canResumeRun = useCanResumeOn(
+    sessionEnded && !issueHeader ? session : null
+  )
   /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
    *  (with their bars) and switches between them — so it exists whenever the
    *  machine reported an account for this run, not only when numbers are
@@ -876,12 +871,12 @@ export function AgentSessionView({
     [backgroundTasks, feed]
   )
 
-  /** The pane opens at a file, so a file card click is one gesture. EXP-862:
-   *  it opens SCOPED to the turn the card closes — what that turn changed,
-   *  with the card's own patches — and the pane's chip widens it back to the
-   *  session. On a phone there is no pane: the same click opens the floating
-   *  Changes sheet, which is that breakpoint's diff (§11 keeps the mobile
-   *  sheet) and has no scope of its own. */
+  /** The diff face opens at a file, so a file card click is one gesture.
+   *  EXP-862: it opens SCOPED to the turn the card closes — what that turn
+   *  changed, with the card's own patches — and the face's chip widens it
+   *  back to the session. On a phone there is no face: the same click opens
+   *  the floating Changes sheet, which is that breakpoint's diff (§11 keeps
+   *  the mobile sheet) and has no scope of its own. */
   const openDiffFile = useCallback(
     (path: string, card: SessionFileCardData) => {
       setDiffFile(path)
@@ -890,9 +885,9 @@ export function AgentSessionView({
         return
       }
       setDiffTurn(card.turnId)
-      setDiffPaneOpen(true)
+      onFace(`diff`)
     },
-    [isMobile]
+    [isMobile, onFace]
   )
 
   /** The scoped card, or null once the session scope is back (or the turn has
@@ -906,8 +901,8 @@ export function AgentSessionView({
         : (fileCards.find((card) => card.turnId === diffTurn) ?? null),
     [fileCards, diffTurn]
   )
-  /** What the PANE draws: the turn's files, or the whole branch. Its totals
-   *  are the scope's; the header's Diff pill keeps the branch's (§11). */
+  /** What the diff FACE draws: the turn's files, or the whole branch. Its
+   *  totals are the scope's; the face toggle keeps the branch's. */
   const paneFiles = useMemo(
     () => (diffCard ? fileCardDiffFiles(diffCard.files) : diffFiles),
     [diffCard, diffFiles]
@@ -980,12 +975,11 @@ export function AgentSessionView({
     return byRow
   }, [fileCards, rows, feed, windowStart])
 
-  /** EXP-850 §10: the header's trailing controls, in the ONE order every
-   *  client draws them — the read-only Plan chip, the pin, the context meter,
-   *  the diff toggle, Merge, Stop. The `…` overflow is GONE (Usage moved into
-   *  the Context pill and "Compact context" is a `/compact` slash command);
-   *  on a phone these sit in a compact second row under the native header,
-   *  which is the one bar the five detail screens share. */
+  /** The PHONE's compact second row under the native header (the one bar
+   *  the five detail screens share): the read-only Plan chip, Reconnect,
+   *  Stop. EXP-877: md+ draws the unified work header instead — its controls
+   *  are the face toggle and the face's own cluster, and the context meter
+   *  moved into the composer. */
   const headerControls = (
     <>
       {/* EXP-847: plan mode, VISIBLE. Read-only by design — EXP-790 made
@@ -1001,17 +995,6 @@ export function AgentSessionView({
           {planChip}
         </span>
       )}
-      {/* EXP-778: pin the run to the sidebar's Pinned group. Ghost, no
-          circle stroke and no fill — the same weight everywhere a pin
-          toggle renders (issue header, action dialog). */}
-      <PinToggleButton
-        teamId={session.teamId ?? undefined}
-        kind="session"
-        targetId={session.id}
-        variant="ghost"
-        size="icon-sm"
-        className="shrink-0"
-      />
       {/* A dropped stream redials from here too — a phone has no desktop
           header to fall back on. */}
       {phase.kind === `closed` && !paused && (
@@ -1025,65 +1008,83 @@ export function AgentSessionView({
           Reconnect
         </Button>
       )}
-      {/* The phone draws this in the native header's trailing slot instead,
-          so the compact row below it never doubles the pill. */}
-      {!isMobile && contextPill}
-      {/* EXP-850 §11: the diff is a PANE beside the transcript now, and this
-          pill is its switch. Hidden while the run has published no diff. */}
-      {latestDiff && !isMobile && (
-        <Pill
-          size="sm"
-          mode="action"
-          className="shrink-0"
-          aria-pressed={diffPaneOpen}
-          // EXP-862: the pill IS the session scope — opening from here drops
-          // a turn scope the reader left behind.
-          onClick={() => {
-            setDiffTurn(null)
-            setDiffPaneOpen((open) => !open)
-          }}
-          aria-label="Show the changes"
-          title="Show the changes"
-          data-testid="session-diff-pill"
-        >
-          <CodingDiffIcon className="size-3" />
-          <span className="font-mono">
-            <span className="text-emerald-400">+{diffStats.additions}</span>
-            {` `}
-            <span className="text-rose-400">-{diffStats.deletions}</span>
-          </span>
-        </Pill>
-      )}
-      {/* EXP-678: an open PR on a still-live run is mergeable right here. */}
-      {canMerge && mergeProps && !isMobile && (
-        <div className="shrink-0">
-          <SessionMergeButton
-            variant="glass"
-            size="sm"
-            label="Merge"
-            {...mergeProps}
-            steerEnabled={steerEnabled}
-          />
-        </div>
-      )}
-      {/* EXP-818: the ONE Stop — a small red-tinted glass pill, identical
-          on the machine that hosts the run and on one that only watches it
-          (the IDE's `stop_session_pill`); the confirm is `useKillSession`'s. */}
-      {canKill && (
-        <Pill
-          size="sm"
-          mode="action"
-          className="shrink-0 text-destructive"
-          onClick={requestKill}
-          aria-label="Stop the agent and end the session"
-          title="Stop the agent and end the session"
-        >
-          <CodingStopIcon className="size-3" />
-          Stop
-        </Pill>
-      )}
+      {/* EXP-818: the ONE Stop — the same red-tinted glass pill as the md+
+          header's (`run-action-pills.tsx`); the confirm is `useKillSession`'s. */}
+      {canKill && <StopRunPill onStop={requestKill} />}
     </>
   )
+
+  /** EXP-877: the faces this work tab offers — `Issue` when the run links
+   *  one, `Run` always (this IS the run), the diff once the run has changes.
+   *  Under two faces the toggle renders nothing. Selecting the diff from
+   *  here drops a turn scope the reader left behind (EXP-862). */
+  const faceItems: WorkFaceItem[] = [
+    ...(onIssueFace
+      ? [{ face: `issue` as const, label: ISSUE_FACE_LABEL, onSelect: onIssueFace }]
+      : []),
+    { face: `run` as const, label: RUN_FACE_LABEL, onSelect: () => onFace(`run`) },
+    ...(diffFiles.length > 0
+      ? [
+          {
+            face: `diff` as const,
+            label: (
+              <DiffFaceLabel
+                additions={diffStats.additions}
+                deletions={diffStats.deletions}
+              />
+            ),
+            onSelect: () => {
+              setDiffTurn(null)
+              onFace(`diff`)
+            },
+          },
+        ]
+      : []),
+  ]
+  /** EXP-877: the diff face stands only while there is something to draw —
+   *  with no files it falls back to the run face. */
+  const showDiffFace = !isMobile && face === `diff` && paneFiles.length > 0
+
+  /** The run header's own right cluster (issue-less runs): Merge, then
+   *  Stop while live or Resume once ended and resumable on its machine. An
+   *  issue-bound run's cluster is the issue's (pin + `…`), and its coding
+   *  action sits in the tray. */
+  const runTrailing = issueHeader ? (
+    issueHeader.trailing
+  ) : (
+    <>
+      {canMerge && mergeProps && (
+        <MergePrPill {...mergeProps} steerEnabled={steerEnabled} />
+      )}
+      {canKill ? (
+        <StopRunPill onStop={requestKill} />
+      ) : sessionEnded && canResumeRun ? (
+        <ResumeRunPill session={session} />
+      ) : null}
+    </>
+  )
+
+  /** EXP-877: the context meter, INSIDE the composer's tool row now (the
+   *  `usageSlot`), anchoring the same usage popover the header pill used to.
+   *  Gone once the run is over — a finished run's context is not a live
+   *  number any more. */
+  const usageSlot =
+    sessionEnded || (!contextLabel && !agentUsage && !hasAccountRows) ? null : (
+      <Popover open={usageOpen} onOpenChange={setUsageOpen}>
+        <PopoverTrigger asChild>
+          <ContextRing
+            usage={sessionUsage}
+            showEmpty={Boolean(agentUsage) || hasAccountRows}
+          />
+        </PopoverTrigger>
+        <SessionUsagePopover
+          sessionUsage={sessionUsage}
+          agentUsage={agentUsage}
+          accountSwitch={accountSwitch}
+          now={usageNow}
+        />
+      </Popover>
+    )
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1119,62 +1120,61 @@ export function AgentSessionView({
           </div>
         </>
       ) : (
-        <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
-          {/* EXP-870: no back control on md+ — the compact rail and the list
-              nav's back row are the way out (desktop parity). */}
-          {faceToggle && <div className="shrink-0 pl-1">{faceToggle}</div>}
-          <div className="flex min-w-0 flex-1 flex-col items-center">
-            <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
-              <PhaseDot
-                phase={phase}
-                awaitingInput={awaitingInput}
-                paused={paused}
-                stale={staleMinutes !== null}
+        /* EXP-877: the ONE work header — the same node the issue route
+           renders, so nothing moves when the face flips. No back control on
+           md+ (EXP-870): the compact rail and the list nav's back row are the
+           way out. No identity block, no phase caption: the title says what
+           the run is, the transcript's footer says what it is doing. */
+        <WorkHeader
+          title={
+            issueHeader ? (
+              issueHeader.title
+            ) : (
+              <h1 className={RUN_TITLE_CLASS}>{identity.subject}</h1>
+            )
+          }
+          trailing={
+            <>
+              {/* The toggle names the face actually SHOWING: a `?view=diff`
+                  deep link before the diff replays falls back to the
+                  transcript, and must not leave no segment selected. */}
+              <WorkFaceToggle
+                face={showDiffFace ? face : `run`}
+                items={faceItems}
               />
-              {identity.identifier && (
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {identity.identifier}
-                </span>
-              )}
-              <span className="min-w-0 truncate text-sm font-medium">
-                {identity.subject}
-              </span>
-            </div>
-            <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
-              <span className="max-w-full truncate text-[11px] text-muted-foreground">
-                {headerCaption}
-              </span>
-              {/* EXP-804: the PERSISTED usage wall off the session row, beside
-                  the phase caption and never instead of it — a walled run is
-                  still running. Deliberately not the same thing as
-                  `RateLimitBanner` below, which is the LIVE stream's own
-                  report: this one is already there when you open a run whose
-                  stream has not connected yet, which is exactly the moment a
-                  silently walled run looks healthy. */}
-              {blockedLabel && (
-                <span className="shrink-0 text-[11px] font-medium text-amber-400">
-                  {blockedLabel}
-                </span>
-              )}
-            </div>
-          </div>
-          {headerControls}
-        </div>
-      )}
-
-      {issue && (
-        <SessionIssueBand
-          issue={issue}
-          onOpen={isMobile || !faceToggle ? onOpenIssue : undefined}
+              {runTrailing}
+            </>
+          }
+          tray={issueHeader?.tray}
         />
       )}
 
       {banner}
 
-      {/* EXP-850 §11: the transcript column and (on md+) the diff pane sit
-          side by side inside the session view — the pane splits this row, so
-          the composer keeps the transcript's width and the diff scrolls on
-          its own. */}
+      {showDiffFace ? (
+        /* EXP-877: the diff FACE — the run's changes in the same 896 column
+           under the same header, in place of the transcript. */
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40">
+          <div className={cn(WORK_COLUMN_CLASS, `px-4 py-3`)}>
+            <SessionDiffFace
+              files={paneFiles}
+              selected={diffFile}
+              onSelect={setDiffFile}
+              scopeLabel={
+                diffCard ? diffScopeTurnLabel(diffCard.files.length) : null
+              }
+              // Nothing to widen BACK to until the run publishes a session
+              // diff: the turn's files are then everything there is, and
+              // offering the chip would blank the face on click.
+              onClearScope={
+                canWidenDiffScope(diffFiles.length)
+                  ? () => setDiffTurn(null)
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      ) : (
       <div className="flex min-h-0 flex-1 overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
@@ -1505,12 +1505,8 @@ export function AgentSessionView({
             )}
           </div>
 
-          {/* Status banners (feed retained above) */}
-          {phase.kind === `ended` && (
-            <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              {phase.detail ?? `The session has ended.`}
-            </div>
-          )}
+          {/* Status banners (feed retained above). EXP-877: no "ended" strip
+              — the hidden composer and the header's Resume say it. */}
           {paused && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiDeviceOfflineIcon className="size-3 shrink-0" />
@@ -1520,8 +1516,37 @@ export function AgentSessionView({
             </div>
           )}
           {phase.kind === `closed` && !paused && (
-            <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              {phase.detail ?? `Connection lost.`}
+            <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1">
+                {phase.detail ?? `Connection lost.`}
+              </span>
+              {/* EXP-877: a dropped stream redials from its own strip on md+
+                  (the phone keeps the button in its compact header row). */}
+              {!isMobile && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 shrink-0"
+                  onClick={() => store.reconnect()}
+                >
+                  <UiRefreshIcon />
+                  Reconnect
+                </Button>
+              )}
+            </div>
+          )}
+          {/* EXP-804: the PERSISTED usage wall off the session row — a walled
+              run is still running. Deliberately not the same thing as
+              `RateLimitBanner` below, which is the LIVE stream's own report:
+              this one is already there when you open a run whose stream has
+              not connected yet, which is exactly the moment a silently walled
+              run looks healthy. The phone shows it in its compact header row. */}
+          {blockedLabel && !isMobile && (
+            <div
+              className="border-t border-border/60 px-3 py-1.5 text-[11px] font-medium text-amber-400"
+              data-testid="session-blocked-strip"
+            >
+              {blockedLabel}
             </div>
           )}
           {/* EXP-724: the compaction strip. Indeterminate on purpose — the
@@ -1551,7 +1576,8 @@ export function AgentSessionView({
               // old run). Hidden only when this run could never switch — or
               // has no pill to anchor the overlay to (EXP-863).
               onSwitchAccount={
-                hasAccountRows && contextPill !== null
+                hasAccountRows &&
+                (isMobile ? contextPill !== null : usageSlot !== null)
                   ? () => setUsageOpen(true)
                   : undefined
               }
@@ -1589,47 +1615,36 @@ export function AgentSessionView({
               captions, no operator state; live implies ownership. */}
           {composerVisible && (
             <div className="border-t border-border p-2">
-              <MessageComposer
-                store={store}
-                // `connected` matters beyond the phase: a silent slow-consumer
-                // redial keeps `live` while the socket is briefly down, and
-                // the send button should dim honestly for that gap.
-                live={live && connected}
-                onSend={sendMessage}
-                // EXP-790: the send glyph is Stop while the agent works and
-                // nothing is typed.
-                working={working}
-                sessionId={session.id}
-                users={teamUsers}
-                agent={session.agent}
-                // EXP-746: the live config rides down as a PROP. The composer
-                // deliberately subscribes to the draft snapshot only (a
-                // keystroke must not re-render the feed), and this view
-                // already holds the full one.
-                config={config}
-              />
+              <div className={WORK_COLUMN_CLASS}>
+                <SteerComposer
+                  store={store}
+                  // `connected` matters beyond the phase: a silent
+                  // slow-consumer redial keeps `live` while the socket is
+                  // briefly down, and the send button should dim honestly
+                  // for that gap.
+                  live={live && connected}
+                  onSend={sendMessage}
+                  // EXP-790: the send glyph is Stop while the agent works
+                  // and nothing is typed.
+                  working={working}
+                  sessionId={session.id}
+                  users={teamUsers}
+                  agent={session.agent}
+                  // EXP-746: the live config rides down as a PROP. The
+                  // composer deliberately subscribes to the draft snapshot
+                  // only (a keystroke must not re-render the feed), and this
+                  // view already holds the full one.
+                  config={config}
+                  // EXP-877: the context meter lives in the composer's tool
+                  // row (md+; the phone keeps its header pill).
+                  usageSlot={isMobile ? null : usageSlot}
+                />
+              </div>
             </div>
           )}
       </div>
-      {!isMobile && diffPaneOpen && paneFiles.length > 0 && (
-        <SessionDiffPane
-          sessionId={session.id}
-          files={paneFiles}
-          selected={diffFile}
-          onSelect={setDiffFile}
-          onClose={() => setDiffPaneOpen(false)}
-          scopeLabel={
-            diffCard ? diffScopeTurnLabel(diffCard.files.length) : null
-          }
-          // Nothing to widen BACK to until the run publishes a session diff:
-          // the turn's files are then everything there is, and offering the
-          // chip would blank the pane on click.
-          onClearScope={
-            diffFiles.length > 0 ? () => setDiffTurn(null) : undefined
-          }
-        />
-      )}
       </div>
+      )}
 
       {killDialog}
     </div>
@@ -3598,385 +3613,6 @@ function ToolGroupRow({
             <ToolRow item={latest} />
           </div>
         )
-      )}
-    </div>
-  )
-}
-
-function MessageComposer({
-  store,
-  live,
-  onSend,
-  working,
-  sessionId,
-  agent,
-  config,
-  users,
-}: {
-  store: SteerSessionStore
-  /** Sending is possible — the composer itself stays mounted regardless
-   *  (EXP-621), so a connection flap never eats the draft. */
-  live: boolean
-  onSend: (text: string) => boolean
-  /** EXP-790: the agent is busy — with nothing typed, the send glyph is Stop
-   *  and interrupts the turn. */
-  working: boolean
-  /** Every steer image uploads to the session's own server-only store
-   *  (EXP-702) — issue runs included, so steering screenshots never clutter
-   *  the issue's Files section. */
-  sessionId: string
-  /** EXP-724: the session's coding agent (synced row), which decides which
-   *  slash commands the `/` menu offers. Null = a claude run. */
-  agent: string | null
-  /** EXP-746: the agent's live configuration — the chips in the tool row and
-   *  the agent's own half of the `/` catalog. Null on a PTY run (and until
-   *  the first `config_state` lands), which draws no chips at all. */
-  config: SessionConfigState | null
-  /** EXP-698: the run's team, for the field's `@` autocomplete — `#` issue
-   *  refs and `:` emoji work without it. */
-  users: User[]
-}) {
-  // EXP-621: the draft lives in the per-session store, so it survives
-  // reconnects, dock collapse/reopen and navigation. Blob URLs are the
-  // store's to revoke — no unmount cleanup here.
-  const { text, images: pendingImages } = useSyncExternalStore(
-    store.subscribe,
-    store.getDraftSnapshot
-  )
-  const [sending, setSending] = useState(false)
-  /** EXP-724: a context-discarding command waiting on its confirmation. */
-  const [confirming, setConfirming] = useState<SteerCommand | null>(null)
-  // EXP-746: the contract catalog for this agent, then the agent's OWN
-  // advertised commands (an ACP run publishes them in `config_state`). An
-  // agent-less run that published one is EXTERNAL: no contract rows at all,
-  // only what it advertised itself (`steerAgentId`).
-  const catalogAgent = steerAgentId(agent, config !== null)
-  const commands = useMemo(
-    () =>
-      mergeAgentCommands(
-        steerCommandsFor(catalogAgent),
-        config?.commands ?? [],
-        catalogAgent
-      ),
-    [catalogAgent, config?.commands]
-  )
-  const menu = useSlashCommandMenu({
-    text,
-    commands,
-    onAccept: (next) => store.setDraftText(next),
-  })
-  /** EXP-790: Stop shows while the agent is working and the field is empty
-   *  (no text, no image) — the moment something is typed, it is Send again. */
-  const stop = working && !text.trim() && pendingImages.length === 0
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const fieldRef = useRef<MentionTextareaHandle>(null)
-  // A file chooser steals focus without moving it anywhere in the document
-  // AND can stall the tab long enough for the relay to evict the viewer —
-  // latched on the click that opens one, released when it resolves either
-  // way (the comment composer's pattern).
-  const filePickerOpenRef = useRef(false)
-
-  useEffect(() => {
-    const release = () => {
-      filePickerOpenRef.current = false
-    }
-    window.addEventListener(`focus`, release)
-    return () => window.removeEventListener(`focus`, release)
-  }, [])
-
-  const addFiles = (files: File[]) => {
-    // EXP-698: an attached image also drops its POSITIONAL reference at the
-    // caret, so "crop [Image #2]" names one of several embeds. The strip
-    // length before the add IS the numbering base.
-    const base = pendingImages.length
-    const { rejected, overflow, added } = store.addDraftImages(files)
-    if (added > 0) {
-      let next = text
-      let caret = fieldRef.current?.caret() ?? text.length
-      for (let i = 0; i < added; i++) {
-        const inserted = insertImageMarker(next, caret, base + i + 1)
-        next = inserted.text
-        caret = inserted.caret
-      }
-      store.setDraftText(next)
-      fieldRef.current?.setCaret(caret)
-    }
-    if (rejected > 0) {
-      toast.error(`Only images up to 10 MB can be attached`)
-    }
-    if (overflow > 0) {
-      toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
-    }
-  }
-
-  /** Dropping a pending image takes its markers with it and slides the
-   *  higher ones down, so the numbers keep matching the strip. */
-  const removeImage = (url: string) => {
-    const index = pendingImages.findIndex((image) => image.url === url)
-    if (index >= 0) store.setDraftText(renumberImageMarkers(text, index + 1))
-    store.removeDraftImage(url)
-  }
-
-  const send = async (confirmed = false) => {
-    if (sending || !live) return
-    if (!text.trim() && pendingImages.length === 0) return
-    // EXP-724: a slash command is the WHOLE message. It rides the ordinary
-    // input frames (the desktop recognizes it by its first token), so the only
-    // client-side rules are: no image payload to wrap it in, and a
-    // context-discarding command asks first.
-    const command = parseSteerCommand(text, commands)
-    if (command) {
-      if (pendingImages.length > 0) {
-        toast.error(`Remove the images to send a command`)
-        return
-      }
-      if (command.command.confirm && !confirmed) {
-        setConfirming(command.command)
-        return
-      }
-    }
-    if (pendingImages.length === 0) {
-      if (onSend(text)) store.clearDraftAfterSend()
-      return
-    }
-    setSending(true)
-    try {
-      // Upload sequentially, persisting each id as it lands — a mid-batch
-      // failure keeps the composer intact and a retry only uploads the rest.
-      const ids: string[] = []
-      for (const image of pendingImages) {
-        let uploadedId = image.uploadedId
-        if (!uploadedId) {
-          const uploaded = await uploadSessionImageFile(sessionId, image.file)
-          uploadedId = uploaded.id
-          store.setDraftImageUploaded(image.url, uploadedId)
-        }
-        ids.push(uploadedId)
-      }
-      if (!onSend(buildSteerImageMessage(text, ids))) {
-        toast.error(`The session is no longer connected`)
-        return
-      }
-      store.clearDraftAfterSend()
-    } catch (error) {
-      toast.error(`Couldn't upload image`, {
-        description: error instanceof Error ? error.message : undefined,
-      })
-    } finally {
-      setSending(false)
-    }
-  }
-
-  // EXP-696/EXP-698: ONE rounded card laid out as a COLUMN — the pending
-  // strip, a borderless full-width field, then the `[+]`·spacer·send row (the
-  // natives' composerCard), now the shared `Composer`. Behavior and wire
-  // format are unchanged.
-  return (
-    <>
-      <Composer
-        strip={
-          pendingImages.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
-              {pendingImages.map((image) => (
-                <div key={image.url} className="relative">
-                  <img
-                    src={image.url}
-                    alt=""
-                    className="size-16 rounded-md border border-glass-stroke-card object-cover"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove image"
-                    disabled={sending}
-                    onClick={() => removeImage(image.url)}
-                    className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )
-        }
-        tools={
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={acceptedImageContentTypes.join(`,`)}
-              className="hidden"
-              onChange={(e) => {
-                filePickerOpenRef.current = false
-                if (e.target.files) addFiles(Array.from(e.target.files))
-                e.target.value = ``
-              }}
-            />
-            <ComposerTool
-              aria-label="Attach image"
-              title="Attach image"
-              disabled={sending}
-              onClick={() => {
-                filePickerOpenRef.current = true
-                fileInputRef.current?.click()
-              }}
-            >
-              {/* EXP-850 §13: the STEER composers attach with the `ui-add`
-                  plus (×4); comment and description editors keep
-                  `editor-image`. */}
-              <UiAddIcon />
-            </ComposerTool>
-          </>
-        }
-        submit={
-          // EXP-790: nothing typed while the agent works = Stop; otherwise
-          // the send glyph (`ui-submit`), dimmed until there is something to
-          // send. The plan-mode pill left this row (EXP-790): the mode is set
-          // at launch and the plan card itself is where a plan is answered.
-          stop ? (
-            <ComposerSubmit
-              stop
-              disabled={!live}
-              onClick={() => {
-                if (!store.interrupt()) {
-                  toast.error(`The session is no longer connected`)
-                }
-              }}
-            />
-          ) : (
-            <ComposerSubmit
-              disabled={
-                sending || !live || (!text.trim() && pendingImages.length === 0)
-              }
-              onClick={() => void send()}
-            />
-          )
-        }
-        onDrop={(event) => {
-          if (event.dataTransfer.files.length === 0) return
-          event.preventDefault()
-          addFiles(Array.from(event.dataTransfer.files))
-        }}
-        onDragOver={(event) => {
-          if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
-        }}
-      >
-        {/* EXP-698: the steer field is the mention field — `@` members, `#`
-            issue refs and `:` emoji all work while steering. EXP-724: the `/`
-            menu floats above it, so the field gets a positioned wrapper of its
-            own (the mention popup anchors inside the field's own). */}
-        <div className="relative">
-          <MentionTextarea
-            ref={fieldRef}
-            value={text}
-            onValueChange={(next) => store.setDraftText(next)}
-            users={users}
-            onKeyDown={(e) => {
-              // The menu gets first refusal: with it open, Enter/Tab accept a
-              // command and must NEVER send the half-typed draft.
-              if (menu.handleKeyDown(e)) return
-              if (e.key === `Enter` && !e.shiftKey) {
-                e.preventDefault()
-                void send()
-              }
-            }}
-            onPaste={(e) => {
-              if (e.clipboardData.files.length === 0) return
-              e.preventDefault()
-              addFiles(Array.from(e.clipboardData.files))
-            }}
-            placeholder={
-              commands.length > 0
-                ? `Message the agent… (/ for commands)`
-                : `Message the agent…`
-            }
-            rows={1}
-            className={cn(
-              `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
-              // The card IS the field chrome, so the field drops the stock
-              // Textarea's glass fill (EXP-616).
-              `bg-transparent`
-            )}
-          />
-          {menu.open && (
-            <SlashCommandMenu
-              commands={menu.candidates}
-              active={menu.active}
-              onSelect={menu.accept}
-              onHover={menu.setActive}
-            />
-          )}
-        </div>
-      </Composer>
-      {/* EXP-724: `/clear` throws the conversation away, and the
-          publisher runs whatever it receives — so every viewer confirms
-          first, with the same copy. */}
-      <Dialog
-        open={confirming !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirming(null)
-        }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {steerCommandConfirmCopy(confirming?.name ?? ``).title}
-            </DialogTitle>
-            <DialogDescription>
-              {steerCommandConfirmCopy(confirming?.name ?? ``).body}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setConfirming(null)} />
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setConfirming(null)
-                void send(true)
-              }}
-            >
-              {steerCommandConfirmCopy(confirming?.name ?? ``).confirm}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
-}
-
-/** EXP-827: the issue a run is attached to, one line under the session
- *  header — status glyph, mono identifier, title, priority — with an "Open
- *  issue" pill on phones. EXP-870: on md+ the header's `Issue | Run` toggle
- *  flips to the issue face (its canonical URL) instead. The duplicate band on
- *  the issue page is the visual twin. */
-function SessionIssueBand({
-  issue,
-  onOpen,
-}: {
-  issue: Issue
-  onOpen?: () => void
-}) {
-  return (
-    <div
-      className="flex min-w-0 items-center gap-2 border-b border-border bg-accent/30 px-3 py-1.5 text-sm"
-      data-testid="session-issue-band"
-    >
-      <IssueStatusIcon issue={issue} className="!h-3.5 !w-3.5 shrink-0" />
-      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {issue.identifier}
-      </span>
-      <span className="min-w-0 truncate">{issue.title}</span>
-      {issue.priority !== `none` && (
-        <PriorityIcon
-          priority={issue.priority}
-          className="!h-3.5 !w-3.5 shrink-0"
-        />
-      )}
-      {onOpen && (
-        <Pill mode="action" className="ml-auto shrink-0" onClick={onOpen}>
-          <NavIssuesIcon className="size-3" />
-          Open issue
-        </Pill>
       )}
     </div>
   )

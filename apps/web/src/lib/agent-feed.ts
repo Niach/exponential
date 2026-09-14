@@ -1052,6 +1052,18 @@ export interface SessionConfigValue {
   label: string
 }
 
+/** One live option the engine publishes: what it is called, what it reads
+ *  right now and what it can be switched to. `values` absent = read-only on
+ *  this run. EXP-877: the composer footer reads the `model` option off this
+ *  list (`sessionModel`) — nothing else renders one. */
+export interface SessionConfigOption {
+  id: string
+  label?: string
+  /** In force right now; blank/absent = the CLI's own default. */
+  value?: string
+  values?: { id: string; label: string }[]
+}
+
 /** One selectable session mode (`plan`, `acceptEdits`, …). */
 export interface SessionConfigMode {
   id: string
@@ -1073,11 +1085,11 @@ export interface SessionConfigCommand {
  *  AgentSessionConfig, Android SessionConfigState, desktop feed.rs
  *  SessionConfig.
  *
- *  EXP-772: `options` is gone. Model, effort and every other picker left the
- *  mid-session UI — the engine publishes an empty option list and no client
- *  renders one, so the fold drops the member rather than carrying a value
- *  nothing reads. The MODE is the composer's one live control. */
+ *  EXP-772 dropped `options` entirely; EXP-877 brings the LIST back (never
+ *  the chip row): the composer footer's model picker reads the `model`
+ *  option's value off it, and a publisher that sends none leaves it `[]`. */
 export interface SessionConfigState {
+  options: SessionConfigOption[]
   currentMode?: string
   modes: SessionConfigMode[]
   commands: SessionConfigCommand[]
@@ -1106,13 +1118,26 @@ function wireText(value: unknown): string {
   return typeof value === `string` ? value : ``
 }
 
+function parseConfigValues(
+  value: unknown
+): { id: string; label: string }[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const values: { id: string; label: string }[] = []
+  for (const entry of value) {
+    if (!isEventRecord(entry)) continue
+    const id = wireId(entry.id)
+    if (id === null) continue
+    values.push({ id, label: wireText(entry.label) || id })
+  }
+  return values
+}
+
 /** Tolerant fold of a `config_state` event; `null` for an unusable payload —
  *  the caller then KEEPS the previous snapshot rather than blanking the mode
  *  chip. Mirrors AgentFeed.applyConfigState / applyActivityEvent's arm.
  *
- *  EXP-772: a payload has to carry at least ONE of the arrays to be a config
- *  state at all. Older publishers send `options` (ignored now), the engine
- *  sends `modes`/`commands`; an object with none of them is noise. */
+ *  A payload has to carry at least ONE of the arrays to be a config state at
+ *  all: an object with none of them is noise. */
 export function parseConfigState(event: unknown): SessionConfigState | null {
   if (!isEventRecord(event)) return null
   if (
@@ -1121,6 +1146,21 @@ export function parseConfigState(event: unknown): SessionConfigState | null {
     !Array.isArray(event.options)
   ) {
     return null
+  }
+  const options: SessionConfigOption[] = []
+  if (Array.isArray(event.options)) {
+    for (const entry of event.options) {
+      if (!isEventRecord(entry)) continue
+      const id = wireId(entry.id)
+      if (id === null) continue
+      const option: SessionConfigOption = { id }
+      const label = wireText(entry.label)
+      if (label !== ``) option.label = label
+      if (typeof entry.value === `string`) option.value = entry.value
+      const values = parseConfigValues(entry.values)
+      if (values) option.values = values
+      options.push(option)
+    }
   }
   const modes: SessionConfigMode[] = []
   if (Array.isArray(event.modes)) {
@@ -1149,10 +1189,21 @@ export function parseConfigState(event: unknown): SessionConfigState | null {
       commands.push(command)
     }
   }
-  const state: SessionConfigState = { modes, commands }
+  const state: SessionConfigState = { options, modes, commands }
   const currentMode = wireId(event.currentMode)
   if (currentMode !== null) state.currentMode = currentMode
   return state
+}
+
+/** EXP-877: the model in force — the `model` option's value, or null when the
+ *  run publishes none (a blank value reads as "the CLI's own default", which
+ *  is also nothing to show). The composer footer's picker renders only while
+ *  this is non-null. */
+export function sessionModel(
+  config: SessionConfigState | null | undefined
+): string | null {
+  const value = config?.options.find((option) => option.id === `model`)?.value
+  return value === undefined || value === `` ? null : value
 }
 
 /** `null` for an unusable payload OR a zero `contextSize` ("unknown"). Unlike

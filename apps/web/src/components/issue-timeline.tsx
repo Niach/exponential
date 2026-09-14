@@ -233,9 +233,9 @@ export function IssueTimeline({
 
   // EXP-422 reverses EXP-327: the rule is bounded by the reading column, so
   // the border and the centered body are ONE element (the detail view mounts
-  // this inside its `max-w-3xl` column; desktop-app parity).
+  // this inside its `max-w-4xl` column; desktop-app parity).
   return (
-    <div className="mx-auto max-w-3xl border-t border-border px-4 py-3">
+    <div className="mx-auto max-w-4xl border-t border-border px-4 py-3">
       <div className="text-sm font-medium text-foreground mb-2">
         Activity {activityCount > 0 ? `(${activityCount})` : ``}
       </div>

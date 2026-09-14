@@ -104,12 +104,14 @@ pub(crate) const SCREEN_LIST_WIDTH: f32 = 320.;
 /// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
 pub(crate) const PANEL_MARGIN: f32 = 10.;
 
-/// The panel's TOP gap under the 34px decoration band. Tighter than
+/// The panel's TOP gap under the decoration band — 0 since EXP-877: the band
+/// is the web's 44px work-tabs band (`app_title_bar::WORK_TABS_BAND_H`) and
+/// the panel starts flush under it (`md:mt-0`). Tighter than
 /// [`PANEL_MARGIN`] because the band already supplies breathing room above
 /// it; the full margin there reads as a hole. Windows without client chrome
 /// (the Linux server-decoration fallback) have no band and take
 /// [`PANEL_MARGIN`] on all four sides.
-const PANEL_MARGIN_TOP: f32 = 6.;
+const PANEL_MARGIN_TOP: f32 = 0.;
 
 /// EXP-771: the panel's BOTTOM gap once the session bar renders under it.
 /// The bar left the card (it used to be the panel's last child, on a
@@ -1671,14 +1673,16 @@ mod tests {
 
     /// EXP-771: the session bar band's geometry, the same numbers the web
     /// shell uses. The band is the panel's twin at the bottom — the panel's
-    /// 10px side margins, a 6px gap between card and band (the decoration
-    /// band's gap above), 36px tall and flush with the window bottom, so the
-    /// chips end up 8px inside the card's left edge once the bar's own `px_2`
-    /// is added.
+    /// 10px side margins, a 6px gap between card and band, 36px tall and
+    /// flush with the window bottom, so the chips end up 8px inside the
+    /// card's left edge once the bar's own `px_2` is added. EXP-877: above,
+    /// the 44px work-tabs band with the panel flush under it (web
+    /// `WORK_TABS_BAND_CLASS` + `md:mt-0`).
     #[test]
     fn session_bar_band_sits_outside_the_panel() {
         assert_eq!(PANEL_MARGIN, 10.);
-        assert_eq!(PANEL_MARGIN_BOTTOM_BAR, PANEL_MARGIN_TOP);
+        assert_eq!(PANEL_MARGIN_TOP, 0.);
+        assert_eq!(crate::app_title_bar::WORK_TABS_BAND_H, 44.);
         assert_eq!(PANEL_MARGIN_BOTTOM_BAR, 6.);
         assert_eq!(crate::session_bar::SESSION_BAR_H, 36.);
     }

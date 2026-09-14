@@ -17,10 +17,15 @@
 //! ```
 //!
 //! EXP-790: the tool row may instead sit INLINE beside the field
-//! ([`GlassComposer::inline_tools`]) — the steer composer does that on a wide
-//! pane and drops the row under the field on a narrow one
-//! (`steer_viewer::tool_row_wraps`). The submit slot is one round button that
-//! is either Send or Stop ([`SubmitKind`]): same ring, the glyph swaps.
+//! ([`GlassComposer::inline_tools`]). The submit slot is one round button
+//! that is either Send or Stop ([`SubmitKind`]): same ring, the glyph swaps.
+//!
+//! EXP-877: the STEER composer takes no tools at all any more — its attach,
+//! model and context controls sit in a footer UNDER the card
+//! (`steer_viewer::render_composer_footer`), so its card is the field and the
+//! round button, and the wrap-onto-a-second-line rule that used to flap while
+//! the diff pane was dragged is gone. The comment and helpdesk composers keep
+//! their in-card tool row.
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.

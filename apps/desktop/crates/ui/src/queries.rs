@@ -905,15 +905,6 @@ pub fn remove_merged_pull(
     }
 }
 
-/// Every issue in a team (issues ⨝ boards, shared sort order) — the
-/// add-issues picker's candidate pool (the dialog filters status/membership
-/// on top).
-pub fn team_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
-    Store::global(cx)
-        .collections()
-        .issues_in_team(team_id, cx)
-}
-
 /// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
 /// alive) coding_sessions row renders as live only while its `updated_at`
 /// (heartbeat-advanced) is inside the contract stale window — stale rows are
@@ -946,10 +937,13 @@ pub(crate) fn coding_session_is_live(
     }
 }
 
-/// EXP-870: what a closed live-run tab remembers about its run — a dismissed
-/// tab stays closed until this CHANGES (the run starts waiting on you, or its
-/// PR opens). The agent's busy edge is deliberately not part of it: it flips
-/// every turn, and a closed tab that reopened on every turn would never close.
+/// EXP-870: the clock-derived facts a live tab's chip paints from — the
+/// strip repaints on the tick only when one of these MOVES, because a usage
+/// wall expiring produces no collection delta of its own.
+///
+/// EXP-877: the agent's busy edge is not one of them. It flips every turn,
+/// and the strip wears a steady liveness dot now (the spinner is the session
+/// LIST's signal, EXP-848), so a turn boundary is not a repaint.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LiveSig {
     /// Needs input, or walled by a usage limit.
@@ -958,12 +952,13 @@ pub(crate) struct LiveSig {
     pub review: bool,
 }
 
-/// EXP-870: one of MY live runs — every one of them owns a top tab.
+/// EXP-870: one of MY live runs — every one of them owns a top tab. EXP-877
+/// dropped its `sig`: a live tab cannot be closed, so nothing about the run
+/// decides whether it gets a tab any more.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LiveTabRun {
     pub session_id: String,
     pub issue_id: Option<String>,
-    pub sig: LiveSig,
 }
 
 pub(crate) fn live_sig(session: &domain::rows::CodingSession, now_epoch: i64) -> LiveSig {
@@ -1001,34 +996,8 @@ pub(crate) fn live_tab_runs(cx: &App, team_id: &str) -> Vec<LiveTabRun> {
         .map(|session| LiveTabRun {
             session_id: session.id.clone(),
             issue_id: session.issue_id.clone(),
-            sig: live_sig(session, now),
         })
         .collect()
-}
-
-/// EXP-870: the run an issue tab's Run face shows — the web
-/// `issueSessionTarget`: the run the tab is bound to while it still belongs to
-/// the issue, else my newest run on it (live or ended). `None` = the issue
-/// has no run of mine, so the Run face is disabled.
-pub(crate) fn issue_run_target(
-    rows: &[(String, Option<String>, Option<String>, Option<String>)],
-    issue_id: &str,
-    bound: Option<&str>,
-    me: &str,
-) -> Option<String> {
-    // (id, issue_id, user_id, started_at)
-    let mine = |row: &&(String, Option<String>, Option<String>, Option<String>)| {
-        row.1.as_deref() == Some(issue_id) && row.2.as_deref() == Some(me)
-    };
-    if let Some(bound) = bound {
-        if rows.iter().filter(mine).any(|row| row.0 == bound) {
-            return Some(bound.to_string());
-        }
-    }
-    rows.iter()
-        .filter(mine)
-        .max_by(|a, b| a.3.cmp(&b.3).then_with(|| a.0.cmp(&b.0)))
-        .map(|row| row.0.clone())
 }
 
 /// REV2-24: the device already coding `issue_id` according to the live SYNCED
@@ -1293,6 +1262,12 @@ pub(crate) fn coding_session_display(
 /// run (a fact this process reads directly, with no round trip); every other
 /// row falls back to the device-written `agent_busy` column. A row that is not
 /// live is never working, whatever either source says.
+///
+/// EXP-877: the tab STRIP stopped reading it — a chip wears the steady
+/// liveness dot now, and a strip that re-rendered on every turn edge was
+/// motion without information. The rule stays because it IS the ×4 contract
+/// (web `agentBusy`, iOS, Android) and the session LIST is its home.
+#[allow(dead_code)]
 pub(crate) fn session_agent_busy(
     session: &domain::rows::CodingSession,
     local: Option<bool>,
@@ -1341,7 +1316,7 @@ pub(crate) fn session_agent_caption(
 /// Everything a status DOT is allowed to know about a run (EXP-862).
 ///
 /// Four surfaces painted this dot from four different derivations —
-/// `sessions_section`, the rail's `SessionRowState::dot`, the screen tabs and
+/// `sessions_section`, the rail's rows, the screen tabs and
 /// the steer viewer's `phase_tone` — and they disagreed about the two cases
 /// that matter: a run whose feed has gone quiet, and a finished run. The facts
 /// are a plain struct so each caller keeps its own sources (a synced row here,
@@ -2025,30 +2000,6 @@ pub(crate) async fn await_row_visible<T: 'static>(
 
 #[cfg(test)]
 mod tests {
-    /// EXP-870: the Run face opens the bound run while it still belongs to
-    /// the issue, else my newest run on it; a teammate's run never counts.
-    #[test]
-    fn issue_run_target_prefers_the_bound_run_then_my_newest() {
-        let row = |id: &str, issue: &str, user: &str, started: &str| {
-            (
-                id.to_string(),
-                Some(issue.to_string()),
-                Some(user.to_string()),
-                Some(started.to_string()),
-            )
-        };
-        let rows = vec![
-            row("old", "i1", "me", "2026-01-01"),
-            row("new", "i1", "me", "2026-02-01"),
-            row("theirs", "i1", "you", "2026-03-01"),
-            row("elsewhere", "i2", "me", "2026-04-01"),
-        ];
-        assert_eq!(issue_run_target(&rows, "i1", Some("old"), "me").as_deref(), Some("old"));
-        assert_eq!(issue_run_target(&rows, "i1", None, "me").as_deref(), Some("new"));
-        assert_eq!(issue_run_target(&rows, "i1", Some("elsewhere"), "me").as_deref(), Some("new"));
-        assert_eq!(issue_run_target(&rows, "i3", None, "me"), None);
-    }
-
     use super::*;
     use serde_json::json;
 

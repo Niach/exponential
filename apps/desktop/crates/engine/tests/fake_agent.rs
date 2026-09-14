@@ -1142,9 +1142,9 @@ fn set_config_and_set_mode_re_emit_the_config_state() {
         !events_of(&harness.sink, "config_state").is_empty()
     });
 
-    // EXP-772: `set_config` still reaches the agent (the wire frame stays
-    // accepted for an older publisher), but the snapshot carries NO options —
-    // option chips left the steering UI on every client.
+    // EXP-877: `set_config` reaches the agent AND the answer's option list
+    // folds into the snapshot — the `model` value is the one thing the wire
+    // carries about options now (EXP-772 took the rest away for good).
     harness
         .session
         .set_config("model", engine::ConfigValue::ValueId("sonnet".to_string()));
@@ -1156,9 +1156,17 @@ fn set_config_and_set_mode_re_emit_the_config_state() {
             .expect("the config slot is not poisoned")
             .is_some()
     });
-    assert!(events_of(&harness.sink, "config_state")
-        .iter()
-        .all(|state| state["options"].as_array().is_some_and(|options| options.is_empty())));
+    until("the switched model to reach the snapshot", || {
+        events_of(&harness.sink, "config_state")
+            .last()
+            .and_then(|state| state["options"][0]["value"].as_str().map(str::to_string))
+            == Some("sonnet".to_string())
+    });
+    assert!(events_of(&harness.sink, "config_state").iter().all(|state| {
+        state["options"]
+            .as_array()
+            .is_some_and(|options| options.len() == 1 && options[0]["id"] == "model")
+    }));
     assert_eq!(
         harness
             .state

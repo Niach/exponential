@@ -262,11 +262,12 @@ export type ActivityEvent =
   // meter. Both are LATEST-WINS STATE — the newest event replaces the
   // previous one in a snapshot SLOT and never appends a feed row (the `diff`
   // precedent). The relay replays its latest of each right after the log.
-  // EXP-772: `options` still rides the wire from older publishers; the fold
-  // ignores it, so it is not declared here.
+  // EXP-877: `options` rides the wire again — the fold keeps the list so the
+  // composer footer can read the model in force off it (`sessionModel`).
   | {
       kind: `config_state`
       currentMode?: string
+      options?: SessionConfigState[`options`]
       modes?: SessionConfigState[`modes`]
       commands?: SessionConfigState[`commands`]
       at?: number

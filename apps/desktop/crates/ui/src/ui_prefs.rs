@@ -6,9 +6,14 @@
 //! `coding::Settings`, and a preference that belongs to a WINDOW belongs in
 //! [`crate::window_size`].
 //!
-//! Today it holds exactly one value, the session diff pane's width, which is
-//! why it is one file rather than one file per pane: the next dragged edge
-//! adds a field, not a path.
+//! EXP-877 retired its one field (the session diff pane's dragged width — the
+//! pane is a full page now, and a page has no width to remember), so the file
+//! is currently EMPTY. It is kept, with its debounce and its
+//! forward-compatible parse, because the next dragged edge is a field here
+//! rather than a new path, and because a build that deletes the module would
+//! also have to decide what to do with the files already on disk. An unknown
+//! field is ignored on load and an unset one is never written, so an old
+//! `ui-prefs.json` carrying `diff_pane_width` simply reads as no preferences.
 //!
 //! Writes are DEBOUNCED. A drag fires a value per frame and a `ui-prefs.json`
 //! write per frame is a hundred syscalls for one gesture, so a set updates the
@@ -28,15 +33,9 @@ const WRITE_DELAY: Duration = Duration::from_millis(500);
 
 /// The whole file. Every field is optional: an older build's file stays
 /// readable, and a value this build never writes is not invented on load.
+/// EXP-877 left it with no fields at all (see the module doc).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-struct UiPrefs {
-    /// EXP-850 §11 / EXP-862: the session diff pane's dragged width, in
-    /// logical px. ONE width for every session — the pane is one surface
-    /// that different runs happen to fill, and a per-run width would mean
-    /// the same drag has to be repeated on the next run.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    diff_pane_width: Option<f32>,
-}
+struct UiPrefs {}
 
 fn prefs_file() -> Option<PathBuf> {
     Some(crate::window_size::app_data_dir()?.join("ui-prefs.json"))
@@ -58,6 +57,7 @@ fn prefs() -> &'static Mutex<UiPrefs> {
 /// newest drops its write on the floor — that is the debounce.
 static WRITE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+
 fn load_from(path: &std::path::Path) -> Option<UiPrefs> {
     let json = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&json).ok()
@@ -72,6 +72,11 @@ fn write_to(path: &std::path::Path, prefs: &UiPrefs) -> std::io::Result<()> {
 }
 
 /// Schedule the current in-memory prefs to be written once the drag stops.
+///
+/// EXP-877: no setter calls this while the file has no fields (see the module
+/// doc) — it is the half of the module a new preference plugs into, and
+/// deleting it would mean re-deriving the debounce from scratch next time.
+#[allow(dead_code)]
 fn schedule_write() {
     let generation = WRITE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
@@ -90,34 +95,6 @@ fn schedule_write() {
         // Best effort: a failed write only costs the remembered width.
         let _ = write_to(&path, &snapshot);
     });
-}
-
-/// The remembered diff-pane width, or `None` on a machine that has never
-/// dragged it (the caller opens at [`crate::diff_pane::pane_width`]).
-pub(crate) fn diff_pane_width() -> Option<f32> {
-    prefs()
-        .lock()
-        .ok()
-        .and_then(|prefs| prefs.diff_pane_width)
-        .filter(|width| width.is_finite() && *width > 0.)
-}
-
-/// Remember `width` as the diff pane's width (debounced, see the module doc).
-/// A width that is not a positive number is ignored rather than persisted.
-pub(crate) fn set_diff_pane_width(width: f32) {
-    if !width.is_finite() || width <= 0. {
-        return;
-    }
-    {
-        let Ok(mut prefs) = prefs().lock() else {
-            return;
-        };
-        if prefs.diff_pane_width == Some(width) {
-            return;
-        }
-        prefs.diff_pane_width = Some(width);
-    }
-    schedule_write();
 }
 
 #[cfg(test)]
@@ -141,17 +118,12 @@ mod tests {
         let path = dir.join("ui-prefs.json");
         assert_eq!(load_from(&path), None, "a missing file is no preferences");
 
-        write_to(
-            &path,
-            &UiPrefs {
-                diff_pane_width: Some(512.5),
-            },
-        )
-        .expect("write");
-        assert_eq!(
-            load_from(&path).and_then(|prefs| prefs.diff_pane_width),
-            Some(512.5)
-        );
+        // EXP-877: a file written by a build that HAD a field still reads —
+        // an unknown key is ignored, never a parse failure that would throw
+        // away the rest of somebody's preferences.
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(&path, r#"{"diff_pane_width":512.5}"#).expect("write");
+        assert_eq!(load_from(&path), Some(UiPrefs::default()));
 
         // An unset value is not serialized at all, so the file stays a
         // record of what was actually chosen.

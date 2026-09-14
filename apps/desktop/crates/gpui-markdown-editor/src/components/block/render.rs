@@ -2700,6 +2700,10 @@ impl Render for Block {
                         div()
                             .min_w(px(marker_width))
                             .h(px(first_line_height))
+                            // 2px of top inset shifts the centred box 1px
+                            // down, onto the text's cap centre (the line box
+                            // centre sits a hair above it).
+                            .pt(px(2.))
                             .flex()
                             .items_center()
                             .child(
