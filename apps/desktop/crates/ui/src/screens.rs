@@ -1538,10 +1538,12 @@ impl ScreensPanel {
                 })
                 .collect()
         };
-        // Highest index first — `close_tab` removes by index, and closing an
-        // active tab re-activates a neighbor safely mid-loop.
+        // Highest index first — removal is by index, and closing an active
+        // tab re-activates a neighbor safely mid-loop. `remove_tab`, not
+        // `close_tab`: a missing issue is not a user close, so the live-tab
+        // guard must not keep it (the run's row may sync after the issue's).
         for ix in missing.into_iter().rev() {
-            self.close_tab(ix, window, cx);
+            self.remove_tab(ix, true, window, cx);
         }
     }
 

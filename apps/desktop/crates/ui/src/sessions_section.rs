@@ -513,7 +513,7 @@ impl Render for PastSessionsSection {
 /// clock): the rows carry relative times and a liveness that expires, neither
 /// of which the collections signal. The refresh short-circuits on unchanged
 /// rows, so a quiet list costs one derivation and no repaint.
-fn tick<V: 'static>(
+pub(crate) fn tick<V: 'static>(
     cx: &mut gpui::Context<V>,
     refresh: fn(&mut V, &mut gpui::Context<V>),
 ) -> Task<()> {

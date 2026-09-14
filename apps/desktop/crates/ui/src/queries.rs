@@ -983,12 +983,17 @@ pub(crate) fn live_tab_runs(cx: &App, team_id: &str) -> Vec<LiveTabRun> {
     };
     let now = chrono::Utc::now().timestamp();
     let sessions = store.collections().coding_sessions.read(cx);
+    let devices = store.collections().devices.read(cx);
+    // A run whose host went offline (lid closed, crash) is paused, not
+    // something this strip should pin open: until its row goes stale it would
+    // hold an unclosable tab. It gets its tab back when the host returns.
     let mut rows: Vec<&domain::rows::CodingSession> = sessions
         .iter()
         .filter(|session| {
             session.user_id.as_deref() == Some(me.as_str())
                 && session.team_id.as_deref() == Some(team_id)
                 && coding_session_is_live(session, now)
+                && !session_device_presentation(session, devices.iter(), now * 1000).offline
         })
         .collect();
     rows.sort_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)));

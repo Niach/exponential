@@ -201,6 +201,7 @@ const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
+const NavIssuesIcon = conceptIcon(`nav-issues`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
@@ -717,6 +718,11 @@ export function AgentSessionView({
   const canResumeRun = useCanResumeOn(
     sessionEnded && !issueHeader ? session : null
   )
+  /** The phone has neither the md+ header nor the issue tray, so its compact
+   *  row offers Resume for every ended run, issue-bound or not. */
+  const canResumeOnPhone = useCanResumeOn(
+    sessionEnded && isMobile ? session : null
+  )
   /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
    *  (with their bars) and switches between them — so it exists whenever the
    *  machine reported an account for this run, not only when numbers are
@@ -1011,6 +1017,20 @@ export function AgentSessionView({
       {/* EXP-818: the ONE Stop — the same red-tinted glass pill as the md+
           header's (`run-action-pills.tsx`); the confirm is `useKillSession`'s. */}
       {canKill && <StopRunPill onStop={requestKill} />}
+      {sessionEnded && canResumeOnPhone && <ResumeRunPill session={session} />}
+      {/* The md+ face toggle is the way to the issue; a phone gets a pill. */}
+      {onIssueFace && (
+        <Pill
+          size="sm"
+          mode="action"
+          className="shrink-0"
+          onClick={onIssueFace}
+          data-testid="session-open-issue-pill"
+        >
+          <NavIssuesIcon className="size-3" />
+          {ISSUE_FACE_LABEL}
+        </Pill>
+      )}
     </>
   )
 
