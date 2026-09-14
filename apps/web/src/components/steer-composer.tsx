@@ -270,6 +270,7 @@ export function SteerComposer({
   return (
     <>
       <Composer
+        inline
         strip={
           pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
@@ -354,7 +355,7 @@ export function SteerComposer({
             placeholder={COMPOSER_PLACEHOLDER}
             rows={1}
             className={cn(
-              `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
+              `max-h-32 min-h-9 w-full border-none px-3 py-2 shadow-none focus-visible:border-transparent`,
               // The card IS the field chrome, so the field drops the stock
               // Textarea's glass fill (EXP-616).
               `bg-transparent`

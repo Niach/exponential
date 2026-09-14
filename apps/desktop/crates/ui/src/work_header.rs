@@ -464,13 +464,26 @@ pub(crate) fn merge_pill(
 /// A READ-ONLY title at the detail's 2xl semibold rung, padded exactly like
 /// the editable title (`IssueDetailView::render_title`) so the baseline never
 /// moves between the issue face and the run face.
+/// Around the 2xl title, issue field and run title alike: web `pt-4` above;
+/// below, the multi-line widget's own inset (`Size::Medium` `input_py`),
+/// which the static row mirrors so the two faces share one title box.
+pub(crate) const TITLE_PT: f32 = 16.;
+pub(crate) const TITLE_WIDGET_PY: f32 = 8.;
+/// The same widget's horizontal inset (`Size::Medium` `input_px`).
+pub(crate) const TITLE_WIDGET_PX: f32 = 10.;
+pub(crate) const TITLE_PB: f32 = TITLE_WIDGET_PY;
+/// Web `pb-3` under the header (tray or bare title).
+const HEADER_PB: f32 = 12.;
+
 pub(crate) fn title_row(text: impl Into<SharedString>) -> AnyElement {
     div()
         .w_full()
         .min_w_0()
         .px(px(DETAIL_GUTTER))
-        .pt_3()
-        .pb_1()
+        // Web `pt-4 pb-1`: the SAME block the editable title uses, so the
+        // baseline never moves between the issue face and the run face.
+        .pt(px(TITLE_PT))
+        .pb(px(TITLE_PB))
         .text_2xl()
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .line_height(gpui::rems(2.))
@@ -507,14 +520,17 @@ pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
             h_flex()
                 .flex_shrink_0()
                 .items_center()
-                .gap_0p5()
-                .pt_3()
+                .gap_1()
+                // Web `pt-4 pr-4`: top-aligned with the title's own `pt-4`.
+                .pt(px(TITLE_PT))
                 .pr(px(DETAIL_GUTTER))
                 .children(right),
         );
     v_flex()
         .w_full()
         .flex_shrink_0()
+        // Web `pb-3`: the one bottom inset, whether a tray follows or not.
+        .pb(px(HEADER_PB))
         .border_b_1()
         .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(centered_column(

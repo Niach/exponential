@@ -1674,9 +1674,15 @@ impl IssueDetailView {
     /// Shift+Enter captures target the description editor.
     fn render_title(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         div()
-            .px(px(DETAIL_GUTTER))
-            .pt_3()
-            .pb_1()
+            // EXP-877: the SAME block as `work_header::title_row`. The
+            // multi-line widget insets its text box by `TITLE_WIDGET_PX` /
+            // `TITLE_WIDGET_PY` underneath any refined style (no public size
+            // knob on `Textarea`), so the wrapper gives that much back on the
+            // sides and on top, and nothing at the bottom: title at
+            // `DETAIL_GUTTER` / `TITLE_PT`, `TITLE_PB` under it, on BOTH faces.
+            .px(px(DETAIL_GUTTER - crate::work_header::TITLE_WIDGET_PX))
+            .pt(px(crate::work_header::TITLE_PT - crate::work_header::TITLE_WIDGET_PY))
+            .pb(px(0.))
             // Tab jumps from the title into the description editor (web
             // EXP-10 parity, dialog-shell.tsx). Capture runs before the
             // InputState's own Tab handling; Shift+Tab (`OutdentInline`) is a

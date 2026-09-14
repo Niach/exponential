@@ -35,6 +35,10 @@ interface ComposerProps extends React.ComponentProps<`div`> {
   submit?: React.ReactNode
   /** The field. */
   children?: React.ReactNode
+  /** EXP-877: the steer card — the round submit sits ON the field's row
+   *  (bottom-aligned, so it stays put while the one-row field grows) instead
+   *  of a tool row under it. Mirrors the IDE's `GlassComposer::inline_tools`. */
+  inline?: boolean
 }
 
 function Composer({
@@ -43,6 +47,7 @@ function Composer({
   strip,
   tools,
   submit,
+  inline = false,
   className,
   children,
   ...props
@@ -65,11 +70,23 @@ function Composer({
         </div>
       )}
       {strip}
-      {children}
-      <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
-        {tools}
-        <div className="ml-auto flex items-center gap-1">{submit}</div>
-      </div>
+      {inline ? (
+        <div className="flex items-end gap-1">
+          <div className="min-w-0 flex-1">{children}</div>
+          <div className="flex shrink-0 items-center gap-1 pr-1.5 pb-1.5">
+            {tools}
+            {submit}
+          </div>
+        </div>
+      ) : (
+        <>
+          {children}
+          <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+            {tools}
+            <div className="ml-auto flex items-center gap-1">{submit}</div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -906,8 +906,9 @@ impl IssueHeader {
             .w_full()
             .items_center()
             .px(px(DETAIL_GUTTER))
-            // EXP-601: a small gap between the prop bar and the description.
-            .pb_3()
+            // Web `pt-3` between the title row and the tray; the header's own
+            // `pb-3` (work_header) is the gap to the description.
+            .pt(px(12.))
             // flex_1 + min_w_0: the tray takes the full column width, which
             // is what gives its own `flex_wrap` a definite width to wrap the
             // chips against (a shrink-to-fit tray would size to max-content
