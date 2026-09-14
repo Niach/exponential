@@ -40,6 +40,7 @@ import {
   codingSessions,
   comments,
   devices,
+  issueDrafts,
   issueEvents,
   issueLabels,
   issues,
@@ -1009,6 +1010,38 @@ async function main() {
       createdAt: daysAgo(spec.createdDaysAgo),
     }))
   )
+
+  // EXP-878: two issue DRAFTS for the demo user — what the create dialog kept
+  // when it was closed with something in it. One carries the properties a
+  // half-filled form has (a custom status, a priority, a label, a due date),
+  // the other is title-less so the list's "Untitled draft" row is
+  // photographed too. Drafts are per-user and never synced to teammates.
+  await db.insert(issueDrafts).values([
+    {
+      userId: demoId,
+      teamId: ws.id,
+      boardId: board.id,
+      title: `Offline queue for issue edits`,
+      description: `Edits made without a connection should queue and replay in order once sync resumes.\n\nOpen question: what happens when a queued edit lands on an issue somebody else already moved?`,
+      statusId: inQa.id,
+      priority: `high`,
+      assigneeId: demoId,
+      labelIds: [label.Feature],
+      dueDate: `2026-04-17`,
+      createdAt: hoursAgo(5),
+      updatedAt: hoursAgo(3),
+    },
+    {
+      userId: demoId,
+      teamId: ws.id,
+      boardId: board.id,
+      title: ``,
+      description: `Check whether the board list still re-renders every row on a single status change.`,
+      priority: `none`,
+      createdAt: daysAgo(2),
+      updatedAt: daysAgo(2),
+    },
+  ])
 
   // Inbox for the demo user — mixed unread/read, matching the wording the
   // real notifier produces (lib/integrations/notifications.ts).

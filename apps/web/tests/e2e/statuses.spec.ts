@@ -111,6 +111,9 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
   await page.getByRole(`menuitem`, { name: `Waiting` }).click()
   await dialog.getByRole(`button`, { name: `Create issue` }).click()
   await expect(dialog).toBeHidden()
+  // EXP-878: a create lands ON the new issue — step back for the group
+  // assertion, which is about the board list.
+  await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)
 
   const waitingGroup = page
     .locator(`[data-status-key]`)

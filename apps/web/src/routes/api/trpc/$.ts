@@ -7,6 +7,7 @@ import { checkClientVersion } from "@/lib/client-version"
 import { teamsRouter } from "@/lib/trpc/teams"
 import { boardsRouter } from "@/lib/trpc/boards"
 import { issuesRouter } from "@/lib/trpc/issues"
+import { issueDraftsRouter } from "@/lib/trpc/issue-drafts"
 import { issueLabelsRouter } from "@/lib/trpc/issue-labels"
 import { relationsRouter } from "@/lib/trpc/relations"
 import { labelsRouter } from "@/lib/trpc/labels"
@@ -41,6 +42,7 @@ export const appRouter = router({
   teams: teamsRouter,
   boards: boardsRouter,
   issues: issuesRouter,
+  issueDrafts: issueDraftsRouter,
   issueLabels: issueLabelsRouter,
   relations: relationsRouter,
   labels: labelsRouter,

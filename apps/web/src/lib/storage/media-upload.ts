@@ -9,7 +9,10 @@
 // pattern). Every probe step is best-effort: a decode failure degrades to
 // "upload the file as-is", never to a blocked upload.
 
-import type { UploadedIssueAttachment } from "@/lib/storage/issue-image-upload"
+import {
+  draftUploadPath,
+  type UploadedIssueAttachment,
+} from "@/lib/storage/issue-image-upload"
 import {
   isAudioContentType,
   isVideoContentType,
@@ -280,6 +283,27 @@ export function uploadIssueMediaFile(
   prepared: PreparedMediaUpload,
   options: MediaUploadOptions = {}
 ): Promise<UploadedIssueMediaAttachment> {
+  return postMediaUpload(`/api/issues/${issueId}/files`, prepared, options)
+}
+
+/**
+ * EXP-878: the same multipart POST against an issue DRAFT's upload route. The
+ * create dialog uploads clips eagerly too, so a draft description carries the
+ * final media block from the moment the clip lands.
+ */
+export function uploadDraftMediaFile(
+  draftId: string,
+  prepared: PreparedMediaUpload,
+  options: MediaUploadOptions = {}
+): Promise<UploadedIssueMediaAttachment> {
+  return postMediaUpload(draftUploadPath(draftId), prepared, options)
+}
+
+function postMediaUpload(
+  path: string,
+  prepared: PreparedMediaUpload,
+  options: MediaUploadOptions
+): Promise<UploadedIssueMediaAttachment> {
   const formData = new FormData()
   formData.append(`file`, prepared.file)
   if (prepared.poster) {
@@ -295,7 +319,7 @@ export function uploadIssueMediaFile(
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open(`POST`, `/api/issues/${issueId}/files`)
+    xhr.open(`POST`, path)
     xhr.withCredentials = true
     xhr.responseType = `json`
     xhr.upload.onprogress = (event) => {

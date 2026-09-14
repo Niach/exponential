@@ -773,6 +773,35 @@
       }
     },
     {
+      "id": "drafts",
+      "group": "my-work",
+      "title": "Drafts",
+      "blurb": "Issues that were started and not filed: closing the new-issue dialog with anything in it keeps a draft, and clicking a row reopens the dialog on it.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/drafts",
+        "anchor": {
+          "text": "Offline queue for issue edits",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/inbox?tab=drafts",
+        "anchor": {
+          "text": "Offline queue for issue edits",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "notes": {
+        "web-mobile": "Below md there is no Drafts route: the list is a third segment on the Inbox, present only while the caller has a draft.",
+        "ios": "Not captured yet — the iOS drafts list has no UI test in either lane.",
+        "android": "Not captured yet — the Android drafts list has no UI test in either lane.",
+        "desktop": "Not captured yet — the IDE reaches drafts from the sidebar entry and has no EXP_DEV_* drive for it."
+      }
+    },
+    {
       "id": "agents",
       "group": "coding",
       "title": "Devices",
@@ -1251,7 +1280,7 @@
       "id": "action-create",
       "group": "actions",
       "title": "New action",
-      "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip \u2014 describe the action in the prompt and the creator run writes the definition, no form (EXP-257, EXP-825).",
+      "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip — describe the action in the prompt and the creator run writes the definition, no form (EXP-257, EXP-825).",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug/agent?action=builtin:create-action",

@@ -5,6 +5,7 @@ import {
   attachments,
   codingSessions,
   comments,
+  issueDrafts,
   issueEvents,
   issues,
   issueLabels,
@@ -319,6 +320,10 @@ export const issuesRouter = router({
           // EXP-760: file the issue as a sub-issue of `parentId` in the same
           // transaction (the inline sub-issue composer, MCP issues_create).
           parentId: z.string().uuid().optional(),
+          // EXP-878: the issue DRAFT this create consumes. Its attachments
+          // are reparented onto the new issue and the draft row is deleted,
+          // all under this mutation's txId.
+          draftId: z.string().uuid().optional(),
         })
         // A brand-new issue has nothing to dedupe, and create has no canonical
         // issue to pair with — status='duplicate' + duplicateOfId=null breaks
@@ -349,7 +354,62 @@ export const issuesRouter = router({
       const assigneeId =
         input.assigneeId ?? (await getSoleHumanMemberId(board.teamId))
 
-      if (input.description && hasMarkdownImages(input.description)) {
+      // EXP-878: creating FROM a draft relaxes the "no images before the
+      // issue exists" rule — it only ever existed because there was no row
+      // to hang an upload off. A draft IS that row: its uploads are eager, so
+      // the description arrives carrying final `/api/attachments/{id}` URLs
+      // and create merely adopts the attachment rows. Every image must still
+      // be one of THIS draft's, or the adopted body would embed bytes it does
+      // not own.
+      let draftDescription: string | null = null
+      // Does a row for that id actually exist, AND is it the caller's? The
+      // client mints the draft id when it opens the dialog, so a plain create
+      // that never triggered an eager upload legitimately carries an id with
+      // no row behind it — that is "nothing to reparent, nothing to delete",
+      // not an error. The same lookup is what keeps the reparent honest: it
+      // is user-scoped, so a GUESSED id belonging to someone else reads as
+      // absent here and can never have its attachments stolen below.
+      let draftOwned = false
+      if (input.draftId) {
+        const [draft] = await ctx.db
+          .select({ id: issueDrafts.id })
+          .from(issueDrafts)
+          .where(
+            and(
+              eq(issueDrafts.id, input.draftId),
+              eq(issueDrafts.userId, ctx.session.user.id)
+            )
+          )
+          .limit(1)
+        draftOwned = draft != null
+
+        const origin = ctx.request.url
+        const { attachmentIds, invalidUrls } =
+          extractAttachmentIdsFromDescription(input.description ?? ``, origin)
+        let ownedCount = 0
+        if (attachmentIds.length > 0) {
+          const owned = await ctx.db
+            .select({ id: attachments.id })
+            .from(attachments)
+            .where(
+              and(
+                eq(attachments.draftId, input.draftId),
+                inArray(attachments.id, attachmentIds)
+              )
+            )
+          ownedCount = owned.length
+        }
+        if (invalidUrls.length > 0 || ownedCount !== attachmentIds.length) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Images can only be added after the issue is created`,
+          })
+        }
+        draftDescription = canonicalizeMarkdownImageUrls(
+          input.description ?? ``,
+          origin
+        )
+      } else if (input.description && hasMarkdownImages(input.description)) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
           message: `Images can only be added after the issue is created`,
@@ -397,12 +457,36 @@ export const issuesRouter = router({
             statusId: statusWrite.statusId,
             priority: input.priority ?? `none`,
             assigneeId,
-            description: input.description ?? null,
+            description: draftDescription ?? input.description ?? null,
             dueDate: input.dueDate ?? null,
             completedAt,
             creatorId: ctx.session.user.id,
           })
           .returning()
+
+        // EXP-878: adopt the draft. EVERY draft-owned row moves (inline
+        // images and plain files alike) — writing board_id lets
+        // populate_attachment_board_id derive the board mirrors exactly like
+        // issues.move does. The draft row goes LAST: deleting it first would
+        // cascade the attachments away before they were reparented.
+        if (input.draftId && draftOwned) {
+          await tx
+            .update(attachments)
+            .set({
+              issueId: issue.id,
+              boardId: issue.boardId,
+              draftId: null,
+            })
+            .where(eq(attachments.draftId, input.draftId))
+          await tx
+            .delete(issueDrafts)
+            .where(
+              and(
+                eq(issueDrafts.id, input.draftId),
+                eq(issueDrafts.userId, ctx.session.user.id)
+              )
+            )
+        }
 
         if (input.labelIds && input.labelIds.length > 0) {
           const labelRows = await tx

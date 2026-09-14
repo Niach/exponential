@@ -16,6 +16,7 @@ import {
   selectIssueEventSchema,
   selectIssueLabelSchema,
   selectIssueRelationSchema,
+  selectIssueDraftSchema,
   selectIssueSchema,
   selectIssueSubscriberSchema,
   selectIssueStatusRowSchema,
@@ -253,6 +254,20 @@ export const pinCollection = createCollection(
     id: `pins`,
     shapeOptions: shapeOptions(`/api/shapes/pins`),
     schema: selectPinSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-878: the caller's issue drafts — what the create-issue dialog keeps
+// when it is closed with content in it. Per-USER shape (static
+// `user_id = me`), so this collection only ever holds the caller's rows; the
+// surfaces narrow to the active team and drop a row whose board they cannot
+// resolve.
+export const issueDraftCollection = createCollection(
+  electricCollectionOptions({
+    id: `issue-drafts`,
+    shapeOptions: shapeOptions(`/api/shapes/issue-drafts`),
+    schema: selectIssueDraftSchema,
     getKey: (item) => item.id,
   })
 )

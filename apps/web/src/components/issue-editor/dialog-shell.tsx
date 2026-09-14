@@ -89,11 +89,6 @@ interface IssueEditorDialogShellProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
-  // Called on an accidental dismissal (Escape / backdrop) so the caller can
-  // take one over — return `true` to keep the shell open because the caller
-  // handled it (REV2-60: the create dialog confirms before discarding a
-  // typed draft). The explicit Close button never routes through here.
-  onDismissAttempt?: () => boolean
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
@@ -107,10 +102,6 @@ interface IssueEditorDialogShellProps {
   // inside the scroll region (EXP-247); callers may pass a slimmer
   // `mobileFooter`.
   mobileFooter?: ReactNode
-  // EXP-698 r4: the phone create form's "Create more" toggle. Absent = no row
-  // (the desktop dialog and the edit surfaces never show one).
-  createMore?: boolean
-  onCreateMoreChange?: (next: boolean) => void
   priority: IssuePriority
   boardColor: string
   boardPrefix: string
@@ -151,7 +142,6 @@ export function IssueEditorDialogShell({
   onAssigneeChange,
   onDescriptionBlur,
   onDescriptionChange,
-  onDismissAttempt,
   onDueDateSelect,
   onOpenChange,
   onPriorityChange,
@@ -162,8 +152,6 @@ export function IssueEditorDialogShell({
   open,
   primaryAction,
   mobileFooter,
-  createMore,
-  onCreateMoreChange,
   priority,
   boardColor,
   boardPrefix,
@@ -359,8 +347,6 @@ export function IssueEditorDialogShell({
             onAssigneeChange={onAssigneeChange}
             onToggleLabel={onToggleLabel}
             onDueDateSelect={onDueDateSelect}
-            createMore={createMore}
-            onCreateMoreChange={onCreateMoreChange}
           />
         </div>
 
@@ -380,16 +366,12 @@ export function IssueEditorDialogShell({
               event.preventDefault()
               return
             }
-            if (closeBlocked || onDismissAttempt?.() === true) {
+            if (closeBlocked) {
               event.preventDefault()
             }
           }}
           onInteractOutside={(event) => {
-            if (
-              closeBlocked ||
-              isEditorAutocompleteInteraction(event) ||
-              onDismissAttempt?.() === true
-            ) {
+            if (closeBlocked || isEditorAutocompleteInteraction(event)) {
               event.preventDefault()
             }
           }}
@@ -459,16 +441,12 @@ export function IssueEditorDialogShell({
             event.preventDefault()
             return
           }
-          if (closeBlocked || onDismissAttempt?.() === true) {
+          if (closeBlocked) {
             event.preventDefault()
           }
         }}
         onInteractOutside={(event) => {
-          if (
-            closeBlocked ||
-            isEditorAutocompleteInteraction(event) ||
-            onDismissAttempt?.() === true
-          ) {
+          if (closeBlocked || isEditorAutocompleteInteraction(event)) {
             event.preventDefault()
           }
         }}

@@ -9,16 +9,22 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
 import { isBoardPurgeDue, purgeBoardInTx } from "@/lib/board-trash"
 
 // Minimal chainable stub matching the drizzle calls purgeBoardInTx makes:
-// select(...).from(...).where(...) → attachment rows; delete(...).where(...)
-// .returning() → the deleted board rows.
+// select(...).from(...).where(...) → the board's issue attachment rows, and
+// select(...).from(...).innerJoin(...).where(...) → its DRAFT attachment rows
+// (EXP-878: those carry no board_id, so they only reach the sweep through
+// issue_drafts); delete(...).where(...).returning() → the deleted board rows.
 function makeTx(opts: {
   attachmentRows: { storageKey: string }[]
+  draftAttachmentRows?: { storageKey: string }[]
   deletedRows: { id: string }[]
 }) {
   return {
     select: () => ({
       from: () => ({
         where: () => Promise.resolve(opts.attachmentRows),
+        innerJoin: () => ({
+          where: () => Promise.resolve(opts.draftAttachmentRows ?? []),
+        }),
       }),
     }),
     delete: () => ({
@@ -82,5 +88,21 @@ describe(`purgeBoardInTx`, () => {
     const tx = makeTx({ attachmentRows: [], deletedRows: [{ id: `p1` }] })
     const result = await purgeBoardInTx(tx, `p1`, cutoff)
     expect(result).toEqual({ purged: true, storageKeys: [] })
+  })
+
+  // EXP-878: the board cascade drops its DRAFTS and their attachment rows
+  // too. Those rows carry no board_id, so without the issue_drafts join their
+  // blobs would be stranded in the bucket forever.
+  it(`also reclaims the blobs of the board's draft attachments (EXP-878)`, async () => {
+    const tx = makeTx({
+      attachmentRows: [{ storageKey: `k1` }],
+      draftAttachmentRows: [{ storageKey: `drafts/d1/a-shot.png` }],
+      deletedRows: [{ id: `p1` }],
+    })
+    const result = await purgeBoardInTx(tx, `p1`, cutoff)
+    expect(result).toEqual({
+      purged: true,
+      storageKeys: [`k1`, `drafts/d1/a-shot.png`],
+    })
   })
 })

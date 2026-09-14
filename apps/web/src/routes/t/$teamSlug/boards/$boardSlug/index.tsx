@@ -8,6 +8,8 @@ import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { Button } from "@/components/ui/button"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
+import { useIssueDraft } from "@/hooks/use-issue-drafts"
+import { issueCollection } from "@/lib/collections"
 import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -26,6 +28,10 @@ type BoardSearch = {
   from?: string
   new?: 1
   title?: string
+  /** EXP-878: reopen the create dialog on this DRAFT (the Drafts list's row
+   *  click). Cleared when the dialog closes, never when it opens — the dialog
+   *  needs the id for its whole session. */
+  draft?: string
 }
 
 export const Route = createFileRoute(
@@ -38,6 +44,10 @@ export const Route = createFileRoute(
       typeof search.description === `string` ? search.description : undefined,
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    draft:
+      typeof search.draft === `string` && search.draft
+        ? search.draft
+        : undefined,
   }),
   component: BoardPage,
 })
@@ -54,6 +64,13 @@ function BoardPage() {
   const [prefill, setPrefill] = useState<
     { title?: string; description?: string } | undefined
   >(undefined)
+
+  const draft = useIssueDraft(search.draft)
+
+  // A `?draft=` link opens the dialog straight onto that draft.
+  useEffect(() => {
+    if (search.draft) setCreateIssueOpen(true)
+  }, [search.draft])
 
   useEffect(() => {
     if (search.new === 1 || search.title || search.description) {
@@ -220,15 +237,44 @@ function BoardPage() {
         open={createIssueOpen}
         onOpenChange={(next) => {
           setCreateIssueOpen(next)
-          if (!next) setPrefill(undefined)
+          if (next) return
+          setPrefill(undefined)
+          // EXP-878: the draft key is dropped on CLOSE — dropping it on open
+          // would pull the id out from under the dialog mid-session.
+          if (search.draft) {
+            void navigate({
+              to: `/t/$teamSlug/boards/$boardSlug`,
+              params: { teamSlug, boardSlug },
+              search: (prev) => ({ ...prev, draft: undefined }),
+              replace: true,
+            })
+          }
         }}
         boardId={board.id}
         boardPrefix={board.prefix}
         boardColor={board.color}
         teamId={team.id}
+        teamSlug={teamSlug}
         defaultStatus={defaultStatus}
         prefill={prefill}
         users={users}
+        draftId={search.draft}
+        draft={draft}
+        onCreated={async ({ issue, txId, boardSlug: createdBoardSlug }) => {
+          // EXP-878: land ON the issue that was just filed. Waiting for the
+          // txId means the detail route finds its row already synced instead
+          // of flashing a "not found" while Electric catches up.
+          await issueCollection.utils.awaitTxId(txId)
+          void navigate({
+            to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+            params: {
+              teamSlug,
+              boardSlug: createdBoardSlug,
+              issueIdentifier: issue.identifier,
+            },
+            search: { from: `board:${boardSlug}` },
+          })
+        }}
       />
     </div>
   )

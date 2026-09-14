@@ -92,3 +92,29 @@ export async function uploadIssueFile(issueId: string, file: File) {
     `Failed to upload file`
   )
 }
+
+/** EXP-878: the upload path of an issue DRAFT — same contract as the issue
+ *  route, owner-only. `media-upload.ts` builds the same path for clips. */
+export function draftUploadPath(draftId: string) {
+  return `/api/issue-drafts/${draftId}/files`
+}
+
+/**
+ * EXP-878: an image pasted/dropped into the CREATE dialog. Uploads are eager
+ * there — the row exists before the issue does (`attachments.draft_id`), so
+ * the description carries the final `/api/attachments/{id}` URL from the
+ * moment the image lands, exactly like the issue-detail editor.
+ */
+export async function uploadDraftImageFile(draftId: string, file: File) {
+  return postIssueUpload(
+    draftUploadPath(draftId),
+    file,
+    `Failed to upload image`
+  )
+}
+
+/** EXP-878: a non-image attachment on a draft — the create dialog's Files
+ *  rail, reparented onto the issue by `issues.create({ draftId })`. */
+export async function uploadDraftFile(draftId: string, file: File) {
+  return postIssueUpload(draftUploadPath(draftId), file, `Failed to upload file`)
+}

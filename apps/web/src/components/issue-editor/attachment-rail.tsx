@@ -1,14 +1,26 @@
 import { X } from "lucide-react"
 import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
-import type { DraftFile } from "@/lib/create-issue-helpers"
 import { cn } from "@/lib/utils"
+
+/**
+ * One chip in the rail. EXP-878 made create-dialog uploads EAGER, so a chip
+ * describes a stored `attachments` ROW (its id is the attachment's) rather
+ * than a queued `File` — which is also what a reopened draft can offer, since
+ * its files come back from `issueDrafts.listAttachments`, not from disk.
+ */
+export interface RailFile {
+  id: string
+  name: string
+  contentType: string
+  sizeBytes: number
+}
 
 interface IssueEditorAttachmentRailProps {
   attachmentStatus?: string | null
   disabled?: boolean
-  // EXP-297: non-image files queued for upload after the issue is created.
-  files: DraftFile[]
-  onRemoveFile?: (draftFileId: string) => void
+  // EXP-297 / EXP-878: the non-inline attachments of the issue or draft.
+  files: RailFile[]
+  onRemoveFile?: (attachmentId: string) => void
   uploading?: boolean
 }
 
@@ -41,7 +53,7 @@ export function IssueEditorAttachmentRail({
           <>
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5 pr-1">
               {files.map((draftFile) => {
-                const Icon = getAttachmentIcon(draftFile.file.type)
+                const Icon = getAttachmentIcon(draftFile.contentType)
 
                 return (
                   <div
@@ -56,16 +68,16 @@ export function IssueEditorAttachmentRail({
                       <Icon className="size-3.5 text-muted-foreground" />
                     </span>
                     <span className="max-w-24 truncate text-xs text-foreground/88">
-                      {draftFile.file.name}
+                      {draftFile.name}
                     </span>
                     <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-                      {formatAttachmentSize(draftFile.file.size)}
+                      {formatAttachmentSize(draftFile.sizeBytes)}
                     </span>
                     {fileRemovable ? (
                       <button
                         type="button"
                         className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-glass-active hover:text-foreground"
-                        aria-label={`Remove attachment ${draftFile.file.name}`}
+                        aria-label={`Remove attachment ${draftFile.name}`}
                         onClick={() => onRemoveFile?.(draftFile.id)}
                       >
                         <X className="size-3" />

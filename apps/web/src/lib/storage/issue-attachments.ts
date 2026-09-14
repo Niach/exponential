@@ -121,6 +121,18 @@ export function buildAttachmentStorageKey(
   return `issues/${issueId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
 }
 
+// EXP-878: an image/file uploaded into an issue DRAFT, before the issue
+// exists. Its own prefix: the object never moves when `issues.create`
+// reparents the row onto the created issue (rows carry `storage_key`, so the
+// key is opaque), and the draft's reclaim paths key on the row either way.
+export function buildDraftAttachmentStorageKey(
+  draftId: string,
+  attachmentId: string,
+  filename: string
+) {
+  return `drafts/${draftId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
+}
+
 // EXP-702: steer images for issue-less coding sessions live under their own
 // prefix — the reclaim paths key on the DB rows' storage_key either way.
 export function buildSessionAttachmentStorageKey(

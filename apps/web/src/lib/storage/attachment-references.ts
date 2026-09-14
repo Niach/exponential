@@ -1,5 +1,5 @@
 import { and, eq, ilike, or } from "drizzle-orm"
-import { comments, issues } from "@/db/schema"
+import { comments, issueDrafts, issues } from "@/db/schema"
 import { replaceAttachmentReferencesWithPlaceholder } from "@/lib/storage/issue-attachments"
 import { escapeLikePattern } from "@/lib/like-pattern"
 
@@ -41,7 +41,7 @@ export async function replaceAttachmentReferencesInTx(
 
   const patterns = targets.map((target) => `%${escapeLikePattern(target.id)}%`)
 
-  const [issueRows, commentRows] = await Promise.all([
+  const [issueRows, commentRows, draftRows] = await Promise.all([
     tx
       .select({ id: issues.id, description: issues.description })
       .from(issues)
@@ -58,6 +58,18 @@ export async function replaceAttachmentReferencesInTx(
         and(
           eq(comments.teamId, args.teamId),
           or(...patterns.map((pattern) => ilike(comments.body, pattern)))
+        )
+      ),
+    // EXP-878: a DRAFT description embeds attachments the same way, and the
+    // draft upsert applies the same round-trip guard — leave a dead id in one
+    // and the draft becomes unsavable the moment its dialog closes.
+    tx
+      .select({ id: issueDrafts.id, description: issueDrafts.description })
+      .from(issueDrafts)
+      .where(
+        and(
+          eq(issueDrafts.teamId, args.teamId),
+          or(...patterns.map((pattern) => ilike(issueDrafts.description, pattern)))
         )
       ),
   ])
@@ -100,5 +112,15 @@ export async function replaceAttachmentReferencesInTx(
       .update(comments)
       .set({ body: rewritten.text })
       .where(eq(comments.id, commentRow.id))
+  }
+
+  for (const draftRow of draftRows) {
+    const rewritten = rewriteAll(draftRow.description ?? ``)
+    if (!rewritten.changed) continue
+
+    await tx
+      .update(issueDrafts)
+      .set({ description: rewritten.text })
+      .where(eq(issueDrafts.id, draftRow.id))
   }
 }

@@ -3,6 +3,7 @@ import { boardVisible } from "@/lib/board-visibility"
 import { and, eq, inArray } from "drizzle-orm"
 import {
   attachments,
+  issueDrafts,
   issues,
   boards,
   sessionAttachments,
@@ -262,6 +263,41 @@ export async function getAttachmentTeamContext(attachmentId: string) {
     // Trashed or archived board ⇒ block attachment byte reads for as long as
     // it stays hidden (restored automatically on restore/unarchive).
     .where(and(eq(attachments.id, attachmentId), boardVisible()))
+    .limit(1)
+
+  if (!attachmentContext) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Attachment not found`,
+    })
+  }
+
+  return attachmentContext
+}
+
+// EXP-878: an attachment owned by an issue DRAFT (`attachments.draft_id`).
+// Served by the same /api/attachments/{id} read route — the eager draft
+// upload writes final URLs straight into the composing description, so the
+// bytes have to be readable before the issue exists. No board, so no
+// trash/archive predicate; team membership is the whole gate (the same
+// decision the issue rows get once the draft is created).
+export async function getDraftAttachmentTeamContext(attachmentId: string) {
+  const db = await getDb()
+  const [attachmentContext] = await db
+    .select({
+      attachmentId: attachments.id,
+      draftId: attachments.draftId,
+      storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
+      durationMs: attachments.durationMs,
+      teamId: issueDrafts.teamId,
+      contentType: attachments.contentType,
+      filename: attachments.filename,
+      sizeBytes: attachments.sizeBytes,
+    })
+    .from(attachments)
+    .innerJoin(issueDrafts, eq(attachments.draftId, issueDrafts.id))
+    .where(eq(attachments.id, attachmentId))
     .limit(1)
 
   if (!attachmentContext) {

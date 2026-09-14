@@ -7,6 +7,7 @@ import {
   buildAttachmentPosterUrl,
   buildAttachmentStorageKey,
   buildAttachmentUrl,
+  buildDraftAttachmentStorageKey,
   canonicalizeContentType,
   getMaxUploadBytesForContentType,
   isAcceptedImageContentType,
@@ -104,6 +105,36 @@ export async function handleIssueAttachmentUpload({
   const issueContext = await getIssueTeamContext(params.issueId)
   await assertTeamMember(session.user.id, issueContext.teamId)
 
+  return storeAttachmentUpload(request, session.user.id, {
+    kind: `issue`,
+    issueId: params.issueId,
+    boardId: issueContext.boardId,
+    teamId: issueContext.teamId,
+  })
+}
+
+/**
+ * Who the uploaded row belongs to. An attachment is owned by EITHER an issue
+ * or an issue DRAFT (EXP-878, `attachments_owner_check`) — the only
+ * differences downstream are the storage-key prefix and which id column the
+ * insert fills, so everything else (parse, caps, probe, upload, rollback) is
+ * this one shared tail.
+ */
+export type AttachmentUploadOwner =
+  | { kind: `issue`; issueId: string; boardId: string; teamId: string }
+  | { kind: `draft`; draftId: string; teamId: string }
+
+/**
+ * The shared body of every `/files` upload route: parse the multipart part,
+ * canonicalize its type, apply the per-type cap and the team storage budget,
+ * probe image/media metadata, store the bytes (plus an optional poster) and
+ * insert the row — rolling the objects back if the insert fails.
+ */
+export async function storeAttachmentUpload(
+  request: Request,
+  uploaderId: string,
+  owner: AttachmentUploadOwner
+) {
   const formData = await request.formData()
   const file = formData.get(`file`)
 
@@ -165,20 +196,18 @@ export async function handleIssueAttachmentUpload({
     })
   }
 
-  await assertWithinStorageLimit(
-    issueContext.teamId,
-    file.size + (poster?.size ?? 0)
-  )
+  await assertWithinStorageLimit(owner.teamId, file.size + (poster?.size ?? 0))
 
   // Browser file names arrive verbatim — strip control chars and clamp so the
   // stored display name is always header- and column-safe.
   const filename = sanitizeUploadFilename(file.name, `file`)
   const attachmentId = crypto.randomUUID()
-  const storageKey = buildAttachmentStorageKey(
-    params.issueId,
-    attachmentId,
-    filename
-  )
+  // Draft rows get their own prefix (EXP-878); the key is opaque, so
+  // reparenting a draft attachment onto the created issue never moves bytes.
+  const storageKey =
+    owner.kind === `issue`
+      ? buildAttachmentStorageKey(owner.issueId, attachmentId, filename)
+      : buildDraftAttachmentStorageKey(owner.draftId, attachmentId, filename)
   const url = buildAttachmentUrl(attachmentId)
   const body = new Uint8Array(await file.arrayBuffer())
   // Best-effort intrinsic dimensions so clients can pre-size the image; never
@@ -230,10 +259,14 @@ export async function handleIssueAttachmentUpload({
   try {
     await db.insert(attachments).values({
       id: attachmentId,
-      teamId: issueContext.teamId,
-      boardId: issueContext.boardId,
-      issueId: params.issueId,
-      uploaderId: session.user.id,
+      teamId: owner.teamId,
+      // EXP-878: a draft row carries neither issue nor board — the board
+      // mirror is derived by `populate_attachment_board_id` when
+      // `issues.create({ draftId })` reparents it.
+      boardId: owner.kind === `issue` ? owner.boardId : null,
+      issueId: owner.kind === `issue` ? owner.issueId : null,
+      draftId: owner.kind === `draft` ? owner.draftId : null,
+      uploaderId,
       filename,
       contentType,
       sizeBytes: file.size,

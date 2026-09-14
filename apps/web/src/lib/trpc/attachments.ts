@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { and, desc, eq, ilike, inArray, isNotNull } from "drizzle-orm"
+import { and, desc, eq, ilike, inArray, isNotNull, or } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, comments, issues } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
@@ -39,7 +39,7 @@ async function collectTeamReferencedAttachmentIdsInTx(
 ): Promise<Set<string>> {
   const pattern = `%/api/attachments/%`
 
-  const [descriptionRows, commentRows, commentLinkedRows] = await Promise.all([
+  const [descriptionRows, commentRows, ownerLinkedRows] = await Promise.all([
     tx
       .select({ text: issues.description })
       .from(issues)
@@ -52,11 +52,17 @@ async function collectTeamReferencedAttachmentIdsInTx(
       .where(and(eq(comments.teamId, teamId), ilike(comments.body, pattern))),
     // Comment attachments (EXP-554) are linked via comment_id, never embedded
     // in markdown — without this they'd read as unreferenced sweep bait.
+    // EXP-878: a DRAFT's attachments are the same case — their only body is
+    // the unsaved draft description, which is not an issue or a comment. The
+    // owning column IS the reference; they die with the draft.
     tx
       .select({ id: attachments.id })
       .from(attachments)
       .where(
-        and(eq(attachments.teamId, teamId), isNotNull(attachments.commentId))
+        and(
+          eq(attachments.teamId, teamId),
+          or(isNotNull(attachments.commentId), isNotNull(attachments.draftId))
+        )
       ),
   ])
 
@@ -64,7 +70,7 @@ async function collectTeamReferencedAttachmentIdsInTx(
     [...descriptionRows, ...commentRows].map((row) => row.text ?? ``),
     origin
   )
-  for (const row of commentLinkedRows) {
+  for (const row of ownerLinkedRows) {
     referenced.add(row.id)
   }
   return referenced
