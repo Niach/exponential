@@ -1,11 +1,9 @@
-/* ─── Board — filter bar + grouped issue list ───
-   Mirrors apps/web issue-filter-bar.tsx (EXP-449: title-less control row,
-   just the right-hand Filter trigger) and issue-list.tsx (the md grid
+/* ─── Board — control row + grouped issue list ───
+   Mirrors apps/web boards/$boardSlug/index.tsx (the empty h-14 control row)
+   and issue-list.tsx (the md grid
    [checkbox | priority | id | status | title | labels | assignee | due],
-   sticky status-washed group headers). The agent dock is NOT part of a page:
-   it is a band of the team layout, under the cutout card (WebDemo). */
+   sticky status-washed group headers). */
 import {
-  getIssue,
   GROUP_ORDER,
   ISSUES,
   MY_ISSUE_IDS,
@@ -14,16 +12,8 @@ import {
 } from "../ide/data"
 import { useWeb } from "./state"
 import { LabelPill, PriorityGlyph, StatusGlyph, WebAvatar } from "./bits"
-import { AGENT_SESSIONS, WEB_GROUP_ORDER } from "./data"
-import {
-  ICON_3,
-  ICON_35,
-  IcCalendar,
-  IcChat,
-  IcChevRight,
-  IcClose,
-  IcFilter,
-} from "./icons"
+import { WEB_GROUP_ORDER } from "./data"
+import { ICON_3, ICON_35, IcCalendar, IcChevRight } from "./icons"
 
 /* The demo board's status groups in the app's display order. GROUP_ORDER
    (ide/data) supplies the labels; contract displayOrder supplies the order. */
@@ -112,49 +102,11 @@ export function WebGroupedList({ issues }: { issues: Issue[] }) {
   )
 }
 
-/* The board page's control row: EXP-449 left it with nothing but the filter
-   trigger (h-14, px-6). */
+/* The board page's control row (boards/$boardSlug/index.tsx): a fixed h-14
+   band that only fills when rows are selected (the bulk action bar). Issue
+   filtering is gone (EXP-862), and with it the Filter trigger. */
 export function WebFilterBar() {
-  return (
-    <div className="web-filterbar">
-      <button className="web-xsbtn is-click" type="button">
-        <IcFilter size={ICON_3} />
-        Filter
-      </button>
-    </div>
-  )
-}
-
-/* Agent dock (agent-dock/agent-dock.tsx). EXP-740 left it as the STRIP and
-   nothing else — selecting a tab NAVIGATES to the session's own page. EXP-771
-   moved the band OUTSIDE the cutout card, onto the bare page ground: 36px,
-   no fill, no border, the card's 10px side margins and 8px of its own. The
-   tabs are RichTabs (rich-tab.tsx) — a pinging green dot, the mono
-   identifier, the truncating issue title, the device as a trailing muted
-   badge, and a close glyph — and the trailing Chat glyph is always there,
-   whatever is running (EXP-739), which is why the band renders even with no
-   session at all. */
-export function WebAgentDock() {
-  return (
-    <div className="web-dock">
-      <div className="web-dock-tabs">
-        {AGENT_SESSIONS.map((s) => (
-          <span className="web-dock-tab" key={s.issueId}>
-            <span className="web-dock-dot" />
-            <span className="web-dock-id">{s.issueId}</span>
-            <span className="web-dock-title">{getIssue(s.issueId).title}</span>
-            <span className="web-dock-device">{` · ${s.device}`}</span>
-            <span className="web-dock-close">
-              <IcClose size={ICON_3} />
-            </span>
-          </span>
-        ))}
-      </div>
-      <span className="web-dock-chat" title="Chat">
-        <IcChat size={ICON_35} />
-      </span>
-    </div>
-  )
+  return <div className="web-filterbar" />
 }
 
 export function WebBoard() {

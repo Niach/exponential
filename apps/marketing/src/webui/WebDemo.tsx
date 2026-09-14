@@ -1,7 +1,9 @@
 /* ─── WebDemo — pixel-faithful, usable recreation of the Exponential web app ───
    Same house pattern as ide/Ide.tsx: fixed 1100×680 canvas auto-scaled to
    the container via the shared useDemoScale hook, one context object owns
-   the interactive state, fixtures come from the shared universe in ide/data. */
+   the interactive state, fixtures come from the shared universe in ide/data.
+   EXP-870 layout: the sidebar, then the content column — the 44px work-tabs
+   band on the bare ground, and the cutout card flush under it. */
 import { useMemo, useState } from "react"
 import type { Issue } from "../ide/data"
 import { toggledSet } from "../ide/state"
@@ -13,10 +15,13 @@ import {
   type WebApi,
   type WebNav,
   type WebView,
+  type WorkFace,
 } from "./state"
-import { SUPPORT_THREADS } from "./data"
+import { SUPPORT_THREADS, sessionFor, type DemoAgent } from "./data"
 import { WebSidebar } from "./Sidebar"
-import { WebAgentDock, WebBoard } from "./Board"
+import { WebBoard } from "./Board"
+import { WebWorkTabs } from "./WorkTabs"
+import { WebAgentPage } from "./AgentPage"
 import { WebIssueDetail } from "./IssueDetail"
 import { WebInbox } from "./Inbox"
 import { WebSupportInbox } from "./SupportInbox"
@@ -27,19 +32,25 @@ const WEB_H = 680
 type InitState = {
   nav: WebNav
   openIssueId: string | null
+  face: WorkFace
   selectedThreadId: string | null
 }
 
 const initialState = (view: WebView): InitState => {
+  const base = { openIssueId: null, face: `issue` as WorkFace, selectedThreadId: SUPPORT_THREADS[0].id }
   switch (view) {
     case `issue`:
-      return { nav: `project`, openIssueId: `EXP-8`, selectedThreadId: SUPPORT_THREADS[0].id }
+      return { ...base, nav: `project`, openIssueId: `EXP-8` }
+    case `run`:
+      return { ...base, nav: `project`, openIssueId: `EXP-8`, face: `run` }
     case `inbox`:
-      return { nav: `inbox`, openIssueId: null, selectedThreadId: SUPPORT_THREADS[0].id }
+      return { ...base, nav: `inbox` }
     case `support`:
-      return { nav: `support`, openIssueId: null, selectedThreadId: SUPPORT_THREADS[0].id }
+      return { ...base, nav: `support` }
+    case `agent`:
+      return { ...base, nav: `agent` }
     default:
-      return { nav: `project`, openIssueId: null, selectedThreadId: SUPPORT_THREADS[0].id }
+      return { ...base, nav: `project` }
   }
 }
 
@@ -62,6 +73,10 @@ export function WebDemo({
   const [nav, setNav] = useState<WebNav>(init.nav)
   const [inboxTab, setInboxTab] = useState<InboxTab>(`inbox`)
   const [openIssueId, setOpenIssueId] = useState<string | null>(init.openIssueId)
+  const [face, setFace] = useState<WorkFace>(init.face)
+  const [tabIds, setTabIds] = useState<string[]>([])
+  const [foldedAgents, setFoldedAgents] = useState<Set<DemoAgent>>(new Set())
+  const [agentSeedId, setAgentSeedId] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(init.selectedThreadId)
@@ -76,8 +91,46 @@ export function WebDemo({
     inboxTab,
     setInboxTab,
     openIssueId,
-    openIssue: (id) => setOpenIssueId(id),
+    face,
+    setFace,
+    openIssue: (id, nextFace = `issue`) => {
+      setOpenIssueId(id)
+      setFace(nextFace)
+      /* A live run already owns its (permanent) tab; anything else opens an
+         ordinary one at the end of the strip. */
+      if (!sessionFor(id)) {
+        setTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
+      }
+      /* Navigating to a chip in a folded group unfolds it. */
+      const agent = sessionFor(id)?.agent
+      if (agent) setFoldedAgents((prev) => {
+        if (!prev.has(agent)) return prev
+        const next = new Set(prev)
+        next.delete(agent)
+        return next
+      })
+    },
     closeIssue: () => setOpenIssueId(null),
+    startCoding: (id) => {
+      setAgentSeedId(id)
+      setOpenIssueId(null)
+      setNav(`agent`)
+    },
+    agentSeedId,
+    tabIds,
+    closeTab: (id) => {
+      setTabIds((prev) => prev.filter((t) => t !== id))
+      if (openIssueId === id) setOpenIssueId(null)
+    },
+    foldedAgents,
+    toggleAgentFold: (agent, folded) =>
+      setFoldedAgents((prev) => {
+        const next = new Set(prev)
+        const fold = folded ?? !prev.has(agent)
+        if (fold) next.add(agent)
+        else next.delete(agent)
+        return next
+      }),
     collapsedGroups,
     toggleGroup: (status) => setCollapsedGroups((prev) => toggledSet(prev, status)),
     inboxRead,
@@ -102,6 +155,8 @@ export function WebDemo({
     <WebIssueDetail issueId={openIssueId} />
   ) : nav === `project` ? (
     <WebBoard />
+  ) : nav === `agent` ? (
+    <WebAgentPage key={agentSeedId ?? `chat`} />
   ) : nav === `inbox` ? (
     <WebInbox />
   ) : (
@@ -122,11 +177,14 @@ export function WebDemo({
           style={scale < 1 ? { width: BASE_W, transform: `scale(${scale})` } : undefined}
         >
           <WebSidebar />
-          {/* team/app-shell.ts: the content COLUMN — the cutout card, and
-              under it the agent dock's band on the bare page ground. */}
-          <div className="web-col">
+          {/* team/app-shell.ts: the content COLUMN — the work-tabs band on
+              the bare page ground, the cutout card flush under it (EXP-870;
+              the agent dock band is gone since EXP-818). */}
+          <div className="web-maincol">
+            <div className="web-tabsband">
+              <WebWorkTabs />
+            </div>
             <div className="web-main">{main}</div>
-            <WebAgentDock />
           </div>
         </div>
       </WebContext.Provider>

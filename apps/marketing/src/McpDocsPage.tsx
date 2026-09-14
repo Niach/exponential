@@ -144,11 +144,11 @@ const TOOL_GROUPS: {
     tools: [
       { name: `exponential_devices_list`, desc: `List your machines (desktop app or CLI daemon) plus servers shared with the team, with their online state and the agents each can run.` },
       { name: `exponential_sessions_start`, desc: `Start a run on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
-      { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, and an ended run's summary.` },
+      { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended run.` },
       { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended.` },
       { name: `exponential_sessions_message`, desc: `Send text into a live session you own or host — it arrives as user input to that agent.` },
       { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
-      { name: `exponential_sessions_end`, desc: `A run's own close-out summary. Registered only inside an unattended (automation- or agent-started) run.` },
+      { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Registered only inside an unattended (automation- or agent-started) run.` },
       { name: `exponential_sessions_ask_parent`, desc: `Registered only in a run another run started: ask the starting run a question and end your turn; its answer arrives as a user message.` },
     ],
   },
@@ -232,7 +232,7 @@ export function McpDocsPage() {
             <h3>API keys for headless use</h3>
             <p>
               Scripts and CI use a personal API key instead. Generate one
-              under <strong>Settings → API keys</strong> in the web app and
+              under <strong>Settings → Security</strong> in the web app and
               send it as a bearer token:
             </p>
             <DocsCode language="text">{`Authorization: Bearer expu_...`}</DocsCode>

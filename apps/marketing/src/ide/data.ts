@@ -478,8 +478,10 @@ export type FeedRow =
   | { kind: `tool`; verb: string; target: string; detail?: string }
   /* A collapsed run of tool calls — `toolGroupSummary`'s caption. */
   | { kind: `group`; caption: string }
-  /* The agent's question, answerable from the composer or by picking. */
+  /* The agent's question, answered IN its card (EXP-820). */
   | { kind: `question`; text: string; options: { title: string; sub: string }[] }
+  /* A message you sent the run (the picked answer, or a steer). */
+  | { kind: `user`; text: string }
 
 /* Issues with an open PR fixture keep their number; anyone else gets a
    plausible one derived from the issue number. */
@@ -574,3 +576,74 @@ export const batchCodingScriptFor = (issues: Issue[]): FeedRow[] => [
 /* A batch session has no issue to name it: every client titles it "Batch
    run" (navigation::screen_title, web session-identity.ts). */
 export const BATCH_RUN_TITLE = `Batch run`
+
+/* ─── Runs beside the scripted one (EXP-870/874/877) ───
+   The coding agents a run can ride; the tab strip clusters live runs by
+   agent, led by the agent's brand mark. */
+export type AgentKind = `claude` | `codex`
+
+export const AGENT_LABEL: Record<AgentKind, string> = {
+  claude: `Claude Code`,
+  codex: `Codex`,
+}
+
+/* The machine every fixture run is hosted on. */
+export const RUN_DEVICE = `Danny's MacBook Pro`
+
+/* The OTHER live run of mine: a Codex run on EXP-11 whose PR is open
+   (status `in_review`, "Ready for review"). It owns a live tab from the
+   first frame, which is what makes the strip read like the real one. */
+export const REVIEW_RUN = {
+  issueId: `EXP-11`,
+  agent: `codex` as AgentKind,
+  started: `2 hours ago`,
+}
+
+/* A run's changed files, as the Diff face lists them. Only the fixture hunk
+   (DIFF_FILE) carries rows to expand; the others are collapsed cards. */
+export type RunFile = { path: string; add: number; del: number; rows?: boolean }
+
+export const SCRIPTED_RUN_FILES: RunFile[] = [
+  { path: DIFF_FILE.path, add: DIFF_FILE.add, del: DIFF_FILE.del, rows: true },
+]
+
+export const REVIEW_RUN_FILES: RunFile[] = [
+  { path: `apps/web/src/components/issue-list.tsx`, add: 34, del: 7 },
+  { path: `apps/web/src/hooks/use-roving-focus.ts`, add: 29, del: 0 },
+  { path: `apps/web/src/components/issue-list.test.tsx`, add: 18, del: 2 },
+]
+
+export const reviewRunScript = (issue: Issue): FeedRow[] => [
+  {
+    kind: `narration`,
+    text: `Reading ${issue.id} and the board list's focus handling. ${issue.title}.`,
+  },
+  { kind: `group`, caption: `Read 4 files · searched 2 times` },
+  {
+    kind: `narration`,
+    text: `j/k move the selection, Enter opens the issue beside the list, and Escape hands focus back to the board.`,
+  },
+  {
+    kind: `tool`,
+    verb: `Edit`,
+    target: `apps/web/src/components/issue-list.tsx`,
+    detail: `roving focus`,
+  },
+  { kind: `group`, caption: `Ran 3 commands · edited 2 files` },
+  {
+    kind: `narration`,
+    text: `Tests and typecheck pass. Pushed exp/${issue.id} and opened PR #209. It is ready for review.`,
+  },
+]
+
+/* The Agent page's Past band (EXP-874): identifier + title over a
+   device · time byline, a chevron, and no agent brand mark. */
+export type PastRun = { issueId: string; ended: string }
+
+export const PAST_RUNS: PastRun[] = [
+  { issueId: `EXP-5`, ended: `yesterday` },
+  { issueId: `EXP-7`, ended: `3 days ago` },
+]
+
+/* What the scripted run's context ring reads once the transcript is in. */
+export const CONTEXT_PERCENT = 38

@@ -1,7 +1,10 @@
 /* ─── Shared IDE demo state: context, types, helpers ─── */
 import { createContext, useContext } from "react"
-import type { Change, Commit, FeedRow, FilterTab } from "./data"
+import type { AgentKind, Change, Commit, FeedRow, FilterTab, RunFile } from "./data"
 
+/* The rail destination the main view shows while no top tab is active.
+   Board and Inbox are LIST screens: an issue picked from one opens beside
+   it, with the list folded into the left column (EXP-870). */
 export type Tool =
   | `issues`
   | `files`
@@ -9,16 +12,23 @@ export type Tool =
   | `inbox`
   /* EXP-706: a rail SCREEN, not a docked tool window. */
   | `reviews`
+  /* EXP-825: the Agent page, the composer over the Running/Past bands. */
+  | `agent`
 export type IdeView = `board` | `issue` | `files` | `source-control`
 
-export type TabKind = `issue` | `file` | `sc`
+/* `issue` = an issue and its run as ONE top tab (EXP-870); `run` = an
+   issue-less run's Run-only tab (a batch). `file`/`sc` are legacy kinds. */
+export type TabKind = `issue` | `file` | `sc` | `run`
 export type Tab = { key: string; kind: TabKind; label: string; ref: string }
 
-/* The run's phase, as the session header reads it: `running` = the agent is
-   working, `waiting` = its turn ended on a question and it is holding for
-   your reply (a person-started run has no idle bound, EXP-674), `ended` =
-   killed from the header. */
-export type CodingState = `idle` | `running` | `waiting` | `ended`
+/* Which face of a top tab is up (work_header.rs `Face`): the Diff face is
+   the run's full-page diff (EXP-877), never a side pane. */
+export type Face = `issue` | `run` | `diff`
+
+/* A run's phase: `running` = the agent's turn is going, `waiting` = its turn
+   ended on a question it holds for (EXP-674), `review` = idle with its PR
+   open, `ended` = stopped (or its PR merged, EXP-498). `idle` = no run. */
+export type CodingState = `idle` | `running` | `waiting` | `review` | `ended`
 /* A coding run targets ONE issue or a BATCH of issues (EXP-106) — one
    session, one exp/batch-<id8> branch, one combined PR. */
 export type CodingTarget =
@@ -26,19 +36,51 @@ export type CodingTarget =
   | { kind: `batch`; issueIds: string[] }
 export type ScriptPos = { done: number; chars: number }
 
+/* The two runs the demo knows: the one the composer starts (scripted) and
+   the Codex run already waiting for review. */
+export type RunId = `scripted` | `review`
+
+export type RunView = {
+  id: RunId
+  agent: AgentKind
+  state: CodingState
+  /* The issue the run is on; null for a batch. */
+  issueId: string | null
+  title: string
+  /* The top tab it lives in. */
+  tabKey: string
+  rows: FeedRow[]
+  /* Rows fully shown, plus the typing row's character count. */
+  pos: ScriptPos
+  files: RunFile[]
+  /* The model the footer pin names. */
+  model: string
+}
+
+export const isLive = (state: CodingState): boolean =>
+  state === `running` || state === `waiting` || state === `review`
+
 export type IdeApi = {
   interactive: boolean
 
   tool: Tool
+  /* A rail navigation: the main view becomes that screen, no tab active. */
   setTool: (tool: Tool) => void
 
   tabs: Tab[]
   active: string | null
   selectTab: (key: string) => void
   closeTab: (key: string) => void
-  openIssue: (id: string) => void
+  faceOf: (key: string) => Face
+  setFace: (key: string, face: Face) => void
+  /* `fromList` = picked from a list screen: the list folds in beside it. */
+  openIssue: (id: string, fromList?: boolean) => void
   openFile: (path: string) => void
   openSourceControl: () => void
+
+  /* EXP-870: the ListNav is up (the rail is the compact icon column). */
+  listNav: boolean
+  closeListNav: () => void
 
   filter: FilterTab
   setFilter: (filter: FilterTab) => void
@@ -66,24 +108,30 @@ export type IdeApi = {
   coding: CodingState
   codingTarget: CodingTarget | null
   codingScript: FeedRow[]
-  /* EXP-825: the launcher is the Agent page COMPOSER, a rail destination —
-     every play button navigates here with its issues already chipped, and
-     the send starts the run (1 chip = a single run, 2+ = a batch). */
+  scriptPos: ScriptPos
+  /* EXP-825: every play button navigates to the Agent page with its issues
+     already chipped, and the send starts the run (1 chip = a single run,
+     2+ = a batch). */
   composerOpen: boolean
   chips: string[]
   openComposer: (issueIds: string[]) => void
   closeComposer: () => void
   toggleChip: (issueId: string) => void
   submitComposer: () => void
-  stopCoding: () => void
-  scriptPos: ScriptPos
 
-  /* EXP-791: a run is a full-width center SCREEN, opened from the rail's
-     Sessions section or the issue's Watch — never a dock. `sessionOpen`
-     is "the center is showing the run", not "a run exists". */
-  sessionOpen: boolean
-  openSession: () => void
-  closeSession: () => void
+  /* Every run with a tab or a row: live ones auto-own a tab (EXP-870). */
+  runs: RunView[]
+  runForTab: (key: string) => RunView | null
+  openRun: (id: RunId) => void
+  stopRun: (id: RunId) => void
+  /* Keeps the scripted run's older name working. */
+  stopCoding: () => void
+  answerQuestion: (answer: string) => void
+  steer: (id: RunId, text: string) => void
+
+  /* The strip's agent clusters a chevron has folded to their mark. */
+  foldedAgents: Set<string>
+  toggleAgentFold: (agent: AgentKind) => void
 }
 
 export const IdeContext = createContext<IdeApi | null>(null)

@@ -12,12 +12,10 @@ import {
   IcAssigned,
   IcAssignee,
   IcComment,
-  IcFilter,
   IcInbox,
   IcMerged,
   IcReviews,
   IcStatusChanged,
-  ICON_3,
   type WebIcon,
 } from "./icons"
 
@@ -110,12 +108,8 @@ export function WebInbox() {
             My Issues
           </button>
         </div>
-        {isMine ? (
-          <button className="web-xsbtn is-click" type="button">
-            <IcFilter size={ICON_3} />
-            Filter
-          </button>
-        ) : (
+        {/* Issue filtering is gone (EXP-862): My Issues has no Filter. */}
+        {!isMine && (
           unread > 0 && (
             <button
               className={`web-smbtn${interactive ? ` is-click` : ``}`}

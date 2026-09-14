@@ -10,6 +10,7 @@
 import React from "react"
 import { C, MONO_FONT, UI_FONT } from "../../ships/theme"
 import { CL, CL_BOARD, NEW_ISSUE_ID } from "../fixtures"
+import { ClaudeMark } from "./agentmarks"
 
 // ── Platform icons (marketing DownloadSection.tsx twins) ─────────────────────
 const FillIcon: React.FC<{ size: number; d: string }> = ({ size, d }) => (
@@ -275,11 +276,19 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 // hairline) and the content column is the CUTOUT — a rounded card inset 10px
 // with the card hairline and the panel wash (app-shell.ts MAIN_PANEL_CLASS),
 // here at the mock's ~0.53 scale: inset 5, radius 8.
-// The list header holds ONLY the ghost Filter button, and the agent dock bar
-// rides along the panel's bottom edge.
+// EXP-870: the nav ends in Agent, whose badge is a COUNT of my live runs,
+// and browser-like WORK TABS sit in a band above the panel — every live run
+// of mine in its agent group (Claude's orange mark, the chip's steady
+// liveness dot, the group's collapse chevron). The retired bottom session
+// strip is gone. The list header holds ONLY the ghost Filter button.
 export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 156 } as const
 
-const WEB_NAV: { label: string; dot?: string; icon: React.ReactNode }[] = [
+const WEB_NAV: {
+  label: string
+  dot?: string
+  count?: number
+  icon: React.ReactNode
+}[] = [
   {
     label: "Inbox",
     dot: C.text,
@@ -347,19 +356,29 @@ const WEB_NAV: { label: string; dot?: string; icon: React.ReactNode }[] = [
       </Glyph>
     ),
   },
+  {
+    label: "Agent",
+    count: 1,
+    icon: (
+      <Glyph size={13}>
+        <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.412-.961a2 2 0 0 1 1.099.092 10 10 0 1 0-4.776-4.756" />
+      </Glyph>
+    ),
+  },
 ]
 
 const WebNavRow: React.FC<{
   icon: React.ReactNode
   label: string
   dot?: string
-}> = ({ icon, label, dot }) => (
+  count?: number
+}> = ({ icon, label, dot, count }) => (
   <div
     style={{
       display: "flex",
       alignItems: "center",
       gap: 9,
-      height: 25,
+      height: 23,
       padding: "0 9px",
       borderRadius: 7,
       color: C.muted,
@@ -377,6 +396,25 @@ const WebNavRow: React.FC<{
           backgroundColor: dot,
         }}
       />
+    ) : null}
+    {count ? (
+      <span
+        style={{
+          minWidth: 11,
+          height: 11,
+          flexShrink: 0,
+          borderRadius: 999,
+          backgroundColor: C.green,
+          color: C.canvas,
+          fontSize: 8,
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {count}
+      </span>
     ) : null}
   </div>
 )
@@ -505,7 +543,7 @@ export const WebBrowserMock: React.FC = () => (
         style={{
           width: WEB.sidebar,
           flexShrink: 0,
-          padding: "9px 6px 8px",
+          padding: "9px 6px 5px",
           boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
@@ -577,13 +615,14 @@ export const WebBrowserMock: React.FC = () => (
             icon={row.icon}
             label={row.label}
             dot={row.dot}
+            count={row.count}
           />
         ))}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            margin: "10px 9px 4px",
+            margin: "8px 9px 3px",
             color: C.dim,
           }}
         >
@@ -602,7 +641,7 @@ export const WebBrowserMock: React.FC = () => (
               display: "flex",
               alignItems: "center",
               gap: 9,
-              height: 25,
+              height: 23,
               padding: "0 9px",
               borderRadius: 7,
               backgroundColor: i === 0 ? C.fillActive : "transparent",
@@ -656,14 +695,64 @@ export const WebBrowserMock: React.FC = () => (
         </div>
       </div>
 
-      {/* main — the cutout panel: grouped issue list + the agent dock bar */}
+      {/* main — the work-tabs band over the cutout panel (EXP-870/877) */}
       <div
         style={{
           flex: 1,
           minWidth: 0,
           display: "flex",
           flexDirection: "column",
-          margin: 5,
+        }}
+      >
+      <div
+        style={{
+          flex: "none",
+          height: 24,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "0 9px",
+        }}
+      >
+        <ClaudeMark size={9} />
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            height: 17,
+            padding: "0 7px",
+            borderRadius: 6,
+            backgroundColor: C.fillActive,
+            fontSize: 9.5,
+            color: C.text,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 999,
+              backgroundColor: C.green,
+            }}
+          />
+          <span style={{ fontFamily: MONO_FONT, fontSize: 8.5, color: C.muted }}>
+            EXP-149
+          </span>
+          {CL_BOARD.find((r) => r.id === "EXP-149")?.title}
+        </span>
+        <Glyph size={9} sw={2}>
+          <path d="m15 18-6-6 6-6" />
+        </Glyph>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          margin: "0 5px 5px",
           boxSizing: "border-box",
           borderRadius: 8,
           border: `1px solid ${C.strokeCard}`,
@@ -786,47 +875,7 @@ export const WebBrowserMock: React.FC = () => (
             </div>
           ))}
         </div>
-        {/* agent dock bar — the live sessions strip */}
-        <div
-          style={{
-            flex: "none",
-            height: 24,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "0 10px",
-            borderTop: `1px solid ${C.strokeRow}`,
-          }}
-        >
-          {[NEW_ISSUE_ID, "EXP-149"].map((id) => (
-            <span
-              key={id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                height: 16,
-                padding: "0 7px",
-                borderRadius: 999,
-                backgroundColor: C.fillRow,
-                fontSize: 9.5,
-                color: C.muted,
-                whiteSpace: "nowrap",
-              }}
-            >
-              <span
-                style={{
-                  width: 5,
-                  height: 5,
-                  borderRadius: 999,
-                  backgroundColor: C.green,
-                }}
-              />
-              <span style={{ color: C.text, fontWeight: 600 }}>{id}</span>
-              {`· ${CL.user.split(" ")[0]}'s MacBook Pro`}
-            </span>
-          ))}
-        </div>
+      </div>
       </div>
     </div>
   </div>

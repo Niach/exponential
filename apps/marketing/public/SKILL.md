@@ -45,7 +45,7 @@ Two ways in:
    grants everything, specific teams, or specific boards. The token is
    confined to exactly that grant; re-running consent widens or narrows it.
 2. **Personal API keys, for headless and scripted use.** The user generates
-   a key under Settings -> API keys in the web app (prefix `expu_`; the raw
+   a key under Settings -> Security in the web app (prefix `expu_`; the raw
    key is shown exactly once at mint time). Send it as either header:
 
        Authorization: Bearer expu_...
@@ -178,7 +178,7 @@ Key commands: `whoami`, `status`, `doctor` (checks git and the agent
 CLIs), `code <ISSUE>` (start a coding session for an issue, e.g.
 `exponential code EXP-42 --agent claude`), `run <action>`, `daemon
 install` (register a Linux or macOS machine as an always-on agent box,
-visible under Devices -> My machines in the web app), `update`.
+visible under Devices -> My devices in the web app), `update`.
 `code` and `run` share `--agent claude|codex`, `--model`, `--effort`,
 `--plan`, and `--detach` (run headless but still steerable from the web);
 `run` also takes `--team <id>` and repeated `--input k=v`. Full

@@ -1,23 +1,25 @@
-// surfaces/chrome.tsx — the desktop shell chrome, post-EXP-253/282/723 glass
-// shell: TitleBar (the 34px decoration band hosting the center tab chips —
-// bare ground, nothing else), ExpandedRail (the ONE always-open 208px rail —
-// web-style header, nav rows, boards inline, the What's new card, pinned
-// account row), CutoutPanel (EXP-723's rounded working surface every
-// content-column surface renders INTO) and CenterEmptyState.
-// Pixel truth: the EXP-359 real-app reference screenshot + the desktop crates —
-// crates/ui/src/surface.rs (tab_chip: h24, radius 10, FILL_ACTIVE when active),
-// crates/ui/src/sidebar.rs (rail rows: FILL_ACTIVE pill, hover FILL_ROW, no
-// marker bar; rail column FILL_SECTION wash), crates/ui/src/app_title_bar.rs
-// (STROKE_ROW hairline under the tab row — EXP-288). All chrome strips are
-// TRANSPARENT over the page gradient (EXP-269/277).
+// surfaces/chrome.tsx — the desktop shell chrome, post-EXP-870/877 glass
+// shell: TitleBar (the 44px work-tabs band hosting the tab chips — the live
+// runs lead in their agent group), CompactRail (the left column's fixed
+// header over the rail FOLDED to its 48px icon column), ListNav (the list an
+// open detail was picked from, beside it), CutoutPanel (EXP-723's rounded
+// working surface the main view renders INTO) and CenterEmptyState.
+// Pixel truth: shots/{board,issue-detail,steering}/desktop.webp + the desktop
+// crates — crates/ui/src/shell.rs (COMPACT_RAIL_WIDTH 48, LEFT_COLUMN_WIDTH
+// 272, PANEL_MARGIN_TOP 0), crates/ui/src/sidebar.rs (rail_compact_button:
+// 32px squares, FILL_ACTIVE when active; ListPanel's nav rows),
+// crates/ui/src/app_title_bar.rs (WORK_TABS_BAND_H 44) and screens.rs (the
+// agent-grouped live tabs). All chrome strips are TRANSPARENT over the page
+// gradient (EXP-269/277).
 // Every component self-positions (position:absolute) at the contract's shell
 // grid inside the 1568×980 window box — render them as direct children of
 // WindowChassis. All frame values are COMPOSITION-GLOBAL.
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, EASE, MONO_FONT, POP, R, UI_FONT, WIN } from "../theme"
+import { C, MONO_FONT, POP, R, UI_FONT, WIN } from "../theme"
 import { IDENTITY } from "../fixtures"
+import { ClaudeMark } from "../../closedloop/surfaces/agentmarks"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -53,13 +55,6 @@ const MegaphoneIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
   <Svg size={size} sw={2}>
     <path d="m3 11 18-5v12L3 14v-3z" />
     <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-  </Svg>
-)
-
-const PlusIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <Svg size={size} sw={2}>
-    <path d="M5 12h14" />
-    <path d="M12 5v14" />
   </Svg>
 )
 
@@ -119,17 +114,10 @@ const MonitorIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </Svg>
 )
 
-// action-chat = message-circle, coding-running = play, nav-terminal =
-// square-terminal (packages/icons/icons.json).
+// action-chat = message-circle, nav-terminal = square-terminal (packages/icons/icons.json).
 const MessageCircleIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Svg size={size} sw={1.7}>
     <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.412-.961a2 2 0 0 1 1.099.092 10 10 0 1 0-4.776-4.756" />
-  </Svg>
-)
-
-const PlayIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <Svg size={size} sw={1.7}>
-    <path d="M5 5.27a1 1 0 0 1 1.5-.87l11 6.73a1 1 0 0 1 0 1.74l-11 6.73A1 1 0 0 1 5 18.73z" />
   </Svg>
 )
 
@@ -144,16 +132,6 @@ const SquareTerminalIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
 const ZapIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Svg size={size} sw={1.7}>
     <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
-  </Svg>
-)
-
-const SparklesIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <Svg size={size} sw={1.7}>
-    <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-    <path d="M20 3v4" />
-    <path d="M22 5h-4" />
-    <path d="M4 17v2" />
-    <path d="M5 18H3" />
   </Svg>
 )
 
@@ -210,10 +188,9 @@ const SettingsIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </Svg>
 )
 
-const XIcon: React.FC<{ size?: number }> = ({ size = 9 }) => (
-  <Svg size={size} sw={2.2}>
-    <path d="M18 6 6 18" />
-    <path d="m6 6 12 12" />
+const ChevronLeftIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+  <Svg size={size} sw={2}>
+    <path d="m15 18-6-6 6-6" />
   </Svg>
 )
 
@@ -263,13 +240,17 @@ const TabStatusGlyph: React.FC<{ status: TabStatus; size?: number }> = ({
   }
 }
 
-// ── TitleBar (34px decoration band — bare ground, EXP-723) ───────────────────
-// Left: macOS traffic lights over the rail region. Right of the rail edge: the
-// center tab strip — glass chips (surface.rs tab_chip: h24, radius 10, active =
-// FILL_ACTIVE + white text, inactive transparent + muted). Nothing else lives
-// up here: New Issue moved into the rail header (EXP-723), the rail has no
-// collapse toggle any more, and the band carries no fill and no hairline —
-// that is what makes the panel under it read as a cutout.
+// ── TitleBar (the 44px work-tabs band — bare ground, EXP-723/877) ────────────
+// Left: macOS traffic lights over the left column's 34px strip. Over the
+// panel: the tab strip — glass chips (32px, radius 10, active = FILL_ACTIVE +
+// white text, inactive transparent + muted; app_title_bar.rs
+// WORK_TABS_BAND_H). EXP-870/877: an issue and its run are ONE tab, and every
+// live run of mine leads the strip in an AGENT GROUP — the agent's brand mark
+// (Claude's in its orange), the run chips wearing their steady liveness dot
+// (never a spinner, screens.rs ChipLead::Dot), and the group's collapse
+// chevron. Ordinary tabs follow with their status glyph. The band carries no
+// fill and no hairline — that is what makes the panel under it read as a
+// cutout.
 
 export type ChromeTab = {
   id: string
@@ -277,30 +258,44 @@ export type ChromeTab = {
   mono?: boolean
   status?: TabStatus
   identifier?: string // mono shortcode ahead of the title (EXP-310)
+  /** EXP-870: a live run of mine — the chip joins the agent group and its
+   * lead is the liveness dot in this tone instead of the status glyph. */
+  liveDot?: string
 }
 
 // Deterministic tab-chip width so the assembler can aim the cursor.
 export const chromeTabWidth = (t: ChromeTab): number => {
-  let w = 8 + 8 // px padding
-  if (t.status) w += 12 + 5
-  if (t.identifier) w += Math.round(t.identifier.length * 6.7) + 5
-  w += Math.round(t.label.length * (t.mono ? 7.3 : 6.3))
-  w += 6 + 9 // gap + close glyph
-  return Math.min(280, Math.max(72, w))
+  let w = 10 + 10 // px padding
+  if (t.liveDot) w += 7 + 7
+  else if (t.status) w += 13 + 7
+  if (t.identifier) w += Math.round(t.identifier.length * 7.2) + 7
+  w += Math.round(t.label.length * (t.mono ? 7.9 : 7.1))
+  return Math.min(300, Math.max(80, w))
 }
 
-const TAB_STRIP_LEFT = WIN.rail + 12
+const TAB_H = 32
 const TAB_GAP = 4
-const TAB_H = 22
 const TAB_Y = (WIN.titleBar - TAB_H) / 2
+const TAB_STRIP_LEFT = WIN.panel.x + 8
+const GROUP_MARK = 15
+const GROUP_GAP = 8
+const COLLAPSE_W = 20
+
+const orderTabs = (tabs: ChromeTab[]) => [
+  ...tabs.filter((t) => t.liveDot),
+  ...tabs.filter((t) => !t.liveDot),
+]
 
 // Window-local rect of a tab chip. Returns null when the id isn't present.
 export const titleBarTabRect = (
   tabs: ChromeTab[],
   id: string
 ): { x: number; y: number; w: number; h: number } | null => {
-  let x = TAB_STRIP_LEFT
-  for (const t of tabs) {
+  const ordered = orderTabs(tabs)
+  const live = ordered.filter((t) => t.liveDot)
+  let x = TAB_STRIP_LEFT + (live.length > 0 ? GROUP_MARK + GROUP_GAP : 0)
+  for (const [i, t] of ordered.entries()) {
+    if (i === live.length && live.length > 0) x += COLLAPSE_W + GROUP_GAP * 1.5
     const w = chromeTabWidth(t)
     if (t.id === id) return { x, y: TAB_Y, w, h: TAB_H }
     x += w + TAB_GAP
@@ -320,131 +315,163 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   tabs = [],
   activeId,
   popAt,
-}) => (
-  <div
-    style={{
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      height: WIN.titleBar,
-      boxSizing: "border-box",
-      display: "flex",
-      alignItems: "center",
-      fontFamily: UI_FONT,
-      zIndex: 20,
-    }}
-  >
-    {/* traffic lights */}
-    {[
-      { x: 16, c: "#ff5f57" },
-      { x: 39, c: "#febc2e" },
-      { x: 62, c: "#28c840" },
-    ].map((l) => (
+}) => {
+  const ordered = orderTabs(tabs)
+  const live = ordered.filter((t) => t.liveDot)
+  const plain = ordered.filter((t) => !t.liveDot)
+
+  const chip = (t: ChromeTab) => {
+    const at = popAt?.[t.id]
+    if (at !== undefined && frame < at) return null
+    let scale = 1
+    let opacity = 1
+    if (at !== undefined) {
+      const s = spring({ frame: frame - at, fps: 30, config: POP })
+      scale = 0.75 + 0.25 * s
+      opacity = interpolate(frame, [at, at + 3], [0, 1], CLAMP)
+    }
+    const isActive = t.id === activeId
+    return (
       <div
-        key={l.c}
+        key={t.id}
         style={{
-          position: "absolute",
-          left: l.x - 6,
-          top: WIN.titleBar / 2 - 6,
-          width: 12,
-          height: 12,
-          borderRadius: 999,
-          backgroundColor: l.c,
+          width: chromeTabWidth(t),
+          height: TAB_H,
+          flex: "none",
+          boxSizing: "border-box",
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          padding: "0 10px",
+          borderRadius: R.row,
+          backgroundColor: isActive ? C.fillActive : "transparent",
+          scale: String(scale),
+          opacity,
         }}
-      />
-    ))}
-    {/* tab chips */}
+      >
+        {t.liveDot ? (
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              flex: "none",
+              borderRadius: 999,
+              backgroundColor: t.liveDot,
+            }}
+          />
+        ) : t.status ? (
+          <TabStatusGlyph status={t.status} size={13} />
+        ) : null}
+        {t.identifier ? (
+          <span
+            style={{
+              fontFamily: MONO_FONT,
+              fontSize: 12,
+              color: C.muted,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {t.identifier}
+          </span>
+        ) : null}
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 14,
+            fontFamily: t.mono ? MONO_FONT : UI_FONT,
+            fontWeight: 400,
+            color: isActive ? C.text : C.muted,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {t.label}
+        </span>
+      </div>
+    )
+  }
+
+  return (
     <div
       style={{
         position: "absolute",
-        left: TAB_STRIP_LEFT,
-        top: TAB_Y,
-        height: TAB_H,
+        top: 0,
+        left: 0,
+        right: 0,
+        height: WIN.titleBar,
+        boxSizing: "border-box",
         display: "flex",
-        gap: TAB_GAP,
         alignItems: "center",
+        fontFamily: UI_FONT,
+        zIndex: 20,
       }}
     >
-      {tabs.map((t) => {
-        const at = popAt?.[t.id]
-        if (at !== undefined && frame < at) return null
-        let scale = 1
-        let opacity = 1
-        if (at !== undefined) {
-          const s = spring({ frame: frame - at, fps: 30, config: POP })
-          scale = 0.75 + 0.25 * s
-          opacity = interpolate(frame, [at, at + 3], [0, 1], CLAMP)
-        }
-        const isActive = t.id === activeId
-        return (
-          <div
-            key={t.id}
-            style={{
-              width: chromeTabWidth(t),
-              height: TAB_H,
-              boxSizing: "border-box",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "0 8px",
-              borderRadius: R.row,
-              backgroundColor: isActive ? C.fillActive : "transparent",
-              scale: String(scale),
-              opacity,
-            }}
-          >
-            {t.status ? <TabStatusGlyph status={t.status} size={12} /> : null}
-            {t.identifier ? (
-              <span
-                style={{
-                  fontFamily: MONO_FONT,
-                  fontSize: 11,
-                  color: C.muted,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {t.identifier}
-              </span>
-            ) : null}
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 13,
-                fontFamily: t.mono ? MONO_FONT : UI_FONT,
-                fontWeight: isActive ? 500 : 400,
-                color: isActive ? C.text : C.muted,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {t.label}
+      {/* traffic lights, over the left column's 34px strip */}
+      {[
+        { x: 16, c: "#ff5f57" },
+        { x: 39, c: "#febc2e" },
+        { x: 62, c: "#28c840" },
+      ].map((l) => (
+        <div
+          key={l.c}
+          style={{
+            position: "absolute",
+            left: l.x - 6,
+            top: WIN.leftStrip / 2 - 6,
+            width: 12,
+            height: 12,
+            borderRadius: 999,
+            backgroundColor: l.c,
+          }}
+        />
+      ))}
+      {/* the tab strip: the agent group (mark · live chips · collapse), then
+          the ordinary chips */}
+      <div
+        style={{
+          position: "absolute",
+          left: TAB_STRIP_LEFT,
+          top: TAB_Y,
+          height: TAB_H,
+          display: "flex",
+          gap: TAB_GAP,
+          alignItems: "center",
+        }}
+      >
+        {live.length > 0 ? (
+          <>
+            <span style={{ display: "flex", marginRight: GROUP_GAP - TAB_GAP }}>
+              <ClaudeMark size={GROUP_MARK} />
             </span>
+            {live.map(chip)}
             <span
               style={{
-                color: isActive ? C.muted : C.dim,
+                width: COLLAPSE_W,
                 display: "flex",
-                flex: "none",
+                justifyContent: "center",
+                color: C.muted,
+                marginRight: GROUP_GAP * 1.5 - TAB_GAP,
               }}
             >
-              <XIcon size={9} />
+              <ChevronLeftIcon size={13} />
             </span>
-          </div>
-        )
-      })}
+          </>
+        ) : null}
+        {plain.map(chip)}
+      </div>
     </div>
-  </div>
-)
+  )
+}
 
 // ── CutoutPanel (EXP-723, shell.rs) ──────────────────────────────────────────
-// The working surface: a rounded card inset 6px under the band and 10px on
-// the other sides, radius::LG, the card hairline, the translucent FILL_PANEL
-// wash, overflow hidden so its corners clip whatever it holds. Every
-// content-column surface (the issue list and the center screen) keeps its
-// window-local coordinates and renders INTO it — the inner box is the whole
-// window, offset back, so the panel simply clips.
+// The working surface: a rounded card flush under the band (EXP-877) and
+// 10px in from the other sides, radius::LG, the card hairline, the
+// translucent FILL_PANEL wash, overflow hidden so its corners clip whatever
+// it holds. The main view keeps its window-local coordinates and renders
+// INTO it — the inner box is the whole window, offset back, so the panel
+// simply clips.
 export const CutoutPanel: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => (
@@ -477,19 +504,17 @@ export const CutoutPanel: React.FC<{ children: React.ReactNode }> = ({
   </div>
 )
 
-// ── ExpandedRail (208px labelled rail — sidebar.rs RAIL_W, EXP-723) ──────────
-// The shipping order (shots/board/desktop.webp + sidebar.rs): the 34px
-// titlebar strip (traffic lights only) · the web-style header (team switcher
-// · ghost Search · PRIMARY New issue, 40px) · hairline · Inbox / Support /
-// Devices / Actions / Automations / Reviews · hairline · a "Boards" group
-// label with a trailing plus and the team's boards (each with its own colored
-// pickable glyph; the open board carries the FILL_ACTIVE pill) · hairline ·
-// Files / Source Control · and pinned at the bottom the "What's new" card
-// (render_whats_new_card — shows until the head changelog entry is seen), the
-// muted Getting started row and the account row + settings gear. The column
-// is px_2 / pb_2 / gap_1 at the 14px rem (7 / 7 / 3.5); rows are h28 px_1p5
-// gap_2 text_sm. The rail column carries the FILL_SECTION wash; the glassier
-// 0.72 page alpha under it is painted by WindowChassis.
+// ── CompactRail (EXP-870: the rail folded beside a list — sidebar.rs) ───────
+// While a detail sits beside the list it was picked from, the left column is
+// the FIXED header (team switcher · Search · New issue, full column width)
+// over two slots: the rail folded to its 48px ICON column and the 272px
+// ListNav. The icon column keeps every destination in the expanded rail's
+// order — Inbox / Support / Devices / Actions / Automations / Reviews / Agent
+// (its badge counts my live runs) · the boards · Files / Source Control —
+// as 32px squares (FILL_ACTIVE when active, badges pinned top-right), minus
+// everything that needs a label (section labels, What's new, Getting
+// started); the footer stacks the new-terminal button, the gear and the
+// avatar. The Sessions section is gone (EXP-870): live runs are tabs.
 
 export type RailRowId =
   | "inbox"
@@ -504,72 +529,56 @@ export type RailRowId =
   | "board2"
   | "files"
   | "source-control"
-  | "getting-started"
-  | "user"
 
-const ROW_H = 28
-const ROW_X = 7 // px_2
-const ROW_W = WIN.rail - 14
-const GAP = 3.5 // gap_1
-const HEADER_Y = WIN.titleBar + GAP // 37.5
-const HEADER_H = 40
-const ACCOUNT_H = 36
-const WHATS_NEW_H = 62
+const ICON_SQ = 32
+const ICON_X = (WIN.rail - ICON_SQ) / 2 // 8
+const ICON_GAP = 3.5 // gap_1
+const PITCH = ICON_SQ + ICON_GAP
+const HEADER_Y = WIN.leftStrip
+const HEADER_H = WIN.leftHeader
+const COLUMN_TOP = HEADER_Y + HEADER_H + 8 // under the header's hairline
+const DIVIDER_BLOCK = 1 + 2 * ICON_GAP + ICON_GAP // my_1 hairline + gap
 
-// Window-local row top Ys, derived from the column's own stack (strip · gap ·
-// header · gap · divider (my_1) · gap · rows at pitch 31.5 · …) and checked
-// against shots/board/desktop.webp (Inbox centre 106.5, Boards label 305,
-// Files centre 440.5). The bottom rows are pinned up from the window's edge.
-const NAV_TOP = HEADER_Y + HEADER_H + GAP + 1 + 2 * GAP + GAP // 92.5
-const PITCH = ROW_H + GAP
-const SECTION_LABEL_H = 24
-// EXP-791 added Agent to the nav block and the Sessions section between the
-// boards and "This device", so everything below the boards moves with the
-// number of live sessions the rail is showing.
-const NAV_ROWS = 7
-const BOARDS_LABEL_Y = NAV_TOP + NAV_ROWS * PITCH + 1 + 2 * GAP + GAP
-const BOARDS_TOP = BOARDS_LABEL_Y + SECTION_LABEL_H + GAP
-const SESSIONS_LABEL_Y = BOARDS_TOP + 3 * PITCH + 1 + 2 * GAP + GAP
-const sessionsBlockH = (sessions: number) =>
-  sessions === 0
-    ? 0
-    : 1 + 2 * GAP + GAP + SECTION_LABEL_H + GAP + sessions * PITCH
-const deviceLabelY = (sessions: number) =>
-  BOARDS_TOP + 3 * PITCH + sessionsBlockH(sessions) + 1 + 2 * GAP + GAP
-const filesTop = (sessions: number) =>
-  deviceLabelY(sessions) + SECTION_LABEL_H + GAP
-const railRowY = (sessions: number): Record<RailRowId, number> => ({
-  inbox: NAV_TOP,
-  support: NAV_TOP + PITCH,
-  devices: NAV_TOP + 2 * PITCH,
-  actions: NAV_TOP + 3 * PITCH,
-  automations: NAV_TOP + 4 * PITCH,
-  reviews: NAV_TOP + 5 * PITCH,
-  agent: NAV_TOP + 6 * PITCH,
-  board: BOARDS_TOP,
-  board1: BOARDS_TOP + PITCH,
-  board2: BOARDS_TOP + 2 * PITCH,
-  files: filesTop(sessions),
-  "source-control": filesTop(sessions) + PITCH,
-  "getting-started": WIN.h - 7 - ACCOUNT_H - GAP - ROW_H,
-  user: WIN.h - 7 - ACCOUNT_H,
-})
-const RAIL_ROW_Y = railRowY(0)
-const railDividers = (sessions: number) => [
-  HEADER_Y + HEADER_H + 2 * GAP,
-  NAV_TOP + NAV_ROWS * PITCH + GAP,
-  ...(sessions > 0 ? [BOARDS_TOP + 3 * PITCH + GAP] : []),
-  deviceLabelY(sessions) - 2 * GAP - GAP,
+const railIconY: Record<RailRowId, number> = (() => {
+  const nav: RailRowId[] = [
+    "inbox",
+    "support",
+    "devices",
+    "actions",
+    "automations",
+    "reviews",
+    "agent",
+  ]
+  const out = {} as Record<RailRowId, number>
+  let y = COLUMN_TOP
+  for (const id of nav) {
+    out[id] = y
+    y += PITCH
+  }
+  y += DIVIDER_BLOCK
+  for (const id of ["board", "board1", "board2"] as const) {
+    out[id] = y
+    y += PITCH
+  }
+  y += DIVIDER_BLOCK
+  for (const id of ["files", "source-control"] as const) {
+    out[id] = y
+    y += PITCH
+  }
+  return out
+})()
+const RAIL_DIVIDERS = [
+  railIconY.board - ICON_GAP - DIVIDER_BLOCK / 2,
+  railIconY.files - ICON_GAP - DIVIDER_BLOCK / 2,
 ]
-const WHATS_NEW_Y = RAIL_ROW_Y["getting-started"] - GAP - WHATS_NEW_H
 
-// Cursor-targeting helper: window-local center of a rail row.
+// Cursor-targeting helper: window-local center of a rail icon.
 export const railRowCenter = (id: string): { x: number; y: number } => ({
   x: WIN.rail / 2,
-  y: (RAIL_ROW_Y[id as RailRowId] ?? RAIL_ROW_Y.board) + ROW_H / 2,
+  y: (railIconY[id as RailRowId] ?? railIconY.board) + ICON_SQ / 2,
 })
 
-type NavRowId = Exclude<RailRowId, "board" | "board1" | "board2" | "user">
+type NavRowId = Exclude<RailRowId, "board" | "board1" | "board2">
 
 const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   inbox: InboxIcon,
@@ -581,20 +590,6 @@ const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   agent: MessageCircleIcon,
   files: FolderIcon,
   "source-control": GitMergeIcon,
-  "getting-started": SparklesIcon,
-}
-
-const RAIL_LABEL: Record<NavRowId, string> = {
-  inbox: "Inbox",
-  support: "Support",
-  devices: "Devices",
-  actions: "Actions",
-  automations: "Automations",
-  reviews: "Reviews",
-  agent: "Agent",
-  files: "Files",
-  "source-control": "Source Control",
-  "getting-started": "Getting started",
 }
 
 // Board glyphs are the pickable icons.json names the boards actually carry;
@@ -608,17 +603,6 @@ const BOARD_GLYPH: Record<BoardGlyph, React.FC<{ size?: number }>> = {
 
 export type RailBoard = { name: string; glyph: BoardGlyph; color: string }
 
-// EXP-791: a row of the rail's Sessions section — one per open session tab or
-// live run of the caller's. `waiting` swaps the working spinner for the amber
-// dot the real row carries while the agent holds for an answer.
-export type RailSession = {
-  identifier?: string
-  label: string
-  waiting?: boolean
-  /** Global frame the row pops in on (spring), like a tab chip. */
-  popAt?: number
-}
-
 // The two companion boards every rail shows beside the film's own board — the
 // product's Boards group is never a single row.
 const COMPANION_BOARDS: RailBoard[] = [
@@ -626,573 +610,375 @@ const COMPANION_BOARDS: RailBoard[] = [
   { name: "Product Feedback", glyph: "megaphone", color: "#22c55e" },
 ]
 
-// crate::changelog::LATEST.summary — the What's new card's teaser line is the
-// head changelog entry's summary (apps/web/src/lib/changelog.ts).
-const WHATS_NEW_SUMMARY =
-  "A rate-limited run is marked everywhere instead of going quiet, mobile gets mentions and inline diffs, and the IDE gets a Usage page and MCP servers."
-
 // Text sizes at the 14px rem, scaled to the 1568-wide window like the rest of
 // the ship (text_sm 12.25 → 13.5, text_xs 10.5 → 11.5).
 const TEXT_SM = 13.5
-const TEXT_XS = 11.5
 
-export type ExpandedRailProps = {
+export type CompactRailProps = {
   frame: number
   active: string
-  // Slides the FILL_ACTIVE pill + crossfades row tints from `from` to `active`,
-  // starting at global frame `at` (10f, EASE). Resting state before `at` = `from`.
-  activeTransition?: { from: string; at: number }
-  dots?: string[] // rail row ids that carry a small dot at the row's right edge
+  dots?: string[] // rail icon ids that carry a small badge dot
   dotColor?: string
+  /** EXP-870: the Agent entry's live-run count (hidden at 0). */
+  agentCount?: number
   teamName?: string
   boardName?: string
   boardGlyph?: BoardGlyph
   boards?: RailBoard[] // full override of the Boards group
-  sessions?: RailSession[] // the Sessions section; hidden while empty
   userName?: string
   userInitial?: string
 }
 
-export const ExpandedRail: React.FC<ExpandedRailProps> = ({
-  frame,
+export const CompactRail: React.FC<CompactRailProps> = ({
   active,
-  activeTransition,
   dots = [],
   dotColor = C.green,
+  agentCount = 0,
   teamName = IDENTITY.team,
   boardName = IDENTITY.project,
   boardGlyph = "code",
   boards,
-  sessions = [],
-  userName = IDENTITY.user,
   userInitial = IDENTITY.initials,
 }) => {
-  const RAIL_ROW_Y = railRowY(sessions.length)
-  const RAIL_DIVIDERS = railDividers(sessions.length)
   const boardRows: RailBoard[] = boards ?? [
     { name: boardName, glyph: boardGlyph, color: "#818cf8" },
     ...COMPANION_BOARDS,
   ]
-  const t = activeTransition
-    ? interpolate(
-        frame,
-        [activeTransition.at, activeTransition.at + 10],
-        [0, 1],
-        { ...CLAMP, easing: EASE }
-      )
-    : 1
-  const fromId = activeTransition?.from
-  const toY = RAIL_ROW_Y[active as RailRowId] ?? RAIL_ROW_Y.board
-  const fromY =
-    fromId !== undefined ? (RAIL_ROW_Y[fromId as RailRowId] ?? toY) : toY
-  const pillY = fromY + (toY - fromY) * t
 
-  const dotFor = (id: RailRowId) =>
-    dots.includes(id) ? (
+  const badge = (id: RailRowId): React.ReactNode => {
+    if (id === "agent" && agentCount > 0) {
+      return (
+        <span
+          style={{
+            position: "absolute",
+            top: 1,
+            right: 0,
+            height: 14,
+            minWidth: 14,
+            boxSizing: "border-box",
+            padding: "0 3px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 999,
+            backgroundColor: C.green,
+            color: C.canvas,
+            fontSize: 10,
+            fontWeight: 600,
+          }}
+        >
+          {agentCount}
+        </span>
+      )
+    }
+    if (id === "source-control") {
+      return (
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            right: 2,
+            color: C.destructive,
+            display: "flex",
+          }}
+        >
+          <CircleXIcon size={10} />
+        </span>
+      )
+    }
+    if (!dots.includes(id)) return null
+    return (
       <span
         style={{
+          position: "absolute",
+          top: 5,
+          right: 5,
           width: 6,
           height: 6,
-          flex: "none",
           borderRadius: 999,
           backgroundColor: dotColor,
         }}
       />
-    ) : null
-
-  const rowStyle = (top: number): React.CSSProperties => ({
-    position: "absolute",
-    left: ROW_X,
-    top,
-    width: ROW_W,
-    height: ROW_H,
-    boxSizing: "border-box",
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    padding: "0 5.25px",
-    borderRadius: R.row,
-  })
-  const labelStyle: React.CSSProperties = {
-    flex: 1,
-    minWidth: 0,
-    fontSize: TEXT_SM,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  }
-
-  const navRow = (id: NavRowId) => {
-    const Icon = RAIL_ICON[id]
-    return (
-      <div
-        key={id}
-        style={{
-          ...rowStyle(RAIL_ROW_Y[id]),
-          color: id === "getting-started" ? C.muted : C.text,
-        }}
-      >
-        <Icon size={12} />
-        <span style={labelStyle}>{RAIL_LABEL[id]}</span>
-        {id === "source-control" ? (
-          <span style={{ color: C.destructive, display: "flex", flex: "none" }}>
-            <CircleXIcon size={12} />
-          </span>
-        ) : (
-          dotFor(id)
-        )}
-      </div>
     )
   }
+
+  const square = (id: RailRowId, glyph: React.ReactNode) => (
+    <div
+      key={id}
+      style={{
+        position: "absolute",
+        left: ICON_X,
+        top: railIconY[id],
+        width: ICON_SQ,
+        height: ICON_SQ,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: R.row,
+        backgroundColor: id === active ? C.fillActive : "transparent",
+        color: C.text,
+      }}
+    >
+      {glyph}
+      {badge(id)}
+    </div>
+  )
+
+  const iconBtn = (
+    child: React.ReactNode,
+    style: React.CSSProperties = {}
+  ): React.ReactElement => (
+    <span
+      style={{
+        width: ICON_SQ,
+        height: ICON_SQ,
+        flex: "none",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 999,
+        color: C.text,
+        ...style,
+      }}
+    >
+      {child}
+    </span>
+  )
 
   return (
     <div
       style={{
         position: "absolute",
-        top: WIN.titleBar,
+        top: 0,
         left: 0,
         bottom: 0,
-        width: WIN.rail,
-        boxSizing: "border-box",
-        // EXP-767: the rail paints NOTHING of its own — it sits on the one
+        width: WIN.leftColumn,
+        // EXP-767: the column paints NOTHING of its own — it sits on the one
         // page gradient the shell root paints, and the cutout panel is the
         // window's only brightness step.
         fontFamily: UI_FONT,
         zIndex: 10,
       }}
     >
-      {/* the sliding FILL_ACTIVE pill (the fill IS the selection marker) */}
+      {/* render_left_column_header (EXP-723/870): FIXED over both slots —
+          team switcher · Search · New issue */}
       <div
         style={{
           position: "absolute",
-          left: ROW_X,
-          top: pillY - WIN.titleBar,
-          width: ROW_W,
-          height: ROW_H,
-          borderRadius: R.row,
-          backgroundColor: C.fillActive,
-        }}
-      />
-      {/* section hairlines */}
-      {RAIL_DIVIDERS.map((y) => (
-        <div
-          key={y}
-          style={{
-            position: "absolute",
-            left: ROW_X,
-            top: y - WIN.titleBar,
-            width: ROW_W,
-            height: 1,
-            backgroundColor: C.strokeCard,
-          }}
-        />
-      ))}
-      {/* rows render in window-local coords shifted by the container top */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          translate: `0px ${-WIN.titleBar}px`,
+          left: 8,
+          right: 8,
+          top: HEADER_Y,
+          height: HEADER_H,
+          display: "flex",
+          alignItems: "center",
+          gap: ICON_GAP,
         }}
       >
-        {/* render_header (EXP-723): team switcher · Search · New issue */}
         <div
           style={{
-            position: "absolute",
-            left: ROW_X,
-            top: HEADER_Y,
-            width: ROW_W,
+            flex: 1,
+            minWidth: 0,
             height: HEADER_H,
             display: "flex",
             alignItems: "center",
-            gap: GAP,
-          }}
-        >
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              height: HEADER_H,
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              padding: "0 5.25px",
-              borderRadius: R.row,
-              color: C.text,
-            }}
-          >
-            <span
-              style={{
-                width: 28,
-                height: 28,
-                flex: "none",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 7,
-                backgroundColor: "#e5e5e5",
-                color: "#171717",
-                fontSize: 15,
-                fontWeight: 600,
-              }}
-            >
-              {teamName.charAt(0)}
-            </span>
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: TEXT_SM,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {teamName}
-            </span>
-            <span style={{ color: C.muted, display: "flex", flex: "none" }}>
-              <ChevronsUpDownIcon size={11} />
-            </span>
-          </div>
-          <span
-            style={{
-              width: 32,
-              height: 32,
-              flex: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: R.row,
-              color: C.text,
-            }}
-          >
-            <SearchIcon size={15} />
-          </span>
-          <span
-            style={{
-              width: 32,
-              height: 32,
-              flex: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: R.row,
-              backgroundColor: "#e5e5e5",
-              color: "#171717",
-            }}
-          >
-            <SquarePenIcon size={15} />
-          </span>
-        </div>
-        {(
-          [
-            "inbox",
-            "support",
-            "devices",
-            "actions",
-            "automations",
-            "reviews",
-            "agent",
-            "files",
-            "source-control",
-            "getting-started",
-          ] as const
-        ).map(navRow)}
-        {/* the Boards group label + its trailing plus */}
-        <div
-          style={{
-            position: "absolute",
-            left: ROW_X,
-            top: BOARDS_LABEL_Y,
-            width: ROW_W,
-            height: 24,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            padding: "0 1.75px 0 5.25px",
-            color: C.dim,
-          }}
-        >
-          <span style={{ flex: 1, fontSize: TEXT_XS, fontWeight: 500 }}>
-            Boards
-          </span>
-          <span style={{ color: C.muted, display: "flex" }}>
-            <PlusIcon size={12} />
-          </span>
-        </div>
-        {/* board rows */}
-        {boardRows.slice(0, 3).map((b, i) => {
-          const id = (i === 0 ? "board" : `board${i}`) as RailRowId
-          return (
-            <div
-              key={b.name}
-              style={{ ...rowStyle(RAIL_ROW_Y[id]), color: C.text }}
-            >
-              <span style={{ color: b.color, display: "flex", flex: "none" }}>
-                {React.createElement(BOARD_GLYPH[b.glyph], { size: 12 })}
-              </span>
-              <span style={labelStyle}>{b.name}</span>
-              {dotFor(id)}
-            </div>
-          )
-        })}
-        {/* EXP-791: the Sessions section — a muted label over one row per
-            live run, the working spinner (or the amber needs-you dot) at the
-            row's right edge. Hidden while nothing is up. */}
-        {sessions.length > 0 ? (
-          <>
-            <div
-              style={{
-                position: "absolute",
-                left: ROW_X,
-                top: SESSIONS_LABEL_Y,
-                width: ROW_W,
-                height: SECTION_LABEL_H,
-                boxSizing: "border-box",
-                display: "flex",
-                alignItems: "center",
-                padding: "0 5.25px",
-                color: C.dim,
-                fontSize: TEXT_XS,
-                fontWeight: 500,
-              }}
-            >
-              Sessions
-            </div>
-            {sessions.map((session, i) => {
-              const pop =
-                session.popAt === undefined
-                  ? 1
-                  : spring({
-                      frame: frame - session.popAt,
-                      fps: 30,
-                      config: POP,
-                    })
-              return (
-                <div
-                  key={session.label}
-                  style={{
-                    ...rowStyle(
-                      SESSIONS_LABEL_Y + SECTION_LABEL_H + GAP + i * PITCH
-                    ),
-                    color: C.text,
-                    opacity: pop,
-                    scale: 0.94 + 0.06 * pop,
-                  }}
-                >
-                  <span style={{ color: C.muted, display: "flex", flex: "none" }}>
-                    <PlayIcon size={12} />
-                  </span>
-                  <span style={labelStyle}>
-                    {session.identifier
-                      ? `${session.identifier} · ${session.label}`
-                      : session.label}
-                  </span>
-                  {session.waiting ? (
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        flex: "none",
-                        borderRadius: 999,
-                        backgroundColor: C.statusInProgress,
-                      }}
-                    />
-                  ) : (
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        flex: "none",
-                        borderRadius: 999,
-                        border: `1.4px solid rgba(250,250,250,0.25)`,
-                        borderTopColor: "rgba(250,250,250,0.75)",
-                        rotate: `${(frame * 12) % 360}deg`,
-                      }}
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </>
-        ) : null}
-        {/* "This device" — the machine's own tool windows (EXP-791). */}
-        <div
-          style={{
-            position: "absolute",
-            left: ROW_X,
-            top: deviceLabelY(sessions.length),
-            width: ROW_W,
-            height: SECTION_LABEL_H,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
+            gap: 7,
             padding: "0 5.25px",
-            color: C.dim,
-            fontSize: TEXT_XS,
-            fontWeight: 500,
-          }}
-        >
-          This device
-        </div>
-        {/* render_whats_new_card (EXP-723): radius 12, card hairline + fill,
-            p_3 — megaphone · text_sm medium title · ghost ✕, then the muted
-            text_xs summary of the head changelog entry */}
-        <div
-          style={{
-            position: "absolute",
-            left: ROW_X,
-            top: WHATS_NEW_Y,
-            width: ROW_W,
-            height: WHATS_NEW_H,
-            boxSizing: "border-box",
-            padding: 10.5,
-            borderRadius: R.section,
-            border: `1px solid ${C.strokeCard}`,
-            backgroundColor: C.fillCard,
             color: C.text,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 7, height: 20 }}>
-            <span style={{ color: C.muted, display: "flex", flex: "none" }}>
-              <MegaphoneIcon size={13} />
-            </span>
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: TEXT_SM,
-                fontWeight: 500,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              What&apos;s new
-            </span>
-            <span
-              style={{
-                width: 20,
-                height: 20,
-                flex: "none",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: C.muted,
-              }}
-            >
-              <XIcon size={11} />
-            </span>
-          </div>
-          <div
+          <span
             style={{
-              marginTop: 3.5,
-              fontSize: TEXT_XS,
-              color: C.muted,
+              width: 28,
+              height: 28,
+              flex: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 7,
+              backgroundColor: "#e5e5e5",
+              color: "#171717",
+              fontSize: 15,
+              fontWeight: 600,
+            }}
+          >
+            {teamName.charAt(0)}
+          </span>
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: TEXT_SM,
+              fontWeight: 600,
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
             }}
           >
-            {WHATS_NEW_SUMMARY}
-          </div>
+            {teamName}
+          </span>
+          <span style={{ color: C.muted, display: "flex", flex: "none" }}>
+            <ChevronsUpDownIcon size={11} />
+          </span>
         </div>
-        {/* pinned bottom: render_account_button (h36, avatar · name ·
-            team-switcher chevrons — its menu is What's new · About · Sign out)
-            + the settings gear */}
+        {iconBtn(<SearchIcon size={15} />)}
+        {iconBtn(<SquarePenIcon size={15} />, {
+          backgroundColor: "#e5e5e5",
+          color: "#171717",
+        })}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: 8,
+          right: 8,
+          top: HEADER_Y + HEADER_H + 3.5,
+          height: 1,
+          backgroundColor: C.strokeRow,
+        }}
+      />
+
+      {/* the icon column */}
+      {(
+        [
+          "inbox",
+          "support",
+          "devices",
+          "actions",
+          "automations",
+          "reviews",
+          "agent",
+          "files",
+          "source-control",
+        ] as const
+      ).map((id) => square(id, React.createElement(RAIL_ICON[id], { size: 16 })))}
+      {boardRows.slice(0, 3).map((b, i) => {
+        const id = (i === 0 ? "board" : `board${i}`) as RailRowId
+        return square(
+          id,
+          <span style={{ color: b.color, display: "flex" }}>
+            {React.createElement(BOARD_GLYPH[b.glyph], { size: 16 })}
+          </span>
+        )
+      })}
+      {RAIL_DIVIDERS.map((y) => (
         <div
+          key={y}
           style={{
             position: "absolute",
-            left: ROW_X,
-            top: RAIL_ROW_Y.user,
-            width: ROW_W,
-            height: ACCOUNT_H,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            gap: GAP,
-            color: C.muted,
+            left: ICON_X,
+            top: y,
+            width: ICON_SQ,
+            height: 1,
+            backgroundColor: C.strokeCard,
           }}
-        >
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              height: ACCOUNT_H,
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              padding: "0 5.25px",
-              borderRadius: R.row,
-            }}
-          >
-            <span
-              style={{
-                width: 24,
-                height: 24,
-                flex: "none",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 999,
-                backgroundColor: "rgba(59,130,246,0.28)",
-                color: "#93c5fd",
-                fontSize: 10,
-                fontWeight: 600,
-              }}
-            >
-              {userInitial}
-            </span>
-            <span
-              style={{
-                flex: 1,
-                fontSize: TEXT_SM,
-                color: C.text,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {userName.split(" ")[0]}
-            </span>
-            <ChevronsUpDownIcon size={11} />
-          </div>
-          {/* EXP-340/769: the new-terminal button and the gear ride the
-              account row's right edge. */}
+        />
+      ))}
+      {/* the footer, stacked: new terminal · settings · the avatar */}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          width: WIN.rail,
+          bottom: 8,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: ICON_GAP,
+          color: C.muted,
+        }}
+      >
+        {iconBtn(<SquareTerminalIcon size={15} />, { color: C.muted })}
+        {iconBtn(<SettingsIcon size={15} />, { color: C.muted })}
+        {iconBtn(
           <span
             style={{
               width: 24,
               height: 24,
-              flex: "none",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              borderRadius: 8,
-              color: C.muted,
+              borderRadius: 999,
+              backgroundColor: "rgba(59,130,246,0.28)",
+              color: "#93c5fd",
+              fontSize: 10,
+              fontWeight: 600,
             }}
           >
-            <SquareTerminalIcon size={14} />
+            {userInitial}
           </span>
-          <span
-            style={{
-              width: 24,
-              height: 24,
-              flex: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 8,
-              color: C.muted,
-            }}
-          >
-            <SettingsIcon size={14} />
-          </span>
-        </div>
+        )}
       </div>
     </div>
   )
 }
+
+// ── ListNav (EXP-851/863/870 — sidebar.rs ListPanel in ListMode::Nav) ────────
+// The list an open detail was picked from, beside the folded rail: a 40px
+// BACK row (the bare back chevron + the list's name, semibold) over its rule,
+// then the SIMPLIFIED list the caller passes as children (BoardTool at its
+// `nav` density). The slot's left hairline (border_l STROKE_ROW) only exists
+// while a panel is up.
+export const LIST_NAV_BODY_TOP = HEADER_Y + HEADER_H + 3.5 + 1 + 3.5 + 40 + 8
+
+export const ListNav: React.FC<{
+  title: string
+  children: React.ReactNode
+}> = ({ title, children }) => (
+  <div
+    style={{
+      position: "absolute",
+      left: WIN.rail,
+      top: HEADER_Y + HEADER_H + 8,
+      width: WIN.listNav,
+      bottom: 0,
+      borderLeft: `1px solid ${C.strokeRow}`,
+      fontFamily: UI_FONT,
+      zIndex: 10,
+    }}
+  >
+    <div
+      style={{
+        position: "absolute",
+        left: 8,
+        right: 8,
+        top: 0,
+        height: 40,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "0 7px",
+        color: C.text,
+      }}
+    >
+      <span style={{ display: "flex", color: C.text }}>
+        <ChevronLeftIcon size={16} />
+      </span>
+      <span style={{ fontSize: TEXT_SM, fontWeight: 600 }}>{title}</span>
+    </div>
+    <div
+      style={{
+        position: "absolute",
+        left: 8,
+        right: 8,
+        top: 43.5,
+        height: 1,
+        backgroundColor: C.strokeRow,
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: LIST_NAV_BODY_TOP - (HEADER_Y + HEADER_H + 8),
+        bottom: 0,
+      }}
+    >
+      {children}
+    </div>
+  </div>
+)
 
 // ── CenterEmptyState ("Nothing open") ────────────────────────────────────────
 export type CenterEmptyStateProps = {
@@ -1223,7 +1009,7 @@ export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
       </div>
     </>
   )
-  const paneLeft = WIN.panel.x + WIN.sidebar
+  const paneLeft = WIN.panel.x
   const paneTop = WIN.panel.y
   return (
     <div

@@ -32,7 +32,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **One work header**: the Issue and Run faces of a tab share the same title block and header, and the issue's properties sit in a tray beside the run.
 - **Full-page diff**: a run's changes open as their own face in the tab instead of a side pane.
 - **A lighter composer**: the steer composer is one row with an inline send, the context meter sits in it and opens usage and account switching, and the model the run uses is shown and switchable there.
-- **Runs grouped by agent**: live run tabs group under their agent, a live run's tab closes on its own when the run ends, and a run whose machine went offline can be closed.
+- **Runs grouped by agent**: live run tabs group under their agent, a live run's tab stays open until the run ends, and a run whose machine went offline can be closed.
 - **The same run rows everywhere**: running and past runs read the same in the Agent list, on the Agent page and under Automations, with Merge and Open issue right on the row.
 - **Faster typing on desktop**: the issue picker, the description editor and the sidebar no longer redo work on every keystroke.
 - **Phones**: an ended run can be resumed from the run page, and a run links back to its issue.`,

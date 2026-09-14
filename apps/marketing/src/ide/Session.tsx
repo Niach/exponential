@@ -1,21 +1,26 @@
-/* ─── The session screen (session_screen.rs, EXP-746/773/787/791) — a coding
-   run is a FULL-WIDTH center screen, never a panel beside a list and never a
-   terminal: the header (status dot · mono identifier · subject · the phase
-   caption with the machine · Kill session), the ACP transcript in its 736px
-   reading column, the collapsible "Latest changes" bar and the one composer.
-   EXP-773 deleted the PTY transcript this demo used to type out; what streams
-   now is the agent's own narration, its tool calls and the cards you answer.
-   The bottom session bar (session_bar.rs) is NOT drawn: it carries terminal
-   tabs alone since EXP-791 and takes no height while none is open. ─── */
-import { useEffect, useRef } from "react"
-import { BATCH_RUN_TITLE, DIFF_FILE, getIssue, type FeedRow } from "./data"
-import { useIde } from "./state"
+/* ─── The Run face and the Diff face of a top tab (session_screen.rs +
+   diff_pane.rs, EXP-746/787/870/877). Both sit under the SAME work header as
+   the Issue face — there is no session header, no Back button and no side
+   pane any more.
+
+   Run: the ACP transcript in the work column (narration, tool rows,
+   collapsed tool groups, the question card you answer IN the card), then the
+   one-row steer composer with its inline send and, under it, the footer
+   (attach · model pin · context ring). The composer hides while a question
+   is pending (EXP-820) and once the run has ended.
+
+   Diff: the run's changes as a FULL PAGE (EXP-877), file cards in the same
+   work column; the fixture file expands into the side-by-side hunk. ─── */
+import { useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { CONTEXT_PERCENT, RUN_DEVICE, type FeedRow } from "./data"
+import { useIde, type RunView } from "./state"
+import { WorkHeader } from "./WorkHeader"
+import { DiffView } from "./Diff"
 import {
+  IcChevDown,
   IcChevRight,
   IcCircleArrowUp,
   IcCircleQuestion,
-  IcCircleStop,
-  IcFile,
   IcPlus,
   IcSparkles,
   IcWrench,
@@ -23,12 +28,20 @@ import {
 
 /* steer::feed rows. Prose takes the body rung (14/22), everything else the
    tool rung (12/18); the glyph rides the reading column's left edge. */
-function FeedItem({ row, partial }: { row: FeedRow; partial?: number }) {
+function FeedItem({
+  row,
+  partial,
+  onAnswer,
+}: {
+  row: FeedRow
+  partial?: number
+  onAnswer?: (answer: string) => void
+}) {
   if (row.kind === `narration`) {
     const text = partial === undefined ? row.text : row.text.slice(0, partial)
     return (
       <div className="ide-feed-row is-prose">
-        <IcSparkles size={10.5} className="ide-feed-glyph" />
+        <IcSparkles size={12} className="ide-feed-glyph" />
         <div className="ide-feed-text">
           {text}
           {partial !== undefined && <span className="ide-caret" />}
@@ -36,10 +49,17 @@ function FeedItem({ row, partial }: { row: FeedRow; partial?: number }) {
       </div>
     )
   }
+  if (row.kind === `user`) {
+    return (
+      <div className="ide-feed-row is-user">
+        <div className="ide-feed-user">{row.text}</div>
+      </div>
+    )
+  }
   if (row.kind === `tool`) {
     return (
       <div className="ide-feed-row is-tool">
-        <IcWrench size={10.5} className="ide-feed-glyph" />
+        <IcWrench size={11} className="ide-feed-glyph" />
         <span className="ide-feed-verb">{row.verb}</span>
         <span className="ide-feed-target">{row.target}</span>
         {row.detail && (
@@ -55,115 +75,212 @@ function FeedItem({ row, partial }: { row: FeedRow; partial?: number }) {
     /* A collapsed run of tool calls — the chevron opens it. */
     return (
       <div className="ide-feed-row is-tool">
-        <IcChevRight size={10.5} className="ide-feed-chev" />
-        <IcWrench size={10.5} className="ide-feed-glyph" />
+        <IcChevRight size={11} className="ide-feed-chev" />
+        <IcWrench size={11} className="ide-feed-glyph" />
         <span className="ide-feed-caption">{row.caption}</span>
       </div>
     )
   }
   return (
-    <div className="ide-answercard">
-      <IcCircleQuestion size={10.5} className="ide-answercard-glyph" />
+    <div className={`ide-answercard${onAnswer ? `` : ` is-answered`}`}>
+      <IcCircleQuestion size={12} className="ide-answercard-glyph" />
       <div className="ide-answercard-text">{row.text}</div>
       {row.options.map((option, i) => (
-        /* EXP-788: numbered option buttons — keys 1…9 and Enter pick them,
-           and typing in the composer answers the card just as well. */
-        <div className="ide-answeropt" key={option.title}>
+        /* EXP-788/820: numbered option buttons, answered in the card. */
+        <button
+          className={`ide-answeropt${onAnswer ? ` is-click` : ``}`}
+          type="button"
+          key={option.title}
+          disabled={!onAnswer}
+          onClick={onAnswer ? () => onAnswer(option.title) : undefined}
+        >
           <span className="ide-answeropt-key">{i + 1}</span>
           <span className="ide-answeropt-body">
             <span className="ide-answeropt-title">{option.title}</span>
             <span className="ide-answeropt-sub">{option.sub}</span>
           </span>
-        </div>
+        </button>
       ))}
     </div>
   )
 }
 
-export function SessionScreen() {
-  const { coding, codingTarget, codingScript, scriptPos, stopCoding, interactive } =
-    useIde()
+/* usage_sheet::context_ring — the run's context window, a small meter. */
+function ContextRing({ percent }: { percent: number }) {
+  const r = 6
+  const c = 2 * Math.PI * r
+  return (
+    <span className="ide-ctxring" title={`Context ${percent}% used`}>
+      <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden>
+        <circle cx="8" cy="8" r={r} fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="2" />
+        <circle
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeDasharray={`${(c * percent) / 100} ${c}`}
+          strokeLinecap="round"
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+      <span>{`${percent}%`}</span>
+    </span>
+  )
+}
+
+function SteerComposer({ run }: { run: RunView }) {
+  const { interactive, steer } = useIde()
+  const [draft, setDraft] = useState(``)
+  const send = () => {
+    if (!draft.trim()) return
+    steer(run.id, draft)
+    setDraft(``)
+  }
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === `Enter`) send()
+  }
+  return (
+    <div className="ide-steerwrap">
+      <div className="ide-workcol">
+        {/* EXP-877: ONE row — the field and the inline round send. */}
+        <div className="ide-steer">
+          <input
+            className="ide-steer-input"
+            placeholder="Message the agent… (/ for commands)"
+            value={draft}
+            readOnly={!interactive}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={interactive ? onKey : undefined}
+          />
+          <button
+            className={`ide-steer-send${interactive ? ` is-click` : ``}`}
+            type="button"
+            title="Send"
+            onClick={interactive ? send : undefined}
+          >
+            <IcCircleArrowUp size={20} />
+          </button>
+        </div>
+        {/* steer_viewer::render_composer_footer — attach · model · ring. */}
+        <div className="ide-steer-footer">
+          <span className="ide-steer-tool" title="Attach image">
+            <IcPlus size={13} />
+          </span>
+          <div className="ide-flex1" />
+          <span className="ide-steer-model">
+            {run.model}
+            {run.agent === `claude` && <IcChevDown size={10} />}
+          </span>
+          <ContextRing percent={run.state === `running` ? Math.round(CONTEXT_PERCENT * 0.6) : CONTEXT_PERCENT} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function useTabRun(tabKey?: string): RunView | null {
+  const { runs, active, runForTab } = useIde()
+  const key = tabKey ?? active
+  return (key ? runForTab(key) : null) ?? runs[0] ?? null
+}
+
+export function SessionScreen({ tabKey }: { tabKey?: string } = {}) {
+  const { answerQuestion, interactive } = useIde()
+  const run = useTabRun(tabKey)
   const feedRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const el = feedRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [scriptPos, coding])
+  }, [run?.pos.done, run?.pos.chars, run?.rows.length, run?.state])
 
-  if (!codingTarget) return null
-  const issue = codingTarget.kind === `issue` ? getIssue(codingTarget.id) : null
+  if (!run) return null
+  const shown = run.rows.slice(0, run.pos.done)
   const typingRow =
-    coding === `running` && scriptPos.done < codingScript.length && scriptPos.chars > 0
-      ? codingScript[scriptPos.done]
+    run.state === `running` && run.pos.done < run.rows.length && run.pos.chars > 0
+      ? run.rows[run.pos.done]
       : null
-  const edited = codingScript
-    .slice(0, scriptPos.done)
-    .some((row) => row.kind === `tool` && row.verb === `Edit`)
-  /* `header_status`: the phase caption names the machine, and the dot takes
-     its tone — green while the agent works, amber while it waits. */
-  const caption =
-    coding === `waiting`
-      ? `Needs your input · Danny's MacBook Pro`
-      : coding === `ended`
-        ? `Ended by you · Claude Code · Danny's MacBook Pro · just now`
-        : `Working · Danny's MacBook Pro`
+  const pendingQuestion = run.state === `waiting`
+  const lastQuestion = shown.map((r) => r.kind).lastIndexOf(`question`)
 
   return (
     <div className="ide-session">
-      <div className="ide-session-head">
-        <span
-          className={`ide-session-dot${coding === `waiting` ? ` is-waiting` : coding === `ended` ? ` is-ended` : ``}`}
-        />
-        {issue && <span className="ide-session-id">{issue.id}</span>}
-        <span className="ide-session-subject">
-          {issue ? issue.title : BATCH_RUN_TITLE}
-        </span>
-        <span className="ide-session-caption">{caption}</span>
-        {coding !== `ended` && (
-          <button
-            className={`ide-icbtn${interactive ? ` is-click` : ``}`}
-            type="button"
-            title="Kill session"
-            onClick={interactive ? stopCoding : undefined}
-          >
-            <IcCircleStop size={11} />
-          </button>
-        )}
-      </div>
+      <WorkHeader tabKey={run.tabKey} />
       <div className="ide-feed" ref={feedRef}>
-        <div className="ide-feed-col">
-          {codingScript.slice(0, scriptPos.done).map((row, i) => (
-            <FeedItem key={i} row={row} />
+        <div className="ide-workcol ide-feed-col">
+          {shown.map((row, i) => (
+            <FeedItem
+              key={i}
+              row={row}
+              onAnswer={
+                interactive && pendingQuestion && i === lastQuestion ? answerQuestion : undefined
+              }
+            />
           ))}
-          {typingRow && <FeedItem row={typingRow} partial={scriptPos.chars} />}
+          {typingRow && <FeedItem row={typingRow} partial={run.pos.chars} />}
+          {run.state === `ended` && (
+            <div className="ide-feed-end">{`Stopped · ${RUN_DEVICE} · just now`}</div>
+          )}
         </div>
       </div>
-      {/* session_extras::changes_bar — the branch's diff against the base of
-          `origin/<default>`, collapsed. It appears with the first edit. */}
-      {edited && (
-        <div className="ide-changes">
-          <IcChevRight size={10.5} className="ide-feed-chev" />
-          <IcFile size={10.5} className="ide-feed-glyph" />
-          <span className="ide-changes-label">Latest changes</span>
-          <span className="ide-changes-add">{`+${DIFF_FILE.add}`}</span>
-          <span className="ide-changes-del">{`−${DIFF_FILE.del}`}</span>
+      {run.state !== `ended` && !pendingQuestion && <SteerComposer run={run} />}
+    </div>
+  )
+}
+
+export function DiffFace({ tabKey }: { tabKey?: string }) {
+  const { interactive } = useIde()
+  const run = useTabRun(tabKey)
+  const [open, setOpen] = useState<Set<string>>(
+    () => new Set(run?.files.filter((f) => f.rows).map((f) => f.path) ?? []),
+  )
+  if (!run) return null
+  return (
+    <div className="ide-session">
+      <WorkHeader tabKey={run.tabKey} />
+      <div className="ide-diffpage">
+        <div className="ide-workcol">
+          {run.files.map((file) => {
+            const expanded = open.has(file.path) && file.rows
+            return (
+              <div key={file.path} className="ide-filecard">
+                <button
+                  className={`ide-filecard-head${interactive && file.rows ? ` is-click` : ``}`}
+                  type="button"
+                  onClick={
+                    interactive && file.rows
+                      ? () =>
+                          setOpen((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(file.path)) next.delete(file.path)
+                            else next.add(file.path)
+                            return next
+                          })
+                      : undefined
+                  }
+                >
+                  <span className="ide-filecard-letter">M</span>
+                  <span className="ide-filecard-path">{file.path}</span>
+                  <span className="ide-c-green">{`+${file.add}`}</span>
+                  <span className="ide-c-red">{`-${file.del}`}</span>
+                  {expanded ? (
+                    <IcChevDown size={11} className="ide-c-muted" />
+                  ) : (
+                    <IcChevRight size={11} className="ide-c-muted" />
+                  )}
+                </button>
+                {expanded && (
+                  <div className="ide-filecard-body">
+                    <DiffView />
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
-      )}
-      {coding !== `ended` && (
-        <div className="ide-steer">
-          <span className="ide-steer-placeholder">
-            {coding === `waiting`
-              ? `Answer directly, or pick an option above`
-              : `Message the agent… (/ for commands)`}
-          </span>
-          <span className="ide-steer-tool">
-            <IcPlus size={11} />
-          </span>
-          <span className="ide-steer-send">
-            <IcCircleArrowUp size={16} />
-          </span>
-        </div>
-      )}
+      </div>
     </div>
   )
 }

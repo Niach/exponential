@@ -8,7 +8,7 @@
 // field, the `#`/▶/image tool row and the LABELLED primary submit pill
 // "Start coding"), the `AgentOptionsRow` pills under it (Device · Agent ·
 // Plan · ⋯ — the row scrolls, so Model sits off the right edge) and the
-// caller's Past runs. After the start the "Start
+// caller's Past runs (EXP-874 unified rows, no brand icons). After the start the "Start
 // sent to MacBook Pro" capsule toast confirms.
 //
 // EVERY number in the screen is authored in iOS POINTS on the 414pt canvas and
@@ -192,8 +192,9 @@ const TOOLS_H = pt(10) + pt(34) + pt(12)
 const CARD_H = CHIP_BAND + FIELD_H + TOOLS_H
 const Y_OPTIONS = Y_CARD + CARD_H + pt(12)
 const Y_PAST_LABEL = Y_OPTIONS + pt(30) + pt(20)
-const Y_PAST = Y_PAST_LABEL + pt(15) + pt(8.5)
-const ROW_H = pt(56)
+const BAND_H = pt(34)
+const Y_PAST = Y_PAST_LABEL + BAND_H
+const ROW_H = pt(58)
 
 export type StartPhoneProps = {
   frame: number
@@ -446,52 +447,94 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
             </OptionPill>
           </div>
 
-          {/* AgentSessionsList: the caller's finished runs */}
+          {/* AgentSessionsList (EXP-818/874): the "Past" group is a filled
+              BAND (label · count · disclosure chevron) over FLAT rows — the
+              unified past row: mono identifier + title, the device · time
+              byline under it, a trailing chevron. No agent brand icon in a
+              list (EXP-874). */}
           <div
             style={{
               position: "absolute",
               left: INSET,
+              right: INSET,
               top: Y_PAST_LABEL,
-              height: pt(15),
+              height: BAND_H,
+              boxSizing: "border-box",
               display: "flex",
               alignItems: "center",
-              fontSize: pt(15),
-              fontWeight: 600,
-              color: G.header,
+              gap: pt(8),
+              padding: `0 ${pt(12)}px`,
+              borderRadius: pt(12),
+              backgroundColor: G.card,
+              color: C.text,
             }}
           >
-            {PHONE_START.pastLabel}
+            <span style={{ fontSize: pt(15), fontWeight: 500 }}>
+              {PHONE_START.pastLabel}
+            </span>
+            <span style={{ fontSize: pt(13), color: G.caption }}>
+              {PAST.length}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span style={{ color: G.chev, display: "flex" }}>
+              <Glyph size={pt(13)} sw={2}>
+                <path d="m18 15-6-6-6 6" />
+              </Glyph>
+            </span>
           </div>
-          <Card top={Y_PAST}>
-            {PAST.map((row, i) => (
-              <React.Fragment key={row.id}>
-                {i > 0 ? (
-                  <div style={{ height: 1, backgroundColor: G.sep }} />
-                ) : null}
-                <div
+          <div
+            style={{
+              position: "absolute",
+              left: INSET,
+              right: INSET,
+              top: Y_PAST,
+            }}
+          >
+            {PAST.map((row) => (
+              <div
+                key={row.id}
+                style={{
+                  height: ROW_H,
+                  boxSizing: "border-box",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: pt(10),
+                  padding: `0 ${pt(12)}px`,
+                  color: C.text,
+                }}
+              >
+                <span
                   style={{
-                    height: ROW_H,
-                    boxSizing: "border-box",
+                    flex: 1,
+                    minWidth: 0,
                     display: "flex",
-                    alignItems: "center",
-                    gap: pt(10),
-                    padding: `0 ${pt(18.5)}px`,
-                    color: C.text,
+                    flexDirection: "column",
+                    gap: pt(3),
                   }}
                 >
-                  <ClaudeMark size={pt(15)} />
                   <span
                     style={{
-                      flex: 1,
-                      minWidth: 0,
                       display: "flex",
-                      flexDirection: "column",
-                      gap: pt(5),
+                      alignItems: "baseline",
+                      gap: pt(6),
+                      minWidth: 0,
                     }}
                   >
                     <span
                       style={{
+                        flex: "none",
+                        fontFamily: MONO_FONT,
+                        fontSize: pt(12),
+                        color: G.id,
+                      }}
+                    >
+                      {row.id}
+                    </span>
+                    <span
+                      style={{
+                        minWidth: 0,
                         fontSize: pt(15),
+                        fontWeight: 500,
                         overflow: "hidden",
                         whiteSpace: "nowrap",
                         textOverflow: "ellipsis",
@@ -499,23 +542,19 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
                     >
                       {row.title}
                     </span>
-                    <span style={{ fontSize: pt(12), color: G.caption }}>
-                      {PHONE_START.pastCaption}
-                    </span>
                   </span>
-                  <span
-                    style={{
-                      fontFamily: MONO_FONT,
-                      fontSize: pt(12),
-                      color: G.id,
-                    }}
-                  >
-                    {row.id}
+                  <span style={{ fontSize: pt(12), color: G.caption }}>
+                    {PHONE_START.pastByline}
                   </span>
-                </div>
-              </React.Fragment>
+                </span>
+                <span style={{ color: G.chev, display: "flex", flex: "none" }}>
+                  <Glyph size={pt(13)} sw={2}>
+                    <path d="m9 18 6-6-6-6" />
+                  </Glyph>
+                </span>
+              </div>
             ))}
-          </Card>
+          </div>
         </div>
       ) : null}
 

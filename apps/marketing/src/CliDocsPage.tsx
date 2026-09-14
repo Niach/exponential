@@ -25,7 +25,7 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential status`, desc: `Account, device id, daemon state, installed agents, and git in one summary.` },
   { name: `exponential doctor`, desc: `Check git and the agent CLIs, and say what's missing.` },
   { name: `exponential code <ISSUE> [--agent claude|codex] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
-  { name: `exponential run <action> [--team <id>] [--input k=v ...] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run a team action by name or id — the same agent flags apply.` },
+  { name: `exponential run <action> [--team <id>] [--input k=v ...] [--prompt <text>] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run a team action by name or id, or a builtin (fix-conflicts, create-action). --prompt adds instructions, and is the whole request for create-action. The same agent flags apply.` },
   { name: `exponential mcp list | login <server> [--paste] | set-secret <server> <NAME> | status`, desc: `The team's MCP servers and the credentials THIS machine holds for them. Values never travel through argv: login runs the OAuth flow locally (or --paste for a machine with no browser), set-secret reads from a no-echo prompt.` },
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
   { name: `exponential daemon install | uninstall | status`, desc: `Manage the systemd user unit (Linux) or launchd agent (macOS).` },
@@ -111,7 +111,7 @@ exponential login
             <h3>Non-interactive setups</h3>
             <p>
               For provisioning scripts, skip the browser: generate an API key
-              under <strong>Settings → API keys</strong> in the web app and
+              under <strong>Settings → Security</strong> in the web app and
               hand it to the CLI as <code>EXP_TOKEN</code>:
             </p>
             <DocsCode language="shell">{`
@@ -189,7 +189,7 @@ exponential daemon install
             </DocsCallout>
             <p>
               The machine then shows up under{` `}
-              <strong>Devices → My machines</strong> in the web app, with its
+              <strong>Devices → My devices</strong> in the web app, with its
               online state and the agents it has installed. Start a coding
               session or an <a href="/docs/actions/">action</a> there and
               pick that machine, and it runs on it exactly like it would on
@@ -203,10 +203,10 @@ exponential daemon install
               run in the desktop app or an attached CLI: when the agent
               finishes its turn it waits for your next reply, and the daemon
               keeps its process and worktree alive with no idle timeout. Hit{` `}
-              <strong>Kill session</strong> in the web or mobile session view
-              when you are done with it. Runs started by an{` `}
-              <a href="/docs/actions/">automation</a> are the ones that report
-              a summary, and they end on it.
+              <strong>Stop</strong> on the run in the web or mobile app when
+              you are done with it. Runs started by an{` `}
+              <a href="/docs/actions/">automation</a> are the ones that end
+              themselves when their work is done.
             </p>
             <p>
               Sessions belong to you, not to the box — the agent runs under

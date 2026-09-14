@@ -60,14 +60,8 @@ export function IssuesDocsPage() {
             <DocShot view="board" priority />
 
             <p>
-              The <strong>Filter</strong> popover keeps the board focused:
-              drill into any combination of <strong>status</strong>,{` `}
-              <strong>priority</strong>, and <strong>labels</strong>. Active
-              filters show as removable pills under the bar.
-            </p>
-            <p>
               Need to move many issues at once? Click the checkbox gutter to{` `}
-              <strong>bulk select</strong> rows, and the bar in the filter row
+              <strong>bulk select</strong> rows, and the bulk bar
               sets <strong>status</strong>, <strong>priority</strong>,{` `}
               <strong>assignee</strong> and <strong>labels</strong>, deletes
               the selection, or hands the whole thing to an agent as a{` `}
@@ -224,12 +218,18 @@ export function IssuesDocsPage() {
           <DocsSection id="detail" num="05" label="Issue detail">
             <h2>Issue detail</h2>
             <p>
-              The full-page view puts the description front and center: a
-              properties card (status, priority, assignee, labels, due date,
-              board) sits under the title, the description follows, then this
-              issue&apos;s relations, then the conversation. The round{` `}
-              <strong>…</strong> menu above the title holds Copy link, Add
-              relation and Delete. On web and desktop the content area is a
+              The full-page view puts the description front and center. On web
+              and desktop a fixed header holds the title, with the pin and the{` `}
+              <strong>…</strong> menu (Copy link, Add relation, Delete) on the
+              same line. Under it, a tray holds the properties (status,
+              priority, assignee, labels, due date, board) and ends in the
+              coding action: <strong>Start coding</strong>,{` `}
+              <strong>Stop</strong> or <strong>Resume</strong>, with{` `}
+              <strong>Merge PR</strong> beside it while a pull request is open.
+              The description follows, then this issue&apos;s relations, then
+              the conversation. Once the issue has a run, the header gains an
+              {` `}<strong>Issue | Run</strong> switch, and the run face keeps
+              the very same header. On web and desktop the content area is a
               rounded card floating on a darker ground; phones run full-bleed.
             </p>
 

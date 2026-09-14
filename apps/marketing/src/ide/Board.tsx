@@ -1,5 +1,6 @@
-/* ─── The board tool window (520px): the right-aligned Filter trigger over a
-   grouped 28px-row virtual list. Grid = 24px priority · 72px identifier ·
+/* ─── The board list SCREEN (full width beside the labelled rail): the
+   right-aligned Filter trigger over a grouped 28px-row list. A row opens its
+   issue beside the list, which folds into the ListNav (EXP-870). Grid = 24px priority · 72px identifier ·
    24px status · 1fr title · labels · assignee · due (issue_list.rs). ─── */
 import { GROUP_ORDER, ISSUES, type IssueStatus, type Issue } from "./data"
 import { useIde } from "./state"
@@ -10,7 +11,7 @@ import { IcCalDays, IcChevDown, IcChevRight, IcListFilter } from "./icons"
    order the real list groups in — `GROUP_ORDER` keeps the web fixture's. */
 const DESKTOP_ORDER: IssueStatus[] = [`backlog`, `in_progress`, `in_review`, `done`]
 
-const GROUPS = DESKTOP_ORDER.map(
+export const GROUPS = DESKTOP_ORDER.map(
   (status) => GROUP_ORDER.find((g) => g.status === status) ?? { status, label: status },
 )
 
@@ -20,7 +21,7 @@ export function IssueRow({ issue }: { issue: Issue }) {
   return (
     <div
       className={`ide-row${interactive ? ` is-click` : ``}${isOpen ? ` is-open` : ``}`}
-      onClick={interactive ? () => openIssue(issue.id) : undefined}
+      onClick={interactive ? () => openIssue(issue.id, true) : undefined}
     >
       <span className="ide-row-sel" />
       <span className="ide-row-cell">

@@ -6,6 +6,8 @@
    (packages/domain-contract/contract.json → issueStatusDefaults) and the
    Tailwind v4 priority hues from apps/web lib/domain.ts. */
 import type { Assignee, IssuePriority, IssueStatus, Label } from "../ide/data"
+import { ClaudeLogo, CodexLogo } from "../components/agent-icons"
+import type { DemoAgent, RunState } from "./data"
 import {
   ICON_35,
   IcCircleCheck,
@@ -144,6 +146,55 @@ export function LabelPill({ label }: { label: Label }) {
     <span className="web-label">
       <span className="web-label-dot" style={{ background: label.color }} />
       {label.name}
+    </span>
+  )
+}
+
+/* EXP-877: Claude's REAL mark in its brand orange on every client
+   (brand-icons.tsx CLAUDE_FILL #D97757); Codex stays foreground-tinted. */
+export const CLAUDE_FILL = `#D97757`
+
+export function AgentMark({ agent, size = ICON_35 }: { agent: DemoAgent; size?: number }) {
+  return agent === `claude` ? (
+    <span className="web-agentmark" style={{ color: CLAUDE_FILL }}>
+      <ClaudeLogo size={size} />
+    </span>
+  ) : (
+    <span className="web-agentmark">
+      <CodexLogo size={size} />
+    </span>
+  )
+}
+
+/* RunningIndicator (agent-session-row.tsx): the run's state dot — green and
+   PINGING while the agent works (EXP-848 agent_busy), steady green once its
+   PR is open. */
+export function RunDot({ state }: { state: RunState }) {
+  return <span className={`web-rundot${state === `working` ? ` is-working` : ``}`} />
+}
+
+/* The ContextRing (context-ring.tsx): a 16px radial, r=6, stroke 2, the
+   track at 20% — muted under 75%, amber from 75%, red from 95%. */
+export function ContextRing({ percent }: { percent: number }) {
+  const r = 6
+  const c = 2 * Math.PI * r
+  const tone = percent >= 95 ? `#ff6467` : percent >= 75 ? `#fe9a00` : `#a1a1a1`
+  return (
+    <span className="web-ctxring" title={`Context ${percent}%`} style={{ color: tone }}>
+      <svg viewBox="0 0 16 16" width={16} height={16} style={{ transform: `rotate(-90deg)` }}>
+        <circle cx={8} cy={8} r={r} fill="none" stroke="currentColor" strokeWidth={2} opacity={0.2} />
+        <circle
+          cx={8}
+          cy={8}
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - percent / 100)}
+        />
+      </svg>
     </span>
   )
 }

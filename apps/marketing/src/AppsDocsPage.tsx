@@ -77,11 +77,11 @@ export function AppsDocsPage() {
             </p>
             <h3>The layout</h3>
             <p>
-              The sidebar is always open and mirrors the web app: the team
-              switcher, <strong>Search</strong> and <strong>New issue</strong>
-              {` `}at the top, then Inbox, Support, Devices, Actions,
-              Automations, Reviews and <strong>Agent</strong>, the boards,
-              your live <strong>Sessions</strong>, and under{` `}
+              The sidebar mirrors the web app: the team switcher,{` `}
+              <strong>Search</strong> and <strong>New issue</strong> at the
+              top, then Inbox, Support, Devices, Actions, Automations, Reviews
+              and <strong>Agent</strong>, your <strong>Pinned</strong> issues
+              and actions, the boards, and under{` `}
               <strong>This device</strong> the machine&apos;s own{` `}
               <strong>Files</strong> and <strong>Source Control</strong>. At
               the bottom sit the <strong>What&apos;s new</strong> card,{` `}
@@ -90,17 +90,25 @@ export function AppsDocsPage() {
               button and the settings gear on its right.
             </p>
             <p>
+              The sidebar never leaves. Open an issue or a run from a list, or
+              open Settings, and it folds into a narrow icon rail with that
+              list beside it, so every entry stays one click away.
+            </p>
+            <p>
               The working area is a rounded card on a darker ground, the same
-              cutout layout the web app uses. Issues open as tabs along its
-              top; a coding session or a terminal fills it instead, and open
-              terminals get a bar of tabs under the card — a bar that is not
-              there at all while none is open.
+              cutout layout the web app uses. Work opens as tabs along its
+              top. An issue and its coding run share one tab, with an{` `}
+              <strong>Issue | Run</strong> switch in the header. Every live
+              run of yours gets a tab too, grouped by agent, and can&apos;t be
+              closed while it runs. Terminals fill the card instead, and open
+              terminals get a bar of tabs under it — a bar that is not there
+              at all while none is open.
             </p>
 
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A coding session filling the working area, with the rail's Sessions rows beside it"
+              caption="A coding run in the desktop IDE: its tab along the top, the shared header, and the sidebar beside it"
             />
             <h3>System notifications</h3>
             <p>
@@ -125,7 +133,7 @@ export function AppsDocsPage() {
             <ul>
               <li>
                 <strong>Issues</strong>: your boards. Triage, edit,
-                filter, comment.
+                comment.
               </li>
               <li>
                 <strong>My Work</strong>: your inbox and the issues assigned
@@ -136,9 +144,8 @@ export function AppsDocsPage() {
                 inbox. Present only while the helpdesk is enabled.
               </li>
               <li>
-                <strong>Devices</strong>: your machines and the coding
-                sessions running on them, with a live activity feed and
-                steering.
+                <strong>Devices</strong>: your machines, the team&apos;s
+                shared ones, and the agent accounts they hold.
               </li>
               <li>
                 <strong>Actions</strong>: the team&apos;s{` `}
@@ -151,12 +158,11 @@ export function AppsDocsPage() {
               </li>
             </ul>
             <p>
-              The round button beside the tab pill is{` `}
-              <strong>New issue</strong> — or <strong>Start chat</strong>{` `}
-              on the Devices and Actions surfaces, which opens the{` `}
-              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
-              with nothing chipped. Search
-              sits in the board header next to <strong>Filter</strong>. Select
+              The round chat button beside the tab pill opens the{` `}
+              <a href="/docs/coding/#start-coding">Agent page</a>: its
+              composer, and your running and past runs. On a board,{` `}
+              <strong>New issue</strong> sits beside it. Search sits in the
+              board header. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
               status, priority, assignee, labels and delete on it. Full
               onboarding runs on mobile too: create boards, connect GitHub,
@@ -196,27 +202,26 @@ export function AppsDocsPage() {
             <h2>Steer from anywhere</h2>
             <p>
               A coding session started on your desktop doesn&apos;t chain you
-              to the desk. The <strong>Devices</strong> tab (and the matching
-              view on web) shows every running session with a{` `}
-              <strong>live activity feed</strong>. Watch the agent work in
-              real time, and <strong>send steer messages</strong> mid-run:
-              answer its question, veto an approach, add a constraint you
-              forgot.
+              to the desk. The <strong>Agent</strong> page, on the phone and
+              on the web, lists every run of yours with a{` `}
+              <strong>live activity feed</strong> one tap away. Watch the
+              agent work in real time, and{` `}
+              <strong>send steer messages</strong> mid-run: answer its
+              question, veto an approach, add a constraint you forgot.
             </p>
             <p>
-              You can also start one from here: the launcher&apos;s{` `}
-              <strong>Issues</strong>, <strong>Actions</strong> and{` `}
-              <strong>Chat</strong> tabs, its device and agent pickers, and
-              the composer — <code>/</code> slash commands, and{` `}
+              You can also start one from here: the composer&apos;s issue and
+              action chips, its device and agent pickers, and the steer
+              composer — <code>/</code> slash commands, and{` `}
               <code>@</code> for a teammate, <code>#</code> for an issue and
               {` `}<code>:</code> for an emoji — are the same on the phone as
-              on the desktop. The session&apos;s{` `}
-              <strong>…</strong> menu holds <strong>Usage</strong> (how much
-              of the agent&apos;s limits this run and this week have spent)
-              and <strong>Stop session</strong>, and an open PR the run
-              opened, on an issue or from an action or chat, puts a{` `}
-              <strong>Merge</strong> pill next to{` `}
-              <strong>Latest changes</strong> — replaced by{` `}
+              on the desktop. On the phone, <strong>Stop</strong> sits in a
+              run&apos;s top bar, and its <strong>…</strong> menu holds{` `}
+              <strong>Usage</strong> (how much
+              of the agent&apos;s limits this run and this week have spent).
+              An open PR the run opened, on an issue or from an action or
+              chat, puts a <strong>Merge</strong> pill on its{` `}
+              <strong>Changes</strong> bar — replaced by{` `}
               <strong>Fix conflicts</strong> if the merge hits conflicts.
             </p>
             <p>

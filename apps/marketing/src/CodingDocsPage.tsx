@@ -127,17 +127,17 @@ export function CodingDocsPage() {
               You see it in three places: on the machine&apos;s{` `}
               <strong>Device settings</strong> (a <strong>Login</strong> or
               {` `}<strong>Switch account</strong> pill plus usage cards
-              inside each agent&apos;s tab), on the <strong>Usage</strong>{` `}
-              page — every machine and account you own, grouped by agent,
-              signed-out and nearly spent ones first, with a per-row{` `}
-              <strong>Refresh</strong> — and mid-run on the session itself,
-              from its usage pill on the desktop or its <strong>…</strong>{` `}
-              menu on web and mobile.
+              inside each agent&apos;s tab), in the <strong>Accounts</strong>
+              {` `}section of the <strong>Devices</strong> page (every
+              account you own, one tab per agent, with the machines that hold
+              it), and mid-run on the run itself. On web and desktop that is
+              the context ring under the composer. On a phone it is the
+              run&apos;s <strong>…</strong> menu.
             </p>
 
             <DocShot
               view="usage"
-              caption="The Usage page: one row per machine and account, with what is left of each window"
+              caption="Accounts on the Devices page: each agent account, the machines that hold it, and what is left of each window"
             />
 
             <p>
@@ -169,7 +169,7 @@ export function CodingDocsPage() {
             <DocShot
               view="issue-detail"
               platform="desktop"
-              caption="The desktop IDE on a live issue"
+              caption="An issue in the desktop IDE with its run live: the Issue | Run switch, the property tray, and Stop"
             />
 
             <ul>
@@ -208,9 +208,8 @@ export function CodingDocsPage() {
               <li>
                 <strong>Model</strong> and <strong>Effort</strong> pickers, per
                 agent. Each agent offers its own models and its own effort
-                vocabulary (Codex calls it Reasoning). They are launch-time
-                settings: a running session is steered with words, not with
-                switches.
+                vocabulary (Codex calls it Reasoning). Effort is fixed at
+                launch; a Claude run can still change model from its composer.
               </li>
               <li>
                 <strong>Ultracode</strong>, Claude only. Lets the run organize
@@ -272,8 +271,9 @@ export function CodingDocsPage() {
                 repo side by side.
               </li>
               <li>
-                The run opens as a <strong>session</strong> — its own page in
-                the app, its own screen in the IDE — seeded with the issue.
+                The run opens as a <strong>session</strong>, seeded with the
+                issue. On web and desktop it is the <strong>Run</strong> face
+                of the issue&apos;s tab.
                 With plan mode on it <strong>plans first</strong>; you approve
                 before implementation starts.
               </li>
@@ -336,29 +336,41 @@ export function CodingDocsPage() {
           <DocsSection id="watch-steer" num="06" label="Watch & steer">
             <h2>Watch &amp; steer</h2>
             <p>
-              A run is a <strong>session</strong>, and a session is a page of
-              its own: <code>/t/&lt;team&gt;/sessions/&lt;id&gt;</code> in the
-              browser and on your phone, a full-width screen in the desktop
-              IDE. What it shows is not a log or a terminal — it is the
-              agent&apos;s own narration, the tool calls it makes (collapsed
-              into lines like &ldquo;Ran 4 commands · edited 2 files&rdquo;,
-              with an edit&apos;s diff foldable under its row), and the cards
-              it wants answered.
+              A run is a <strong>session</strong> with one address,{` `}
+              <code>/t/&lt;team&gt;/sessions/&lt;id&gt;</code>. What it shows
+              is not a log or a terminal — it is the agent&apos;s own
+              narration, the tool calls it makes (collapsed into lines like
+              &ldquo;Ran 4 commands · edited 2 files&rdquo;, with an
+              edit&apos;s diff foldable under its row), and the cards it wants
+              answered.
             </p>
             <p>
-              Every client reaches it the same way. On the web the strip along
-              the bottom of the window lists <em>your</em> running sessions;
-              clicking a tab opens it. In the IDE they are rows of the rail
-              under <strong>Sessions</strong>, and an issue&apos;s{` `}
-              <strong>Watch</strong> slides its run in over the issue. Live
-              sessions are yours alone — teammates see the status badge on the
-              issue, never the transcript.
+              On web and desktop, work lives in <strong>tabs</strong> along
+              the top of the window. An issue and its run share one tab, and
+              the <strong>Issue | Run</strong> switch in its header flips
+              between them. Both faces use the same header: the title, then
+              the issue&apos;s properties in a tray, with{` `}
+              <strong>Stop</strong> or <strong>Resume</strong> at its end. A
+              run with no issue (a chat, an action, a batch) gets a tab of its
+              own.
+            </p>
+            <p>
+              Every live run of yours gets a tab automatically, grouped by
+              agent at the front of the strip. A live run&apos;s tab
+              can&apos;t be closed. Once the run ends it becomes an ordinary
+              tab you close yourself. The same runs are listed on the{` `}
+              <strong>Agent</strong> page, <strong>Running</strong> then{` `}
+              <strong>Past</strong>, and a running row carries{` `}
+              <strong>Merge</strong> and <strong>Open issue</strong> buttons.
+              On a phone the Agent page is where you open them. Live sessions
+              are yours alone — teammates see the status badge on the issue,
+              never the transcript.
             </p>
 
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A session on its own screen in the desktop IDE: transcript, the agent's question, the reply box that answers it"
+              caption="A run in the desktop IDE: the same header as its issue, the transcript, and the agent's question waiting for an answer"
             />
 
             <p>What the composer takes:</p>
@@ -391,10 +403,21 @@ export function CodingDocsPage() {
               </li>
             </ul>
             <p>
-              What the composer does <em>not</em> take is a change of mind
-              about the run itself: the agent, its model, its effort and plan
-              mode are picked when you start it. A live session is steered
-              with words.
+              The composer is one box with its send button inside. The row
+              under it says whether the run is in <strong>Plan mode</strong>,
+              holds the attach button, and names the model the run is on. A
+              Claude run can switch model right there, which sends{` `}
+              <code>/model</code> to the agent; Codex shows its model as a
+              label. On web and desktop the row ends in a{` `}
+              <strong>context ring</strong> that fills as the context window
+              does. Click it for the run&apos;s usage: its context, the
+              account&apos;s limits, and the machine&apos;s other accounts you
+              can switch the run to.
+            </p>
+            <p>
+              Everything else about the run is picked when you start it: the
+              agent, its effort and plan mode. A live session is steered with
+              words.
             </p>
             <p>
               The transcript keeps the <strong>whole run</strong>, not the
@@ -412,41 +435,42 @@ export function CodingDocsPage() {
               <strong>Rate limited</strong> with the time it resets, instead
               of going quiet — the run stays live and steerable, it simply
               cannot make a call until then. You can see how much is left on
-              any machine on the <strong>Usage</strong> page, reached from{` `}
-              <strong>Devices</strong>.
+              any machine under <strong>Accounts</strong> on the{` `}
+              <strong>Devices</strong> page.
             </p>
             <p>
               A run you started makes no report. When the agent finishes its
               turn it waits for your next reply, in the desktop app and on a
               daemon alike, with no idle timeout. End it yourself with{` `}
-              <strong>Stop session</strong> — the stop pill in the session
-              header on the desktop and on web, the <strong>…</strong> menu on
-              mobile — or, once a run has ended, relaunch it with{` `}
-              <strong>Resume</strong> in that same header.
+              <strong>Stop</strong>. On web and desktop it sits in the
+              run&apos;s header (in the property tray for an issue run); on a
+              phone it is in the top bar. Once a run has ended,{` `}
+              <strong>Resume</strong> takes its place and relaunches it.
             </p>
             <p>
               Runs an <a href="/docs/actions/#automations">automation</a>{` `}
-              started are the ones that <strong>report back</strong>: a
-              one-paragraph summary that shows on the run. Those runs end on
-              that report, and the Automations tab&apos;s{` `}
-              <strong>Recent automated runs</strong> keeps them.
+              started are the ones that <strong>end themselves</strong>: the
+              agent closes the run when its work is done, and the Automations
+              tab&apos;s <strong>Recent automated runs</strong> keeps them.
             </p>
 
             <h3>Chat</h3>
             <p>
               Not every question is an issue. <strong>Agent</strong> in the
-              IDE rail, and the chat glyph at the end of the web&apos;s
-              session strip, open a conversation with your agent that is bound
+              sidebar on web and desktop, and the chat button beside the
+              phone&apos;s tab bar, open the Agent page. With nothing chipped,
+              its composer starts a conversation with your agent that is bound
               to no issue and needs no repository. It runs on one of your
               machines like any other session, with the Exponential tools
               wired up, so it can read and write the tracker while you talk to
-              it. Past chats are listed under the prompt, each with a{` `}
-              <strong>Resume</strong>.
+              it. Your runs are listed under the prompt, running first, then
+              past. Open an ended one to read it back, or to{` `}
+              <strong>Resume</strong> it if its machine still can.
             </p>
 
             <DocShot
               view="chat"
-              caption="The chat page: a prompt, the machine and agent it runs on, and the chats you can resume"
+              caption="The Agent page: the composer, the machine and agent it runs on, and your running and past runs"
             />
           </DocsSection>
 
@@ -456,10 +480,12 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                A session&apos;s <strong>Latest changes</strong> bar, under
-                its transcript, folds open into the branch&apos;s diff against
-                its base, side-by-side, with <strong>Merge</strong> right next
-                to it.
+                A run&apos;s changes are a full-page face of its tab. Once the
+                run has edited files, its header switch gains a{` `}
+                <strong>+N -M</strong> segment that opens the diff in place of
+                the transcript. A diff card in the transcript opens the same
+                page, scoped to that turn. <strong>Merge PR</strong> sits in
+                the header once the pull request is open.
               </li>
               <li>
                 The <strong>Reviews</strong> list in the rail collects the
@@ -478,9 +504,9 @@ export function CodingDocsPage() {
                 attached, get their own <strong>Agent runs</strong> group in
                 Reviews, with the action name, branch and PR number, and count
                 toward the Reviews badge. The run itself shows{` `}
-                <strong>Merge</strong> too: in the{` `}
-                <strong>Latest changes</strong> bar under its transcript, on
-                the web and mobile Devices rows and in every steering view.
+                <strong>Merge</strong> too: in its header, on its running row
+                in the Agent lists, and on the phone&apos;s{` `}
+                <strong>Changes</strong> bar.
               </li>
             </ul>
             <p>
@@ -547,7 +573,7 @@ export function CodingDocsPage() {
               There is a terminal too, and it is an ordinary one: a plain
               shell on the trunk clone, opened with the button beside your
               account in the rail or <kbd>⌘T</kbd>. It fills the working area
-              like a session does, and its tabs sit in the bar along the
+              the way an issue or a run does, and its tabs sit in the bar along the
               bottom of the window — a bar that is not there at all until you
               open one. Agents never run in it: a coding session talks to the
               agent directly, and the terminal is yours.

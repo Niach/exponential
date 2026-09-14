@@ -13,6 +13,14 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
+  CircleHelp,
+  CircleX,
+  List,
+  Pin,
+  Play,
+  Square,
+  Wrench,
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
@@ -23,6 +31,7 @@ import {
   CircleUser,
   Code,
   ExternalLink,
+  FileText,
   GitMerge,
   GitPullRequest,
   Hash,
@@ -97,6 +106,7 @@ export const IcSparkles = wrap(Sparkles) // nav-getting-started
 export const IcSettings = wrap(Settings) // nav-settings
 export const IcPlus = wrap(Plus) // ui-add
 export const IcFilter = wrap(ListFilter)
+export const IcAgent = wrap(MessageCircle) // action-chat (the Agent entry)
 
 /* Board glyphs — a board with a repository renders `ui-repository`. */
 export const IcCode = wrap(Code) // ui-repository
@@ -104,6 +114,17 @@ export const IcKanban = wrap(SquareKanban) // settings-boards
 export const IcMegaphone = wrap(Megaphone) // ui-widget
 export const IcChat = wrap(MessageCircle) // action-chat
 export const IcEllipsis = wrap(Ellipsis) // ui-more
+
+/* Work header / run face (EXP-870/877) */
+export const IcPin = wrap(Pin) // ui-pin
+export const IcStop = wrap(CircleX) // coding-stop
+export const IcPlay = wrap(Play) // coding-start / nav-actions picker
+export const IcChevLeft = wrap(ChevronLeft) // ui-chevron-left
+export const IcWrench = wrap(Wrench) // tool rows
+export const IcHelp = wrap(CircleHelp) // ui-help
+export const IcIssues = wrap(List) // nav-issues
+export const IcIssue = wrap(FileText) // ui-issue
+export const IcStopSquare = wrap(Square) // the composer's Stop glyph
 
 /* Status / priority */
 export const IcCircleDashed = wrap(CircleDashed) // status-backlog

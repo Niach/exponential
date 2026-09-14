@@ -3,7 +3,8 @@
    primitive: a 16rem (296px) transparent rail divided from the main pane by
    one hairline. Header = team switcher + icon-only Search and New-issue
    actions (EXP-449). Nav = Inbox / Support / Devices / Actions / Automations /
-   Reviews, badged with DOTS, never counts (EXP-699). Then the Boards group,
+   Reviews badged with DOTS (EXP-699), then Agent, whose badge is the live-run
+   COUNT (EXP-870). Then the Boards group,
    and a footer with Getting started and the user row + settings gear. */
 import { INBOX_ITEMS, REVIEWS } from "../ide/data"
 import { useWeb, type WebNav } from "./state"
@@ -17,6 +18,7 @@ import {
 import {
   ICON_4,
   IcActions,
+  IcAgent,
   IcAutomations,
   IcCode,
   IcCompose,
@@ -49,6 +51,7 @@ function NavItem({
   active,
   onClick,
   dot,
+  count,
   muted,
 }: {
   icon: React.ReactNode
@@ -57,6 +60,8 @@ function NavItem({
   onClick?: () => void
   /* `primary` (unread) or `green` (something live) — the app's two dot tints. */
   dot?: `primary` | `green`
+  /* EXP-870: the Agent entry's live-run count — a green numbered disc. */
+  count?: number
   muted?: boolean
 }) {
   const { interactive } = useWeb()
@@ -72,6 +77,7 @@ function NavItem({
         <span className="web-nav-label">{label}</span>
       </button>
       {dot && <span className={`web-nav-dot is-${dot}`} />}
+      {count !== undefined && count > 0 && <span className="web-nav-count">{count}</span>}
     </div>
   )
 }
@@ -115,9 +121,9 @@ export function WebSidebar() {
       <div className="web-side-rule" />
 
       <div className="web-side-scroll">
-        {/* EXP-699/EXP-686 nav order: Inbox, Support, then the three surfaces
-            the old Agents entry bundled (Devices, Actions, Automations), then
-            Reviews. Badges are dots: primary for unread, green for live. */}
+        {/* EXP-699/EXP-818 nav order: Inbox, Support, Devices, Actions,
+            Automations, Reviews, Agent. Badges are dots (primary for unread,
+            green for live) except Agent's live-run count. */}
         <div className="web-side-group">
           <NavItem
             icon={<IcInbox size={ICON_4} />}
@@ -136,7 +142,6 @@ export function WebSidebar() {
           <NavItem
             icon={<IcDevices size={ICON_4} />}
             label="Devices"
-            dot={AGENTS_RUNNING > 0 ? `green` : undefined}
           />
           <NavItem icon={<IcActions size={ICON_4} />} label="Actions" />
           <NavItem
@@ -147,6 +152,13 @@ export function WebSidebar() {
             icon={<IcReviews size={ICON_4} />}
             label="Reviews"
             dot={hasOpenPrs ? `green` : undefined}
+          />
+          <NavItem
+            icon={<IcAgent size={ICON_4} />}
+            label="Agent"
+            active={nav === `agent`}
+            onClick={go(`agent`)}
+            count={AGENTS_RUNNING}
           />
         </div>
 

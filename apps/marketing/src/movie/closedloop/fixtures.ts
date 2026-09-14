@@ -216,7 +216,8 @@ export const PHONE_START = {
   agent: "Claude Code",
   planLabel: "Plan",
   pastLabel: "Past",
-  pastCaption: "Merged · Claude Code · yesterday",
+  // EXP-874: the unified past-row byline is device · time, nothing else.
+  pastByline: "MacBook Pro · yesterday",
   device: "MacBook Pro",
   toast: "Start sent to MacBook Pro. Watch it in the Agents tab.",
 } as const

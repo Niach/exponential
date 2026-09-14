@@ -1,43 +1,20 @@
-/* ─── The issue-detail screen (EXP-417/568/601/723/736/741/760): a FIXED
-   header — the top row, which is the round "…" actions menu and nothing else
-   (EXP-760 folded Copy link and Delete into it; the Subscribe toggle retired
-   with EXP-723) · 2xl title · one glass property tray carrying BOTH header
-   actions on its right edge, Start coding and, while the PR is open, Merge ·
-   the agent row — over a scrolling body: the description, the relation
-   groups (EXP-760 moved them BELOW it and drops them entirely when there are
-   none), "Add sub-issues", the attachments rail and the Activity timeline —
-   muted event lines with their time, comment CARDS on the timeline rail that
-   each end in a "Leave a reply…" row, and the composer. There is no
-   Details/Changes segment and no properties rail. ─── */
+/* ─── The Issue face of a top tab (issue_detail.rs, EXP-760/877): the ONE
+   work header (title, face toggle, pin, menu, the glass property tray with
+   Merge PR and the coding action) fixed over a scrolling body — the
+   description, "Add sub-issues", the attachments rail and the Activity
+   timeline (muted event lines, comment CARDS each ending in "Leave a
+   reply…", the composer). Everything caps to the 896px work column. ─── */
 import { useState, type KeyboardEvent } from "react"
 import {
   getIssue,
   ISSUE_ACTIVITY,
   ISSUE_BODY,
-  PRIORITY_LABEL,
-  REVIEWS,
-  STATUS_LABEL,
   type ActivityItem,
-  type Issue,
-  type Review,
 } from "./data"
-import { useIde, type CodingState, type CodingTarget } from "./state"
-import { ACTIVE_BOARD } from "./Rail"
-import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
-import {
-  IcCalDays,
-  IcCircleX,
-  IcEllipsis,
-  IcGitMerge,
-  IcImage,
-  IcMonitor,
-  IcPaperclip,
-  IcPlay,
-  IcPlus,
-  IcSmile,
-  IcTag,
-  IcCircleUser,
-} from "./icons"
+import { useIde } from "./state"
+import { Avatar, StatusIcon } from "./bits"
+import { WorkHeader } from "./WorkHeader"
+import { IcEllipsis, IcImage, IcPaperclip, IcPlus, IcSmile } from "./icons"
 
 function Description({ issueId }: { issueId: string }) {
   const body = ISSUE_BODY[issueId]
@@ -179,148 +156,14 @@ function ActivityRow({
   )
 }
 
-/* A live run on this issue — a plain run on it, or a batch that includes
-   it (a batch ships every checked issue). */
-function isCodingHere(
-  coding: CodingState,
-  target: CodingTarget | null,
-  issueId: string,
-): boolean {
-  if (coding !== `running` && coding !== `waiting`) return false
-  return target?.kind === `issue`
-    ? target.id === issueId
-    : (target?.issueIds.includes(issueId) ?? false)
-}
-
-/* pr_merge::two_click — Merge PR arms, Confirm merge fires (danger). */
-function MergePrButton({
-  armed,
-  arm,
-}: {
-  armed: boolean
-  arm: (on: boolean) => void
-}) {
-  const { interactive } = useIde()
-  return (
-    <button
-      className={`ide-mergepr${armed ? ` is-armed` : ``}${interactive ? ` is-click` : ``}`}
-      type="button"
-      onClick={interactive ? () => arm(!armed) : undefined}
-    >
-      <IcGitMerge size={11} />
-      {armed ? `Confirm merge` : `Merge PR`}
-    </button>
-  )
-}
-
-/* One chip of the glass property tray: a ghost h-24 capsule. */
-function Chip({
-  children,
-  muted,
-}: {
-  children: React.ReactNode
-  muted?: boolean
-}) {
-  return <span className={`ide-tchip${muted ? ` is-muted` : ``}`}>{children}</span>
-}
-
-function PropertyTray({
-  issue,
-  review,
-  armed,
-  arm,
-}: {
-  issue: Issue
-  /* An open PR on this issue — the tray then carries Merge as well. */
-  review?: Review
-  armed: boolean
-  arm: (on: boolean) => void
-}) {
-  const { interactive, coding, codingTarget, openComposer, stopCoding } = useIde()
-  const codingHere = isCodingHere(coding, codingTarget, issue.id)
-  return (
-    <div className="ide-tray">
-      <Chip>
-        <StatusIcon status={issue.status} size={10} />
-        {STATUS_LABEL[issue.status]}
-      </Chip>
-      <Chip>
-        <PriorityIcon priority={issue.priority} size={10} />
-        {PRIORITY_LABEL[issue.priority]}
-      </Chip>
-      <Chip muted={!issue.assignee}>
-        <IcCircleUser size={10} />
-        {issue.assignee ? issue.assignee.name : `Assignee`}
-      </Chip>
-      {issue.labels?.length ? (
-        issue.labels.map((l) => <LabelChip key={l.name} label={l} />)
-      ) : (
-        <Chip muted>
-          <IcTag size={10} />
-          Labels
-        </Chip>
-      )}
-      <Chip muted={!issue.due}>
-        <IcCalDays size={10} />
-        {issue.due ?? `Due date`}
-      </Chip>
-      <Chip>
-        <ACTIVE_BOARD.Icon size={10} style={{ color: ACTIVE_BOARD.color }} />
-        {ACTIVE_BOARD.name}
-      </Chip>
-      {/* EXP-760: BOTH header actions live at the tray's right edge — Start
-          coding and, while the PR is open, Merge (which takes the white
-          paint and demotes Start coding to plain glass). A run THIS machine
-          hosts replaces the launcher with the "Coding…" indicator and Stop
-          (coding_flow.rs), since that control is the only way to stop it. */}
-      <span className="ide-tray-action">
-        {codingHere ? (
-          <>
-            <span className="ide-codingnow">
-              <span className="ide-nowdot" />
-              Coding…
-            </span>
-            <button
-              className={`ide-btn-outline${interactive ? ` is-click` : ``}`}
-              type="button"
-              onClick={interactive ? stopCoding : undefined}
-            >
-              <IcCircleX size={11} className="ide-c-danger" />
-              Stop
-            </button>
-          </>
-        ) : (
-          <button
-            className={`${review ? `ide-btn-glass` : `ide-btn-primary`}${interactive ? ` is-click` : ``}`}
-            type="button"
-            /* EXP-825: a play button NAVIGATES to the Agent page with this
-               issue chipped — there is no dialog any more. */
-            onClick={interactive ? () => openComposer([issue.id]) : undefined}
-          >
-            <IcPlay size={11} />
-            Start coding
-          </button>
-        )}
-        {review && <MergePrButton armed={armed} arm={arm} />}
-      </span>
-    </div>
-  )
-}
-
 export function IssueDetail({ issueId }: { issueId: string }) {
-  const { interactive, coding, codingTarget, openSession } = useIde()
+  const { interactive } = useIde()
   const issue = getIssue(issueId)
-  const [armed, setArmed] = useState(false)
   const [draft, setDraft] = useState(``)
   const [extraComments, setExtraComments] = useState<ActivityItem[]>([])
 
   const baseActivity = ISSUE_ACTIVITY[issue.id] ?? []
   const activity = [...baseActivity, ...extraComments]
-  const review = REVIEWS.find((r) => r.issueId === issue.id)
-  const codingHere = isCodingHere(coding, codingTarget, issue.id)
-  /* The fixture's OTHER live run — a teammate's machine, which is what puts
-     the coding-now card and its Watch on an issue. */
-  const otherMachineRun = issue.id === `EXP-11`
 
   const submitComment = () => {
     const body = draft.trim()
@@ -338,49 +181,7 @@ export function IssueDetail({ issueId }: { issueId: string }) {
 
   return (
     <div className="ide-issue">
-      <div className="ide-issue-header">
-        <div className="ide-col">
-          {/* issue_header::top_row — ONE round menu, right-aligned: Copy
-              link · Add relation ▸ · Delete (EXP-760). */}
-          <div className="ide-issue-toprow">
-            <div className="ide-flex1" />
-            <span className="ide-roundbtn">
-              <IcEllipsis size={11} />
-            </span>
-          </div>
-          <div className="ide-issue-title">{issue.title}</div>
-          <div className="ide-issue-chiprow">
-            <PropertyTray issue={issue} review={review} armed={armed} arm={setArmed} />
-          </div>
-          {/* issue_header::agent_row: the coding-now CARD, for a run on
-              ANOTHER machine — this machine's own run is the tray's
-              "Coding…"/Stop control instead, and the card would say the same
-              thing twice. Watch slides the run in over the issue (EXP-791);
-              Merge left this row for the tray with EXP-760. */}
-          {codingHere ? null : otherMachineRun ? (
-            <div className="ide-issue-agentrow">
-              <span className="ide-nowpill">
-                <span className="ide-nowdot" />
-                Coding now
-              </span>
-              <span className="ide-nowcaption">
-                Mira Chen · Mira&apos;s MacBook Pro
-              </span>
-              <div className="ide-flex1" />
-              {/* An own run gets the primary "Watch" pill — NAV_DEVICES
-                  (monitor), never an eye. */}
-              <button
-                className={`ide-btn-primary ide-nowwatch${interactive ? ` is-click` : ``}`}
-                type="button"
-                onClick={interactive ? openSession : undefined}
-              >
-                <IcMonitor size={11} />
-                Watch
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <WorkHeader tabKey={`issue:${issue.id}`} />
       <div className="ide-issue-body">
         {/* EXP-760: relations are Linear-style group headings BELOW the
             description ("Sub-issues 1/3", "Blocked by", …) and render

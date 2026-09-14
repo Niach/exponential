@@ -1,6 +1,8 @@
-// surfaces/board.tsx — issue-board primitives (status/priority/avatar/label/calendar),
-// the 520px SidebarPane tool-window chassis and BoardTool (tinted status
-// groups, 28px rows, cascade entrance, hover/selected, PR dot, FLIP regroup).
+// surfaces/board.tsx — issue-board primitives (status/priority/avatar/label/calendar)
+// and BoardTool (tinted status groups, 28px rows, cascade entrance,
+// hover/selected, PR dot, FLIP regroup). EXP-851 retired the 520px list tool
+// window inside the panel; beside an open detail the board renders at its
+// `nav` density inside the left column's ListNav (chrome.tsx).
 // EXP-706 retired the docked Reviews TOOL window (and EXP-686 the Actions
 // one): both are tab-less full-page screens now, so neither has a surface
 // here — the PR diff's own header carries the two-stage merge (diffview.tsx).
@@ -43,8 +45,6 @@ const avatarAccent = (initials: string) => {
 }
 
 const ROW_H = WIN.row // 28
-// The list pane's own header strip (the Filter row) — pane content starts here.
-export const HEADER_H = 44
 
 // ── Tiny inline icons (lucide-style, stroke currentColor) ────────────────────
 const svgProps = (size: number, strokeWidth = 1.6) =>
@@ -122,14 +122,6 @@ const UserIcon: React.FC<{ size?: number }> = ({ size = 10 }) => (
   <svg {...svgProps(size, 2)}>
     <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
     <circle cx="12" cy="7" r="4" />
-  </svg>
-)
-
-const ListFilterIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <svg {...svgProps(size, 1.8)}>
-    <path d="M3 6h18" />
-    <path d="M7 12h10" />
-    <path d="M11 18h4" />
   </svg>
 )
 
@@ -295,82 +287,6 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
   </span>
 )
 
-// ── SidebarPane — the 520px tool-window chassis ──────────────────────────────
-// EXP-359 glass: the whole pane is transparent over the page gradient; a
-// STROKE_ROW hairline marks the boundary to the center (surface.rs idiom).
-// The board pane has NO title row and NO tab strip (EXP-282) — just the ghost
-// Filter button in a 44px header strip.
-
-// The board header's right cluster. Post-EXP-282 the list pane header carries
-// ONE ghost "Filter" button — the primary "+ New Issue" moved to the titlebar
-// and the All Issues / Active / Backlog tab strip is gone (shots/board/desktop).
-export const BoardActions: React.FC = () => (
-  <div
-    style={{
-      display: `inline-flex`,
-      alignItems: `center`,
-      gap: 5,
-      height: 22,
-      padding: `0 8px`,
-      borderRadius: 8,
-      color: C.muted,
-      fontFamily: UI_FONT,
-      fontSize: 12,
-    }}
-  >
-    <ListFilterIcon size={13} />
-    Filter
-  </div>
-)
-
-export const SidebarPane: React.FC<{
-  children: React.ReactNode
-  title?: string // legacy label for non-board tools (Reviews); the board pane has none
-  actions?: React.ReactNode
-  bottomInset?: number // px kept free at the PANEL bottom; nothing sits there since EXP-769
-}> = ({ children, title, actions, bottomInset = 0 }) => (
-  <div
-    style={{
-      position: `absolute`,
-      left: WIN.panel.x,
-      top: WIN.panel.y,
-      width: WIN.sidebar,
-      height: WIN.panel.h - bottomInset,
-      borderRight: `1px solid ${C.strokeRow}`,
-      display: `flex`,
-      flexDirection: `column`,
-      fontFamily: UI_FONT,
-      overflow: `hidden`,
-    }}
-  >
-    {/* The header strip only exists for panes that put something in it — the
-        tool windows that draw their own 30px `tool_header` (Reviews) start at
-        the pane's top edge instead. */}
-    {title || actions ? (
-      <div
-        style={{
-          flex: `none`,
-          height: HEADER_H,
-          padding: `0 14px`,
-          display: `flex`,
-          alignItems: `center`,
-          justifyContent: `space-between`,
-        }}
-      >
-        {title ? (
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-            {title}
-          </span>
-        ) : (
-          <span />
-        )}
-        {actions ?? null}
-      </div>
-    ) : null}
-    <div style={{ flex: 1, minHeight: 0, position: `relative` }}>{children}</div>
-  </div>
-)
-
 // ── BoardTool — grouped issue list ────────────────────────────────────────────
 
 // Contract displayOrder (issueStatusDefaults): backlog → unstarted → started
@@ -385,7 +301,17 @@ type Placed = { y: number; index: number; count: number }
 
 // Display layout: for each non-empty group (canonical order) a header then its
 // rows (input order). Keys: `h:<status>` for headers, the row id for rows.
-const computeLayout = (rows: BoardRow[]): Map<string, Placed> => {
+// Row metrics per density: the full list's 28px rows and headers; the
+// ListNav's 24px status bands over 28px rows at gap_0p5 (sidebar.rs
+// nav_group_header / rail_row_lead / nav_scroll).
+type Metrics = { headerH: number; rowH: number; gap: number }
+const FULL: Metrics = { headerH: ROW_H, rowH: ROW_H, gap: 0 }
+const NAV: Metrics = { headerH: 24, rowH: 28, gap: 1.75 }
+
+const computeLayout = (
+  rows: BoardRow[],
+  m: Metrics = FULL
+): Map<string, Placed> => {
   const map = new Map<string, Placed>()
   let y = 0
   let index = 0
@@ -393,15 +319,29 @@ const computeLayout = (rows: BoardRow[]): Map<string, Placed> => {
     const members = rows.filter((r) => r.status === g.status)
     if (members.length === 0) continue
     map.set(`h:${g.status}`, { y, index, count: members.length })
-    y += ROW_H
+    y += m.headerH + m.gap
     index += 1
     for (const r of members) {
       map.set(r.id, { y, index, count: 0 })
-      y += ROW_H
+      y += m.rowH + m.gap
       index += 1
     }
   }
   return map
+}
+
+/** Window-local center of a ListNav row for cursor keys, given the body's
+ * top (chrome.tsx LIST_NAV_BODY_TOP) and the rows as displayed. */
+export const listNavRowCenter = (
+  rows: BoardRow[],
+  id: string,
+  bodyTop: number
+): { x: number; y: number } => {
+  const placed = computeLayout(rows, NAV).get(id)
+  return {
+    x: WIN.rail + WIN.listNav / 2,
+    y: bodyTop + (placed?.y ?? 0) + NAV.rowH / 2,
+  }
 }
 
 export type BoardHover = string | { id: string; from: number; to?: number }
@@ -418,6 +358,9 @@ export const BoardTool: React.FC<{
   showLabels?: boolean // ref truth: the real 260px sidebar board hides label chips (titles win)
   insertAt?: { id: string; at: number } // row pops in at `at`: height 0→ROW_H + fade, rows below slide down
   flashAt?: { id: string; at: number } // soft white pulse on a row at `at` (a teammate's live edit, EXP-337)
+  /** `nav` = the ListNav's simplified rows (status glyph · identifier ·
+   * title, rounded FILL_ACTIVE selection) inside the left column. */
+  density?: `full` | `nav`
 }> = ({
   frame,
   rows,
@@ -430,10 +373,13 @@ export const BoardTool: React.FC<{
   showLabels = true,
   insertAt,
   flashAt,
+  density = `full`,
 }) => {
+  const nav = density === `nav`
+  const M = nav ? NAV : FULL
   const eff = rows.map((r) => ({ ...r, ...(overrides?.[r.id] ?? {}) }))
   const t = regroup ? Math.min(1, Math.max(0, regroup.t)) : 1
-  const layoutB = computeLayout(eff)
+  const layoutB = computeLayout(eff, M)
   const layoutA = regroup
     ? computeLayout(
         eff.map((r) =>
@@ -446,7 +392,8 @@ export const BoardTool: React.FC<{
                   r.status,
               }
             : r
-        )
+        ),
+        M
       )
     : layoutB
 
@@ -463,7 +410,10 @@ export const BoardTool: React.FC<{
   const layoutIns =
     insertAt === undefined || tIns >= 1
       ? undefined
-      : computeLayout(eff.filter((r) => r.id !== insertAt.id))
+      : computeLayout(
+          eff.filter((r) => r.id !== insertAt.id),
+          M
+        )
 
   const yOf = (key: string): number => {
     const b = layoutB.get(key)
@@ -518,7 +468,39 @@ export const BoardTool: React.FC<{
     let count = t < 0.5 ? countA : placedB.count
     if (layoutIns !== undefined && tIns < 0.5)
       count = layoutIns.get(headerKey)?.count ?? count
-    items.push(
+    // EXP-862 nav_group_header: a 24px ROUNDED band in the status' own hue
+    // (7% wash) — bare chevron · glyph · text_xs medium name · muted count.
+    if (nav) {
+      items.push(
+        <div
+          key={headerKey}
+          style={{
+            position: `absolute`,
+            left: 8,
+            right: 8,
+            top: yOf(headerKey),
+            height: NAV.headerH,
+            boxSizing: `border-box`,
+            display: `flex`,
+            alignItems: `center`,
+            gap: 5,
+            padding: `0 5.25px`,
+            borderRadius: 10,
+            backgroundColor: g.tint.replace(`0.10)`, `0.07)`),
+            ...enter(placedB.index),
+          }}
+        >
+          <span style={{ color: C.muted, display: `flex` }}>
+            <ChevronDownIcon size={12} />
+          </span>
+          <StatusIcon status={g.status} size={12} />
+          <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: C.text }}>
+            {g.label}
+          </span>
+          <span style={{ fontSize: 12, color: C.muted }}>{count}</span>
+        </div>
+      )
+    } else items.push(
       <div
         key={headerKey}
         style={{
@@ -596,11 +578,115 @@ export const BoardTool: React.FC<{
         : liveFlash
       const insertStyle: React.CSSProperties = isInserted
         ? {
-            height: Math.max(0, ROW_H * tIns),
+            height: Math.max(0, M.rowH * tIns),
             overflow: `hidden`,
             opacity: tIns,
           }
         : {}
+      // sidebar.rs nav_issue_row: rail_row_lead at 28px — a hover-only
+      // select cell, the 24px status cell, the mono identifier, the text_sm
+      // title; the open detail wears the rounded FILL_ACTIVE fill. No
+      // priority, labels, assignee or due date at this density.
+      if (nav) {
+        const overlay = (alpha: number) => (
+          <div
+            style={{
+              position: `absolute`,
+              inset: 0,
+              borderRadius: 10,
+              backgroundColor: `rgba(255,255,255,${alpha})`,
+            }}
+          />
+        )
+        items.push(
+          <div
+            key={row.id}
+            style={{
+              position: `absolute`,
+              left: 8,
+              right: 8,
+              top: yOf(row.id),
+              height: NAV.rowH,
+              boxSizing: `border-box`,
+              display: `flex`,
+              alignItems: `center`,
+              gap: 7,
+              padding: `0 5.25px 0 21px`,
+              borderRadius: 10,
+              backgroundColor: selected
+                ? C.fillActive
+                : inFlight
+                  ? C.bgBottom
+                  : undefined,
+              zIndex: inFlight ? 5 : undefined,
+              boxShadow: inFlight
+                ? `0 4px 16px rgba(0,0,0,${0.5 * 4 * t * (1 - t)})`
+                : undefined,
+              ...enter(placedRow.index),
+              ...insertStyle,
+            }}
+          >
+            {insertFlash > 0 ? overlay(insertFlash) : null}
+            {hoverO > 0 && !selected ? overlay(0.05 * hoverO) : null}
+            {flightTint > 0 ? overlay(0.28 * flightTint) : null}
+            <span
+              style={{
+                width: 20,
+                flex: `none`,
+                display: `flex`,
+                justifyContent: `center`,
+                position: `relative`,
+                scale: String(iconScale),
+              }}
+            >
+              <StatusIcon status={row.status} size={13} />
+            </span>
+            <span
+              style={{
+                flex: `none`,
+                display: `flex`,
+                alignItems: `center`,
+                gap: 3,
+                fontFamily: MONO_FONT,
+                fontSize: 11.5,
+                color: C.muted,
+                whiteSpace: `nowrap`,
+                position: `relative`,
+              }}
+            >
+              {row.id}
+              {prDotId !== undefined && prDotId.id === row.id ? (
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    flex: `none`,
+                    borderRadius: 999,
+                    backgroundColor: C.green,
+                    scale: String(Math.max(0, dotScale)),
+                  }}
+                />
+              ) : null}
+            </span>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontFamily: UI_FONT,
+                fontSize: 13.5,
+                color: C.text,
+                whiteSpace: `nowrap`,
+                overflow: `hidden`,
+                textOverflow: `ellipsis`,
+                position: `relative`,
+              }}
+            >
+              {row.title}
+            </span>
+          </div>
+        )
+        continue
+      }
       items.push(
         <div
           key={row.id}
