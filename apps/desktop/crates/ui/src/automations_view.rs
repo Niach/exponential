@@ -24,7 +24,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, App, Entity, InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
     button::ButtonVariant,
@@ -47,6 +47,10 @@ pub struct AutomationsView {
     /// [`Self::refresh`] — never in `render`.
     derived: AutomationsDerived,
     _subscriptions: Vec<Subscription>,
+    /// The run log carries relative times and a liveness that expires (a
+    /// device going offline changes no row), so it re-derives on the
+    /// sessions list's 5s clock too.
+    _tick: Task<()>,
 }
 
 /// EXP-832: the Automations page's data, ready to draw.
@@ -177,6 +181,7 @@ impl AutomationsView {
             scroll: ScrollHandle::new(),
             derived,
             _subscriptions: subscriptions,
+            _tick: crate::sessions_section::tick(cx, |this: &mut Self, cx| this.tick_refresh(cx)),
         }
     }
 
@@ -189,6 +194,15 @@ impl AutomationsView {
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         self.derived = AutomationsDerived::compute(cx, self.team_id(cx));
         cx.notify();
+    }
+
+    /// The clock-driven refresh: repaint only when the run log moved.
+    fn tick_refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        let next = AutomationsDerived::compute(cx, self.team_id(cx));
+        if next.recent_runs != self.derived.recent_runs {
+            self.derived = next;
+            cx.notify();
+        }
     }
 
     // -- rows (EXP-530 / EXP-583) -------------------------------------------
