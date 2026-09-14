@@ -283,6 +283,9 @@ pub(crate) fn build_screen_content(
         Screen::Devices => cx
             .new(|cx| crate::devices_view::DevicesView::new(window, cx))
             .into(),
+        Screen::Drafts => cx
+            .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
+            .into(),
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
@@ -1048,6 +1051,9 @@ pub struct ScreensPanel {
     /// The Devices page (EXP-686 — the user's machines; the same tab-less
     /// full-page mode).
     devices: Entity<crate::devices_view::DevicesView>,
+    /// The Drafts page (EXP-878 — the create-issue dialogs closed with
+    /// content in them; the same tab-less full-page mode).
+    drafts: Entity<crate::drafts_view::DraftsView>,
     /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
     /// tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
@@ -1135,6 +1141,7 @@ impl ScreensPanel {
         // `build_screen_content`'s undocked-window instances must not.
         pr_diff.update(cx, |diff, _| diff.show_undock = true);
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
+        let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let automations =
             cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
@@ -1234,6 +1241,7 @@ impl ScreensPanel {
             support_thread,
             pr_diff,
             devices,
+            drafts,
             actions,
             automations,
             chat,
@@ -1497,6 +1505,7 @@ impl ScreensPanel {
             | Screen::Files
             | Screen::SourceControl
             | Screen::Devices
+            | Screen::Drafts
             | Screen::Actions
             | Screen::Automations
             | Screen::Chat
@@ -3573,6 +3582,7 @@ impl Render for ScreensPanel {
             Some(Screen::Files) => self.render_files_screen(cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
+            Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),

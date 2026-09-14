@@ -86,6 +86,8 @@ pub mod licenses;
 mod login;
 mod device_settings;
 mod devices_view;
+mod drafts;
+mod drafts_view;
 mod device_sync;
 mod machines;
 mod media_tile;

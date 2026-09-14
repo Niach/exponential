@@ -778,6 +778,8 @@ impl RailView {
             // EXP-778: the Pinned section — its rows, and the action names
             // it resolves (issues/sessions are observed already).
             cx.observe(&collections.pins, |_, _, cx| cx.notify()),
+            // EXP-878: the conditional Drafts entry and its count.
+            cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
             cx.observe(&collections.actions, |_, _, cx| cx.notify()),
             // The Agent dot is a live read over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
@@ -1706,6 +1708,27 @@ impl Render for RailView {
                 cx,
             )
         });
+        // EXP-878: Drafts — a CONDITIONAL entry directly under Inbox, shown
+        // only while this user has drafts in the active team (or is standing
+        // on the page itself, so the rail never yanks the row out from under
+        // the screen you are looking at). The count rides as a muted pill:
+        // drafts are a pile to clear, not an alert.
+        let drafts_count = active_team_id(&self.nav, cx)
+            .map(|id| crate::drafts::drafts_in_team(&id, cx).len())
+            .unwrap_or(0);
+        let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
+        let drafts_entry = (drafts_count > 0 || on_drafts).then(|| {
+            let badge =
+                (drafts_count > 0).then(|| RailBadge::Count(drafts_count, cx.theme().muted_foreground));
+            self.rail_screen_entry(
+                "rail-drafts",
+                Icon::from(icons::registry::NAV_DRAFTS),
+                "Drafts",
+                Screen::Drafts,
+                badge,
+                cx,
+            )
+        });
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
@@ -1833,7 +1856,8 @@ impl Render for RailView {
 
         if self.compact {
             // EXP-870: the ICON column. Same destinations in the same order
-            // as the expanded rail below, minus everything that needs a
+            // as the expanded rail below (Inbox, the conditional Drafts entry,
+            // Support, …), minus everything that needs a
             // label to mean anything (section labels, the What's-new card,
             // Getting started, the sync caption, Files/Source Control's
             // "This device" heading); the footer stacks vertically.
@@ -1862,6 +1886,9 @@ impl Render for RailView {
                             inbox_badge,
                             cx,
                         ))
+                        // EXP-878: Drafts sits directly under Inbox — the
+                        // personal pile before the team surfaces.
+                        .children(drafts_entry)
                         .children(support_icon)
                         .child(self.rail_screen_entry(
                             "rail-devices",
@@ -1954,8 +1981,10 @@ impl Render for RailView {
             .text_color(cx.theme().sidebar_foreground)
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (EXP-699, the
-            // mobile tab-bar order; EXP-791 added Agent and Sessions):
-            // [Inbox, Support, Devices, Actions, Automations, Reviews, Agent]
+            // mobile tab-bar order; EXP-791 added Agent and Sessions;
+            // EXP-878 the conditional Drafts entry under Inbox):
+            // [Inbox, Drafts?, Support, Devices, Actions, Automations,
+            //  Reviews, Agent]
             // / Pinned (EXP-778) / boards + "+" / Sessions / This device:
             // [Files, Source Control].
             .child(crate::scroll_pane::v_scroll_pane(
@@ -1973,6 +2002,9 @@ impl Render for RailView {
                         inbox_badge,
                         cx,
                     ))
+                    // EXP-878: Drafts sits directly under Inbox — the
+                    // personal pile before the team surfaces.
+                    .children(drafts_entry)
                     .children(support_icon)
                     // EXP-686: Devices · Actions · Automations, the three
                     // surfaces the old Agents entry bundled.

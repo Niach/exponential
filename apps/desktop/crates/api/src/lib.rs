@@ -67,6 +67,7 @@ pub mod comments;
 pub mod error;
 pub mod helpdesk;
 pub mod http;
+pub mod issue_drafts;
 pub mod issues;
 pub mod labels;
 pub mod login;
