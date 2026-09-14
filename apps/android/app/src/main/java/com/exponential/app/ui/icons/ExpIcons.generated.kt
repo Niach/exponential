@@ -2128,6 +2128,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `file-pen-line`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "file-pen-line",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m18 5-2.414-2.414A2 2 0 0 0 14.172 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21.378 12.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 18h1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `file-text`: ImageVector by lazy {
         ImageVector.Builder(
             name = "file-text",
@@ -6424,6 +6456,7 @@ public object ExpIcons {
         "eye" -> `eye`
         "file" -> `file`
         "file-diff" -> `file-diff`
+        "file-pen-line" -> `file-pen-line`
         "file-text" -> `file-text`
         "fingerprint" -> `fingerprint`
         "flag" -> `flag`
@@ -6665,6 +6698,8 @@ public object ExpIcons {
     public val navCreateIssue: ImageVector get() = `square-pen`
     /** Concept `nav-devices`. */
     public val navDevices: ImageVector get() = `monitor`
+    /** Concept `nav-drafts`. */
+    public val navDrafts: ImageVector get() = `file-pen-line`
     /** Concept `nav-files`. */
     public val navFiles: ImageVector get() = `folder`
     /** Concept `nav-getting-started`. */

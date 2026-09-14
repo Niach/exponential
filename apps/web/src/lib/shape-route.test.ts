@@ -14,6 +14,7 @@ import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-session
 import { Route as automationsRoute } from "@/routes/api/shapes/automations"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as pinsRoute } from "@/routes/api/shapes/pins"
+import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
 import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
 import { Route as devicesRoute } from "@/routes/api/shapes/devices"
@@ -677,9 +678,17 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     [`coding-sessions`, codingSessionsRoute],
   ] as const
 
+  // EXP-878: attachments additionally drop draft-owned rows (`draft_id` set,
+  // `issue_id` NULL) — private to their author, served via tRPC only — so the
+  // natives' non-optional issueId keeps holding. The suffix is static too.
+  const childWhere = (name: string, scope: string) =>
+    name === `attachments`
+      ? `(${scope}) AND ("issue_id" IS NOT NULL)`
+      : scope
+
   it.each(childRoutes)(
     `%s member branch is team-scoped, trash/archive-aware, and byte-stable`,
-    async (_name, route) => {
+    async (name, route) => {
       const originUrl = new URL(`https://electric.example/v1/shape`)
       resolveSession.mockResolvedValue({ user: { id: `user-1` } })
       prepareElectricUrl.mockReturnValue(originUrl)
@@ -693,14 +702,17 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       })
 
       expect(originUrl.searchParams.get(`where`)).toBe(
-        `("team_id" IN ('w-1','w-2')) AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
+        childWhere(
+          name,
+          `("team_id" IN ('w-1','w-2')) AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
+        )
       )
     }
   )
 
   it.each(childRoutes)(
     `%s anonymous clause stays byte-identical to the sentinel composite`,
-    async (_name, route) => {
+    async (name, route) => {
       const originUrl = new URL(`https://electric.example/v1/shape`)
       resolveSession.mockResolvedValue(null)
       prepareElectricUrl.mockReturnValue(originUrl)
@@ -710,11 +722,32 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       })
 
       expect(originUrl.searchParams.get(`where`)).toBe(
-        `("team_id" = '00000000-0000-0000-0000-000000000000') AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
+        childWhere(
+          name,
+          `("team_id" = '00000000-0000-0000-0000-000000000000') AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
+        )
       )
       expect(membership.getUserTeamIds).not.toHaveBeenCalled()
     }
   )
+
+  it(`attachments allowlist excludes draft_id (EXP-878)`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+
+    await shapeHandler(attachmentsRoute)({
+      request: new Request(
+        `https://example.com/api/shapes/attachments?columns=draft_id`,
+        { headers: { authorization: `Bearer t` } }
+      ),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toContain(`issue_id`)
+    expect(columns).not.toContain(`draft_id`)
+  })
 
   it.each(childRoutes)(
     `%s pins a columns allowlist that excludes the board hide mirrors`,
@@ -843,6 +876,45 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(anon.status).toBe(401)
   })
 
+  // EXP-878: the issue-drafts shape — the caller's own drafts, static per
+  // user like pins, never team/trash-scoped (clients resolve the board).
+  it(`issue-drafts clause is fully static per user and never anonymous`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(issueDraftsRoute)({
+      request: new Request(`https://example.com/api/shapes/issue-drafts`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`table`)).toBe(`issue_drafts`)
+    expect(originUrl.searchParams.get(`where`)).toBe(`"user_id" = 'user-1'`)
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toEqual([
+      `id`,
+      `user_id`,
+      `team_id`,
+      `board_id`,
+      `title`,
+      `description`,
+      `status_id`,
+      `priority`,
+      `assignee_id`,
+      `label_ids`,
+      `due_date`,
+      `created_at`,
+      `updated_at`,
+    ])
+
+    resolveSession.mockResolvedValue(null)
+    const anon = await shapeHandler(issueDraftsRoute)({
+      request: new Request(`https://example.com/api/shapes/issue-drafts`),
+    })
+    expect(anon.status).toBe(401)
+  })
+
   // EXP-481: the devices shape — own rows + team-shared SERVER rows.
   it(`devices: own rows plus sorted shared-team server arm; anonymous is 401`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
@@ -956,7 +1028,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 21 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 22 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -974,6 +1046,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`issue-events`, issueEventsRoute],
     [`issue-labels`, issueLabelsRoute],
     [`issue-relations`, issueRelationsRoute],
+    [`issue-drafts`, issueDraftsRoute],
     [`issue-statuses`, issueStatusesRoute],
     [`issue-subscribers`, issueSubscribersRoute],
     [`issues`, issuesRoute],

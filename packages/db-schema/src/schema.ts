@@ -915,15 +915,27 @@ export const attachments = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    issueId: uuid(`issue_id`)
-      .notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
+    // NULLABLE since EXP-878: a row is owned by EITHER an issue OR an issue
+    // draft (`attachments_owner_check`). Draft rows (`draft_id` set, issue_id
+    // and board_id NULL) are reparented to the created issue by
+    // `issues.create({ draftId })` and die with the draft (cascade + S3
+    // reclaim in `issueDrafts.delete`). The attachments SHAPE excludes them
+    // (`issue_id IS NOT NULL`), so the natives' non-optional issueId holds.
+    issueId: uuid(`issue_id`).references(() => issues.id, {
+      onDelete: `cascade`,
+    }),
     // Denormalized from issue→board (populate_issue_child_board_id) so the
     // trash fan-out can target a board's child rows. Attachment byte reads
-    // are member-only too (EXP-180).
-    boardId: uuid(`board_id`)
-      .notNull()
-      .references(() => boards.id, { onDelete: `cascade` }),
+    // are member-only too (EXP-180). NULL on draft rows: their board is the
+    // draft's, and the trash purge collects them through issue_drafts.
+    boardId: uuid(`board_id`).references(() => boards.id, {
+      onDelete: `cascade`,
+    }),
+    // EXP-878: the owning draft. Cascade: deleting the draft removes the row
+    // (the router reclaims the blob after commit).
+    draftId: uuid(`draft_id`).references(() => issueDrafts.id, {
+      onDelete: `cascade`,
+    }),
     // Mirrors of the parent board's deleted_at / archived_at
     // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
     // archive predicates. Server-only, shape-excluded.
@@ -970,9 +982,18 @@ export const attachments = pgTable(
     ...timestamps,
   },
   (table) => [
+    check(
+      `attachments_owner_check`,
+      sql`(issue_id IS NOT NULL) <> (draft_id IS NOT NULL)`
+    ),
     index(`idx_attachments_issue`).on(table.issueId),
     index(`idx_attachments_team`).on(table.teamId),
     index(`idx_attachments_board`).on(table.boardId),
+    // EXP-878: the draft FK cascade + the reparent UPDATE. Partial — most
+    // attachments belong to issues.
+    index(`idx_attachments_draft`)
+      .on(table.draftId)
+      .where(sql`draft_id IS NOT NULL`),
     // The comment_id SET NULL RI trigger fires on every comment delete.
     // Partial — most attachments aren't comment-embedded.
     index(`idx_attachments_comment`)
@@ -1809,6 +1830,53 @@ export const pins = pgTable(
   ]
 )
 
+// EXP-878: issue drafts — what the create-issue dialog keeps when it is
+// closed with content in it, on every client. Per USER like pins (the shape
+// is the static `user_id = me`, never team- or trash-scoped; a row renders
+// only when its board resolves from the boards shape). The id is minted by
+// the CLIENT (a fresh uuid per dialog session, the row's id when reopened)
+// so a close is one idempotent upsert and create can delete the draft in the
+// same transaction. `description` is GFM whose images are already final
+// `/api/attachments/{id}` URLs: uploads are eager into draft-owned
+// attachments rows (`attachments.draft_id`), reparented on create.
+// `label_ids` carries no FK; clients drop ids they cannot resolve.
+export const issueDrafts = pgTable(
+  `issue_drafts`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    boardId: uuid(`board_id`)
+      .notNull()
+      .references(() => boards.id, { onDelete: `cascade` }),
+    title: text().notNull().default(``),
+    description: text().notNull().default(``),
+    // NULL = the team's Backlog builtin.
+    statusId: uuid(`status_id`).references(() => issueStatuses.id, {
+      onDelete: `set null`,
+    }),
+    priority: issuePriorityEnum().notNull().default(`none`),
+    assigneeId: text(`assignee_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    labelIds: uuid(`label_ids`)
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    dueDate: date(`due_date`),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_issue_drafts_user`).on(table.userId),
+    index(`idx_issue_drafts_team`).on(table.teamId),
+    index(`idx_issue_drafts_board`).on(table.boardId),
+  ]
+)
+
 // Activity log (D9): status/assignee/label/PR/plan/error events, rendered as a
 // Linear-style timeline on every client. `payload` carries event-specific data
 // (e.g. { from, to } for a status change).
@@ -2575,6 +2643,10 @@ export const selectPinSchema = createSelectSchema(pins, {
   kind: pinKindSchema,
 })
 
+export const selectIssueDraftSchema = createSelectSchema(issueDrafts, {
+  priority: issuePrioritySchema,
+})
+
 export const selectIssueSubscriberSchema = createSelectSchema(
   issueSubscribers,
   {
@@ -2677,6 +2749,7 @@ export type SessionAttachment = InferSelectModel<typeof sessionAttachments>
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
 export type Pin = InferSelectModel<typeof pins>
+export type IssueDraft = InferSelectModel<typeof issueDrafts>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>

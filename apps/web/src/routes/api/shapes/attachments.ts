@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
+  andClauses,
   buildTeamScopedChildWhere,
   getUserTeamIds,
 } from "@/lib/team-membership"
@@ -7,7 +8,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist — excludes the `board_deleted_at` trash
 // mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
-// server-only (the where clause filters on them).
+// server-only (the where clause filters on them), and `draft_id` (EXP-878:
+// draft-owned rows never sync, see the where clause).
 const ATTACHMENT_COLUMNS = [
   `id`,
   `team_id`,
@@ -41,8 +43,15 @@ export const Route = createFileRoute(`/api/shapes/attachments`)({
           // attachments still drop out of sync for the 48h trash window via
           // the static board_deleted_at predicate. Anonymous:
           // impossible-match sentinel.
+          // EXP-878: draft-owned rows (`draft_id` set, `issue_id` NULL)
+          // are private to their author and served via tRPC
+          // `issueDrafts.listAttachments`; they never ride the shape, so the
+          // natives' non-optional `issueId` keeps holding.
           const teamIds = userId ? await getUserTeamIds(userId) : []
-          return buildTeamScopedChildWhere(teamIds)
+          return andClauses(
+            buildTeamScopedChildWhere(teamIds),
+            `"issue_id" IS NOT NULL`
+          )
         },
       }),
     },

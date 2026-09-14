@@ -63,6 +63,7 @@ import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/
 import { Route as ApiShapesIssueRelationsRouteImport } from './routes/api/shapes/issue-relations'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
+import { Route as ApiShapesIssueDraftsRouteImport } from './routes/api/shapes/issue-drafts'
 import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
 import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
@@ -393,6 +394,11 @@ const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
 const ApiShapesIssueEventsRoute = ApiShapesIssueEventsRouteImport.update({
   id: '/api/shapes/issue-events',
   path: '/api/shapes/issue-events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueDraftsRoute = ApiShapesIssueDraftsRouteImport.update({
+  id: '/api/shapes/issue-drafts',
+  path: '/api/shapes/issue-drafts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesDevicesRoute = ApiShapesDevicesRouteImport.update({
@@ -764,6 +770,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
+  '/api/shapes/issue-drafts': typeof ApiShapesIssueDraftsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-relations': typeof ApiShapesIssueRelationsRoute
@@ -873,6 +880,7 @@ export interface FileRoutesByTo {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
+  '/api/shapes/issue-drafts': typeof ApiShapesIssueDraftsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-relations': typeof ApiShapesIssueRelationsRoute
@@ -987,6 +995,7 @@ export interface FileRoutesById {
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
+  '/api/shapes/issue-drafts': typeof ApiShapesIssueDraftsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-relations': typeof ApiShapesIssueRelationsRoute
@@ -1101,6 +1110,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
+    | '/api/shapes/issue-drafts'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-relations'
@@ -1210,6 +1220,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
+    | '/api/shapes/issue-drafts'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-relations'
@@ -1323,6 +1334,7 @@ export interface FileRouteTypes {
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
+    | '/api/shapes/issue-drafts'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-relations'
@@ -1428,6 +1440,7 @@ export interface RootRouteChildren {
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
   ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
+  ApiShapesIssueDraftsRoute: typeof ApiShapesIssueDraftsRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
   ApiShapesIssueRelationsRoute: typeof ApiShapesIssueRelationsRoute
@@ -1834,6 +1847,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/issue-events'
       fullPath: '/api/shapes/issue-events'
       preLoaderRoute: typeof ApiShapesIssueEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-drafts': {
+      id: '/api/shapes/issue-drafts'
+      path: '/api/shapes/issue-drafts'
+      fullPath: '/api/shapes/issue-drafts'
+      preLoaderRoute: typeof ApiShapesIssueDraftsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/devices': {
@@ -2424,6 +2444,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
   ApiShapesDevicesRoute: ApiShapesDevicesRoute,
+  ApiShapesIssueDraftsRoute: ApiShapesIssueDraftsRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
   ApiShapesIssueRelationsRoute: ApiShapesIssueRelationsRoute,

@@ -45,7 +45,7 @@ Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace, not a bun on
 
 **Vocabulary (EXP-180):** the product says **team** and **board** EVERYWHERE: copy, URLs (`/t/$teamSlug/boards/$boardSlug/issues/$id`), identifiers, DB, routers, shapes, MCP tools. Boards have no types; `repository_id` is NULLABLE; coding gates on repo PRESENCE.
 
-**Client parity:** all four clients sync the same 21 Electric shapes (`routes/api/shapes/` IS the list). `pins` (EXP-778) is per-user static, never trash-scoped: a row renders only when its target resolves. The `actions` shape EXCLUDES the `body` (tRPC `actions.get`). `devices` + `device_worktrees` (EXP-481) sync `user_id = me OR shared_team_ids && (member teams)` (FEED-33: uuid[], per-team toggles) via trigger mirrors; identity rotates only on membership changes; devices rows are SERVER-AUTHORITATIVE (persisted `launch_defaults` the machine converges to; heartbeat ~30s; online = `last_seen_at` within `contract.device.onlineWindowSeconds`). `repositories`, `user_notification_prefs`, `email_deliveries`, `conversion_events`, `device_commands`, `passkeys`, helpdesk and widget tables are **server-only (tRPC), never synced**.
+**Client parity:** all four clients sync the same 22 Electric shapes (`routes/api/shapes/` IS the list). `pins` (EXP-778) + `issue_drafts` (EXP-878) are per-user static, never trash-scoped: a row renders only when its target/board resolves; draft attachments (`draft_id`, issue_id NULL) never sync (tRPC `issueDrafts.listAttachments`), upload eagerly to `/api/issue-drafts/{id}/files`, reparent on `issues.create({draftId})`. The `actions` shape EXCLUDES the `body` (tRPC `actions.get`). `devices` + `device_worktrees` (EXP-481) sync `user_id = me OR shared_team_ids && (member teams)` (FEED-33: uuid[], per-team toggles) via trigger mirrors; identity rotates only on membership changes; devices rows are SERVER-AUTHORITATIVE (persisted `launch_defaults` the machine converges to; heartbeat ~30s; online = `last_seen_at` within `contract.device.onlineWindowSeconds`). `repositories`, `user_notification_prefs`, `email_deliveries`, `conversion_events`, `device_commands`, `passkeys`, helpdesk and widget tables are **server-only (tRPC), never synced**.
 
 **Nothing is anonymously readable:** every shape is member-only (anonymous → impossible-match sentinel); no public tRPC; attachment reads need membership. The ONLY anonymous endpoints: widget (`/api/widget/*`), helpdesk reporter magic-link (`/api/support/*` + `/support/$token`), invites, auth, the licence notices `/about` + `/NOTICES.txt`, plus the MCP OAuth CIMD + state-gated callback (`/api/mcp-oauth/{client.json,callback}`, EXP-792). Board-scoped shapes are TEAM-scoped with a STATIC trash predicate (REV2-5): `team_id IN (member teams) AND board_deleted_at IS NULL`, a trigger-maintained mirror of the board's `deleted_at` on every issue child, so trashing moves rows out incrementally and **shape identities rotate ONLY on membership changes**. Batch `coding_sessions` rows and issue-less notifications keep NULL `board_deleted_at` and always sync; the notifications shape is static per user (`user_id = me AND board_deleted_at IS NULL`; fan-out filters recipients at delivery, delivered rows outlive membership); issue-less `support_reply` rows carry a synced `team_id` for Support routing.
 
@@ -63,48 +63,40 @@ The app is **noindex** everywhere (`__root.tsx` meta + `X-Robots-Tag` from `serv
 
 ## Commands
 
-From repo root unless noted.
+From repo root.
 
 ```bash
 bun install
 bun run backend                    # docker compose up -d + dev server (:3000 via Caddy)
-bun run ios                        # tuist generate + Xcode (Mac-only)
-bun run ios:test                   # ExpCore+ExpUI suites (Mac-only)
+bun run ios / ios:test             # tuist+Xcode / ExpCore+ExpUI suites (Mac-only)
 bun run android                    # productionDebug install + launch
-bun dev                            # web dev server (localhost:5173)
-bun run dev:marketing / build:marketing
-bun run movie:{studio,render,poster,still}
-bun run {dev,start}:push-relay     # localhost:4001
-bun run {dev,start,test}:steer-relay   # localhost:4002
-bun run build                      # widget + web + marketing (widget FIRST)
-bun run build:web / build:widget / test:widget
-bun run dev:widget                 # watch-build (/widget/v1/demo.html)
-bun run typecheck / test / test:e2e   # web app
-bun run migrate / migrate:generate / psql
-bun run backend:{up,down,clear}    # clear wipes volumes
-bun run storage:init               # one-time Garage bootstrap
-bun run dev:desktop                # gpui IDE against the local backend
-bun run {build,appimage,macapp,test}:desktop
+bun dev                            # web dev server (:5173)
+bun run {dev,build}:marketing / movie:{studio,render,poster,still}
+bun run {dev,start}:push-relay / {dev,start,test}:steer-relay   # :4001 / :4002
+bun run build                      # widget FIRST, then web + marketing
+bun run build:web / build:widget / test:widget / dev:widget (watch, /widget/v1/demo.html)
+bun run typecheck / test / test:e2e   # web
+bun run migrate / migrate:generate / psql / backend:{up,down,clear} (clear wipes volumes) / storage:init (Garage bootstrap)
+bun run dev:desktop / {build,appimage,macapp,test}:desktop   # gpui IDE vs the local backend
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
-cd apps/web && bun run seed:screenshots        # demo data (shots + store captures)
-bun run shots                                  # all-platform view captures → shots/
+cd apps/web && bun run seed:screenshots   # demo data; then `bun run shots` → shots/
 ```
 
-Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` from `apps/desktop/`. Never `bun run lint` (--fix corrupts `typeof import()` sites) nor `bun run format`.
+Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` in `apps/desktop/`. Never `bun run lint` (--fix corrupts `typeof import()` sites) nor `bun run format`.
 
 ## Deploys
 
-Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only, no redeploy webhooks**: after a green Actions run, `coolify deploy uuid <uuid>` from the LAN. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags, multi-arch; the SAME image is cloud, staging and self-host (`selfhost/`), so the ghcr package stays PUBLIC and self-hosters pin semver. Its runtime `bun install` is `--filter '@exp/web'` on purpose (EXP-380); non-OSS components + notices rules: `docs/third-party-licences.md`, gated by `lib/third-party-licences.test.ts`. Native releases are tag-triggered (`build-{android,desktop,cli,ios}.yml`): `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (codegen-drift guard, production + staging × macOS/Linux/Windows, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, `apps/marketing/public/install.sh`, cloud AND self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload from a release-macOS runner, `ASC_*` secrets).
+Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only, no redeploy webhooks**: after a green Actions run, `coolify deploy uuid <uuid>` on the LAN. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags, multi-arch; the SAME image is cloud, staging and self-host (`selfhost/`), so the ghcr package stays PUBLIC and self-hosters pin semver. Its runtime `bun install` is `--filter '@exp/web'` (EXP-380); non-OSS components + notices rules: `docs/third-party-licences.md`, gated by `lib/third-party-licences.test.ts`. Native releases are tag-triggered (`build-{android,desktop,cli,ios}.yml`): `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (codegen-drift guard, production + staging × macOS/Linux/Windows, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, `apps/marketing/public/install.sh`, cloud AND self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload from a release-macOS runner, `ASC_*` secrets).
 
-**The operations runbook lives OUTSIDE the repo** (infra uuids/domains, buckets, staging, signing, release checklist); consult it before anything deploy-shaped.
+**The operations runbook lives OUTSIDE the repo** (infra uuids/domains, buckets, staging, signing, release checklist); read it before anything deploy-shaped.
 
-Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; its head id drives "What's new" on web AND `crates/ui/src/changelog.rs`).
+Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; its head id drives "What's new" on web + `crates/ui/src/changelog.rs`).
 
-After schema changes, always: `bun run migrate:generate && bun run migrate`. Custom SQL triggers (`db/out/custom/0001_triggers.sql`) auto-apply at boot (`bootstrap-cloud.ts` `applyCustomSql`, idempotent); only never-booting contexts (CI's schema job) need psql.
+After schema changes, always: `bun run migrate:generate && bun run migrate`. Custom SQL triggers (`db/out/custom/0001_triggers.sql`) auto-apply at boot (`bootstrap-cloud.ts` `applyCustomSql`, idempotent); only CI's never-booting schema job needs psql.
 
 ## Web App Structure (`apps/web/src/`)
 
-Shadcn lives in `components/ui/`, feature components flat in `components/` (`agent-session.tsx` = the steer/activity view). `lib/trpc/` is one file per router; `routes/api/trpc/$.ts` lists them. `lib/auth/`: `membership.ts` = data lookups, `access.ts` = authorization (`resolveTeamAccess`). `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email is a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). Team routes under `t/$teamSlug/` (`ls` lists them): inbox `?tab=my-issues` is a TAB, not a route; `reviews/$issueIdentifier` = the cross-board open-PR queue with confirmed squash merge; `agent` = sessions list + the composer (every play button routes here with `?issues=|action=|pr=|device=|text=|icon=`, one-shot; `?from=` = the origin the session's Back returns to), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
+Shadcn lives in `components/ui/`, feature components flat in `components/` (`agent-session.tsx` = the steer/activity view). `lib/trpc/` is one file per router; `routes/api/trpc/$.ts` lists them. `lib/auth/`: `membership.ts` = data lookups, `access.ts` = authorization (`resolveTeamAccess`). `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email is a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). Team routes under `t/$teamSlug/` (`ls` lists them): inbox `?tab=my-issues` is a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist; board `?draft=` reopens the create dialog, EXP-878); `reviews/$issueIdentifier` = the cross-board open-PR queue with confirmed squash merge; `agent` = sessions list + the composer (every play button routes here with `?issues=|action=|pr=|device=|text=|icon=`, one-shot; `?from=` = the origin the session's Back returns to), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
 
 ## Database
 
@@ -124,7 +116,7 @@ Values in `contract.json` (§Shared Contracts). `issue_status`: `pr_open` flips 
 
 ### Custom triggers
 
-`apps/web/src/db/out/custom/0001_triggers.sql` holds 16 commented functions; read it before anything trigger-adjacent. They guarantee: per-board issue numbers + `{prefix}-{number}` identifiers; `updated_at` maintenance (comments bump the issue, the trash fan-out doesn't); denormalized `team_id`/`board_id` + both board-hide mirrors on every issue child and on notifications (no-op when `issue_id` is NULL, so batch rows carry explicit ids); trash/archive fan-outs to those mirrors; the 6 builtin `issue_statuses` per team (`issueStatusDefaults`); `status_id` from the anchor for enum-only writers (explicit dual-writes win); `user_id`/`shared_team_ids` mirrors on `device_worktrees` with share-change fan-out (EXP-481) + team-delete unshare (FEED-33); the `team_ids` membership mirror on `users` (+ boot heal) behind the users-shape where clause (REV-37); `creem_subscription_id` immutable once set (REV-12).
+`apps/web/src/db/out/custom/0001_triggers.sql` holds 16 commented functions; read it before touching triggers. Guarantees: per-board issue numbers + `{prefix}-{number}` identifiers; `updated_at` maintenance (comments bump the issue, the trash fan-out doesn't); denormalized `team_id`/`board_id` + both board-hide mirrors on every issue child and on notifications (no-op when `issue_id` is NULL, so batch rows carry explicit ids); trash/archive fan-outs to those mirrors; the 6 builtin `issue_statuses` per team (`issueStatusDefaults`); `status_id` from the anchor for enum-only writers (explicit dual-writes win); `user_id`/`shared_team_ids` mirrors on `device_worktrees` with share-change fan-out (EXP-481) + team-delete unshare (FEED-33); the `team_ids` membership mirror on `users` (+ boot heal) behind the users-shape where clause (REV-37); `creem_subscription_id` immutable once set (REV-12).
 
 ## Patterns
 
@@ -205,7 +197,7 @@ Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_s
 ## Style Conventions
 
 - Template literals for strings; functional components only
-- shadcn/ui from `src/components/ui/` — ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; multi-client surfaces use an icon CONCEPT, never a raw lucide import
+- shadcn/ui from `src/components/ui/` ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; multi-client surfaces use an icon CONCEPT, never a raw lucide import
 - Business logic components in `src/components/`, not `ui/`
 
 ## Agent context budget (EXP-353/EXP-637)
