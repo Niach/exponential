@@ -79,35 +79,6 @@ function NavDot({
   )
 }
 
-/** EXP-870: the Agent entry's live-run COUNT — the one nav badge that is a
- *  number, on both rail states (desktop `RailBadge::Count`). Amber while a
- *  run waits on the person, green otherwise. */
-export function NavCountBadge({
-  count,
-  needsInput,
-  placement,
-}: {
-  count: number
-  needsInput: boolean
-  placement: BadgePlacement
-}) {
-  if (count === 0) return null
-  return (
-    <span
-      data-testid="agent-count-badge"
-      className={cn(
-        `pointer-events-none absolute flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none font-semibold text-black tabular-nums`,
-        needsInput ? `bg-yellow-400` : `bg-green-500`,
-        placement === `row`
-          ? `right-2 top-1/2 -translate-y-1/2`
-          : `-right-0.5 -top-0.5`
-      )}
-    >
-      {count > 99 ? `99+` : count}
-    </span>
-  )
-}
-
 /** Unread notifications from the per-user shape. */
 export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   const unread = useUnreadNotificationCount()
@@ -143,7 +114,8 @@ export function ReviewsOpenBadge({
   return <NavDot className="bg-green-500" placement={placement} />
 }
 
-/** My live runs in the team (`useMyLiveRuns`) — the Agent entry's count. */
+/** My live runs in the team (`useMyLiveRuns`) — the Agent entry's dot (EXP-880:
+ *  no count). Amber while a run waits on the person, green otherwise. */
 export function AgentRunningBadge({
   teamId,
   placement,
@@ -153,8 +125,12 @@ export function AgentRunningBadge({
 }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
+  if (count === 0) return null
   return (
-    <NavCountBadge count={count} needsInput={needsInput} placement={placement} />
+    <NavDot
+      className={needsInput ? `bg-yellow-400` : `bg-green-500`}
+      placement={placement}
+    />
   )
 }
 

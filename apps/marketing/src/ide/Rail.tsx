@@ -1,7 +1,7 @@
 /* ─── The rail (sidebar.rs RailView, EXP-723/870) — it NEVER leaves the
    window. Labelled it is the 272px left column: the web-style header (team
    switcher · Search · New issue) · Inbox / Support / Devices / Actions /
-   Automations / Reviews / Agent (the live-run COUNT badge) · Boards ·
+   Automations / Reviews / Agent (the live-run dot) · Boards ·
    "This device": Files / Source Control · the What's new card · Getting
    started · the account row with the new-terminal button and the gear.
    While a list is folded in beside an open issue it is the 48px ICON
@@ -129,13 +129,13 @@ export function Rail({ compact = false }: { compact?: boolean }) {
       onClick: go(`reviews`),
     },
     {
-      /* EXP-825: the Agent page's composer IS the launcher; EXP-870: the
-         badge counts my live runs. */
+      /* EXP-825: the Agent page's composer IS the launcher; EXP-880: a
+         green dot while my runs are live, never a count. */
       key: `agent`,
       Icon: IcMessageCircle,
       label: `Agent`,
       active: on(`agent`),
-      badge: liveRuns > 0 ? <span className="ide-rail-count">{liveRuns}</span> : undefined,
+      badge: liveRuns > 0 ? <span className="ide-rail-dot" /> : undefined,
       onClick: interactive ? () => openComposer([]) : undefined,
     },
   ]

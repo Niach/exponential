@@ -2134,26 +2134,6 @@
   text-overflow: ellipsis;
 }
 
-/* ══ Sidebar Agent count (EXP-870) ══ */
-.web-nav-count {
-  position: absolute;
-  right: var(--w2);
-  top: 50%;
-  transform: translateY(-50%);
-  min-width: var(--w5);
-  height: var(--w5);
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--w-emerald);
-  color: #052e16;
-  font-size: 11.5px;
-  font-weight: 600;
-  pointer-events: none;
-}
-
 /* ══ Agent page (routes/t/$teamSlug/agent, EXP-818/825/874) ══ */
 
 .web-agentcol {
