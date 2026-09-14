@@ -2509,11 +2509,12 @@ private fun BackgroundWorkStrip(tasks: List<BackgroundTask>, waits: List<String>
 }
 
 /**
- * EXP-861: the queue bar above the composer — the messages the device is
- * holding for the agent's next turn, oldest first, each on ONE truncated line
- * (a multi-line message reads as one) with the ghost X that revokes it
- * ([QUEUE_REMOVE_LABEL]). Same recipe as [BackgroundWorkStrip]; the bar itself
- * reads as [QUEUE_STRIP_TITLE] to a screen reader.
+ * EXP-861: the queue bar above the composer — the messages the agent has not
+ * read yet, oldest first, each on ONE truncated line (a multi-line message
+ * reads as one); a held line carries the ghost X that revokes it
+ * ([QUEUE_REMOVE_LABEL]), a `sent` one (EXP-873) none. Same recipe as
+ * [BackgroundWorkStrip]; the bar itself reads as [QUEUE_STRIP_TITLE] to a
+ * screen reader.
  */
 @Composable
 private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit) {
@@ -2545,16 +2546,22 @@ private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(
-                    onClick = { onRemove(message.id) },
-                    modifier = Modifier.size(28.dp).testTag("queue-remove"),
-                ) {
-                    Icon(
-                        imageVector = ExpIcons.uiClose,
-                        contentDescription = QUEUE_REMOVE_LABEL,
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
+                // EXP-873: a line already with the agent cannot be taken back
+                // one at a time — only Stop does — so it draws no X.
+                if (message.sent) {
+                    Spacer(modifier = Modifier.size(28.dp))
+                } else {
+                    IconButton(
+                        onClick = { onRemove(message.id) },
+                        modifier = Modifier.size(28.dp).testTag("queue-remove"),
+                    ) {
+                        Icon(
+                            imageVector = ExpIcons.uiClose,
+                            contentDescription = QUEUE_REMOVE_LABEL,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
                 }
             }
         }

@@ -27,8 +27,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
-    AvailableCommand, AvailableCommandsUpdate, ContentBlock, ContentChunk,
-    CreateElicitationRequest, CreateTerminalRequest, ElicitationAction, ElicitationContentValue,
+    AvailableCommand, AvailableCommandsUpdate, CompactionId, CompactionStatus, CompactionUpdate,
+    ContentBlock, ContentChunk, CreateElicitationRequest, CreateTerminalRequest, ElicitationAction, ElicitationContentValue,
     ElicitationFormMode, ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope,
     InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
     NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionId,
@@ -63,6 +63,13 @@ struct FakeState {
     answered: Mutex<Vec<String>>,
     /// Lets the test end the turn that waits on it.
     released: AtomicBool,
+    /// EXP-873: lets the test end the compaction the "compact" turn holds open.
+    fold_released: AtomicBool,
+    /// EXP-873: while set, the fake does NOT replay a prompt's text on
+    /// receipt — the replay waits until the gate clears, the way claude
+    /// takes a mid-turn message in at its next tool boundary. Clear (the
+    /// default) = replay at once.
+    replay_gate: AtomicBool,
     /// The permission option the client picked.
     chosen: Mutex<Option<String>>,
     /// The form field the client sent back for the elicitation.
@@ -210,6 +217,34 @@ impl ConnectTo<Client> for FakeAgent {
                             .lock()
                             .expect("the prompt log is not poisoned")
                             .push(text.clone());
+                        // EXP-873: claude replays every user message the
+                        // moment it takes it in (`--replay-user-messages`);
+                        // so does the fake — at once, or once the test's gate
+                        // clears. "silent" is a message the agent folded in
+                        // WITHOUT echoing it.
+                        if text != "silent" {
+                            let replay_cx = cx.clone();
+                            let replay_state = prompt_state.clone();
+                            let replay_session = request.session_id.clone();
+                            let replay_text = text.clone();
+                            cx.spawn(async move {
+                                let deadline = Instant::now() + BUDGET;
+                                while Instant::now() < deadline
+                                    && replay_state.replay_gate.load(Ordering::SeqCst)
+                                {
+                                    tokio::time::sleep(Duration::from_millis(10)).await;
+                                }
+                                if !replay_state.replay_gate.load(Ordering::SeqCst) {
+                                    let _ = replay_cx.send_notification(SessionNotification::new(
+                                        replay_session,
+                                        SessionUpdate::UserMessageChunk(ContentChunk::new(
+                                            ContentBlock::Text(TextContent::new(replay_text)),
+                                        )),
+                                    ));
+                                }
+                                Ok(())
+                            })?;
+                        }
                         let session_id = request.session_id.clone();
                         let state = prompt_state.clone();
                         let child_exit = child_exit.clone();
@@ -367,6 +402,29 @@ async fn run_turn(
             while Instant::now() < deadline && !state.released.load(Ordering::SeqCst) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
+            StopReason::EndTurn
+        }
+        // EXP-873: a compaction held open until the test releases it, the
+        // way claude's auto-compaction holds a turn; the turn ends with it.
+        "compact" => {
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                    CompactionId::new("c-1"),
+                    CompactionStatus::InProgress,
+                )),
+            ));
+            let deadline = Instant::now() + BUDGET;
+            while Instant::now() < deadline && !state.fold_released.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                    CompactionId::new("c-1"),
+                    CompactionStatus::Completed,
+                )),
+            ));
             StopReason::EndTurn
         }
         "hang" => {
@@ -661,6 +719,34 @@ fn events_of(sink: &RecordingSink, kind: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Every published event, in order — for assertions about what came first.
+fn all_events(sink: &RecordingSink) -> Vec<serde_json::Value> {
+    sink.snapshot()
+        .iter()
+        .filter_map(|event| serde_json::to_value(event).ok())
+        .collect()
+}
+
+/// The newest `queue` frame's message list.
+fn last_queue(sink: &RecordingSink) -> Option<Vec<serde_json::Value>> {
+    events_of(sink, "queue")
+        .pop()
+        .and_then(|slot| slot["messages"].as_array().cloned())
+}
+
+fn queue_texts(messages: &[serde_json::Value]) -> Vec<String> {
+    messages
+        .iter()
+        .filter_map(|message| message["text"].as_str().map(str::to_string))
+        .collect()
+}
+
+fn has_user_row(sink: &RecordingSink, text: &str) -> bool {
+    events_of(sink, "user_message")
+        .iter()
+        .any(|event| event["text"] == text)
+}
+
 // ---------------------------------------------------------------------------
 // The tests
 // ---------------------------------------------------------------------------
@@ -858,144 +944,235 @@ fn an_elicitation_is_a_stepper_keyed_on_its_tool_call() {
     harness.session.kill("killed");
 }
 
-/// EXP-861: a message that arrives while a turn is running is HELD — the
-/// `queue` slot names it, no `user_message` row appears, the agent sees
-/// nothing — and starts as its own turn the moment the running one answers.
-/// (Before EXP-861 a mid-turn steer was a second `session/prompt` the CLI
-/// folded or queued itself, invisible and irrevocable.)
+/// EXP-873: a message that arrives while a turn is running goes to the agent
+/// AT ONCE (claude folds it in at its next tool boundary) and waits in the
+/// `queue` slot as `sent`, with no `user_message` row of its own; the agent's
+/// REPLAY of it is the moment it read it — the bar closes and the row
+/// appears, in that order. (EXP-861 held the message on the device until the
+/// idle edge, which is not how the CLI's own queue behaves: a steer lands
+/// mid-turn, between two tool calls, not after the turn.)
 #[test]
-fn a_mid_turn_message_is_held_and_starts_when_the_turn_ends() {
-    let harness = start_fake("queue-hold");
+fn a_mid_turn_message_goes_to_the_agent_at_once_and_its_row_lands_on_the_replay() {
+    let harness = start_fake("queue-sent");
     let signal = harness.session.turn_signal();
     let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
-    let answered = |text: &str| {
-        harness
-            .state
-            .answered
-            .lock()
-            .expect("the answer log is not poisoned")
-            .iter()
-            .any(|prompt| prompt == text)
-    };
+    harness.state.replay_gate.store(true, Ordering::SeqCst);
 
     harness.session.send_prompt("steered".to_string());
     until("the first turn", || prompts() >= 1);
-    harness.session.steer("stream".to_string());
-    until("the queue slot", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 1))
-    });
-    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    assert_eq!(slot["messages"][0]["text"], "stream");
-    assert!(slot["messages"][0]["id"].as_str().is_some_and(|id| !id.is_empty()));
+    harness.session.steer("also check the tests".to_string());
+    until("the message reaches the agent mid-turn", || prompts() >= 2);
+    assert!(!signal.is_idle(), "the first turn is still running");
+    until("the queue slot", || last_queue(&harness.sink).is_some_and(|m| m.len() == 1));
+    let slot = last_queue(&harness.sink).expect("a queue frame");
+    assert_eq!(slot[0]["text"], "also check the tests");
+    assert_eq!(slot[0]["sent"], true, "sent to the agent, awaiting its replay");
+    assert!(slot[0]["id"].as_str().is_some_and(|id| !id.is_empty()));
 
-    // Held: the agent has ONE prompt, the run stays busy, and the held
-    // message has no row of its own yet.
-    let deadline = Instant::now() + Duration::from_millis(400);
-    while Instant::now() < deadline {
-        assert_eq!(prompts(), 1, "a held message never reaches the agent mid-turn");
-        assert!(!signal.is_idle(), "the first turn is still running");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    // No row while the agent has not taken it in: the bar is its only home.
+    std::thread::sleep(Duration::from_millis(300));
     assert!(
-        !events_of(&harness.sink, "user_message")
-            .iter()
-            .any(|event| event["text"] == "stream"),
-        "a held message has no user row until it is delivered"
+        !has_user_row(&harness.sink, "also check the tests"),
+        "a message the agent has not read has no user row"
+    );
+
+    // The replay: the row lands, and the bar closed FIRST.
+    harness.state.replay_gate.store(false, Ordering::SeqCst);
+    until("the read message's row", || has_user_row(&harness.sink, "also check the tests"));
+    let events = all_events(&harness.sink);
+    let row_at = events
+        .iter()
+        .position(|event| event["kind"] == "user_message" && event["text"] == "also check the tests")
+        .expect("the row");
+    let closed_at = events
+        .iter()
+        .rposition(|event| {
+            event["kind"] == "queue" && event["messages"].as_array().is_some_and(Vec::is_empty)
+        })
+        .expect("the bar closing");
+    assert!(closed_at < row_at, "the bar closes before the row appears");
+    assert!(
+        !signal.is_idle(),
+        "the turn the message joined is still running: answered {:?}, turns {:?}",
+        harness.state.answered.lock().expect("the answer log is not poisoned"),
+        events_of(&harness.sink, "turn")
     );
 
     harness.state.released.store(true, Ordering::SeqCst);
-    until("the first turn's answer", || answered("steered"));
-    until("the held message reaches the agent", || prompts() >= 2);
-    // The bar closed and the row appeared, in that order.
-    let last_slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    assert_eq!(last_slot["messages"].as_array().map(Vec::len), Some(0));
-    until("the delivered message's row", || {
+    until("the idle edge", || signal.is_idle());
+    assert_eq!(prompts(), 2);
+    assert_eq!(
         events_of(&harness.sink, "user_message")
             .iter()
-            .any(|event| event["text"] == "stream")
-    });
-    until("the idle edge", || signal.is_idle());
-    assert!(answered("stream"));
+            .filter(|event| event["text"] == "also check the tests")
+            .count(),
+        1,
+        "one row, never a second from the echo"
+    );
     harness.session.kill("killed");
 }
 
-/// EXP-861: the × on the bar — an `unqueue` drops the held message, the
-/// slot says so, and the agent never sees it.
+/// EXP-873: an agent that folded a message in WITHOUT echoing it still read
+/// it — on the idle edge every sent line the mapper stopped awaiting becomes
+/// its row and leaves the bar, so no message the agent answered sits
+/// "queued" forever.
 #[test]
-fn an_unqueue_drops_a_held_message() {
-    let harness = start_fake("queue-revoke");
+fn a_sent_message_without_a_replay_lands_on_the_idle_edge() {
+    let harness = start_fake("queue-silent");
     let signal = harness.session.turn_signal();
     let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
 
     harness.session.send_prompt("steered".to_string());
     until("the first turn", || prompts() >= 1);
-    harness.session.steer("stream".to_string());
-    harness.session.steer("keep me".to_string());
-    until("two held messages", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 2))
+    harness.session.steer("silent".to_string());
+    until("the message reaches the agent", || prompts() >= 2);
+    until("the sent line", || {
+        last_queue(&harness.sink).is_some_and(|m| m.len() == 1 && m[0]["sent"] == true)
     });
-    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    let first = slot["messages"][0]["id"].as_str().expect("an id").to_string();
-    harness.session.unqueue(&first);
-    // An unknown id changes nothing (and republishes nothing).
-    harness.session.unqueue("no-such-id");
-    until("the slot without it", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 1))
-    });
-    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    assert_eq!(slot["messages"][0]["text"], "keep me");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!has_user_row(&harness.sink, "silent"), "no replay, no row yet");
 
     harness.state.released.store(true, Ordering::SeqCst);
-    until("the kept message reaches the agent", || prompts() >= 2);
     until("the idle edge", || signal.is_idle());
-    assert_eq!(prompts(), 2, "the revoked message never reached the agent");
+    until("the row on the idle edge", || has_user_row(&harness.sink, "silent"));
+    assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
     harness.session.kill("killed");
 }
 
-/// EXP-861: a Stop drops the queue with the turn — the same `cancel_queued`
-/// meaning the CLI's own queue had — so nothing typed behind a turn the
-/// person just killed sneaks in as the next one.
+/// EXP-861/EXP-873: a message sent while a COMPACTION is open is HELD on the
+/// device — no `sent` flag, the agent sees nothing — and goes to the agent
+/// the moment the fold ends.
 #[test]
-fn a_stop_drops_the_held_messages() {
-    let harness = start_fake("queue-stop");
+fn a_message_sent_mid_compaction_is_held_until_the_fold_ends() {
+    let harness = start_fake("queue-compact");
     let signal = harness.session.turn_signal();
     let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
 
-    harness.session.send_prompt("hang".to_string());
-    until("the turn to start", || prompts() >= 1);
-    harness.session.steer("stream".to_string());
-    until("the held message", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 1))
+    harness.session.send_prompt("compact".to_string());
+    until("the compaction to open", || {
+        events_of(&harness.sink, "compaction")
+            .iter()
+            .any(|event| event["phase"] == "started")
     });
-    harness.session.cancel_turn();
-    until("the adapter's cancel", || {
-        harness.state.cancelled.load(Ordering::SeqCst)
-    });
-    until("the idle edge", || signal.is_idle());
-    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    assert_eq!(slot["messages"].as_array().map(Vec::len), Some(0));
-    // Nothing drained after the cancel: the agent saw the one prompt only.
+    harness.session.steer("after the fold".to_string());
+    until("the held line", || last_queue(&harness.sink).is_some_and(|m| m.len() == 1));
+    let slot = last_queue(&harness.sink).expect("a queue frame");
+    assert_eq!(slot[0]["text"], "after the fold");
+    assert!(slot[0].get("sent").is_none(), "held on the device, not sent");
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(prompts(), 1);
+    assert_eq!(prompts(), 1, "a held message never reaches the agent mid-compaction");
+    assert!(!has_user_row(&harness.sink, "after the fold"));
+
+    harness.state.fold_released.store(true, Ordering::SeqCst);
+    until("the held message reaches the agent", || prompts() >= 2);
+    until("its row", || has_user_row(&harness.sink, "after the fold"));
+    until("the idle edge", || signal.is_idle());
+    assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
     harness.session.kill("killed");
 }
 
-/// EXP-784/EXP-861: `TURN_SLOTS` still bounds how many `session/prompt`s are
-/// open at once — the drain starts every held message as its own turn, and
-/// past two of them the rest park inside their tasks until a slot frees.
-/// Every drained message announces its row at drain time, in order.
+/// EXP-861: the × on the bar — an `unqueue` drops a HELD message; the slot
+/// says so and the agent never sees it. EXP-873: a SENT line cannot be taken
+/// back from the agent, so the slot is republished as it stands and the line
+/// a client dropped optimistically comes back.
 #[test]
-fn drained_messages_start_in_order_under_the_turn_slot_bound() {
+fn an_unqueue_drops_a_held_message_but_not_a_sent_one() {
+    let harness = start_fake("queue-revoke");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+    let queue_frames = || events_of(&harness.sink, "queue").len();
+    harness.state.replay_gate.store(true, Ordering::SeqCst);
+
+    // A sent line: the × changes nothing but the slot restating it.
+    harness.session.send_prompt("steered".to_string());
+    until("the first turn", || prompts() >= 1);
+    harness.session.steer("sent one".to_string());
+    until("the sent line", || {
+        last_queue(&harness.sink).is_some_and(|m| m.len() == 1 && m[0]["sent"] == true)
+    });
+    let sent_id = last_queue(&harness.sink).expect("a slot")[0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let before = queue_frames();
+    harness.session.unqueue(&sent_id);
+    until("the slot restated", || queue_frames() > before);
+    assert_eq!(
+        queue_texts(&last_queue(&harness.sink).expect("a slot")),
+        vec!["sent one"],
+        "a sent line stays"
+    );
+    harness.state.replay_gate.store(false, Ordering::SeqCst);
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the idle edge", || signal.is_idle());
+    assert!(has_user_row(&harness.sink, "sent one"));
+
+    // A held line: the × drops it, the agent never sees it.
+    harness.session.send_prompt("compact".to_string());
+    until("the compaction to open", || {
+        events_of(&harness.sink, "compaction")
+            .iter()
+            .any(|event| event["phase"] == "started")
+    });
+    harness.session.steer("drop me".to_string());
+    harness.session.steer("keep me".to_string());
+    until("two held lines", || last_queue(&harness.sink).is_some_and(|m| m.len() == 2));
+    let held_id = last_queue(&harness.sink).expect("a slot")[0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    harness.session.unqueue(&held_id);
+    // An unknown id changes nothing.
+    harness.session.unqueue("no-such-id");
+    until("the slot without it", || last_queue(&harness.sink).is_some_and(|m| m.len() == 1));
+    assert_eq!(queue_texts(&last_queue(&harness.sink).expect("a slot")), vec!["keep me"]);
+
+    harness.state.fold_released.store(true, Ordering::SeqCst);
+    until("the kept message reaches the agent", || prompts() >= 4);
+    until("the idle edge", || signal.is_idle());
+    let seen = harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    assert_eq!(seen, vec!["steered", "sent one", "compact", "keep me"]);
+    assert!(!has_user_row(&harness.sink, "drop me"), "a revoked message has no row");
+    harness.session.kill("killed");
+}
+
+/// EXP-861/EXP-873: a Stop drops every unread message — held AND sent (the
+/// CLI's own `cancel_queued`) — so nothing typed behind a turn the person
+/// just killed sneaks in, and a dropped message never renders as a row: the
+/// clients hand its text back to the composer instead.
+#[test]
+fn a_stop_drops_the_unread_messages_without_a_row() {
+    let harness = start_fake("queue-stop");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+    harness.state.replay_gate.store(true, Ordering::SeqCst);
+
+    harness.session.send_prompt("hang".to_string());
+    until("the turn to start", || prompts() >= 1);
+    harness.session.steer("never mind".to_string());
+    until("the sent line", || {
+        last_queue(&harness.sink).is_some_and(|m| m.len() == 1 && m[0]["sent"] == true)
+    });
+    harness.session.cancel_turn();
+    until("the adapter's cancel", || harness.state.cancelled.load(Ordering::SeqCst));
+    until("the idle edge", || signal.is_idle());
+    assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !has_user_row(&harness.sink, "never mind"),
+        "a message the Stop dropped never renders as read"
+    );
+    harness.session.kill("killed");
+}
+
+/// EXP-784/EXP-873: `TURN_SLOTS` still bounds how many `session/prompt`s are
+/// open at once — past two, a mid-turn message parks inside its task until a
+/// slot frees — and every message keeps send order on the transcript, its
+/// row landing on its replay.
+#[test]
+fn mid_turn_messages_keep_send_order_under_the_turn_slot_bound() {
     assert_eq!(engine::host::TURN_SLOTS, 2, "the test below assumes two slots");
-    let harness = start_fake("queue-drain");
+    let harness = start_fake("queue-order");
     let signal = harness.session.turn_signal();
     let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
 
@@ -1004,55 +1181,8 @@ fn drained_messages_start_in_order_under_the_turn_slot_bound() {
     for text in ["one", "two", "three"] {
         harness.session.steer(text.to_string());
     }
-    until("three held messages", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 3))
-    });
-    harness.state.released.store(true, Ordering::SeqCst);
-    until("every held message reaches the agent", || prompts() >= 4);
-    until("the idle edge", || signal.is_idle());
-    let seen = harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
-    assert_eq!(seen, vec!["steered", "one", "two", "three"]);
-    let rows: Vec<String> = events_of(&harness.sink, "user_message")
-        .iter()
-        .filter_map(|event| event["text"].as_str().map(str::to_string))
-        .collect();
-    assert_eq!(rows, vec!["steered", "one", "two", "three"]);
-    harness.session.kill("killed");
-}
-
-/// EXP-861: a message sent right ON the idle edge — after `dispatch` opened
-/// the gate, before the loop read its `DrainQueue` — never jumps ahead of
-/// the messages already held: the gate drains them first, oldest first, then
-/// starts the new one, so the transcript keeps send order and no held line
-/// sits out an extra turn. (The interleaving is a race; the test fires the
-/// third message off the signal's own wake so it lands as close to the edge
-/// as a thread can, and the assertion holds for EVERY interleaving.)
-#[test]
-fn a_message_on_the_idle_edge_starts_behind_the_held_ones() {
-    let harness = start_fake("queue-edge");
-    let signal = harness.session.turn_signal();
-    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
-
-    harness.session.send_prompt("steered".to_string());
-    until("the first turn", || prompts() >= 1);
-    for text in ["one", "two"] {
-        harness.session.steer(text.to_string());
-    }
-    until("two held messages", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 2))
-    });
-    // Armed BEFORE the release: the waiter fires inside `set_idle(true)`,
-    // i.e. before the dispatching thread gets to request the drain.
-    let edge = signal.subscribe();
-    harness.state.released.store(true, Ordering::SeqCst);
-    edge.recv_timeout(BUDGET).expect("the idle edge");
-    harness.session.steer("three".to_string());
-
     until("every message reaches the agent", || prompts() >= 4);
+    harness.state.released.store(true, Ordering::SeqCst);
     until("the idle edge", || signal.is_idle());
     let seen = harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
     assert_eq!(seen, vec!["steered", "one", "two", "three"]);
@@ -1061,21 +1191,20 @@ fn a_message_on_the_idle_edge_starts_behind_the_held_ones() {
         .filter_map(|event| event["text"].as_str().map(str::to_string))
         .collect();
     assert_eq!(rows, vec!["steered", "one", "two", "three"]);
-    // Nothing is left behind for a later edge.
-    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    assert_eq!(slot["messages"].as_array().map(Vec::len), Some(0));
+    assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
     harness.session.kill("killed");
 }
 
-/// EXP-861: a run that ends with messages still held does NOT close the bar
+/// EXP-861: a run that ends with messages still unread does NOT close the bar
 /// on its way out — the last `queue` frame lists them, so a client can move
-/// the text somewhere the person can still reach it (the web's composer
-/// draft) on the `ended` edge instead of losing it. The held lines never
-/// became rows: they were not delivered.
+/// the text somewhere the person can still reach it (the composer draft) on
+/// the `ended` edge instead of losing it. No row for them: nothing says the
+/// agent read them.
 #[test]
-fn a_run_ending_with_held_messages_keeps_them_in_its_last_queue_frame() {
+fn a_run_ending_with_unread_messages_keeps_them_in_its_last_queue_frame() {
     let harness = start_fake("queue-end");
     let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+    harness.state.replay_gate.store(true, Ordering::SeqCst);
 
     // The seed: an empty slot from the very first moment, so a resumed
     // run's inherited history never replays a predecessor's full bar.
@@ -1089,28 +1218,14 @@ fn a_run_ending_with_held_messages_keeps_them_in_its_last_queue_frame() {
     for text in ["one", "two"] {
         harness.session.steer(text.to_string());
     }
-    until("two held messages", || {
-        events_of(&harness.sink, "queue")
-            .last()
-            .is_some_and(|slot| slot["messages"].as_array().is_some_and(|m| m.len() == 2))
-    });
+    until("two unread lines", || last_queue(&harness.sink).is_some_and(|m| m.len() == 2));
 
     harness.session.kill("killed");
     until("the exit", || harness.session.is_done());
-    let slot = events_of(&harness.sink, "queue").pop().expect("a queue frame");
-    let texts: Vec<&str> = slot["messages"]
-        .as_array()
-        .expect("a message list")
-        .iter()
-        .filter_map(|message| message["text"].as_str())
-        .collect();
-    assert_eq!(texts, vec!["one", "two"]);
-    assert_eq!(prompts(), 1, "a held message never reached the agent");
+    assert_eq!(queue_texts(&last_queue(&harness.sink).expect("a slot")), vec!["one", "two"]);
     assert!(
-        !events_of(&harness.sink, "user_message")
-            .iter()
-            .any(|event| event["text"] == "one" || event["text"] == "two"),
-        "an undelivered message has no row"
+        !has_user_row(&harness.sink, "one") && !has_user_row(&harness.sink, "two"),
+        "an unread message has no row"
     );
 }
 

@@ -1254,9 +1254,24 @@ final class AgentSessionModel {
     /// while the agent works and the field is empty. Fire-and-forget like
     /// `sendMode`: the turn's own `idle` edge is the confirmation. Same
     /// `canSteer` gate, so a paused or ended run offers no dead tap.
+    ///
+    /// EXP-873: a Stop drops every message the agent has not read yet (the
+    /// queue strip, held and sent alike — the CLI's own `cancel_queued`), so
+    /// their text goes back into the composer, in order, instead of
+    /// vanishing; the device's empty `queue` frame confirms. A draft in
+    /// progress keeps its place, the queued text lands after a blank line.
     func sendInterrupt() {
         guard canSteer else { return }
         send(frame: ["t": "interrupt"])
+        restoreQueueToDraft()
+    }
+
+    /// EXP-873: hand the strip's text back to the composer and clear it.
+    private func restoreQueueToDraft() {
+        guard !queued.isEmpty else { return }
+        let held = queued.map(\.text).joined(separator: "\n")
+        queued = []
+        draftText = trimmedDraft.isEmpty ? held : draftText + "\n\n" + held
     }
 
     private func send(frame: [String: Any]) {

@@ -2227,6 +2227,25 @@ describe(`parseQueue`, () => {
     expect(parseQueue({ messages: many })).toHaveLength(QUEUE_MAX_MESSAGES)
   })
 
+  // EXP-873: `sent` rides the wire only when true — a line already with the
+  // agent (no × for it); anything else reads as held.
+  it(`reads the sent flag and nothing else as sent`, () => {
+    expect(
+      parseQueue({
+        kind: `queue`,
+        messages: [
+          { id: `m1`, text: `held` },
+          { id: `m2`, text: `with the agent`, sent: true },
+          { id: `m3`, text: `not a flag`, sent: `yes` },
+        ],
+      })
+    ).toEqual([
+      { id: `m1`, text: `held` },
+      { id: `m2`, text: `with the agent`, sent: true },
+      { id: `m3`, text: `not a flag` },
+    ])
+  })
+
   // The ×4 strings — the natives lock the same bytes.
   it(`keeps the shared captions`, () => {
     expect(QUEUE_STRIP_TITLE).toBe(`Queued`)

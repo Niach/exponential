@@ -538,6 +538,17 @@ impl SteerFeed {
         self.queue.retain(|message| message.id != id);
     }
 
+    /// EXP-873: take every unread message out of the bar — the optimistic
+    /// half of a Stop, whose text the composer takes back; the device's
+    /// empty `queue` frame is the truth.
+    pub fn take_queue(&mut self) -> Vec<crate::frames::QueuedMessage> {
+        if self.queue.is_empty() {
+            return Vec::new();
+        }
+        self.touch();
+        std::mem::take(&mut self.queue)
+    }
+
     /// EXP-850 §3: every workflow card this feed holds, in first-appearance
     /// order.
     pub fn workflows(&self) -> &[crate::workflow::WorkflowState] {
@@ -2675,6 +2686,7 @@ mod tests {
         let held = |id: &str, text: &str| crate::frames::QueuedMessage {
             id: id.to_string(),
             text: text.to_string(),
+            sent: false,
         };
         feed.apply(ActivityEvent::queue(vec![held("m1", "first")]));
         assert_eq!(feed.queue().len(), 1);

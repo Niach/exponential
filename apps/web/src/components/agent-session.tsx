@@ -1618,9 +1618,11 @@ export function AgentSessionView({
               above the composer. */}
           <BackgroundStrip lines={stripLines} />
 
-          {/* EXP-861: the messages the device is holding for the next turn,
-              each with an X that revokes it (and hands the text back to an
-              empty draft, the CLI's "edit queued message"). */}
+          {/* EXP-861: the messages the agent has not read yet — held behind a
+              compaction (an X revokes one and hands the text back to an
+              empty draft, the CLI's "edit queued message") or sent mid-turn
+              and awaiting the agent's replay (EXP-873: no X; Stop takes it
+              back). */}
           <QueueStrip
             messages={queue}
             onRemove={(entry) => {
@@ -1943,9 +1945,10 @@ function BackgroundStrip({ lines }: { lines: BackgroundStripLine[] }) {
 }
 
 /** EXP-861: the strip directly below the background one — one line per
- *  message the device is holding for the next turn (the queue is on the
- *  DEVICE; this is its latest-wins mirror), each with an X that revokes it.
- *  Absent when nothing is queued. The composer is never disabled by it. */
+ *  message the agent has not read yet (the queue is on the DEVICE; this is
+ *  its latest-wins mirror). A held line carries an X that revokes it; a
+ *  `sent` one (EXP-873, already with the agent) draws none. Absent when
+ *  nothing is queued. The composer is never disabled by it. */
 function QueueStrip({
   messages,
   onRemove,
@@ -1972,16 +1975,18 @@ function QueueStrip({
           <span className="min-w-0 flex-1 truncate" title={entry.text}>
             {entry.text}
           </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0"
-            aria-label={QUEUE_REMOVE_LABEL}
-            title={QUEUE_REMOVE_LABEL}
-            onClick={() => onRemove(entry)}
-          >
-            <UiCloseIcon className="size-3" />
-          </Button>
+          {entry.sent !== true && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0"
+              aria-label={QUEUE_REMOVE_LABEL}
+              title={QUEUE_REMOVE_LABEL}
+              onClick={() => onRemove(entry)}
+            >
+              <UiCloseIcon className="size-3" />
+            </Button>
+          )}
         </div>
       ))}
     </div>

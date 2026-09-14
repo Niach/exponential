@@ -461,15 +461,20 @@ fun agentWorking(
 
 // ── EXP-861: the device's message queue, as a latest-wins slot ──────────────
 //
-// A message sent while the agent is mid-turn or compacting is HELD on the
-// device and delivered when the turn ends; the engine publishes the WHOLE
-// queue as ONE `queue` event (oldest first, ≤20), replayed on join right after
-// `turn`. Never a feed row: the real `user_message` arrives when the message
-// is delivered, which is also why a client sending into a running turn skips
-// its local echo (see `SteerConnection.sendMessage`).
+// The messages the agent has not read yet. One sent mid-turn goes to the
+// agent at once and waits here as `sent` until the agent's replay of it
+// arrives (EXP-873: claude folds it in at its next tool boundary); one sent
+// mid-compaction is HELD on the device until the fold ends. The engine
+// publishes the WHOLE queue as ONE `queue` event (oldest first, ≤20), replayed
+// on join right after `turn`. Never a feed row: the real `user_message`
+// arrives when the agent takes the message in, which is also why a client
+// sending into a running turn skips its local echo (see
+// `SteerConnection.sendMessage`).
 
-/** One held message: the person's text as written (image embeds included). */
-data class QueuedMessage(val id: String, val text: String)
+/** One unread message: the person's text as written (image embeds included).
+ *  [sent] = already with the agent, awaiting its replay — no per-line revoke
+ *  (only Stop takes it back); false = held on the device, `unqueue` revokes. */
+data class QueuedMessage(val id: String, val text: String, val sent: Boolean = false)
 
 /** The queue bar's accessibility label. Byte-identical ×4. */
 const val QUEUE_STRIP_TITLE = "Queued"
@@ -1615,7 +1620,8 @@ fun ActivityFeedState.applyActivityEvent(
             queue = raw.orEmptyList { message ->
                 val id = message.str("id")?.takeIf { it.isNotBlank() } ?: return@orEmptyList null
                 val text = message.str("text") ?: return@orEmptyList null
-                QueuedMessage(id = id, text = text)
+                // EXP-873: `sent` rides the wire only when true; absent = held.
+                QueuedMessage(id = id, text = text, sent = message.bool("sent"))
             },
         )
     }

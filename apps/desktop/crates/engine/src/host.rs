@@ -250,6 +250,9 @@ pub(crate) enum EngineCommand {
     LoadHistory,
     /// EXP-861: revoke ONE message held in the prompt queue (a viewer's
     /// `unqueue` frame, the local composer's ×). Unknown ids are a no-op.
+    /// EXP-873: a message already SENT mid-turn cannot be taken back from
+    /// the agent one at a time — the slot is republished so the line the
+    /// client dropped optimistically comes back; only a Stop drops it.
     Unqueue(String),
     /// EXP-861: the turn ended (or a compaction closed) with messages held
     /// — start them now, oldest first. Sent by [`SessionCtx::dispatch`] on
@@ -260,13 +263,26 @@ pub(crate) enum EngineCommand {
     },
 }
 
-/// EXP-861: one user message the host holds back while a turn runs or a
-/// compaction is open. `announce` is the text every client's bar shows (and
-/// the future `user_message` row); `prompt` is what [`start_turn`] gets.
+/// EXP-861/EXP-873: one user message the agent has not read yet. `announce`
+/// is the text every client's bar shows (and the future `user_message`
+/// row); `held` is what [`start_turn`] gets while the host still holds the
+/// message back (a compaction is open) — `None` once it went to the agent
+/// mid-turn and only the agent's replay of it can close the line.
 pub(crate) struct QueuedPrompt {
     pub(crate) id: String,
     pub(crate) announce: String,
-    pub(crate) prompt: TurnPrompt,
+    pub(crate) held: Option<TurnPrompt>,
+}
+
+impl QueuedPrompt {
+    /// The line as every client's bar draws it.
+    fn wire(&self) -> steer::QueuedMessage {
+        steer::QueuedMessage {
+            id: self.id.clone(),
+            text: self.announce.clone(),
+            sent: self.held.is_none(),
+        }
+    }
 }
 
 /// One user message as ACP content blocks.
@@ -1023,12 +1039,14 @@ pub(crate) struct SessionCtx {
     /// touched only on a rate-limit EDGE and once per tick, never on the hot
     /// event path.
     pub(crate) blocked: Mutex<Option<steer::SessionBlocked>>,
-    /// EXP-861: the user messages held back while a turn runs or a
-    /// compaction is open, oldest first — the CLI's own "queued messages"
-    /// behaviour, but on the device so every viewer (and a reconnecting one)
-    /// sees the same bar and can revoke a line. Published whole as the
-    /// `queue` slot on every change; drained through [`EngineCommand::
-    /// DrainQueue`] on the idle edge.
+    /// EXP-861/EXP-873: the user messages the agent has not read yet,
+    /// oldest first — HELD on the host while a compaction is open, or SENT
+    /// mid-turn and awaiting the agent's replay (claude takes a message in
+    /// at its next tool boundary and echoes it then). On the device so every
+    /// viewer (and a reconnecting one) sees the same bar. Published whole as
+    /// the `queue` slot on every change; the held lines drain through
+    /// [`EngineCommand::DrainQueue`] when the compaction ends, the sent ones
+    /// leave on the replay ([`MapOut::consumed`]) or the idle edge.
     pub(crate) prompt_queue: Mutex<std::collections::VecDeque<QueuedPrompt>>,
     /// EXP-861: the command loop's own inbox, so the drain can be requested
     /// from [`SessionCtx::dispatch`] (which runs on whatever thread delivered
@@ -1062,10 +1080,11 @@ impl SessionCtx {
         if out_is_activity(&out) {
             self.touch_activity();
         }
-        // EXP-861: the two edges that can reopen the queue's gate — the turn
-        // ending, a compaction closing. Read before `deliver` consumes the
-        // vec; acted on after, so the gate reads the state this step set.
-        let gate_edge = out.idle == Some(true)
+        // EXP-861: the two edges that can reopen the held lines' gate — the
+        // turn ending, a compaction closing. Read before `deliver` consumes
+        // the vec; acted on after, so the gate reads the state this step set.
+        let idle_edge = out.idle == Some(true);
+        let gate_edge = idle_edge
             || out.wire.iter().any(|event| {
                 matches!(
                     event,
@@ -1075,27 +1094,43 @@ impl SessionCtx {
                     }
                 )
             });
+        // EXP-873: the bar loses the messages this step saw the agent take
+        // in BEFORE their rows go out, so no client shows a line in both
+        // places for a frame. On the idle edge every sent line the mapper no
+        // longer awaits goes too (its prompt answered: read, or dropped by a
+        // Stop that cleared it first).
+        if !out.consumed.is_empty() {
+            self.consume_queued(&out.consumed);
+        }
+        if idle_edge {
+            let awaited = self.with_mapper(|mapper| mapper.pending_delivery_ids());
+            self.retire_sent_except(&awaited);
+        }
         self.deliver(out);
         if gate_edge {
             self.request_drain();
         }
     }
 
-    /// EXP-861: may a new message start a turn right now? `false` while a
-    /// turn is running or a compaction is open — the message is held.
-    pub(crate) fn prompt_gate_open(&self) -> bool {
-        self.turn_signal.is_idle() && !self.with_mapper(|mapper| mapper.compacting())
+    /// EXP-861: is a compaction open right now? A message that arrives then
+    /// is HELD (the agent is rewriting its context; a prompt sent into that
+    /// window is the one the CLI itself queues) until the fold ends.
+    /// EXP-873: a running turn no longer holds anything — a mid-turn
+    /// message goes to the agent at once and waits in the bar as `sent`.
+    pub(crate) fn compaction_open(&self) -> bool {
+        self.with_mapper(|mapper| mapper.compacting())
     }
 
-    /// EXP-861: ask the command loop to start the held messages, if any and
-    /// if the gate is open. Cheap when nothing is queued (one lock, no send).
+    /// EXP-861: ask the command loop to send the held messages, if any and
+    /// if no compaction is open. Cheap when nothing is held (one lock, no
+    /// send).
     fn request_drain(&self) {
         let held = self
             .prompt_queue
             .lock()
-            .map(|queue| !queue.is_empty())
+            .map(|queue| queue.iter().any(|message| message.held.is_some()))
             .unwrap_or(false);
-        if !held || !self.prompt_gate_open() {
+        if !held || self.compaction_open() {
             return;
         }
         if let Some(commands) = self.queue_commands.get() {
@@ -1103,27 +1138,32 @@ impl SessionCtx {
         }
     }
 
+    /// EXP-873: is this agent one that replays every user message it takes
+    /// in (claude's `--replay-user-messages`)? Only then can a mid-turn
+    /// message wait in the bar for its replay; an agent that never echoes
+    /// (codex, whose `turn/steer` inserts the message at once) has its row
+    /// announced the moment it is sent, as before.
+    pub(crate) fn replays_user_messages(&self) -> bool {
+        matches!(self.agent, coding::CodingAgent::Claude)
+    }
+
     /// EXP-861: publish the `queue` slot as it stands — every client's bar
     /// (an empty list closes it).
     pub(crate) fn publish_queue(&self) {
-        let messages: Vec<(String, String)> = self
+        let messages: Vec<steer::QueuedMessage> = self
             .prompt_queue
             .lock()
-            .map(|queue| {
-                queue
-                    .iter()
-                    .map(|held| (held.id.clone(), held.announce.clone()))
-                    .collect()
-            })
+            .map(|queue| queue.iter().map(QueuedPrompt::wire).collect())
             .unwrap_or_default();
         let mut out = MapOut::default();
         self.with_mapper(|mapper| mapper.publish_queue(&messages, &mut out));
         self.deliver(out);
     }
 
-    /// EXP-861: hold one message behind the running turn. Past the relay's
-    /// cap the oldest is NOT dropped — the newest is refused instead (the
-    /// person can see the bar is full), so nothing typed earlier vanishes.
+    /// EXP-861: hold one message back while a compaction is open. Past the
+    /// relay's cap the oldest is NOT dropped — the newest is refused instead
+    /// (the person can see the bar is full), so nothing typed earlier
+    /// vanishes.
     fn enqueue_prompt(&self, announce: String, prompt: TurnPrompt) -> bool {
         let accepted = self
             .prompt_queue
@@ -1135,7 +1175,7 @@ impl SessionCtx {
                 queue.push_back(QueuedPrompt {
                     id: uuid::Uuid::new_v4().to_string(),
                     announce,
-                    prompt,
+                    held: Some(prompt),
                 });
                 true
             })
@@ -1150,6 +1190,67 @@ impl SessionCtx {
             );
         }
         accepted
+    }
+
+    /// EXP-873: a message about to go to the agent MID-TURN joins the bar as
+    /// `sent`, under a fresh id the replay will close. `None` when the bar
+    /// is full: the message still goes, announced at once instead of
+    /// tracked (a full bar is the one thing that must never lose a line).
+    fn mark_sent(&self, announce: String) -> Option<String> {
+        let id = self
+            .prompt_queue
+            .lock()
+            .ok()
+            .and_then(|mut queue| {
+                if queue.len() >= steer::QUEUE_MAX {
+                    return None;
+                }
+                let id = uuid::Uuid::new_v4().to_string();
+                queue.push_back(QueuedPrompt {
+                    id: id.clone(),
+                    announce,
+                    held: None,
+                });
+                Some(id)
+            });
+        if id.is_some() {
+            self.publish_queue();
+        }
+        id
+    }
+
+    /// EXP-873: the agent took these sent messages in (their replays
+    /// arrived) — the bar loses them.
+    fn consume_queued(&self, ids: &[String]) {
+        let removed = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                let before = queue.len();
+                queue.retain(|message| !ids.contains(&message.id));
+                queue.len() != before
+            })
+            .unwrap_or(false);
+        if removed {
+            self.publish_queue();
+        }
+    }
+
+    /// EXP-873: on the idle edge, drop every SENT line the mapper is not
+    /// awaiting any more; the held ones (a compaction still open) stay.
+    fn retire_sent_except(&self, awaited: &[String]) {
+        let removed = self
+            .prompt_queue
+            .lock()
+            .map(|mut queue| {
+                let before = queue.len();
+                queue.retain(|message| message.held.is_some() || awaited.contains(&message.id));
+                queue.len() != before
+            })
+            .unwrap_or(false);
+        if removed {
+            self.publish_queue();
+        }
     }
 
     /// EXP-861: drop every held message (a Stop) and say so.
@@ -1679,6 +1780,7 @@ where
                     &session_id,
                     TurnPrompt::Ready(localized),
                     &turns,
+                    None,
                 );
             }
             loop {
@@ -1768,12 +1870,12 @@ fn handle_command(
             };
             gate_or_start(cx, ctx, session_id, text, prompt, turns)
         }
-        // EXP-861: a message that arrives while a turn is running (or a
-        // compaction is open) is HELD, never folded into the live turn — the
-        // CLI's own queued-messages behaviour, on the device so every viewer
-        // shares one bar. It starts as its own turn on the idle edge
-        // ([`EngineCommand::DrainQueue`]), announced then, so the transcript
-        // shows it where the agent actually read it.
+        // EXP-873: a message that arrives while a turn is running goes to
+        // the agent AT ONCE (claude folds it in at its next tool boundary,
+        // codex `turn/steer`) and waits in every viewer's bar as `sent`
+        // until the agent's replay of it arrives — its row lands THEN, where
+        // the agent actually read it. One that arrives while a compaction is
+        // open is HELD until the fold ends ([`EngineCommand::DrainQueue`]).
         EngineCommand::Steer(text) => gate_or_start(
             cx,
             ctx,
@@ -1785,28 +1887,36 @@ fn handle_command(
         // EXP-861: a Stop drops what the person queued as well as the turn
         // (the `cancel_queued` semantics, now for the host's own queue); the
         // stall watchdog's interrupt keeps it — those messages are what it
-        // is rescuing.
+        // is rescuing. EXP-873: the lines SENT mid-turn go the same way —
+        // the CLI drops what it had not taken in yet (`cancel_queued`), and
+        // the mapper stops awaiting their replays, so a dropped message never
+        // renders as read. Every client hands the bar's text back to the
+        // composer on its Stop.
         EngineCommand::Cancel => {
+            ctx.with_mapper(|mapper| mapper.forget_deliveries());
             ctx.clear_prompt_queue();
             cancel_turn(cx, ctx, session_id, true)
         }
         EngineCommand::Interrupt => cancel_turn(cx, ctx, session_id, false),
         EngineCommand::Unqueue(id) => {
-            let removed = ctx
+            // A held line goes; a SENT one cannot be taken back from the
+            // agent, so the slot is republished as it stands and the line
+            // the client dropped optimistically comes back (EXP-873).
+            let known = ctx
                 .prompt_queue
                 .lock()
                 .map(|mut queue| {
-                    let before = queue.len();
-                    queue.retain(|held| held.id != id);
-                    queue.len() != before
+                    let known = queue.iter().any(|message| message.id == id);
+                    queue.retain(|message| message.id != id || message.held.is_none());
+                    known
                 })
                 .unwrap_or(false);
-            if removed {
+            if known {
                 ctx.publish_queue();
             }
         }
         EngineCommand::DrainQueue => {
-            if ctx.prompt_gate_open() {
+            if !ctx.compaction_open() {
                 drain_queue(cx, ctx, session_id, turns);
             }
         }
@@ -1944,19 +2054,19 @@ fn handle_command(
     true
 }
 
-/// EXP-861: the queue gate in front of [`start_turn`]. Between turns (and
-/// outside a compaction) the prompt starts at once; otherwise it is held and
-/// the `queue` slot republished. The gate is read on the command loop, the
-/// same thread that starts turns, so two messages cannot both slip through
-/// one idle moment out of order.
+/// EXP-861/EXP-873: the compaction gate in front of [`send_prompt`]. Outside
+/// a compaction the prompt goes to the agent at once; inside one it is held
+/// and the `queue` slot republished. The gate is read on the command loop,
+/// the same thread that sends, so two messages cannot both slip through one
+/// edge out of order.
 ///
-/// An open gate with messages still HELD is the idle edge caught between
-/// `dispatch` opening it and the loop reading its [`EngineCommand::
+/// An open gate with messages still HELD is the compaction's end caught
+/// between `dispatch` opening it and the loop reading its [`EngineCommand::
 /// DrainQueue`]: a command already ahead of that request in the inbox (or a
-/// steer landing right on the edge) would otherwise start first and the held
-/// lines would sit out a whole extra turn. So the held messages drain HERE,
-/// oldest first, and the new one starts behind them — send order on the
-/// transcript either way; the drain request that follows finds nothing.
+/// steer landing right on the edge) would otherwise go first and the held
+/// lines would wait behind it. So the held messages drain HERE, oldest
+/// first, and the new one goes behind them — send order on the transcript
+/// either way; the drain request that follows finds nothing.
 fn gate_or_start(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
@@ -1965,36 +2075,86 @@ fn gate_or_start(
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
 ) {
-    if ctx.prompt_gate_open() {
-        drain_queue(cx, ctx, session_id, turns);
-        start_turn(cx, ctx, session_id, prompt, turns);
-    } else {
+    if ctx.compaction_open() {
         ctx.enqueue_prompt(announce, prompt);
+        return;
     }
+    drain_queue(cx, ctx, session_id, turns);
+    send_prompt(cx, ctx, session_id, announce, prompt, turns);
 }
 
-/// EXP-861: start every held message as its own turn, oldest first, and
-/// close the bar. Called on the command loop only, with the gate open; a
-/// no-op when nothing is held (no frame either).
+/// EXP-873: hand one message to the agent NOW. Between turns it is the next
+/// turn, announced as the user's row at once. Mid-turn, on an agent that
+/// replays what it takes in (claude), it joins the bar as `sent` and its row
+/// lands when the replay arrives — where the agent actually read it; on an
+/// agent that never echoes (codex `turn/steer`) the row is announced at
+/// once, as before.
+fn send_prompt(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    ctx: &Arc<SessionCtx>,
+    session_id: &SessionId,
+    announce: String,
+    prompt: TurnPrompt,
+    turns: &Arc<TurnGate>,
+) {
+    let pending = if !ctx.turn_signal.is_idle() && ctx.replays_user_messages() {
+        ctx.mark_sent(announce)
+    } else {
+        None
+    };
+    start_turn(cx, ctx, session_id, prompt, turns, pending);
+}
+
+/// EXP-861: send every held message, oldest first. Called on the command
+/// loop only, with no compaction open; a no-op when nothing is held (no
+/// frame either). EXP-873: a held line sent between turns becomes the next
+/// turn and leaves the bar; one sent into a running turn (the compaction
+/// closed mid-turn — claude's auto-compaction does) stays in the bar under
+/// its id, now `sent`, until the agent's replay closes it.
 fn drain_queue(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     turns: &Arc<TurnGate>,
 ) {
-    let held: Vec<QueuedPrompt> = ctx
-        .prompt_queue
-        .lock()
-        .map(|mut queue| queue.drain(..).collect())
-        .unwrap_or_default();
-    if held.is_empty() {
-        return;
+    let replays = ctx.replays_user_messages();
+    // Re-derived per line: once the first held line starts a turn, the next
+    // one is a mid-turn message.
+    let mut idle = ctx.turn_signal.is_idle();
+    let mut starts: Vec<(TurnPrompt, Option<String>)> = Vec::new();
+    {
+        let mut queue = match ctx.prompt_queue.lock() {
+            Ok(queue) => queue,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if !queue.iter().any(|message| message.held.is_some()) {
+            return;
+        }
+        let mut kept = std::collections::VecDeque::new();
+        for message in queue.drain(..) {
+            match message.held {
+                None => kept.push_back(message),
+                Some(prompt) if !idle && replays => {
+                    starts.push((prompt, Some(message.id.clone())));
+                    kept.push_back(QueuedPrompt {
+                        id: message.id,
+                        announce: message.announce,
+                        held: None,
+                    });
+                }
+                Some(prompt) => {
+                    starts.push((prompt, None));
+                    idle = false;
+                }
+            }
+        }
+        *queue = kept;
     }
-    // The bar closes BEFORE the rows appear, so no client shows a message
+    // The bar changes BEFORE the rows appear, so no client shows a message
     // in both places for a frame.
     ctx.publish_queue();
-    for queued in held {
-        start_turn(cx, ctx, session_id, queued.prompt, turns);
+    for (prompt, pending) in starts {
+        start_turn(cx, ctx, session_id, prompt, turns, pending);
     }
 }
 
@@ -2107,18 +2267,31 @@ pub(crate) enum TurnPrompt {
 /// original text); the agent receives the localized blocks. A
 /// [`TurnPrompt::Localize`] prompt announces at once too, then localizes
 /// inside the spawned task before taking its slot.
+///
+/// EXP-873: `pending` names the bar line this prompt is (a message sent
+/// mid-turn). Nothing is announced then: the mapper is told what the agent
+/// will receive, and the agent's replay of it becomes the row. A localizing
+/// prompt registers inside its task, once the agent's text is known — still
+/// ahead of the send, so the replay can never outrun it.
 fn start_turn(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
+    pending: Option<String>,
 ) {
     let (announce, ready_blocks, localize) = match prompt {
         TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None),
         TurnPrompt::Localize(text) => (text.clone(), None, Some(text)),
     };
-    announce_prompt(ctx, &announce);
+    match (&pending, &ready_blocks) {
+        (None, _) => announce_prompt(ctx, &announce),
+        (Some(id), Some(blocks)) => {
+            ctx.with_mapper(|mapper| mapper.on_prompt_sent(&blocks_text(blocks), &announce, id))
+        }
+        (Some(_), None) => {}
+    }
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
     // EXP-848: the turn slot opens HERE — the one signal every client's
@@ -2154,6 +2327,15 @@ fn start_turn(
                     (None, Some(text)) => {
                         let localized =
                             localize_for_agent(text, ctx.attachments.as_ref(), &ctx.embeds).await;
+                        if let Some(id) = &pending {
+                            ctx.with_mapper(|mapper| {
+                                mapper.on_prompt_sent(
+                                    &blocks_text(&localized.blocks),
+                                    &announce,
+                                    id,
+                                )
+                            });
+                        }
                         PromptRequest::new(session_id, localized.blocks)
                     }
                     (None, None) => unreachable!("a turn prompt is ready or localizable"),

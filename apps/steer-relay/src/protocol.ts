@@ -488,12 +488,14 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
       .max(BACKGROUND_TASKS_MAX),
     at: z.number().optional(),
   }),
-  // EXP-861: the user messages the device holds QUEUED behind a running turn
-  // or a compaction, in FULL and in order (oldest first; an empty array =
-  // nothing queued, the bar closes). LATEST-WINS state like `turn`, never a
-  // transcript row: the device delivers them when the turn ends and each one
-  // then arrives as an ordinary `user_message`. A viewer revokes one with the
-  // `unqueue` frame; the next `queue` frame is the confirmation.
+  // EXP-861: the user messages the agent has NOT read yet, in FULL and in
+  // order (oldest first; an empty array = nothing queued, the bar closes).
+  // LATEST-WINS state like `turn`, never a transcript row: each one arrives
+  // as an ordinary `user_message` the moment the agent takes it in. EXP-873:
+  // `sent` = already handed to the agent (a mid-turn message claude folds in
+  // at its next tool boundary), awaiting its replay — no per-line revoke,
+  // only Stop; absent = held on the device (a compaction is open), which the
+  // `unqueue` frame revokes. The next `queue` frame is the confirmation.
   z.object({
     kind: z.literal(`queue`),
     messages: z
@@ -501,6 +503,7 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
         z.object({
           id: z.string().min(1).max(128),
           text: z.string().max(QUEUE_TEXT_MAX),
+          sent: z.boolean().optional(),
         })
       )
       .max(QUEUE_MAX),
