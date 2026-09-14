@@ -113,6 +113,29 @@ public final class AttachmentsApi: Sendable {
         )
     }
 
+    /// EXP-878: an image or file attached to a DRAFT issue, before the issue
+    /// exists. `POST /api/issue-drafts/{draftId}/files` stores it against the
+    /// draft row (owner-only); `issues.create({draftId})` later reparents every
+    /// one of them onto the issue it files. Same multipart part name and
+    /// response contract as the issue route.
+    public func uploadDraft(
+        accountId: String,
+        draftId: String,
+        data: Data,
+        filename: String,
+        contentType: String,
+        media: MediaUploadParts? = nil
+    ) async throws -> UploadedAttachment {
+        try await upload(
+            accountId: accountId,
+            path: Self.draftFilesPath(draftId: draftId),
+            data: data,
+            filename: filename,
+            contentType: contentType,
+            media: media
+        )
+    }
+
     /// EXP-702: a steered image belongs to the SESSION, not to the issue the
     /// run happens to be about — it never shows up in the issue's Files
     /// section, and a batch/action run (which has no issue at all) can carry
@@ -155,6 +178,13 @@ public final class AttachmentsApi: Sendable {
             filename: filename,
             contentType: contentType
         )
+    }
+
+    /// The draft upload route. Internal so the path contract is unit-tested —
+    /// it is the ONE thing that distinguishes a draft upload from an issue one
+    /// (the multipart body is byte-identical).
+    static func draftFilesPath(draftId: String) -> String {
+        "/api/issue-drafts/\(draftId)/files"
     }
 
     private func upload(

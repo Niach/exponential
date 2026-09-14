@@ -16,6 +16,12 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var description: String?
     public var dueDate: String?
     public var labelIds: [String]?
+    /// EXP-878: the draft this issue is being filed FROM. The server reparents
+    /// the draft's attachments onto the new issue and deletes the draft in the
+    /// same transaction — so with it set, `description` images MUST already be
+    /// `/api/attachments/{id}` URLs owned by that draft (the create path
+    /// uploads nothing). Nil is omitted from the wire.
+    public var draftId: String?
 
     public init(
         boardId: String,
@@ -26,7 +32,8 @@ public struct CreateIssueInput: Encodable, Sendable {
         assigneeId: String? = nil,
         description: String? = nil,
         dueDate: String? = nil,
-        labelIds: [String]? = nil
+        labelIds: [String]? = nil,
+        draftId: String? = nil
     ) {
         self.boardId = boardId
         self.title = title
@@ -37,6 +44,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.description = description
         self.dueDate = dueDate
         self.labelIds = labelIds
+        self.draftId = draftId
     }
 }
 

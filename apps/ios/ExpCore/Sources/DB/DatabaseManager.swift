@@ -1529,6 +1529,42 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v39 (EXP-878): issue drafts — a composed-but-unfiled issue, per USER
+        // (the 22nd shape, static `user_id = me` like `pins`). A brand-new
+        // table, so no shape offset is reset. `label_ids` holds the Postgres
+        // uuid[] the same way `devices.shared_team_ids` does (the wire literal
+        // on a partial, GRDB's JSON on a full row) — both parse back.
+        migrator.registerMigration("v39_issue_drafts") { db in
+            try db.create(table: "issue_drafts", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull()
+                t.column("team_id", .text).notNull()
+                t.column("board_id", .text).notNull()
+                t.column("title", .text).notNull().defaults(to: "")
+                t.column("description", .text)
+                // NULL = the team's Backlog builtin.
+                t.column("status_id", .text)
+                t.column("priority", .text).notNull().defaults(to: "none")
+                t.column("assignee_id", .text)
+                t.column("label_ids", .text)
+                t.column("due_date", .text)
+                t.column("created_at", .text).notNull().defaults(to: "")
+                t.column("updated_at", .text).notNull().defaults(to: "")
+            }
+            try db.create(
+                index: "issue_drafts_user_idx", on: "issue_drafts", columns: ["user_id"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "issue_drafts_team_idx", on: "issue_drafts", columns: ["team_id"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "issue_drafts_board_idx", on: "issue_drafts", columns: ["board_id"],
+                ifNotExists: true
+            )
+        }
+
         return migrator
     }
 
@@ -1538,6 +1574,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM electric_offsets")
             // EXP-778: pins point at issues/sessions/actions — first.
             try db.execute(sql: "DELETE FROM pins")
+            // EXP-878: drafts resolve a board — wiped with the rest.
+            try db.execute(sql: "DELETE FROM issue_drafts")
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")

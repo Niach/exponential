@@ -305,7 +305,7 @@ struct IssueListView: View {
                 icon: AppIcons.uiAdd,
                 size: .md,
                 mode: .action {
-                    pushRoute(.createIssue(accountId: accountId, boardId: boardId))
+                    pushRoute(.createIssue(accountId: accountId, boardId: boardId, draftId: nil))
                 },
                 primary: true
             )

@@ -4,14 +4,46 @@ import SwiftUI
 import GRDB
 import UniformTypeIdentifiers
 
-/// A file picked before the issue exists (EXP-327). Attachments need an issue
-/// id, so — exactly like draft images — the bytes are held here and uploaded
-/// right after the create.
-private struct DraftFile: Identifiable, Sendable {
-    let id = UUID()
+/// A file attached before the issue exists (EXP-327). EXP-878: the bytes are
+/// no longer held in memory until the create — the page owns a DRAFT row, so
+/// the pick is uploaded against it immediately and this is the uploaded
+/// attachment, which `issues.create({draftId})` reparents onto the new issue.
+private struct DraftAttachment: Identifiable, Sendable {
+    /// The real `attachments` row id.
+    let id: String
     let filename: String
     let contentType: String
-    let data: Data
+    let sizeBytes: Int
+}
+
+/// EXP-878 — the draft as the page holds it, minus the team (resolved from the
+/// board). Sendable so the close-out's fire-and-forget write carries it out of
+/// the view instead of reading a `View` struct off the main actor.
+private struct DraftSnapshot: Sendable {
+    let id: String
+    let boardId: String
+    let title: String
+    let description: String
+    let statusId: String?
+    let priority: String
+    let assigneeId: String?
+    let labelIds: [String]
+    let dueDate: String?
+
+    func input(teamId: String) -> UpsertIssueDraftInput {
+        UpsertIssueDraftInput(
+            id: id,
+            teamId: teamId,
+            boardId: boardId,
+            title: title,
+            description: description,
+            statusId: statusId,
+            priority: priority,
+            assigneeId: assigneeId,
+            labelIds: labelIds,
+            dueDate: dueDate
+        )
+    }
 }
 
 /// The four pickers the page can present — ONE `.sheet(item:)` (EXP-240: four
@@ -50,19 +82,57 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
 /// `Create` top-right, exactly like Android's `CreateIssueScreen`.
 struct CreateIssueView: View {
     let boardId: String
+    /// EXP-878: the saved draft this page reopens; nil = a blank compose,
+    /// which mints its own id up front (`draftKey`) so eager uploads have
+    /// something to hang off.
+    let draftId: String?
     /// The page is done: the created issue's id so the host can land on it
-    /// (EXP-596), or nil when the draft was abandoned. NOT called in "Create
-    /// more" mode — the page stays up for the next issue, and a run of creates
-    /// has no single destination.
+    /// (EXP-596), or nil when nothing was filed (the draft, if any, was
+    /// already persisted by then).
     let onFinish: (String?) -> Void
+
+    init(boardId: String, draftId: String? = nil, onFinish: @escaping (String?) -> Void) {
+        self.boardId = boardId
+        self.draftId = draftId
+        self.onFinish = onFinish
+        // The id is the VIEW's, minted once: a reopened draft keeps its row,
+        // a blank compose gets a fresh lowercase uuid it can already upload
+        // attachments against.
+        _draftKey = State(initialValue: draftId ?? UUID().uuidString.lowercased())
+        _draftExists = State(initialValue: draftId != nil)
+    }
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
 
     @State private var title = ""
     @State private var editor = IssueEditorModel()
-    /// Files picked from the editor's attach menu, uploaded after the create.
-    @State private var draftFiles: [DraftFile] = []
+    /// Files picked from the editor's attach menu — already uploaded against
+    /// the draft (EXP-878).
+    @State private var draftAttachments: [DraftAttachment] = []
+    /// The draft id every write on this page uses. Never changes.
+    @State private var draftKey: String
+    /// A row for `draftKey` exists server-side: it was opened from one, or an
+    /// eager upload created it. Drives the "clear everything, Back ⇒ delete"
+    /// half of the close.
+    @State private var draftExists: Bool
+    /// The one ensure-upsert per view session is done (attachments upload
+    /// against a row that is already there).
+    @State private var draftEnsured = false
+    /// The draft row was seeded into the fields once; a second `onAppear`
+    /// (returning from a picker) must not re-seed over the user's edits.
+    @State private var seeded = false
+    /// The `status_id` the seeded draft carried, resolved against the team's
+    /// rows once they load (nil = the team's Backlog builtin).
+    @State private var seededStatusId: String?
+    @State private var statusSeeded = false
+    /// Close-out ran (create or Back), so `onDisappear` must not run it again.
+    @State private var didFinish = false
+    /// One eager image/media commit at a time, and never a retry loop: a
+    /// failed upload leaves its draft key in place, so the pass only re-runs
+    /// when the pending set actually changes.
+    @State private var imageCommitInFlight = false
+    @State private var lastImageCommitKeys: Set<String> = []
     /// EXP-314: the team's statuses in render order — the constructed builtin
     /// defaults until the `issue_statuses` rows load.
     @State private var teamStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
@@ -79,21 +149,14 @@ struct CreateIssueView: View {
     /// creator): the assignee picker is hidden and assigneeId is pre-set to
     /// that member (EXP-50). Multi-member teams keep the picker.
     @State private var singleMemberTeam = false
-    @State private var createMore = false
-    /// True once this page's issue was created but the page stayed up to
-    /// report a failed attachment — Create is inert from then on, so the only
-    /// way out is Back and no second issue can be filed.
-    @State private var createCommitted = false
     @State private var loading = false
     @State private var error: String?
     @State private var permissions: TeamPermissions = .denied
     /// ONE presentation for the four pickers — four `.sheet(isPresented:)` on
     /// one node meant only the first ever presented (EXP-240).
     @State private var picker: CreateIssuePicker?
-    /// Non-nil once this draft's issue exists (an attachment failed, so the
-    /// page stayed up to report it) — Back then still lands on it.
+    /// Non-nil once this page filed its issue — Back then lands on it.
     @State private var createdIssueId: String?
-    @State private var confirmDiscard = false
     @FocusState private var titleFocused: Bool
 
     /// The title as it would be filed: a run of spaces is not a title, and
@@ -102,19 +165,27 @@ struct CreateIssueView: View {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Create is live only with a title, nothing in flight, and no issue
-    /// already committed from this draft (an attachment failed and the page
-    /// stayed up — a second Create would file a duplicate).
+    /// Create is live only with a title, nothing in flight, and nothing filed
+    /// from this page yet (a second Create would file a duplicate).
     private var canSubmit: Bool {
-        !trimmedTitle.isEmpty && !loading && !createCommitted
+        !trimmedTitle.isEmpty && !loading && createdIssueId == nil
     }
 
-    /// True while there is unsaved work worth a confirmation.
+    /// The description as it would be stored: `draft://` placeholders (an
+    /// image whose eager upload failed) are not interchange markdown and never
+    /// reach the server — on a draft row or on the issue.
+    private var draftDescription: String {
+        MarkdownImageUtils
+            .stripUnknownDrafts(editor.currentMarkdown(), keep: [])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// EXP-878: the page has something worth keeping — a real title, a real
+    /// description, or at least one uploaded attachment. Closing with this
+    /// true saves a draft SILENTLY; closing with it false deletes the draft
+    /// this page opened (and writes nothing at all for a blank compose).
     private var hasDraftContent: Bool {
-        !trimmedTitle.isEmpty
-            || !editor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !editor.pendingImages.isEmpty
-            || !draftFiles.isEmpty
+        !trimmedTitle.isEmpty || !draftDescription.isEmpty || !draftAttachments.isEmpty
     }
 
     var body: some View {
@@ -159,7 +230,7 @@ struct CreateIssueView: View {
 
                     // Draft files, only once there is one (the section never
                     // announces its own emptiness — EXP-327).
-                    if !draftFiles.isEmpty {
+                    if !draftAttachments.isEmpty {
                         draftFilesSection
                     }
 
@@ -248,14 +319,6 @@ struct CreateIssueView: View {
                         onAdd: { picker = .createLabel }
                     )
 
-                    // Create more toggle
-                    Toggle(isOn: $createMore) {
-                        Text("Create more")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    .padding(.horizontal, 4)
-
                     if let error {
                         Text(error)
                             .font(.callout)
@@ -311,6 +374,9 @@ struct CreateIssueView: View {
                         .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
                 }
                 .buttonStyle(.plain)
+                // A close mid-create would race the draft write against the
+                // issue the server is already filing.
+                .disabled(loading)
                 .accessibilityLabel("Back")
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -321,12 +387,8 @@ struct CreateIssueView: View {
                 .disabled(!canSubmit)
             }
         }
-        .alert("Discard this issue?", isPresented: $confirmDiscard) {
-            Button("Discard", role: .destructive) { onFinish(createdIssueId) }
-            Button("Keep editing", role: .cancel) {}
-        } message: {
-            Text("Your title, description and attached images will be lost.")
-        }
+        // EXP-878: no discard confirmation any more — leaving with content
+        // SAVES a draft (silently), leaving with none deletes it.
         // Presenting a picker over a focused editor kept the editor first
         // responder — its keyboard-accessory strip then floated over the
         // picker sheet (EXP-246). Resign before each picker lands.
@@ -338,6 +400,11 @@ struct CreateIssueView: View {
                 configureEditor()
                 Task {
                     guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+                    // EXP-878: the draft's own fields FIRST — the status block
+                    // below resolves the seeded `status_id` instead of
+                    // re-pinning Backlog, and the solo-team pre-assign must
+                    // not overwrite the assignee the draft carries.
+                    await seedFromDraftIfNeeded(pool: pool)
                     let team: TeamEntity? = (try? await pool.read({ db -> TeamEntity? in
                         guard let board = try BoardEntity.fetchOne(db, key: boardId) else {
                             return nil
@@ -363,7 +430,11 @@ struct CreateIssueView: View {
                            try humanTeamMemberIds(teamId: wsId, db: db)
                        }), humanIds.count == 1 {
                         singleMemberTeam = true
-                        assigneeId = humanIds.first
+                        // A reopened draft already says who it is for — even
+                        // when that is "nobody".
+                        if draftId == nil {
+                            assigneeId = humanIds.first
+                        }
                     }
                     // Statuses are team-scoped like labels (EXP-314); keep the
                     // constructed defaults until the rows land, and re-pin the
@@ -376,9 +447,15 @@ struct CreateIssueView: View {
                        }) {
                         let resolved = IssueStatusResolver.teamStatusesOrFallback(loadedStatuses)
                         teamStatuses = resolved
-                        if let backlog = resolved.first(where: { $0.builtinKey == .backlog })
-                            ?? resolved.first(where: { $0.category == .backlog }) {
-                            status = backlog
+                        // EXP-878: the seeded draft's row wins; with none
+                        // (or a blank compose) `resolve` lands on the team's
+                        // own Backlog builtin, exactly as before. Once only —
+                        // a second appear must not undo the user's pick.
+                        if !statusSeeded {
+                            statusSeeded = true
+                            status = IssueStatusResolver.resolve(
+                                statusId: seededStatusId, anchor: nil, team: resolved
+                            )
                         }
                     }
                     // Labels are team-scoped; a shared DB pool can hold more
@@ -402,6 +479,14 @@ struct CreateIssueView: View {
             }
         .sheet(item: $picker) { target in
             pickerSheet(target)
+        }
+        // A close that did not go through the toolbar's Back (a system pop,
+        // an account switch) still owes the one write.
+        .onDisappear {
+            if !didFinish {
+                didFinish = true
+                persistDraftIfNeeded()
+            }
         }
     }
 
@@ -471,14 +556,14 @@ struct CreateIssueView: View {
         }
     }
 
-    /// Back with unsaved work asks first (Android parity). A committed create
-    /// (an attachment failed after the issue landed) still lands on the issue.
+    /// EXP-878: Back never asks. It persists the draft (or deletes the one it
+    /// opened), exactly once, then hands back. A create in flight owns the
+    /// page until it finishes.
     private func attemptClose() {
-        if createCommitted || !hasDraftContent {
-            onFinish(createdIssueId)
-        } else {
-            confirmDiscard = true
-        }
+        guard !loading else { return }
+        persistDraftIfNeeded()
+        didFinish = true
+        onFinish(createdIssueId)
     }
 
     /// Create a team label and pre-select it on this draft. The label is
@@ -521,7 +606,7 @@ struct CreateIssueView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             VStack(spacing: 6) {
-                ForEach(draftFiles) { file in
+                ForEach(draftAttachments) { file in
                     HStack(spacing: 10) {
                         Image(systemName: AttachmentFiles.sfSymbolName(forContentType: file.contentType))
                             .font(.system(size: 15))
@@ -533,13 +618,13 @@ struct CreateIssueView: View {
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                            Text(Int64(file.data.count).formatted(.byteCount(style: .file)))
+                            Text(Int64(file.sizeBytes).formatted(.byteCount(style: .file)))
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         Spacer(minLength: 8)
                         Button {
-                            draftFiles.removeAll { $0.id == file.id }
+                            Task { await removeDraftAttachment(file) }
                         } label: {
                             AppIcon(AppIcons.uiClose, size: AppIcon.Size.small)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -557,9 +642,11 @@ struct CreateIssueView: View {
     }
 
     /// Read a picked file off-main inside its security scope (a 50 MB pick from
-    /// a cloud provider streams over the network) and hold it until the issue
-    /// exists. Inline images never reach here — the editor appends those to the
-    /// description itself.
+    /// a cloud provider streams over the network), then upload it EAGERLY
+    /// against this page's draft (EXP-878) — attachments no longer wait for an
+    /// issue id. Inline images never reach here; the editor appends those to
+    /// the description, and `commitDraftMediaIfNeeded` uploads them the same
+    /// way.
     private func ingestDraftFile(_ url: URL) {
         let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
         let contentType = AttachmentFiles.canonicalContentType(
@@ -568,9 +655,24 @@ struct CreateIssueView: View {
         Task {
             switch await Task.detached(operation: { readDraftFileBytes(from: url) }).value {
             case let .success(data):
-                draftFiles.append(
-                    DraftFile(filename: filename, contentType: contentType, data: data)
-                )
+                guard await ensureDraft() else { return }
+                do {
+                    let uploaded = try await deps.attachmentsApi.uploadDraft(
+                        accountId: accountId,
+                        draftId: draftKey,
+                        data: data,
+                        filename: filename,
+                        contentType: contentType
+                    )
+                    draftAttachments.append(DraftAttachment(
+                        id: uploaded.id,
+                        filename: uploaded.filename,
+                        contentType: uploaded.contentType,
+                        sizeBytes: uploaded.sizeBytes
+                    ))
+                } catch {
+                    self.error = "Couldn't attach \(filename). \(error.userFacingMessage)"
+                }
             case .failure(.tooLarge):
                 error = "Files must be 50 MB or smaller."
             case .failure(.unreadable):
@@ -579,32 +681,193 @@ struct CreateIssueView: View {
         }
     }
 
-    /// Upload the held drafts against the now-existing issue. The issue is
-    /// already committed, so a rejected attachment surfaces as an error but
-    /// never turns a successful create into a failure. Returns false when any
-    /// file failed, so the caller can hold the sheet open — dismissing right
-    /// after setting `error` unmounted the only report the user ever gets, and
-    /// the file vanished silently.
-    private func uploadDraftFiles(issueId: String) async -> Bool {
-        var failed: [String] = []
-        for file in draftFiles {
-            do {
-                _ = try await deps.attachmentsApi.upload(
-                    accountId: accountId,
-                    issueId: issueId,
-                    data: file.data,
-                    filename: file.filename,
-                    contentType: file.contentType
-                )
-            } catch {
-                failed.append(file.filename)
-            }
+    /// Drop one already-uploaded draft attachment. It is a real row, so the
+    /// removal is a real delete — leaving it would reparent the file onto the
+    /// issue the page goes on to file.
+    private func removeDraftAttachment(_ file: DraftAttachment) async {
+        do {
+            try await deps.attachmentsApi.delete(accountId: accountId, attachmentId: file.id)
+            draftAttachments.removeAll { $0.id == file.id }
+        } catch {
+            self.error = error.userFacingMessage
         }
-        guard failed.isEmpty else {
-            self.error = "Issue created, but couldn't attach \(failed.joined(separator: ", "))."
+    }
+
+    // MARK: - The draft row (EXP-878)
+
+    /// This page's team, resolved from the board when the onAppear load has
+    /// not landed yet — an image pasted in the first second must still have a
+    /// draft to hang off.
+    private func resolveTeamId() async -> String? {
+        if let teamId { return teamId }
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
+        let resolved: String? = (try? await pool.read { db in
+            try BoardEntity.fetchOne(db, key: boardId)?.teamId
+        }) ?? nil
+        if let resolved { teamId = resolved }
+        return resolved
+    }
+
+    /// The whole draft as it stands, minus its team. A draft is rewritten
+    /// WHOLE, never patched: one write carries every field the page owns.
+    /// Captured up front so the fire-and-forget close-out write never reads
+    /// the view again.
+    private var draftSnapshot: DraftSnapshot {
+        DraftSnapshot(
+            id: draftKey,
+            boardId: boardId,
+            title: trimmedTitle,
+            description: draftDescription,
+            // A CONSTRUCTED default has no row id — nil means "the team's
+            // Backlog builtin", which is exactly what the column means.
+            statusId: status.rowId,
+            priority: priority.rawValue,
+            assigneeId: assigneeId,
+            // Only filter once the team's labels are actually here: an empty
+            // `labels` means "not loaded yet", and filtering against it would
+            // silently strip a reopened draft's own labels.
+            labelIds: labels.isEmpty
+                ? Array(selectedLabelIds)
+                : Array(selectedLabelIds.filter { id in labels.contains { $0.id == id } }),
+            dueDate: dueDate.map { formatDate($0) }
+        )
+    }
+
+    /// The draft row must exist before anything can be uploaded against it.
+    /// ONE upsert per view session (`draftEnsured`), carrying the snapshot as
+    /// it stands; the close-out rewrites it with the final one.
+    @discardableResult
+    private func ensureDraft() async -> Bool {
+        if draftEnsured { return true }
+        guard let teamId = await resolveTeamId() else { return false }
+        do {
+            let dto = try await deps.issueDraftsApi.upsert(
+                accountId: accountId, draftSnapshot.input(teamId: teamId)
+            )
+            await mirrorDraft(dto)
+            draftEnsured = true
+            draftExists = true
+            return true
+        } catch {
+            self.error = error.userFacingMessage
             return false
         }
-        return true
+    }
+
+    /// Mirror the server's draft row locally so the Drafts list renders it
+    /// without waiting for the Electric long-poll (the `mirrorCreatedIssue`
+    /// pattern — sync re-delivers the same row and overwrites this one).
+    private func mirrorDraft(_ dto: IssueDraftDto) async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let entity = dto.entity()
+        try? await pool.write { db in try entity.save(db) }
+    }
+
+    /// Upload every pending image/media draft against the draft row and swap
+    /// the block URLs for the real `/api/attachments/{id}` ones — the
+    /// issue-detail paste path, one draft id earlier. Fires off the editor's
+    /// edit hook, guarded so typing costs a set comparison and a failed upload
+    /// never becomes a retry loop (the block's own Retry button re-runs it).
+    private func commitDraftMediaIfNeeded() {
+        let keys = Set(editor.pendingImages.keys)
+        guard !keys.isEmpty, !imageCommitInFlight, keys != lastImageCommitKeys else { return }
+        lastImageCommitKeys = keys
+        imageCommitInFlight = true
+        Task {
+            defer { imageCommitInFlight = false }
+            guard await ensureDraft() else { return }
+            let api = deps.attachmentsApi
+            let acc = accountId
+            let key = draftKey
+            let uploader: @Sendable (PendingImage) async throws -> String = { image in
+                let uploaded = try await api.uploadDraft(
+                    accountId: acc,
+                    draftId: key,
+                    data: image.data,
+                    filename: image.filename,
+                    contentType: image.contentType,
+                    media: image.mediaUploadParts
+                )
+                return uploaded.url
+            }
+            if await editor.commitPendingImages(uploader: uploader) {
+                error = nil
+            } else {
+                error = "Some images couldn't be uploaded. Tap an image to retry."
+            }
+        }
+    }
+
+    /// Seed the page from the draft it reopens: fields first, attachments over
+    /// the wire (they are NOT synced — the attachments shape excludes
+    /// draft-owned rows). Once per view.
+    private func seedFromDraftIfNeeded(pool: DatabasePool) async {
+        guard let draftId, !seeded else { return }
+        seeded = true
+        let row: IssueDraftEntity? = (try? await pool.read { db in
+            try IssueDraftQueries.draft(db: db, id: draftId)
+        }) ?? nil
+        if let row {
+            title = row.title
+            editor.load(markdown: row.description ?? "", baseURL: instanceBaseURL)
+            priority = IssuePriority.from(row.priority)
+            assigneeId = row.assigneeId
+            selectedLabelIds = Set(row.labelIds)
+            dueDate = row.dueDate.flatMap { AppDateFormatters.yyyyMMdd.date(from: $0) }
+            seededStatusId = row.statusId
+        }
+        if let files = try? await deps.issueDraftsApi.listAttachments(
+            accountId: accountId, id: draftId
+        ) {
+            draftAttachments = files.map {
+                DraftAttachment(
+                    id: $0.id,
+                    filename: $0.filename,
+                    contentType: $0.contentType,
+                    sizeBytes: $0.sizeBytes
+                )
+            }
+        }
+    }
+
+    /// The ONE write a close owes (EXP-878) — never one per keystroke: content
+    /// saves the draft silently, no content deletes the draft this page opened,
+    /// and a blank compose writes nothing at all. A filed issue owns its own
+    /// clean-up (the server deletes the draft inside `issues.create`).
+    private func persistDraftIfNeeded() {
+        guard createdIssueId == nil else { return }
+        let api = deps.issueDraftsApi
+        let db = deps.db
+        let account = accountId
+        let key = draftKey
+        if hasDraftContent {
+            let snapshot = draftSnapshot
+            let knownTeamId = teamId
+            let board = boardId
+            Task {
+                // The close can beat the onAppear load: resolve the board's
+                // team here rather than dropping the draft on the floor.
+                var team = knownTeamId
+                if team == nil, let pool = try? db.pool(forAccountId: account) {
+                    team = (try? await pool.read { db in
+                        try BoardEntity.fetchOne(db, key: board)?.teamId
+                    }) ?? nil
+                }
+                guard let team,
+                      let dto = try? await api.upsert(
+                          accountId: account, snapshot.input(teamId: team)
+                      ),
+                      let pool = try? db.pool(forAccountId: account) else { return }
+                let entity = dto.entity()
+                try? await pool.write { db in try entity.save(db) }
+            }
+        } else if draftExists {
+            Task {
+                try? await api.delete(accountId: account, id: key)
+                guard let pool = try? db.pool(forAccountId: account) else { return }
+                _ = try? await pool.write { db in try IssueDraftEntity.deleteOne(db, key: key) }
+            }
+        }
     }
 
     /// Mirror the freshly-created row (and its label joins) into the local
@@ -637,19 +900,18 @@ struct CreateIssueView: View {
     }
 
     private func createIssue() async {
+        // EXP-878: every image/media block is already a real attachment on the
+        // draft. A block that never uploaded is still a `draft://` placeholder,
+        // which no issue may carry — say so instead of silently dropping it.
+        guard !editor.hasUncommittedDrafts else {
+            error = "Some images couldn't be uploaded. Tap an image to retry."
+            return
+        }
         loading = true
         error = nil
 
         let dateStr = dueDate.map { formatDate($0) }
-
-        // The server rejects markdown images on creation (they have to be
-        // associated with an existing issue id). Create with images stripped,
-        // then upload + patch them in once the issue exists.
-        let fullMarkdown = editor.currentMarkdown()
-        // EXP-824: media placeholders are plain links — strip both forms.
-        let stripped = MarkdownImageUtils
-            .stripUnknownDrafts(fullMarkdown, keep: [])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = draftDescription
 
         // Drop selections for labels deleted while drafting — the server
         // rejects the whole create on an unknown label id (parity with Android).
@@ -664,94 +926,60 @@ struct CreateIssueView: View {
             statusId: status.rowId,
             priority: priority.rawValue,
             assigneeId: assigneeId,
-            description: stripped.isEmpty ? nil : stripped,
+            description: description.isEmpty ? nil : description,
             dueDate: dateStr,
-            labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds)
+            labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds),
+            // EXP-878: always this page's draft id — the server reparents its
+            // attachments and deletes the row in the create's transaction, and
+            // tolerates an id no row was ever written for (a compose that
+            // never uploaded anything).
+            draftId: draftKey
         )
 
         do {
             let created = try await deps.issuesApi.create(accountId: accountId, input)
             let createdId = created.id
-            // What the issue's description ends up as — the create above sent
-            // the image-stripped markdown, the patch below may replace it.
-            var finalDescription = stripped.isEmpty ? nil : stripped
-
-            // Upload drafts atomically against the new issue id and patch the
-            // final markdown (with real attachment URLs swapped in by block).
-            if !editor.pendingImages.isEmpty {
-                let api = deps.attachmentsApi
-                let acc = accountId
-                let uploader: @Sendable (PendingImage) async throws -> String = { image in
-                    let uploaded = try await api.upload(
-                        accountId: acc,
-                        issueId: createdId,
-                        data: image.data,
-                        filename: image.filename,
-                        contentType: image.contentType,
-                        media: image.mediaUploadParts
-                    )
-                    return uploaded.url
-                }
-                let allUploaded = await editor.commitPendingImages(uploader: uploader)
-                let finalMarkdown = editor.currentMarkdown()
-                if allUploaded, !editor.hasUncommittedDrafts, finalMarkdown != stripped {
-                    try await deps.issuesApi.update(
-                        accountId: accountId,
-                        UpdateIssueInput(
-                            id: createdId,
-                            description: finalMarkdown.isEmpty ? nil : finalMarkdown
-                        )
-                    )
-                    finalDescription = finalMarkdown.isEmpty ? nil : finalMarkdown
-                }
-            }
-
-            // Draft files last: the issue is committed, so a failed attachment
-            // is reported but never fails the create (EXP-327).
-            var draftsUploaded = true
-            if !draftFiles.isEmpty {
-                draftsUploaded = await uploadDraftFiles(issueId: createdId)
-            }
 
             // Remember the board so the Share Extension defaults its picker to it.
             SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
 
             await mirrorCreatedIssue(
                 created,
-                description: finalDescription,
+                description: description.isEmpty ? nil : description,
                 labelIds: validLabelIds
             )
+            // The server dropped the draft inside the same transaction; drop
+            // the local mirror too so the Drafts list loses the row now.
+            await deleteLocalDraftRow()
 
-            if createMore {
-                title = ""
-                editor = IssueEditorModel()
-                draftFiles = []
-                selectedLabelIds = []
-                configureEditor()
-                titleFocused = true
-                // No hand-off: a run of creates has no single issue to land on,
-                // and the sheet stays up for the next one.
-            } else if draftsUploaded {
-                onFinish(createdId)
-            } else {
-                // The issue exists; only an attachment failed. Hold the page
-                // so the error is actually read, and latch the create so
-                // acknowledging it can't file a duplicate issue. Going Back
-                // still lands on the issue — it is real, and the attachment can
-                // be retried there.
-                createCommitted = true
-                createdIssueId = createdId
-            }
+            createdIssueId = createdId
+            loading = false
+            didFinish = true
+            onFinish(createdId)
+            return
         } catch {
             self.error = error.userFacingMessage
         }
         loading = false
     }
 
+    /// Remove the local mirror of this page's draft (the server-side row is
+    /// already gone — `issues.create({draftId})` deleted it).
+    private func deleteLocalDraftRow() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let key = draftKey
+        _ = try? await pool.write { db in try IssueDraftEntity.deleteOne(db, key: key) }
+        draftExists = false
+    }
+
     /// `#IDENTIFIER` refs resolve/search against the target board's team:
     /// pills for refs that resolve locally, and a #-autocomplete inserting the
-    /// plain interchange token. Re-applied when "Create more" resets the model.
+    /// plain interchange token.
     private func configureEditor() {
+        // EXP-878: an inserted image/media block is uploaded EAGERLY against
+        // the draft. `onEdit` is the model's only insertion signal; the commit
+        // itself is guarded on the pending set, so plain typing is a no-op.
+        editor.onEdit = { commitDraftMediaIfNeeded() }
         editor.issueRefResolver = { identifier in
             IssueRefChipCache.chip(identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)?
                 .issueId
