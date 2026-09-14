@@ -33,6 +33,12 @@ const page = `
   --ok: ${designTokens.semantic.green};
   --warn: ${designTokens.semantic.yellow};
   --r-sm: ${radius.sm}px;
+  /* The ONE sub-ladder corner in the system: the issue chip's, which is 6 on
+     web (apps/web/src/styles.css .issue-chip), 4 on desktop and 5 on
+     iOS/Android. A badge that small wearing the 8px --r-sm step reads as a
+     capsule, which is exactly what the chip is not — so it gets a name here
+     rather than a literal in a demo. */
+  --r-chip: 6px;
   --r-md: ${radius.md}px;
   --r-lg: ${radius.lg}px;
   --shot-h: 520px;

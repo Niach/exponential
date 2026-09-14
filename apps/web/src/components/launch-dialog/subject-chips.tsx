@@ -1,21 +1,21 @@
 import type { Issue } from "@/db/schema"
 import type { TeamAction } from "@/components/action-editor-dialog"
 import { useIssueRefs } from "@/components/issue-ref-provider"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { IssueChip } from "@/components/issue-chip"
 import { Pill } from "@/components/ui/pill"
 import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
-import { cn } from "@/lib/utils"
 
 // EXP-825: the composer's SUBJECT, as chips in the card's leading row — one
 // per picked issue, or ONE action chip. They are how "exclusivity by swap"
 // reads: picking the other kind replaces what is here, and the chips show it.
 //
-// EXP-827: an issue chip is the issue-ref pill the session feed and the
-// markdown editor draw (status glyph, mono identifier, muted title) with a
-// SEPARATE trailing ✕; the body opens the issue where an issue-ref provider
-// is mounted and is inert otherwise. The action chip's body never dismisses
-// the action — only its ✕ does (the last issue chip going = a chat again).
+// EXP-827/EXP-885: an issue chip IS `<IssueChip>` — the one chip the session
+// feed, the timeline and the markdown editor draw (small rounded rect, status
+// glyph, mono identifier, muted title), here with its trailing ✕; the body
+// opens the issue where an issue-ref provider is mounted and is inert
+// otherwise. The action chip's body never dismisses the action — only its ✕
+// does (the last issue chip going = a chat again).
 // Test ids are byte-identical with the native suites
 // (`agent-composer-chip-issue-<IDENT>` + `-remove`,
 // `agent-composer-chip-action` + `-remove`).
@@ -70,46 +70,23 @@ export function SubjectChips({
   }
   return (
     <>
-      {issues.map((issue) => {
-        const open = issueRefs
-          ? () => issueRefs.open(issue.identifier)
-          : undefined
-        return (
-          <Pill
-            key={issue.id}
-            size="sm"
-            mode="readonly"
-            className="max-w-[20rem] pl-0 pr-1"
-            data-testid={`agent-composer-chip-issue-${issue.identifier}`}
-            title={`${issue.identifier} · ${issue.title}`}
-          >
-            <button
-              type="button"
-              disabled={!open}
-              onClick={open}
-              aria-label={`Open ${issue.identifier}`}
-              className={cn(
-                `flex h-full min-w-0 items-center gap-1 rounded-l-full pl-2 outline-none`,
-                open
-                  ? `cursor-pointer hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`
-                  : `cursor-default`
-              )}
-            >
-              <IssueStatusIcon issue={issue} className="!h-3 !w-3" />
-              <span className="font-mono">{issue.identifier}</span>
-              <span className="min-w-0 truncate text-muted-foreground">
-                {issue.title}
-              </span>
-            </button>
-            <ChipRemove
-              label={`Remove ${issue.identifier}`}
-              testId={`agent-composer-chip-issue-${issue.identifier}-remove`}
-              disabled={disabled}
-              onClick={() => onRemoveIssue(issue.id)}
-            />
-          </Pill>
-        )
-      })}
+      {issues.map((issue) => (
+        <IssueChip
+          key={issue.id}
+          issue={issue}
+          className="max-w-[20rem]"
+          // The composer is a typing surface — a hover card popping over the
+          // field while picking issues is noise.
+          preview={false}
+          onClick={
+            issueRefs ? () => issueRefs.open(issue.identifier) : undefined
+          }
+          onRemove={() => onRemoveIssue(issue.id)}
+          removeDisabled={disabled}
+          testId={`agent-composer-chip-issue-${issue.identifier}`}
+          removeTestId={`agent-composer-chip-issue-${issue.identifier}-remove`}
+        />
+      ))}
       {pendingIssueCount > 0 && (
         <Pill size="sm">{`${pendingIssueCount} loading…`}</Pill>
       )}

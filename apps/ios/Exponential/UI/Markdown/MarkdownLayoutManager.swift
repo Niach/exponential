@@ -181,9 +181,9 @@ final class MarkdownLayoutManager: NSLayoutManager {
         }
     }
 
-    /// Point size of the chip status glyph. Slightly wider than a `#` in the
-    /// body font, which the Lucide art's own 24-grid padding absorbs.
-    private static let statusIconSize: CGFloat = 13
+    /// Point size of the chip status glyph — the SHARED token (EXP-885), so
+    /// the painted glyph and `IssueChip`'s are one size, not two constants.
+    private static let statusIconSize: CGFloat = MarkdownStyle.chipStatusIconSize
 
     /// The layout manager asks for this on every draw pass, so memoize the
     /// tinted rendition per (name, size, color) — the `IssueRefTitleAttachment`

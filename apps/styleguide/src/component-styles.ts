@@ -338,6 +338,71 @@ export const componentStyles = `
   color: var(--primary-fg);
 }
 
+/* ----------------------------------------------------------- issue chip */
+/* EXP-885 — the ONE issue badge. These numbers MIRROR, declaration for
+   declaration, apps/web/src/styles.css .issue-chip — the class the
+   React component (components/issue-chip.tsx) and the markdown editor's
+   #IDENT decoration both wear, which is why the rem values here are the
+   web's own rather than this page's usual px. Nothing reads that stylesheet
+   at build time: this is a hand-kept copy, like every other demo in the
+   group.
+   A rounded RECT at --r-chip, never the pill's capsule; the hairline over the
+   wash is what makes the chip legible, so it survives every state but hover,
+   which swaps it for the ring. */
+.cmp-issue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 18rem;
+  border-radius: var(--r-chip);
+  background: var(--active);
+  border: 1px solid var(--stroke);
+  /* EXP-469: the left padding sits directly against the status glyph, which
+     carries its own gap — a symmetric 0.4rem read as the icon floating off
+     the chip's edge. */
+  padding: 0.05rem 0.4rem 0.05rem 0.25rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+/* The ✕ variant (composers only): the glyph sits INSIDE the chip, so the
+   trailing padding shrinks to the ✕'s own hit area. */
+.cmp-issue-chip[data-removable] { padding-right: 0.15rem; }
+.cmp-issue-chip:hover { border-color: var(--ring); }
+/* 0.875em of the chip's own 0.75rem — the exact glyph box the editor
+   decoration paints with its mask. The tint is the status row's colour; the
+   demo shows the muted backlog default and the completed green. */
+.cmp-issue-chip .glyph { flex: none; width: 0.875em; height: 0.875em; color: var(--fg-50); }
+.cmp-issue-chip[data-status="done"] .glyph { color: var(--ok); }
+/* The identifier recedes; the title carries the weight. */
+.cmp-issue-chip .id {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--muted-fg);
+}
+.cmp-issue-chip .title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+/* Web's ✕ is a 16px box with a 4px corner; it takes the chip's own corner
+   here rather than adding a second sub-ladder number. */
+.cmp-issue-chip .close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-chip);
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+.cmp-issue-chip .close:hover { background: var(--active); color: var(--fg); }
+.cmp-issue-chip .close .glyph { width: 12px; height: 12px; color: inherit; }
+
 /* ---------------------------------------------------------------- avatar */
 /* Picture first. Without one the initials sit on the PERSON'S hue — the
    avatar token list, index = fnv1a32(utf8(userId)) % 8 — as a 20% fill under

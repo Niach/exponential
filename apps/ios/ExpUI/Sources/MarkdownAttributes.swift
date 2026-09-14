@@ -101,6 +101,12 @@ public enum MarkdownStyle {
     /// Extra advance kerned onto a status chip's hidden `#` so the painted
     /// glyph clears the identifier next to it (EXP-655).
     public static let chipStatusIconGap: CGFloat = 6
+    /// Point size of a chip's status glyph — slightly wider than a `#` in the
+    /// body font, which the Lucide art's own 24-grid padding absorbs. Shared
+    /// (EXP-885) by the two things that draw an issue chip: `MarkdownLayoutManager`,
+    /// which paints it over the hidden `#` cell, and `IssueChip`, the view every
+    /// chip outside the text painter is.
+    public static let chipStatusIconSize: CGFloat = 13
     /// EXP-726 — GFM table chrome. The hairline matches `chipBorder` and the
     /// header tint `codeBlockBackground`, so a table reads as the same family
     /// of surfaces as a fence or a chip (web `--border` / `--foreground 4%`,

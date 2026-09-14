@@ -23,7 +23,7 @@
 //! bar at all (web parity: `plan !== 'unlimited'`).
 
 use gpui::{
-    div, AnyElement, App, Entity, FontWeight,
+    div, AnyElement, App, Entity,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
@@ -359,38 +359,33 @@ impl StoragePane {
                 .into_any_element()
         };
 
-        // The owning issue as an editor-parity `#IDENT` chip (EXP-316) —
-        // clicking leaves Settings for the issue's detail screen. Unresolved
-        // identifiers (trashed board, not yet synced) stay a dash.
+        // The owning issue as the ONE issue chip (EXP-316, EXP-885: it used
+        // to be a hand-rolled `#IDENT` capsule of its own) — clicking leaves
+        // Settings for the issue's detail screen. The column is narrow, so
+        // the chip carries the identifier and status only, no title.
+        // Unresolved identifiers (trashed board, not yet synced) stay a dash.
         let issue_cell: AnyElement = match identifier {
             Some(identifier) => {
                 let issue_id = row.issue_id.clone();
-                let hover_bg = cx.theme().secondary_hover;
-                div()
-                    .id(SharedString::from(format!("storage-issue-{}", row.id)))
-                    .px_1p5()
-                    .rounded_full()
-                    .bg(cx.theme().secondary)
-                    .text_xs()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().secondary_foreground)
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .cursor_pointer()
-                    .hover(move |this| this.bg(hover_bg))
-                    .on_click(move |_, window, cx| {
-                        crate::navigation::navigate(
-                            window,
-                            cx,
-                            crate::navigation::Screen::IssueDetail {
-                                issue_id: issue_id.clone(),
-                            },
-                        );
-                    })
-                    .child(SharedString::from(format!("#{identifier}")))
-                    .into_any_element()
+                let chip = crate::issue_chip::issue_chip(
+                    SharedString::from(format!("storage-issue-{}", row.id)),
+                    identifier,
+                    "",
+                )
+                .on_click(move |_, window, cx| {
+                    crate::navigation::navigate(
+                        window,
+                        cx,
+                        crate::navigation::Screen::IssueDetail {
+                            issue_id: issue_id.clone(),
+                        },
+                    );
+                });
+                match crate::issue_chip::synced_issue_status(&row.issue_id, cx) {
+                    Some(status) => chip.status(status),
+                    None => chip,
+                }
+                .into_any_element()
             }
             None => div()
                 .text_xs()

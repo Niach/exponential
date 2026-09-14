@@ -79,6 +79,20 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
 
     apply_typography(&mut theme, f32::from(app.font_size).max(1.0));
 
+    // EXP-885: the vendored crate owns its own copy of the chip geometry (it
+    // is standalone and cannot import ours), so this is the one place the two
+    // could drift — the WYSIWYG editor paints from `theme.dimensions`, every
+    // other surface from `crate::issue_chip`'s constants. A debug build
+    // fails loudly rather than shipping two subtly different chips.
+    debug_assert!(
+        crate::issue_chip::vendored_geometry_matches(
+            theme.dimensions.issue_chip_radius,
+            theme.dimensions.reference_pad_x,
+            theme.dimensions.reference_pad_y,
+        ),
+        "vendored WYSIWYG chip geometry drifted from `issue_chip`"
+    );
+
     Arc::new(theme)
 }
 

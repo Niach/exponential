@@ -232,10 +232,12 @@ final class IssueRefsBareModeTests: XCTestCase {
         )
     }
 
-    // A bare chip has no `#` cell, so the decoration must not clear the first
-    // character's color (that would eat the prefix's first letter) and must not
-    // hand the layout manager a status glyph to paint over it.
-    func testBareChipKeepsItsFirstCharacterVisible() {
+    // EXP-885: a bare token has no `#` cell for the layout manager to paint the
+    // status glyph over, and hiding its OWN first character would eat the
+    // prefix's first letter — so the display splice writes one in. The bare
+    // chip ends up identical to the `#` form: hidden, kerned cell first, the
+    // identifier fully visible after it.
+    func testABareChipGetsAHashCellForItsStatusGlyph() {
         let out = IssueRefs.decorateForDisplay(
             NSAttributedString(string: "filed EXP-1 today"),
             resolver: resolver,
@@ -243,10 +245,37 @@ final class IssueRefsBareModeTests: XCTestCase {
             statusResolver: { _ in IssueRefStatusInfo(iconName: "status-backlog", color: .red) },
             bare: true
         )
+        XCTAssertEqual(out.string, "filed #EXP-1 Fix login flow today")
+        let hash = (out.string as NSString).range(of: "#EXP-1").location
+        XCTAssertEqual(out.attribute(.markdownIssueRef, at: hash, effectiveRange: nil) as? String, "id-1")
+        XCTAssertNotNil(out.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil))
+        XCTAssertEqual(
+            out.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
+            PlatformColor.clear
+        )
+        XCTAssertEqual(
+            out.attribute(.kern, at: hash, effectiveRange: nil) as? CGFloat,
+            MarkdownStyle.chipStatusIconGap
+        )
+        // ...and the identifier itself is untouched: muted, visible, unkerned.
+        XCTAssertEqual(
+            out.attribute(.foregroundColor, at: hash + 1, effectiveRange: nil) as? PlatformColor,
+            MarkdownStyle.chipTokenColor
+        )
+        XCTAssertNil(out.attribute(.kern, at: hash + 1, effectiveRange: nil))
+    }
+
+    // With no status to show there is no cell to make: a bare token stays
+    // exactly as the agent narrated it.
+    func testABareChipWithoutAStatusKeepsItsBareToken() {
+        let out = IssueRefs.decorateForDisplay(
+            NSAttributedString(string: "filed EXP-1 today"),
+            resolver: resolver,
+            titleResolver: { _ in "Fix login flow" },
+            bare: true
+        )
         XCTAssertEqual(out.string, "filed EXP-1 Fix login flow today")
         let start = (out.string as NSString).range(of: "EXP-1").location
-        XCTAssertEqual(out.attribute(.markdownIssueRef, at: start, effectiveRange: nil) as? String, "id-1")
-        XCTAssertNil(out.attribute(.markdownIssueRefStatus, at: start, effectiveRange: nil))
         XCTAssertNotEqual(
             out.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
             PlatformColor.clear

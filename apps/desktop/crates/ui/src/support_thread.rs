@@ -755,29 +755,36 @@ impl Render for SupportThreadView {
         let escalate_section: gpui::AnyElement = match &detail.linked_issue {
             Some(issue) => {
                 // Already escalated: the issue chip opens the issue tab.
-                let label = match issue.identifier.as_deref() {
-                    Some(identifier) => format!(
-                        "{identifier} {}",
-                        issue.title.as_deref().unwrap_or_default()
-                    ),
-                    None => issue.title.clone().unwrap_or_else(|| "Issue".to_string()),
-                };
+                // EXP-885: the ONE issue badge. It used to be a `glass_pill_
+                // button` capsule wearing a hard-coded `CircleDot`, which
+                // read as a status glyph while never reflecting the issue's
+                // real status; a synced row now resolves its own.
                 let issue_id = issue.id.clone();
+                let title = issue.title.clone().unwrap_or_default();
+                let identifier = match issue.identifier.clone() {
+                    Some(identifier) => identifier,
+                    // No identifier AND no title: the chip still has to name
+                    // something.
+                    None if title.is_empty() => "Issue".to_string(),
+                    None => String::new(),
+                };
+                let status = crate::issue_chip::synced_issue_status(&issue_id, cx);
+                let mut chip =
+                    crate::issue_chip::issue_chip("support-linked-issue", identifier, title)
+                        .on_click(move |_: &ClickEvent, window, cx| {
+                            window.dispatch_action(
+                                Box::new(OpenIssue {
+                                    issue_id: issue_id.clone(),
+                                }),
+                                cx,
+                            );
+                        });
+                if let Some(status) = status {
+                    chip = chip.status(status);
+                }
                 v_flex()
                     .child(crate::surface::glass_section_header("Linked issue", None, cx))
-                    .child(
-                        crate::surface::glass_pill_button("support-linked-issue", crate::surface::PillSize::Sm, cx)
-                            .icon(Icon::from(ExpIcon::CircleDot))
-                            .label(SharedString::from(label.trim().to_string()))
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                window.dispatch_action(
-                                    Box::new(OpenIssue {
-                                        issue_id: issue_id.clone(),
-                                    }),
-                                    cx,
-                                );
-                            }),
-                    )
+                    .child(h_flex().child(chip))
                     .into_any_element()
             }
             None => {

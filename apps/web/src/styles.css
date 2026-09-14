@@ -800,25 +800,52 @@ html {
   cursor: pointer;
 }
 
-/* Inline `#IDENTIFIER` issue-reference pills (a decoration — the underlying
-   text stays the plain token; see lib/issue-ref-extension.ts). */
-.tiptap-content .issue-ref-pill {
+/* EXP-885 — THE issue chip box. ONE style for every surface that names an
+   issue as a chip: the markdown editor's `#IDENTIFIER` decoration
+   (`.issue-ref-pill` below), the steering feed, the timeline's relation
+   events and the launch composer's subject chips — the last three through
+   `<IssueChip>` (components/issue-chip.tsx), which carries this very class so
+   the decoration and the component cannot drift. components/issue-chip.test.tsx
+   locks the pair.
+
+   EXP-423: a small rounded RECT, not a capsule — the shape all four clients
+   share (desktop 4px, iOS ~5pt, Android 5dp). Mention pills stay fully round.
+
+   UNLAYERED, like the rest of this file: these declarations beat Tailwind's
+   @layer utilities, so the component styles its LAYOUT with utilities and
+   leaves the box to this class (the removable variant's tighter right padding
+   is the `data-removable` rule below, not a `pr-*`). */
+.issue-chip {
   background: var(--accent);
   border: 1px solid var(--border);
-  /* EXP-423: a small rounded RECT, not a capsule — the shape all four clients
-     now share (desktop 4px, iOS ~5pt, Android 5dp). Mention pills stay
-     fully round. */
   border-radius: 6px;
-  /* EXP-469: the left padding sits directly against the status glyph
-     (`::before`), which carries its own margin-right — a symmetric 0.4rem
-     read as the icon floating too far off the pill's edge. */
+  /* EXP-469: the left padding sits directly against the status glyph, which
+     carries its own gap — a symmetric 0.4rem read as the icon floating too
+     far off the chip's edge. */
   padding: 0.05rem 0.4rem 0.05rem 0.25rem;
+  white-space: nowrap;
+}
+
+/* The ✕ variant (composers only): the glyph sits inside the chip, so the
+   trailing padding shrinks to the ✕'s own hit area. */
+.issue-chip[data-removable="true"] {
+  padding-right: 0.15rem;
+}
+
+.issue-chip:hover {
+  border-color: var(--ring);
+}
+
+/* Inline `#IDENTIFIER` issue-reference pills (a decoration — the underlying
+   text stays the plain token; see lib/issue-ref-extension.ts). The box comes
+   from `.issue-chip`, which the decoration also carries; only what a
+   decoration cannot do in React lives here. */
+.tiptap-content .issue-ref-pill {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
   /* The identifier recedes; the title below carries the weight. */
   color: var(--muted-foreground);
   cursor: pointer;
-  white-space: nowrap;
 }
 
 /* EXP-423: the issue's status glyph, painted as a mask so its shape can come
@@ -854,10 +881,6 @@ html {
   font-weight: 500;
   color: var(--foreground);
   white-space: normal;
-}
-
-.tiptap-content .issue-ref-pill:hover {
-  border-color: var(--ring);
 }
 
 /* Inline `@email` mention pills (a decoration — the underlying text stays the

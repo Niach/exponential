@@ -3464,42 +3464,31 @@ private struct ExpToolIssuePreview: View {
         )
     }
 
+    /// Nothing to open: an issue outside this phone's synced scope (or a call
+    /// that named no identifier at all) stays a label, not a dead button.
+    @MainActor
+    private var openAction: (() -> Void)? {
+        guard let chip = resolved, let refs else { return nil }
+        return { refs.onOpen(chip.issueId) }
+    }
+
     var body: some View {
         let chip = resolved
-        let label = chip?.title ?? title
-        let row = HStack(spacing: 6) {
-            AppIcon(chip?.status.iconName ?? AppIcons.uiIssue, size: 11)
-                .foregroundStyle(chip?.status.color ?? Color.white.opacity(TextOpacity.tertiary))
-            if let identifier, !identifier.isEmpty {
-                Text(identifier)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            if let label, !label.isEmpty {
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+        // EXP-885: the SHARED badge, at the transcript's measure so it reads as
+        // the same object as a `#EXP-1` chip in the narration above it. An
+        // unresolved issue keeps the generic issue glyph in the muted token
+        // colour — there is no status to show, but the chip is still a chip.
+        let badge = IssueChip(
+            identifier: identifier,
+            title: chip?.title ?? title,
+            iconName: chip?.status.iconName ?? AppIcons.uiIssue,
+            statusColor: chip?.status.color,
+            bodySize: DesignTokens.Transcript.bodySize,
+            onTap: openAction
+        )
+        HStack(spacing: 0) {
+            badge
             Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .glassRow()
-
-        if let chip, let refs {
-            Button {
-                refs.onOpen(chip.issueId)
-            } label: {
-                row.contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open \(identifier ?? "the issue")")
-        } else {
-            // Nothing to open: an issue outside this phone's synced scope (or a
-            // call that named no identifier at all) stays a label.
-            row
         }
     }
 }

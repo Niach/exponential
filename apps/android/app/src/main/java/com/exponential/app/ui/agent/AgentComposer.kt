@@ -30,12 +30,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.renumberImageMarkers
@@ -44,8 +43,8 @@ import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.PendingAttachmentStrip
-import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
@@ -146,20 +145,26 @@ internal fun AgentComposer(
                             modifier = Modifier.testTag("agent-composer-chip-action"),
                         )
                     } else {
-                        // One checked issue: status glyph · mono identifier ·
-                        // ✕. Same split: the ✕ removes, the body is inert.
+                        // One checked issue, as the SHARED chip (EXP-885):
+                        // status glyph · mono identifier · title · ✕. It was a
+                        // capsule carrying the identifier alone, which read as
+                        // a control and named the issue worse than every other
+                        // badge in the app. Same split: the ✕ removes, the
+                        // body is inert.
                         issueChips.forEach { option ->
-                            GlassPill(
-                                option.identifier,
-                                leading = { StatusIcon(IssueStatus.fromWire(option.status), size = 12.dp) },
-                                trailing = {
-                                    ChipClose(
-                                        contentDescription = "Remove ${option.identifier}",
-                                        testTag = "agent-composer-chip-issue-${option.identifier}-remove",
-                                        onClick = { onRemoveIssue(option.id) },
-                                    )
+                            IssueChip(
+                                identifier = option.identifier,
+                                title = option.title,
+                                // The composer carries the ANCHOR off the wire,
+                                // not the team's status row, so the glyph comes
+                                // from the builtin defaults — exactly what the
+                                // capsule's `StatusIcon(fromWire(..))` drew.
+                                status = remember(option.status) {
+                                    IssueStatusResolver.resolve(null, option.status, emptyList())
                                 },
-                                fontFamily = FontFamily.Monospace,
+                                onRemove = { onRemoveIssue(option.id) },
+                                removeContentDescription = "Remove ${option.identifier}",
+                                removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",
                                 modifier = Modifier.testTag("agent-composer-chip-issue-${option.identifier}"),
                             )
                         }
