@@ -532,21 +532,30 @@ internal fun annotateLine(
             if (!added) continue
             val chipStart = display.map(match.start.coerceIn(0, text.length))
             val chipEnd = display.map(match.end.coerceIn(0, text.length)).coerceAtLeast(chipStart)
-            val tokenEnd = (chipStart + (match.end - match.start)).coerceAtMost(chipEnd)
-            // Title in the normal text color, identifier muted + monospace.
+            // EXP-885: a bare token owns no `#`, so the display splices a
+            // GLYPH CELL in front of it (see [CHIP_GLYPH_CELL]) — the
+            // identifier then starts that one character in.
+            val cell = if (display.hasGlyphCell(match.start)) CHIP_GLYPH_CELL.length else 0
+            val tokenEnd = (chipStart + cell + (match.end - match.start)).coerceAtMost(chipEnd)
+            // Title in the normal text color, identifier muted + monospace
+            // (the glyph cell included: it wears the hidden `#`'s treatment).
             addStyle(SpanStyle(color = MdStyle.Text), chipStart, chipEnd)
             addStyle(
                 SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
                 chipStart,
                 tokenEnd,
             )
-            // A bare token (EXP-760) has no `#` cell: the glyph would paint
-            // over the prefix's first LETTER, and hiding it would delete it.
-            val status = if (match.bare) null else target.resolvedStatus
+            // EXP-885: every resolved chip paints its status glyph, bare or
+            // not — the cell it paints in is the `#` for a `#MET-1` token and
+            // the spliced placeholder for a bare one. The ONE case left
+            // unpainted is a bare token whose splice was dropped (an
+            // overlapping candidate, below): there the chip starts on the
+            // identifier's first LETTER, which nothing may hide.
+            val status = if (match.bare && cell == 0) null else target.resolvedStatus
             if (status != null && chipStart < chipEnd) {
-                // The status glyph is painted over the `#`; hiding it costs one
-                // transparent character span and zero offset-map changes. The
-                // letter spacing widens that cell into the icon↔identifier gap
+                // The status glyph is painted over that cell; hiding it costs
+                // one transparent character span and zero offset-map changes.
+                // The letter spacing widens it into the icon↔identifier gap
                 // (EXP-655, same as the editor's addChipStyles).
                 addStyle(
                     SpanStyle(color = Color.Transparent, letterSpacing = MdStyle.chipHashLetterSpacing),
@@ -592,6 +601,20 @@ internal fun annotateLine(
 
 /** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */
 internal const val MAX_CHIP_TITLE_CHARS = 60
+
+/**
+ * EXP-885: the cell a BARE `EXP-758` chip paints its status glyph in. A
+ * `#IDENTIFIER` token brings its own — the `#` goes transparent and the art
+ * lands on it — but a bare token starts on a LETTER, so before EXP-885 the
+ * glyph was simply dropped and the steering feed's chips read status-less next
+ * to the identical chips everywhere else. The display therefore splices this
+ * one NON-BREAKING space in front of the token (the stored markdown is
+ * untouched, like every other [MentionDisplay] splice) and [annotateLine]
+ * gives it the hidden `#`'s exact treatment: transparent, letter-spaced to the
+ * icon's width. Non-breaking so a wrap can never put the glyph on the line
+ * above its identifier.
+ */
+internal const val CHIP_GLYPH_CELL = "\u00A0"
 
 /**
  * The title text a `#IDENTIFIER` chip appends, truncated web-identically
@@ -669,7 +692,16 @@ internal class MentionDisplay private constructor(
     /** Half-open display ranges of the rendered name pills. */
     val pills: List<Pair<Int, Int>>,
     private val replacements: List<Replacement>,
+    /**
+     * SOURCE starts of the ref tokens whose splice actually prepended a
+     * [CHIP_GLYPH_CELL] (EXP-885). Only the builder knows: a candidate that
+     * overlapped an earlier one was dropped, and that chip has no cell.
+     */
+    private val glyphCells: Set<Int> = emptySet(),
 ) {
+    /** Whether the ref token at [sourceStart] carries a spliced glyph cell. */
+    fun hasGlyphCell(sourceStart: Int): Boolean = sourceStart in glyphCells
+
     class Replacement(
         val sourceStart: Int,
         val sourceEnd: Int,
@@ -704,6 +736,8 @@ internal class MentionDisplay private constructor(
             /** Mention pills get their own display style range; ref chips are
              *  styled through their link annotation instead. */
             val isMention: Boolean,
+            /** EXP-885: this replacement leads with a [CHIP_GLYPH_CELL]. */
+            val glyphCell: Boolean = false,
         )
 
         /** Identity mapping when nothing is replaced. */
@@ -717,16 +751,26 @@ internal class MentionDisplay private constructor(
                 candidates.add(Candidate(match.start, match.end, "@${member.name}", true))
             }
             // EXP-307: the chip shows the whole title next to the short code
-            // (blank titles keep the bare token).
+            // (blank titles keep the bare token). EXP-885: a bare token that
+            // has a status to show also gains the glyph cell its `#`-prefixed
+            // twin gets for free — one leading placeholder character, the
+            // splice being the one place an offset shift is already handled.
             for ((match, target) in refPills) {
-                val title = chipTitle(target.title)
-                if (title.isEmpty()) continue
                 if (match.start < 0 || match.end > text.length || match.end <= match.start) continue
+                val title = chipTitle(target.title)
+                val glyphCell = match.bare && target.resolvedStatus != null
+                if (title.isEmpty() && !glyphCell) continue
+                val token = text.substring(match.start, match.end)
                 candidates.add(
                     Candidate(
                         match.start, match.end,
-                        "${text.substring(match.start, match.end)} $title",
+                        buildString {
+                            if (glyphCell) append(CHIP_GLYPH_CELL)
+                            append(token)
+                            if (title.isNotEmpty()) append(' ').append(title)
+                        },
                         isMention = false,
+                        glyphCell = glyphCell,
                     ),
                 )
             }
@@ -735,6 +779,7 @@ internal class MentionDisplay private constructor(
             val out = StringBuilder(text.length)
             val ranges = ArrayList<Pair<Int, Int>>(pills.size)
             val replacements = ArrayList<Replacement>(candidates.size)
+            val glyphCells = HashSet<Int>(refPills.size)
             var last = 0
             for (candidate in candidates) {
                 if (candidate.start < last) continue // overlapping token: keep the first
@@ -742,13 +787,14 @@ internal class MentionDisplay private constructor(
                 val displayStart = out.length
                 out.append(candidate.replacement)
                 if (candidate.isMention) ranges.add(displayStart to out.length)
+                if (candidate.glyphCell) glyphCells.add(candidate.start)
                 replacements.add(
                     Replacement(candidate.start, candidate.end, displayStart, out.length),
                 )
                 last = candidate.end
             }
             out.append(text, last, text.length)
-            return MentionDisplay(out.toString(), ranges, replacements)
+            return MentionDisplay(out.toString(), ranges, replacements, glyphCells)
         }
     }
 }

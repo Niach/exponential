@@ -50,6 +50,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.ComposerSubmitButton
@@ -59,6 +60,7 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
@@ -297,37 +299,24 @@ fun SupportThreadScreen(
     }
 }
 
-/** The escalated issue, as a chip navigating to the ordinary issue screen. */
+/**
+ * The escalated issue, as a chip navigating to the ordinary issue screen.
+ * EXP-885: the SHARED badge — the ticket header is where a reader judges
+ * whether the escalated work is done, so it carries the status glyph now, and
+ * it is the same chip as everywhere else rather than a chevroned row of its
+ * own. The helpdesk API hands over the ANCHOR, not the team's status row.
+ */
 @Composable
 private fun LinkedIssueChip(issue: SupportLinkedIssue, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .padding(horizontal = 16.dp)
-            .glassRow()
-            .clickable(onClick = onClick)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            issue.identifier,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            issue.title,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        Icon(
-            ExpIcons.uiChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
+    IssueChip(
+        identifier = issue.identifier,
+        title = issue.title,
+        status = remember(issue.status) {
+            IssueStatusResolver.resolve(null, issue.status, emptyList())
+        },
+        onClick = onClick,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
 }
 
 // Inbound (reporter) bubbles lead in neutral glass; outbound member replies

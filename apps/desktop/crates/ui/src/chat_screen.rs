@@ -1662,34 +1662,25 @@ impl ChatScreenView {
                     .enumerate()
                 {
                     let issue_id = row.issue_id.clone();
+                    // EXP-885: the ONE issue badge — the markdown editor's
+                    // `#IDENT` chip, status glyph included. It used to be a
+                    // `glass_pill` capsule with no status at all, so the same
+                    // issue wore two different badges two panels apart.
                     chips.push(
-                        glass_pill(("chat-chip-issue", ix), PillSize::Sm, PillMode::Readonly, cx)
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .child(SharedString::from(row.identifier.clone())),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .max_w(px(220.))
-                                    .truncate()
-                                    .text_color(muted)
-                                    .child(SharedString::from(row.title.clone())),
-                            )
-                            .child(
-                                crate::composer::composer_tool(
-                                    ("chat-chip-issue-remove", ix),
-                                    registry::UI_CLOSE,
-                                    cx,
-                                )
-                                .tooltip("Remove")
-                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    this.toggle_issue(issue_id.clone(), false, window, cx);
-                                })),
-                            )
-                            .into_any_element(),
+                        crate::issue_chip::issue_chip(
+                            ("chat-chip-issue", ix),
+                            row.identifier.clone(),
+                            row.title.clone(),
+                        )
+                        .status(row.resolved.clone())
+                        .max_title_width(px(220.))
+                        .on_remove(
+                            ("chat-chip-issue-remove", ix),
+                            cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.toggle_issue(issue_id.clone(), false, window, cx);
+                            }),
+                        )
+                        .into_any_element(),
                     );
                 }
             }

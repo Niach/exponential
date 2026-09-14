@@ -148,26 +148,18 @@ struct AgentComposerCard: View {
         }
     }
 
-    /// One checked issue: status glyph · mono identifier · ✕. EXP-827: only
-    /// the ✕ removes (web and Android agree); the chip body is inert.
+    /// One checked issue: the SHARED issue badge (EXP-885) — status glyph ·
+    /// mono identifier · title · ✕, the same chip a `#EXP-1` ref wears in
+    /// prose. EXP-827: only the ✕ removes (web and Android agree); the chip
+    /// body is inert.
     private func issueChip(_ option: IssueOption) -> some View {
-        let name = option.identifier ?? option.title
         let id = "agent-composer-chip-issue-\(option.identifier ?? option.id)"
-        return GlassPill(
-            name,
-            mode: .readonly,
-            leading: {
-                AppIcon(IssueStatus.from(option.status).iconName, size: 12)
-                    .foregroundStyle(IssueStatus.from(option.status).color)
-            },
-            trailing: { chipClose }
+        return IssueChip(
+            identifier: option.identifier,
+            title: option.title,
+            status: IssueStatus.from(option.status),
+            onRemove: { model.toggleIssue(option.id) }
         )
-        .overlay(alignment: .trailing) {
-            chipRemoveButton(name: name, identifier: "\(id)-remove") {
-                model.toggleIssue(option.id)
-            }
-        }
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(id)
     }
 

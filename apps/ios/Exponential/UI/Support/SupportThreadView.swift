@@ -152,16 +152,16 @@ struct SupportThreadView: View {
             .foregroundStyle(vm.isOpen ? Color.white : .white.opacity(TextOpacity.secondary))
 
             if let issue = vm.linkedIssue {
+                // The escalated issue is an issue badge like any other
+                // (EXP-885): the SHARED chip, status glyph and all — the ticket
+                // header is where a reader judges whether the work is done.
                 NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                    GlassPill(issue.title) {
-                        AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
-                        if let identifier = issue.identifier {
-                            Text(identifier)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                    }
-                    .contentShape(Capsule())
+                    IssueChip(
+                        identifier: issue.identifier,
+                        title: issue.title,
+                        status: IssueStatus.from(issue.status)
+                    )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

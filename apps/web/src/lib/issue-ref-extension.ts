@@ -65,7 +65,11 @@ function buildDecorations(
       const from = pos + match.index
       decorations.push(
         Decoration.inline(from, from + match[0].length, {
-          class: `issue-ref-pill`,
+          // EXP-885: `issue-chip` is the SHARED box (styles.css) the
+          // React `<IssueChip>` also carries; `issue-ref-pill` adds only what
+          // a decoration must do itself (the ::before glyph, the ::after
+          // title). Editing one without the other is drift.
+          class: `issue-chip issue-ref-pill`,
           "data-issue-ref": identifier,
           "data-issue-title": chipTitle(resolved.title),
           title: resolved.title,

@@ -163,7 +163,7 @@ import {
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
-import { IssueRefPill } from "@/components/issue-ref-pill"
+import { IssueChip } from "@/components/issue-chip"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
@@ -2078,7 +2078,14 @@ function IssueRefText({ text }: { text: string }) {
         const resolved = segment.identifier
           ? (issueRefs?.resolve(segment.identifier) ?? null)
           : null
-        if (resolved) return <IssueRefPill key={i} issue={resolved} />
+        if (resolved)
+          return (
+            <IssueChip
+              key={i}
+              issue={resolved}
+              onClick={() => issueRefs?.open(resolved.identifier)}
+            />
+          )
         return linkSegments(segment.text).map((part, j) =>
           part.href ? (
             // break-all: the EXP-430 sign-in URL has no break points.
@@ -3505,7 +3512,10 @@ function ExpToolResult({
     if (resolved) {
       return (
         <div className="ml-5 pt-0.5">
-          <IssueRefPill issue={resolved} />
+          <IssueChip
+            issue={resolved}
+            onClick={() => issueRefs?.open(resolved.identifier)}
+          />
         </div>
       )
     }

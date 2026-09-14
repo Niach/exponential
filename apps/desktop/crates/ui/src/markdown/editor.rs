@@ -2985,14 +2985,17 @@ struct PillText {
     border: gpui::Hsla,
 }
 
-/// Overdraw around the glyph box, mirroring the WYSIWYG theme's
-/// `reference_pad_x`/`reference_pad_y` so chips look identical in the editor
-/// and the read-only view.
-const PILL_PAD_X: f32 = 3.0;
-const PILL_PAD_Y: f32 = 1.0;
-/// EXP-423: issue chips are small rounded rects (the wysiwyg theme's
-/// `issue_chip_radius`); mentions keep the 999 full pill.
-const ISSUE_PILL_RADIUS: f32 = 4.0;
+// EXP-885: the chip geometry is OWNED by `crate::issue_chip` — the one
+// source of truth on the host side, which also mirrors the vendored WYSIWYG
+// theme's `reference_pad_x`/`reference_pad_y`/`issue_chip_radius` (pinned by
+// `issue_chip`'s `geometry_matches_the_vendored_theme` test). These aliases
+// keep the local names so the paint code below reads unchanged: overdraw
+// around the glyph box, and the small rounded rect an issue chip is
+// (EXP-423 — mentions keep the 999 full pill).
+use crate::issue_chip::{
+    ISSUE_CHIP_ICON_MAX as PILL_ICON_MAX, ISSUE_CHIP_PAD_X as PILL_PAD_X,
+    ISSUE_CHIP_PAD_Y as PILL_PAD_Y, ISSUE_CHIP_RADIUS as ISSUE_PILL_RADIUS,
+};
 
 impl IntoElement for PillText {
     type Element = Self;
@@ -3085,7 +3088,7 @@ impl gpui::Element for PillText {
                 let side = segment
                     .size
                     .height
-                    .min(px(14.))
+                    .min(px(PILL_ICON_MAX))
                     .min((segment.size.width - px(4.)).max(px(8.)));
                 let origin = point(
                     segment.left() + (segment.size.width - side) / 2.0,

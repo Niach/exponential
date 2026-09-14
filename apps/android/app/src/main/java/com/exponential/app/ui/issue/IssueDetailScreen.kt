@@ -56,7 +56,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,6 +72,7 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
@@ -590,10 +590,13 @@ fun IssueDetailScreen(
                     Spacer(Modifier.width(6.dp))
                     val canonical = duplicateOf
                     if (canonical != null) {
-                        GlassPill(
-                            canonical.identifier,
-                            size = PillSize.Sm,
-                            fontFamily = FontFamily.Monospace,
+                        // EXP-885: the shared issue badge — the canonical issue
+                        // named the way every other badge names one (glyph ·
+                        // identifier · title), not as a bare mono capsule.
+                        IssueChip(
+                            identifier = canonical.identifier,
+                            title = canonical.title,
+                            status = IssueStatusResolver.resolve(canonical, teamStatuses),
                             onClick = { onOpenIssue(canonical.id) },
                         )
                     } else {

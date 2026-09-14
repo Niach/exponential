@@ -75,6 +75,7 @@ pub mod issue_detail;
 mod issue_files;
 mod issue_header;
 mod issue_list;
+mod issue_chip;
 mod issue_composer;
 mod issue_draft;
 mod issue_preview;

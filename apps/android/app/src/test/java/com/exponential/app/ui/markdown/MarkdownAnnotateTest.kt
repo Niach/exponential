@@ -2,6 +2,7 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.font.FontWeight
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.markdown.model.InlineKind
@@ -309,22 +310,69 @@ class MarkdownAnnotateTest {
         val bare = annotateLine(
             "closes MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
         )
-        assertEquals("closes MET-1 Fix login now", bare.text.text)
+        assertEquals("closes ${CHIP_GLYPH_CELL}MET-1 Fix login now", bare.text.text)
         assertEquals(1, bare.chips.size)
-        assertEquals("MET-1 Fix login", bare.text.text.substring(bare.chips[0].start, bare.chips[0].end))
+        assertEquals(
+            "${CHIP_GLYPH_CELL}MET-1 Fix login",
+            bare.text.text.substring(bare.chips[0].start, bare.chips[0].end),
+        )
     }
 
     /**
-     * A bare chip has no `#` cell: painting the status glyph there would sit on
-     * the prefix's first LETTER, and the transparent span would delete it.
+     * EXP-885: a bare chip owns no `#`, so the display splices ONE placeholder
+     * cell in front of the token and the status glyph paints there — the same
+     * chip the issue editor draws, glyph included. Nothing of the source is
+     * hidden: the transparent span sits on the spliced character, and the
+     * identifier starts right after it.
      */
     @Test
-    fun aBareChipPaintsNoStatusGlyphAndHidesNothing() {
+    fun aBareChipPaintsItsStatusGlyphInASplicedCell() {
         val line = annotateLine(
             "closes MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
         )
+        val chip = line.chips[0]
+        assertEquals(inProgress.iconName, chip.iconName)
+        // The glyph cell is the chip's first character, and it IS the splice.
+        assertEquals(chip.start, chip.tokenStart)
+        assertEquals(CHIP_GLYPH_CELL, line.text.text.substring(chip.tokenStart, chip.tokenStart + 1))
+        assertTrue(
+            "the spliced cell is transparent",
+            line.text.spanStyles.any {
+                it.start == chip.tokenStart &&
+                    it.end == chip.tokenStart + 1 &&
+                    it.item.color == Color.Transparent
+            },
+        )
+        // The identifier survives whole, immediately after the cell.
+        assertEquals(
+            "MET-1",
+            line.text.text.substring(chip.tokenStart + 1, chip.tokenStart + 6),
+        )
+        // …and the chip is still ONE link over the whole thing.
+        val link = line.text.getLinkAnnotations(0, line.text.length).single()
+        assertEquals(chip.start, link.start)
+        assertEquals(chip.end, link.end)
+    }
+
+    /** No status to show ⇒ nothing is spliced and the bare token is untouched. */
+    @Test
+    fun aBareChipWithoutAStatusGetsNoGlyphCell() {
+        val line = annotateLine(
+            "closes MET-1 now", emptyList(), refsTitled("MET-1" to "Fix login"), bare = true,
+        )
+        assertEquals("closes MET-1 Fix login now", line.text.text)
         assertNull(line.chips[0].iconName)
         assertTrue(line.text.spanStyles.none { it.item.color == Color.Transparent })
+    }
+
+    /** The splice shifts every LATER span with it (marks map through display). */
+    @Test
+    fun aBareGlyphCellKeepsLaterMarksAligned() {
+        val text = "closes MET-1 now"
+        val marks = listOf(InlineMark(13, 16, InlineKind.Bold)) // "now"
+        val line = annotateLine(text, marks, refsWithStatus("MET-1", "Fix login"), bare = true)
+        val bold = line.text.spanStyles.single { it.item.fontWeight == FontWeight.Bold }
+        assertEquals("now", line.text.text.substring(bold.start, bold.end))
     }
 
     /** The `#` form keeps its glyph and its hidden hash while bare mode is on. */

@@ -285,24 +285,33 @@ public enum IssueRefs {
             let identifier = ns.substring(with: idRange).uppercased()
             guard let issueId = resolver(identifier) else { continue }
             let token = ns.substring(with: match.range)
-            // A bare token (EXP-760) has no `#` cell to paint a glyph over —
-            // hiding its first character would eat the prefix's first letter.
             let hasHash = token.hasPrefix("#")
             let title = titleResolver(identifier).map(chipTitle) ?? ""
-            let display = title.isEmpty ? token : "\(token) \(title)"
+            let status = statusResolver?(identifier)
+            // EXP-885: the glyph is painted OVER a hidden cell, and a bare
+            // token (EXP-760) brings none — hiding its own first character
+            // would eat the prefix's first letter, which is why bare chips
+            // used to lose their status glyph entirely (the Android symptom).
+            // This path already REPLACES characters (it splices the title in),
+            // so it can afford the cell the hashed form has: a `#` written in
+            // front of the bare token and then hidden + kerned exactly like a
+            // typed one. The result is the canonical `#EXP-1`, never stored —
+            // `decorateForDisplay` is display-only by contract.
+            let hashPrefix = (status != nil && !hasHash) ? "#" : ""
+            let head = hashPrefix + token
+            let display = title.isEmpty ? head : "\(head) \(title)"
             var chipAttrs = attrs
             for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
                 chipAttrs[key] = value
             }
             chipAttrs[.markdownIssueRef] = issueId
-            let status = hasHash ? statusResolver?(identifier) : nil
             if let status { chipAttrs[.markdownIssueRefStatus] = status }
             // Linear look (EXP-423): muted token, foreground title — the same
             // split web/Android/desktop ship. Mentions keep `linkColor`.
             chipAttrs[.foregroundColor] = MarkdownStyle.chipTokenColor
             let piece = NSMutableAttributedString(string: display, attributes: chipAttrs)
             if !title.isEmpty {
-                let tokenLength = (token as NSString).length
+                let tokenLength = (head as NSString).length
                 piece.addAttribute(
                     .foregroundColor,
                     value: MarkdownStyle.textColor,
@@ -311,7 +320,8 @@ public enum IssueRefs {
             }
             if status != nil {
                 // Same hidden `#` (EXP-423) and the same kerned gap under the
-                // glyph (EXP-655) as the editable path.
+                // glyph (EXP-655) as the editable path — over the token's own
+                // `#`, or over the one spliced in above for a bare token.
                 let hashRange = NSRange(location: 0, length: 1)
                 piece.addAttribute(.foregroundColor, value: PlatformColor.clear, range: hashRange)
                 piece.addAttribute(

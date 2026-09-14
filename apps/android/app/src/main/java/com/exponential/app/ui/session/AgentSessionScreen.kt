@@ -218,7 +218,7 @@ import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.ComposerToolButton
-import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassComposerDefaults
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -4304,33 +4304,20 @@ private fun ExpToolIssuePreview(preview: ToolResultPreview) {
         ?: preview.title?.takeIf { it.isNotBlank() }
     if (identifier == null && title == null) return
     val refs = LocalIssueRefs.current
-    ExpToolPreviewRow(
+    // EXP-885: the SHARED chip, so a tool result names an issue exactly like
+    // the `#IDENTIFIER` chip in the line above it does — this used to be the
+    // preview shell's glass row with its own glyph size and label rung.
+    IssueChip(
+        identifier = identifier.orEmpty(),
+        title = title,
+        status = target?.resolvedStatus,
         onClick = if (target != null && refs?.canOpen == true) {
             { refs.onOpen(target) }
         } else {
             null
         },
-    ) {
-        target?.resolvedStatus?.let { StatusIcon(it, size = 12.dp) }
-        if (identifier != null) {
-            Text(
-                identifier,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-            )
-        }
-        if (title != null) {
-            Text(
-                title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
+        modifier = Modifier.padding(start = EXP_TOOL_PREVIEW_INSET, top = 4.dp),
+    )
 }
 
 /** The shell every settled-call preview sits in: a glass row under the

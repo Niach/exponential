@@ -31,7 +31,7 @@ import {
 // then status · priority · labels. One card body, three hosts:
 //
 //   * `IssuePreviewHoverCard` wraps an ELEMENT trigger (a relation row, a
-//     timeline chip, an `IssueRefPill`);
+//     timeline chip, an `IssueChip`);
 //   * `IssuePreviewAnchoredPopover` is anchored to a DOM rect instead, for the
 //     `#IDENT` pills that are ProseMirror DECORATIONS and therefore have no
 //     React element to wrap (see issue-editor/issue-ref-hover-layer.tsx);

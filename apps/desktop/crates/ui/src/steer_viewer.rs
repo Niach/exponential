@@ -6748,9 +6748,34 @@ fn exp_tool_preview_row(
                         .into_any_element(),
                 );
             }
-            // Not synced here: what the answer itself named.
-            let label = exp_preview_label(preview)?;
-            Some(exp_preview_chip(registry::NAV_ISSUES, label, cx))
+            // Not synced here (another team's board, a trashed one): the ONE
+            // issue chip over what the answer itself named. EXP-885 — it used
+            // to be `exp_preview_chip`, a bare glyph+text row that looked
+            // nothing like the chip the SYNCED path hovers into. No status:
+            // there is no row here to resolve one from, and a chip must not
+            // invent one.
+            let identifier = preview
+                .identifier
+                .clone()
+                .map(|identifier| identifier.trim().to_string())
+                .filter(|identifier| !identifier.is_empty());
+            let title = preview
+                .title
+                .clone()
+                .map(|title| title.trim().to_string())
+                .filter(|title| !title.is_empty());
+            if identifier.is_none() && title.is_none() {
+                return None;
+            }
+            Some(
+                crate::issue_chip::issue_chip(
+                    ("steer-exp-issue-chip", id as usize),
+                    identifier.unwrap_or_default(),
+                    title.unwrap_or_default(),
+                )
+                .flexible()
+                .into_any_element(),
+            )
         }
         kind::PR => {
             let url = preview.url.clone().filter(|url| !url.is_empty())?;

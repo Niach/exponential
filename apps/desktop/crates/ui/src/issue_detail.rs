@@ -763,10 +763,19 @@ impl IssueDetailView {
                         .text_color(cx.theme().muted_foreground)
                         .child("Duplicate of"),
                 )
+                // EXP-885: ONE issue badge — identifier AND title inside the
+                // chip, with the canonical issue's own status glyph. It used
+                // to be a `#IDENT` capsule with the title floating beside it
+                // as loose muted text.
                 .child(
-                    crate::surface::glass_pill_button("duplicate-of-link", crate::surface::PillSize::Sm, cx)
-                        .label(SharedString::from(format!("#{}", canonical.identifier)))
-                        .on_click(cx.listener(move |_, _, window, cx| {
+                    div().flex_1().min_w_0().child({
+                        let chip = crate::issue_chip::issue_chip(
+                            "duplicate-of-link",
+                            canonical.identifier.clone(),
+                            canonical.title.clone(),
+                        )
+                        .flexible()
+                        .on_click(cx.listener(move |_, _: &gpui::ClickEvent, window, cx| {
                             navigate(
                                 window,
                                 cx,
@@ -774,17 +783,9 @@ impl IssueDetailView {
                                     issue_id: canonical_id.clone(),
                                 },
                             );
-                        })),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(canonical.title)),
+                        }));
+                        chip.status(crate::queries::resolve_issue_status(cx, &canonical))
+                    }),
                 )
                 .child(
                     crate::surface::glass_pill_button("duplicate-unmark", crate::surface::PillSize::Sm, cx)
