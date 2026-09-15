@@ -1,5 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 
+import { IconDisc } from "./icon-disc"
+
 // A centered teaching empty state: icon + title + description + an actions slot.
 export function EmptyState({
   icon: Icon,
@@ -14,9 +16,7 @@ export function EmptyState({
 }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-3 px-6 py-12 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-        <Icon className="size-6 text-primary" />
-      </div>
+      <IconDisc icon={Icon} />
       <h2 className="text-lg font-semibold">{title}</h2>
       <p className="text-sm text-muted-foreground">{description}</p>
       {children && (
