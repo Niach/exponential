@@ -116,6 +116,7 @@ export const ICON_NAMES = [
   `italic`,
   `key`,
   `layers`,
+  `layers-2`,
   `leaf`,
   `life-buoy`,
   `lightbulb`,
@@ -521,6 +522,7 @@ export const SEMANTIC_ICONS = {
   "ui-warning": `triangle-alert`,
   "ui-watch": `eye`,
   "ui-widget": `megaphone`,
+  "work-faces": `layers-2`,
 } as const
 export type IconConcept = keyof typeof SEMANTIC_ICONS
 

@@ -303,7 +303,8 @@
     "support-resolved": "circle-check",
 
     "run-resume": "rotate-ccw",
-    "run-switcher": "history"
+    "run-switcher": "history",
+    "work-faces": "layers-2"
   },
   "custom": {
     "progress-1-4": [
