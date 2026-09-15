@@ -8,6 +8,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  IconDisc,
 } from "@exp/ui"
 
 // Landing page after a GitHub App install launched from the in-app board/repo
@@ -49,9 +50,7 @@ function GithubInstalled() {
     <div className="flex min-h-screen items-center justify-center p-4 sm:p-6">
       <Card className="w-full max-w-md">
         <CardHeader className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
-            <Check className="h-6 w-6" strokeWidth={2.5} />
-          </div>
+          <IconDisc icon={Check} tone="success" strokeWidth={2.5} />
           <CardTitle className="text-xl">GitHub connected</CardTitle>
           <CardDescription>
             {isPopup

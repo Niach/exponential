@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { GlassGroup } from "@exp/ui"
+import { GlassGroup, IconDisc } from "@exp/ui"
 
 // The wizard card every step shares (EXP-698 r6 style contract: this is the
 // desktop IDE's reference, `onboarding.rs` mirrors the chrome): a primary-
@@ -19,9 +19,7 @@ export function StepCard({
   return (
     <GlassGroup>
       <div className="flex flex-col gap-1.5 p-6 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-          <Icon className="size-6 text-primary" />
-        </div>
+        <IconDisc icon={Icon} className="mx-auto" />
         <h2 className="text-xl font-semibold">{title}</h2>
         <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
