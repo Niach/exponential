@@ -21,9 +21,14 @@ import XCTest
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
+///   sg_changes-face · sg_session-diff ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
+///
+/// EXP-895 added `sg_changes-face` + `sg_session-diff`: one diff view ×4, so
+/// the cards and the phone's file sheet are the two surfaces a cross-platform
+/// review compares. Both are taken off the seeded PR behind `sg_reviews`.
 ///
 /// EXP-829 added `sg_usage`: the Devices page scrolled to its Accounts section
 /// (web/desktop EXP-818 folded the Usage page into Devices; the shot keeps the
@@ -586,6 +591,45 @@ final class StyleguideScreenshots: XCTestCase {
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
+
+        // ── sg_changes-face: the ONE diff view (EXP-895) ─────────────────────
+        // A review row opens the Changes face: `DiffFileCard`s off the shared
+        // parser over the `[file sheet][Merge PR][close]` work bar, GitHub up
+        // in the nav bar's action slot. Every card starts collapsed, so the
+        // first few are expanded for a shot with actual patches in it.
+        app.staticTexts[Self.reviewTitle].firstMatch.tap()
+        let diffFileRows = app.descendants(matching: .any)
+            .matching(identifier: "changes-file-row")
+        XCTAssertTrue(
+            diffFileRows.firstMatch.waitForExistence(timeout: 60),
+            "The PR diff never loaded — is the seeded PR still reachable on GitHub?"
+        )
+        for index in 0..<min(diffFileRows.count, 3) {
+            let row = diffFileRows.element(boundBy: index)
+            if row.exists && row.isHittable { row.tap() }
+        }
+        snapshot("sg_changes-face", settle: 2)
+
+        // ── sg_session-diff: the phone's diff FILE LIST ──────────────────────
+        // EXP-895: a file column beside the cards leaves neither readable on a
+        // phone, so the list is a bottom sheet off the bar's leading slot —
+        // the summary, the filter field and one row per file. The desktop's
+        // `session-diff-file-list` and web's `ChangesFileSheet` pair with it.
+        let fileListButton = app.buttons["changes-file-list-button"]
+        XCTAssertTrue(
+            fileListButton.waitForExistence(timeout: 20),
+            "The Changes bar never offered its file list"
+        )
+        fileListButton.tap()
+        let fileListSheet = anyElement(app, identified: "changes-file-list")
+        XCTAssertTrue(
+            fileListSheet.waitForExistence(timeout: 20),
+            "The changed-files sheet did not open"
+        )
+        snapshot("sg_session-diff", settle: 2)
+        dismissSheet(app, whileVisible: fileListSheet)
+        _ = fileListSheet.waitForNonExistence(timeout: 10)
+        goBack(app)
 
         // ── sg_support-thread: the Emma Fischer helpdesk thread ─────────────
         // The tab exists only because the seed flips the team's

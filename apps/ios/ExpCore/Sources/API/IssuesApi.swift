@@ -252,12 +252,26 @@ public struct PrFilesInput: Encodable, Sendable {
 
 public struct PrFile: Decodable, Sendable, Identifiable {
     public let filename: String
+    /// EXP-895: where a renamed/copied file came from — GitHub's
+    /// `previous_filename`, passed through by `issues.prFiles` and
+    /// `repositories.branchDiff`. Absent on every other status.
+    public let previousFilename: String?
     public let status: String
     public let additions: Int
     public let deletions: Int
     public let patch: String?
 
     public var id: String { filename }
+
+    // The PullFile keys are GitHub's own snake_case and reach us verbatim.
+    enum CodingKeys: String, CodingKey {
+        case filename
+        case previousFilename = "previous_filename"
+        case status
+        case additions
+        case deletions
+        case patch
+    }
 }
 
 public struct PrFilesResult: Decodable, Sendable {

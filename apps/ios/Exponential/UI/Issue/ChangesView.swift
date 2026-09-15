@@ -13,14 +13,13 @@ final class ChangesViewModel {
     enum LoadState {
         case loading
         case failed(String)
-        case loaded([PrFile])
+        /// EXP-895: the SHARED diff model, never `PrFile` — every Changes
+        /// surface on every client renders `Diff.File` and nothing else.
+        case loaded([Diff.File])
     }
 
     private(set) var issue: IssueEntity?
     private(set) var load: LoadState = .loading
-    /// Filenames whose patch is expanded — ≤3 files start expanded, more start
-    /// collapsed (reset on every reload).
-    private(set) var expanded: Set<String> = []
 
     /// Membership gates the Merge / Close affordances (resolved from the issue's
     /// board → team, like IssueDetailViewModel.refreshPermissions). The
@@ -112,18 +111,9 @@ final class ChangesViewModel {
             }
             // Every file starts collapsed (EXP-248) — uniform with the web
             // and Android review detail.
-            expanded = []
-            load = .loaded(files)
+            load = .loaded(files.map(\.diffFile))
         } catch {
             load = .failed(error.userFacingMessage)
-        }
-    }
-
-    func toggle(_ filename: String) {
-        if expanded.contains(filename) {
-            expanded.remove(filename)
-        } else {
-            expanded.insert(filename)
         }
     }
 

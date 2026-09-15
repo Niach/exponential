@@ -104,6 +104,13 @@ struct AgentSessionView<Switcher: View>: View {
     /// rather than scanned on every frame the feed repaints.
     @State private var diffAdditions = 0
     @State private var diffDeletions = 0
+    /// EXP-895: the worktree diff through the ONE parser — read on the diff
+    /// edge, never per frame.
+    @State private var parsedDiff = Diff.Parsed(files: [])
+    /// The phone's file list, off the Changes bar's leading slot, and the path
+    /// it last picked.
+    @State private var diffFileSheet = false
+    @State private var selectedDiffPath: String?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -174,9 +181,23 @@ struct AgentSessionView<Switcher: View>: View {
     /// the Run face, when it vanishes).
     @ViewBuilder
     private func changesFace(_ model: AgentSessionModel) -> some View {
-        if let diff = model.latestDiff {
-            SessionDiffList(diff: diff)
-                .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
+        if model.latestDiff != nil {
+            // EXP-895: the raw `git diff` was read by the ONE parser the
+            // moment it landed (`diffChanged`), so the face draws the same
+            // cards every other Changes surface does.
+            SessionDiffList(
+                files: parsedDiff.files,
+                truncatedLines: parsedDiff.truncatedLines,
+                focusPath: selectedDiffPath
+            )
+            .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
+            .sheet(isPresented: $diffFileSheet) {
+                DiffFileListSheet(
+                    files: parsedDiff.files,
+                    selected: selectedDiffPath,
+                    onSelect: { selectedDiffPath = $0 }
+                )
+            }
         } else {
             Spacer()
             changesFaceBar(model)
@@ -359,15 +380,22 @@ struct AgentSessionView<Switcher: View>: View {
         }
     }
 
+    /// EXP-895: the worktree diff is parsed ONCE, here, off the edge — the
+    /// Changes face, the switcher's counts and the file sheet all read the
+    /// same `Diff.Parsed`.
     private func diffChanged(_ diff: String?) {
         guard let diff else {
+            parsedDiff = Diff.Parsed(files: [])
+            selectedDiffPath = nil
             diffAdditions = 0
             diffDeletions = 0
             return
         }
-        let stats = DiffRendering.stats(of: diff)
-        diffAdditions = stats.additions
-        diffDeletions = stats.deletions
+        let parsed = Diff.parse(diff)
+        parsedDiff = parsed
+        let totals = Diff.totals(parsed.files)
+        diffAdditions = totals.additions
+        diffDeletions = totals.deletions
     }
 
     // MARK: - Chrome report (EXP-893)
@@ -1577,7 +1605,12 @@ struct AgentSessionView<Switcher: View>: View {
     /// for the recovery run (EXP-706).
     private func changesFaceBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
-            if let url = prURL(model) {
+            // EXP-895: the leading slot is the file list. GitHub keeps the
+            // slot only where there is no list to put there — an issue-less
+            // run has no header action slot to move it to.
+            if !parsedDiff.files.isEmpty {
+                DiffFilesBarCircle(count: parsedDiff.files.count) { diffFileSheet = true }
+            } else if let url = prURL(model) {
                 FloatingBarCircle(accessibilityLabel: "Open PR on GitHub", action: { openURL(url) }) {
                     AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -3197,17 +3230,21 @@ private struct ExpToolIssuePreview: View {
     }
 }
 
-/// EXP-806: one call's diff, under its tool row — the same per-file renderer
-/// the "Latest changes" sheet uses (`DiffPatchBlock`), in a scroll box no
-/// taller than that bar, mirroring web's `ToolDiff`.
+/// EXP-806/895: one call's diff, under its tool row — the SAME `DiffFileCard`
+/// every Changes surface draws, only `compact` (no old-side gutter, a point
+/// smaller), in a scroll box no taller than the "Latest changes" bar, mirroring
+/// web's `ToolDiff`.
 ///
-/// The publisher's cut note is split off FIRST and drawn as a muted footer
-/// OUTSIDE the patch: `\ 120 more lines truncated` is metadata about the
-/// diff, and inside the block `DiffRendering.kind` would colour it as a
-/// context line the agent supposedly read. That footer is a different fact
-/// from `DiffPatchBlock`'s own "Diff truncated…" line, which reports THIS
-/// renderer's 600-line layout cap — both can show at once and mean different
-/// things.
+/// EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
+/// `diff --git` header) while the session diff is full `git diff` output — the
+/// ONE parser reads both, and lifts the publisher's cut count off its trailing
+/// `\ 120 more lines truncated` marker (`Diff.Parsed.truncatedLines`). That
+/// footer is a different fact from `DiffPatchBlock`'s own "Diff truncated…"
+/// line, which reports THAT renderer's 600-line layout cap — both can show at
+/// once and mean different things.
+///
+/// The cards start OPEN, unlike web's: the row's own chevron already collapses
+/// the whole block, so a second fold would be two taps to see one patch.
 private struct ToolDiffBlock: View {
     let diff: String
 
@@ -3215,23 +3252,25 @@ private struct ToolDiffBlock: View {
     /// that the prose after the call stays on screen.
     private static let maxHeight: CGFloat = 288
 
+    /// Sparse reader overrides on the open-by-default cards, keyed by path.
+    @State private var overrides: [String: Bool] = [:]
+
     var body: some View {
-        let split = AgentFeed.splitTruncatedDiff(diff)
-        let sections = DiffRendering.splitFiles(split.diff)
-        if !sections.isEmpty || split.truncated != nil {
+        let parsed = Diff.parse(diff)
+        if !parsed.files.isEmpty || parsed.truncatedLines != nil {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(sections) { section in
-                        if let filename = section.filename {
-                            Text(filename)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        DiffPatchBlock(patch: section.patch)
+                    ForEach(parsed.files) { file in
+                        DiffFileCard(
+                            file: file,
+                            expanded: overrides[file.path] ?? true,
+                            compact: true,
+                            onToggle: {
+                                overrides[file.path] = !(overrides[file.path] ?? true)
+                            }
+                        )
                     }
-                    if let truncated = split.truncated {
+                    if let truncated = parsed.truncatedLines {
                         Text(AgentFeed.diffTruncationNote(truncated))
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
