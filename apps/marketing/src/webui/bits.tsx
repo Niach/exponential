@@ -4,7 +4,12 @@
    positional pie clocks for the `started` category, so the web recreation
    carries its own. Colors are the contract's builtin status hexes
    (packages/domain-contract/contract.json → issueStatusDefaults) and the
-   Tailwind v4 priority hues from apps/web lib/domain.ts. */
+   Tailwind v4 priority hues from apps/web lib/domain.ts.
+
+   EXP-903: these are DRAWINGS inside a fake-app recreation, at marketing's own
+   scale and hex tokens — their product counterparts are `@exp/ui`'s
+   `<StatusGlyph>`, `<UserAvatar>` and `<LiveDot>`, and an island (UiDemo)
+   replaces one only where a docs page shows the control ITSELF. */
 import type { Assignee, IssuePriority, IssueStatus, Label } from "../ide/data"
 import { ClaudeLogo, CodexLogo } from "../components/agent-icons"
 import type { DemoAgent, RunState } from "./data"
@@ -26,15 +31,6 @@ export const STATUS_COLOR: Record<IssueStatus, string> = {
   in_progress: `#EAB308`,
   in_review: `#22C55E`,
   done: `#3B82F6`,
-}
-
-/* Group-header washes — the `/10` alpha of the Tailwind token each builtin
-   header uses (zinc-500 / yellow-500 / green-500 / blue-500). */
-export const STATUS_WASH: Record<IssueStatus, string> = {
-  backlog: `rgba(113, 113, 122, 0.1)`,
-  in_progress: `rgba(240, 177, 0, 0.1)`,
-  in_review: `rgba(0, 201, 81, 0.1)`,
-  done: `rgba(43, 127, 255, 0.1)`,
 }
 
 /* Tailwind v4 OKLCH palette, flattened. */

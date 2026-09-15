@@ -39,6 +39,7 @@ import type { ReactElement } from "react"
 import { designTokens } from "@exp/design-tokens"
 import {
   Button,
+  GlassCard,
   GlassGroup,
   GlassInputRow,
   GlassPickerRow,
@@ -46,6 +47,8 @@ import {
   GlassSectionHeader,
   GlassTabsRow,
   GlassToggleRow,
+  ICON_DISC_TONES,
+  IconDisc,
   IconPicker,
   IconSwatchGrid,
   Input,
@@ -188,6 +191,15 @@ const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
 const CloseGlyph = conceptIcon(`ui-close`)
 const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
+
+/* One glyph per disc tone — the four heads the product actually opens with: a
+   team/invite page, a saved connection, a refused one, an empty inbox. */
+const DISC_GLYPH = {
+  primary: conceptIcon(`ui-team`),
+  success: conceptIcon(`ui-success`),
+  danger: conceptIcon(`ui-warning`),
+  muted: conceptIcon(`nav-inbox`),
+} as const
 
 /* The chip's status arrives ALREADY resolved (`StatusGlyph` knows nothing
    about teams), which is exactly what a fixture can supply: the builtin
@@ -1077,6 +1089,29 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
+    id: `icon-disc`,
+    title: `Icon disc`,
+    kind: `Controls`,
+    blurb: `A 48px circle holding a 24px glyph. It is a HEADING, not a control — it never takes a click and it has no smaller size: it opens an empty state, a wizard step card, an invite page or a full-page outcome, and nothing else. The TONE owns both the wash and the glyph colour, so a call site never restates a text-* on the icon: primary at 10% for a neutral head, emerald, red and muted at 15% for an outcome. Only placement stays outside — the mx-auto that centres it in a card and whatever margin the copy under it needs. EXP-903: eight web surfaces drew this circle by hand before it became one primitive.`,
+    status: {
+      web: ok(`IconDisc`, `packages/ui/src/icon-disc.tsx`),
+      desktop: ok(
+        `OnboardingView::render`,
+        `apps/desktop/crates/ui/src/onboarding.rs`,
+        `the wizard card head draws the 48px primary disc inline — the only disc on the IDE, so it has no shared helper`
+      ),
+      ios: na(`the wizard step header is a title over a subtitle; no native screen opens with a disc`),
+      android: na(`the onboarding step head is a 56dp glassCard box around a primary glyph, not a tinted circle`),
+    },
+    island: () => (
+      <div className="flex items-center gap-4">
+        {ICON_DISC_TONES.map((tone) => (
+          <IconDisc key={tone} icon={DISC_GLYPH[tone]} tone={tone} />
+        ))}
+      </div>
+    ),
+  },
+  {
     id: `text-field`,
     title: `Text field`,
     kind: `Controls`,
@@ -1190,6 +1225,46 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `</div>`,
         `</div>`,
       ].join(``),
+  },
+  {
+    id: `glass-card`,
+    title: `Glass card`,
+    kind: `Surfaces`,
+    blurb: `The ONE translucent card, and only its box: radius XL, the card hairline, the glass card fill. Everything a card owns on its own stays at the call site, because those genuinely differ — its padding, a blur, a shadow, and the divide-y + overflow hidden that turns the same box into a GROUP of rows. EXP-903: five surfaces painted it by copy-paste (the comment row, the agent AskCard, the usage card, the mobile issue properties sheet and the repo picker, which had drifted to the MD corner and the bare hairline). The shadcn Card derives its recipe from the same constant, so the two cannot disagree; a group of list ROWS is the group container instead, on the row fill with no outer stroke.`,
+    status: {
+      web: ok(
+        `GlassCard / GLASS_CARD_CLASS`,
+        `packages/ui/src/glass-card.tsx`,
+        `Card (./card.tsx) derives its own recipe from the same constant.`
+      ),
+      desktop: ok(`surface::glass_card`, DESKTOP_SURFACE),
+      ios: ok(`GlassCard`, IOS_THEME),
+      android: ok(`Modifier.glassCard()`, ANDROID_GLASS),
+    },
+    island: () => (
+      <div className="grid gap-3">
+        <GlassCard className="p-3">
+          <div className="text-sm font-medium">Pull request opened</div>
+          <div className="text-xs text-muted-foreground">exp/EXP-903 → master</div>
+        </GlassCard>
+        {/* The same box as a GROUP: the dividers and the overflow rule are the
+            call site's, which is the whole point of the primitive. */}
+        <GlassCard className="divide-y divide-glass-stroke overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 text-sm">
+            <span className="text-muted-foreground">Status</span>
+            <span>In progress</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3 text-sm">
+            <span className="text-muted-foreground">Assignee</span>
+            <span>Mina Kay</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3 text-sm">
+            <span className="text-muted-foreground">Board</span>
+            <span>Mobile app</span>
+          </div>
+        </GlassCard>
+      </div>
+    ),
   },
   {
     id: `comment-card`,
@@ -1316,7 +1391,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Surfaces`,
     blurb: `180–280 wide, padding 4, radius 12. Opaque by construction: the card fill is composited over the popover solid so nothing shows through.`,
     status: {
-      web: ok(`DropdownMenuContent`, `packages/ui/src/dropdown-menu.tsx`),
+      web: ok(
+        `DropdownMenuContent`,
+        `packages/ui/src/dropdown-menu.tsx`,
+        `MENU_SURFACE_CLASS paints the three panels too: mention-textarea, markdown-editor's #/@ list, steer-command-menu.`
+      ),
       desktop: ok(
         `theme::exponential_dark (accent = glass fillActive)`,
         `apps/desktop/crates/theme/src/lib.rs`,

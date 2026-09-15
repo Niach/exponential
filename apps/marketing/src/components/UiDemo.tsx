@@ -6,6 +6,10 @@
    scripts/ui-demos.tsx, so a chip in the docs cannot drift from the chip in
    the app.
 
+   EXP-903: the recreations stay DRAWINGS on purpose — a fake app at marketing's
+   own scale and hex tokens, not `@exp/ui` — and an island replaces one only
+   where a docs page shows the control ITSELF rather than a screen around it.
+
    The shadow root is the whole point — the web theme's tokens share names with
    marketing's own (`--border`, `--input`, `--accent`) and its preflight would
    reset the site, so the stylesheet rides inside the island and reaches

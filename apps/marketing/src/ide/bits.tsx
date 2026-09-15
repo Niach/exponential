@@ -1,4 +1,8 @@
-/* ─── Small shared atoms: status/priority icons, avatar, label chip, tool header ─── */
+/* ─── Small shared atoms: status/priority icons, avatar, label chip, tool header ───
+   EXP-903: these are DRAWINGS inside a fake-IDE recreation, at marketing's own
+   scale and hex tokens — their product counterparts are `@exp/ui`'s
+   `<StatusGlyph>` and `<UserAvatar>`, and an island (UiDemo) replaces one only
+   where a docs page shows the control ITSELF. */
 import type { ReactNode } from "react"
 import type { Assignee, IssuePriority, IssueStatus, Label } from "./data"
 import {

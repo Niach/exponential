@@ -6,23 +6,18 @@
    desktop's timer/PR vocabulary, so the phone keeps its own atoms rather than
    drifting the shared ones. Colors are the design-token semantics
    (packages/design-tokens tokens.json + ExpUI StatusColor/PriorityColor).
-   Sizes are iOS POINTS on the 414pt canvas — see AgentComposer.tsx. */
-import {
-  CircleCheck,
-  CircleDashed,
-  Minus,
-  SignalHigh,
-  SignalLow,
-  SignalMedium,
-  TriangleAlert,
-} from "lucide-react"
-import type { IssuePriority, IssueStatus } from "../ide/data"
+   Sizes are iOS POINTS on the 414pt canvas — see AgentComposer.tsx.
+
+   EXP-903: these are DRAWINGS inside a fake-phone recreation, at marketing's
+   own scale and hex tokens — their product counterpart is `@exp/ui`'s
+   `<StatusGlyph>`, and an island (UiDemo) replaces one only where a docs page
+   shows the control ITSELF. */
+import { CircleCheck, CircleDashed } from "lucide-react"
+import type { IssueStatus } from "../ide/data"
 
 const NEUTRAL = `#a1a1aa`
 const YELLOW = `#facc15`
 const GREEN = `#22c55e`
-const RED = `#ef4444`
-const ORANGE = `#f97316`
 const BLUE = `#3b82f6`
 
 /* The registry's pie clocks: a lucide-geometry ring plus a filled wedge. */
@@ -77,21 +72,5 @@ export function MagStatusIcon({ status }: { status: IssueStatus }) {
       )
     case `done`:
       return <CircleCheck {...props} color={BLUE} className={`mag-glyph mag-status`} />
-  }
-}
-
-export function MagPriorityIcon({ priority }: { priority: IssuePriority }) {
-  const props = { size: 13, strokeWidth: 2, "aria-hidden": true } as const
-  switch (priority) {
-    case `none`:
-      return <Minus {...props} color={NEUTRAL} className={`mag-glyph mag-prio`} />
-    case `urgent`:
-      return <TriangleAlert {...props} color={RED} className={`mag-glyph mag-prio`} />
-    case `high`:
-      return <SignalHigh {...props} color={ORANGE} className={`mag-glyph mag-prio`} />
-    case `medium`:
-      return <SignalMedium {...props} color={YELLOW} className={`mag-glyph mag-prio`} />
-    case `low`:
-      return <SignalLow {...props} color={BLUE} className={`mag-glyph mag-prio`} />
   }
 }
