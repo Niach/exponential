@@ -1,6 +1,5 @@
 package com.exponential.app.ui.issue
 
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
@@ -22,6 +21,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.IssueRelationEntity
@@ -32,7 +32,6 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
-import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusResolver
@@ -46,16 +45,20 @@ import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.domain.sanitizeFilename
+import com.exponential.app.ui.session.PastRunRow
+import com.exponential.app.ui.session.issueRunRows
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.steer.onlineStartTargets
 import com.exponential.app.ui.steer.steerDeviceFlow
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import java.util.UUID
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +66,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -113,9 +117,10 @@ data class RelationRow(
 enum class MissingIssueState { Loading, Unavailable }
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
-@HiltViewModel
-class IssueDetailViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+@HiltViewModel(assistedFactory = IssueDetailViewModel.Factory::class)
+class IssueDetailViewModel @AssistedInject constructor(
+    /** EXP-893: assisted — the Work screen keys one of these per issue. */
+    @Assisted val issueId: String,
     private val holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
@@ -132,7 +137,10 @@ class IssueDetailViewModel @Inject constructor(
     private val appContext: android.content.Context,
 ) : ViewModel() {
 
-    val issueId: String = savedStateHandle["issueId"] ?: ""
+    @AssistedFactory
+    interface Factory {
+        fun create(issueId: String): IssueDetailViewModel
+    }
 
     // Account scoping is reactive: every query chain hangs off the active
     // account's DB flow, so an account switch re-scopes all live data without
@@ -401,18 +409,34 @@ class IssueDetailViewModel @Inject constructor(
 
     // ── Steer: remote start + live session (masterplan §5b/§5c) ──────────────
 
-    // The running coding session for this issue (synced coding_sessions shape);
-    // multi-window desktops can run several — surface the most recent.
-    // Heartbeat-stale rows render as absent (EXP-153); the ticker clears the
-    // panel once the liveness window elapses without a sync delta.
-    val runningSession: StateFlow<CodingSessionEntity?> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.codingSessionDao().observeByIssue(issueId) },
-        CodingSessionLiveness.minuteTicker(),
-    ) { rows, now ->
-        rows.filter { CodingSessionLiveness.isLive(it, now) }
-            .maxByOrNull { it.startedAt }
-    }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    // EXP-893: EVERY coding_sessions row on this issue, unfiltered — the Work
+    // screen's `codingTarget` picks the run it shows off them (bound and live,
+    // else my newest live, else my newest at all), re-evaluated on the minute
+    // ticker so a heartbeat-stale row stops reading as live without a sync
+    // delta. The old `runningSession` (newest live row of ANYONE's) is gone
+    // with the Coding-now row it fed.
+    val issueSessions: StateFlow<List<CodingSessionEntity>> =
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeByIssue(issueId) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Every synced machine row — the run rows' device labels. */
+    private val deviceRows: Flow<List<DeviceEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+
+    /**
+     * EXP-886/893: the issue's runs of mine (`issueRunRows`: live first, then
+     * newest end first) — the Work screen's switcher lists them once there
+     * are two or more, and the Run face shows whichever one is picked. The
+     * devices rows lend each entry its machine's current label.
+     */
+    val issueRuns: StateFlow<List<PastRunRow>> = combine(
+        issueSessions,
+        issueFlow,
+        deviceRows,
+        auth.userId,
+    ) { rows, issueRow, devices, userId ->
+        issueRunRows(rows, issueId, issueRow, userId, devices)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // steer.config is env-derived and static per instance: null = still loading.
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)

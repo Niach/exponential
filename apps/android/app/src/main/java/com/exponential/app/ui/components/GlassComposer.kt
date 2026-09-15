@@ -42,7 +42,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * Slots, top to bottom: [leading] (a row above the field — the support
  * thread's Reply / Internal-note pills), [strip] (queued attachments),
  * [field], and a bottom row of [tools] (ghost glyph buttons) with [submit]
- * pushed to the end.
+ * pushed to the end. EXP-893: [footer] REPLACES that bottom row's layout when
+ * given — the steer composer's `Plan mode · + · … · model · ring` strip owns
+ * the whole row, so the submit glyph sits inside it wherever it wants.
  */
 @Composable
 fun GlassComposer(
@@ -52,6 +54,7 @@ fun GlassComposer(
     strip: (@Composable ColumnScope.() -> Unit)? = null,
     tools: (@Composable RowScope.() -> Unit)? = null,
     submit: (@Composable () -> Unit)? = null,
+    footer: (@Composable RowScope.() -> Unit)? = null,
     field: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(GlassTokens.CardRadius)
@@ -73,7 +76,13 @@ fun GlassComposer(
         leading?.invoke(this)
         strip?.invoke(this)
         field()
-        if (tools != null || submit != null) {
+        if (footer != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                content = footer,
+            )
+        } else if (tools != null || submit != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

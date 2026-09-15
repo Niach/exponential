@@ -2,7 +2,6 @@ package com.exponential.app.ui.session
 
 import android.net.Uri
 import android.os.SystemClock
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AgentAccount
@@ -52,8 +51,10 @@ import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -122,9 +123,12 @@ data class SessionAccountSwitchState(
  * the socket, the feed, the pending images and the composer draft belong to
  * the connection, which is why a back-tap no longer throws them away.
  */
-@HiltViewModel
-class AgentSessionViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+@HiltViewModel(assistedFactory = AgentSessionViewModel.Factory::class)
+class AgentSessionViewModel @AssistedInject constructor(
+    /** EXP-893: assisted, not a nav argument — the Work screen acquires one
+     *  of these PER SHOWN RUN (`hiltViewModel(key = "session:$id")`), so the
+     *  run on show can change under one route. */
+    @Assisted val codingSessionId: String,
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
@@ -135,7 +139,10 @@ class AgentSessionViewModel @Inject constructor(
     stats: SyncStats,
 ) : ViewModel() {
 
-    val codingSessionId: String = savedStateHandle["codingSessionId"] ?: ""
+    @AssistedFactory
+    interface Factory {
+        fun create(codingSessionId: String): AgentSessionViewModel
+    }
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
@@ -238,34 +245,6 @@ class AgentSessionViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /**
-     * EXP-886: the issue's runs of mine (`issueRunRows`: live first, then
-     * newest end first, uncapped) — the header's run switcher, which only
-     * shows from two rows up. Empty for an issue-less run. The devices rows
-     * lend each entry its machine's current label.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val issueRuns: StateFlow<List<PastRunRow>> = session
-        .map { it?.issueId }
-        .distinctUntilChanged()
-        .flatMapLatest { issueId ->
-            if (issueId == null) {
-                flowOf(emptyList())
-            } else {
-                combine(
-                    dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) {
-                        it.codingSessionDao().observeByIssue(issueId)
-                    },
-                    issue,
-                    deviceRows,
-                    auth.userId,
-                ) { rows, issueRow, devices, userId ->
-                    issueRunRows(rows, issueId, issueRow, userId, devices)
-                }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
@@ -611,6 +590,11 @@ class AgentSessionViewModel @Inject constructor(
     /** Send the composed message. The draft and the thumbnails clear only if
      *  it actually goes out. */
     fun sendDraft() = connection.sendDraft()
+
+    /** EXP-893: send a command line (`/model opus`) as a plain message
+     *  WITHOUT touching the draft — the composer footer's model picker rides
+     *  this, so a half-typed message is never clobbered by a pick. */
+    fun sendCommand(text: String): Boolean = connection.sendMessage(text)
 
     fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) =
         connection.addPendingImage(uri, bytes, filename, mime)

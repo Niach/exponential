@@ -562,35 +562,13 @@ private fun AutomationsContent(
                         onOpen = { onOpenSteer(session.id) },
                     )
                 } else {
-                    val runAction = session.actionId?.let(actionsById::get)
-                    val runAutomation = session.automationId?.let { id ->
-                        automations.firstOrNull { it.id == id }
-                    }
-                    // Same resolution as AgentSessionsList: the owner edits the
-                    // automation, everyone else (or an unresolved one) the action.
-                    val editsAutomation = runAutomation != null && isOwner
+                    // EXP-893: a row only opens the run; the automation and
+                    // its action are edited from the rows above.
                     RunningSessionRow(
                         session = session,
                         issue = null,
                         device = device,
-                        mergeTarget = null,
-                        merging = false,
-                        failure = null,
                         onClick = { onOpenSteer(session.id) },
-                        issueIdentifier = null,
-                        actionIcon = session.actionId?.let { actionGlyph(runAction) },
-                        actionLabel = if (editsAutomation) "Edit automation" else "Edit action",
-                        onOpenIssue = {},
-                        onOpenAction = {
-                            if (editsAutomation) {
-                                runAutomation?.let(onEdit)
-                            } else {
-                                session.actionId?.let(onEditAction)
-                            }
-                        },
-                        onMerge = {},
-                        canFixConflicts = false,
-                        onFixConflicts = {},
                     )
                 }
             }

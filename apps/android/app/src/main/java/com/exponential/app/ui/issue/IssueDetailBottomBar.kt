@@ -10,26 +10,15 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -48,7 +37,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,10 +44,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.ui.components.BarCapsule
+import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.FloatingBottomBar
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.PendingAttachmentStrip
@@ -71,21 +61,40 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
-import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
-// What the right-hand start circle renders (EXP-240): the play launcher
-// (dimmed while no desktop is online), the in-flight spinner, or the live
-// session's state dot (reusing LiveDot/StaticDot). Null hides the circle
-// (steer off / non-member / repo-less board) — the screen owns the mapping.
+// What the Work screen's start circle renders (EXP-240/EXP-893): the play
+// launcher (dimmed while no desktop is online) or the in-flight spinner. Null
+// hides the circle (steer off / non-member / repo-less board) — the host owns
+// the mapping. A LIVE run is not a state of this control any more: with one,
+// the circle is the face switcher and the run is a face of the same screen.
 sealed interface StartButtonUi {
     data class Start(val enabled: Boolean) : StartButtonUi
     data object Sending : StartButtonUi
-    /** EXP-848: [busy] is the run's synced `agent_busy` — the dot pulses only
-     *  while the agent is mid-turn. */
-    data class Session(val state: CodingSessionDisplayState, val busy: Boolean = false) : StartButtonUi
+}
+
+/** The 52dp Start-coding circle for the bar's right slot (EXP-893 host). */
+@Composable
+fun StartCircle(ui: StartButtonUi, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    BarCircle(onClick = onClick, modifier = modifier) {
+        when (ui) {
+            is StartButtonUi.Start -> Icon(
+                ExpIcons.actionRun,
+                contentDescription = "Start coding",
+                modifier = Modifier.size(22.dp),
+                tint = Color.White.copy(
+                    alpha = if (ui.enabled) 1f else TextEmphasis.Quaternary,
+                ),
+            )
+            is StartButtonUi.Sending -> CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = Color.White,
+            )
+        }
+    }
 }
 
 // The four signals collapse-on-blur watches, as one snapshotFlow value (Kotlin
@@ -111,8 +120,8 @@ fun IssueDetailBottomBar(
     onExpandedChange: (Boolean) -> Unit,
     showProperties: Boolean,
     onOpenProperties: () -> Unit,
-    startButton: StartButtonUi?,
-    onStartClick: () -> Unit,
+    /** EXP-893: the right circle — the host's face switcher or Start. */
+    trailing: @Composable () -> Unit,
     draft: String,
     onDraftChange: (String) -> Unit,
     sending: Boolean,
@@ -252,8 +261,7 @@ fun IssueDetailBottomBar(
             CollapsedBar(
                 showProperties = showProperties,
                 onOpenProperties = onOpenProperties,
-                startButton = startButton,
-                onStartClick = onStartClick,
+                trailing = trailing,
                 onExpand = { onExpandedChange(true) },
             )
         }
@@ -264,122 +272,33 @@ fun IssueDetailBottomBar(
 private fun CollapsedBar(
     showProperties: Boolean,
     onOpenProperties: () -> Unit,
-    startButton: StartButtonUi?,
-    onStartClick: () -> Unit,
+    trailing: @Composable () -> Unit,
     onExpand: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (showProperties) {
-            BarCircle(onClick = onOpenProperties) {
-                Icon(
-                    ExpIcons.uiProperties,
-                    contentDescription = "Issue properties",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White,
-                )
-            }
-        }
-        // The comment pill — capsule with a `+` and tertiary placeholder text.
-        val capsule = RoundedCornerShape(percent = 50)
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .height(52.dp)
-                .clip(capsule)
-                .background(GlassTokens.OpaqueCardFill)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, capsule)
-                .clickable(onClick = onExpand)
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                ExpIcons.uiAdd,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Comment",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-        if (startButton != null) {
-            BarCircle(onClick = onStartClick) {
-                when (startButton) {
-                    is StartButtonUi.Start -> Icon(
-                        ExpIcons.actionRun,
-                        contentDescription = "Start coding",
-                        modifier = Modifier.size(22.dp),
-                        tint = Color.White.copy(
-                            alpha = if (startButton.enabled) 1f else TextEmphasis.Quaternary,
-                        ),
+    // EXP-893: the shared Work-screen bar chrome — properties circle, the
+    // `+ Comment` capsule, and whatever the host puts on the right.
+    FloatingBottomBar(
+        left = if (showProperties) {
+            {
+                BarCircle(onClick = onOpenProperties) {
+                    Icon(
+                        ExpIcons.uiProperties,
+                        contentDescription = "Issue properties",
+                        modifier = Modifier.size(20.dp),
+                        tint = Color.White,
                     )
-                    is StartButtonUi.Sending -> CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = Color.White,
-                    )
-                    // EXP-698: a live run's control is the SESSIONS glyph
-                    // badged with its status dot. A bare dot in a 52dp circle
-                    // named nothing — beside a play triangle and a properties
-                    // glyph it read as a stray indicator, not as "open the
-                    // session running on this issue".
-                    is StartButtonUi.Session -> Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            ExpIcons.navDevices,
-                            contentDescription = "Open coding session",
-                            modifier = Modifier.size(22.dp),
-                            tint = Color.White,
-                        )
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = 3.dp, y = (-3).dp)
-                                // The dot rides its own opaque disc so it
-                                // stays legible where it overlaps the glyph.
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(GlassTokens.OpaqueCardFill),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            when (startButton.state) {
-                                CodingSessionDisplayState.Running ->
-                                    LiveDot(busy = startButton.busy, size = 8.dp)
-                                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber, size = 8.dp)
-                                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen, size = 8.dp)
-                                CodingSessionDisplayState.Done -> StaticDot(DoneBlue, size = 8.dp)
-                            }
-                        }
-                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun BarCircle(
-    onClick: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(52.dp)
-            .clip(CircleShape)
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+        } else {
+            null
+        },
+        right = trailing,
     ) {
-        content()
+        BarCapsule(
+            label = "Comment",
+            icon = ExpIcons.uiAdd,
+            onClick = onExpand,
+        )
     }
 }
 

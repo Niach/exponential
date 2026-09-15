@@ -69,13 +69,13 @@ import com.exponential.app.ui.issue.CreateIssueScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.reviews.ReviewsScreen
-import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.issue.ChangesScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
-import com.exponential.app.ui.session.AgentSessionScreen
+import com.exponential.app.ui.work.WorkScreen
+import com.exponential.app.ui.work.WorkSubject
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
@@ -671,31 +671,36 @@ private fun AuthenticatedNav(
             )
         }
         composable("issue/{issueId}") { entry ->
+            // EXP-893: the Work screen on its Issue face — the run and the
+            // diff are FACES of the same screen, never routes.
             val issueId = entry.arguments?.getString("issueId").orEmpty()
-            IssueDetailScreen(
+            WorkScreen(
+                subject = WorkSubject.Issue(issueId),
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
+                onOpenAgent = openAgent,
+            )
+        }
+        composable("issue/{issueId}/changes") { entry ->
+            // Dedicated diff page (EXP-34): PR/branch changes with per-file
+            // expandable unified patches — Reviews opens it directly.
+            val issueId = entry.arguments?.getString("issueId").orEmpty()
+            ChangesScreen(
                 issueId = issueId,
                 onBack = { navController.popBackStack() },
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
-                onOpenChanges = { navController.navigate("issue/$issueId/changes") },
                 onOpenAgent = openAgent,
             )
         }
-        composable("issue/{issueId}/changes") {
-            // Dedicated diff page (EXP-34): PR/branch changes with per-file
-            // expandable unified patches.
-            ChangesScreen(
+        composable("steer/{codingSessionId}") { entry ->
+            // EXP-893: the Work screen on its Run face (EXP-32's viewer);
+            // the route string is unchanged, push taps and lists land here.
+            val sessionId = entry.arguments?.getString("codingSessionId").orEmpty()
+            WorkScreen(
+                subject = WorkSubject.Session(sessionId),
                 onBack = { navController.popBackStack() },
-                onOpenAgent = openAgent,
-            )
-        }
-        composable("steer/{codingSessionId}") {
-            // The chat-style agent session viewer (EXP-32) — replaced the old
-            // live-terminal mirror; the route string is unchanged.
-            AgentSessionScreen(
-                onBack = { navController.popBackStack() },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
             )
         }
