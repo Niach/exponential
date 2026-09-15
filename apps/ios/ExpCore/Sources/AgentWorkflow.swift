@@ -295,7 +295,7 @@ extension AgentFeed {
         }
         var seen = Set(lines.map(\.text))
         for item in feed {
-            guard case let .tool(id, name, detail, _, callId, kind, settled, _, _, _) = item,
+            guard case let .tool(id, name, detail, _, callId, kind, settled, _, _, _, _) = item,
                   kind == toolKindWait, !settled else { continue }
             let label = (detail?.isEmpty == false) ? detail! : name
             let text = "\(waitingOnPrefix)\(label)"

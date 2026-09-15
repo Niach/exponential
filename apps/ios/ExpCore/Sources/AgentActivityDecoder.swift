@@ -71,23 +71,28 @@ public struct AgentQuestionDraft: Equatable, Sendable {
     }
 }
 
-/// EXP-785/786/846: a `tool_update`'s payload — the settle, the per-call diff
-/// and the Exponential-tool result preview, folded into the row with `id`.
+/// EXP-785/786/846/895: a `tool_update`'s payload — the settle, the per-call
+/// diff, an `execute` call's output and the Exponential-tool result preview,
+/// folded into the row with `id`.
 public struct AgentToolUpdate: Equatable, Sendable {
     public let id: String
     /// `completed` / `failed` settle the call; anything else (a status-less
     /// diff-only update) leaves it open.
     public let status: String?
     public let diff: String?
+    /// EXP-895: what an `execute` call printed, published ONCE on the settle
+    /// and already redacted and tail-cut by the publisher.
+    public let output: String?
     public let preview: AgentToolPreview?
 
     public init(
         id: String, status: String? = nil, diff: String? = nil,
-        preview: AgentToolPreview? = nil
+        output: String? = nil, preview: AgentToolPreview? = nil
     ) {
         self.id = id
         self.status = status
         self.diff = diff
+        self.output = output
         self.preview = preview
     }
 
@@ -280,6 +285,7 @@ public enum AgentActivityDecoder {
             id: id,
             status: event["status"] as? String,
             diff: string(event["diff"]),
+            output: string(event["output"]),
             preview: AgentFeed.toolPreview(event["preview"])
         )
     }

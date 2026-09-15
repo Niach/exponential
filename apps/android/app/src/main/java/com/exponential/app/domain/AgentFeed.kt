@@ -57,7 +57,9 @@ fun feedItemBytes(item: AgentFeedItem): Long {
             (
                 item.name.length + (item.detail?.length ?: 0) + (item.diff?.length ?: 0) +
                     // EXP-846: the folded Exponential-tool preview weighs too.
-                    (item.preview?.weight() ?: 0)
+                    (item.preview?.weight() ?: 0) +
+                    // EXP-895: and so does the command output its settle carried.
+                    (item.output?.length ?: 0)
                 ).toLong()
         is AgentFeedItem.Permission -> (item.tool.length + (item.detail?.length ?: 0)).toLong()
         is AgentFeedItem.Subagent ->
@@ -133,7 +135,11 @@ sealed interface AgentFeedItem {
      *  EXP-786: [diff] is the per-call unified diff an `edit` published,
      *  already cut to the contract's caps by the publisher.
      *  EXP-846: [preview] is what an EXPONENTIAL MCP call returned, folded in
-     *  by its `tool_update` — plumbed here in phase 1, rendered later. */
+     *  by its `tool_update` — plumbed here in phase 1, rendered later.
+     *  EXP-895: [output] is what an `execute` call PRINTED, as its settle
+     *  published it — redacted and tail-cut, a cut log OPENING with the
+     *  `\ N more lines truncated` marker (the dropped lines were at the front).
+     *  Null until the call settles. */
     data class Tool(
         override val id: Long,
         val name: String,
@@ -148,6 +154,7 @@ sealed interface AgentFeedItem {
         val failed: Boolean = false,
         val diff: String? = null,
         val preview: ToolResultPreview? = null,
+        val output: String? = null,
     ) : AgentFeedItem
 
     /** A human turn (EXP-78): the initial prompt or a steered message.
@@ -888,6 +895,23 @@ fun transcriptGap(prev: AgentRowClass?, cur: AgentRowClass): TranscriptGap = whe
     else -> TranscriptGap.Block
 }
 
+/** EXP-895 — the ONE tool row that is still RUNNING, or null.
+ *
+ *  The transcript runs inside the flow: exactly one row is ever expanded (its
+ *  live output, its edit diff open) and every other row is the compact headline
+ *  plus its evidence. That row is the LAST feed item and only while it is an
+ *  UNSETTLED tool call — the moment its `tool_update` settles, or the agent says
+ *  anything after it, the transcript has moved on and the row folds.
+ *
+ *  A pure projection over the FLAT feed (never the rows), mirrored ×4 (web
+ *  `liveToolRowId`, desktop `steer::feed::live_tool_row_id`, ExpCore
+ *  `AgentFeed.liveToolRowId`). Callers that know the run ENDED do not consult it
+ *  — a feed whose last row never settled is history, not a live tail. */
+fun liveToolRowId(feed: List<AgentFeedItem>): Long? {
+    val last = feed.lastOrNull()
+    return if (last is AgentFeedItem.Tool && !last.settled) last.id else null
+}
+
 /** Render-time projection of the flat feed — a pure function: the feed itself
  *  (and [activeQuestionIds] over it) is never restructured.
  *  - a subagent's markers and its tagged tool calls collapse into ONE row by
@@ -1335,6 +1359,8 @@ fun ActivityFeedState.applyActivityEvent(
                 // EXP-846: only Exponential MCP calls carry one; an update
                 // without it leaves whatever the call already previewed.
                 preview = toolPreview(event["preview"]) ?: row.preview,
+                // EXP-895: the settle's command output, same rule.
+                output = event.str("output")?.takeIf { it.isNotBlank() } ?: row.output,
             )
             withFeed(feed.toMutableList().also { it[at] = next })
         }

@@ -897,7 +897,7 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(settled?[2], feed[2])
         // A failed settle wins over the completed one; the diff stays.
         let failed = AgentFeed.applyToolUpdate(feed: settled!, event: ["id": "tc-1", "status": "failed"])
-        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff, _)? = failed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff, _, _)? = failed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(isSettled)
@@ -914,6 +914,67 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(
             AgentFeed.itemBytes(diffed![2]) - AgentFeed.itemBytes(feed[2]), "+x\n".utf8.count
         )
+    }
+
+    // EXP-895: an `execute` settle's command output folds onto the tool row,
+    // weighs against the byte budget and is never cleared by a later update.
+    func testToolUpdateOutputFoldsOntoTheRowAndWeighs() {
+        let feed: [AgentFeedItem] = [
+            .tool(id: 1, name: "Bash", detail: "bun", subagentId: nil, callId: "tc-1",
+                  toolKind: "execute"),
+        ]
+        let printed = "\\ 2 more lines truncated\n42 tests passed\n"
+        let settled = AgentFeed.applyToolUpdate(feed: feed, event: [
+            "id": "tc-1", "status": "completed", "output": printed,
+        ])
+        XCTAssertEqual(
+            settled?[0],
+            .tool(id: 1, name: "Bash", detail: "bun", subagentId: nil, callId: "tc-1",
+                  toolKind: "execute", settled: true, failed: false, diff: nil,
+                  preview: nil, output: printed)
+        )
+        XCTAssertEqual(
+            AgentFeed.itemBytes(settled![0]) - AgentFeed.itemBytes(feed[0]),
+            printed.utf8.count
+        )
+        // A later update with no output — and a BLANK one — leave it alone.
+        let refailed = AgentFeed.applyToolUpdate(
+            feed: settled!, event: ["id": "tc-1", "status": "failed"]
+        )
+        guard case let .tool(_, _, _, _, _, _, _, isFailed, _, _, kept)? = refailed?[0] else {
+            return XCTFail("not a tool row")
+        }
+        XCTAssertTrue(isFailed)
+        XCTAssertEqual(kept, printed)
+        let blanked = AgentFeed.applyToolUpdate(
+            feed: settled!, event: ["id": "tc-1", "output": "   "]
+        )
+        guard case let .tool(_, _, _, _, _, _, _, _, _, _, still)? = blanked?[0] else {
+            return XCTFail("not a tool row")
+        }
+        XCTAssertEqual(still, printed)
+    }
+
+    // EXP-895: the ONE expanded row — the last item, and only while it is an
+    // unsettled tool call. Locked ×4 (web `liveToolRowId`, desktop
+    // `live_tool_row_id`, Android `liveToolRowId`).
+    func testLiveToolRowIdNamesTheTrailingUnsettledToolRowOnly() {
+        let tool = { (id: Int, settled: Bool) in
+            AgentFeedItem.tool(
+                id: id, name: "Bash", detail: nil, subagentId: nil, callId: "tc-\(id)",
+                toolKind: "execute", settled: settled
+            )
+        }
+        XCTAssertNil(AgentFeed.liveToolRowId([]))
+        XCTAssertNil(AgentFeed.liveToolRowId([.narration(id: 1, text: "hi")]))
+        XCTAssertEqual(AgentFeed.liveToolRowId([.narration(id: 1, text: "hi"), tool(2, false)]), 2)
+        // A settled trailing call is history — its `tool_update` landed.
+        XCTAssertNil(AgentFeed.liveToolRowId([tool(1, false), tool(2, true)]))
+        // Only the LAST row can be live, however many never settled.
+        XCTAssertEqual(AgentFeed.liveToolRowId([tool(1, false), tool(2, false)]), 2)
+        // Anything the agent says after a call moves the transcript on.
+        XCTAssertNil(AgentFeed.liveToolRowId([tool(1, false), .narration(id: 2, text: "done")]))
+        XCTAssertNil(AgentFeed.liveToolRowId([tool(1, false), .userMessage(id: 2, text: "stop")]))
     }
 
     func testToolUpdateForAnUnknownIdIsDroppedAndTheNewestRowWins() {
@@ -1409,7 +1470,7 @@ final class AgentFeedTests: XCTestCase {
             "id": "tc-1",
             "preview": ["identifier": "EXP-849", "title": "Drop pi", "count": 3],
         ])
-        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview)? = previewed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview, _)? = previewed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertFalse(settled, "a preview alone never settles the call")
@@ -1422,7 +1483,7 @@ final class AgentFeedTests: XCTestCase {
         let settledNext = AgentFeed.applyToolUpdate(
             feed: previewed!, event: ["id": "tc-1", "status": "completed"]
         )
-        guard case let .tool(_, _, _, _, _, _, isSettled, _, _, kept)? = settledNext?[0] else {
+        guard case let .tool(_, _, _, _, _, _, isSettled, _, _, kept, _)? = settledNext?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(isSettled)

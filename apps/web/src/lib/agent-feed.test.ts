@@ -31,6 +31,7 @@ import {
   createActivityCoalescer,
   failAnswer,
   groupFeedRows,
+  liveToolRowId,
   hasPendingCard,
   isAnswerLocked,
   looksLikeMarkdown,
@@ -1289,6 +1290,51 @@ describe(`tool kinds, rate limit and diff bytes (EXP-784/785/786)`, () => {
     expect(feedItemBytes({ kind: `tool`, name: `Edit`, detail: `a.ts`, diff: `+abc\n` })).toBe(
       base + 5
     )
+  })
+
+  // EXP-895: and so does the command output a settle folded in.
+  it(`a folded command output weighs against the byte budget`, () => {
+    const base = feedItemBytes({ kind: `tool`, name: `Bash`, detail: `bun` })
+    expect(
+      feedItemBytes({ kind: `tool`, name: `Bash`, detail: `bun`, output: `ok\n` })
+    ).toBe(base + 3)
+    expect(
+      feedItemBytes({
+        kind: `tool`,
+        name: `Bash`,
+        detail: `bun`,
+        diff: `+a\n`,
+        output: `ok\n`,
+      })
+    ).toBe(base + 6)
+  })
+})
+
+// EXP-895: the ONE expanded row — the last item, and only while it is an
+// unsettled tool call. Locked ×4 (desktop `live_tool_row_id`, ExpCore and
+// Android `liveToolRowId`).
+describe(`liveToolRowId`, () => {
+  const item = (id: number, kind: string, over: Record<string, unknown> = {}) =>
+    ({ id, kind, ...over }) as { id: number; kind: string; settled?: boolean }
+
+  it(`names the trailing unsettled tool row and nothing else`, () => {
+    expect(liveToolRowId([])).toBeUndefined()
+    expect(liveToolRowId([item(1, `narration`)])).toBeUndefined()
+    expect(liveToolRowId([item(1, `narration`), item(2, `tool`)])).toBe(2)
+    // A settled trailing call is history — its `tool_update` landed.
+    expect(
+      liveToolRowId([item(1, `tool`), item(2, `tool`, { settled: true })])
+    ).toBeUndefined()
+    // Only the LAST row can be live, however many calls never settled.
+    expect(liveToolRowId([item(1, `tool`), item(2, `tool`)])).toBe(2)
+    // Anything the agent says after a call moves the transcript on.
+    expect(
+      liveToolRowId([item(1, `tool`), item(2, `narration`)])
+    ).toBeUndefined()
+    // A question or a user turn is not a tool row either.
+    expect(
+      liveToolRowId([item(1, `tool`), item(2, `user_message`)])
+    ).toBeUndefined()
   })
 })
 

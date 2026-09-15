@@ -304,6 +304,29 @@ pub(crate) enum DiffScope {
     Turn { anchor: FeedItemId },
 }
 
+/// EXP-895 — how much of a tool row is SHOWN.
+///
+/// The transcript runs inside the flow: exactly ONE row is expanded at a time
+/// and every other one is its headline plus compact evidence (a collapsed edit
+/// card's `+a −b`, a `failed` tint), the reader's Show more still opening it.
+/// The rule behind the choice is shared ×4 — [`steer::feed::live_tool_row_id`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ToolRowMode {
+    /// The ONE call still running: its evidence is OPEN. On the RUNNER that is
+    /// the live window — the output tail as the PTY writes it, the patch
+    /// unfolded ([`crate::session_extras::LocalExtras`]); for a remote viewer
+    /// it is the wire's own patch, which is all there is until the settle.
+    Live,
+    /// A call that ENDED: the wire's capped patch and tail-cut output, folded
+    /// away until the reader asks — the same bytes on the runner and on every
+    /// viewer (runner parity).
+    Settled,
+    /// A bare headline: a row nested inside a card that IS the summary (a
+    /// workflow agent's rows), where per-call evidence belongs to the
+    /// transcript row rather than to the digest.
+    Nested,
+}
+
 /// The steering view for ONE coding session — remote, local or replayed.
 pub(crate) struct SteerSessionView {
     session_id: String,
@@ -4116,7 +4139,7 @@ impl SteerSessionView {
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
                 Some(workflow) => self.render_workflow_card(&workflow, window, cx),
-                None => self.render_tool_item(item, true, cx),
+                None => self.render_tool_item(item, self.tool_row_mode(item), cx),
             },
             FeedKind::Permission { tool, detail } => {
                 let amber = theme::tokens::YELLOW.to_hsla();
@@ -4367,15 +4390,34 @@ impl SteerSessionView {
         self.render_body_folding(id, text, true, cx)
     }
 
-    /// One tool call's row plus whatever hangs off it: a LOCAL run's per-edit
-    /// diff and command output ([`Self::render_extras`]), or — for a source
-    /// with no engine (EXP-786) — the per-call diff the publisher put on the
-    /// wire. The two never stack: where the engine runs, its ACP content is
-    /// richer than the wire's cut, so the wire diff is ignored there.
+    /// EXP-895 — the mode row `item` renders in: [`ToolRowMode::Live`] for the
+    /// ONE call still running ([`steer::feed::live_tool_row_id`], and only in a
+    /// LIVE run — an ended run's trailing unsettled row is history, not a
+    /// tail), [`ToolRowMode::Settled`] for every other row. A
+    /// [`ToolRowMode::Nested`] row is named by its caller, never derived here.
+    fn tool_row_mode(&self, item: &FeedItem) -> ToolRowMode {
+        if self.phase == ViewerPhase::Live
+            && steer::feed::live_tool_row_id(self.feed.items()) == Some(item.id)
+        {
+            ToolRowMode::Live
+        } else {
+            ToolRowMode::Settled
+        }
+    }
+
+    /// One tool call's row plus whatever hangs off it.
+    ///
+    /// EXP-895 replaced "local run → local cards, remote → the wire's" with the
+    /// FLOW: the row still RUNNING shows the LOCAL live window where the engine
+    /// runs ([`Self::render_extras`] — the output tail as the PTY writes it, the
+    /// patch unfolded), and every SETTLED row shows the WIRE's own capped patch
+    /// and tail-cut output, folded away, on the runner exactly as on a viewer.
+    /// The two still never stack, and the bytes agree: the local cards are cut
+    /// to the same contract caps the publisher applies.
     fn render_tool_item(
         &self,
         item: &FeedItem,
-        with_extras: bool,
+        mode: ToolRowMode,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let FeedKind::Tool {
@@ -4383,6 +4425,7 @@ impl SteerSessionView {
             detail,
             failed,
             diff,
+            output,
             settled,
             preview,
             ..
@@ -4404,28 +4447,34 @@ impl SteerSessionView {
             ),
             None => tool_row(name, detail.as_deref(), *failed, cx).into_any_element(),
         };
-        if !with_extras {
+        if mode == ToolRowMode::Nested {
             return row;
         }
-        let extras = if self.source.session().is_some() {
-            self.render_extras(item.id, cx)
-        } else {
-            let id = item.id;
-            diff.as_deref().map(|diff| {
-                crate::session_extras::render_wire_diff(
-                    diff,
-                    id,
-                    self.expanded_extras.contains(&id),
-                    Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        if !this.expanded_extras.insert(id) {
-                            this.expanded_extras.remove(&id);
-                        }
-                        cx.notify();
-                    })),
-                    Some(self.open_edit_listener(id, cx)),
-                    cx,
-                )
-            })
+        let id = item.id;
+        // EXP-895: the RUNNING row is open, and open on the RUNNER means the
+        // live window — the output tail as the PTY writes it, the patch
+        // unfolded. Every other row is compact until the reader's Show more.
+        let expanded = mode == ToolRowMode::Live || self.expanded_extras.contains(&id);
+        let extras = match mode {
+            ToolRowMode::Live if self.source.session().is_some() => {
+                self.render_extras(id, expanded, cx)
+            }
+            // Runner parity: once a call ENDED the row reads the same locally
+            // and remotely — the wire's own capped patch and tail-cut output.
+            _ => crate::session_extras::render_wire_extras(
+                diff.as_deref(),
+                output.as_deref(),
+                id,
+                expanded,
+                Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    if !this.expanded_extras.insert(id) {
+                        this.expanded_extras.remove(&id);
+                    }
+                    cx.notify();
+                })),
+                Some(self.open_edit_listener(id, cx)),
+                cx,
+            ),
         };
         match extras {
             Some(extras) => v_flex()
@@ -4445,7 +4494,12 @@ impl SteerSessionView {
     /// The fold flag is this view's, the rendering is
     /// [`crate::session_extras`]' — the same split every other card here
     /// uses, so the transcript owns interaction and the extras own shape.
-    fn render_extras(&self, item: FeedItemId, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    fn render_extras(
+        &self,
+        item: FeedItemId,
+        expanded: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.extras.has_extras(item) {
             return None;
         }
@@ -4457,7 +4511,7 @@ impl SteerSessionView {
         crate::session_extras::render_extras(
             &self.extras,
             item,
-            self.expanded_extras.contains(&item),
+            expanded,
             Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 if !this.expanded_extras.insert(item) {
                     this.expanded_extras.remove(&item);
@@ -4603,18 +4657,20 @@ impl SteerSessionView {
                         div()
                             .pl_5()
                             .py_0p5()
-                            .child(self.render_tool_item(item, true, cx)),
+                            .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
                     );
                 }
             }
         } else if live_tail {
-            // Collapsed but still running — keep the newest call visible.
+            // Collapsed but still running — keep the newest call visible, and
+            // EXP-895 keeps it EXPANDED: it is the row the flow is on, and the
+            // only one the reader can see of this run.
             if let Some(item) = items.last().filter(|item| item.is_tool()) {
                 column = column.child(
                     div()
                         .pl_5()
                         .py_0p5()
-                        .child(self.render_tool_item(item, false, cx)),
+                        .child(self.render_tool_item(item, ToolRowMode::Live, cx)),
                 );
             }
         }
@@ -4746,7 +4802,7 @@ impl SteerSessionView {
                             div()
                                 .pl_5()
                                 .py_0p5()
-                                .child(self.render_tool_item(item, true, cx)),
+                                .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
                         );
                     }
                     // EXP-773: the subagent's own prose and the turns sent to
@@ -5036,7 +5092,12 @@ impl SteerSessionView {
                         .pl_5()
                         .py_0p5()
                         .child(match &item.kind {
-                            FeedKind::Tool { .. } => self.render_tool_item(item, true, cx),
+                            // EXP-895: a workflow card is a DIGEST — its rows
+                            // are headlines, and the evidence hangs off the
+                            // transcript row instead.
+                            FeedKind::Tool { .. } => {
+                                self.render_tool_item(item, ToolRowMode::Nested, cx)
+                            }
                             _ => self.render_item(item, &HashSet::new(), window, cx),
                         }),
                 );

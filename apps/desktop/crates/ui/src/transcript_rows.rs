@@ -647,6 +647,7 @@ mod tests {
                 settled: false,
                 failed: false,
                 diff: None,
+                output: None,
                 preview: None,
             },
             seq: None,

@@ -87,6 +87,7 @@ import com.exponential.app.domain.completeSubagent
 import com.exponential.app.domain.currentStepperStep
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.liveToolRowId
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
@@ -1089,6 +1090,53 @@ class AgentFeedTest {
         val diffedRow = diffed.feed[2] as AgentFeedItem.Tool
         assertFalse(diffedRow.settled)
         assertEquals("+x\n", diffedRow.diff)
+    }
+
+    // EXP-895: an `execute` settle's command output folds onto the tool row,
+    // weighs against the byte budget and is never cleared by a later update.
+    @Test
+    fun `a tool_update carries the settle's command output`() {
+        val base = ActivityFeedState().applying(toolWithId("tc-1", "execute"))
+        assertNull((base.feed[0] as AgentFeedItem.Tool).output)
+        val printed = "\\\\ 2 more lines truncated\\n42 tests passed\\n"
+        val settled = base.applying(
+            event("""{"kind":"tool_update","id":"tc-1","status":"completed","output":"$printed"}"""),
+        )
+        assertEquals(1, settled.feed.size)
+        val row = settled.feed[0] as AgentFeedItem.Tool
+        assertTrue(row.settled)
+        assertEquals("\\ 2 more lines truncated\n42 tests passed\n", row.output)
+        assertEquals(base.feedBytes + row.output!!.length, settled.feedBytes)
+        assertEquals(settled.feed.sumOf { feedItemBytes(it) }, settled.feedBytes)
+        // A later update with no output — and a BLANK one — leave it alone.
+        val refailed = settled
+            .applying(event("""{"kind":"tool_update","id":"tc-1","status":"failed"}"""))
+            .applying(event("""{"kind":"tool_update","id":"tc-1","output":"   "}"""))
+        val kept = refailed.feed[0] as AgentFeedItem.Tool
+        assertTrue(kept.failed)
+        assertEquals(row.output, kept.output)
+    }
+
+    // EXP-895: the ONE expanded row — the last item, and only while it is an
+    // unsettled tool call. Locked ×4 (web `liveToolRowId`, desktop
+    // `live_tool_row_id`, ExpCore `AgentFeed.liveToolRowId`).
+    @Test
+    fun `liveToolRowId names the trailing unsettled tool row only`() {
+        fun tool(id: Long, settled: Boolean) =
+            AgentFeedItem.Tool(id = id, name = "Bash", detail = null, settled = settled)
+        val prose = AgentFeedItem.Narration(id = 9, text = "hi")
+        assertNull(liveToolRowId(emptyList()))
+        assertNull(liveToolRowId(listOf(prose)))
+        assertEquals(2L, liveToolRowId(listOf(prose, tool(2, false))))
+        // A settled trailing call is history — its `tool_update` landed.
+        assertNull(liveToolRowId(listOf(tool(1, false), tool(2, true))))
+        // Only the LAST row can be live, however many never settled.
+        assertEquals(2L, liveToolRowId(listOf(tool(1, false), tool(2, false))))
+        // Anything the agent says after a call moves the transcript on.
+        assertNull(liveToolRowId(listOf(tool(1, false), prose)))
+        assertNull(
+            liveToolRowId(listOf(tool(1, false), AgentFeedItem.UserMessage(id = 3, text = "stop"))),
+        )
     }
 
     @Test

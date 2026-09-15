@@ -204,6 +204,7 @@ import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.label
+import com.exponential.app.domain.liveToolRowId
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.planModeBadge
 import com.exponential.app.domain.rowClass
@@ -1549,6 +1550,10 @@ private fun ActivityFeed(
     // EXP-850 (S3): a `Workflow` tool row never collapses into a tool group —
     // it IS the card.
     val workflowIds = remember(workflows) { workflows.mapTo(mutableSetOf()) { it.id } }
+    // EXP-895: the ONE row the transcript keeps EXPANDED — the last feed item
+    // while it is an unsettled tool call, and only in a LIVE run (an ended run's
+    // trailing unsettled row is history, not a tail). The rule is shared ×4.
+    val liveRowId = remember(feed, live) { if (live) liveToolRowId(feed) else null }
     val rows = remember(feed, windowStart, workflowIds) {
         splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
     }
@@ -1702,7 +1707,7 @@ private fun ActivityFeed(
                     when (row) {
                         is AgentFeedRow.ToolRun -> ToolGroupRow(
                             items = row.items,
-                            liveTail = live && row.id == rows.last().id,
+                            liveTail = liveRowId != null && row.items.last().id == liveRowId,
                         )
                         is AgentFeedRow.SubagentRun -> SubagentGroupRow(
                             run = row,
@@ -1725,7 +1730,7 @@ private fun ActivityFeed(
                             // as a tool row beside it.
                             is AgentFeedItem.Tool ->
                                 when (val workflow = workflows.firstOrNull { it.id == item.callId }) {
-                                    null -> ToolRow(item)
+                                    null -> ToolRow(item, live = item.id == liveRowId)
                                     else -> WorkflowCard(
                                         workflow = workflow,
                                         agentRuns = workflowAgentRuns(feed, workflow.id),
@@ -3625,7 +3630,14 @@ private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
  * is in, and what came back; every other tool keeps the generic wrench row.
  */
 @Composable
-private fun ToolRow(item: AgentFeedItem.Tool, nested: Boolean = false) {
+private fun ToolRow(
+    item: AgentFeedItem.Tool,
+    nested: Boolean = false,
+    /** EXP-895: this call is the ONE still running ([liveToolRowId]). The
+     *  transcript runs inside the flow, so this row — and only this row — opens
+     *  itself. */
+    live: Boolean = false,
+) {
     val exp = remember(item.name, item.settled) {
         ExpToolDisplay.forName(item.name, item.settled)
     }
@@ -3639,6 +3651,8 @@ private fun ToolRow(item: AgentFeedItem.Tool, nested: Boolean = false) {
         nested = nested,
         failed = item.failed,
         diff = item.diff,
+        output = item.output,
+        live = live,
     )
 }
 
@@ -3658,8 +3672,19 @@ private fun ToolRow(
      *  tapped — a phone transcript is a column, not the web's wide page, so an
      *  always-open patch under every edit buries the conversation. */
     diff: String? = null,
+    /** EXP-895: what an `execute` call PRINTED, as its settle published it —
+     *  redacted and tail-cut by the publisher. Folded away like the diff. */
+    output: String? = null,
+    /** EXP-895: the ONE running call — open, where every other row is compact. */
+    live: Boolean = false,
 ) {
-    var diffOpen by remember(diff) { mutableStateOf(false) }
+    // ONE disclosure for one row: a call carries a diff (`edit`) or output
+    // (`execute`), never both. It STARTS on whatever the flow says, and the
+    // live -> settled edge takes the reader's tap back, so a row folds away by
+    // itself once the transcript has moved past it.
+    val hasDetail = diff != null || output != null
+    var detailOpen by remember(diff, output) { mutableStateOf(live) }
+    LaunchedEffect(live) { detailOpen = live }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -3669,8 +3694,8 @@ private fun ToolRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (diff != null) {
-                        Modifier.clickable { diffOpen = !diffOpen }
+                    if (hasDetail) {
+                        Modifier.clickable { detailOpen = !detailOpen }
                     } else {
                         Modifier
                     },
@@ -3702,22 +3727,58 @@ private fun ToolRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-            } else if (diff != null) {
+            } else if (hasDetail) {
                 Spacer(Modifier.weight(1f))
             }
-            // The only affordance a folded diff has — the group row's chevron,
-            // trailing here because the leading slot is the tool glyph.
-            if (diff != null) {
+            // The only affordance folded evidence has — the group row's
+            // chevron, trailing here because the leading slot is the tool glyph.
+            if (hasDetail) {
                 Icon(
-                    if (diffOpen) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                    contentDescription = if (diffOpen) "Hide changes" else "Show changes",
+                    if (detailOpen) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = when {
+                        output != null -> if (detailOpen) "Hide output" else "Show output"
+                        else -> if (detailOpen) "Hide changes" else "Show changes"
+                    },
                     modifier = Modifier.size(12.dp),
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
         }
-        if (diff != null && diffOpen) ToolDiff(diff)
+        if (detailOpen && diff != null) ToolDiff(diff)
+        if (detailOpen && output != null) ToolOutput(output)
     }
+}
+
+/**
+ * EXP-895 — what one `execute` call printed, as its settle put it on the wire:
+ * already redacted and tail-cut by the publisher, so this only has to be a
+ * readable box. A cut log OPENS with the `\ N more lines truncated` marker (the
+ * dropped lines were at the front, unlike a patch's trailing note), which reads
+ * as its first line and needs no parsing.
+ *
+ * Scrolled to the BOTTOM: the verdict is the last line, and it is why the output
+ * is on the wire at all.
+ */
+@Composable
+private fun ToolOutput(output: String) {
+    val scroll = rememberScrollState()
+    LaunchedEffect(output) { scroll.scrollTo(scroll.maxValue) }
+    Text(
+        output,
+        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        modifier = Modifier
+            .fillMaxWidth()
+            // Aligned under the row's text, past the tool glyph and its gap.
+            .padding(start = 20.dp, top = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f))
+            // Bounded FIRST so the box is capped and the log scrolls inside it
+            // rather than growing the transcript row.
+            .heightIn(max = ToolDiffMaxHeight)
+            .verticalScroll(scroll)
+            .padding(8.dp),
+    )
 }
 
 /**
@@ -4002,11 +4063,15 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                items.forEach { ToolRow(it, nested = true) }
+                // EXP-895: inside the group too, only the RUNNING call is
+                // expanded — the same rule the top-level rows follow.
+                items.forEach {
+                    ToolRow(it, nested = true, live = liveTail && it.id == items.last().id)
+                }
             }
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
-                ToolRow(latest, nested = true)
+                ToolRow(latest, nested = true, live = true)
             }
         }
     }

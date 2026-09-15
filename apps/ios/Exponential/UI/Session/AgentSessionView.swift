@@ -956,10 +956,13 @@ struct AgentSessionView<Switcher: View>: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, callId, _, settled, failed, diff, preview):
+            case let .tool(
+                id, name, detail, _, callId, _, settled, failed, diff, preview, output
+            ):
                 toolOrWorkflowRow(
                     name: name, detail: detail, callId: callId,
-                    settled: settled, failed: failed, diff: diff, preview: preview
+                    settled: settled, failed: failed, diff: diff, preview: preview,
+                    output: output, live: id == liveToolRowId
                 )
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -1005,7 +1008,9 @@ struct AgentSessionView<Switcher: View>: View {
         settled: Bool,
         failed: Bool,
         diff: String?,
-        preview: AgentToolPreview?
+        preview: AgentToolPreview?,
+        output: String?,
+        live: Bool
     ) -> some View {
         if let workflow: AgentWorkflow = model?.workflow(for: callId) {
             AgentWorkflowCardRow(
@@ -1017,9 +1022,18 @@ struct AgentSessionView<Switcher: View>: View {
             ToolRow(
                 name: name, detail: detail, failed: failed, diff: diff,
                 settled: settled, preview: preview,
-                refs: markdownContext.issueRefs
+                refs: markdownContext.issueRefs, output: output, live: live
             )
         }
+    }
+
+    /// EXP-895: the ONE row the transcript keeps EXPANDED — the last feed item
+    /// while it is an unsettled tool call, and only in a LIVE run (an ended
+    /// run's trailing unsettled row is history, not a tail). `AgentFeed`'s rule,
+    /// shared ×4.
+    private var liveToolRowId: Int? {
+        guard model?.phase == .live, let feed = model?.feed else { return nil }
+        return AgentFeed.liveToolRowId(feed)
     }
 
     /// The nested run behind one workflow agent — a method rather than a
@@ -2970,11 +2984,26 @@ private struct ToolRow: View {
     var preview: AgentToolPreview? = nil
     /// EXP-846: the run's team + where a tapped issue preview goes.
     var refs: AgentIssueRefContext? = nil
+    /// EXP-895: what an `execute` call PRINTED, as its settle published it —
+    /// redacted and tail-cut by the publisher. Nil for every other call.
+    var output: String? = nil
+    /// EXP-895: this call is the ONE still running (`AgentFeed.liveToolRowId`).
+    /// The transcript runs inside the flow, so this row — and only this row —
+    /// opens itself.
+    var live: Bool = false
 
-    /// EXP-806: COLLAPSED by default, unlike web's always-open `ToolDiff` —
-    /// a phone transcript is one narrow column, and a dozen open patches
-    /// would bury the prose between them.
-    @State private var showsDiff = false
+    /// EXP-806/895: nil = "whatever the flow says", so the RUNNING row is open
+    /// and every other row is the compact headline; a tap pins it either way.
+    /// The pin drops on the live→settled edge, which is what folds a row away
+    /// by itself once the transcript has moved past it. (A row the reader opened
+    /// AFTER it settled stays open: `live` no longer moves.)
+    @State private var pinned: Bool? = nil
+
+    /// The disclosure's state. One toggle for one row: a call carries a diff
+    /// (`edit`) or output (`execute`), never both.
+    private var showsDetail: Bool { pinned ?? live }
+    /// Whether there is anything to disclose at all.
+    private var hasDetail: Bool { diff != nil || output != nil }
 
     var body: some View {
         // EXP-846: one of OUR OWN MCP tools gets its own row — the Exponential
@@ -2996,25 +3025,37 @@ private struct ToolRow: View {
         }
     }
 
-    /// Every other tool: the neutral glyph, the tool's name, its detail, and
-    /// the diff an `edit` published behind a disclosure.
+    /// Every other tool: the neutral glyph, the tool's name, its detail, and —
+    /// behind a disclosure — the evidence the call produced: an `edit`'s diff
+    /// or an `execute`'s output.
     private var genericRow: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if diff == nil {
+            if !hasDetail {
                 headline
             } else {
-                Button { showsDiff.toggle() } label: {
+                Button { pinned = !showsDetail } label: {
                     headline.contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(showsDiff ? "Hide the diff" : "Show the diff")
+                .accessibilityLabel(
+                    showsDetail
+                        ? (output != nil ? "Hide the output" : "Hide the diff")
+                        : (output != nil ? "Show the output" : "Show the diff")
+                )
             }
-            if showsDiff, let diff {
+            if showsDetail, let diff {
                 ToolDiffBlock(diff: diff)
+                    .padding(.top, 4)
+            }
+            if showsDetail, let output {
+                ToolOutputBlock(output: output)
                     .padding(.top, 4)
             }
         }
         .padding(.vertical, nested ? 2 : 0)
+        // EXP-895: the live→settled edge drops the reader's pin, so the row
+        // folds behind the flow instead of staying open forever.
+        .onChange(of: live) { pinned = nil }
     }
 
     private var headline: some View {
@@ -3036,10 +3077,10 @@ private struct ToolRow: View {
                 Spacer(minLength: 0)
             }
             // The disclosure sits on the TRAILING edge on purpose: a leading
-            // chevron would indent the diff-carrying rows out of line with
+            // chevron would indent the evidence-carrying rows out of line with
             // every other tool row in the same run.
-            if diff != nil {
-                AppIcon(showsDiff ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+            if hasDetail {
+                AppIcon(showsDetail ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
@@ -3293,6 +3334,50 @@ private struct ToolDiffBlock: View {
     }
 }
 
+/// EXP-895 — what one `execute` call printed, as its settle put it on the wire:
+/// already redacted and tail-cut by the publisher, so this only has to be a
+/// readable box. A cut log OPENS with the `\ N more lines truncated` marker (the
+/// dropped lines were at the front, unlike a patch's trailing note), which reads
+/// as its first line and needs no parsing.
+///
+/// Scrolled to the BOTTOM: the verdict is the last line, and it is why the output
+/// is on the wire at all.
+private struct ToolOutputBlock: View {
+    let output: String
+
+    /// Web's `max-h-72` — tall enough to read a failure in, short enough that
+    /// the prose after the call stays on screen.
+    private static let maxHeight: CGFloat = 288
+    private static let bottom = "exp-tool-output-bottom"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(output)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(height: 0).id(Self.bottom)
+                }
+                .padding(8)
+            }
+            .frame(maxHeight: Self.maxHeight)
+            // Web's `overscroll-contain`: a short log has nothing to scroll
+            // here, so the drag belongs to the transcript.
+            .scrollBounceBehavior(.basedOnSize)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+            )
+            .onAppear { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+        }
+    }
+}
+
 /// A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
 /// (EXP-97), expandable to the individual rows. While the run is the trailing
 /// row of a live session, the latest call stays visible under the count so
@@ -3311,7 +3396,7 @@ private struct ToolGroupRow: View {
     /// contract fixture, not a bare count.
     private var caption: String {
         ToolGroupSummary.summarize(items.compactMap { item in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _) = item
             else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         })
@@ -3341,12 +3426,16 @@ private struct ToolGroupRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         if case let .tool(
-                            _, name, detail, _, _, _, settled, failed, diff, preview
+                            id, name, detail, _, _, _, settled, failed, diff, preview, output
                         ) = item {
+                            // EXP-895: inside the group too, only the RUNNING
+                            // call is expanded — the same rule the top-level
+                            // rows follow.
                             ToolRow(
                                 name: name, detail: detail, failed: failed,
                                 nested: true, diff: diff,
-                                settled: settled, preview: preview, refs: refs
+                                settled: settled, preview: preview, refs: refs,
+                                output: output, live: liveTail && id == items.last?.id
                             )
                         }
                     }
@@ -3354,11 +3443,12 @@ private struct ToolGroupRow: View {
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
                       case let .tool(
-                          _, name, detail, _, _, _, settled, failed, diff, preview
+                          _, name, detail, _, _, _, settled, failed, diff, preview, output
                       ) = last {
                 ToolRow(
                     name: name, detail: detail, failed: failed, nested: true, diff: diff,
-                    settled: settled, preview: preview, refs: refs
+                    settled: settled, preview: preview, refs: refs,
+                    output: output, live: true
                 )
                     .padding(.leading, 20)
             }
@@ -3398,7 +3488,7 @@ private struct SubagentGroupRow: View {
     /// contradict the row's own history. Empty = nothing to say yet.
     private var summary: String {
         let calls = run.items.compactMap { item -> ToolCallSummary? in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _) = item
             else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         }
@@ -3512,10 +3602,14 @@ struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview):
+        case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview, output):
+            // A subagent's rows are a digest inside the main transcript — its
+            // own tab is where its work is read — so none of them is the live
+            // row here; the reader's tap still opens one.
             ToolRow(
                 name: name, detail: detail, failed: failed, diff: diff,
-                settled: settled, preview: preview, refs: context.issueRefs
+                settled: settled, preview: preview, refs: context.issueRefs,
+                output: output
             )
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)

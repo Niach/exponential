@@ -1662,6 +1662,37 @@ describe(`tool_update folds into the tool row (EXP-785/786)`, () => {
     store.dispose()
   })
 
+  // EXP-895: an `execute` settle's command output folds onto the tool row and
+  // an update carrying none never clears it.
+  it(`folds the settle's command output onto the tool row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(toolEvent(`tc-1`, { toolKind: `execute`, name: `Bash` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(
+      (store.getSnapshot().feed[0] as { output?: string }).output
+    ).toBeUndefined()
+    const printed = `\\ 2 more lines truncated\n42 tests passed\n`
+    socket.frame(updateEvent(`tc-1`, { status: `completed`, output: printed }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().feed[0]).toMatchObject({
+      kind: `tool`,
+      callId: `tc-1`,
+      settled: true,
+      output: printed,
+    })
+    // A later update with no output — and a BLANK one — leave it alone.
+    socket.frame(updateEvent(`tc-1`, { status: `failed` }))
+    socket.frame(updateEvent(`tc-1`, { output: `   ` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).toMatchObject({
+      failed: true,
+      output: printed,
+    })
+    store.dispose()
+  })
+
   it(`an update for an unknown or evicted id is dropped`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)

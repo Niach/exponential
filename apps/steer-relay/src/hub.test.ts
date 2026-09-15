@@ -6,6 +6,7 @@ import {
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
   TOOL_DIFF_MAX_WIRE_BYTES,
+  TOOL_OUTPUT_MAX_WIRE_BYTES,
 } from "./protocol"
 
 class FakeSocket implements RelaySocket {
@@ -1792,6 +1793,36 @@ describe(`activity event kinds`, () => {
     const grep = { kind: `tool`, name: `Grep`, id: `tc-2`, toolKind: `search` }
     activity(hub, pub, grep)
     expect(member.events().at(-1)).toEqual(grep as never)
+  })
+
+  // EXP-895: an `execute` call's settle carries what it PRINTED. A plain
+  // string on the same LOG row — the relay never reads it, it only bounds it.
+  test(`tool_update carries the settle's command output and bounds it`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    const settled = {
+      kind: `tool_update`,
+      id: `tc-1`,
+      status: `completed`,
+      output: `\\ 12 more lines truncated\n42 tests passed\n`,
+    }
+    activity(hub, pub, settled)
+    expect(member.events().at(-1)).toEqual(settled as never)
+    // The marker's own line is the slack above the contract cap.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      output: `x`.repeat(TOOL_OUTPUT_MAX_WIRE_BYTES),
+    })
+    expect(room(hub).activityLog.length).toBe(2)
+    // One byte over drops the WHOLE frame, like an over-cap diff.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      output: `x`.repeat(TOOL_OUTPUT_MAX_WIRE_BYTES + 1),
+    })
+    expect(room(hub).activityLog.length).toBe(2)
   })
 
   // EXP-846: an `exponential_*` call's settle carries the SUBJECT it landed on.

@@ -13,7 +13,8 @@
 //! ([`steer::truncate_unified_diff`] at `TOOL_DIFF_MAX_LINES`/`_BYTES`), so a
 //! local and a remote viewer of one run show the same prefix of one edit; the
 //! header says how many lines were dropped. A remote viewer renders the
-//! wire's own per-call diff through the same card ([`render_wire_diff`]).
+//! wire's own per-call diff and settled output through the same cards
+//! ([`render_wire_extras`]).
 //!
 //! The join is the tricky part and is worth stating once: the wire `tool`
 //! event carries no id (`FeedKind::Tool` is `{name, detail, subagent_id}`),
@@ -285,6 +286,18 @@ impl OutputCard {
             rows.push(self.partial.clone());
         }
         rows
+    }
+
+    /// EXP-895 — the WIRE's settled output as a card, so a local and a remote
+    /// viewer of one run read the SAME thing once a command ends. The publisher
+    /// already redacted it and cut it to the contract's caps; its leading
+    /// `\ N more lines truncated` marker is simply the log's first line. No exit
+    /// code rides the wire, so the tool row's own `failed` tint is the verdict.
+    fn from_wire(text: &str) -> Self {
+        let mut card = OutputCard::default();
+        card.push(text);
+        card.finish(None);
+        card
     }
 }
 
@@ -619,35 +632,58 @@ fn wire_edit(item: FeedItemId, patch: &str) -> Option<std::rc::Rc<EditCard>> {
     })
 }
 
-/// EXP-786 — a REMOTE row's per-call diff: the patch the publisher cut and
-/// put on the wire, rendered through the same edit card a local run gets.
-/// The cut is the publisher's (the trailing `\ N more lines truncated`
-/// marker carries the count); nothing is re-truncated here. An unparseable
-/// patch renders nothing rather than a broken card.
-pub(crate) fn render_wire_diff(
-    diff: &str,
+/// EXP-786/895 — a row's WIRE evidence: the per-call patch the publisher cut
+/// and, once the call settled, what an `execute` call printed. Both go through
+/// the very cards a local run gets, so a local and a remote viewer of one run
+/// show the same thing; the cuts are the publisher's (a patch's trailing
+/// `\ N more lines truncated` marker, an output's LEADING one) and nothing is
+/// re-truncated here. An unparseable patch renders nothing rather than a broken
+/// card.
+///
+/// This is the SETTLED row's renderer on every client, the desktop runner
+/// included (EXP-895 runner parity): [`LocalExtras`]'s own output card serves
+/// only the pre-settle live window, where it streams. Collapsed, the row is its
+/// headline plus the edit card's header (`+a −b`); the reader's Show more opens
+/// the patch and the log.
+pub(crate) fn render_wire_extras(
+    diff: Option<&str>,
+    output: Option<&str>,
     item: FeedItemId,
     expanded: bool,
     on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
     on_open: Option<OpenDiff>,
     cx: &App,
-) -> AnyElement {
-    let Some(edit) = wire_edit(item, diff) else {
-        return div().into_any_element();
-    };
+) -> Option<AnyElement> {
+    let edit = diff.and_then(|diff| wire_edit(item, diff));
+    let printed = output.filter(|text| !text.trim().is_empty());
+    if edit.is_none() && printed.is_none() {
+        return None;
+    }
     let muted = cx.theme().muted_foreground;
-    let foldable = hunk_rows(&edit.file) > 0;
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .pl_5()
-        .pt_1()
-        .child(render_edit_card(&edit, (item, 0), expanded, on_open, cx))
-        .when(foldable, |column| {
-            column.child(fold_toggle(item, expanded, on_toggle, muted))
-        })
-        .into_any_element()
+    let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
+    let mut foldable = false;
+    if let Some(edit) = edit.as_ref() {
+        column = column.child(render_edit_card(edit, (item, 0), expanded, on_open, cx));
+        foldable = foldable || hunk_rows(&edit.file) > 0;
+    }
+    if let Some(printed) = printed {
+        // A settled log is COMPACT until it is asked for: the headline already
+        // says what ran and whether it failed.
+        foldable = true;
+        if expanded {
+            column = column.child(render_output_card(
+                &OutputCard::from_wire(printed),
+                item,
+                true,
+                None,
+                cx,
+            ));
+        }
+    }
+    if foldable {
+        column = column.child(fold_toggle(item, expanded, on_toggle, muted));
+    }
+    Some(column.into_any_element())
 }
 
 /// The read of ONE steering value: the session MODE ([`mode_chip`]) or one
@@ -961,6 +997,25 @@ mod tests {
         assert_eq!(card.rows(), vec!["no newline".to_string()]);
         card.finish(Some(1));
         assert_eq!(card.exit_code, Some(1));
+    }
+
+    /// EXP-895: the WIRE's settled output reads as a card of its own — the
+    /// publisher's leading `\ N more lines truncated` marker is simply the
+    /// log's first line, nothing is live, and no exit code rides the wire.
+    #[test]
+    fn the_wire_output_becomes_a_finished_card_marker_line_and_all() {
+        let card = OutputCard::from_wire("\\ 12 more lines truncated\n42 passed\n");
+        assert_eq!(
+            card.rows(),
+            vec!["\\ 12 more lines truncated".to_string(), "42 passed".to_string()]
+        );
+        assert!(!card.live, "a settled log never claims to run");
+        assert_eq!(card.exit_code, None, "no exit code rides the wire");
+        // A log with no trailing newline keeps its last word, and the card is
+        // still capped at the local window.
+        assert_eq!(OutputCard::from_wire("done").rows(), vec!["done".to_string()]);
+        let long: String = (0..OUTPUT_LINES_MAX + 20).map(|n| format!("l{n}\n")).collect();
+        assert_eq!(OutputCard::from_wire(&long).rows().len(), OUTPUT_LINES_MAX);
     }
 
     /// EXP-750: a bound terminal card runs until its exit code lands — that

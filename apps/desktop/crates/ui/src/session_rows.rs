@@ -560,6 +560,7 @@ mod tests {
                 settled,
                 failed: false,
                 diff: diff.map(str::to_string),
+                output: None,
                 preview: None,
             },
         )

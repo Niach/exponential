@@ -102,6 +102,7 @@ import {
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
+  liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
   optionForHotkey,
@@ -568,6 +569,14 @@ export function AgentSessionView({
   const rows = useMemo(
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
+  )
+  /** EXP-895: the ONE row the transcript keeps EXPANDED — the last item while
+   *  it is an unsettled tool call, and only in a live run (an ended run's
+   *  trailing unsettled row is history, not a tail). Every other row is
+   *  compact; the shared rule is `liveToolRowId` ×4. */
+  const liveRowId = useMemo(
+    () => (live ? liveToolRowId(feed) : undefined),
+    [live, feed]
   )
   /** There is more of this run above the window: either rows the feed already
    *  holds, or (EXP-783) a page only the device has. */
@@ -1384,7 +1393,10 @@ export function AgentSessionView({
                           items={
                             row.items as Extract<FeedItem, { kind: `tool` }>[]
                           }
-                          liveTail={live && index === rows.length - 1}
+                          liveTail={
+                            liveRowId !== undefined &&
+                            row.items[row.items.length - 1]?.id === liveRowId
+                          }
                         />
                       )
                     }
@@ -1442,7 +1454,13 @@ export function AgentSessionView({
                             />
                           )
                         }
-                        return wrap(<ToolRow item={item} flush />)
+                        return wrap(
+                          <ToolRow
+                            item={item}
+                            flush
+                            live={item.id === liveRowId}
+                          />
+                        )
                       }
                       case `user_message`: {
                         // EXP-724: a steered slash command renders as a
@@ -3350,47 +3368,123 @@ function AgentConversation({
  *  bounded box (the publisher already cut it to the contract's caps; the cut
  *  note becomes a muted footer, never a diff line); a `failed` call is tinted
  *  rose. The pinned "Latest changes" bar is untouched — that is the whole
- *  worktree, this is the one call. */
-function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
+ *  worktree, this is the one call.
+ *
+ *  EXP-895: the transcript runs inside the flow, so `live` — set for the ONE
+ *  row `liveToolRowId` names — is the only row that opens itself: its diff
+ *  cards unfold, its output box is up. Every other row is the headline plus
+ *  its compact evidence (the collapsed file cards' `+a −b`, the `failed`
+ *  chip), and the reader's own tap still opens a settled one. */
+function ToolRow({
+  item,
+  flush = false,
+  live = false,
+}: {
+  item: ToolItem
+  flush?: boolean
+  /** EXP-895: this call is the one still RUNNING (`liveToolRowId`). */
+  live?: boolean
+}) {
   const failed = item.failed === true
+  // EXP-895: `null` = "whatever the flow says" (open while the call runs), and
+  // the reader's tap pins it either way. The pin drops on the live edge, so a
+  // row folds by itself once the transcript has moved past it — and a row the
+  // reader opened AFTER it settled stays open, because `live` no longer moves.
+  const [pinned, setPinned] = useState<boolean | null>(null)
+  useEffect(() => setPinned(null), [live])
+  const open = pinned ?? live
   // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
   // "Created issue · <title>" plus the preview its answer carried — instead of
   // the raw `mcp__exponential__exponential_issues_create`.
   const exp = expToolDisplay(item.name)
   if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
+  const headline = (
+    <div
+      className={cn(
+        `flex min-w-0 items-center gap-2`,
+        TRANSCRIPT_TOOL_TEXT,
+        failed && `text-rose-400`
+      )}
+    >
+      <CodingToolIcon
+        className={cn(
+          `size-3 shrink-0`,
+          failed ? `text-rose-400/70` : `text-muted-foreground/60`
+        )}
+      />
+      <span className="shrink-0 font-medium">{item.name}</span>
+      {item.detail && (
+        <span
+          className={cn(
+            `truncate font-mono text-[0.6875rem]`,
+            failed ? `text-rose-400/80` : `text-muted-foreground`
+          )}
+          title={item.detail}
+        >
+          {item.detail}
+        </span>
+      )}
+      {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
+      {item.output !== undefined && (
+        <>
+          {/* The chevron sits on the TRAILING edge (iOS/Android parity): a
+              leading one would indent the log-carrying rows out of line with
+              every other tool row in the same run. */}
+          <span className="min-w-0 flex-1" />
+          {open ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
+          )}
+        </>
+      )}
+    </div>
+  )
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
-      <div
-        className={cn(
-          `flex min-w-0 items-center gap-2`,
-          TRANSCRIPT_TOOL_TEXT,
-          failed && `text-rose-400`
-        )}
-      >
-        <CodingToolIcon
-          className={cn(
-            `size-3 shrink-0`,
-            failed ? `text-rose-400/70` : `text-muted-foreground/60`
-          )}
-        />
-        <span className="shrink-0 font-medium">{item.name}</span>
-        {item.detail && (
-          <span
-            className={cn(
-              `truncate font-mono text-[0.6875rem]`,
-              failed ? `text-rose-400/80` : `text-muted-foreground`
-            )}
-            title={item.detail}
-          >
-            {item.detail}
-          </span>
-        )}
-        {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
-      </div>
-      {item.diff && <ToolDiff diff={item.diff} />}
+      {item.output === undefined ? (
+        headline
+      ) : (
+        // The output is the only thing a row-level toggle has to reveal — an
+        // `edit` row's diff cards carry their own chevrons.
+        <button
+          type="button"
+          onClick={() => setPinned(!open)}
+          className="w-full min-w-0 text-left"
+          aria-label={open ? `Hide the output` : `Show the output`}
+        >
+          {headline}
+        </button>
+      )}
+      {item.diff && <ToolDiff diff={item.diff} live={open} />}
+      {open && item.output !== undefined && <ToolOutput output={item.output} />}
     </div>
   )
 }
+
+/** EXP-895 — what one `execute` call printed, as its settle put it on the wire:
+ *  already redacted and tail-cut by the publisher, so this only has to be a
+ *  readable box. A cut output OPENS with the `\ N more lines truncated` marker
+ *  (the dropped lines were at the front, unlike a patch's trailing note), which
+ *  reads as the first line of the log and needs no parsing.
+ *
+ *  Scrolled to the BOTTOM on mount: the verdict is the last line, and it is why
+ *  the output is on the wire at all. */
+const ToolOutput = memo(function ToolOutput({ output }: { output: string }) {
+  const box = useRef<HTMLPreElement | null>(null)
+  useEffect(() => {
+    const node = box.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [output])
+  return (
+    <pre
+      ref={box}
+      className="mt-1 max-h-72 overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md border border-border/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground"
+    >
+      {output}
+    </pre>
+  )
+})
 
 /** EXP-846: an Exponential MCP call. The brand mark leads (the same asset the
  *  auth shell and the About card draw), then the contract caption —
@@ -3617,13 +3711,19 @@ function ToolGroupRow({
       {expanded ? (
         <div className="ml-5">
           {items.map((item) => (
-            <ToolRow key={item.id} item={item} />
+            // EXP-895: inside the group only the RUNNING call is expanded —
+            // the same rule the top-level rows follow.
+            <ToolRow
+              key={item.id}
+              item={item}
+              live={liveTail && item.id === latest.id}
+            />
           ))}
         </div>
       ) : (
         liveTail && (
           <div className="ml-5">
-            <ToolRow item={latest} />
+            <ToolRow item={latest} live />
           </div>
         )
       )}

@@ -408,12 +408,15 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// is the per-call unified diff an `edit` published, already cut to the
     /// contract's caps by the publisher. EXP-846: `preview` is the tool's own
     /// result, folded in by a later `tool_update` and only ever present on an
-    /// Exponential MCP call.
+    /// Exponential MCP call. EXP-895: `output` is what an `execute` call
+    /// PRINTED, as its settle published it — redacted and tail-cut, a cut log
+    /// OPENING with the `\ N more lines truncated` marker (the dropped lines
+    /// were at the front). Nil until the call settles.
     case tool(
         id: Int, name: String, detail: String?, subagentId: String?,
         callId: String? = nil, toolKind: String? = nil,
         settled: Bool = false, failed: Bool = false, diff: String? = nil,
-        preview: AgentToolPreview? = nil
+        preview: AgentToolPreview? = nil, output: String? = nil
     )
     /// A human turn: the initial prompt or a steered message. `subagentId`
     /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
@@ -451,7 +454,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var id: Int {
         switch self {
         case let .narration(id, _, _, _): id
-        case let .tool(id, _, _, _, _, _, _, _, _, _): id
+        case let .tool(id, _, _, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _, _, _, _): id
@@ -469,12 +472,13 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .narration(_, text, messageId, subagentId):
             .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
         case let .tool(
-            _, name, detail, subagentId, callId, toolKind, settled, failed, diff, preview
+            _, name, detail, subagentId, callId, toolKind, settled, failed, diff, preview,
+            output
         ):
             .tool(
                 id: id, name: name, detail: detail, subagentId: subagentId,
                 callId: callId, toolKind: toolKind, settled: settled, failed: failed,
-                diff: diff, preview: preview
+                diff: diff, preview: preview, output: output
             )
         case let .userMessage(_, text, subagentId):
             .userMessage(id: id, text: text, subagentId: subagentId)
@@ -520,7 +524,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// interleaving into the main thread.
     public var subagentKey: String? {
         switch self {
-        case let .tool(_, _, _, subagentId, _, _, _, _, _, _): return subagentId
+        case let .tool(_, _, _, subagentId, _, _, _, _, _, _, _): return subagentId
         case let .subagent(_, subagentId, _, _, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
@@ -816,9 +820,11 @@ public enum AgentFeed {
         switch item {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
         case let .userMessage(_, text, _): return overhead + text.utf8.count
-        case let .tool(_, name, detail, _, _, _, _, _, diff, _):
-            // EXP-786: a folded per-call diff weighs too.
-            return overhead + name.utf8.count + (detail?.utf8.count ?? 0) + (diff?.utf8.count ?? 0)
+        case let .tool(_, name, detail, _, _, _, _, _, diff, _, output):
+            // EXP-786/895: a folded per-call diff and the command output its
+            // settle carried both weigh too.
+            return overhead + name.utf8.count + (detail?.utf8.count ?? 0)
+                + (diff?.utf8.count ?? 0) + (output?.utf8.count ?? 0)
         case let .permission(_, tool, detail):
             return overhead + tool.utf8.count + (detail?.utf8.count ?? 0)
         case let .subagent(_, subagentId, agentType, _, detail, _, title, _):
@@ -984,8 +990,8 @@ public enum AgentFeed {
     }
 
     /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose
-    /// `callId` matches — a settle (`status`), a per-call `diff`, an EXP-846
-    /// result `preview`, or any mix. Never a row of its own. Nil = no row
+    /// `callId` matches — a settle (`status`), a per-call `diff`, an EXP-895
+    /// `output`, an EXP-846 result `preview`, or any mix. Never a row of its own. Nil = no row
     /// holds that id (evicted, or below the window, or a pre-EXP-785 row), and
     /// the caller keeps the feed as is. A `failed` after a `completed` wins; a
     /// status-less update carrying only a diff never settles the call.
@@ -1002,14 +1008,14 @@ public enum AgentFeed {
     ) -> [AgentFeedItem]? {
         let id = update.id
         guard let at = feed.lastIndex(where: { item in
-                  if case let .tool(_, _, _, _, callId, _, _, _, _, _) = item {
+                  if case let .tool(_, _, _, _, callId, _, _, _, _, _, _) = item {
                       return callId == id
                   }
                   return false
               }),
               case let .tool(
                   rowId, name, detail, subagentId, callId, toolKind,
-                  settled, failed, diff, preview
+                  settled, failed, diff, preview, output
               ) = feed[at]
         else { return nil }
         var nextSettled = settled
@@ -1022,12 +1028,15 @@ public enum AgentFeed {
         // EXP-846: latest preview wins; an update without one keeps what the
         // row already shows (a settle and the result can arrive apart).
         let nextPreview = update.preview ?? preview
+        // EXP-895: the settle's command output, same rule — an update carrying
+        // none never clears what an earlier one folded in.
+        let nextOutput = update.output ?? output
         var next = feed
         next[at] = .tool(
             id: rowId, name: name, detail: detail, subagentId: subagentId,
             callId: callId, toolKind: toolKind,
             settled: nextSettled, failed: nextFailed, diff: nextDiff,
-            preview: nextPreview
+            preview: nextPreview, output: nextOutput
         )
         return next
     }
@@ -1505,6 +1514,26 @@ public enum AgentFeed {
         )
     }
 
+    /// EXP-895 — the ONE tool row that is still RUNNING, or nil.
+    ///
+    /// The transcript runs inside the flow: exactly one row is ever expanded
+    /// (its live output, its edit diff open) and every other row is the compact
+    /// headline plus its evidence. That row is the LAST feed item and only while
+    /// it is an UNSETTLED tool call — the moment its `tool_update` settles, or
+    /// the agent says anything after it, the transcript has moved on and the row
+    /// folds.
+    ///
+    /// A pure projection over the FLAT feed (never the rows), mirrored ×4 (web
+    /// `liveToolRowId`, desktop `steer::feed::live_tool_row_id`, Android
+    /// `liveToolRowId`). Callers that know the run ENDED do not consult it — a
+    /// feed whose last row never settled is history, not a live tail.
+    public static func liveToolRowId(_ feed: [AgentFeedItem]) -> Int? {
+        guard case let .tool(id, _, _, _, _, _, settled, _, _, _, _) = feed.last,
+              !settled
+        else { return nil }
+        return id
+    }
+
     /// §9: pending cards last, everything else in place. Pure and mirrored ×4.
     public static func pendingCardsLast(_ rows: [AgentFeedRow]) -> [AgentFeedRow] {
         var settled: [AgentFeedRow] = []
@@ -1598,7 +1627,7 @@ public enum AgentFeed {
         _ item: AgentFeedItem, workflowIds: Set<String>
     ) -> Bool {
         guard !workflowIds.isEmpty,
-              case let .tool(_, _, _, _, callId, _, _, _, _, _) = item,
+              case let .tool(_, _, _, _, callId, _, _, _, _, _, _) = item,
               let callId else { return false }
         return workflowIds.contains(callId)
     }
