@@ -8,20 +8,18 @@ import { useCallback, useEffect, useState } from "react"
 import type React from "react"
 import { ChevronDown } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  Pill,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+} from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
   DayBars,

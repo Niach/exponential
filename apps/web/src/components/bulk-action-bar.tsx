@@ -11,7 +11,18 @@ import {
 } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  ICON_COMPONENTS,
+  Button,
+  Pill,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Separator,
+  UserAvatar,
+} from "@exp/ui"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
@@ -33,19 +44,7 @@ import {
   statusColorClass,
   statusColorStyle,
 } from "@/components/issue-properties/status-dropdown"
-import { ICON_COMPONENTS } from "@/lib/icons.generated"
-import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Separator } from "@/components/ui/separator"
 
 // Bulk action bar: rendered by the board / My Issues views as an in-flow row
 // at the top of the list (in the header region) while the issue list has a
@@ -351,17 +350,10 @@ export function BulkActionBar({
                     key={user.id}
                     onSelect={() => void applyAssignee(user.id)}
                   >
-                    <Avatar className="size-5">
-                      {user.image && (
-                        <AvatarImage src={user.image} alt={name} />
-                      )}
-                      <AvatarFallback
-                        className="text-[0.5625rem]"
-                        userId={user.id}
-                      >
-                        {getInitials(name)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      size={20}
+                      user={{ id: user.id, name, image: user.image }}
+                    />
                     <span className="truncate">{name}</span>
                   </DropdownMenuItem>
                 )

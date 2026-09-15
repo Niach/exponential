@@ -28,7 +28,16 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
 import type { Device } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  GlassSectionHeader,
+  ListRow,
+  Pill,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { deviceCollection } from "@/lib/collections"
 import {
@@ -60,18 +69,10 @@ import {
   addAccountLoginTarget,
   clampProfileLabel,
 } from "@/lib/agent-account-add"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { useNow } from "@/hooks/use-now"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import { AgentPickerTabs, agentLabel } from "@/components/agent-picker"
 import { relativeTime } from "@/components/comment-rows/format"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
-import { Pill } from "@/components/ui/pill"
 import { cn } from "@/lib/utils"
 
 const OfflineIcon = conceptIcon(`ui-device-offline`)

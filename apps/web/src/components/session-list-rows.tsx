@@ -1,4 +1,4 @@
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, ListRow } from "@exp/ui"
 import {
   sessionAgentCaption,
   sessionDisplayState,
@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils"
 import { rowPrState, type SessionListRow } from "@/hooks/use-agents-data"
 import { useNow } from "@/hooks/use-now"
 import { RunningIndicator } from "@/components/agent-session-row"
-import { ListRow } from "@/components/ui/glass-rows"
 
 // EXP-874: the ONE session list row layout — the sidebar's Agent list nav, the
 // Agent page and both Automations run lists render these two rows. Android's

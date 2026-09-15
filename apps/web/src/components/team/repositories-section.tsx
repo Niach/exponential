@@ -52,9 +52,9 @@ import {
   ghSuspendedLine,
   githubInstallationLabel,
 } from "@/lib/github-connect-copy"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  Pill,
+  Button,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -63,20 +63,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
-import {
+  GlassRow,
+  GlassSectionHeader,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+  LiveDot,
+} from "@exp/ui"
 import { BranchCombobox } from "@/components/branch-combobox"
 import { BoardGlyph } from "@/components/board-glyph"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -659,7 +657,7 @@ function GithubStatusLine({
         {needingReauth.length > 0 ? (
           <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
         ) : (
-          <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+          <LiveDot tone="live" className="shrink-0" />
         )}
         <span className="text-muted-foreground">{GH_CONNECTED_HEADER}</span>
       </div>

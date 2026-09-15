@@ -4,15 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build && bun run scripts/prerender.tsx",
-    "typecheck": "tsc --noEmit",
+    "dev": "bun run scripts/ui-demos.tsx && vite",
+    "build": "bun run scripts/ui-demos.tsx && tsc --noEmit && vite build && bun run scripts/prerender.tsx",
+    "typecheck": "bun run scripts/ui-demos.tsx && tsc --noEmit",
     "screenshots:store": "bun scripts/store/render-store-screenshots.tsx",
     "screenshots:pop-sidecars": "bun scripts/store/pop-sidecars.ts",
     "social:generate": "bun scripts/generate-social.tsx",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",
     "@remotion/cli": "4.0.484",
     "@remotion/google-fonts": "4.0.484",

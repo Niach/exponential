@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { TeamActionsPanel } from "@/components/team-actions-panel"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useIsMobile } from "@exp/ui"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 

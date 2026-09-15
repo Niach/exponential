@@ -1,5 +1,5 @@
 import { ClaudeIcon } from "@/components/icons/brand-icons"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-850 §5: the running agent's BRAND mark, beside the working caption —

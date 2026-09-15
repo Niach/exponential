@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type * as React from "react"
 import { Files } from "lucide-react"
 import { toast } from "sonner"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, useIsMobile, Pill, type SessionDotTone } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
@@ -23,8 +23,6 @@ import {
 import { isInlineMediaAttachment } from "@/lib/attachment-files"
 import { useSession } from "@/hooks/use-session"
 import { cn, parseLocalDate } from "@/lib/utils"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { Pill } from "@/components/ui/pill"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -40,7 +38,7 @@ import { MOBILE_WORK_BAR_CLEARANCE } from "@/components/mobile-work-bar"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { IssueRelationsSection } from "@/components/issue-relations-card"
-import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
+import { IssueChip } from "@/components/issue-chip"
 import { SubIssueComposer } from "@/components/sub-issue-composer"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
@@ -48,7 +46,6 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { WORK_COLUMN_CLASS, WorkHeader } from "@/components/work-header"
-import type { SessionDotTone } from "@/lib/session-dot"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -81,7 +78,7 @@ interface IssueDetailViewProps {
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
 // #IDENT — {title}", clickable through to the canonical issue, with an Unmark
 // action (clears the link; the server restores status atomically).
-function DuplicateOfBanner({
+export function DuplicateOfBanner({
   duplicateOfId,
   onUnmark,
   readOnly,
@@ -105,16 +102,19 @@ function DuplicateOfBanner({
     <div className="flex items-center gap-2 border-b border-border bg-accent/30 px-4 py-2 text-sm min-w-0">
       <Files className="size-4 shrink-0 text-muted-foreground" />
       <span className="shrink-0 text-muted-foreground">Duplicate of</span>
-      <IssuePreviewHoverCard issueId={canonical.id}>
-        <Pill
-          mode="action"
-          className="font-mono"
-          onClick={() => issueRefs?.open(canonical.identifier)}
-        >
-          #{canonical.identifier}
-        </Pill>
-      </IssuePreviewHoverCard>
-      <span className="truncate text-muted-foreground">{canonical.title}</span>
+      {/* EXP-887: a duplicate-of reference names an ISSUE, so it draws the
+          issue chip (glyph · identifier · title, hover preview) — the capsule
+          this used to be was the wrong shape and repeated the title beside
+          itself. */}
+      <IssueChip
+        issue={canonical}
+        testId="duplicate-of-chip"
+        onClick={
+          issueRefs ? () => issueRefs.open(canonical.identifier) : undefined
+        }
+          // The banner is the chip's whole row: no 18rem cap on the title here.
+          className="max-w-none"
+        />
       {!readOnly && (
         <Pill mode="action" className="ml-auto" onClick={onUnmark}>
           <UiUndoIcon className="size-3" />

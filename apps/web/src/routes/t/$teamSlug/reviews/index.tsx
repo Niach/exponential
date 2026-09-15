@@ -2,7 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { GitBranch, GitMerge, GitPullRequest, LoaderCircle } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
-import { EmptyState } from "@/components/empty-state"
+import {
+  EmptyState,
+  Pill,
+  Button,
+  Dialog,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  ListRow,
+  GlassSectionHeader,
+} from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -16,22 +29,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import { BoardGlyph } from "@/components/board-glyph"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  ListRow,
-  GlassSectionHeader,
-} from "@/components/ui/glass-rows"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes

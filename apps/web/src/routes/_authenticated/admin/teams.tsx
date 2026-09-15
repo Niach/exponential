@@ -2,11 +2,10 @@ import { useState } from "react"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Pill } from "@/components/ui/pill"
-import { PlanBadge, formatStorageMb } from "./-shared"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
+  Pill,
+  Button,
+  Input,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -14,13 +13,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@exp/ui"
+import { PlanBadge, formatStorageMb } from "./-shared"
 
 type AdminTeam = Awaited<
   ReturnType<typeof trpc.admin.listTeams.query>

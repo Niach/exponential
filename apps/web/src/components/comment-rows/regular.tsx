@@ -1,19 +1,20 @@
 import type { Attachment, Comment, User } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
-import { getCommentBodyText } from "@/lib/domain"
-import { cn, getInitials } from "@/lib/utils"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { CommentComposer } from "@/components/comment-composer"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
-import { CommentAttachments } from "@/components/comment-rows/attachments"
-import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import {
+  conceptIcon,
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  UserAvatar,
+  type UserAvatarSize,
+} from "@exp/ui"
+import { getCommentBodyText } from "@/lib/domain"
+import { cn } from "@/lib/utils"
+import { CommentComposer } from "@/components/comment-composer"
+import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { CommentAttachments } from "@/components/comment-rows/attachments"
+import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { authorLabel, relativeTime } from "./format"
 
 // EXP-698 r5: the comment menu is a bare vertical ellipsis on every client —
@@ -147,20 +148,20 @@ function CommentCardContent({
 function CommentAvatar({
   author,
   userId,
+  size,
   className,
 }: {
   author: User | undefined
   userId: string
-  className: string
+  size: UserAvatarSize
+  className?: string
 }) {
-  const name = authorLabel(author, userId)
   return (
-    <Avatar className={cn(`shrink-0`, className)}>
-      {author?.image && <AvatarImage src={author.image} />}
-      <AvatarFallback className="text-xs" userId={userId}>
-        {getInitials(name)}
-      </AvatarFallback>
-    </Avatar>
+    <UserAvatar
+      size={size}
+      className={cn(`shrink-0`, className)}
+      user={{ id: userId, name: authorLabel(author, userId), image: author?.image }}
+    />
   )
 }
 
@@ -186,11 +187,7 @@ export function RegularCommentRow({
     <TimelineRow
       lineBelow={lineBelow}
       marker={
-        <CommentAvatar
-          author={author}
-          userId={comment.authorId}
-          className="h-7 w-7"
-        />
+        <CommentAvatar author={author} userId={comment.authorId} size={28} />
       }
       markerSize={28}
     >
@@ -210,7 +207,8 @@ export function RegularCommentRow({
                 <CommentAvatar
                   author={reply.author}
                   userId={reply.comment.authorId}
-                  className="mt-0.5 h-5 w-5 [&_[data-slot=avatar-fallback]]:text-[10px]"
+                  size={20}
+                  className="mt-0.5 [&_[data-slot=avatar-fallback]]:text-[10px]"
                 />
                 <div className="min-w-0 flex-1">
                   <CommentCardContent {...reply} />

@@ -1,12 +1,6 @@
 import { useState } from "react"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Card, CardContent, CardDescription, CardHeader } from "@exp/ui"
 import { cn } from "@/lib/utils"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-} from "@/components/ui/card"
 
 // Admin console formatting helpers. tRPC serializes with plain JSON, so Date
 // fields arrive as ISO strings (despite the inferred `Date` types) and

@@ -6,6 +6,7 @@ COPY package.json bun.lock bunfig.toml ./
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
+COPY packages/ui/package.json packages/ui/package.json
 # Stub out other workspace package.json files so bun install resolves correctly
 COPY apps/web/package.json apps/web/package.json
 COPY apps/marketing/package.json apps/marketing/package.json

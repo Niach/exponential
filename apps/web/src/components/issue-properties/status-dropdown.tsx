@@ -1,10 +1,13 @@
 import type { CSSProperties } from "react"
-import { Button } from "@/components/ui/button"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
+import {
+  Button,
+  ICON_COMPONENTS,
+  OptionDropdownMenu,
+  StatusGlyph,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import {
   statusUpdatePayload,
   type StatusResolvable,
@@ -54,7 +57,9 @@ export function statusColorCssValue(option: StatusRowOption): string {
     : `var(--color-${token})`
 }
 
-/** The glyph for an already-resolved status row. */
+/** The glyph for an already-resolved status row. The DRAWING is `StatusGlyph`
+ *  in @exp/ui (icon + colour class or hex, nothing else); this is the half
+ *  that knows what a `StatusRowOption` is. */
 export function StatusIcon({
   option,
   className,
@@ -62,11 +67,12 @@ export function StatusIcon({
   option: StatusRowOption
   className?: string
 }) {
-  const Icon = ICON_COMPONENTS[option.icon]
   return (
-    <Icon
-      className={`h-4 w-4 ${statusColorClass(option)} ${className ?? ``}`}
-      style={statusColorStyle(option)}
+    <StatusGlyph
+      icon={option.icon}
+      colorClass={statusColorClass(option)}
+      colorHex={option.builtinKey ? undefined : option.colorHex}
+      className={`h-4 w-4 ${className ?? ``}`}
     />
   )
 }

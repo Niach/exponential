@@ -8,13 +8,13 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
+  Button,
+  GlassGroup,
+} from "@exp/ui"
 import {
   BoardIdentityRow,
   BoardPrefixField,
 } from "@/components/board-form-fields"
-import { GlassGroup } from "@/components/ui/glass-rows"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { BoardRepoField } from "@/components/board-repo-field"
 import { UpgradeDialog } from "@/components/upgrade-dialog"

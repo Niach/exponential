@@ -17,12 +17,10 @@ import {
   WidgetLauncherPreviewViewport,
 } from "@/components/widget-launcher-preview"
 import { WidgetPanelPreview } from "@/components/widget-panel-preview"
-import { IconPicker } from "@/components/ui/icon-picker"
-import type { BoardIcon } from "@exp/db-schema/domain"
-import { LabelPicker } from "@/components/issue-properties/label-picker"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
 import {
+  IconPicker,
+  Button,
+  Pill,
   Dialog,
   DialogBody,
   DialogContent,
@@ -31,19 +29,22 @@ import {
   DialogHeader,
   DialogTitle,
   DialogCancel,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
+  Input,
+  Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
+  Switch,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
+} from "@exp/ui"
+import type { BoardIcon } from "@exp/db-schema/domain"
+import { LabelPicker } from "@/components/issue-properties/label-picker"
 import type { Label as TeamLabel } from "@/db/schema"
 
 // The create/edit dialog extracted from widget-section.tsx (EXP-435), now

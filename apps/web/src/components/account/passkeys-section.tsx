@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import {
+  Button,
+  Pill,
+  GlassSectionHeader,
+  ListRow,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -13,9 +14,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  Input,
+  Label,
+} from "@exp/ui"
 
 // The plugin's list endpoint returns the whole row; only these are rendered.
 type PasskeyRow = {

@@ -3,13 +3,13 @@ import { Link } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
-import { conceptIcon } from "@/lib/icons.generated"
-import { Pill } from "@/components/ui/pill"
 import {
+  conceptIcon,
+  Pill,
   GlassGroup,
   GlassSectionHeader,
   GlassToggleRow,
-} from "@/components/ui/glass-rows"
+} from "@exp/ui"
 import type { Team } from "@/db/schema"
 
 const HelpdeskIcon = conceptIcon(`settings-helpdesk`)

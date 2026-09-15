@@ -15,14 +15,9 @@ import {
   buildAttachmentPosterUrl,
   isVideoContentType,
 } from "@/lib/storage/issue-attachments"
-import { Button } from "@/components/ui/button"
-import { IconTooltip } from "@/components/icon-tooltip"
-import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
 import {
-  ImagePreviewDialog,
-  type PreviewMediaKind,
-} from "@/components/image-preview-dialog"
-import {
+  Button,
+  IconTooltip,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -31,7 +26,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+} from "@exp/ui"
+import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
+import {
+  ImagePreviewDialog,
+  type PreviewMediaKind,
+} from "@/components/image-preview-dialog"
 
 interface CommentAttachmentsProps {
   attachments: Attachment[]

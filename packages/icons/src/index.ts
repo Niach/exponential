@@ -5,7 +5,7 @@
 // `icons.json`; edit that file (and re-run the generator), never `generated.ts`.
 //
 // Clients consume this as:
-//   web      `ICON_COMPONENTS` / `conceptIcon()` in apps/web/src/lib/icons.generated.ts
+//   web      `ICON_COMPONENTS` / `conceptIcon()` in packages/ui/src/icons.generated.ts
 //   iOS      `AppIcons` + the `AppIcon` view in ExpUI
 //   Android  `ExpIcons` in ui/icons
 //   desktop  `icons.generated.rs` in crates/ui

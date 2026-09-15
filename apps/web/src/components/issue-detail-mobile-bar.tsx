@@ -1,18 +1,18 @@
 import { useState, type ReactNode } from "react"
 import type { User } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@exp/ui"
 import { CommentComposer } from "@/components/comment-composer"
 import {
   MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   MobileWorkCapsule,
 } from "@/components/mobile-work-bar"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 
 // EXP-568 — the phone issue-detail bottom bar: the three things a reader
 // actually reaches for, floating over the thread instead of buried at the

@@ -143,7 +143,7 @@ pub(crate) fn color_picker(
         })
 }
 
-/// Web `LABEL_COLORS` (`lib/label-colors.ts`) — the swatch palette shared by
+/// Web `LABEL_COLORS` (`packages/ui/src/label-colors.ts`) — the swatch palette shared by
 /// board + label colors (fixed hex literals on web too).
 pub(crate) const SWATCH_COLORS: [&str; 20] = [
     "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#10b981",

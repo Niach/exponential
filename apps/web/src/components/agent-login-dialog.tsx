@@ -23,12 +23,7 @@ import {
   AgentLoginOutcome,
 } from "@/components/device-agent-account"
 import { agentLabel } from "@/components/agent-picker"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@exp/ui"
 
 export interface AgentLoginTarget {
   device: SteerDevice

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react"
 import type { Board, Issue } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, type SessionDotTone } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { useReviewFiles } from "@/hooks/use-review-files"
 import { useSteerConfig } from "@/components/agent-session"
@@ -14,7 +14,6 @@ import {
 import { MERGE_PILL_CLASS, MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionDiffFace } from "@/components/session-diff-face"
 import { SessionMergeButton } from "@/components/session-merge-button"
-import type { SessionDotTone } from "@/lib/session-dot"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
 // EXP-893: the Changes FACE of an issue subject with NO shown run — the

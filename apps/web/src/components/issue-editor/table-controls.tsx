@@ -7,14 +7,14 @@ import {
   moveTableRow,
   TableMap,
 } from "@tiptap/pm/tables"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { conceptIcon } from "@/lib/icons.generated"
+  conceptIcon,
+} from "@exp/ui"
 
 // EXP-726 — the desktop table chrome: a hover-only overlay drawn INSIDE the
 // `.tiptap-wrapper` (already `position: relative`) so it scrolls with the

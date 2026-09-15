@@ -6,7 +6,19 @@ import type { Automation, SyncedAction } from "@/db/schema"
 import { actionCollection, automationCollection } from "@/lib/collections"
 import { isBuiltinActionId } from "@/lib/builtin-actions"
 import { parseAutomationTrigger } from "@/lib/action-triggers"
-import { getActionIcon } from "@/lib/board-icons"
+import {
+  getActionIcon,
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogCancel,
+  GlassGroup,
+  GlassPickerRow,
+} from "@exp/ui"
 import {
   defaultDeviceId,
   deviceAgentIds,
@@ -25,17 +37,6 @@ import {
   emptyAutomationDraft,
   type AutomationDraft,
 } from "@/components/automation-section"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogCancel,
-} from "@/components/ui/dialog"
-import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 
 // The "New automation" / "Edit automation" form (EXP-583). Automations are
 // their own rows now, so this is a plain owner-only tRPC form: pick the

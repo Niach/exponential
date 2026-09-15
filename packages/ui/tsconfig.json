@@ -1,0 +1,19 @@
+{
+  "extends": "@exp/tsconfig/base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vitest/globals", "node"],
+    "baseUrl": ".",
+    /* The `@/*` alias exists ONLY so the shadcn CLI can write its generated
+       files (components.json pins `ui` → `@/`). Nothing in src/ may import
+       through it at runtime — every intra-package import is RELATIVE, because
+       the package is consumed as raw sources by apps that own their own
+       aliases. After `shadcn add`, rewrite the `@/…` imports to relative ones
+       (see README.md). */
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}

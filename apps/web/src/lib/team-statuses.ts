@@ -29,7 +29,7 @@ import {
   type IssueStatus,
   type IssueStatusCategory,
 } from "@/lib/domain"
-import { categoryStatusIcon } from "@/lib/status-icons"
+import { categoryStatusIcon } from "@exp/ui"
 
 // Synthetic id prefix for the CONSTRUCTED fallback rows used before the
 // `issue_statuses` shape has synced (the builtin-actions precedent). These ids
@@ -91,7 +91,7 @@ function compareRows(left: StatusRowInput, right: StatusRowInput): number {
 /**
  * Order a team's status rows and attach each one's glyph. Started rows get
  * their pie clock from their POSITION among the started rows (see
- * lib/status-icons.ts) — moving a started status re-derives every sibling's
+ * @exp/ui status-icons.ts) — moving a started status re-derives every sibling's
  * clock automatically.
  */
 export function buildStatusOptions(

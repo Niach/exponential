@@ -11,18 +11,30 @@
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
+import { compileUiCss } from "@exp/ui/island"
+
+import { COMPONENTS } from "./components.tsx"
 import { renderHtml } from "./render.ts"
 import { manualPairs, missingPairs, readGallery, storeDir } from "./store.ts"
 
 const distDir = path.resolve(import.meta.dir, `..`, `dist`)
 
-function build(): void {
+async function build(): Promise<void> {
   const source = storeDir()
   const data = readGallery(source)
 
+  // `base` is THIS directory so the Tailwind scanner sees the island fixtures
+  // in `components.tsx`; the package's own `@source` pulls in every component
+  // it renders. One compile per build, ~1s.
+  const uiCss = await compileUiCss({ base: import.meta.dir })
+
   rmSync(distDir, { recursive: true, force: true })
   mkdirSync(distDir, { recursive: true })
-  writeFileSync(path.join(distDir, `index.html`), renderHtml(data), `utf8`)
+  writeFileSync(
+    path.join(distDir, `index.html`),
+    renderHtml(data, COMPONENTS, uiCss),
+    `utf8`
+  )
 
   if (existsSync(source)) {
     cpSync(source, path.join(distDir, `shots`), { recursive: true })
@@ -30,6 +42,7 @@ function build(): void {
 
   const total = data.counts.ok + data.counts.missing + data.counts.manual
   console.log(`styleguide → ${path.join(distDir, `index.html`)}`)
+  console.log(`  ui css ${Math.round(uiCss.length / 1024)} KB · ${COMPONENTS.filter((spec) => spec.island !== undefined).length} islands`)
   console.log(
     `  ${data.views.length} views · ${data.counts.ok}/${total} captured · ${data.counts.manual} awaiting manual capture · ${data.counts.na} n/a · store ${existsSync(source) ? source : `${source} (absent)`}`
   )
@@ -53,4 +66,4 @@ function build(): void {
   console.log(`  check ok${manual.length > 0 ? ` (${manual.length} awaiting manual capture)` : ``}`)
 }
 
-build()
+await build()

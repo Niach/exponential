@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
 // Guards that packages/design-tokens/tokens.json stays in lockstep with the web
-// theme it mirrors (the `.dark` block of apps/web/src/styles.css). tokens.json
+// theme it mirrors (the `.dark` block of packages/ui/src/styles.css — EXP-887
+// moved the theme into @exp/ui, this gate followed it). tokens.json
 // is the single source the native palettes are generated from, so if the web
 // designer changes a swatch here without updating the shared token, this fails.
 
@@ -24,7 +25,7 @@ const tokens = JSON.parse(
 }
 
 const stylesCss = readFileSync(
-  join(repoRoot, `apps/web/src/styles.css`),
+  join(repoRoot, `packages/ui/src/styles.css`),
   `utf8`
 )
 
@@ -82,7 +83,13 @@ describe(`design-tokens parity with web styles.css`, () => {
     /\.dark\s*\{([^}]*)\}/,
     `.dark`
   )
-  const rootVars = parseBlockVars(cssNoComments, /:root\s*\{([^}]*)\}/, `:root`)
+  // EXP-887: the theme block is `:root, :host` now — `:host` so it survives
+  // inside a shadow root, the same pair Tailwind v4 emits its own vars to.
+  const rootVars = parseBlockVars(
+    cssNoComments,
+    /:root,\s*:host\s*\{([^}]*)\}/,
+    `:root, :host`
+  )
 
   it(`every palette token matches the corresponding .dark CSS variable`, () => {
     for (const [key, value] of Object.entries(tokens.palette)) {

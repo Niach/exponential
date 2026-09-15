@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import { getBoardIcon } from "@/lib/board-icons"
+import { getBoardIcon } from "@exp/ui"
 
 // EXP-449: the one board glyph — every board picker, breadcrumb and caption
 // renders the board's icon tinted with its color (the anonymous color dot is

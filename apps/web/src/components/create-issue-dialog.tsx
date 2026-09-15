@@ -8,8 +8,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Pill } from "@/components/ui/pill"
+  Pill,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,

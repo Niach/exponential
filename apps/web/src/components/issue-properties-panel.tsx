@@ -1,5 +1,13 @@
 import { CalendarDays, Megaphone } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Pill,
+  OptionDropdownMenu,
+  Calendar,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@exp/ui"
 import type { User } from "@/db/schema"
 import {
   ISSUE_PRIORITY_FALLBACK,
@@ -8,9 +16,7 @@ import {
 } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import { Pill } from "@/components/ui/pill"
 import { cn, formatDate } from "@/lib/utils"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import {
   priorities,
   PriorityIcon,
@@ -20,12 +26,6 @@ import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { BoardGlyph } from "@/components/board-glyph"
-import { Calendar } from "@/components/ui/calendar"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 
 export interface IssuePropertiesPanelProps {
   // EXP-314: the RESOLVED team status row. The duplicate-category row stays in

@@ -1,11 +1,22 @@
 import { useCallback, useRef } from "react"
 import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
 import { ChevronRight, LoaderCircle, X } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  useIsMobile,
+  Button,
+  Pill,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  Input,
+} from "@exp/ui"
 import type { User } from "@/db/schema"
 import type { IssuePriority } from "@/lib/domain"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import { useIsMobile } from "@/hooks/use-mobile"
 import {
   MarkdownEditor,
   type MarkdownEditorImageUploadConfig,
@@ -14,11 +25,6 @@ import {
 import { BoardGlyph } from "@/components/board-glyph"
 import { IssueEditorChips } from "@/components/issue-editor/chips"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { Input } from "@/components/ui/input"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 

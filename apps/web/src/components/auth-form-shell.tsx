@@ -6,7 +6,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@exp/ui"
 
 interface AuthFormShellProps {
   children: ReactNode

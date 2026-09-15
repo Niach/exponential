@@ -9,10 +9,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  Button,
+  Input,
+  Label,
+} from "@exp/ui"
 
 // EXP-870 (parity): the team menu's "Join team" — the desktop's JoinTeam
 // dialog (`join_team.rs`, the sidebar team menu) on the web. Same accepted

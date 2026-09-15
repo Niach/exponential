@@ -1,7 +1,6 @@
 import type { User } from "@/db/schema"
-import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { UserAvatar } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 import type { EmojiRecord } from "@/lib/emoji"
@@ -39,12 +38,7 @@ export function UserCandidateRow({
         active ? `bg-accent` : ``
       }`}
     >
-      <Avatar className="size-5">
-        {user.image && <AvatarImage src={user.image} alt={name} />}
-        <AvatarFallback className="text-[0.5625rem]" userId={user.id}>
-          {getInitials(name)}
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar size={20} user={{ id: user.id, name, image: user.image }} />
       <span className="truncate">{name}</span>
       {user.email && user.email !== name && (
         <span className="ml-auto truncate text-xs text-muted-foreground">

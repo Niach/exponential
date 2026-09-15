@@ -1,10 +1,12 @@
 import type { PinKind } from "@exp/db-schema/domain"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  useIsMobile,
+  IconTooltip,
+  Button,
+  DropdownMenuItem,
+} from "@exp/ui"
 import { usePinToggle } from "@/hooks/use-pins"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { IconTooltip } from "@/components/icon-tooltip"
-import { Button } from "@/components/ui/button"
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
 // EXP-778: the small pin toggle beside a title — issue detail, the action

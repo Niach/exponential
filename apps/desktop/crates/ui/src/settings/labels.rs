@@ -35,7 +35,7 @@ use crate::navigation::{active_team_id, Navigation};
 use super::{section, section_description, parse_hex_color, spawn_trpc};
 use crate::icons::registry;
 
-/// Web `LABEL_COLORS` (lib/label-colors.ts) — verbatim.
+/// Web `LABEL_COLORS` (packages/ui/src/label-colors.ts) — verbatim.
 pub(crate) const LABEL_COLORS: [&str; 20] = [
     "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#10b981",
     "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899",

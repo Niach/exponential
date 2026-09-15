@@ -7,7 +7,16 @@ import { Link } from "@tanstack/react-router"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
 import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@exp/ui"
 import {
   NEW_BOARD_LABEL,
   SETTINGS_BOARDS_GROUP,
@@ -16,15 +25,6 @@ import {
 import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
-import {
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
 
 interface SettingsSidebarProps {
   teamSlug: string

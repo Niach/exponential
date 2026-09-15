@@ -2,17 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Github, Lock, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { GLASS_PICKER_ROW, GlassGroup } from "@/components/ui/glass-rows"
 import {
+  Input,
+  Label,
+  GLASS_PICKER_ROW,
+  GlassGroup,
   Select,
   SelectContent,
   SelectItem,
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@exp/ui"
 import { BranchCombobox } from "@/components/branch-combobox"
 import {
   GithubRepoPicker,

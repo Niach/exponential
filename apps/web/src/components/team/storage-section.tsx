@@ -12,11 +12,11 @@ import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
 import { buildAttachmentPosterUrl } from "@/lib/storage/issue-attachments"
 import { formatDuration } from "@/lib/storage/video-metadata"
 import { formatStorage, UsageBar } from "@/components/team/billing-section"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import {
+  Pill,
+  Button,
+  GlassRow,
+  GlassSectionHeader,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -25,7 +25,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+} from "@exp/ui"
+import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 type StorageList = Awaited<
   ReturnType<typeof trpc.attachments.listForTeam.query>

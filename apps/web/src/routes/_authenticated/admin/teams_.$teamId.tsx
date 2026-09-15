@@ -2,17 +2,14 @@ import { useState } from "react"
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router"
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  Pill,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import {
   Dialog,
   DialogCancel,
   DialogContent,
@@ -20,15 +17,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { getInitials } from "@/lib/utils"
+  UserAvatar,
+} from "@exp/ui"
 import {
   issueEventActorFallback,
   issueEventPhrase,
@@ -292,12 +287,11 @@ function AdminTeamDetail() {
                   params={{ userId: m.userId }}
                   className="flex items-center gap-2 min-w-0 group"
                 >
-                  <Avatar className="h-6 w-6 shrink-0">
-                    {m.image && <AvatarImage src={m.image} />}
-                    <AvatarFallback className="text-[10px]" userId={m.userId}>
-                      {getInitials(m.name || m.email)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar
+                    size={24}
+                    className="shrink-0"
+                    user={{ id: m.userId, name: m.name, email: m.email, image: m.image }}
+                  />
                   <span className="text-sm truncate group-hover:underline">
                     {m.name || m.email}
                   </span>

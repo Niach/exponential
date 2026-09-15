@@ -8,12 +8,9 @@ import {
   statusColorClass,
   statusColorStyle,
 } from "@/components/issue-properties/status-dropdown"
-import { ICON_COMPONENTS, conceptIcon } from "@/lib/icons.generated"
-import { getInitials } from "@/lib/utils"
-import { displayUserName } from "@/lib/user-display"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { BoardGlyph } from "@/components/board-glyph"
 import {
+  ICON_COMPONENTS,
+  conceptIcon,
   ContextMenuCheckboxItem,
   ContextMenuItem,
   ContextMenuRadioGroup,
@@ -22,7 +19,10 @@ import {
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
-} from "@/components/ui/context-menu"
+  UserAvatar,
+} from "@exp/ui"
+import { displayUserName } from "@/lib/user-display"
+import { BoardGlyph } from "@/components/board-glyph"
 
 // EXP-687: "Move to board" draws the SAME glyph on all four clients.
 const NavBoardsIcon = conceptIcon(`nav-boards`)
@@ -97,22 +97,14 @@ export function AssigneeSubmenu({
       <ContextMenuSubTrigger>
         {/* Current assignee's avatar; person placeholder when unassigned (EXP-59). */}
         {selectedAssignee ? (
-          <Avatar className="size-4">
-            {selectedAssignee.image && (
-              <AvatarImage
-                src={selectedAssignee.image}
-                alt={displayUserName(selectedAssignee, selectedAssignee.id)}
-              />
-            )}
-            <AvatarFallback
-              className="text-[0.5rem]"
-              userId={selectedAssignee.id}
-            >
-              {getInitials(
-                displayUserName(selectedAssignee, selectedAssignee.id)
-              )}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            size={16}
+            user={{
+              id: selectedAssignee.id,
+              name: displayUserName(selectedAssignee, selectedAssignee.id),
+              image: selectedAssignee.image,
+            }}
+          />
         ) : (
           <UserX className="size-4" />
         )}
@@ -146,17 +138,10 @@ export function AssigneeSubmenu({
                   value={user.id}
                   onSelect={() => onSelect(user.id)}
                 >
-                  <Avatar className="size-5">
-                    {user.image && (
-                      <AvatarImage src={user.image} alt={name} />
-                    )}
-                    <AvatarFallback
-                      className="text-[0.5625rem]"
-                      userId={user.id}
-                    >
-                      {getInitials(name)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar
+                    size={20}
+                    user={{ id: user.id, name, image: user.image }}
+                  />
                   <span className="truncate">{name}</span>
                 </ContextMenuRadioItem>
               )

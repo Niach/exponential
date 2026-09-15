@@ -1,10 +1,6 @@
 import { useId } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
-import { Input } from "@/components/ui/input"
-import { Pill } from "@/components/ui/pill"
-import { ColorPicker } from "@/components/ui/color-picker"
-import { IconPicker } from "@/components/ui/icon-picker"
-import { GlassInputRow } from "@/components/ui/glass-rows"
+import { Input, Pill, ColorPicker, IconPicker, GlassInputRow } from "@exp/ui"
 
 // Shared, fully controlled field blocks for the create-board dialog, the
 // per-board settings page and the onboarding wizard (EXP-159/160).

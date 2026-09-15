@@ -1,5 +1,4 @@
-import { Button } from "@/components/ui/button"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
+import { Button, OptionDropdownMenu } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssuePriorityConfig,

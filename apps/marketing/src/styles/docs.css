@@ -326,6 +326,33 @@
   padding: 0;
 }
 
+/* Real @exp/ui components (EXP-887, src/components/UiDemo.tsx). The web theme
+   lives INSIDE each island's shadow root and never in this document — the
+   tokens below share their names with it and mean different colours — so the
+   only thing styled here is the frame around it.
+
+   The frame is the app's own ground: the same top→bottom zinc pair the web
+   paints with `bg-app-gradient`, written with marketing's mirrored tokens
+   rather than imported, so the component sits on the surface it was designed
+   for. `zoom` makes up the root font-size difference (the app renders these at
+   18.5px, the site stays at 16px) so the chips come out at their real desktop
+   size; it is not a transform, so the box still lays out in the docs column. */
+.ui-demo {
+  margin: 4px 0 20px;
+  padding: 18px 20px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background-color: var(--glass-bg-top);
+  background-image: linear-gradient(
+    to bottom,
+    var(--glass-bg-top),
+    var(--glass-bg-bottom)
+  );
+  zoom: 1.15625;
+}
+
 /* Hub "Browse the docs" card grid (generated from DOCS_NAV) */
 .docs-cards {
   display: grid;

@@ -1,16 +1,16 @@
 import { useState } from "react"
 import { format, parseISO } from "date-fns"
 import { Megaphone, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet"
-import { Separator } from "@/components/ui/separator"
-import { useIsMobile } from "@/hooks/use-mobile"
+  Separator,
+  useIsMobile,
+} from "@exp/ui"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { CHANGELOG, latestChangelogEntry } from "@/lib/changelog"
 import { markChangelogSeen, readSeenChangelogId } from "@/lib/changelog-seen"

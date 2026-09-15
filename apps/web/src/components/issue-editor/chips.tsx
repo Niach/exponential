@@ -15,20 +15,18 @@ import {
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
 import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
-import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
-import { Pill } from "@/components/ui/pill"
 import {
+  OptionDropdownMenu,
+  Button,
+  Calendar,
+  Pill,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"
+} from "@exp/ui"
 
 export interface IssueEditorChipsProps {
   // EXP-314: the RESOLVED team status row (never a bare enum) so a custom

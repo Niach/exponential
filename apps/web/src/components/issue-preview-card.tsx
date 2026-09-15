@@ -9,23 +9,21 @@ import {
 } from "@/lib/collections"
 import { ISSUE_PRIORITY_FALLBACK } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { cn, getInitials } from "@/lib/utils"
-import { displayUserName } from "@/lib/user-display"
-import { getPriorityConfig } from "@/components/issue-properties/priority-dropdown"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
+  useIsMobile,
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "@/components/ui/hover-card"
-import { Pill } from "@/components/ui/pill"
-import {
+  Pill,
   Popover,
   PopoverAnchor,
   PopoverContent,
-} from "@/components/ui/popover"
+  UserAvatar,
+} from "@exp/ui"
+import { cn } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
+import { getPriorityConfig } from "@/components/issue-properties/priority-dropdown"
+import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 
 // EXP-760 — the Linear-style issue PREVIEW: identifier + assignee, the title,
 // then status · priority · labels. One card body, three hosts:
@@ -114,17 +112,17 @@ export function IssuePreviewCard({ issueId }: { issueId: string }) {
         </span>
         {assigneeId && (
           <span className="ml-auto flex min-w-0 items-center gap-1.5">
-            <Avatar className="size-4 shrink-0">
-              {assignee?.image && (
-                <AvatarImage
-                  src={assignee.image}
-                  alt={displayUserName(assignee ?? undefined, assigneeId)}
-                />
-              )}
-              <AvatarFallback className="text-[0.5rem]" userId={assigneeId}>
-                {getInitials(displayUserName(assignee ?? undefined, assigneeId))}
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              size={16}
+              className="shrink-0"
+              user={{
+                id: assigneeId,
+                // The users shape may not carry this person; the label keeps
+                // the deterministic `Member ABCD` fallback either way.
+                name: displayUserName(assignee ?? undefined, assigneeId),
+                image: assignee?.image,
+              }}
+            />
             <span className="min-w-0 truncate text-xs text-muted-foreground">
               {displayUserName(assignee ?? undefined, assigneeId)}
             </span>

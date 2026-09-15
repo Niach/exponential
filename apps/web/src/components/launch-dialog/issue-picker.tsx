@@ -7,15 +7,13 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
+  conceptIcon,
+} from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { PriorityIcon } from "@/components/issue-properties/priority-dropdown"
-import { conceptIcon } from "@/lib/icons.generated"
 import { cn } from "@/lib/utils"
 
 // EXP-825: the composer's issue picker — the launch dialog's Issues tab

@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router"
 import type { IssueGroup } from "@/lib/board-view"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
-import { ListRow } from "@/components/ui/glass-rows"
+import { ListRow } from "@exp/ui"
 
 // EXP-818 (the navigation rule, web): an issue opened with no list context of
 // its own brings its BOARD along — so the issue page is a master-detail on md+,

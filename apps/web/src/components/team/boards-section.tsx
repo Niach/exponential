@@ -2,16 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Archive, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { getBoardIconName } from "@/lib/board-icons"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
-import { BoardGlyph } from "@/components/board-glyph"
 import {
+  getBoardIconName,
+  Pill,
+  Button,
   GlassGroup,
   GlassRow,
   GlassSectionHeader,
-} from "@/components/ui/glass-rows"
-import {
   Dialog,
   DialogCancel,
   DialogContent,
@@ -19,7 +16,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@exp/ui"
+import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
   BoardIdentityRow,

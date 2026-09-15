@@ -9,14 +9,14 @@ import { common, createLowlight } from "lowlight"
 import { ChevronDown, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { middleTruncate } from "@/lib/format"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import {
+  useIsMobile,
+  Button,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+} from "@exp/ui"
+import { cn } from "@/lib/utils"
 
 export interface PullFile {
   filename: string

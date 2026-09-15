@@ -9,7 +9,7 @@ import org.junit.Test
  * EXP-698 r4 — the avatar hue contract. Four clients hash the same user id
  * into the same palette slot, so a person without a picture keeps ONE colour
  * everywhere. The fixture below is that contract, pinned identically by
- * `apps/web/src/lib/avatar-color.test.ts` and the iOS/desktop twins: changing
+ * `packages/ui/src/avatar-color.test.ts` and the iOS/desktop twins: changing
  * a pair here recolours existing users on this client only.
  */
 class AvatarHueTest {

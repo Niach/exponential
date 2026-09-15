@@ -7,10 +7,7 @@ import {
   TriangleAlert,
   Users,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { GlassSectionHeader } from "@/components/ui/glass-rows"
-import { Pill } from "@/components/ui/pill"
-import { Progress } from "@/components/ui/progress"
+import { Button, GlassSectionHeader, Pill, Progress } from "@exp/ui"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
 import { trpc } from "@/lib/trpc-client"

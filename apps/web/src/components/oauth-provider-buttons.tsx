@@ -2,7 +2,7 @@ import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { withFirstTouchParams } from "@/lib/conversion/first-touch"
-import { Button } from "@/components/ui/button"
+import { Button } from "@exp/ui"
 
 export const GOOGLE_PROVIDER_KEY = `__google__`
 export const APPLE_PROVIDER_KEY = `__apple__`

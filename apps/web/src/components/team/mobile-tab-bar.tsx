@@ -1,5 +1,5 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"

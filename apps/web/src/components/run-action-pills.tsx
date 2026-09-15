@@ -1,10 +1,9 @@
 import type { CodingSession } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, Pill } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { useResumeRun } from "@/hooks/use-resume-run"
 import { useSessionDevice } from "@/hooks/use-session-device"
-import { Pill } from "@/components/ui/pill"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import type { SessionMergeTargetProps } from "@/hooks/use-agents-data"
 

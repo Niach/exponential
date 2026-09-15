@@ -1,25 +1,29 @@
 import { useState, useMemo, useEffect } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Button,
+  Input,
   Command,
   CommandEmpty,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
+  useIsMobile,
+  conceptIcon,
+} from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { BoardGlyph } from "@/components/board-glyph"
 import { Search } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
 import type { Issue, Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)

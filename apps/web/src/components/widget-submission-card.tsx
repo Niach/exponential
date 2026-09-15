@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Megaphone } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 
 type SubmissionRow = Awaited<
   ReturnType<typeof trpc.widgets.submissionForIssue.query>

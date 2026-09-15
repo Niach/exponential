@@ -1,6 +1,6 @@
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import type { SessionConfigState } from "@/lib/agent-feed"
-import type { SessionDotTone } from "@/lib/session-dot"
+import { type SessionDotTone } from "@exp/ui"
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
 // session) with up to three FACES held as screen state, never as navigation:

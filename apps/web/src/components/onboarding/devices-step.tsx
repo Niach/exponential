@@ -1,7 +1,13 @@
 import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { Device } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  Pill,
+  GlassRow,
+  GlassSectionHeader,
+} from "@exp/ui"
 import { deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
@@ -23,9 +29,6 @@ import {
 } from "@/components/my-machines"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { GETTING_STARTED_COPY } from "@/components/getting-started/getting-started-copy"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
 import { StepCard, stepAdvanceLabel } from "@/components/onboarding/step-card"
 

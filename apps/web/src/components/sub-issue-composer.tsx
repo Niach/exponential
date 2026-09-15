@@ -2,7 +2,7 @@ import { useRef, useState } from "react"
 import type { Issue, User } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import type { IssuePriority } from "@/lib/domain"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, Button, Input, Pill } from "@exp/ui"
 import { statusUpdatePayload, type StatusRowOption } from "@/lib/team-statuses"
 import { trpc } from "@/lib/trpc-client"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -12,9 +12,6 @@ import {
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Pill } from "@/components/ui/pill"
 
 const UiAddIcon = conceptIcon(`ui-add`)
 

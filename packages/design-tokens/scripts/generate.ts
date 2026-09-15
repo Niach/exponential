@@ -3,7 +3,7 @@
 // Run from the repo root with: `bun run --filter @exp/design-tokens generate`.
 //
 // The `palette` colors are authored in OKLCH (verbatim from the web theme in
-// apps/web/src/styles.css) and converted to sRGB hex here, so the native
+// packages/ui/src/styles.css) and converted to sRGB hex here, so the native
 // palette is derived — never hand-transcribed — from the web source of truth.
 // Wired: Android (Compose), iOS (SwiftUI), and desktop (Rust/gpui via the
 // theme crate).

@@ -14,6 +14,7 @@ COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
+COPY packages/ui/package.json packages/ui/package.json
 COPY packages/widget/package.json packages/widget/package.json
 COPY apps/styleguide/package.json apps/styleguide/package.json
 COPY packages/view-catalog/package.json packages/view-catalog/package.json

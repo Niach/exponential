@@ -10,7 +10,7 @@ import {
   agentMarkIcon,
 } from "@/components/agent-picker"
 import { ClaudeIcon, CodexIcon } from "@/components/icons/brand-icons"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 
 // Radix positions menus with ResizeObserver, which jsdom lacks.
 class ResizeObserverStub {

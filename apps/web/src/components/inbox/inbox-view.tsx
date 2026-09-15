@@ -2,14 +2,12 @@ import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { Bell, CircleCheck } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Button, conceptIcon, EmptyState, ListRow, LiveDot } from "@exp/ui"
 import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
-import { conceptIcon } from "@/lib/icons.generated"
 
 const SupportIcon = conceptIcon(`nav-support`)
 import type { Issue, Notification, Board, Team } from "@/db/schema"
-import { EmptyState } from "@/components/empty-state"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -18,7 +16,6 @@ import {
   boardCollection,
   teamCollection,
 } from "@/lib/collections"
-import { ListRow } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
 // EXP-273: derived from the shared registry rather than hand-listed, so the
@@ -345,7 +342,7 @@ export function InboxView({
                       )}
                       <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
                         {g.unread > 0 && (
-                          <span className="block h-2 w-2 rounded-full bg-primary" />
+                          <LiveDot tone="unread" className="block" />
                         )}
                       </span>
                     </div>
@@ -401,7 +398,7 @@ export function InboxView({
                         )}
                         <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
                           {g.unread > 0 && (
-                            <span className="block h-2 w-2 rounded-full bg-primary" />
+                            <LiveDot tone="unread" className="block" />
                           )}
                         </span>
                       </div>
@@ -439,7 +436,7 @@ export function InboxView({
                     )}
                     <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
                       {g.unread > 0 && (
-                        <span className="block h-2 w-2 rounded-full bg-primary" />
+                        <LiveDot tone="unread" className="block" />
                       )}
                     </span>
                   </div>

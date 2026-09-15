@@ -7,7 +7,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+} from "@exp/ui"
 import type { Board } from "@/db/schema"
 
 interface MoveBoardConfirmDialogProps {

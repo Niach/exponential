@@ -2,9 +2,7 @@ import * as React from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient, fetchSessionOnce } from "@/lib/auth/client"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Button, Input, Label } from "@exp/ui"
 import { AuthFormShell } from "@/components/auth-form-shell"
 
 // RFC 8628 device verification page (EXP-403): the `exponential` CLI prints

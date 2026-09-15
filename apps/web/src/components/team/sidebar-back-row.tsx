@@ -1,11 +1,11 @@
-import { conceptIcon } from "@/lib/icons.generated"
-import { Separator } from "@/components/ui/separator"
 import {
+  conceptIcon,
+  Separator,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
+} from "@exp/ui"
 
 // EXP-456 / EXP-851: the row the two SLID-IN sidebar panels wear — settings
 // and the list nav. ONE component, so the back affordance can't drift into

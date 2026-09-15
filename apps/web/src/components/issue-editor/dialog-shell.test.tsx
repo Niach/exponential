@@ -19,23 +19,16 @@ const captured = vi.hoisted(() => ({
   isMobile: false,
 }))
 
-// EXP-687: the phone arm is a different header (back arrow + Create pill), so
-// the viewport is a knob here rather than a jsdom accident.
-vi.mock(`@/hooks/use-mobile`, () => ({
+// @exp/ui is a barrel, so the six pieces this test stubs go into ONE partial
+// mock — everything else the shell renders (Button, Pill, …) stays real.
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  // EXP-687: the phone arm is a different header (back arrow + Create pill), so
+  // the viewport is a knob here rather than a jsdom accident.
   useIsMobile: () => captured.isMobile,
-}))
-
-vi.mock(`@/components/ui/sheet`, () => ({
   Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SheetContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SheetTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-}))
-
-vi.mock(`@/components/issue-editor/mobile-properties`, () => ({
-  IssueEditorMobileProperties: () => <div>Mobile properties</div>,
-}))
-
-vi.mock(`@/components/ui/dialog`, () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogContent: ({
     children,
@@ -45,9 +38,6 @@ vi.mock(`@/components/ui/dialog`, () => ({
     return <div>{children}</div>
   },
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-}))
-
-vi.mock(`@/components/ui/popover`, () => ({
   Popover: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   PopoverContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
@@ -55,14 +45,34 @@ vi.mock(`@/components/ui/popover`, () => ({
   PopoverTrigger: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-}))
-
-vi.mock(`@/components/ui/calendar`, () => ({
   Calendar: ({ onSelect }: { onSelect: (date: Date | undefined) => void }) => (
     <button type="button" onClick={() => onSelect(new Date(`2026-03-06`))}>
       Pick date
     </button>
   ),
+  OptionDropdownMenu: ({
+    onSelect,
+    options,
+    renderTrigger,
+  }: {
+    onSelect: (value: string) => void
+    options: Array<{ label: string; value: string }>
+    renderTrigger: (selected: { label: string; value: string }) => ReactNode
+  }) => (
+    <div>
+      {renderTrigger(options[0])}
+      <button
+        type="button"
+        onClick={() => onSelect(options[1]?.value ?? options[0].value)}
+      >
+        Select {options[0].label}
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock(`@/components/issue-editor/mobile-properties`, () => ({
+  IssueEditorMobileProperties: () => <div>Mobile properties</div>,
 }))
 
 vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
@@ -112,28 +122,6 @@ vi.mock(`@/components/issue-properties/label-picker`, () => ({
     <button type="button" onClick={() => onToggle(`label-1`)}>
       Toggle label
     </button>
-  ),
-}))
-
-vi.mock(`@/components/option-dropdown-menu`, () => ({
-  OptionDropdownMenu: ({
-    onSelect,
-    options,
-    renderTrigger,
-  }: {
-    onSelect: (value: string) => void
-    options: Array<{ label: string; value: string }>
-    renderTrigger: (selected: { label: string; value: string }) => ReactNode
-  }) => (
-    <div>
-      {renderTrigger(options[0])}
-      <button
-        type="button"
-        onClick={() => onSelect(options[1]?.value ?? options[0].value)}
-      >
-        Select {options[0].label}
-      </button>
-    </div>
   ),
 }))
 

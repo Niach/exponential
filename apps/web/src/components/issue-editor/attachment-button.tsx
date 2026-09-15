@@ -1,13 +1,7 @@
 import { useRef } from "react"
 import { LoaderCircle, Paperclip, type LucideIcon } from "lucide-react"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Button, Input, Tooltip, TooltipContent, TooltipTrigger } from "@exp/ui"
 
 interface IssueEditorAttachmentButtonProps {
   // Native file-picker filter. Defaults to the inline-image types; the Files

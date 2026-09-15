@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from "react"
 import type { Device } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
-import { AgentPicker, agentLabel } from "@/components/agent-picker"
-import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { Button } from "@/components/ui/button"
 import {
+  conceptIcon,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
+  GlassGroup,
+  GlassPickerRow,
+} from "@exp/ui"
+import { AgentPicker, agentLabel } from "@/components/agent-picker"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   addAccountDevices,
   addAccountLoginTarget,

@@ -3,21 +3,18 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { AgentPicker } from "@/components/agent-picker"
-import { Button } from "@/components/ui/button"
-import {
+  Button,
   GlassGroup,
   GlassPickerRow,
   GlassToggleRow,
   type GlassPickerOption,
-} from "@/components/ui/glass-rows"
-import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import { Switch } from "@/components/ui/switch"
+  Switch,
+  conceptIcon,
+} from "@exp/ui"
+import { AgentPicker } from "@/components/agent-picker"
 import {
   CLI_DEFAULT_EFFORT,
   CLI_DEFAULT_MODEL,
@@ -36,7 +33,6 @@ import {
 } from "@/lib/coding-launch-prefs"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { NO_REPO } from "@/lib/chat-repo"
-import { conceptIcon } from "@/lib/icons.generated"
 
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
 // composer card — Device, Agent, Model as inline pickers, the Plan switch,

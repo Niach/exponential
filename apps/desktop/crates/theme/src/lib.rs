@@ -331,7 +331,7 @@ pub fn exponential_dark() -> ThemeColor {
     c.window_border = t::glass::STROKE_ACTIVE.to_hsla(); // Linux CSD only
 
     // ---- Overlay / selection / caret ----------------------------------------
-    // web dialog overlay is `bg-black/60` (components/ui/dialog.tsx)
+    // web dialog overlay is `bg-black/60` (@exp/ui dialog.tsx)
     c.overlay = gpui::black().opacity(0.6);
     // text selection: white-alpha primary (EXP-594 — the glass selection
     // wash; 0.25 keeps the selected glyphs legible over dark surfaces)
@@ -359,7 +359,7 @@ pub fn exponential_dark() -> ThemeColor {
     c.link_hover = gpui::white();
     c.link_active = fg.opacity(0.8);
     c.progress_bar = primary;
-    // web skeleton is `bg-accent` (components/ui/skeleton.tsx) — the opaque
+    // web skeleton is `bg-accent` (@exp/ui skeleton.tsx) — the opaque
     // web token, not the glass accent above: a skeleton is a placeholder
     // fill, not a hover.
     c.skeleton = accent;
@@ -423,7 +423,7 @@ pub fn apply_exponential_dark(cx: &mut App) {
     theme.tokens = ThemeTokens::from(&colors);
 
     // Web-parity type: the web app renders `"Inter", ui-sans-serif, …`
-    // (apps/web/src/styles.css). The app shell embeds the Inter TTFs via its
+    // (packages/ui/src/styles.css). The app shell embeds the Inter TTFs via its
     // AssetSource and registers them with `cx.text_system().add_fonts(...)`
     // BEFORE any window opens (§3.2 — no runtime font path), so the family is
     // always resolvable. Mono stays the component's platform default (web's

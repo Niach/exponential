@@ -7,7 +7,13 @@ import {
 } from "@/lib/action-suggestions"
 import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
 import { formatAutomationBlock } from "@/lib/action-triggers"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Pill,
+  GlassRow,
+  GlassSectionHeader,
+  BOARD_ICON_COMPONENTS,
+} from "@exp/ui"
 import { automationDevices } from "@/components/automation-section"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
@@ -15,9 +21,6 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { defaultDeviceId } from "@/lib/steer-devices"
-import { Pill } from "@/components/ui/pill"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
-import { BOARD_ICON_COMPONENTS } from "@/lib/board-icons"
 
 // EXP-686: the suggestion seeds left the Actions surface and became the
 // "Suggested actions" tab of Getting started — the Actions and Automations

@@ -1,9 +1,22 @@
 import type * as React from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
-import { conceptIcon } from "@/lib/icons.generated"
-import { getBoardIcon } from "@/lib/board-icons"
+import {
+  conceptIcon,
+  getBoardIcon,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Separator,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  UserAvatar as UserAvatarView,
+} from "@exp/ui"
 import { isAdminUser } from "@/lib/auth/app-user"
-import { cn, getInitials } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
@@ -17,21 +30,6 @@ import {
 } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Separator } from "@/components/ui/separator"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 
 // EXP-870: the rail never leaves. Beside a list nav or the settings nav the
 // main menu MORPHS into this 48px icon column instead of sliding away —
@@ -197,19 +195,12 @@ export function UserMenuItems({ onWhatsNew }: { onWhatsNew: () => void }) {
   )
 }
 
-/** The user's avatar — name-less accounts (Apple sign-in) fall back to the
- *  email for initials instead of a bare "?". */
+/** The signed-in user's avatar — the @exp/ui composition bound to the session.
+ *  Name-less accounts (Apple sign-in) fall back to the email for initials
+ *  instead of a bare "?", which the primitive does for every caller. */
 export function UserAvatar({ className }: { className?: string }) {
   const { data: session } = useSession()
-  const userLabel = session?.user?.name || session?.user?.email
-  return (
-    <Avatar className={cn(`h-6 w-6`, className)}>
-      {session?.user?.image && <AvatarImage src={session.user.image} />}
-      <AvatarFallback className="text-xs" userId={session?.user?.id}>
-        {userLabel ? getInitials(userLabel) : `?`}
-      </AvatarFallback>
-    </Avatar>
-  )
+  return <UserAvatarView user={session?.user} className={className} />
 }
 
 const RAIL_BUTTON = cn(

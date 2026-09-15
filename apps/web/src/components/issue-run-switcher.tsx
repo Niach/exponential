@@ -1,22 +1,22 @@
 import type { CodingSession } from "@/db/schema"
 import { relativeTime } from "@/components/comment-rows/format"
 import type { PastRunRow } from "@/hooks/use-agents-data"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  SESSION_DOT_CLASS,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  Pill,
+} from "@exp/ui"
 import {
   isLiveRunStatus,
   LIVE_RUN_LABEL,
   pastRunByline,
   pastRunEndedAt,
 } from "@/lib/past-runs"
-import { SESSION_DOT_CLASS } from "@/lib/session-dot"
 import { cn } from "@/lib/utils"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Pill } from "@/components/ui/pill"
 
 // EXP-886: the run SWITCHER — the session view's select between an issue's
 // runs of mine, shown only once there are two or more (`selectIssueRuns`, live

@@ -25,7 +25,7 @@ import {
   isInlineImageAttachment,
   isInlineMediaAttachment,
 } from "@/lib/attachment-files"
-import { Pill } from "@/components/ui/pill"
+import { Pill, conceptIcon } from "@exp/ui"
 import {
   Composer,
   ComposerSubmit,
@@ -36,7 +36,6 @@ import {
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
 import { EmojiPickerPopover } from "@/components/emoji-picker"
-import { conceptIcon } from "@/lib/icons.generated"
 import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
 
 // Multi-client surface (the natives mirror this row) — concept icons, never

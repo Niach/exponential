@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Canonical label/board color palette — identical to the web app's
-/// `apps/web/src/lib/label-colors.ts` so all clients pick from the same set.
+/// `packages/ui/src/label-colors.ts` so all clients pick from the same set.
 public let LABEL_COLORS: [String] = [
     "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
     "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4",

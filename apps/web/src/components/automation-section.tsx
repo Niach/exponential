@@ -31,25 +31,21 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { TabsTrigger } from "@/components/ui/tabs"
-import {
+  Button,
+  Label,
+  TabsTrigger,
   GLASS_SELECT_TRIGGER,
   GlassGroup,
   GlassInputRow,
   GlassPickerRow,
   GlassTabsRow,
-} from "@/components/ui/glass-rows"
+} from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when

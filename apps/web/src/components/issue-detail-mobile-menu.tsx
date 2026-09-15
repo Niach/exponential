@@ -1,9 +1,8 @@
 import { toast } from "sonner"
 import { useState } from "react"
-import { conceptIcon } from "@/lib/icons.generated"
-import { BoardPicker } from "@/components/issue-properties/board-picker"
-import { Button } from "@/components/ui/button"
 import {
+  conceptIcon,
+  Button,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -12,13 +11,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@exp/ui"
+import { BoardPicker } from "@/components/issue-properties/board-picker"
 
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiShareIcon = conceptIcon(`ui-share`)

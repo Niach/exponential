@@ -2,27 +2,27 @@ import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import { Plus } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  getActionIcon,
+  TeamAvatar,
+  GlassRow,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { boardCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { compareBoards, useTeamMemberships } from "@/hooks/use-team-data"
-import { getActionIcon } from "@/lib/board-icons"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { usePinnedEntries } from "@/hooks/use-pins"
 import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
-import { TeamAvatar } from "@/components/team/team-avatar"
-import { GlassRow } from "@/components/ui/glass-rows"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 
 interface BoardSwitcherSheetProps {
   open: boolean

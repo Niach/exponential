@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react"
-import {
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import { conceptIcon } from "@/lib/icons.generated"
+import { SidebarMenuButton, SidebarMenuItem, conceptIcon } from "@exp/ui"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { openFeedbackWidget } from "@/components/feedback-widget-provider"
 

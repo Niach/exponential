@@ -3,17 +3,17 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { DraftsList } from "@/components/drafts-list"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { MyIssuesView } from "@/components/my-issues-view"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   SEGMENTED_ROW,
   SEGMENTED_TAB,
   Tabs,
   TabsList,
   TabsTrigger,
-} from "@/components/ui/tabs"
-import { conceptIcon } from "@/lib/icons.generated"
+  conceptIcon,
+  useIsMobile,
+} from "@exp/ui"
 import { useDraftEntriesWithReady } from "@/hooks/use-issue-drafts"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"

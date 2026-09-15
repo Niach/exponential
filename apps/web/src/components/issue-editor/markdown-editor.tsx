@@ -47,7 +47,7 @@ import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { IssueRefHoverLayer } from "@/components/issue-editor/issue-ref-hover-layer"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useIsMobile } from "@exp/ui"
 import {
   findEmojiByShortcode,
   pushRecentEmoji,

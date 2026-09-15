@@ -1,5 +1,5 @@
 //! EXP-314 — per-team custom issue statuses: the desktop half of the
-//! CROSS-PLATFORM status-resolution contract (web `lib/status-icons.ts` +
+//! CROSS-PLATFORM status-resolution contract (web `packages/ui/src/status-icons.ts` +
 //! `lib/issue-statuses.ts`, iOS `IssueStatusResolution.swift`, Android
 //! `IssueStatusResolution.kt`). No shared code exists — the four platforms
 //! share LITERALS, locked by each one's unit tests (the `IssueSorting`

@@ -13,7 +13,7 @@ import {
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
-} from "@/components/ui/context-menu"
+} from "@exp/ui"
 
 interface DueDateSubmenuProps {
   dueDate: Issue[`dueDate`]

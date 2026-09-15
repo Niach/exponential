@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@exp/ui"
 
 export type PreviewMediaKind = `image` | `video` | `audio`
 

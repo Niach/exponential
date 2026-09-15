@@ -7,7 +7,7 @@ import XCTest
 // Four clients hash the same user id into the same palette slot, so a person
 // keeps one colour everywhere. The fixture below is the contract: web, iOS,
 // Android and desktop each pin these exact eight pairs (see
-// apps/web/src/lib/avatar-color.test.ts). Changing a value here means
+// packages/ui/src/avatar-color.test.ts). Changing a value here means
 // recolouring existing users on one client only — don't.
 final class AvatarColorTests: XCTestCase {
     private let fixture: [(String, Int)] = [

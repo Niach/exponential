@@ -4,17 +4,18 @@ import { Plus, Trash2, X, Check } from "lucide-react"
 import { labelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import type { Label as LabelType } from "@/db/schema"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
-import { Input } from "@/components/ui/input"
 import {
+  Button,
+  Pill,
+  GlassRow,
+  GlassSectionHeader,
+  Input,
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"
-import { LABEL_COLORS } from "@/lib/label-colors"
-import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+  LABEL_COLORS,
+  ColorSwatchGrid,
+} from "@exp/ui"
 
 function LabelRow({
   label,

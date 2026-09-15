@@ -1,20 +1,18 @@
 import { useCallback, useState } from "react"
 import { Check, ChevronDown, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
+} from "@exp/ui"
 
 // A searchable branch picker for one connected repository (EXP-462/469,
 // generalized in EXP-712 so the repo settings' default-branch pin and the

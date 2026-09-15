@@ -7,11 +7,14 @@ import { IssueGroupHeader } from "@/components/issue-group-header"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
-import { EmptyState } from "@/components/empty-state"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Skeleton } from "@/components/ui/skeleton"
+import {
+  EmptyState,
+  Button,
+  Pill,
+  Checkbox,
+  Skeleton,
+  useIsMobile,
+} from "@exp/ui"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import {
   CalendarDays,
@@ -20,7 +23,6 @@ import {
   ListTodo,
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
 import type { StatusRowOption } from "@/lib/team-statuses"

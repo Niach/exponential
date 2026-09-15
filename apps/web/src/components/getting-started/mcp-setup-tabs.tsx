@@ -1,13 +1,7 @@
 import { useState } from "react"
 import { Check, Copy, Plug } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Button } from "@/components/ui/button"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from "@exp/ui"
 import {
   ClaudeIcon,
   CursorIcon,

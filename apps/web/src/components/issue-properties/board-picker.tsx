@@ -6,16 +6,14 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import { Pill } from "@/components/ui/pill"
+  Pill,
+} from "@exp/ui"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"

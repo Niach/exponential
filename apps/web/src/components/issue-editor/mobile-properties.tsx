@@ -11,7 +11,7 @@ import {
 } from "@/lib/team-statuses"
 import { labelCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { formatDate, getInitials } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
@@ -27,19 +27,17 @@ import {
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
 import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import {
+  OptionDropdownMenu,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
-import {
+  Button,
+  Calendar,
   GlassSectionHeader,
-} from "@/components/ui/glass-rows"
-import { Pill } from "@/components/ui/pill"
+  Pill,
+  UserAvatar,
+} from "@exp/ui"
 
 // Full-width tappable property row: label left, value right — the web
 // counterpart of the native create form's metadata card rows (EXP-247).
@@ -225,20 +223,14 @@ export function IssueEditorMobileProperties({
                 value={
                   assignee ? (
                     <>
-                      <Avatar className="size-4">
-                        {assignee.image && (
-                          <AvatarImage
-                            src={assignee.image}
-                            alt={displayUserName(assignee, assignee.id)}
-                          />
-                        )}
-                        <AvatarFallback
-                          className="text-[0.5rem]"
-                          userId={assignee.id}
-                        >
-                          {getInitials(displayUserName(assignee, assignee.id))}
-                        </AvatarFallback>
-                      </Avatar>
+                      <UserAvatar
+                        size={16}
+                        user={{
+                          id: assignee.id,
+                          name: displayUserName(assignee, assignee.id),
+                          image: assignee.image,
+                        }}
+                      />
                       <span className="max-w-[8rem] truncate">
                         {displayUserName(assignee, assignee.id)}
                       </span>

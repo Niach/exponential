@@ -2,14 +2,31 @@
  * The renderer: `GalleryData` in, ONE self-contained HTML document out. Pure —
  * no disk, no network, no clock — so `build.ts` and `serve.ts` produce the same
  * bytes for the same store, and the page works over `file://`.
+ *
+ * The one input that is not data is `uiCss`: the compiled `@exp/ui` stylesheet
+ * (EXP-887). Compiling it needs the Tailwind oxide scanner and a filesystem,
+ * which is exactly the impurity this module refuses — so the CALLER compiles
+ * it (`build.ts` once per build, `serve.ts` once per process) and passes the
+ * string in. Empty = no islands are painted, which is what the pure tests
+ * exercise when they do not care about CSS.
  */
 
 import { PLATFORM_FRAME } from "@exp/view-catalog"
 import type { Platform } from "@exp/view-catalog"
+import {
+  ISLAND_CLIENT_SCRIPT,
+  renderIsland,
+  renderIslandCssTemplate,
+} from "@exp/ui/island"
 
 import { client } from "./client.ts"
-import { COMPONENTS, COMPONENTS_GROUP, COMPONENT_PLATFORMS } from "./components.ts"
-import type { ComponentPlatform, ComponentSpec, ComponentStatus } from "./components.ts"
+import {
+  COMPONENTS,
+  COMPONENTS_GROUP,
+  COMPONENT_PLATFORMS,
+  isIsland,
+} from "./components.tsx"
+import type { ComponentPlatform, ComponentSpec, ComponentStatus } from "./components.tsx"
 import { escapeHtml } from "./html.ts"
 import { styles } from "./styles.ts"
 import type { GalleryData, Shot, ViewEntry } from "./store.ts"
@@ -177,6 +194,16 @@ function renderStatus(spec: ComponentSpec): string {
   return `<table class="cmp-status"><tbody>${rows}</tbody></table>`
 }
 
+/**
+ * The demo body. Both arms land in the SAME `.cmp-demo` canvas: that wrapper
+ * paints the app's gradient ground, which an island never carries itself (a
+ * fixed `bg-app-gradient` layer inside a shadow tree is wrong — see
+ * `@exp/ui/island`).
+ */
+function renderDemo(spec: ComponentSpec): string {
+  return isIsland(spec) ? renderIsland(spec.island()) : spec.render()
+}
+
 function renderComponentSection(spec: ComponentSpec): string {
   return [
     `<section class="view component" data-view="${escapeHtml(spec.id)}" id="view-${escapeHtml(spec.id)}">`,
@@ -184,7 +211,7 @@ function renderComponentSection(spec: ComponentSpec): string {
     `<h2>${escapeHtml(spec.title)}</h2>`,
     `<div><code class="view-id">${escapeHtml(spec.id)}</code></div>`,
     `<p class="blurb">${escapeHtml(spec.blurb)}</p>`,
-    `<div class="cmp-demo">${spec.render()}</div>`,
+    `<div class="cmp-demo">${renderDemo(spec)}</div>`,
     renderStatus(spec),
     `</section>`,
   ].join(``)
@@ -246,7 +273,11 @@ function inlineJson(data: GalleryData, components: readonly ComponentSpec[]): st
   }).replace(/</g, `\\u003c`)
 }
 
-export function renderHtml(data: GalleryData, components = COMPONENTS): string {
+export function renderHtml(
+  data: GalleryData,
+  components: readonly ComponentSpec[] = COMPONENTS,
+  uiCss = ``
+): string {
   const nav = data.groups
     .map((section) =>
       [
@@ -295,6 +326,10 @@ export function renderHtml(data: GalleryData, components = COMPONENTS): string {
     `<meta name="robots" content="noindex">`,
     `<title>Exponential views</title>`,
     `<style>${styles}</style>`,
+    // The islands' stylesheet rides ONE inert <template>; the script at the
+    // end of <body> turns it into a single adopted CSSStyleSheet for every
+    // shadow root on the page.
+    uiCss === `` ? `` : renderIslandCssTemplate(uiCss),
     `</head>`,
     `<body>`,
     `<div class="layout">`,
@@ -318,6 +353,7 @@ export function renderHtml(data: GalleryData, components = COMPONENTS): string {
     `<dialog class="lightbox"><img alt="Full size screenshot"></dialog>`,
     `<script type="application/json" id="gallery-data">${inlineJson(data, components)}</script>`,
     `<script>${client}</script>`,
+    uiCss === `` ? `` : `<script>${ISLAND_CLIENT_SCRIPT}</script>`,
     `</body>`,
     `</html>`,
     ``,

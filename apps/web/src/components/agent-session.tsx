@@ -31,9 +31,19 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet"
+  conceptIcon,
+  useIsMobile,
+  type SessionDotTone,
+  Button,
+  Pill,
+  Textarea,
+  Progress,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  IssueChip as IssueChipView,
+} from "@exp/ui"
 import { availableFaces, phaseDotTone } from "@/lib/work-faces"
-import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -45,7 +55,6 @@ import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useKillSession } from "@/hooks/use-kill-session"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
 import {
   ACCOUNTS_SECTION_TITLE,
@@ -130,7 +139,6 @@ import {
   toolDiffFiles,
   type SessionFileCard as SessionFileCardData,
 } from "@/lib/session-file-cards"
-import type { SessionDotTone } from "@/lib/session-dot"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
 import {
   canWidenDiffScope,
@@ -181,16 +189,7 @@ import { IssueChip } from "@/components/issue-chip"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { Textarea } from "@/components/ui/textarea"
 import { Composer, ComposerSubmit } from "@/components/composer"
-import { Progress } from "@/components/ui/progress"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
@@ -3449,8 +3448,8 @@ function ExpToolRow({
 
 /** EXP-846: the settled call's result, by contract `result` kind. An issue
  *  gets the very chip an `#IDENT` reference renders (preview on hover, tap
- *  opens the issue) when the row is synced here, and its identifier + title as
- *  plain text when it is not; a PR gets its link; a list its row count; the
+ *  opens the issue) when the row is synced here, and the same chip inert with
+ *  a muted glyph when it is not (EXP-887); a PR gets its link; a list its row count; the
  *  named things a small chip. `none` renders nothing at all. */
 function ExpToolResult({
   kind,
@@ -3482,12 +3481,16 @@ function ExpToolResult({
       )
     }
     if (!preview.identifier && !preview.title) return null
+    // EXP-887: an unsynced row is still an ISSUE — it draws the same chip,
+    // just inert: no target, no hover preview, and a muted backlog glyph
+    // standing in for the status this client cannot resolve yet.
     return (
-      <div className="ml-5 flex min-w-0 items-center gap-1.5 pt-0.5 text-[0.6875rem] text-muted-foreground">
-        {preview.identifier && (
-          <span className="shrink-0 font-mono">{preview.identifier}</span>
-        )}
-        {preview.title && <span className="truncate">{preview.title}</span>}
+      <div className="ml-5 pt-0.5">
+        <IssueChipView
+          identifier={preview.identifier ?? ``}
+          title={preview.title ?? ``}
+          status={{ icon: `circle-dashed`, colorClass: `text-muted-foreground` }}
+        />
       </div>
     )
   }

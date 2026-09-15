@@ -1,7 +1,27 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  getActionIcon,
+  Button,
+  Pill,
+  Dialog,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  GlassSectionHeader,
+  ListRow,
+  LiveDot,
+  Switch,
+} from "@exp/ui"
 import { parseAutomationTrigger, triggerSummary } from "@/lib/action-triggers"
 import {
   deviceIsOnline,
@@ -17,7 +37,6 @@ import { sessionIdentity } from "@/lib/session-identity"
 import type { DetailOrigin } from "@/lib/detail-origin"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
 import { useOpenSession } from "@/hooks/use-open-session"
-import { getActionIcon } from "@/lib/board-icons"
 import {
   automationCollection,
   codingSessionCollection,
@@ -31,25 +50,6 @@ import {
   REQUIRED_INPUTS_HINT,
 } from "@/components/automation-dialog"
 import { AGENT_LABELS } from "@/components/agent-picker"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
-import { Switch } from "@/components/ui/switch"
 
 // The Automations tab (EXP-530; own rows since EXP-583): every synced
 // `automations` row as a dense row, joined client-side with its action, the
@@ -203,13 +203,9 @@ function AutomationRow({
               : `Unsupported trigger`}
           </span>
           <span className="flex items-center gap-1">
-            <span
-              aria-hidden
-              className={`size-1.5 shrink-0 rounded-full ${
-                device && deviceIsOnline(device)
-                  ? `bg-green-500`
-                  : `bg-muted-foreground/40`
-              }`}
+            <LiveDot
+              tone={device && deviceIsOnline(device) ? `live` : `idle`}
+              className="size-1.5 shrink-0"
             />
             <span className="truncate">
               {device?.deviceLabel || automation.deviceId}

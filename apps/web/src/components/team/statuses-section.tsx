@@ -28,17 +28,15 @@ import {
   StatusIcon,
   toStatusMenuOptions,
 } from "@/components/issue-properties/status-dropdown"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
-import { IconTooltip } from "@/components/icon-tooltip"
-import { hexWithAlpha } from "@/lib/status-icons"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  OptionDropdownMenu,
+  IconTooltip,
+  hexWithAlpha,
+  Pill,
+  Button,
   GlassGroup,
   GlassRow,
   GlassSectionHeader,
-} from "@/components/ui/glass-rows"
-import {
   Dialog,
   DialogBody,
   DialogCancel,
@@ -47,22 +45,19 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
-import {
+  Input,
+  Switch,
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"
-import { LABEL_COLORS, STATUS_COLORS } from "@/lib/label-colors"
-import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+  LABEL_COLORS,
+  STATUS_COLORS,
+  ColorSwatchGrid,
+} from "@exp/ui"
 
 const CATEGORY_LABEL: Record<IssueStatusCategory, string> = {
   backlog: `Backlog`,

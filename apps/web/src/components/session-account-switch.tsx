@@ -26,7 +26,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, Button, ListRow } from "@exp/ui"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -48,8 +48,6 @@ import {
   STARTED_RUN_SKEW_MS,
 } from "@/lib/started-run-match"
 import { AgentUsageCards } from "@/components/agent-usage-bar"
-import { Button } from "@/components/ui/button"
-import { ListRow } from "@/components/ui/glass-rows"
 
 const SwapIcon = conceptIcon(`ui-swap`)
 

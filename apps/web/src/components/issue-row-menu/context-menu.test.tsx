@@ -71,7 +71,8 @@ vi.mock(`@/components/issue-picker-dialog`, () => ({
     ) : null,
 }))
 
-vi.mock(`@/components/ui/context-menu`, () => ({
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   ContextMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ContextMenuTrigger: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>

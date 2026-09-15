@@ -27,9 +27,9 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
 import {
+  Button,
+  Pill,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -37,7 +37,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@exp/ui"
 import {
   AddDelCounts,
   FileDiffList,

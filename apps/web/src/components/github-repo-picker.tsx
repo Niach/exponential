@@ -34,17 +34,17 @@ import {
   ghPickerSuspendedBanner,
   githubInstallationLabel,
 } from "@/lib/github-connect-copy"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Pill } from "@/components/ui/pill"
 import {
+  Button,
+  Input,
+  Pill,
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
+} from "@exp/ui"
 
 export type PickerRepo = {
   fullName: string

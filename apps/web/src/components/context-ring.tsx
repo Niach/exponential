@@ -10,7 +10,7 @@ import {
   ringToneClass,
 } from "@/lib/context-ring"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { Button } from "@exp/ui"
 
 // EXP-877: the composer footer's CONTEXT RING — a 16px radial where the
 // context pill used to be, and the trigger of the usage overlay the session
