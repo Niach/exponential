@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react"
+import { MENU_SURFACE_CLASS } from "@exp/ui"
+import { cn } from "@/lib/utils"
 import { CommandCandidateRow } from "@/components/autocomplete-rows"
 import {
   filterSteerCommands,
@@ -124,8 +126,10 @@ export function useSlashCommandMenu({
   }
 }
 
-/** The popup itself — the mention menu's glass panel, anchored above the
- *  composer by a `relative` wrapper the host provides. */
+/** The popup itself — it wears the package menu surface
+ *  (`MENU_SURFACE_CLASS`) exactly like the mention / issue-ref / emoji
+ *  autocomplete panels, anchored above the composer by a `relative` wrapper
+ *  the host provides. */
 export function SlashCommandMenu({
   commands,
   active,
@@ -138,7 +142,12 @@ export function SlashCommandMenu({
   onHover: (index: number) => void
 }) {
   return (
-    <div className="absolute bottom-full left-0 z-20 mb-1 w-72 overflow-hidden rounded-xl glass-panel">
+    <div
+      className={cn(
+        MENU_SURFACE_CLASS,
+        `absolute bottom-full left-0 mb-1 w-72 overflow-hidden`
+      )}
+    >
       {commands.map((command, index) => (
         <CommandCandidateRow
           key={command.name}

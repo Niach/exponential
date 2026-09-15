@@ -47,7 +47,7 @@ import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { IssueRefHoverLayer } from "@/components/issue-editor/issue-ref-hover-layer"
-import { useIsMobile } from "@exp/ui"
+import { MENU_SURFACE_CLASS, useIsMobile } from "@exp/ui"
 import {
   findEmojiByShortcode,
   pushRecentEmoji,
@@ -821,7 +821,14 @@ export const MarkdownEditor = forwardRef<
                 // attribute lets dialog hosts whitelist interactions here in
                 // their onInteractOutside guards.
                 data-editor-autocomplete=""
-                className="pointer-events-auto fixed w-72 overflow-y-auto rounded-lg border border-glass-stroke-card bg-glass-card-opaque"
+                className={cn(
+                  MENU_SURFACE_CLASS,
+                  `pointer-events-auto fixed w-72 overflow-y-auto`
+                )}
+                // `menuStyle` carries the caret-anchored position, the
+                // clamped max-height and zIndex 60 — above the shadcn dialog
+                // (z-50) the editor may sit in, so it outranks the surface
+                // recipe's own z-50.
                 style={menuStyle}
               >
                 {autocomplete.kind === `mention` &&
