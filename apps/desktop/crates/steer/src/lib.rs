@@ -129,9 +129,10 @@ pub use image_message::{
 };
 pub use history::{
     history_chunk_frame, history_page_for, journal_dir, journal_path, prune_journals,
+    prune_session_history,
     publish_history, read_journal, read_journal_page, read_journal_seq, remove_journal,
     serve_history_page, serve_history_request, HistoryInFlight, JournalWriter,
-    HISTORY_PAGE_MAX, JOURNAL_FILE_CAP, JOURNAL_MAX_AGE,
+    HISTORY_PAGE_MAX, JOURNAL_FILE_CAP,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};

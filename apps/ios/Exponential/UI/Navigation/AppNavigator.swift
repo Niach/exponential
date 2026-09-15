@@ -41,7 +41,7 @@ enum AppRoute: Hashable {
     /// a fullScreenCover, so it gets the native back button + swipe-back.
     case agentSession(accountId: String, sessionId: String)
     /// EXP-825: the team's Agent page — the ONE launcher (composer + the
-    /// caller's Running/Past sessions), a pushed detail. Every play button
+    /// caller's Running/Recent sessions), a pushed detail. Every play button
     /// lands here with a `seed`; the Chat FAB with an empty one.
     case agent(accountId: String, seed: AgentComposerSeed)
     case settings

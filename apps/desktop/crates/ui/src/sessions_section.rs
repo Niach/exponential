@@ -1,6 +1,6 @@
 //! EXP-746 — the Devices screen's two run lists: **Running** (the user's live
-//! sessions, here and on every other machine) and **Past** (their finished
-//! person-started runs).
+//! sessions, here and on every other machine) and **Recent** (their finished
+//! person-started runs; EXP-886 renamed it from "Past").
 //!
 //! Running is where the dock's remote chips went. A chip could only ever be
 //! opened; a row can be opened AND ended, which is the affordance a session on
@@ -8,7 +8,7 @@
 //! runs this process hosts and runs it does not — because "my sessions" is one
 //! list, and the dock's projection deliberately excludes the local ones.
 //!
-//! Past is the ×4 section (web/iOS/Android have their own): own,
+//! Recent is the ×4 section (web/iOS/Android have their own): own,
 //! person-started, ENDED rows in the active team, newest end first
 //! ([`crate::queries::own_ended_runs`]). An automation's runs are NOT here —
 //! their home is the Automations tab's "Recent automated runs" (EXP-676), and
@@ -37,7 +37,7 @@ use crate::queries;
 use crate::run_rows::{
     self, PastRunFacts, PastRunSpec, RunRowFold, RunRowKill, RunningRunFacts, RunningRunSpec,
 };
-use crate::surface::{glass_section_band_fold, glass_section_header};
+use crate::surface::{glass_section_band_fold_uncounted, glass_section_header};
 
 /// EXP-862 — how often a list re-derives itself on the CLOCK. Both sections
 /// render relative times ("2 minutes ago") and a liveness that expires with
@@ -343,7 +343,7 @@ impl Render for RunningSessionsSection {
 }
 
 // ---------------------------------------------------------------------------
-// Past
+// Recent (the `Past*` names predate EXP-886's rename)
 // ---------------------------------------------------------------------------
 
 /// One finished row, flattened like [`RunningRow`].
@@ -363,7 +363,7 @@ pub(crate) struct PastSessionsSection {
     /// [`RunningSessionsSection::collapsed`]).
     collapsed: HashSet<String>,
     /// EXP-862: the whole SECTION folds. It is history behind a composer, so
-    /// it starts collapsed and the band's count says how much is under it.
+    /// it starts collapsed (EXP-886: the band carries no count).
     expanded: bool,
     /// EXP-862: see [`RunningSessionsSection::list_origin`].
     list_origin: Option<TabOrigin>,
@@ -448,11 +448,10 @@ impl Render for PastSessionsSection {
         if self.rows.is_empty() {
             return v_flex();
         }
-        let total = self.rows.len();
         let open_session = open_session_id(window, cx);
-        // ×4 copy: the section is "Past" on every client, and EXP-862 made
-        // the header the FOLD — collapsed by default, the count trailing.
-        let band = glass_section_band_fold("past-sessions-fold", "Past", total, !self.expanded, cx)
+        // ×4 copy: the section is "Recent" on every client (EXP-886), and
+        // EXP-862 made the header the FOLD — collapsed by default, no count.
+        let band = glass_section_band_fold_uncounted("past-sessions-fold", "Recent", !self.expanded, cx)
             .on_click(cx.listener(|this, _, _window, cx| {
                 this.expanded = !this.expanded;
                 cx.notify();

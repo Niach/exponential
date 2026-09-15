@@ -66,7 +66,7 @@ export function useMobileChromeVisible(): boolean {
     fuzzy: true,
   })
   // EXP-851: the Agent page is a LIST screen again (composer over Running /
-  // Past in one scroller), so it keeps the standard phone chrome.
+  // Recent in one scroller), so it keeps the standard phone chrome.
   return (
     !onIssueDetail && !onReviewDetail && !onSessionDetail && !onSupportThread
   )

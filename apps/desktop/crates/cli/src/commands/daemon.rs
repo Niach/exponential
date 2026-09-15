@@ -371,11 +371,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // nothing runs any more; a live sibling's (the desktop app on this
     // machine) are the keep set. Nothing is live in THIS process yet.
     sweep_scratch_dirs(&ctx);
-    // EXP-773: drop stored transcripts nobody can ask for anymore (60 days).
+    // EXP-773/EXP-886: apply the device's "Keep session history" window
+    // (settings.json `sessionRetentionDays`, shared with the desktop app) to
+    // stored transcripts and resume records. Unlimited, the default, keeps
+    // everything.
     {
         let data_dir = ctx.data_dir.clone();
         std::thread::spawn(move || {
-            steer::prune_journals(&data_dir, steer::JOURNAL_MAX_AGE);
+            steer::prune_session_history(&data_dir);
         });
     }
     // EXP-758: an ACP child outlives a host that died without its quit sweep
@@ -1668,8 +1671,8 @@ fn remote_resume_start(
 ) -> anyhow::Result<()> {
     let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
         anyhow::bail!(
-            "no local record for run {session_id}: it ran on another machine, or it was a \
-repo-less run, which is purged when it ends"
+            "no local record for run {session_id}: it ran on another machine, was a repo-less \
+run (purged when it ends), or was removed by this machine's session history setting"
         );
     };
     if !record.resumable() {

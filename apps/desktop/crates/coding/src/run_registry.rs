@@ -17,6 +17,14 @@
 //!
 //! Everything here is best-effort: a corrupt or missing file simply means
 //! "no resumable runs", never a failed launch.
+//!
+//! EXP-886: records are kept FOREVER by default, uncapped. The only thing
+//! that ever expires one is the per-device "Keep session history" setting
+//! ([`crate::session_retention`]), applied by [`prune_older_than`] at boot
+//! and when the window shrinks. Age alone never made a record useless: a
+//! resume re-creates a reclaimed worktree from the recorded branch
+//! ([`RunRecord::workspace_reclaimed`]), and a garbage-collected agent
+//! transcript degrades to a fresh session on the same workspace.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,11 +33,6 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::CodingAgent;
-
-/// Records past this age are dropped on the next write — a resume that far
-/// out would find a pruned worktree and a garbage-collected transcript
-/// anyway. EXP-764: ten days — a run older than that is history, not work.
-const TTL_SECS: u64 = 10 * 24 * 60 * 60;
 
 /// Serializes every load-modify-save, exactly like the session registry:
 /// the automation host records on its own threads while the cleanup path
@@ -275,7 +278,7 @@ pub struct RunRecord {
     pub acp_child_pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_pid: Option<u32>,
-    /// Unix seconds — the TTL prune's key.
+    /// Unix seconds — the retention prune's key ([`prune_older_than`]).
     pub recorded_at: u64,
     /// Every field of this entry this build does not know — the desktop app
     /// and the CLI daemon share the file and update independently, so a
@@ -553,7 +556,7 @@ fn load(data_dir: &Path) -> Vec<RunRecord> {
 }
 
 /// A field off an unknown entry — the only two this build reads out of one
-/// (the upsert key and the TTL key); everything else stays opaque.
+/// (the upsert key and the retention key); everything else stays opaque.
 fn entry_session_id(entry: &serde_json::Value) -> Option<&str> {
     entry.get("sessionId")?.as_str()
 }
@@ -587,23 +590,50 @@ fn save(data_dir: &Path, registry: &Registry) {
     let _ = api::atomic_file::write_atomic(&path, &json);
 }
 
-/// Upsert by `session_id` (a re-record of the same run replaces it) and
-/// drop everything past the TTL in the same pass.
+/// Upsert by `session_id` (a re-record of the same run replaces it). EXP-886:
+/// nothing else is expired here — no TTL, no count cap; age-based removal is
+/// [`prune_older_than`]'s alone.
 pub fn record(data_dir: &Path, record: RunRecord) {
     let _guard = locked(data_dir);
     let mut registry = load_registry(data_dir);
-    let cutoff = now_secs().saturating_sub(TTL_SECS);
     registry
         .records
-        .retain(|old| old.session_id != record.session_id && old.recorded_at >= cutoff);
-    // Unknown entries take the same upsert and TTL rules where they expose
-    // the two keys they ride on, and are kept untouched where they don't.
-    registry.unknown.retain(|entry| {
-        entry_session_id(entry) != Some(record.session_id.as_str())
-            && entry_recorded_at(entry).is_none_or(|at| at >= cutoff)
-    });
+        .retain(|old| old.session_id != record.session_id);
+    // Unknown entries take the same upsert rule where they expose the key it
+    // rides on, and are kept untouched where they don't.
+    registry
+        .unknown
+        .retain(|entry| entry_session_id(entry) != Some(record.session_id.as_str()));
     registry.records.push(record);
     save(data_dir, &registry);
+}
+
+/// EXP-886: drop every record whose `recorded_at` is before `cutoff` (unix
+/// seconds) — the "Keep session history" window, applied at boot and when
+/// the setting shrinks. Unknown entries take the same rule where they expose
+/// `recordedAt` and are kept untouched where they don't. A record whose HOST
+/// is still alive is live work and is never dropped, however old. Returns how
+/// many entries went; writes nothing when none did.
+pub fn prune_older_than(data_dir: &Path, cutoff: u64) -> usize {
+    let _guard = locked(data_dir);
+    let mut registry = load_registry(data_dir);
+    let before = registry.records.len() + registry.unknown.len();
+    registry.records.retain(|record| {
+        record.recorded_at >= cutoff || record.host_pid.is_some_and(crate::process::is_alive)
+    });
+    registry.unknown.retain(|entry| {
+        let live = entry
+            .get("hostPid")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|pid| u32::try_from(pid).is_ok_and(crate::process::is_alive));
+        live || entry_recorded_at(entry).is_none_or(|at| at >= cutoff)
+    });
+    let removed = before - (registry.records.len() + registry.unknown.len());
+    if removed > 0 {
+        save(data_dir, &registry);
+        log::info!("run registry: pruned {removed} record(s) past the session history window");
+    }
+    removed
 }
 
 /// Mutate ONE record in place, under a single take of the section.
@@ -618,10 +648,9 @@ pub fn record(data_dir: &Path, record: RunRecord) {
 /// so does a `session_id` with no record. Returns whether the file was
 /// rewritten.
 ///
-/// The TTL sweep [`record`] performs deliberately does NOT run here: this is
-/// an update of an existing entry, not a new run arriving, and expiring
-/// neighbours under a caller that asked to touch one record would make the
-/// purge race worse rather than better.
+/// No expiry runs here either: this is an update of an existing entry, and
+/// expiring neighbours under a caller that asked to touch one record would
+/// make the purge race worse rather than better.
 pub fn update(
     data_dir: &Path,
     session_id: &str,
@@ -1048,14 +1077,71 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// EXP-886: a write never expires anything — a year-old record survives
+    /// a neighbour's `record()`, and so does an unknown entry of any age.
     #[test]
-    fn ancient_records_are_pruned_on_write() {
-        let dir = temp_dir("ttl");
+    fn ancient_records_survive_a_write() {
+        let dir = temp_dir("no-ttl");
         let mut old = sample("sess-old");
-        old.recorded_at = now_secs().saturating_sub(TTL_SECS + 60);
+        old.recorded_at = now_secs().saturating_sub(400 * 24 * 60 * 60);
+        record(&dir, old.clone());
+        for i in 0..50 {
+            record(&dir, sample(&format!("sess-{i}")));
+        }
+        assert_eq!(get(&dir, "sess-old"), Some(old));
+        assert_eq!(load(&dir).len(), 51, "no count cap either");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-886: the retention prune drops known AND unknown entries past the
+    /// cutoff, keeps an unknown entry with no `recordedAt`, and never drops a
+    /// record whose host is still alive.
+    #[test]
+    fn prune_older_than_drops_only_expired_entries() {
+        let dir = temp_dir("prune-older");
+        let now = now_secs();
+        let day = 24 * 60 * 60;
+        let json = format!(
+            r#"[{{
+                "sessionId":"future-old","accountId":"acc-1","agent":"claude",
+                "kind":"someFutureKind","cwd":"/x","recordedAt":{old}
+            }},{{
+                "sessionId":"future-new","accountId":"acc-1","agent":"claude",
+                "kind":"someFutureKind","cwd":"/x","recordedAt":{now}
+            }},{{
+                "sessionId":"future-undated","kind":"someFutureKind"
+            }}]"#,
+            old = now - 40 * day,
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+        let mut old = sample("sess-old");
+        old.recorded_at = now - 40 * day;
         record(&dir, old);
+        let mut live_old = sample("sess-live-old");
+        live_old.recorded_at = now - 40 * day;
+        live_old.host_pid = Some(std::process::id());
+        record(&dir, live_old);
         record(&dir, sample("sess-new"));
+
+        // Nothing is past a 60-day window.
+        assert_eq!(prune_older_than(&dir, now - 60 * day), 0);
+
+        assert_eq!(prune_older_than(&dir, now - 30 * day), 2);
         assert_eq!(get(&dir, "sess-old"), None);
+        assert!(get(&dir, "sess-new").is_some());
+        assert!(get(&dir, "sess-live-old").is_some(), "live work is never pruned");
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        let ids: Vec<&str> = entries
+            .iter()
+            .filter_map(|entry| entry["sessionId"].as_str())
+            .collect();
+        assert!(!ids.contains(&"future-old"), "{ids:?}");
+        assert!(ids.contains(&"future-new"), "{ids:?}");
+        assert!(ids.contains(&"future-undated"), "{ids:?}");
+
+        // Through the setting's helper: unlimited is a no-op.
+        assert_eq!(crate::session_retention::prune_run_records(&dir, None), 0);
         assert!(get(&dir, "sess-new").is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }

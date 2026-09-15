@@ -179,6 +179,7 @@ public enum AppIcons {
         "heading-2",
         "heading-3",
         "heart",
+        "history",
         "house",
         "image",
         "inbox",
@@ -533,6 +534,8 @@ public enum AppIcons {
     public static let settingsRepositories: String = "github"
     /// Concept `settings-servers`.
     public static let settingsServers: String = "server"
+    /// Concept `settings-sessions`.
+    public static let settingsSessions: String = "history"
     /// Concept `settings-statuses`.
     public static let settingsStatuses: String = "circle-dot"
     /// Concept `settings-storage`.

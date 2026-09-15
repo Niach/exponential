@@ -4,7 +4,7 @@ import SwiftUI
 
 /// EXP-825: the Agent page's sessions — the caller's OWN live runs in the
 /// active team ("Running", nested by `SessionTree`, EXP-818) above the
-/// finished ones ("Past", EXP-746). Moved verbatim from the Devices tab,
+/// finished ones ("Recent", EXP-746; "Past" until EXP-886). Moved verbatim from the Devices tab,
 /// which keeps machines only (web parity, EXP-818).
 ///
 /// Session rows open the live agent session view directly when the relay
@@ -37,11 +37,11 @@ struct AgentSessionsList: View {
     /// button opened.
     @State private var sessionEditTarget: SessionEditTarget?
     @State private var editError: String?
-    /// The past rows' tap target — the page pushes it.
+    /// The Recent rows' tap target — the page pushes it.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
-    /// EXP-862: "Past" is FOLDED by default on every client — finished runs are
-    /// history, and an unfolded list of them buried the live ones. The header
-    /// carries the count and expands inline.
+    /// EXP-862: "Recent" is FOLDED by default on every client — finished runs
+    /// are history, and an unfolded list of them buried the live ones. The
+    /// header expands inline; EXP-886 dropped its count ×4.
     @State private var pastExpanded = false
 
     /// The row a merge confirm is pending for. Only the ids are captured —
@@ -75,7 +75,7 @@ struct AgentSessionsList: View {
     }
 
     var body: some View {
-        // EXP-818: the Running/Past groups are filled BANDS over flat rows
+        // EXP-818: the Running/Recent groups are filled BANDS over flat rows
         // (`GlassSectionBand` + `.flatRow()`) — the runs read as a table, the
         // way web's and the IDE's session lists do.
         VStack(alignment: .leading, spacing: 12) {
@@ -174,7 +174,7 @@ struct AgentSessionsList: View {
         }
     }
 
-    // MARK: - Past (EXP-746)
+    // MARK: - Recent (EXP-746)
 
     /// The caller's finished runs: title + byline, and a tap opens that run's
     /// session view — where its transcript and its Resume live since EXP-773.
@@ -183,17 +183,12 @@ struct AgentSessionsList: View {
     @ViewBuilder
     private var pastSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("Past") {
-                HStack(spacing: 6) {
-                    Text("\(vm.pastRows.count)")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    AppIcon(
-                        pastExpanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown,
-                        size: 12
-                    )
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
+            GlassSectionBand("Recent") {
+                AppIcon(
+                    pastExpanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown,
+                    size: 12
+                )
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .contentShape(Rectangle())
             .onTapGesture {

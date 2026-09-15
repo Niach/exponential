@@ -2,7 +2,7 @@ import Foundation
 
 /// EXP-818: the session TREE — a run started by another run through
 /// `exponential_sessions_start` carries `parent_session_id`, and every session
-/// list (the Devices screen's Running/Past sections here; the rail and the
+/// list (the Devices screen's Running/Recent sections here; the rail and the
 /// Agent page on web/desktop) nests it under its parent instead of listing it
 /// as a stranger.
 ///

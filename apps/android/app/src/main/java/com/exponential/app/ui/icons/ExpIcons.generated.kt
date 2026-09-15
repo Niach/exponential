@@ -2937,6 +2937,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `history`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "history",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 3v5h5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 7v5l4 2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `house`: ImageVector by lazy {
         ImageVector.Builder(
             name = "house",
@@ -6478,6 +6510,7 @@ public object ExpIcons {
         "heading-2" -> `heading-2`
         "heading-3" -> `heading-3`
         "heart" -> `heart`
+        "history" -> `history`
         "house" -> `house`
         "image" -> `image`
         "inbox" -> `inbox`
@@ -6828,6 +6861,8 @@ public object ExpIcons {
     public val settingsRepositories: ImageVector get() = `github`
     /** Concept `settings-servers`. */
     public val settingsServers: ImageVector get() = `server`
+    /** Concept `settings-sessions`. */
+    public val settingsSessions: ImageVector get() = `history`
     /** Concept `settings-statuses`. */
     public val settingsStatuses: ImageVector get() = `circle-dot`
     /** Concept `settings-storage`. */

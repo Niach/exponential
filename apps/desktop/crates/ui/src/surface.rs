@@ -78,17 +78,35 @@ pub(crate) fn glass_section_band(
 /// EXP-862 — the FOLDABLE group band: [`glass_section_band`] with a leading
 /// chevron and a trailing count, the whole strip a click target.
 ///
-/// The Agent page's "Past" band is the first wearer (collapsed by default;
-/// clicking expands the finished runs inline, ×4), and any list whose second
-/// group is history takes the same shape: a band that says how many rows it
-/// hides is the only honest way to ship a collapsed group.
-///
 /// Returns the band WITHOUT a click handler — what folding means is the
 /// caller's (it owns the collapsed flag).
 pub(crate) fn glass_section_band_fold(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     count: usize,
+    collapsed: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    glass_section_band_fold_with(id, label, Some(count), collapsed, cx)
+}
+
+/// EXP-886 — [`glass_section_band_fold`] WITHOUT the trailing count: the
+/// Agent page's "Recent" band and the issue detail's "Runs" band (×4) are
+/// history folds whose size is not the point, so they show only the chevron
+/// and the label.
+pub(crate) fn glass_section_band_fold_uncounted(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    collapsed: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    glass_section_band_fold_with(id, label, None, collapsed, cx)
+}
+
+fn glass_section_band_fold_with(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    count: Option<usize>,
     collapsed: bool,
     cx: &App,
 ) -> Stateful<Div> {
@@ -104,13 +122,15 @@ pub(crate) fn glass_section_band_fold(
     .flex_shrink_0()
     .text_color(foreground.opacity(0.7))
     .into_any_element();
-    let count = div()
-        .flex_shrink_0()
-        .text_xs()
-        .text_color(foreground.opacity(0.5))
-        .child(SharedString::from(count.to_string()))
-        .into_any_element();
-    glass_section_band(Some(chevron), label, Some(count), cx)
+    let count = count.map(|count| {
+        div()
+            .flex_shrink_0()
+            .text_xs()
+            .text_color(foreground.opacity(0.5))
+            .child(SharedString::from(count.to_string()))
+            .into_any_element()
+    });
+    glass_section_band(Some(chevron), label, count, cx)
         .id(id)
         .cursor_pointer()
 }

@@ -71,6 +71,9 @@ struct IssueDetailView: View {
     /// EXP-741: the reply the docked composer is composing — set by the
     /// thread's "Leave a reply…" row, cleared by the bar.
     @State private var commentReplyTarget: CommentReplyTarget?
+    /// EXP-886: the "Runs" band is FOLDED by default, like the Agent page's
+    /// "Recent" (history, not news).
+    @State private var runsExpanded = false
     @FocusState private var titleFocused: Bool
 
     // Shown while team membership is still syncing, so a signed-in viewer
@@ -244,6 +247,12 @@ struct IssueDetailView: View {
                         // above (EXP-698 r4). Renders nothing when there's
                         // nothing to show.
                         AgentPrCard(issue: issue)
+
+                        // EXP-886: the caller's own finished runs of this
+                        // issue, folded; absent with none.
+                        if !vm.endedRuns.isEmpty {
+                            runsSection(vm: vm, issue: issue)
+                        }
 
                         // Widget/agent submission metadata (EXP-496):
                         // expandable card, default collapsed; renders nothing
@@ -699,6 +708,47 @@ struct IssueDetailView: View {
                 // the board switcher sheet (EXP-449).
                 AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
                     .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+            }
+        }
+    }
+
+    // MARK: - Runs (EXP-886)
+
+    /// The caller's OWN ended runs of this issue (`PastRuns.issueRuns`: any
+    /// start reason, newest end first, uncapped). Same band, row and tap as
+    /// the Agent page's "Recent": a row opens that run's session view, where
+    /// its transcript and Resume live.
+    @ViewBuilder
+    private func runsSection(vm: IssueDetailViewModel, issue: IssueEntity) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand("Runs") {
+                AppIcon(
+                    runsExpanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown,
+                    size: 12
+                )
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                runsExpanded.toggle()
+            }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("issue-runs-band")
+            if runsExpanded {
+                ForEach(vm.endedRuns) { run in
+                    EndedRunRow(
+                        title: PastRuns.title(run.session, issue: issue),
+                        identifier: issue.identifier,
+                        byline: PastRuns.byline(
+                            device: run.device.displayLabel,
+                            relativeTime: relativeWireDate(PastRuns.endedAt(run.session))
+                        ),
+                        onOpen: {
+                            pushRoute(.agentSession(accountId: accountId, sessionId: run.session.id))
+                        }
+                    )
+                    .accessibilityIdentifier("issue-run-row")
+                }
             }
         }
     }

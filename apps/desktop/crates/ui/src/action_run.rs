@@ -578,8 +578,9 @@ pub(crate) fn resume_run_on_account(
     let Some(record) = coding::run_registry::get(&data_dir, &session_id) else {
         notify_target_error(
             target,
-            "This run can't be resumed on this machine: it has no local record. Repo-less runs \
-are purged when they end.",
+            "This run can't be resumed on this machine: it has no local record. It ran on another \
+machine, was a repo-less run (purged when it ends), or was removed by this machine's session \
+history setting.",
             cx,
         );
         return;

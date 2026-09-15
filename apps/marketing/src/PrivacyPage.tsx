@@ -23,7 +23,7 @@ export function PrivacyPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · exponential.at · last updated 2026-07-30
+            Exponential · exponential.at · last updated 2026-09-15
           </p>
 
           <p style={prose}>
@@ -85,6 +85,18 @@ export function PrivacyPage() {
               repository names you connect. Repository access tokens are
               short-lived and minted on demand; we do not store your GitHub
               password or personal access tokens.
+            </li>
+            <li style={listItem}>
+              <strong>Coding sessions.</strong> If you run coding sessions, we
+              store a small record of each run (the issue or action it worked
+              on, the machine and agent that ran it, its branch or pull
+              request, its status and timestamps) so your team can see it. We
+              do not store session history: a run&apos;s transcript is kept
+              only on the computer that ran it, for as long as that
+              machine&apos;s Sessions setting says (unlimited by default), and
+              never on our servers. When you watch a live run or open a past
+              one from another device, its activity passes through our relay
+              in memory only and is not written to disk.
             </li>
             <li style={listItem}>
               <strong>Billing data.</strong> Paid subscriptions are processed by
@@ -182,7 +194,10 @@ export function PrivacyPage() {
             the team owner can restore it from team settings → Boards; after
             that window it is purged permanently, including the attachments
             stored on it. All other deletions are immediate and propagate to all
-            synced devices. You can also delete your entire account and all
+            synced devices. Coding session records are deleted together with their
+            issue, board, team or account; transcripts on your own machines
+            stay under your control in the desktop app&apos;s Settings →
+            Sessions. You can also delete your entire account and all
             associated data directly in the product: on the web under Account →
             Notifications → Danger Zone, and in the mobile apps under Settings →
             your server → “Delete account”. Deletion is immediate and removes

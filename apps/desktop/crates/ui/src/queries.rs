@@ -1460,13 +1460,14 @@ pub(crate) fn remote_session_rows<'a>(
     rows
 }
 
-/// EXP-746 — how many Past runs the Devices screen lists (×4 parity: web
+/// EXP-746 — how many Recent runs the Agent page lists (×4 parity: web
 /// `PAST_RUN_CAP`, iOS/Android the same). The section is a recent-history
 /// glance, not an archive.
 pub(crate) const PAST_RUNS_CAP: usize = 20;
 
-/// EXP-746 — "Past": the caller's own FINISHED, person-started runs in the
-/// active team, newest end first, capped at [`PAST_RUNS_CAP`].
+/// EXP-746 — "Recent" (EXP-886; formerly "Past"): the caller's own
+/// FINISHED, person-started runs in the active team, newest end first,
+/// capped at [`PAST_RUNS_CAP`].
 ///
 /// Four predicates, all deliberate:
 /// - `ended` only — a live row belongs to Running, and a stale live row is
@@ -1503,6 +1504,33 @@ pub(crate) fn own_ended_runs<'a>(
             .then_with(|| b.id.cmp(&a.id))
     });
     out.truncate(PAST_RUNS_CAP);
+    out
+}
+
+/// EXP-886 — an issue detail's "Runs" band (×4): the caller's own ENDED runs
+/// of THAT issue, any `started_reason`, newest end first, UNCAPPED.
+///
+/// Unlike [`own_ended_runs`] this keeps automation runs (the issue is the
+/// subject either way) and needs no team filter — the issue id already pins
+/// it. Batch runs (`issue_id` NULL) never match. Same ordering rule and
+/// tiebreak as Recent. Pure.
+pub(crate) fn issue_runs<'a>(
+    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    me: &str,
+    issue_id: &str,
+) -> Vec<&'a domain::rows::CodingSession> {
+    let mut out: Vec<&domain::rows::CodingSession> = rows
+        .filter(|session| {
+            session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
+        })
+        .filter(|session| session.user_id.as_deref() == Some(me))
+        .filter(|session| session.issue_id.as_deref() == Some(issue_id))
+        .collect();
+    out.sort_by(|a, b| {
+        past_run_ended_key(b)
+            .cmp(&past_run_ended_key(a))
+            .then_with(|| b.id.cmp(&a.id))
+    });
     out
 }
 
@@ -3085,7 +3113,7 @@ mod tests {
         assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
     }
 
-    /// A finished run, as the Past section sees it. `ended_at`/`updated_at`
+    /// A finished run, as the Recent section sees it. `ended_at`/`updated_at`
     /// are passed straight through so the ordering rules are testable.
     fn past_row(
         id: &str,
@@ -3106,7 +3134,7 @@ mod tests {
         .unwrap()
     }
 
-    /// Past lists ENDED, PERSON-started runs of the caller's own — a live
+    /// Recent lists ENDED, PERSON-started runs of the caller's own — a live
     /// row, an automation run and a teammate's run all stay out.
     #[test]
     fn only_own_person_started_ended_rows() {
@@ -3169,6 +3197,52 @@ mod tests {
             Some("2026-07-17T23:00:00Z"),
             "the newest run heads the list"
         );
+    }
+
+    /// EXP-886: the issue's Runs band lists only the caller's ENDED runs of
+    /// THAT issue — a live run, a teammate's, another issue's and a batch run
+    /// stay out, while an automation run of the issue is kept.
+    #[test]
+    fn issue_runs_list_only_the_callers_ended_runs_of_that_issue() {
+        let mine = past_row("mine", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
+        let mut live = past_row("live", "me", Some("t-1"), None, Some("2026-07-17T12:00:00Z"));
+        live.status = Some("running".to_string());
+        let theirs = past_row("theirs", "someone", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
+        let mut other_issue =
+            past_row("other", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
+        other_issue.issue_id = Some("issue-2".to_string());
+        let mut batch = past_row("batch", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
+        batch.issue_id = None;
+        let mut automated =
+            past_row("auto", "me", Some("t-1"), Some("2026-07-17T10:00:00Z"), None);
+        automated.started_reason = Some("schedule".to_string());
+        let rows = vec![mine, live, theirs, other_issue, batch, automated];
+        let picked = issue_runs(rows.iter(), "me", "issue-1");
+        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["mine", "auto"]);
+    }
+
+    /// EXP-886: newest END first (`updated_at` standing in for a swept row),
+    /// and — unlike Recent — no [`PAST_RUNS_CAP`] truncation.
+    #[test]
+    fn issue_runs_sort_newest_end_first_and_are_uncapped() {
+        let mut rows: Vec<domain::rows::CodingSession> = (0..30)
+            .map(|n| {
+                past_row(
+                    &format!("run-{n:02}"),
+                    "me",
+                    Some("t-1"),
+                    Some(&format!("2026-07-{:02}T09:00:00Z", n + 1)),
+                    None,
+                )
+            })
+            .collect();
+        rows.push(past_row("swept", "me", Some("t-1"), None, Some("2026-08-01T00:00:00Z")));
+        let picked = issue_runs(rows.iter(), "me", "issue-1");
+        assert_eq!(picked.len(), 31);
+        assert_eq!(picked[0].id, "swept");
+        assert_eq!(picked[1].id, "run-29");
+        assert_eq!(picked[30].id, "run-00");
     }
 
     /// EXP-676: an automation's runs live in the Automations tab's "Recent

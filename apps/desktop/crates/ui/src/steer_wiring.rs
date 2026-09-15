@@ -179,12 +179,14 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     // machine already replayed, back down the control socket.
     let page_dir = auth.data_dir.clone();
     let page_runtime = Arc::clone(&runtime);
-    // Boot pass: drop journals nobody can ask for anymore (60 days).
+    // Boot pass (EXP-886): apply the device's "Keep session history" window
+    // to stored transcripts and resume records. Unlimited, the default, keeps
+    // everything; Settings → Sessions re-runs it when the window shrinks.
     {
         let prune_dir = history_dir.clone();
         cx.background_executor()
             .spawn(async move {
-                steer::prune_journals(&prune_dir, steer::JOURNAL_MAX_AGE);
+                steer::prune_session_history(&prune_dir);
             })
             .detach();
     }

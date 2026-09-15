@@ -208,7 +208,8 @@ fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
 
 /// EXP-773 — this device's journal for `session_id`, folded and replay-ready
 /// ([`steer::read_journal`]). `None` when the file is not there: this machine
-/// never ran the session, or the 60-day prune took it, and the caller falls
+/// never ran the session, or the retention prune (EXP-886, Settings →
+/// Sessions) took it, and the caller falls
 /// back to the engine replay and then to the relay.
 fn journal_events(session_id: &str, cx: &App) -> Option<Vec<steer::frames::ActivityEvent>> {
     let events = steer::read_journal(&crate::coding_flow::coding_data_dir(cx), session_id)?;

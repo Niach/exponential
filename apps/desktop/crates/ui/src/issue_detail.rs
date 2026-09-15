@@ -284,6 +284,9 @@ pub struct IssueDetailView {
     /// registry (a file) — cached per run id
     /// (`work_header::resume_path_cached`), cleared on every issue switch.
     resumable: Option<(String, bool)>,
+    /// EXP-886: whether the "Runs" band is unfolded. Collapsed by default and
+    /// re-collapsed on every issue switch.
+    runs_expanded: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -365,6 +368,7 @@ impl IssueDetailView {
             widget_submission: None,
             sub_issue_composer: None,
             resumable: None,
+            runs_expanded: false,
             _subscriptions: subscriptions,
         }
     }
@@ -436,6 +440,8 @@ impl IssueDetailView {
         // would only be re-read anyway — drop it with the rest of the
         // per-issue state.
         self.resumable = None;
+        // EXP-886: the Runs band folds back up for the incoming issue.
+        self.runs_expanded = false;
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -965,6 +971,65 @@ impl IssueDetailView {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// EXP-886 — the "Runs" band (×4): the signed-in user's own ENDED runs of
+    /// this issue ([`queries::issue_runs`]), newest end first, uncapped, as
+    /// the Agent page's Recent rows. Collapsed by default, no count; renders
+    /// nothing without a row. A row opens its session exactly like Recent.
+    fn render_runs_section(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let me = queries::active_account(cx)?.user_id;
+        let collections = Store::try_global(cx)?.collections().clone();
+        let now = chrono::Utc::now().timestamp();
+        let facts: Vec<crate::run_rows::PastRunFacts> = {
+            let sessions = collections.coding_sessions.read(cx);
+            queries::issue_runs(sessions.iter(), &me, &issue.id)
+                .into_iter()
+                .map(|session| crate::run_rows::past_run_facts(session, now, cx))
+                .collect()
+        };
+        if facts.is_empty() {
+            return None;
+        }
+        let band = crate::surface::glass_section_band_fold_uncounted(
+            "issue-runs-fold",
+            "Runs",
+            !self.runs_expanded,
+            cx,
+        )
+        .on_click(cx.listener(|this, _, _window, cx| {
+            this.runs_expanded = !this.runs_expanded;
+            cx.notify();
+        }));
+        let mut section = v_flex().w_full().min_w_0().px(px(DETAIL_GUTTER)).pt_2().child(band);
+        if self.runs_expanded {
+            let mut column = v_flex().w_full().min_w_0();
+            for (index, facts) in facts.into_iter().enumerate() {
+                let open_id = facts.session_id.clone();
+                column = column.child(crate::run_rows::render_past_run_row(
+                    crate::run_rows::PastRunSpec {
+                        id_prefix: "issue-run",
+                        index,
+                        depth: 0,
+                        fold: None,
+                        facts,
+                        on_open: Box::new(move |_, window, cx| {
+                            crate::session_screen::open_session_with_origin(
+                                &open_id, None, window, cx,
+                            );
+                        }),
+                    },
+                    false,
+                    cx,
+                ));
+            }
+            section = section.child(column);
+        }
+        Some(section.into_any_element())
     }
 
     fn render_files_section(
@@ -1838,6 +1903,9 @@ impl IssueDetailView {
             .child(self.render_files_section(issue, cx))
             // EXP-525: the web `PrRow` — state badge + PR number + branch.
             .children(self.render_pr_row(issue, cx))
+            // EXP-886: the caller's own finished runs of this issue, folded,
+            // right under the PR row (the coding affordances' neighbourhood).
+            .children(self.render_runs_section(issue, cx))
             // EXP-496: widget/agent submission metadata, right above the
             // timeline (web mounts it after the PR row, before the timeline).
             .child(self.render_widget_submission_card(issue, cx));

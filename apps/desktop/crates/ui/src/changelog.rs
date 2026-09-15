@@ -46,17 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-one-work-header",
-    date: "2026-09-14",
-    title: "One header for an issue and its run",
-    summary: "An issue and its coding run now share one header, the diff opens full page, run lists look the same everywhere, and typing in the desktop app is faster.",
-    body: r#"- **One work header**: the Issue and Run faces of a tab share the same title block and header, and the issue's properties sit in a tray beside the run.
-- **Full-page diff**: a run's changes open as their own face in the tab instead of a side pane.
-- **A lighter composer**: the steer composer is one row with an inline send, the context meter sits in it and opens usage and account switching, and the model the run uses is shown and switchable there.
-- **Runs grouped by agent**: live run tabs group under their agent, a live run's tab stays open until the run ends, and a run whose machine went offline can be closed.
-- **The same run rows everywhere**: running and past runs read the same in the Agent list, on the Agent page and under Automations, with Merge and Open issue right on the row.
-- **Faster typing on desktop**: the issue picker, the description editor and the sidebar no longer redo work on every keystroke.
-- **Phones**: an ended run can be resumed from the run page, and a run links back to its issue."#,
+    id: "2026-09-session-history",
+    date: "2026-09-15",
+    title: "Session history that stays",
+    summary: "Finished runs stay on your machine as long as you like, and every issue lists its runs.",
+    body: r#"- **Kept on your machine**: transcripts and resume records of finished runs are no longer deleted after 60 and 10 days. They live only on the machine that ran them, never on our servers.
+- **Sessions setting**: the desktop app's new Settings → Sessions page picks how long that history is kept: unlimited by default, or 1 year, 90 days or 30 days.
+- **Runs on the issue**: an issue now lists all of your finished runs of it, so older runs stay one click away.
+- **Recent**: the Agent page's Past band is now called Recent and shows your 20 latest runs."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

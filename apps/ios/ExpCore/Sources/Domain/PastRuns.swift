@@ -1,7 +1,7 @@
 import Foundation
 
-/// EXP-746: "Past" — the caller's own finished runs under the Devices screen's
-/// Running section, on all four clients.
+/// EXP-746: "Recent" (named "Past" until EXP-886) — the caller's own finished
+/// runs under the Agent page's Running section, on all four clients.
 ///
 /// This deliberately re-adds what EXP-676 removed (`ExpUI/EndedRunRow.swift`
 /// documents that removal). The reason it comes back is a different one:
@@ -44,6 +44,25 @@ public enum PastRuns {
             .sorted { endedAt($0) > endedAt($1) }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// EXP-886: the issue detail's "Runs" band — the caller's OWN ended runs
+    /// of THAT issue (`issue_id == issue AND user_id == me AND status ==
+    /// ended`), ANY `started_reason` (an automation run of the issue is still
+    /// its history), newest first by the same `endedAt` key, UNCAPPED. Batch
+    /// runs carry no `issue_id`, so they never match. Mirrored ×4 (web
+    /// `issueRuns`, Android, desktop).
+    public static func issueRuns(
+        _ sessions: [CodingSessionEntity],
+        issueId: String?,
+        userId: String?
+    ) -> [CodingSessionEntity] {
+        guard let issueId, !issueId.isEmpty else { return [] }
+        return sessions
+            .filter { $0.issueId == issueId }
+            .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
+            .filter { $0.status == DomainContract.codingSessionStatusEnded }
+            .sorted { endedAt($0) > endedAt($1) }
     }
 
     /// When the run finished, for ordering and the byline's relative time.

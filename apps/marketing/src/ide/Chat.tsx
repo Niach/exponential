@@ -3,7 +3,7 @@
    card (subject chips, the prompt field, the # · ▶ · + tools and the round
    submit whose tooltip is the contract label: Start chat / Start coding /
    Start batch · N), the muted options line (Device · the agent's brand mark ·
-   Model · Plan · ⋯), then the Running band and the folded Past band. ─── */
+   Model · Plan · ⋯), then the Running band and the folded Recent band. ─── */
 import { useState } from "react"
 import { getIssue, PAST_RUNS, REVIEWS, RUN_DEVICE, type AgentKind } from "./data"
 import { StatusIcon } from "./bits"
@@ -205,7 +205,7 @@ export function ChatScreen() {
 /* ─── run_rows.rs (EXP-874): ONE layout per kind, no agent brand marks. ───
    Running: status dot · identifier · title, the agent caption, a toned
    status line, trailing circle buttons (Merge while the PR is open, Open
-   issue). Past: identifier · title over the device · time byline, a
+   issue). Recent: identifier · title over the device · time byline, a
    chevron. */
 function agentCaption(run: RunView): string | null {
   if (run.state !== `running`) return null
@@ -294,7 +294,6 @@ function RunBands() {
   const [pastOpen, setPastOpen] = useState(false)
   const running = runs.filter((r) => isLive(r.state))
   const endedRuns = runs.filter((r) => !isLive(r.state))
-  const pastCount = endedRuns.length + PAST_RUNS.length
   return (
     <div className="ide-runbands">
       {running.length > 0 && (
@@ -311,8 +310,7 @@ function RunBands() {
         onClick={interactive ? () => setPastOpen((v) => !v) : undefined}
       >
         {pastOpen ? <IcChevDown size={11} /> : <IcChevRight size={11} />}
-        <span className="ide-flex1">Past</span>
-        <span className="ide-band-count">{pastCount}</span>
+        <span className="ide-flex1">Recent</span>
       </button>
       {pastOpen && (
         <>

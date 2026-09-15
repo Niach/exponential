@@ -1,7 +1,8 @@
 //! EXP-746 — the agent-run rows, EXP-874 — ONE layout per kind.
 //!
-//! Every runs list (the Agent page's Running/Past bands, the Sessions list
-//! nav, the Automations page's "Recent automated runs" and its list nav)
+//! Every runs list (the Agent page's Running/Recent bands, an issue's Runs
+//! band, the Sessions list nav, the Automations page's "Recent automated
+//! runs" and its list nav)
 //! draws a `coding_sessions` row through one of two renderers:
 //!
 //! - [`render_running_run_row`]: dot · identifier · title, the agent caption,

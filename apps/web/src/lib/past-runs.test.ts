@@ -3,12 +3,14 @@ import {
   pastRunByline,
   pastRunEndedAt,
   pastRunTitle,
+  selectIssueRuns,
   selectPastRuns,
   PAST_RUN_CAP,
 } from "./past-runs"
 import type { CodingSession, Issue } from "@/db/schema"
 
-// EXP-746 — the "Past" section's rules. Every `it` name here is mirrored by
+// EXP-746 — the "Recent" section's rules (EXP-886: was "Past"), plus the
+// issue detail's "Runs" band. Every `it` name here is mirrored by
 // iOS PastRunsTests, Android AgentRowsTest and the desktop
 // `own_ended_runs_*` tests; a change on one side without the others is a
 // cross-client drift, not a tweak.
@@ -113,6 +115,49 @@ describe(`selectPastRuns`, () => {
     const past = selectPastRuns(rows, `me`, `team-1`)
     expect(past).toHaveLength(20)
     expect(selectPastRuns(rows, `me`, `team-1`, 5)).toHaveLength(5)
+  })
+})
+
+describe(`selectIssueRuns`, () => {
+  it(`lists only the caller's ended runs of that issue`, () => {
+    const rows = [
+      run({ id: `mine`, issueId: `issue-1` }),
+      // Automated runs of the issue are its history too.
+      run({ id: `scheduled`, issueId: `issue-1`, startedReason: `schedule` }),
+      run({ id: `running`, issueId: `issue-1`, status: `running` }),
+      run({ id: `in-review`, issueId: `issue-1`, status: `in_review` }),
+      run({ id: `someone-else`, issueId: `issue-1`, userId: `you` }),
+      run({ id: `other-issue`, issueId: `issue-2` }),
+      run({ id: `batch`, issueId: null }),
+    ]
+    expect(selectIssueRuns(rows, `me`, `issue-1`).map((r) => r.id)).toEqual([
+      `mine`,
+      `scheduled`,
+    ])
+    expect(selectIssueRuns(rows, undefined, `issue-1`)).toEqual([])
+    expect(selectIssueRuns(rows, `me`, undefined)).toEqual([])
+  })
+
+  it(`sorts newest end first and is uncapped`, () => {
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      run({
+        id: `run-${i}`,
+        issueId: `issue-1`,
+        endedAt: new Date(at(`2026-09-01T00:00:00Z`).getTime() + i * 1000),
+      })
+    )
+    rows.push(
+      run({
+        id: `no-end-stamp`,
+        issueId: `issue-1`,
+        endedAt: null,
+        updatedAt: at(`2026-09-02T00:00:00Z`),
+      })
+    )
+    const ids = selectIssueRuns(rows, `me`, `issue-1`).map((r) => r.id)
+    expect(ids).toHaveLength(31)
+    expect(ids.slice(0, 3)).toEqual([`no-end-stamp`, `run-29`, `run-28`])
+    expect(ids.at(-1)).toBe(`run-0`)
   })
 })
 

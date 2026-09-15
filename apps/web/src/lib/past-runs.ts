@@ -1,4 +1,4 @@
-// EXP-746: the "Past" section under Devices — the caller's own FINISHED runs
+// EXP-746: the "Recent" section (EXP-886, was "Past") under Devices — the caller's own FINISHED runs
 // on the machines they own. The rules live here so the four clients agree:
 // iOS PastRuns.swift, Android PastRuns.kt + AgentsViewModel, desktop
 // queries::own_ended_runs + sessions_section::session_title. Same predicate,
@@ -7,11 +7,11 @@
 // An AUTOMATED run (`started_reason` set — schedule, event or a
 // sessions_start child) is NOT past work of the person: it belongs to the
 // Automations tab's "Recent automated runs" (EXP-676), which is the only
-// finished-runs list keyed on that column. Past is person-started runs only.
+// finished-runs list keyed on that column. Recent is person-started runs only.
 
 import type { CodingSession, Issue } from "@/db/schema"
 
-/** EXP-746: how many Past rows a devices screen lists. ×4 lockstep. */
+/** EXP-746: how many Recent rows a devices screen lists. ×4 lockstep. */
 export const PAST_RUN_CAP = 20
 
 type PastRunSession = Pick<
@@ -65,6 +65,27 @@ export function selectPastRuns<T extends PastRunSession>(
     )
     .sort((a, b) => pastRunEndedAt(b) - pastRunEndedAt(a))
     .slice(0, cap)
+}
+
+/** EXP-886: an issue's "Runs" band — the caller's OWN ENDED runs of THAT
+ *  issue, newest first by the same key as Recent, UNCAPPED. Unlike Recent it
+ *  keeps automated runs (any `startedReason`): on the issue every run of it is
+ *  history. A batch run (`issueId` NULL) never matches. ×4 lockstep: the
+ *  native twins mirror this predicate, order and test names. */
+export function selectIssueRuns<T extends PastRunSession>(
+  sessions: readonly T[],
+  currentUserId: string | undefined,
+  issueId: string | undefined
+): T[] {
+  if (!currentUserId || !issueId) return []
+  return sessions
+    .filter(
+      (session) =>
+        session.status === `ended` &&
+        session.userId === currentUserId &&
+        session.issueId === issueId
+    )
+    .sort((a, b) => pastRunEndedAt(b) - pastRunEndedAt(a))
 }
 
 /** The row's name: the issue's title, else the action snapshot (which

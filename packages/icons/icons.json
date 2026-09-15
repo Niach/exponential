@@ -106,6 +106,7 @@
     "settings-agents": "bot",
     "auth-passkey": "fingerprint",
     "settings-local-repos": "hard-drive",
+    "settings-sessions": "history",
     "settings-account": "circle-user",
     "settings-notifications": "bell",
     "settings-api": "key",

@@ -9,7 +9,8 @@
    the caller's own runs (`AgentSessionsList`): filled group BANDS over flat
    rows (EXP-818) — "Running" with the EXP-874 unified `RunningSessionRow`
    (state dot, identifier + title, the status line, circular trailing
-   buttons) and "Past", folded by default with its count (EXP-862).
+   buttons) and "Recent" (EXP-886, was "Past"), folded by default and
+   uncounted (EXP-862).
 
    EVERY number below is authored in iOS POINTS: `.mag-screen` is a 414pt-wide
    canvas that `mobile.css` scales down with one transform, so the recreation
@@ -29,9 +30,6 @@ const CHIPPED = ISSUES.find((issue) => issue.id === `EXP-8`)!
 
 /* The caller's live run — its PR is open, so the row offers Merge. */
 const RUNNING = ISSUES.find((issue) => issue.id === `EXP-11`)!
-
-/* The folded Past band's count (AgentSessionsList.pastSection). */
-const PAST_COUNT = 3
 
 /* Anthropic's brand orange — the Claude mark is untinted on every client
    (EXP-877). */
@@ -139,9 +137,8 @@ export function MobileAgentComposer() {
         </div>
 
         <div className={`mag-band is-fold`}>
-          Past
+          Recent
           <span className={`mag-band-count`}>
-            {PAST_COUNT}
             <IcChev size={12} stroke={2} className={`mag-pillchev`} />
           </span>
         </div>

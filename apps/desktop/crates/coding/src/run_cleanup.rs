@@ -71,7 +71,7 @@ pub enum SkipReason {
 /// Remove the run's worktree + branch iff it provably left nothing behind.
 /// The run's registry record stays either way: a resume re-creates a
 /// removed worktree on the recorded branch (`prepare_resume_run`), and the
-/// registry's TTL retires the record.
+/// record lives until the session history setting retires it (EXP-886).
 pub fn remove_if_clean(cleanup: &RunCleanup) -> CleanupOutcome {
     match crate::launch_gate::try_exclusive(&cleanup.clone, || remove_locked(cleanup)) {
         Some(outcome) => outcome,

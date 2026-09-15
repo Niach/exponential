@@ -37,7 +37,7 @@ class AgentRowsTest {
         prNumber: Int? = null,
         prState: String? = null,
         // EXP-746: `schedule`/`event` is what makes a run an AUTOMATED one —
-        // the whole predicate behind "Past".
+        // the whole predicate behind "Recent".
         startedReason: String? = null,
         agent: String? = null,
     ) = CodingSessionEntity(
@@ -60,7 +60,7 @@ class AgentRowsTest {
         updatedAt = updatedAt,
     )
 
-    // A FINISHED, person-started run — what "Past" lists (EXP-746).
+    // A FINISHED, person-started run — what "Recent" lists (EXP-746).
     private fun pastRun(
         id: String,
         userId: String = "me",
@@ -488,7 +488,7 @@ class AgentRowsTest {
         assertNull(rows.single { it.session.id == "issue-run" }.mergeTarget)
     }
 
-    // ── EXP-746: the Devices screen's "Past" list ───────────────────────────
+    // ── EXP-746: the Agent page's "Recent" list ─────────────────────────
 
     @Test
     fun `lists only the caller's own finished runs in this team`() {
@@ -620,6 +620,61 @@ class AgentRowsTest {
         )
         assertEquals("EXP-1", rows.first().issue?.identifier)
         assertNull(rows.last().issue)
+    }
+
+    // ── EXP-886: issue detail's "Runs" band ─────────────────────────────────
+
+    @Test
+    fun `issue runs list only the callers ended runs of that issue`() {
+        val rows = issueRunRows(
+            sessions = listOf(
+                pastRun("mine", issueId = "issue-1"),
+                // Any started_reason — an automated run is this issue's history too.
+                pastRun("mine-scheduled", issueId = "issue-1", startedReason = "schedule"),
+                pastRun("theirs", issueId = "issue-1", userId = "teammate"),
+                pastRun("other-issue", issueId = "issue-2"),
+                // A batch run carries no issue.
+                pastRun("batch", issueId = null),
+                session("live", userId = "me", issueId = "issue-1"),
+            ),
+            issueId = "issue-1",
+            issue = issue("issue-1"),
+            currentUserId = "me",
+            nowMs = nowMs,
+        )
+        assertEquals(listOf("mine", "mine-scheduled"), rows.map { it.session.id })
+        assertTrue(rows.all { it.issue?.identifier == "EXP-1" })
+        assertEquals(
+            emptyList<PastRunRow>(),
+            issueRunRows(listOf(pastRun("mine", issueId = "issue-1")), "issue-1", null, currentUserId = null),
+        )
+    }
+
+    @Test
+    fun `issue runs sort newest end first and are uncapped`() {
+        val rows = issueRunRows(
+            sessions = (1..40).map {
+                pastRun(
+                    "run-$it",
+                    issueId = "issue-1",
+                    endedAt = "2026-07-%02dT11:00:00Z".format(it % 28 + 1),
+                )
+            } + pastRun(
+                "swept",
+                issueId = "issue-1",
+                endedAt = null,
+                updatedAt = "2026-07-30T08:00:00Z",
+            ),
+            issueId = "issue-1",
+            issue = null,
+            currentUserId = "me",
+            nowMs = nowMs,
+        )
+        assertEquals(41, rows.size)
+        // A row that never stamped ended_at orders off its heartbeat.
+        assertEquals("swept", rows.first().session.id)
+        val stamps = rows.map { it.session.endedAt ?: it.session.updatedAt }
+        assertEquals(stamps.sortedDescending(), stamps)
     }
 
     @Test

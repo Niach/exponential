@@ -35,7 +35,7 @@ import com.exponential.app.ui.theme.flatRow
 
 /**
  * EXP-825: the caller's OWN coding sessions — Running (live rows, EXP-312:
- * owner-only), then Past (EXP-746: finished person-started runs) — under the
+ * owner-only), then Recent (EXP-746: finished person-started runs) — under the
  * Agent page composer, moved here verbatim from the Devices tab, which keeps
  * machines only (web parity, EXP-818). A `LazyListScope` extension so the page
  * hosts the composer and the rows in ONE scroller.
@@ -43,7 +43,7 @@ import com.exponential.app.ui.theme.flatRow
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
     pastRuns: List<PastRunRow>,
-    /** EXP-862: the Past band is folded until the header is tapped. */
+    /** EXP-862: the Recent band is folded until the header is tapped. */
     pastExpanded: Boolean,
     onTogglePast: () -> Unit,
     steerEnabled: Boolean,
@@ -160,12 +160,13 @@ internal fun LazyListScope.agentSessionsList(
     // "Recent automated runs" and never lists here. Nothing renders while
     // there are none.
     //
-    // EXP-862: FOLDED by default — the band names the count and expands in
-    // place, so a long history never pushes the composer off the page.
+    // EXP-862: FOLDED by default — the band expands in place, so a long
+    // history never pushes the composer off the page. EXP-886: renamed
+    // "Recent" and shows no count (the cap made the number meaningless).
     if (pastRuns.isNotEmpty()) {
         item(key = "__past_header__") {
             SectionHeader(
-                "Past",
+                "Recent",
                 modifier = Modifier
                     .clickable(onClick = onTogglePast)
                     .testTag("past-runs-header"),
@@ -175,13 +176,6 @@ internal fun LazyListScope.agentSessionsList(
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                },
-                trailing = {
-                    Text(
-                        pastRuns.size.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 },
             )

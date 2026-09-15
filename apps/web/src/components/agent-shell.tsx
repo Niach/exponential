@@ -17,7 +17,7 @@ import type { DetailOrigin } from "@/lib/detail-origin"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 // EXP-818: the caller's sessions list — Running (nested by
-// `parent_session_id`, the x4 rule) then Past. EXP-851 dissolved the
+// `parent_session_id`, the x4 rule) then Recent. EXP-851 dissolved the
 // master-detail shell it used to live in: the list is the Agent page's own
 // column on every breakpoint, and the SIDEBAR's list nav renders the very
 // same component beside an open run.
@@ -64,14 +64,15 @@ export function SessionsList({
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const runningById = new Map(running.map((row) => [row.session.id, row]))
   // EXP-849: a parent run's subtree folds away here too — an orchestrator with
-  // six children used to push Past off the list. Expanded by default, per
+  // six children used to push Recent off the list. Expanded by default, per
   // parent, for as long as the list is mounted (the sidebar's rule).
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   )
-  // EXP-862: Past is FOLDED by default — the page is the composer plus what
-  // is running; the history is one click away and says how much it holds
-  // (the band's trailing count). Desktop `glass_section_band_fold` twin.
+  // EXP-862: Recent (EXP-886, was "Past") is FOLDED by default — the page is
+  // the composer plus what is running; the history is one click away. It
+  // shows no count (EXP-886): an issue's own "Runs" band holds the full list.
+  // Desktop `glass_section_band_fold` twin.
   const [pastOpen, setPastOpen] = useState(false)
   const nested = useMemo(
     () => nestSessions(running.map((row) => row.session)),
@@ -133,8 +134,7 @@ export function SessionsList({
       {past.length > 0 && (
         <div className="mt-4">
           <GlassSectionHeader
-            label="Past"
-            count={past.length}
+            label="Recent"
             expanded={pastOpen}
             onToggle={() => setPastOpen((open) => !open)}
           />

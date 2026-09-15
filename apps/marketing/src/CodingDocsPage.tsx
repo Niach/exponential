@@ -426,6 +426,11 @@ export function CodingDocsPage() {
               client already holds, <strong>Load earlier</strong> fetches the
               next page from the machine that ran the session — the full
               transcript lives on <em>that</em> machine, never on our servers.
+              Past transcripts stay there for as long as that machine&apos;s
+              {` `}<strong>Settings → Sessions</strong> allows (unlimited by
+              default). An issue lists all of your runs of it under{` `}
+              <strong>Runs</strong>, while the <strong>Agent</strong> page
+              shows your 20 most recent.
             </p>
             <p>
               A session whose host machine goes offline reads{` `}

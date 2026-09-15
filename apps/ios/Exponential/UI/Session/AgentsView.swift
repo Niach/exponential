@@ -10,7 +10,7 @@ import SwiftUI
 /// self-update / remove) — then "Team devices" (EXP-432: teammates' servers
 /// shared with the active team, startable but never manageable here).
 ///
-/// EXP-825: machines ONLY (web parity, EXP-818). The Running/Past sessions
+/// EXP-825: machines ONLY (web parity, EXP-818). The Running/Recent sessions
 /// moved to the Agent page, which is also the ONE launcher: a device's play
 /// glyph pushes it with that device preselected, and the tab bar's Chat FAB
 /// pushes it with an empty seed. When the relay is off nothing here can be

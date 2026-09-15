@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-746: the "Past" section's pure rules — the same five tests web
+// EXP-746: the "Recent" section's (and EXP-886's issue "Runs") pure rules — the same tests web
 // (`past-runs.test.ts`), Android (`AgentRowsTest`) and the desktop
 // (`own_ended_runs_*`) run, so the four lists hold the same rows.
 final class PastRunsTests: XCTestCase {
@@ -139,6 +139,39 @@ final class PastRunsTests: XCTestCase {
         XCTAssertEqual(
             PastRuns.select(sessions, userId: "user-1", teamId: "team-1").count, PastRuns.cap
         )
+    }
+
+    /// EXP-886: the issue detail's "Runs" band.
+    func testIssueRunsListOnlyTheCallersEndedRunsOfThatIssue() {
+        let rows = PastRuns.issueRuns(
+            [
+                session(id: "mine"),
+                session(id: "automated", startedReason: "schedule"),
+                session(id: "theirs", userId: "user-2"),
+                session(id: "live", status: "running"),
+                session(id: "in-review", status: "in_review"),
+                session(id: "other-issue", issueId: "issue-2"),
+                session(id: "batch", issueId: nil),
+                // Team does not scope it: the issue already does.
+                session(id: "other-team", teamId: "team-2"),
+            ],
+            issueId: "issue-1",
+            userId: "user-1"
+        )
+        XCTAssertEqual(Set(rows.map(\.id)), ["mine", "automated", "other-team"])
+        XCTAssertTrue(PastRuns.issueRuns([session(id: "mine")], issueId: "issue-1", userId: nil).isEmpty)
+        XCTAssertTrue(PastRuns.issueRuns([session(id: "mine")], issueId: nil, userId: "user-1").isEmpty)
+    }
+
+    func testIssueRunsSortNewestEndFirstAndAreUncapped() {
+        let sessions = (0..<30).map { i in
+            session(id: "s\(i)", endedAt: String(format: "2026-09-02T%02d:%02d:00Z", i / 2, i))
+        } + [session(id: "heartbeat", endedAt: nil, updatedAt: "2026-09-03T00:00:00Z")]
+        let rows = PastRuns.issueRuns(sessions, issueId: "issue-1", userId: "user-1")
+        XCTAssertEqual(rows.count, 31)
+        XCTAssertEqual(rows.first?.id, "heartbeat")
+        XCTAssertEqual(rows[1].id, "s29")
+        XCTAssertEqual(rows.last?.id, "s0")
     }
 
     func testThePastBylineNamesTheDeviceAndWhenItEnded() {

@@ -22,6 +22,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.IssueRelationEntity
@@ -50,6 +51,8 @@ import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
+import com.exponential.app.ui.session.PastRunRow
+import com.exponential.app.ui.session.issueRunRows
 import com.exponential.app.ui.steer.onlineStartTargets
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -405,14 +408,30 @@ class IssueDetailViewModel @Inject constructor(
     // multi-window desktops can run several — surface the most recent.
     // Heartbeat-stale rows render as absent (EXP-153); the ticker clears the
     // panel once the liveness window elapses without a sync delta.
+    private val issueSessions =
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeByIssue(issueId) }
+
     val runningSession: StateFlow<CodingSessionEntity?> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.codingSessionDao().observeByIssue(issueId) },
+        issueSessions,
         CodingSessionLiveness.minuteTicker(),
     ) { rows, now ->
         rows.filter { CodingSessionLiveness.isLive(it, now) }
             .maxByOrNull { it.startedAt }
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // EXP-886: the folded "Runs" band — the caller's own ENDED runs of this
+    // issue, newest first, uncapped (`issueRunRows`, the ×4 rule). The devices
+    // rows only lend the byline its live machine label.
+    val issueRuns: StateFlow<List<PastRunRow>> = combine(
+        issueSessions,
+        issueFlow,
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        auth.userId,
+    ) { sessions, issue, devices, userId ->
+        issueRunRows(sessions, issueId, issue, userId, devices)
+    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // steer.config is env-derived and static per instance: null = still loading.
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)

@@ -3,7 +3,7 @@ package com.exponential.app.domain
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 
-// EXP-746: the Devices screen's "Past" section — the caller's own FINISHED,
+// EXP-746: the Agent page's "Recent" section (and issue detail's "Runs", EXP-886) — the caller's own FINISHED,
 // person-started runs. Everything here is pure and mirrored ×4 (web
 // `past-runs.ts`, iOS `PastRuns.swift`, desktop `devices_view.rs`); the row
 // SELECTION lives in `AgentsViewModel.pastRunRows`, this file owns the copy.

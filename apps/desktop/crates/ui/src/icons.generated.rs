@@ -184,6 +184,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "heading-2" => ExpIcon::Heading2,
         "heading-3" => ExpIcon::Heading3,
         "heart" => ExpIcon::Heart,
+        "history" => ExpIcon::History,
         "house" => ExpIcon::House,
         "image" => ExpIcon::Image,
         "inbox" => ExpIcon::Inbox,
@@ -535,6 +536,8 @@ pub const SETTINGS_RATE: ExpIcon = ExpIcon::Star;
 pub const SETTINGS_REPOSITORIES: ExpIcon = ExpIcon::Github;
 /// Registry concept `settings-servers` -> Lucide `server`.
 pub const SETTINGS_SERVERS: ExpIcon = ExpIcon::Server;
+/// Registry concept `settings-sessions` -> Lucide `history`.
+pub const SETTINGS_SESSIONS: ExpIcon = ExpIcon::History;
 /// Registry concept `settings-statuses` -> Lucide `circle-dot`.
 pub const SETTINGS_STATUSES: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `settings-storage` -> Lucide `hard-drive`.

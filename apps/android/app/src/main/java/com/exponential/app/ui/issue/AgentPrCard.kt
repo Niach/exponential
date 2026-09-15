@@ -24,6 +24,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -38,6 +41,11 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.pastRunTitle
+import com.exponential.app.ui.components.EndedRunRow
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.session.PastRunRow
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillSize
@@ -350,4 +358,52 @@ internal fun StaticDot(color: Color, size: androidx.compose.ui.unit.Dp = 8.dp) {
             .clip(CircleShape)
             .background(color),
     )
+}
+
+/**
+ * EXP-886: the issue's run history — the caller's OWN ended runs of this
+ * issue ([issueRunRows]), in a foldable "Runs" band that is COLLAPSED by
+ * default and renders nothing without a row. Rows are the Agent page's Recent
+ * rows verbatim (`pastRunTitle` / `pastRunByline`); a tap opens that run's
+ * session view, like a Recent row.
+ */
+@Composable
+fun IssueRunsBand(
+    runs: List<PastRunRow>,
+    onOpenRun: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (runs.isEmpty()) return
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(modifier = modifier.fillMaxWidth()) {
+        SectionHeader(
+            "Runs",
+            modifier = Modifier
+                .clickable { expanded = !expanded }
+                .testTag("issue-runs-header"),
+            leading = {
+                Icon(
+                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            },
+        )
+        if (expanded) {
+            runs.forEach { row ->
+                val timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt)
+                EndedRunRow(
+                    title = pastRunTitle(row.session, row.issue),
+                    identifier = row.issue?.identifier,
+                    timeLabel = timeLabel,
+                    byline = pastRunByline(
+                        deviceLabel = row.device.displayLabel,
+                        timeLabel = timeLabel,
+                    ),
+                    onOpen = { onOpenRun(row.session.id) },
+                )
+            }
+        }
+    }
 }

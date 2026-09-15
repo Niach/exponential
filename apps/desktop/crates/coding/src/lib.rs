@@ -70,6 +70,7 @@ pub mod run_cleanup;
 pub mod run_registry;
 pub mod scratch;
 pub mod scm;
+pub mod session_retention;
 pub mod settings;
 pub mod skill;
 #[cfg(test)]

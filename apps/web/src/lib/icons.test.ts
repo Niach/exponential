@@ -347,7 +347,8 @@ describe(`icon call sites`, () => {
     // EXP-771: + Feedback widget and Helpdesk, now on both clients.
     // EXP-807: + MCP servers, the IDE pane the desktop sub-issue added — the
     // count the EXP-792 comment here predicted.
-    expect(desktopNav.size).toBe(18)
+    // EXP-886: + Sessions (desktop-only, the This device group).
+    expect(desktopNav.size).toBe(19)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [

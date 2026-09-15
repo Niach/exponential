@@ -9,7 +9,7 @@
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), **Features**
 //! (Feedback widget, Helpdesk — EXP-771), the desktop-only
-//! **This device** group (Tools, Agents, Worktrees), and
+//! **This device** group (Tools, Agents, Worktrees, Sessions), and
 //! **Personal** (Account, Notifications, Security, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
 //! each pane mirrors its web card field-for-field — and since EXP-771 sits
@@ -54,6 +54,7 @@ mod archived_boards;
 mod notifications_prefs;
 mod board_detail;
 mod repositories;
+mod sessions;
 mod storage;
 mod team_general;
 mod tools;
@@ -144,6 +145,7 @@ use archived_boards::ArchivedBoardsPane;
 use board_detail::BoardDetailPane;
 use notifications_prefs::NotificationsPrefsPane;
 use repositories::RepositoriesPane;
+use sessions::SessionsPane;
 use storage::StoragePane;
 use team_general::GeneralPane;
 use tools::ToolsPane;
@@ -196,6 +198,9 @@ pub(crate) enum SettingsSection {
     /// old Coding pane).
     Agents,
     LocalRepos,
+    /// EXP-886: how long this machine keeps finished runs' transcripts and
+    /// resume records (`sessionRetentionDays`). Never gated.
+    Sessions,
     /// EXP-238: identity + timezone (the old Account screen's head — the
     /// notification prefs split into [`SettingsSection::Notifications`]).
     /// Never gated.
@@ -313,6 +318,10 @@ const NAV_GROUPS: &[NavGroup] = &[
                 label: "Worktrees",
                 section: SettingsSection::LocalRepos,
             },
+            NavItem {
+                label: "Sessions",
+                section: SettingsSection::Sessions,
+            },
         ],
     },
     // EXP-238: the Personal group is ordinary nav now — the web merged the
@@ -365,6 +374,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
+        SettingsSection::Sessions => Icon::from(registry::SETTINGS_SESSIONS),
         SettingsSection::Account => Icon::from(registry::SETTINGS_ACCOUNT),
         SettingsSection::Notifications => Icon::from(registry::SETTINGS_NOTIFICATIONS),
         SettingsSection::ApiKeys => Icon::from(registry::SETTINGS_API),
@@ -478,6 +488,8 @@ pub struct SettingsView {
     /// §4.7 desktop-only Worktrees section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated.
     local_repos: Entity<LocalReposPane>,
+    /// EXP-886: the session history window — local per-install, un-gated.
+    sessions: Entity<SessionsPane>,
     /// EXP-238: identity + timezone (the old Account screen, folded in).
     account: Entity<AccountPane>,
     /// EXP-238: email/push notification prefs — their own section now.
@@ -522,6 +534,7 @@ impl SettingsView {
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
+        let sessions = cx.new(SessionsPane::new);
         let account = cx.new(|cx| AccountPane::new(window, cx));
         let notifications = cx.new(NotificationsPrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
@@ -556,6 +569,7 @@ impl SettingsView {
             tools,
             agents,
             local_repos,
+            sessions,
             account,
             notifications,
             api_keys,
@@ -648,6 +662,7 @@ impl Render for SettingsView {
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::Agents => self.agents.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
+            SettingsSection::Sessions => self.sessions.clone().into_any_element(),
             SettingsSection::Account => self.account.clone().into_any_element(),
             SettingsSection::Notifications => self.notifications.clone().into_any_element(),
             SettingsSection::ApiKeys => self.api_keys.clone().into_any_element(),
@@ -1351,6 +1366,7 @@ mod tests {
             SettingsSection::Tools,
             SettingsSection::Agents,
             SettingsSection::LocalRepos,
+            SettingsSection::Sessions,
         ] {
             assert!(section_visible(&section, false));
             assert_eq!(
@@ -1358,6 +1374,13 @@ mod tests {
                 section
             );
         }
+        // EXP-886: Sessions closes the This device group.
+        let device = NAV_GROUPS
+            .iter()
+            .find(|group| group.label == "This device")
+            .expect("This device group");
+        let labels: Vec<&str> = device.items.iter().map(|item| item.label).collect();
+        assert_eq!(labels, vec!["Tools", "Agents", "Worktrees", "Sessions"]);
     }
 
     /// EXP-262/EXP-238: the Personal sections are never gated and never fall

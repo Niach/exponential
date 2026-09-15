@@ -12,7 +12,7 @@ export type Tool =
   | `inbox`
   /* EXP-706: a rail SCREEN, not a docked tool window. */
   | `reviews`
-  /* EXP-825: the Agent page, the composer over the Running/Past bands. */
+  /* EXP-825: the Agent page, the composer over the Running/Recent bands. */
   | `agent`
 export type IdeView = `board` | `issue` | `files` | `source-control`
 
