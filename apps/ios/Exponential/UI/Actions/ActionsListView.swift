@@ -137,7 +137,7 @@ struct ActionsListView: View {
             ))
         }
         .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
+            WorkScreen(subject: .session(id: target.sessionId))
                 .environment(\.accountId, accountId)
         }
     }
@@ -471,28 +471,9 @@ struct ActionsListView: View {
                 title: session.actionName ?? "Action run",
                 state: CodingSessionDisplayState.of(session: session, prState: session.prState),
                 device: runDevice(session, vm: vm),
-                open: .action { sessionTarget = .init(sessionId: session.id) },
-                trailing: { automatedRunTrailing(session, vm: vm) }
+                open: .action { sessionTarget = .init(sessionId: session.id) }
             )
             .accessibilityIdentifier("automated-run-row")
-        }
-    }
-
-    /// EXP-874: the live run's trailing circle, the Agent page's rule — the
-    /// action's own glyph, opening the automation form for owners (when the
-    /// automation still exists) and the action editor otherwise.
-    @ViewBuilder
-    private func automatedRunTrailing(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
-        let action = session.actionId.flatMap { id in vm.actions.first { $0.id == id } }
-        let automation = session.automationId.flatMap { id in vm.automations.first { $0.id == id } }
-        if vm.permissions.isOwner, let automation {
-            CircleIconButton(action?.icon ?? AppIcons.actionDefault, accessibilityLabel: "Edit automation") {
-                formTarget = AutomationFormTarget(id: automation.id, automation: automation)
-            }
-        } else if let action {
-            CircleIconButton(action.icon ?? AppIcons.actionDefault, accessibilityLabel: "Edit action") {
-                editTarget = action
-            }
         }
     }
 

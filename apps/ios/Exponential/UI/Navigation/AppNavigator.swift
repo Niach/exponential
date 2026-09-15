@@ -680,7 +680,8 @@ struct MainNavigator: View {
             IssueListView(boardId: id)
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
-            IssueDetailView(issueId: id)
+            // EXP-893: the Work screen on its Issue face.
+            WorkScreen(subject: .issue(id: id))
                 .environment(\.accountId, accountId)
         case let .createIssue(accountId, boardId, draftId):
             CreateIssueView(boardId: boardId, draftId: draftId) { createdId in
@@ -698,7 +699,8 @@ struct MainNavigator: View {
             ChangesView(issueId: issueId)
                 .environment(\.accountId, accountId)
         case let .agentSession(accountId, sessionId):
-            AgentSessionRouteView(sessionId: sessionId)
+            // EXP-893: the Work screen on its Run face.
+            WorkScreen(subject: .session(id: sessionId))
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
             AgentPageView(seed: seed)

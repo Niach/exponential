@@ -1084,6 +1084,8 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.configModeLabel, "Mode")
         XCTAssertEqual(AgentFeed.planToggleLabel, "Plan")
         XCTAssertEqual(AgentFeed.planModeId, "plan")
+        // EXP-893: the expanded steer composer's footer word.
+        XCTAssertEqual(AgentFeed.planModeFooterLabel, "Plan mode")
     }
 
     // MARK: - Narration merging + subagent scoping (EXP-772/EXP-773)

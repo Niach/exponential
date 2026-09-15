@@ -1215,8 +1215,12 @@ public enum AgentFeed {
 
     /// The composer's placeholder. EXP-820: the composer HIDES while a card
     /// is pending (its free answer is an inline field on the card itself), so
-    /// there is only the one generic prompt.
-    public static let composerPlaceholder = "Message the agent…"
+    /// there is only the one generic prompt. EXP-893: the phone's steer
+    /// composer wears the desktop's words (`WorkFaces.steerComposerPlaceholder`).
+    public static let composerPlaceholder = WorkFaces.steerComposerPlaceholder
+    /// EXP-893: the expanded composer's footer word for plan mode — blue text
+    /// while the run is in plan mode (`WorkFaces.planModeLabel`).
+    public static let planModeFooterLabel = WorkFaces.planModeLabel
     /// EXP-820: the inline field a free-text row ("Type something.") expands
     /// into. Byte-identical ×4 (web `agent-session.tsx`).
     public static let freeTextPlaceholder = "Type your answer…"
