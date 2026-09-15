@@ -44,6 +44,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  GLASS_CARD_CLASS,
 } from "@exp/ui"
 
 export type PickerRepo = {
@@ -352,9 +353,10 @@ export function GithubRepoPicker({
 
       {!empty && (
         <Command
-          className={
-            variant === `plain` ? undefined : `rounded-md border bg-glass-card`
-          }
+          // EXP-903: the framed arm is the canonical glass card — XL
+          // radius and the card hairline, not the `rounded-md border` this
+          // had drifted to.
+          className={variant === `plain` ? undefined : GLASS_CARD_CLASS}
         >
           <CommandInput placeholder={GH_SEARCH_PLACEHOLDER} />
           <CommandList className={cn(`max-h-[min(20rem,50dvh)]`, listClassName)}>

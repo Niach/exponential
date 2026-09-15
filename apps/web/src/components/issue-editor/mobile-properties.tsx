@@ -34,6 +34,7 @@ import {
   MobilePopoverTrigger,
   Button,
   Calendar,
+  GlassCard,
   GlassSectionHeader,
   Pill,
   UserAvatar,
@@ -151,7 +152,7 @@ export function IssueEditorMobileProperties({
 
   return (
     <div className="mx-3 my-3 flex flex-col gap-4">
-      <div className="divide-y divide-glass-stroke overflow-hidden rounded-xl border border-glass-stroke-card bg-glass-card">
+      <GlassCard className="divide-y divide-glass-stroke overflow-hidden">
         <OptionDropdownMenu
           value={status.id}
           fallbackValue={status.id}
@@ -300,7 +301,7 @@ export function IssueEditorMobileProperties({
             }
           />
         )}
-      </div>
+      </GlassCard>
 
       {/* EXP-698 r4: labels leave the row list. Every team label is a chip
           that toggles on tap (Android parity), and the trailing "+ Label"

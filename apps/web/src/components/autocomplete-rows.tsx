@@ -12,6 +12,11 @@ import type { SteerCommand } from "@/lib/steer-commands"
 // Selection uses onMouseDown+preventDefault so the editor/textarea keeps
 // focus through the click.
 
+// EXP-903 — the ONE row shape every candidate below wears. The active row
+// takes `bg-glass-active`, the same highlight the package menus use, so a
+// floating autocomplete and a real menu light up identically.
+const AUTOCOMPLETE_ROW_CLASS = `flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm`
+
 export function UserCandidateRow({
   user,
   active,
@@ -34,8 +39,8 @@ export function UserCandidateRow({
         onSelect()
       }}
       onMouseEnter={onHover}
-      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
-        active ? `bg-accent` : ``
+      className={`${AUTOCOMPLETE_ROW_CLASS} ${
+        active ? `bg-glass-active` : ``
       }`}
     >
       <UserAvatar size={20} user={{ id: user.id, name, image: user.image }} />
@@ -68,8 +73,8 @@ export function IssueCandidateRow({
         onSelect()
       }}
       onMouseEnter={onHover}
-      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
-        active ? `bg-accent` : ``
+      className={`${AUTOCOMPLETE_ROW_CLASS} ${
+        active ? `bg-glass-active` : ``
       }`}
     >
       <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
@@ -111,8 +116,8 @@ export function EmojiCandidateRow({
         onSelect()
       }}
       onMouseEnter={onHover}
-      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
-        active ? `bg-accent` : ``
+      className={`${AUTOCOMPLETE_ROW_CLASS} ${
+        active ? `bg-glass-active` : ``
       }`}
     >
       <span className="emoji-glyph w-6 shrink-0 text-center text-base leading-none">
@@ -149,8 +154,8 @@ export function CommandCandidateRow({
         onSelect()
       }}
       onMouseEnter={onHover}
-      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
-        active ? `bg-accent` : ``
+      className={`${AUTOCOMPLETE_ROW_CLASS} ${
+        active ? `bg-glass-active` : ``
       }`}
     >
       <span className="shrink-0 font-mono text-xs">/{command.name}</span>

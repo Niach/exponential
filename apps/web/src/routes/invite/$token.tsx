@@ -9,6 +9,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  IconDisc,
 } from "@exp/ui"
 import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
 
@@ -89,9 +90,7 @@ function InviteAcceptPage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Users className="h-6 w-6 text-primary" />
-          </div>
+          <IconDisc icon={Users} className="mx-auto mb-4" />
           <CardTitle>
             {success
               ? `Welcome!`

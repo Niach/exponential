@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  IconDisc,
   Label,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
@@ -227,9 +228,7 @@ function GithubClaim() {
         {errorCopy ? (
           <>
             <CardHeader className="flex flex-col items-center gap-3 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15 text-red-500">
-                <CircleAlert className="h-6 w-6" strokeWidth={2.5} />
-              </div>
+              <IconDisc icon={CircleAlert} tone="danger" strokeWidth={2.5} />
               <CardTitle className="text-xl">{errorCopy.title}</CardTitle>
               <CardDescription>{errorCopy.body}</CardDescription>
               {login ? (
@@ -261,9 +260,7 @@ function GithubClaim() {
         ) : done ? (
           <>
             <CardHeader className="flex flex-col items-center gap-3 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
-                <Check className="h-6 w-6" strokeWidth={2.5} />
-              </div>
+              <IconDisc icon={Check} tone="success" strokeWidth={2.5} />
               <CardTitle className="text-xl">GitHub connections saved</CardTitle>
               <CardDescription>
                 {preview?.mobile
@@ -287,9 +284,7 @@ function GithubClaim() {
           </>
         ) : !preview ? (
           <CardHeader className="flex flex-col items-center gap-3 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <Github className="h-6 w-6" />
-            </div>
+            <IconDisc icon={Github} tone="muted" />
             <CardTitle className="text-xl">Connecting GitHub…</CardTitle>
             <CardDescription>
               {ticket
@@ -300,9 +295,8 @@ function GithubClaim() {
         ) : (
           <>
             <CardHeader className="flex flex-col items-center gap-3 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-foreground">
-                <Github className="h-6 w-6" />
-              </div>
+              {/* ONE muted disc for the GitHub mark at both steps (EXP-903). */}
+              <IconDisc icon={Github} tone="muted" />
               <CardTitle className="text-xl">Choose GitHub accounts</CardTitle>
               <CardDescription>
                 Checked accounts are connected to this team. Uncheck a

@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import type { User } from "@/db/schema"
-import { Textarea } from "@exp/ui"
+import { MENU_SURFACE_CLASS, Textarea } from "@exp/ui"
+import { cn } from "@/lib/utils"
 import {
   EmojiCandidateRow,
   IssueCandidateRow,
@@ -301,7 +302,12 @@ export const MentionTextarea = forwardRef<
         onKeyDown={handleKeyDown}
       />
       {menu && candidateCount > 0 && (
-        <div className="absolute bottom-full z-20 mb-1 w-72 overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card-opaque">
+        <div
+          className={cn(
+            MENU_SURFACE_CLASS,
+            `absolute bottom-full mb-1 w-72 overflow-hidden`
+          )}
+        >
           {menu.kind === `mention` &&
             mentionCandidates.map((u, i) => (
               <UserCandidateRow

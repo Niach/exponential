@@ -15,8 +15,8 @@ its data passed in, and the app keeps the binding beside its own state (see
 | --- | --- |
 | `styles.css` | The theme: `@import "tailwindcss"`, `@theme inline`, `:root, :host`, `.dark`, the base layer, the motion/glass `@utility` recipes and the `.issue-chip` box. An app imports THIS instead of `tailwindcss`. |
 | the shadcn set | 33 modules — `button`, `dialog`, `sheet`, `select`, `dropdown-menu`, `command`, `sidebar`, `calendar`, `pill`, `glass-rows`, the colour/icon pickers … |
-| primitives | `IssueChip` + `ChipRemoveButton`, `StatusGlyph`, `UserAvatar`, `TeamAvatar`, `LiveDot`, `RichTab`, `EmptyState`, `IconTooltip`, `MobilePopover`, `OptionDropdownMenu` |
-| helpers | `cn` / `getInitials`, `MENU_SURFACE_CLASS`, `avatar-color`, `label-colors`, `board-icons`, `session-dot`, `status-icons`, `icons.generated` (the committed `@exp/icons` output), `useIsMobile`, `useSheetDrag` |
+| primitives | `IssueChip` + `ChipRemoveButton`, `StatusGlyph`, `UserAvatar`, `TeamAvatar`, `LiveDot`, `RichTab`, `EmptyState`, `GlassCard`, `IconDisc`, `IconTooltip`, `MobilePopover`, `OptionDropdownMenu` |
+| helpers | `cn` / `getInitials`, `MENU_SURFACE_CLASS`, `GLASS_CARD_CLASS`, `avatar-color`, `label-colors`, `board-icons`, `session-dot`, `status-icons`, `icons.generated` (the committed `@exp/icons` output), `useIsMobile`, `useSheetDrag` |
 
 `src/icons.generated.ts` is written by `bun run --filter @exp/icons generate` —
 never hand-edit it.
@@ -49,8 +49,9 @@ Then:
 1. rewrite the generated `@/…` imports to relative ones (`./cn`, `./button`, …);
 2. add `export * from "./<name>"` to `src/index.ts`;
 3. if it needs a class recipe another surface already has, reuse the constant
-   (`MENU_SURFACE_CLASS`, the `SEGMENTED_*` set in `tabs.tsx`) instead of
-   copying the string.
+   (`MENU_SURFACE_CLASS`, `GLASS_CARD_CLASS`, the `SEGMENTED_*` set in
+   `tabs.tsx`) instead of copying the string; a tinted 48px glyph circle is
+   `IconDisc`, never a hand-rolled `rounded-full bg-primary/10`.
 
 ## Islands
 
