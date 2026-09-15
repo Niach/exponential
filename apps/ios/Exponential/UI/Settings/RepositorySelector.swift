@@ -149,6 +149,8 @@ struct BoardRepoField: View {
                 teamId: teamId,
                 integrationsApi: deps.integrationsApi
             ) { repo in
+                // Nothing to persist here — the host connects the pick (now or
+                // on submit), so the in-sheet add always succeeds.
                 onConnectNew(repo)
             }
         }

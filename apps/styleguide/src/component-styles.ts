@@ -53,6 +53,38 @@ export const componentStyles = `
 .cmp-relation-row .id { flex: none; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--fg-70); }
 .cmp-relation-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmp-relation-row .trailing { flex: none; display: flex; align-items: center; }
+
+/* github-connection (FEED-42): the status block BEFORE the repo list. */
+.cmp-github-status { display: grid; gap: 8px; padding: 0 4px; font-size: 14px; color: var(--muted-fg); }
+.cmp-github-status .glyph, .cmp-repo-picker .glyph { flex: none; width: 16px; height: 16px; }
+.cmp-github-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cmp-github-text { min-width: 0; }
+.cmp-github-warn { color: var(--destructive); }
+.cmp-github-dot { flex: none; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; background: var(--ok); }
+.cmp-github-accounts { display: grid; gap: 4px; padding-left: 20px; }
+.cmp-github-account { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cmp-github-account .glyph { width: 14px; height: 14px; }
+.cmp-github-login { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-85); }
+.cmp-github-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted-fg); }
+.cmp-github-link:hover { color: var(--fg); }
+.cmp-github-status .cmp-github-link .glyph, .cmp-repo-picker .cmp-github-link .glyph { width: 12px; height: 12px; }
+.cmp-github-caption { margin: 0; padding: 0 4px; font-size: 12px; line-height: 18px; color: var(--fg-50); }
+.cmp-github-indent { padding-left: 20px; }
+.cmp-github-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cmp-github-status .cmp-github-actions { padding-left: 20px; }
+
+/* repo-picker (FEED-42): banner, search, tap-to-add rows, the dashed footer. */
+.cmp-repo-picker-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--r-md); border: 1px solid var(--stroke-soft); background: var(--row); font-size: 13px; color: var(--warn); }
+.cmp-repo-picker-banner .cmp-github-text { flex: 1; color: var(--fg-85); }
+.cmp-repo-picker-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 14px; color: var(--muted-fg); }
+.cmp-repo-picker-row:hover { background: var(--active-50); }
+.cmp-repo-picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; color: var(--fg); }
+.cmp-repo-picker-lock { flex: none; display: flex; }
+.cmp-repo-picker .cmp-repo-picker-lock .glyph { width: 14px; height: 14px; }
+.cmp-repo-picker-footer { display: grid; gap: 8px; padding: 12px; border-radius: var(--r-md); border: 1px dashed var(--stroke-strong); }
+.cmp-repo-picker-lookup { display: flex; align-items: center; gap: 8px; }
+.cmp-repo-picker-lookup .cmp-text-field { flex: 1; min-width: 0; }
+.cmp-repo-picker-error { margin: 0; padding: 0 4px; font-size: 12px; color: var(--destructive); }
 .cmp-row-shell .trailing { flex: none; display: flex; align-items: center; gap: 8px; }
 .cmp-row-shell input.value {
   min-width: 0;

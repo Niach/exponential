@@ -30,14 +30,15 @@ use gpui_component::{
 
 use crate::controls::{glass_input, WebControl as _};
 use crate::github_connect::{
-    fetch_github_repos, is_repo_full_name, lookup_repo, GithubRepo, GithubReposResult,
+    copy, fetch_github_repos, is_repo_full_name, lookup_repo, reauth_logins, GithubRepo,
+    GithubReposResult,
 };
 use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
 use super::repositories::RepositoriesPane;
-use super::{error_notice, open_url, row_stroke, upgrade_notice};
+use super::{error_notice, open_url, row_stroke};
 
 enum Load {
     Loading,
@@ -78,8 +79,9 @@ pub struct AddRepositoryDialogView {
     generation: u64,
     adding: bool,
     error: Option<SharedString>,
-    /// The add failed a plan cap — render the neutral upgrade notice (§4.9).
-    plan_limited: bool,
+    /// The add failed a plan cap — the server's own message, rendered with
+    /// the neutral "Upgrade on the web" pointer (§4.9).
+    plan_limited: Option<SharedString>,
     /// The add failed the grant-model FORBIDDEN — pair the error with the
     /// OAuth reconnect hand-off.
     grant_reconnect: bool,
@@ -101,8 +103,8 @@ impl AddRepositoryDialogView {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let query =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories\u{2026}"));
-        let lookup = cx.new(|cx| InputState::new(window, cx).placeholder("owner/name"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(copy::SEARCH_PLACEHOLDER));
+        let lookup = cx.new(|cx| InputState::new(window, cx).placeholder(copy::LOOKUP_PLACEHOLDER));
         let subscriptions = vec![
             cx.subscribe(&query, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -164,7 +166,7 @@ impl AddRepositoryDialogView {
             generation: 0,
             adding: false,
             error: None,
-            plan_limited: false,
+            plan_limited: None,
             grant_reconnect: false,
             focused_once: false,
             lookup,
@@ -255,35 +257,39 @@ impl AddRepositoryDialogView {
         let loading = matches!(self.load, Load::Loading);
         let lookup_valid = is_repo_full_name(self.lookup.read(cx).value().trim());
 
+        // The sentence, then one Configure link per account (`accountLogin`
+        // or "installation {id}") with a trailing external glyph, comma-
+        // separated (FEED-42 ×4).
         let mut sentence = h_flex()
             .flex_wrap()
             .items_center()
             .gap_x_1()
-            .child(
-                "Only repositories your GitHub installation grants appear here. Missing one? \
-                 Grant it on GitHub, then refresh.",
-            );
+            .child(copy::FOOTER_SENTENCE);
+        let link_count = manage_links.len();
         for (index, (label, url)) in manage_links.into_iter().enumerate() {
             sentence = sentence.child(
-                Button::new(("add-repo-manage", index))
-                    .link()
-                    .cursor_pointer()
-                    .xsmall()
-                    .label(SharedString::from(label))
-                    .icon(registry::UI_EXTERNAL_LINK)
-                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                h_flex()
+                    .items_center()
+                    .child(
+                        Button::new(("add-repo-manage", index))
+                            .link()
+                            .cursor_pointer()
+                            .xsmall()
+                            .label(SharedString::from(label))
+                            .child(super::repositories::external_glyph())
+                            .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                    )
+                    .when(index + 1 < link_count, |link| link.child(",")),
             );
         }
 
-        let mut lookup_button = Button::new("add-repo-lookup")
-            .outline()
-            .cursor_pointer()
-            .web_sm()
-            .label("Look up")
+        let mut lookup_button = pill("add-repo-lookup", cx)
+            .label(copy::LOOK_UP)
             .disabled(!lookup_valid || self.lookup_busy)
             .on_click(cx.listener(|this, _, window, cx| this.lookup(window, cx)));
         if self.lookup_busy {
-            lookup_button = lookup_button.loading(true);
+            // A pill has no glyph at rest — the spinner rides the icon slot.
+            lookup_button = lookup_button.icon(registry::UI_LOADING).loading(true);
         }
 
         v_flex()
@@ -298,34 +304,23 @@ impl AddRepositoryDialogView {
             .text_xs()
             .text_color(cx.theme().muted_foreground)
             .child(sentence)
-            .when(has_more, |column| {
-                column.child(
-                    "Showing the first 500 repositories per account \u{2014} use the field \
-                     below for the rest.",
-                )
-            })
+            .when(has_more, |column| column.child(copy::HAS_MORE))
             .child(
                 h_flex()
                     .flex_wrap()
                     .items_center()
                     .gap_2()
                     .child(
-                        Button::new("add-repo-refresh")
-                            .outline()
-                            .cursor_pointer()
-                            .web_sm()
+                        pill("add-repo-refresh", cx)
                             .icon(registry::UI_REFRESH)
-                            .label("Refresh")
+                            .label(copy::REFRESH)
                             .disabled(loading)
                             .on_click(cx.listener(|this, _, _, cx| this.refresh_access(cx))),
                     )
                     .children(install_url.map(|url| {
-                        Button::new("add-repo-install-another")
-                            .ghost()
-                            .cursor_pointer()
-                            .web_sm()
+                        pill("add-repo-install-another", cx)
                             .icon(registry::UI_ADD)
-                            .label("Install on another account")
+                            .label(copy::INSTALL_ON_ANOTHER_ACCOUNT)
                             .on_click(move |_, _, cx| open_url(cx, url.clone()))
                     })),
             )
@@ -413,7 +408,7 @@ impl AddRepositoryDialogView {
         };
         self.adding = true;
         self.error = None;
-        self.plan_limited = false;
+        self.plan_limited = None;
         self.grant_reconnect = false;
         cx.notify();
 
@@ -450,15 +445,12 @@ impl AddRepositoryDialogView {
                     // Grant-model FORBIDDEN first: `is_plan_limit` matches any
                     // 412/403-shaped cap, and a stale GitHub grant must not be
                     // misread as an upsell (create_board_dialog precedent).
+                    // The dialog stays open on every failure (FEED-42).
                     if crate::create_board_dialog::is_grant_forbidden(&err) {
-                        this.error = Some(
-                            "GitHub says you don't have access to this repository, or your \
-                             connection is stale. Reconnect GitHub and try again."
-                                .into(),
-                        );
+                        this.error = Some(copy::ADD_FORBIDDEN.into());
                         this.grant_reconnect = true;
                     } else if super::is_plan_limit(&err) {
-                        this.plan_limited = true;
+                        this.plan_limited = Some(super::form_error(&err, &err.to_string()).into());
                     } else {
                         this.error = Some(format!("{err}").into());
                     }
@@ -481,17 +473,6 @@ impl AddRepositoryDialogView {
         }
     }
 
-    fn connect_button(&self, id: &'static str, label: &'static str) -> Option<impl IntoElement> {
-        self.connect_url().map(|url| {
-            Button::new(id)
-                .outline().cursor_pointer()
-                .web_sm()
-                .icon(registry::UI_GITHUB)
-                .label(label)
-                .on_click(move |_, _, cx| open_url(cx, url.clone()))
-        })
-    }
-
     fn message(&self, message: &'static str, cx: &gpui::App) -> impl IntoElement {
         div()
             .text_sm()
@@ -499,44 +480,41 @@ impl AddRepositoryDialogView {
             .child(message)
     }
 
-    fn message_owned(&self, message: String, cx: &gpui::App) -> impl IntoElement {
-        div()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(SharedString::from(message))
+    /// The inline "Reconnect GitHub" pill (re-auth banner + FORBIDDEN add).
+    fn reconnect_pill(&self, id: &'static str, cx: &gpui::App) -> Option<impl IntoElement> {
+        self.connect_url().map(|url| {
+            pill(id, cx)
+                .icon(registry::UI_REFRESH)
+                .label(copy::RECONNECT_GITHUB)
+                .on_click(move |_, _, cx| open_url(cx, url.clone()))
+        })
     }
 
-    /// The amber "your grant snapshot is stale" banner above a list that still
-    /// has rows — the repos are pickable, they're just possibly incomplete.
-    /// Names the stale accounts when known (EXP-365).
-    fn reconnect_banner(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let suffix = match &self.load {
-            Load::Ready(result) => {
-                crate::github_connect::reauth_account_suffix(&result.installations, "for")
-            }
-            _ => String::new(),
+    /// The re-auth banner — shown INDEPENDENTLY of the suspended one (FEED-42),
+    /// over an empty list (the load-your-repos variant) or a list that still
+    /// has rows (the possibly-incomplete variant). Names the reconnectable
+    /// accounts when known (EXP-365); STALE links are excluded (EXP-557).
+    fn reconnect_banner(
+        &self,
+        result: &GithubReposResult,
+        cx: &gpui::App,
+    ) -> impl IntoElement {
+        let logins = reauth_logins(&result.installations);
+        let message = if result.repos.is_empty() {
+            copy::picker_reauth_empty(&logins)
+        } else {
+            copy::picker_reauth(&logins)
         };
-        h_flex()
-            .flex_wrap()
-            .gap_2()
-            .items_center()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(row_stroke(cx))
-            .text_xs()
+        banner(cx)
             .text_color(cx.theme().muted_foreground)
             .child(
                 Icon::new(registry::UI_WARNING)
                     .xsmall()
+                    .flex_shrink_0()
                     .text_color(theme::tokens::YELLOW.to_hsla()),
             )
-            .child(div().flex_1().min_w_0().child(SharedString::from(format!(
-                "Reconnect GitHub{suffix} to refresh. Repos created or shared with you \
-                 since your last connect won't appear until you do."
-            ))))
-            .children(self.connect_button("add-repo-reconnect", "Reconnect GitHub"))
+            .child(div().flex_1().min_w_0().child(SharedString::from(message)))
+            .children(self.reconnect_pill("add-repo-reconnect", cx))
     }
 
     /// One pickable repo row. The name ellipsizes, so the whole definite-width
@@ -589,25 +567,15 @@ impl AddRepositoryDialogView {
     }
 }
 
-/// GitHub-side App suspension (REV2-29): the installation lists no repos and
-/// mints no tokens until it's unsuspended ON GITHUB — pair the explanation
-/// with the manage hand-off, never a reconnect.
-fn suspended_notice(
-    installations: &[crate::github_connect::GithubInstallation],
-    cx: &gpui::App,
-) -> impl IntoElement {
-    let suspended: Vec<&crate::github_connect::GithubInstallation> =
-        installations.iter().filter(|inst| inst.suspended).collect();
-    let names = suspended
-        .iter()
-        .map(|inst| inst.label())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let manage_url = suspended
-        .first()
-        .map(|inst| inst.manage_url.clone())
-        .filter(|url| !url.is_empty());
+/// Every inline action of the picker is an `sm action` pill (FEED-42).
+fn pill(id: impl Into<gpui::ElementId>, cx: &gpui::App) -> Button {
+    crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
+}
+
+/// The bordered notice row both banners share.
+fn banner(cx: &gpui::App) -> gpui::Div {
     h_flex()
+        .w_full()
         .flex_wrap()
         .gap_2()
         .items_center()
@@ -617,17 +585,57 @@ fn suspended_notice(
         .border_1()
         .border_color(row_stroke(cx))
         .text_xs()
+}
+
+/// A full-state box (loading / not configured / not installed): the glyph,
+/// then the copy.
+fn state_box(glyph: gpui::AnyElement, message: &'static str, cx: &gpui::App) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .items_start()
+        .gap_2()
+        .px_3()
+        .py_3()
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_dashed()
+        .border_color(row_stroke(cx))
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(div().flex_shrink_0().pt_0p5().child(glyph))
+        .child(div().flex_1().min_w_0().child(message))
+}
+
+/// GitHub-side App suspension (REV2-29): the installation lists no repos and
+/// mints no tokens until it's unsuspended ON GITHUB. Explanation only — no
+/// button (FEED-42 ×4); the Repositories pane carries Manage. An account
+/// without a login reads "a connected account".
+fn suspended_notice(
+    installations: &[crate::github_connect::GithubInstallation],
+    cx: &gpui::App,
+) -> impl IntoElement {
+    let names = installations
+        .iter()
+        .filter(|inst| inst.suspended)
+        .map(|inst| {
+            inst.account_login
+                .clone()
+                .filter(|login| !login.is_empty())
+                .unwrap_or_else(|| copy::SUSPENDED_FALLBACK.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    banner(cx)
+        .border_color(cx.theme().danger.opacity(0.5))
+        .bg(cx.theme().danger.opacity(0.1))
         .text_color(cx.theme().danger)
-        .child(Icon::new(registry::UI_WARNING).xsmall())
-        .child(div().flex_1().min_w_0().child(SharedString::from(format!(
-            "GitHub suspended the Exponential app for {names}. Its repositories can't \
-             be connected until you unsuspend it on GitHub."
-        ))))
-        .children(manage_url.map(|url| {
-            crate::surface::glass_pill_button("add-repo-unsuspend", crate::surface::PillSize::Sm, cx)
-                .label("Manage")
-                .on_click(move |_, _, cx| open_url(cx, url.clone()))
-        }))
+        .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(SharedString::from(copy::picker_suspended(&names))),
+        )
 }
 
 impl Render for AddRepositoryDialogView {
@@ -638,143 +646,148 @@ impl Render for AddRepositoryDialogView {
         }
 
         let mut body = v_flex().size_full().min_h_0().gap_3();
+        let github_glyph = || Icon::new(registry::UI_GITHUB).small().into_any_element();
 
         match &self.load {
             Load::Loading => {
-                body = body.child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(Spinner::new().icon(registry::UI_LOADING).xsmall())
-                        .child("Loading your GitHub repositories\u{2026}"),
-                );
-            }
-            Load::Failed(message) => {
-                body = body.child(error_notice(message.clone(), cx));
-            }
-            Load::Ready(result) if !result.configured => {
-                body = body.child(self.message(
-                    "GitHub isn't configured on this server, so repositories can't be connected.",
+                body = body.child(state_box(
+                    Spinner::new()
+                        .icon(registry::UI_LOADING)
+                        .small()
+                        .into_any_element(),
+                    copy::LOADING_REPOS,
                     cx,
                 ));
             }
+            Load::Failed(message) => {
+                // A fetch that failed with no data reads like not configured
+                // (web parity), plus the inline error.
+                body = body
+                    .child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().danger)
+                            .child(message.clone()),
+                    );
+            }
+            Load::Ready(result) if !result.configured => {
+                body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));
+            }
             Load::Ready(result) if !result.installed => {
                 body = body
-                    .child(self.message(
-                        "Connect the Exponential GitHub App to pick a repository. You'll come \
-                         right back here.",
-                        cx,
-                    ))
+                    .child(state_box(github_glyph(), copy::PICKER_NOT_INSTALLED, cx))
                     .child(
                         h_flex()
                             .flex_wrap()
                             .gap_2()
                             .items_center()
-                            .children(self.connect_button("add-repo-connect", "Connect GitHub"))
-                            .child(
-                                Button::new("add-repo-connected-refresh")
-                                    .ghost().cursor_pointer()
+                            .children(self.connect_url().map(|url| {
+                                Button::new("add-repo-connect")
+                                    .primary()
+                                    .cursor_pointer()
                                     .web_sm()
-                                    .label("I've connected")
+                                    .icon(registry::UI_GITHUB)
+                                    .label(copy::CONNECT_GITHUB)
+                                    .on_click(move |_, _, cx| open_url(cx, url.clone()))
+                            }))
+                            .child(
+                                pill("add-repo-connected-refresh", cx)
+                                    .icon(registry::UI_REFRESH)
+                                    .label(copy::I_HAVE_CONNECTED)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.fetch(true, true, cx)
                                     })),
                             ),
                     );
             }
-            Load::Ready(result) if result.repos.is_empty() => {
-                // Installed but zero repos — three DISTINCT states (EXP-365):
-                // a suspended installation needs an UNSUSPEND on GitHub (a
-                // reconnect cannot fix it — never nudge the wrong fix), an
-                // uncaptured grant snapshot needs the OAuth reconnect
-                // (EXP-557: STALE links are excluded — no reconnect can
-                // refresh those; the Repositories pane offers Disconnect),
-                // and an account with no reachable repos needs neither.
-                if result.installations.iter().any(|inst| inst.suspended) {
-                    body = body.child(suspended_notice(&result.installations, cx));
-                } else if result
-                    .installations
-                    .iter()
-                    .any(|inst| inst.needs_reconnect())
-                {
-                    let suffix = crate::github_connect::reauth_account_suffix(
-                        &result.installations,
-                        "from",
-                    );
-                    body = body
-                        .child(self.message_owned(
-                            format!(
-                                "Reconnect GitHub to load the repositories you can access{suffix}."
-                            ),
-                            cx,
-                        ))
-                        .child(h_flex().children(
-                            self.connect_button("add-repo-reconnect-empty", "Reconnect GitHub"),
-                        ));
-                } else {
-                    body = body.child(self.message(
-                        "None of your connected GitHub accounts grants a repository yet.",
-                        cx,
-                    ));
-                }
-                // FEED-30: the footer explains the empty list too.
-                body = body.child(self.footer(result, window, cx));
-            }
             Load::Ready(result) => {
-                if result.installations.iter().any(|inst| inst.suspended) {
-                    body = body.child(suspended_notice(&result.installations, cx));
-                }
-                if result
+                // Installed. The suspended and re-auth banners are
+                // INDEPENDENT (FEED-42): a suspended installation needs an
+                // UNSUSPEND on GitHub (a reconnect cannot fix it), an
+                // uncaptured grant snapshot on another account still needs
+                // the OAuth reconnect (EXP-557: STALE links excluded).
+                let any_suspended = result.installations.iter().any(|inst| inst.suspended);
+                let needs_reauth = result
                     .installations
                     .iter()
-                    .any(|inst| inst.needs_reconnect())
-                {
-                    body = body.child(self.reconnect_banner(cx));
+                    .any(|inst| inst.needs_reconnect());
+                if any_suspended {
+                    body = body.child(suspended_notice(&result.installations, cx));
                 }
-                let filter = self.query.read(cx).value().trim().to_lowercase();
-                let visible: Vec<GithubRepo> = result
-                    .repos
-                    .iter()
-                    .filter(|repo| {
-                        filter.is_empty() || repo.full_name.to_lowercase().contains(&filter)
-                    })
-                    .cloned()
-                    .collect();
+                if needs_reauth {
+                    body = body.child(self.reconnect_banner(result, cx));
+                }
 
-                body = body
-                    .child(glass_input(&self.query, window, cx).web_input_sm().cleanable(true));
-                if visible.is_empty() {
-                    body = body.child(self.message("No repositories found.", cx));
-                } else {
-                    let mut list = v_flex()
-                        .id("add-repo-list")
-                        .flex_1()
-                        .min_h_0()
-                        .w_full()
-                        .overflow_y_scroll();
-                    for (index, repo) in visible.iter().enumerate() {
-                        list = list.child(self.render_repo_row(index, repo, cx));
+                if result.repos.is_empty() {
+                    if !needs_reauth && !any_suspended {
+                        body = body.child(self.message(copy::NO_GRANTS, cx));
                     }
-                    body = body.child(list);
+                } else {
+                    let filter = self.query.read(cx).value().trim().to_lowercase();
+                    let visible: Vec<GithubRepo> = result
+                        .repos
+                        .iter()
+                        .filter(|repo| {
+                            filter.is_empty() || repo.full_name.to_lowercase().contains(&filter)
+                        })
+                        .cloned()
+                        .collect();
+
+                    body = body.child(
+                        glass_input(&self.query, window, cx)
+                            .web_input_sm()
+                            .cleanable(true),
+                    );
+                    if visible.is_empty() {
+                        body = body.child(self.message(copy::NO_REPOS_FOUND, cx));
+                    } else {
+                        // Tap adds (FEED-42 ×4) — no select step, no check.
+                        let mut list = v_flex()
+                            .id("add-repo-list")
+                            .flex_1()
+                            .min_h_0()
+                            .w_full()
+                            .overflow_y_scroll();
+                        for (index, repo) in visible.iter().enumerate() {
+                            list = list.child(self.render_repo_row(index, repo, cx));
+                        }
+                        body = body.child(list);
+                    }
                 }
+                // FEED-30: the footer explains every installed state, the
+                // empty one included.
                 body = body.child(self.footer(result, window, cx));
             }
         }
 
-        if self.plan_limited {
-            body = body.child(upgrade_notice(
-                "Repository limit reached. Upgrade on the web to add more.".into(),
-                cx,
-            ));
+        // Add errors land INSIDE the still-open picker (FEED-42).
+        if let Some(message) = self.plan_limited.clone() {
+            body = body.child(
+                v_flex()
+                    .gap_1()
+                    .px_3()
+                    .py_2()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().primary.opacity(0.4))
+                    .bg(cx.theme().primary.opacity(0.05))
+                    .text_sm()
+                    .child(message)
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(copy::UPGRADE_ON_THE_WEB),
+                    ),
+            );
         }
         if let Some(error) = &self.error {
             body = body.child(error_notice(error.clone(), cx));
             if self.grant_reconnect {
-                body = body.child(h_flex().children(
-                    self.connect_button("add-repo-grant-reconnect", "Reconnect GitHub"),
-                ));
+                body = body.child(
+                    h_flex().children(self.reconnect_pill("add-repo-grant-reconnect", cx)),
+                );
             }
         }
 

@@ -383,3 +383,51 @@ describe(`status table`, () => {
     }
   })
 })
+
+describe(`the GitHub connect surfaces (FEED-42)`, () => {
+  test(`the connection block renders every state line of the installed form`, () => {
+    const { markup, blurb } = spec(`github-connection`)
+    for (const text of [
+      `Repositories`,
+      `Add repository`,
+      `GitHub accounts connected to this team`,
+      `acme`,
+      `octocat`,
+      `Configure`,
+      `An installation is per GitHub account or organization.`,
+      `Connect another account`,
+      `Refresh access`,
+      `Reconnect`,
+      `covers installation 42 anymore`,
+      `Disconnect account`,
+      `No GitHub account connected`,
+      `Connect GitHub`,
+      `Install on an account`,
+    ]) {
+      expect(markup.includes(text) ? text : `github-connection: "${text}" is missing`).toBe(text)
+    }
+    // The ✕ is a ghost, one per account, never a primary circle.
+    expect(occurrences(markup, `class="cmp-ghost-icon-button"`)).toBe(2)
+    expect(markup).not.toContain(`class="cmp-icon-button"`)
+    expect(blurb).toContain(`integrations.github.status`)
+  })
+
+  test(`the picker renders the banner, rows and the dashed footer with the lookup`, () => {
+    const { markup } = spec(`repo-picker`)
+    for (const text of [
+      `Reconnect GitHub (octocat) to refresh.`,
+      `Search repositories…`,
+      `Only repositories your GitHub installation grants appear here.`,
+      `Showing the first 500 repositories per account`,
+      `Refresh`,
+      `Install on another account`,
+      `owner/name`,
+      `Look up`,
+      `Repository not found, or no connected installation grants it.`,
+    ]) {
+      expect(markup.includes(text) ? text : `repo-picker: "${text}" is missing`).toBe(text)
+    }
+    expect(occurrences(markup, `class="cmp-repo-picker-row"`)).toBe(3)
+    expect(ruleBody(`.cmp-repo-picker-footer`)).toContain(`dashed var(--stroke-strong)`)
+  })
+})

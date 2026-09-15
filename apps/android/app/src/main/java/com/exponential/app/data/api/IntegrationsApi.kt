@@ -81,6 +81,10 @@ data class GithubReposResult(
 @Serializable
 private data class StatusInput(
     val teamId: String,
+    // FEED-42: settings' connection block is fed by `status` now, so its
+    // connect/install hops must be mobile-marked like `repos` (they fire the
+    // exponential://github-connected deep link back into the app).
+    val platform: String? = null,
 )
 
 @Serializable
@@ -117,7 +121,7 @@ class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.query(
             accountId,
             path = "integrations.github.status",
-            input = StatusInput(teamId = teamId),
+            input = StatusInput(teamId = teamId, platform = "mobile"),
             inputSerializer = StatusInput.serializer(),
             outputSerializer = GithubStatusResult.serializer(),
         )

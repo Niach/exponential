@@ -257,22 +257,27 @@ fun BoardRepoField(
                         label = repo.fullName,
                         selected = registry?.id == repo.id,
                         leading = { RowGlyph(ExpIcons.uiRepository) },
-                        trailing = if (!repo.isPrivate) null else ({
-                            if (registry?.id == repo.id) {
+                        // FEED-42: the check marks the selected repo whether it
+                        // is public or private; only a private one adds the lock.
+                        trailing = {
+                            val selected = registry?.id == repo.id
+                            if (selected) {
                                 Icon(
                                     ExpIcons.uiCheck,
                                     contentDescription = "Selected",
                                     modifier = Modifier.size(18.dp),
                                 )
-                                Spacer(Modifier.width(8.dp))
                             }
-                            Icon(
-                                ExpIcons.uiPrivate,
-                                contentDescription = "Private",
-                                modifier = Modifier.size(14.dp),
-                                tint = tertiary,
-                            )
-                        }),
+                            if (repo.isPrivate) {
+                                if (selected) Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    ExpIcons.uiPrivate,
+                                    contentDescription = "Private",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = tertiary,
+                                )
+                            }
+                        },
                         onClick = {
                             repoSheet = false
                             onSelect(BoardRepositoryChoice.Registry(repo.id))
@@ -301,7 +306,7 @@ fun BoardRepoField(
                             } else {
                                 "Connect a GitHub repository…"
                             },
-                            leading = { RowGlyph(if (hasRepos) ExpIcons.uiAdd else ExpIcons.uiGithub) },
+                            leading = { RowGlyph(ExpIcons.uiAdd) },
                             onClick = {
                                 repoSheet = false
                                 showPicker = true
@@ -384,7 +389,9 @@ fun BoardRepoField(
         GithubRepoPickerSheet(
             accountId = accountId,
             teamId = teamId,
-            onPick = { repo ->
+            // The pick is a SELECTION here (the host decides whether it
+            // connects now or on submit), so the add never fails in the sheet.
+            onAdd = { repo ->
                 // An ALREADY-connected repo picked here is the registry row,
                 // not a second inline connect.
                 val known = repos.firstOrNull { it.fullName == repo.fullName }

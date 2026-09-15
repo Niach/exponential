@@ -147,7 +147,7 @@ describe(`GithubRepoPicker (FEED-30)`, () => {
     await screen.findByText(/Showing the first 500 repositories per account/)
   })
 
-  it(`a successful by-name lookup selects the repo like a row click`, async () => {
+  it(`a successful by-name lookup adds the repo like a row click`, async () => {
     const repo = {
       fullName: `acme/hidden`,
       private: true,

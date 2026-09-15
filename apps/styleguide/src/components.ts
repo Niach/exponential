@@ -28,6 +28,7 @@ import { designTokens } from "@exp/design-tokens"
 import {
   escapeHtml,
   svgBell,
+  svgBuilding,
   svgCheck,
   svgChevronDown,
   svgChevronRight,
@@ -36,21 +37,27 @@ import {
   svgCircleHelp,
   svgCircleUser,
   svgEllipsis,
+  svgExternalLink,
   svgFlag,
   svgGitMerge,
+  svgGithub,
   svgHash,
   svgImage,
   svgInbox,
   svgListTodo,
+  svgLock,
   svgMessageCircle,
   svgPaperclip,
   svgPlay,
   svgPlus,
+  svgRefresh,
   svgSend,
   svgSmile,
   svgTag,
   svgTerminal,
   svgTrash,
+  svgTriangleAlert,
+  svgUser,
   svgX,
 } from "./html.ts"
 
@@ -392,6 +399,46 @@ function motionLine(label: string, box: string): string {
     `<div class="line">`,
     `<span class="label">${escapeHtml(label)}</span>`,
     `<span class="track"><span class="box ${box}"></span></span>`,
+    `</div>`,
+  ].join(``)
+}
+
+/* ------------------------------------------------- GitHub connect (FEED-42) */
+
+/** One text line of the status block: leading glyph or dot, sentence, pills. */
+function githubLine(lead: string, text: string, pills: string[] = [], warn = false): string {
+  return [
+    `<div class="cmp-github-line${warn ? ` cmp-github-warn` : ``}">`,
+    lead,
+    `<span class="cmp-github-text">${escapeHtml(text)}</span>`,
+    ...pills,
+    `</div>`,
+  ].join(``)
+}
+
+/** An account row: org/user glyph, login, the Configure link, the ✕ that confirms. */
+function githubAccount(glyph: string, login: string): string {
+  return [
+    `<div class="cmp-github-account">`,
+    glyph,
+    `<span class="cmp-github-login">${escapeHtml(login)}</span>`,
+    githubLink(`Configure`),
+    ghostIconButton(svgX),
+    `</div>`,
+  ].join(``)
+}
+
+/** A text link with the trailing external glyph (Configure, account links). */
+function githubLink(label: string): string {
+  return `<a class="cmp-github-link" href="#">${escapeHtml(label)}${svgExternalLink}</a>`
+}
+
+function repoPickerRow(name: string, locked = false): string {
+  return [
+    `<div class="cmp-repo-picker-row">`,
+    svgGithub,
+    `<span class="cmp-repo-picker-name">${escapeHtml(name)}</span>`,
+    locked ? `<span class="cmp-repo-picker-lock">${svgLock}</span>` : ``,
     `</div>`,
   ].join(``)
 }
@@ -1352,6 +1399,101 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           relationRow(`sub-issue of`, `EXP-723`, `desktop to web approaching`),
           relationRow(`related to`, `EXP-736`, `issue relation`)
         ),
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `github-connection`,
+    title: `GitHub connection`,
+    kind: `Grouped list`,
+    blurb: `FEED-42: the same block on all four clients. The status sits BEFORE the repo list, every inline action is an sm action pill, the ✕ is always visible and confirms, and accounts + stale marks come from integrations.github.status.`,
+    status: {
+      web: ok(`GithubStatusLine`, `apps/web/src/components/team/repositories-section.tsx`),
+      desktop: ok(`RepositoriesPane::github_status_line`, `apps/desktop/crates/ui/src/settings/repositories.rs`),
+      ios: ok(`TeamRepositoriesSection`, `apps/ios/Exponential/UI/Settings/TeamRepositoriesSection.swift`, `Lives in the native Team settings screen.`),
+      android: ok(`RepositoriesSection`, `apps/android/app/src/main/java/com/exponential/app/ui/settings/TeamSettingsScreen.kt`, `Lives in the native Team settings screen.`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack">`,
+        `<div>`,
+        sectionHeader(`Repositories`, pill(`Add repository`, { glyph: svgGithub })),
+        `<p class="cmp-github-caption">Connect a GitHub account or organization first, then add its repositories to share them with the team — everyone can code on a shared repo. Point a board at one to make it the clone target for “Start coding”.</p>`,
+        `</div>`,
+        `<div class="cmp-github-status">`,
+        githubLine(`<span class="cmp-github-dot"></span>`, `GitHub accounts connected to this team`),
+        `<div class="cmp-github-accounts">`,
+        githubAccount(svgBuilding, `acme`),
+        githubAccount(svgUser, `octocat`),
+        `</div>`,
+        `<p class="cmp-github-caption cmp-github-indent">An installation is per GitHub account or organization. Repositories come from the accounts listed here.</p>`,
+        `<div class="cmp-github-actions">`,
+        pill(`Connect another account`, { glyph: svgPlus }),
+        pill(`Refresh access`, { glyph: svgRefresh }),
+        `</div>`,
+        githubLine(
+          svgTriangleAlert,
+          `Reconnect GitHub to refresh which repositories you can access from octocat.`,
+          [pill(`Reconnect`)]
+        ),
+        githubLine(
+          svgTriangleAlert,
+          `No one’s GitHub connection covers installation 42 anymore — reconnecting can’t refresh it.`,
+          [pill(`Disconnect account`)],
+          true
+        ),
+        `</div>`,
+        `<div class="cmp-github-status">`,
+        githubLine(svgGithub, `No GitHub account connected`, [
+          pill(`Connect GitHub`, { glyph: svgGithub }),
+          pill(`Install on an account`, { glyph: svgPlus }),
+        ]),
+        `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `repo-picker`,
+    title: `Add-repository picker`,
+    kind: `Grouped list`,
+    blurb: `FEED-42: tapping a row or a successful Add by name adds at once. The suspended and re-auth banners are independent, and add errors show inline while the picker stays open.`,
+    status: {
+      web: ok(`GithubRepoPicker`, `apps/web/src/components/github-repo-picker.tsx`),
+      desktop: ok(`add_repository_dialog::footer`, `apps/desktop/crates/ui/src/settings/add_repository_dialog.rs`),
+      ios: ok(`GithubRepoPicker`, `apps/ios/Exponential/UI/Settings/GithubRepoPicker.swift`, `A sheet; a plan-limit add shows no web upgrade pointer (EXP-216).`),
+      android: ok(`GithubRepoPickerSheet`, `apps/android/app/src/main/java/com/exponential/app/ui/onboarding/GithubRepoPickerSheet.kt`, `A sheet; a plan-limit add shows no web upgrade pointer (EXP-216).`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack cmp-repo-picker">`,
+        `<div class="cmp-repo-picker-banner">`,
+        svgTriangleAlert,
+        `<span class="cmp-github-text">Reconnect GitHub (octocat) to refresh. Repos created or shared with you since your last connect won’t appear until you do.</span>`,
+        pill(`Reconnect GitHub`, { glyph: svgRefresh }),
+        `</div>`,
+        `<input class="cmp-text-field" type="text" placeholder="Search repositories…" readonly>`,
+        group(
+          repoPickerRow(`acme/web`),
+          repoPickerRow(`acme/billing`, true),
+          repoPickerRow(`octocat/dotfiles`)
+        ),
+        `<div class="cmp-repo-picker-footer">`,
+        `<p class="cmp-github-caption">Only repositories your GitHub installation grants appear here. Missing one? Grant it on GitHub, then refresh. `,
+        githubLink(`acme`),
+        `, `,
+        githubLink(`octocat`),
+        `</p>`,
+        `<p class="cmp-github-caption">Showing the first 500 repositories per account — use the field below for the rest.</p>`,
+        `<div class="cmp-github-actions">`,
+        pill(`Refresh`, { glyph: svgRefresh }),
+        pill(`Install on another account`, { glyph: svgPlus }),
+        `</div>`,
+        `<div class="cmp-repo-picker-lookup">`,
+        `<input class="cmp-text-field" type="text" placeholder="owner/name" aria-label="Add repository by name" readonly>`,
+        pill(`Look up`),
+        `</div>`,
+        `<p class="cmp-repo-picker-error">Repository not found, or no connected installation grants it.</p>`,
+        `</div>`,
         `</div>`,
       ].join(``),
   },
