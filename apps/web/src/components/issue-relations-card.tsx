@@ -2,7 +2,14 @@ import { useMemo, useState } from "react"
 import { eq, or, useLiveQuery } from "@tanstack/react-db"
 import type { IssueRelationType } from "@/lib/domain"
 import { issueRelationCollection } from "@/lib/collections"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   groupRelationRows,
@@ -17,13 +24,6 @@ import {
 import { IssuePickerDialog } from "@/components/issue-picker-dialog"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 // EXP-736 — the issue's relation graph, both sides in one card. Rows come off
 // the `issue_relations` shape (never a fetch): the shape is scoped by the row's

@@ -2,14 +2,17 @@ import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { BoardGlyph } from "@/components/board-glyph"
-import { EmptyState } from "@/components/empty-state"
+import {
+  EmptyState,
+  Button,
+  GlassSectionHeader,
+  ListRow,
+  conceptIcon,
+} from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { relativeTime } from "@/components/comment-rows/format"
-import { Button } from "@/components/ui/button"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { issueDraftCollection } from "@/lib/collections"
-import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 
 const NavDraftsIcon = conceptIcon(`nav-drafts`)

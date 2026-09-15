@@ -22,7 +22,7 @@ import {
 } from "@exp/icons"
 import { PICKABLE_ICON_SVG } from "@exp/icons/pickable-svg"
 import { megaphoneIconSvg } from "@exp/widget/theme"
-import { ICON_COMPONENTS, conceptIcon } from "./icons.generated"
+import { ICON_COMPONENTS, conceptIcon } from "@exp/ui"
 
 const repoRoot = join(import.meta.dirname, `..`, `..`, `..`, `..`)
 const iconsPkg = join(repoRoot, `packages/icons`)
@@ -230,7 +230,7 @@ describe(`icon registry`, () => {
     const targets = [
       join(iconsPkg, `src/generated.ts`),
       join(iconsPkg, `src/pickable-svg.generated.ts`),
-      join(repoRoot, `apps/web/src/lib/icons.generated.ts`),
+      join(repoRoot, `packages/ui/src/icons.generated.ts`),
       join(repoRoot, `apps/desktop/crates/ui/src/icons.generated.rs`),
       join(repoRoot, `apps/ios/ExpUI/Sources/AppIcons.generated.swift`),
       join(
@@ -437,9 +437,13 @@ describe(`icon call sites`, () => {
         .replace(/(?<=[A-Za-z])(?=[0-9])/g, `-`)
         .toLowerCase()
     const bad: string[] = []
-    for (const file of walk(join(repoRoot, `apps/web/src`), `.tsx`).concat(
-      walk(join(repoRoot, `apps/web/src`), `.ts`)
-    )) {
+    // EXP-887: the shadcn set moved into @exp/ui, so the gate walks BOTH the
+    // app and the package — the raw lucide imports the generated components
+    // carry now live there.
+    const sources = [`apps/web/src`, `packages/ui/src`].flatMap((root) =>
+      walk(join(repoRoot, root), `.tsx`).concat(walk(join(repoRoot, root), `.ts`))
+    )
+    for (const file of sources) {
       const source = readFileSync(file, `utf8`)
       for (const block of source.matchAll(
         /import\s*\{([^}]*)\}\s*from\s*"lucide-react"/g

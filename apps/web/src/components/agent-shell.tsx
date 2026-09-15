@@ -6,7 +6,7 @@ import {
   PastSessionRow,
   RunningSessionRow,
 } from "@/components/session-list-rows"
-import { GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader } from "@exp/ui"
 import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 import type { DetailOrigin } from "@/lib/detail-origin"

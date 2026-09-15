@@ -1,14 +1,14 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
-import { conceptIcon } from "@/lib/icons.generated"
-import type { NotificationType } from "@/lib/domain"
-import type { DigestCadence } from "@/lib/notification-email-policy"
-import { Switch } from "@/components/ui/switch"
 import {
+  conceptIcon,
+  Switch,
   GlassGroup,
   GlassPickerRow,
   GlassToggleRow,
-} from "@/components/ui/glass-rows"
+} from "@exp/ui"
+import type { NotificationType } from "@/lib/domain"
+import type { DigestCadence } from "@/lib/notification-email-policy"
 
 export type EmailPrefs = Awaited<
   ReturnType<typeof trpc.notifications.emailPrefs.query>

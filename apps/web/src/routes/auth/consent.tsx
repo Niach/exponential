@@ -4,10 +4,7 @@ import { LoaderCircle } from "lucide-react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { AuthFormShell } from "@/components/auth-form-shell"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import { Button, Checkbox, Label, Switch } from "@exp/ui"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize
 // endpoint lands here (prompt=consent is forced server-side) with a

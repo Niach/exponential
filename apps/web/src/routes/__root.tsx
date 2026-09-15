@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { Toaster } from "sonner"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { TooltipProvider } from "@exp/ui"
 import { SessionProvider } from "@/hooks/use-session"
 
 import "../styles.css?url"

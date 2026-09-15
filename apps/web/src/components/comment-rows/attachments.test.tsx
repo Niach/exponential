@@ -1,7 +1,7 @@
 import { render, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import type { Attachment } from "@/db/schema"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { TooltipProvider } from "@exp/ui"
 import { CommentAttachments } from "@/components/comment-rows/attachments"
 
 // EXP-723: a comment's images are LARGE inline tiles, not 64px icons. The two

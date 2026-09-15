@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
+COPY packages/ui/package.json packages/ui/package.json
 # Stub out other workspace package.json files so bun install resolves correctly
 COPY apps/web/package.json apps/web/package.json
 COPY apps/marketing/package.json apps/marketing/package.json

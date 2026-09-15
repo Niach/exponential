@@ -2,10 +2,9 @@ import { Link2 } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import type { Board, Issue } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
-import { trpc } from "@/lib/trpc-client"
-import { Button } from "@/components/ui/button"
 import {
+  conceptIcon,
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -13,8 +12,9 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { IconTooltip } from "@/components/icon-tooltip"
+  IconTooltip,
+} from "@exp/ui"
+import { trpc } from "@/lib/trpc-client"
 import {
   RELATION_SIDES,
   pickLabel,

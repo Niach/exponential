@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import { LoaderCircle, Minus, Plus } from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -11,9 +11,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  Input,
+  Label,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 

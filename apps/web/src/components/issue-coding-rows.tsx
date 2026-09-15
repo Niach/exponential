@@ -12,7 +12,7 @@ import {
   GitPullRequest,
   MonitorUp,
 } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, Pill, GlassRow, LiveDot } from "@exp/ui"
 import type { CodingSession, Issue, Board } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -21,8 +21,6 @@ import {
 } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
-import { Pill } from "@/components/ui/pill"
-import { GlassRow } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useOpenComposer } from "@/hooks/use-open-composer"
@@ -78,12 +76,7 @@ export function PrStateBadge({ state }: { state: string | null | undefined }) {
 }
 
 function RunningPing() {
-  return (
-    <span className="relative flex size-2">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-    </span>
-  )
+  return <LiveDot tone="live" ping />
 }
 
 // The display-state derivation lives in a plain lib module so it can be

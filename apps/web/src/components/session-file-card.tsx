@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 import { AddDelCounts } from "@/components/diff-view"
 import {
   fileCardMoreLabel,

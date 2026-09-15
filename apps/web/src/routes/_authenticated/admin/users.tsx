@@ -3,12 +3,11 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
 import {
+  Pill,
+  Button,
+  Input,
+  Switch,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -16,14 +15,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { cn, getInitials } from "@/lib/utils"
+  UserAvatar,
+} from "@exp/ui"
+import { cn } from "@/lib/utils"
 import { formatDate, formatRelative, PlatformPills } from "./-shared"
 
 type AdminUser = Awaited<ReturnType<typeof trpc.admin.listUsers.query>>[number]
@@ -259,12 +257,7 @@ function AdminUsers() {
                   params={{ userId: user.id }}
                   className="flex items-center gap-3 min-w-0 flex-1 group"
                 >
-                  <Avatar className="h-8 w-8 shrink-0">
-                    {user.image && <AvatarImage src={user.image} />}
-                    <AvatarFallback className="text-xs" userId={user.id}>
-                      {getInitials(user.name || user.email)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar size={32} className="shrink-0" user={user} />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate group-hover:underline">
                       {user.name || user.email}

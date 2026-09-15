@@ -1,7 +1,12 @@
 {
   "extends": "@exp/tsconfig/base.json",
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "compilerOptions": {
+    /* The Components group renders REAL `@exp/ui` components to static markup
+       (EXP-887), so this Bun script compiles JSX and needs the DOM lib the
+       package's `.tsx` sources are typed against. */
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["bun-types"],
     "resolveJsonModule": true
   }

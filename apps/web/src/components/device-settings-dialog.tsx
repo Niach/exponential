@@ -14,7 +14,26 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
 import type { Device, SyncedDeviceWorktree } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  GlassGroup,
+  GlassInputRow,
+  GlassSectionHeader,
+  GlassToggleRow,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
@@ -26,29 +45,6 @@ import {
 } from "@/lib/coding-launch-prefs"
 import { deviceRowIsOnline, type SteerDevice } from "@/lib/steer-devices"
 import { AgentPicker } from "@/components/agent-picker"
-import { Button } from "@/components/ui/button"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  GlassGroup,
-  GlassInputRow,
-  GlassSectionHeader,
-  GlassToggleRow,
-} from "@/components/ui/glass-rows"
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,

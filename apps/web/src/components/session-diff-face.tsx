@@ -1,7 +1,6 @@
 import { FileDiffList, FileNav } from "@/components/diff-view"
 import type { PullFile } from "@/components/diff-view"
-import { Pill } from "@/components/ui/pill"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { Pill, useIsMobile } from "@exp/ui"
 import { DIFF_SCOPE_ALL_LABEL } from "@/lib/session-file-cards"
 
 // EXP-877: the run's changes as a FACE of the work tab — the full 896px

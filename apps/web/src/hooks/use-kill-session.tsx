@@ -1,11 +1,9 @@
 import { useState } from "react"
 import { toast } from "sonner"
 import type { CodingSession } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
-import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
-import { Button } from "@/components/ui/button"
 import {
+  conceptIcon,
+  Button,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -13,7 +11,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@exp/ui"
+import { trpc } from "@/lib/trpc-client"
+import { trpcErrorMessage } from "@/lib/trpc-error"
 
 // EXP-688: ending a live run is offered from two places now — the mobile
 // session view's "…" menu and the dock tab's X — so the confirmation dialog

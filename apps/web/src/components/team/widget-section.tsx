@@ -19,13 +19,11 @@ import {
   WidgetConfigDialog,
   type WidgetListItem,
 } from "@/components/team/widget-config-dialog"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  Pill,
+  Button,
   GlassRow,
   GlassSectionHeader,
-} from "@/components/ui/glass-rows"
-import {
   Dialog,
   DialogBody,
   DialogContent,
@@ -33,8 +31,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Switch } from "@/components/ui/switch"
+  Switch,
+} from "@exp/ui"
 import type { Team } from "@/db/schema"
 
 function buildSnippet(publicKey: string): string {

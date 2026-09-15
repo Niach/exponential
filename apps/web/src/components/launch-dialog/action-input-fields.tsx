@@ -2,32 +2,28 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check } from "lucide-react"
 import { type ActionInputDef, type BoardIcon } from "@exp/db-schema/domain"
-import { IconPicker } from "@/components/ui/icon-picker"
-import type { Board, Issue } from "@/db/schema"
-import { boardCollection, issueCollection } from "@/lib/collections"
-import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
-import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import {
+  IconPicker,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { BoardGlyph } from "@/components/board-glyph"
-import {
+  Button,
+  Label,
   GLASS_SELECT_TRIGGER,
   GlassGroup,
   GlassPickerRow,
-} from "@/components/ui/glass-rows"
+} from "@exp/ui"
+import type { Board, Issue } from "@/db/schema"
+import { boardCollection, issueCollection } from "@/lib/collections"
+import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
+import type { ActionRepoOption } from "@/components/action-editor-dialog"
+import { BoardGlyph } from "@/components/board-glyph"
 import { cn } from "@/lib/utils"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the

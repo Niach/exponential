@@ -9,6 +9,7 @@ import type {
   Board,
   User,
 } from "@/db/schema"
+import { LiveDot } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   attachmentCollection,
@@ -247,7 +248,7 @@ export function IssueTimeline({
         lineAbove={false}
         lineBelow={merged.length > 0}
         marker={
-          <span className="size-1.5 rounded-full bg-muted-foreground" />
+          <LiveDot tone="muted" className="size-1.5" />
         }
         markerSize={6}
         markerTop={7}

@@ -7,14 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
+  Input,
+  Skeleton,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import { useIsMobile } from "@/hooks/use-mobile"
+  useIsMobile,
+} from "@exp/ui"
 import {
   pushRecentEmoji,
   readRecentEmoji,

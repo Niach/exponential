@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Check } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@exp/ui"
 
 // Landing page after a GitHub App install launched from the in-app board/repo
 // dialog (state=dialog). Two very different arrivals share this page, and the

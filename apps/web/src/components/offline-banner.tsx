@@ -1,6 +1,5 @@
-import { Button } from "@/components/ui/button"
+import { Button, conceptIcon } from "@exp/ui"
 import { useConnectivity } from "@/hooks/use-connectivity"
-import { conceptIcon } from "@/lib/icons.generated"
 
 const OfflineIcon = conceptIcon(`ui-offline`)
 

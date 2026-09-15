@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 import {
   workflowPhaseCounts,
   type WorkflowAgent,

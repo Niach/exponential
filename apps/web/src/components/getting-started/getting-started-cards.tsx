@@ -2,15 +2,12 @@ import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { GlassGroup } from "@/components/ui/glass-rows"
-import { Progress } from "@/components/ui/progress"
+import { Button, GlassGroup, Progress, conceptIcon } from "@exp/ui"
 import {
   DESKTOP_RELEASES_URL,
   desktopDownloadHref,
 } from "@/lib/desktop-download"
 import { docsUrl } from "@/lib/docs-links"
-import { conceptIcon } from "@/lib/icons.generated"
 import { cn } from "@/lib/utils"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
 import type {

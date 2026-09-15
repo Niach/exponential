@@ -1,8 +1,4 @@
-import {
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import { conceptIcon } from "@/lib/icons.generated"
+import { SidebarMenuButton, SidebarMenuItem, conceptIcon } from "@exp/ui"
 import { useGettingStartedSheet } from "@/components/getting-started/getting-started-sheet"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
 

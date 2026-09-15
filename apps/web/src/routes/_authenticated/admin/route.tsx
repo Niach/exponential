@@ -13,9 +13,7 @@ import {
   Users,
   Building2,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import { SEGMENTED_ITEM, SEGMENTED_LIST } from "@/components/ui/tabs"
+import { Button, Separator, SEGMENTED_ITEM, SEGMENTED_LIST } from "@exp/ui"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { cn } from "@/lib/utils"

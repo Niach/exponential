@@ -15,7 +15,8 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu"
+  conceptIcon,
+} from "@exp/ui"
 import {
   CheckCheck,
   Copy,
@@ -24,7 +25,6 @@ import {
   SquarePen,
   Undo2,
 } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import {
   RELATION_SIDES,

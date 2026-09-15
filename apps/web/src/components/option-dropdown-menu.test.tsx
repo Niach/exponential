@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
+import { OptionDropdownMenu } from "@exp/ui"
 import {
   issuePriorityOptions,
   issueStatusOptions,

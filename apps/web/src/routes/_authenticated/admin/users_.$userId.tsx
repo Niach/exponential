@@ -3,18 +3,15 @@ import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-r
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import {
+  Pill,
+  Button,
+  Switch,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import {
   Dialog,
   DialogCancel,
   DialogContent,
@@ -22,8 +19,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { getInitials } from "@/lib/utils"
+  UserAvatar,
+} from "@exp/ui"
 import {
   EmailDeliveriesTable,
   PlanBadge,
@@ -99,12 +96,7 @@ function AdminUserDetail() {
       <Card>
         <CardContent className="flex flex-col gap-4 md:flex-row md:items-center">
           <div className="flex items-center gap-4 min-w-0 flex-1">
-            <Avatar className="h-12 w-12 shrink-0">
-              {user.image && <AvatarImage src={user.image} />}
-              <AvatarFallback userId={user.id}>
-                {getInitials(user.name || user.email)}
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar size={48} className="shrink-0" user={user} />
             <div className="min-w-0">
               <div className="text-lg font-semibold truncate">
                 {user.name || user.email}

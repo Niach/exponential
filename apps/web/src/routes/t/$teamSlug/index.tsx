@@ -6,11 +6,10 @@ import {
   useTeamBoardsWithReady,
 } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { EmptyState } from "@/components/empty-state"
+import { EmptyState, Button } from "@exp/ui"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { Button } from "@/components/ui/button"
 import { readLastVisited } from "@/lib/last-visited"
 
 export const Route = createFileRoute(`/t/$teamSlug/`)({

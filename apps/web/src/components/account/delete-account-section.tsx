@@ -2,9 +2,10 @@ import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
-import { Button } from "@/components/ui/button"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
+  Button,
+  GlassRow,
+  GlassSectionHeader,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -13,9 +14,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  Input,
+  Label,
+} from "@exp/ui"
 
 // Self-service account deletion (store policy: users must be able to delete
 // their account without emailing support; the native apps expose the same

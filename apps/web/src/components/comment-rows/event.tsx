@@ -1,6 +1,6 @@
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
 import { useIssueRefs } from "@/components/issue-ref-provider"

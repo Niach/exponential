@@ -24,13 +24,13 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-824 — inline video/audio in descriptions and comments.

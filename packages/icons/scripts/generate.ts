@@ -11,7 +11,7 @@
 //
 // Outputs (all committed, all regenerated wholesale):
 //   web      packages/icons/src/generated.ts        name lists + typed maps
-//            apps/web/src/lib/icons.generated.ts    IconName -> LucideIcon
+//            packages/ui/src/icons.generated.ts    IconName -> LucideIcon
 //   iOS      apps/ios/Exponential/Assets.xcassets/<name>.imageset/…  (SVG + Contents.json)
 //            apps/ios/ExpUI/Sources/AppIcons.generated.swift
 //   Android  apps/android/…/ui/icons/ExpIcons.generated.kt  (Compose ImageVector)
@@ -384,7 +384,7 @@ ${registry.pickable
 )
 
 // ---------------------------------------------------------------------------
-// 2. Web — apps/web/src/lib/icons.generated.ts (name -> lucide-react component)
+// 2. Web — packages/ui/src/icons.generated.ts (name -> lucide-react component)
 // ---------------------------------------------------------------------------
 
 // lucide-react exports PascalCase component names; `gamepad-2` -> `Gamepad2`.
@@ -393,7 +393,7 @@ const componentName = (name: string): string => pascal(name)
 const lucideNames = allNames.filter((n) => !(n in customIcons))
 
 write(
-  join(repoRoot, "apps/web/src/lib/icons.generated.ts"),
+  join(repoRoot, "packages/ui/src/icons.generated.ts"),
   `${HEADER_COMMENT}
 //
 // The concrete lucide-react components behind the registry, so a stored icon

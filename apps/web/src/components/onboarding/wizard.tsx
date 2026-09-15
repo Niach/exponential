@@ -11,14 +11,9 @@ import {
 } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon, Button, Pill, Input, Label, GlassGroup } from "@exp/ui"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useCreateBoard } from "@/hooks/use-create-board"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { GlassGroup } from "@/components/ui/glass-rows"
 import {
   BoardIdentityRow,
   BoardPrefixField,

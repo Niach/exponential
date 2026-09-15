@@ -3,7 +3,7 @@ import {
   GettingStartedCards,
   type GettingStartedCardsProps,
 } from "@/components/getting-started/getting-started-cards"
-import { GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassSectionHeader } from "@exp/ui"
 
 // The "Getting started" block under the board's "No issues yet" empty state
 // (EXP-88). EXP-548: no dismissal — the block (like the sidebar entry and the

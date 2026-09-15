@@ -2,27 +2,23 @@ import type { ReactNode } from "react"
 import { contract } from "@exp/domain-contract"
 
 import { ClaudeIcon, CodexIcon } from "@/components/icons/brand-icons"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Tabs,
   TabsList,
   TabsTrigger,
   SEGMENTED_ROW,
   SEGMENTED_TAB,
-} from "@/components/ui/tabs"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { conceptIcon } from "@/lib/icons.generated"
+  conceptIcon,
+} from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-862: ONE agent picker per platform (web here, desktop

@@ -5,8 +5,7 @@ import {
   statusColorStyle,
 } from "@/components/issue-properties/status-dropdown"
 import { type IssueStatus } from "@/lib/domain"
-import { conceptIcon, ICON_COMPONENTS } from "@/lib/icons.generated"
-import { hexWithAlpha } from "@/lib/status-icons"
+import { conceptIcon, ICON_COMPONENTS, hexWithAlpha } from "@exp/ui"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { cn } from "@/lib/utils"
 

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
-import { conceptIcon } from "@/lib/icons.generated"
-import { Button } from "@/components/ui/button"
+import { conceptIcon, Button } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-851: the ONE phone header every detail screen wears — the native

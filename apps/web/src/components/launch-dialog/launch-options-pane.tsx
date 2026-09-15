@@ -1,10 +1,10 @@
-import { conceptIcon } from "@/lib/icons.generated"
 import {
+  conceptIcon,
   GlassGroup,
   GlassPickerRow,
   GlassToggleRow,
   type GlassPickerOption,
-} from "@/components/ui/glass-rows"
+} from "@exp/ui"
 import { AgentPickerTabs } from "@/components/agent-picker"
 import {
   agentAllowsBlankModel,
@@ -27,7 +27,7 @@ import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 // agent; blank model/effort store NULL), minus the run-time toggles — an
 // unattended run never parks on plan mode.
 // EXP-616 dresses the cluster in the iOS grouped-glass vocabulary: rows of
-// label-leading pickers and toggles (`components/ui/glass-rows`).
+// label-leading pickers and toggles (`@exp/ui` glass-rows).
 // EXP-694 collapses it into ONE card on every client (the Android device-edit
 // stack is the reference): the agent strip is the group's EMBEDDED FIRST ROW
 // — no "Agent" label above it, no floating capsule — and model, effort, the

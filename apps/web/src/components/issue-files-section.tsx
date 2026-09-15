@@ -11,11 +11,11 @@ import {
   getAttachmentIcon,
   isFileAttachment,
 } from "@/lib/attachment-files"
-import { Button } from "@/components/ui/button"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
-import { IconTooltip } from "@/components/icon-tooltip"
-import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 import {
+  Button,
+  GlassRow,
+  GlassSectionHeader,
+  IconTooltip,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -24,7 +24,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+} from "@exp/ui"
+import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 
 interface IssueFilesSectionProps {
   issueId: string

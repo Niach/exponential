@@ -13,18 +13,16 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet"
-import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@/components/ui/tabs"
+  Pill,
+  conceptIcon,
+} from "@exp/ui"
 import { GettingStartedCards } from "@/components/getting-started/getting-started-cards"
 import { ActionSuggestionsPanel } from "@/components/action-suggestions-list"
 import type { Team } from "@/db/schema"
-import { Pill } from "@/components/ui/pill"
-import { conceptIcon } from "@/lib/icons.generated"
 
 // EXP-686: the Getting started sheet moved out of the sidebar button so the
 // Actions/Automations lightbulb can open it too — including once the checklist

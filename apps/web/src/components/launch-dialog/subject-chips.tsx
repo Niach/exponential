@@ -2,9 +2,7 @@ import type { Issue } from "@/db/schema"
 import type { TeamAction } from "@/components/action-editor-dialog"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
-import { Pill } from "@/components/ui/pill"
-import { conceptIcon } from "@/lib/icons.generated"
-import { getActionIcon } from "@/lib/board-icons"
+import { ChipRemoveButton, Pill, conceptIcon, getActionIcon } from "@exp/ui"
 
 // EXP-825: the composer's SUBJECT, as chips in the card's leading row — one
 // per picked issue, or ONE action chip. They are how "exclusivity by swap"
@@ -20,7 +18,6 @@ import { getActionIcon } from "@/lib/board-icons"
 // (`agent-composer-chip-issue-<IDENT>` + `-remove`,
 // `agent-composer-chip-action` + `-remove`).
 
-const UiCloseIcon = conceptIcon(`ui-close`)
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
 
 export function SubjectChips({
@@ -59,11 +56,11 @@ export function SubjectChips({
       >
         <RowIcon className="size-3 shrink-0" />
         <span className="min-w-0 truncate">{action?.name ?? `Action…`}</span>
-        <ChipRemove
+        <ChipRemoveButton
           label={`Remove ${name}`}
           testId="agent-composer-chip-action-remove"
           disabled={disabled}
-          onClick={onClearAction}
+          onRemove={onClearAction}
         />
       </Pill>
     )
@@ -91,32 +88,5 @@ export function SubjectChips({
         <Pill size="sm">{`${pendingIssueCount} loading…`}</Pill>
       )}
     </>
-  )
-}
-
-/** The chip's own ✕ — the one part of a chip that removes it. */
-function ChipRemove({
-  label,
-  testId,
-  disabled,
-  onClick,
-}: {
-  label: string
-  testId: string
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      data-testid={testId}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-glass-active hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
-    >
-      <UiCloseIcon className="size-3" />
-    </button>
   )
 }

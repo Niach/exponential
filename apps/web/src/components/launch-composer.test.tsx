@@ -22,7 +22,10 @@ vi.mock(`@/lib/collections`, () => ({
   deviceWorktreeCollection: {},
   issueCollection: {},
 }))
-vi.mock(`@/hooks/use-mobile`, () => ({ useIsMobile: () => false }))
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useIsMobile: () => false,
+}))
 
 import {
   LaunchComposer,

@@ -7,6 +7,7 @@ import {
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcArrow } from "./components/icons"
 import { DocShot } from "./components/DocShot"
+import { UiDemo } from "./components/UiDemo"
 import { IdeDemo } from "./ide/Ide"
 import { LINKS } from "./lib/links"
 
@@ -171,6 +172,13 @@ export function CodingDocsPage() {
               platform="desktop"
               caption="An issue in the desktop IDE with its run live: the Issue | Run switch, the property tray, and Stop"
             />
+
+            <UiDemo id="subject-chips" />
+            <p className="docs-embed-caption">
+              The subject row, drawn by the composer&apos;s own components:
+              issue chips — two or more make a batch — or one action chip,
+              each dropped by its ✕.
+            </p>
 
             <ul>
               <li>

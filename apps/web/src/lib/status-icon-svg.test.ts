@@ -9,8 +9,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { ICON_COMPONENTS } from "./icons.generated"
-import { categoryStatusIcon } from "./status-icons"
+import { categoryStatusIcon, ICON_COMPONENTS } from "@exp/ui"
 import { issueStatusCategoryValues } from "./domain"
 import {
   STATUS_ICON_BODIES,

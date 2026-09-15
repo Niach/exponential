@@ -4,12 +4,23 @@ import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  LiveDot,
+} from "@exp/ui"
 import {
   sessionDisplayState,
   sessionRowIsWorking,
 } from "@/lib/coding-session-display"
-import { SESSION_DOT_CLASS } from "@/lib/session-dot"
 import { sessionIdentity } from "@/lib/session-identity"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
@@ -31,21 +42,11 @@ import {
 } from "@/hooks/use-work-tabs"
 import { agentLabel } from "@/components/agent-picker"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
-import { RunningIndicator } from "@/components/agent-session-row"
+import {
+  LIVE_DOT_TONE_BY_SESSION_TONE,
+  RunningIndicator,
+} from "@/components/agent-session-row"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { Button } from "@/components/ui/button"
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
 // the content card, md+ only (the desktop's title-band strip; phones keep
@@ -638,5 +639,5 @@ function ChipLead({
   if (issue) {
     return <IssueStatusIcon issue={issue} className="size-3.5!" />
   }
-  return <span className={`size-2 rounded-full ${SESSION_DOT_CLASS.muted}`} />
+  return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
 }

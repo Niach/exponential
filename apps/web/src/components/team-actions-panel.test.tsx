@@ -8,7 +8,8 @@ import type { SyncedAction } from "@/db/schema"
 
 const mobile = vi.hoisted(() => ({ value: false }))
 
-vi.mock(`@/hooks/use-mobile`, () => ({
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useIsMobile: () => mobile.value,
 }))
 vi.mock(`@/hooks/use-pins`, () => ({

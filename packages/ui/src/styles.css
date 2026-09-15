@@ -1,0 +1,523 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* EXP-887 — this package ships RAW .tsx, so Tailwind has to be told to scan
+   it: the automatic content detection roots at the consuming app's CSS file,
+   which never reaches into node_modules/@exp/ui. Without this line every
+   utility only these components use (the whole shadcn set) goes missing. */
+@source "./**/*.{ts,tsx}";
+
+html {
+  font-size: 1.15625rem;
+}
+
+@media (max-width: 767px) {
+  html {
+    font-size: 1rem;
+  }
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* EXP-269 glass design system — glass surface tokens. Values mirror
+     packages/design-tokens/tokens.json (the glass group);
+     design-tokens.test.ts guards the parity. */
+  --color-glass-section: var(--glass-fill-section);
+  --color-glass-row: var(--glass-fill-row);
+  --color-glass-card: var(--glass-fill-card);
+  --color-glass-panel: var(--glass-fill-panel);
+  --color-glass-active: var(--glass-fill-active);
+  --color-glass-stroke: var(--glass-stroke-row);
+  --color-glass-stroke-section: var(--glass-stroke-section);
+  --color-glass-stroke-card: var(--glass-stroke-card);
+  --color-glass-stroke-strong: var(--glass-stroke-strong);
+  --color-glass-stroke-active: var(--glass-stroke-active);
+  /* EXP-687 — the opaque sheet surface. Every mobile bottom sheet on all
+     three clients paints this exact value (iOS DesignTokens.Glass
+     .backgroundBottom / Android GlassTokens.BackgroundBottom). */
+  --color-glass-bottom: var(--glass-background-bottom);
+  --color-code-text: var(--code-text);
+  --color-code-fill: var(--code-fill);
+  --color-code-stroke: var(--code-stroke);
+  /* EXP-698 r4 — avatar fallback hues, tokens.json `avatar` in order. */
+  --color-avatar-0: var(--avatar-0);
+  --color-avatar-1: var(--avatar-1);
+  --color-avatar-2: var(--avatar-2);
+  --color-avatar-3: var(--avatar-3);
+  --color-avatar-4: var(--avatar-4);
+  --color-avatar-5: var(--avatar-5);
+  --color-avatar-6: var(--avatar-6);
+  --color-avatar-7: var(--avatar-7);
+  /* EXP-523 — Tailwind v4's `--ease-*` theme namespace, so `ease-standard`,
+     `ease-decelerate` and `ease-accelerate` exist as utilities. Same
+     var-indirection shape as --color-glass-* above; the raw vars carry the
+     --motion- prefix precisely so this is not a self-referential cycle. */
+  --ease-standard: var(--motion-ease-standard);
+  --ease-decelerate: var(--motion-ease-decelerate);
+  --ease-accelerate: var(--motion-ease-accelerate);
+
+  /* EXP-887 — the app face as a theme token: `font-sans` and Tailwind's own
+     `--default-font-family` preflight now resolve to the stack the base
+     layer below sets on `body`, instead of to the generic ui-sans-serif. */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root,
+:host {
+  /* px, not rem: the ≥768px root font is 1.15625rem, which would inflate a
+     rem radius ~1.16×. 12px lands rounded-md/lg/xl/3xl exactly on the mobile
+     glass ladder (row 10 / section 12 / card 16 / sheet 24). */
+  --radius: 12px;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+  /* Editor tokens without a shadcn equivalent (links + code-block syntax
+     highlighting). Defined per theme so .tiptap-* CSS stays token-driven. */
+  --link: oklch(0.5 0.18 264);
+  --hljs-comment: oklch(0.55 0.02 250);
+  --hljs-keyword: oklch(0.5 0.2 350);
+  --hljs-string: oklch(0.45 0.14 145);
+  --hljs-number: oklch(0.5 0.15 60);
+  --hljs-title: oklch(0.45 0.18 270);
+  --hljs-variable: oklch(0.4 0.08 220);
+  --hljs-tag: oklch(0.5 0.17 30);
+  --hljs-deletion: oklch(0.5 0.19 25);
+  --hljs-addition: oklch(0.5 0.15 145);
+  /* EXP-269 glass tokens (theme-invariant — the app is dark-only; kept
+     identical in :root and .dark). --glass-* mirror tokens.json verbatim.
+     EXP-594 retired the indigo --brand accent: solid accent fills use
+     --primary, selections use the glass fills/strokes. */
+  --glass-background-top: #050507;
+  --glass-background-bottom: #111114;
+  --glass-fill-section: oklch(1 0 0 / 4%);
+  --glass-fill-row: oklch(1 0 0 / 6%);
+  --glass-fill-card: oklch(1 0 0 / 6%);
+  --glass-fill-panel: oklch(1 0 0 / 4%);
+  --glass-fill-active: oklch(1 0 0 / 11%);
+  --glass-stroke-row: oklch(1 0 0 / 6%);
+  --glass-stroke-section: oklch(1 0 0 / 8%);
+  --glass-stroke-card: oklch(1 0 0 / 10%);
+  --glass-stroke-strong: oklch(1 0 0 / 12%);
+  --glass-stroke-active: oklch(1 0 0 / 16%);
+  /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
+  --code-text: #8AB4F8;
+  --code-fill: #8AB4F81F;
+  --code-stroke: #8AB4F833;
+  /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (avatar-color.ts). */
+  --avatar-0: #F87171;
+  --avatar-1: #FB923C;
+  --avatar-2: #FACC15;
+  --avatar-3: #4ADE80;
+  --avatar-4: #2DD4BF;
+  --avatar-5: #60A5FA;
+  --avatar-6: #A78BFA;
+  --avatar-7: #F472B6;
+  /* EXP-523 motion tokens. THEME-INVARIANT, so unlike --glass-* these
+     live in :root ONLY and are never duplicated into .dark. Values mirror
+     packages/design-tokens/tokens.json `motion` (the source the three native
+     clients are generated from); design-tokens.test.ts guards the parity.
+     Keep them FLAT declarations — parseBlockVars there reads this block with
+     `[^}]*`, so a nested at-rule here would silently truncate the parse. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-standard: 180ms;
+  --motion-duration-slow: 280ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  /* EXP-787 transcript measure + rhythm. THEME-INVARIANT like the motion
+     tokens, so :root only. Values mirror packages/design-tokens/tokens.json
+     `transcript`; design-tokens.test.ts guards the parity, and the gap ladder
+     itself (which gap goes above which row) lives in lib/agent-feed.ts. */
+  --transcript-max-width: 736px;
+  --transcript-gutter: 48px;
+  --transcript-gap-turn: 16px;
+  --transcript-gap-block: 12px;
+  --transcript-gap-tool: 12px;
+  --transcript-gap-default: 8px;
+  --transcript-body-size: 14px;
+  --transcript-body-line-height: 22px;
+  --transcript-tool-size: 12px;
+  --transcript-tool-line-height: 18px;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+  /* Editor tokens (dark) — close to GitHub Dark Dimmed for the hljs palette. */
+  --link: oklch(0.65 0.15 264);
+  --hljs-comment: oklch(0.55 0 0);
+  --hljs-keyword: oklch(0.72 0.16 350);
+  --hljs-string: oklch(0.75 0.14 145);
+  --hljs-number: oklch(0.75 0.15 60);
+  --hljs-title: oklch(0.75 0.14 270);
+  --hljs-variable: oklch(0.85 0.05 220);
+  --hljs-tag: oklch(0.72 0.15 30);
+  --hljs-deletion: oklch(0.65 0.18 25);
+  --hljs-addition: oklch(0.72 0.14 145);
+  /* EXP-269 glass tokens — see the :root copy. This block is the one
+     design-tokens.test.ts parity-checks against tokens.json. */
+  --glass-background-top: #050507;
+  --glass-background-bottom: #111114;
+  --glass-fill-section: oklch(1 0 0 / 4%);
+  --glass-fill-row: oklch(1 0 0 / 6%);
+  --glass-fill-card: oklch(1 0 0 / 6%);
+  --glass-fill-panel: oklch(1 0 0 / 4%);
+  --glass-fill-active: oklch(1 0 0 / 11%);
+  --glass-stroke-row: oklch(1 0 0 / 6%);
+  --glass-stroke-section: oklch(1 0 0 / 8%);
+  --glass-stroke-card: oklch(1 0 0 / 10%);
+  --glass-stroke-strong: oklch(1 0 0 / 12%);
+  --glass-stroke-active: oklch(1 0 0 / 16%);
+  /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
+  --code-text: #8AB4F8;
+  --code-fill: #8AB4F81F;
+  --code-stroke: #8AB4F833;
+  /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (avatar-color.ts). */
+  --avatar-0: #F87171;
+  --avatar-1: #FB923C;
+  --avatar-2: #FACC15;
+  --avatar-3: #4ADE80;
+  --avatar-4: #2DD4BF;
+  --avatar-5: #60A5FA;
+  --avatar-6: #A78BFA;
+  --avatar-7: #F472B6;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /* EXP-525: Tailwind v4 dropped the preflight `cursor: pointer` on buttons,
+     so every interactive control kept the text caret. One base rule instead of
+     a `cursor-pointer` class on each call site — enabled controls only, so a
+     disabled button still reads as inert. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  [role="option"],
+  [role="tab"]:not([disabled]),
+  [role="combobox"],
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+  body {
+    @apply text-foreground antialiased;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    /* EXP-269: the page backdrop is the mobile glass gradient, painted by the
+       fixed ::before below (background-attachment: fixed is broken on iOS
+       Safari). The solid top color stays as overscroll/fallback paint. */
+    background-color: var(--glass-background-top);
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      var(--glass-background-top),
+      var(--glass-background-bottom)
+    );
+  }
+}
+
+/* EXP-269 glass recipes. Deliberately free of radius/size properties so
+   tailwind-merge never has conflicts to resolve against them — callers own
+   their rounded-* class. */
+
+/* Floating glass layer (popovers, menus, dialogs, sheets): frosted popover
+   surface + hairline + soft drop with an inset top highlight. Productized
+   from the .editor-image-menu-trigger recipe below. EXP-277: 95% mix — menus
+   read opaque (legible over busy content) while the retained blur + stroke +
+   highlight keep the glass edge; 95% is the shared floating-surface alpha
+   step (tooltip/bulk bar). Deliberate exemption: the round icon pill chrome
+   (mobile tab bar, reviews nav pills) stays at /85 — translucency there is
+   intentional ambience over scrolling content, not a legibility surface.
+   EXP-449: -webkit-backdrop-filter must come FIRST — with the standard
+   property first, the production LightningCSS pass collapses the pair into
+   only the -webkit- form and shipped menus rendered with no blur at all
+   (the "too see-through" bug). Prefix-first survives minification with both
+   forms emitted. */
+/* EXP-523 — Tailwind v4 has no `--duration-*` theme namespace (`duration-<n>`
+   is a bare numeric utility), so the three shared durations get explicit
+   named utilities. Each sets BOTH `transition-duration` and `--tw-duration`,
+   exactly like core's `duration-*`: tw-animate-css's `animate-in`/`animate-out`
+   read `--tw-duration` for their keyframe length, so without it these names
+   would silently do nothing on an enter/exit animation. The matching
+   `ease-standard`/`ease-decelerate`/`ease-accelerate` come free from the
+   `--ease-*` theme namespace above (core's `ease-*` sets `--tw-ease`, which
+   tw-animate-css reads the same way). Always pair with
+   `motion-reduce:transition-none` (or `motion-safe:` on the animation). */
+/* EXP-724 — the indeterminate Progress bar (the steering compaction strip):
+   a third-width segment sweeping the track, because compaction takes real
+   time (10-170s) with nothing measurable to report. Tailwind v4 registers a
+   custom animation through the `--animate-*` theme namespace, keyframes and
+   all; always used behind `motion-safe:`. */
+@theme {
+  --animate-progress-indeterminate: progress-indeterminate 1.4s
+    cubic-bezier(0.65, 0, 0.35, 1) infinite;
+
+  @keyframes progress-indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
+  }
+
+  /* EXP-850 §5 — the working caption's agent brand mark: opacity 0.4 to 1
+     over 1.4s, the same beat on all four clients. Always behind
+     `motion-safe:`. */
+  --animate-agent-pulse: agent-pulse 1.4s ease-in-out infinite;
+
+  @keyframes agent-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+}
+
+@utility duration-fast {
+  --tw-duration: var(--motion-duration-fast);
+  transition-duration: var(--motion-duration-fast);
+}
+
+@utility duration-standard {
+  --tw-duration: var(--motion-duration-standard);
+  transition-duration: var(--motion-duration-standard);
+}
+
+@utility duration-slow {
+  --tw-duration: var(--motion-duration-slow);
+  transition-duration: var(--motion-duration-slow);
+}
+
+@utility glass-panel {
+  border: 1px solid var(--glass-stroke-card);
+  background: color-mix(in oklab, var(--popover) 95%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 12px 32px -12px oklch(0 0 0 / 0.45),
+    inset 0 1px 0 oklch(1 0 0 / 6%);
+}
+
+/* EXP-698 — the OPAQUE card composite. Menus and the floating composer read
+   as the ordinary card fill (`bg-glass-card`) sitting on a SOLID surface
+   rather than on whatever scrolls behind them: no backdrop blur, no drop
+   shadow, just the fill over --popover. The tint has to ride the
+   background-IMAGE layer because `background-color` holds exactly one colour
+   and that one is the opaque base. Free of border/radius like every other
+   glass recipe — callers own those. */
+@utility bg-glass-card-opaque {
+  background-color: var(--popover);
+  background-image: linear-gradient(
+    var(--glass-fill-card),
+    var(--glass-fill-card)
+  );
+}
+
+/* Translucent chrome pinned to a viewport EDGE: sticky top bars, the docked
+   agent bar. The scrim must read as the page gradient continuing behind the
+   blur — so it is tinted with the gradient's own endpoint, never with
+   --background. EXP-442: --background is shadcn's hue-less neutral
+   (oklch(0.145 0 0)), so `bg-background/60` painted rgb(10,10,10) over a
+   rgb(9,9,11) backdrop — a pure-black rectangle against the zinc-tinted
+   gradient, and the bottom dock's /70 landed rgb(14,14,15) against
+   rgb(23,23,26), visibly a black bar. An edge-pinned bar only ever covers the
+   first/last few percent of the ramp, so the endpoint colour composites back
+   onto the backdrop pixel-exactly. Pick the utility by which edge the bar
+   hugs; the alphas are the scrim strengths those two surfaces already used. */
+@utility glass-chrome-top {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 60%,
+    transparent
+  );
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+
+/* EXP-760: the same top-edge scrim, but for chrome pinned inside the CUTOUT
+   PANEL rather than to the window — the issue detail's sticky title+props
+   band. The panel is not the page: its own `--glass-fill-panel` layer sits
+   between the gradient and the band, so painting only the 60% background
+   scrim (glass-chrome-top) composites a visibly DARKER rectangle over the
+   card — the black-bar bug EXP-442 fixed at the window edge, reappearing one
+   surface in. Re-adding the panel fill on top restores the exact stack the
+   card paints, so the band blends into it and only the blur gives it away. */
+@utility glass-chrome-card {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 60%,
+    transparent
+  );
+  background-image: linear-gradient(
+    var(--glass-fill-panel),
+    var(--glass-fill-panel)
+  );
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+
+@utility glass-chrome-bottom {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-bottom) 70%,
+    transparent
+  );
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+
+/* Full-viewport gradient repaint for full-screen covers that would otherwise
+   occlude the body gradient with an opaque background. */
+@utility bg-app-gradient {
+  background-color: var(--glass-background-top);
+  background-image: linear-gradient(
+    to bottom,
+    var(--glass-background-top),
+    var(--glass-background-bottom)
+  );
+}
+
+/* EXP-885 — THE issue chip box. ONE style for every surface that names an
+   issue as a chip: the markdown editor's `#IDENTIFIER` decoration
+   (`.issue-ref-pill`, which the app's own stylesheet extends), the steering
+   feed, the timeline's relation events and the launch composer's subject
+   chips — the last three through `<IssueChip>` (./issue-chip.tsx), which
+   carries this very class so the decoration and the component cannot drift.
+   styles.test.ts locks the box; the app's components/issue-chip.test.tsx
+   locks the decoration that copies it.
+
+   EXP-423: a small rounded RECT, not a capsule — the shape all four clients
+   share (desktop 4px, iOS ~5pt, Android 5dp). Mention pills stay fully round.
+
+   UNLAYERED, like the rest of this file: these declarations beat Tailwind's
+   @layer utilities, so the component styles its LAYOUT with utilities and
+   leaves the box to this class (the removable variant's tighter right padding
+   is the `data-removable` rule below, not a `pr-*`). */
+.issue-chip {
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* EXP-469: the left padding sits directly against the status glyph, which
+     carries its own gap — a symmetric 0.4rem read as the icon floating too
+     far off the chip's edge. */
+  padding: 0.05rem 0.4rem 0.05rem 0.25rem;
+  white-space: nowrap;
+}
+
+/* The ✕ variant (composers only): the glyph sits inside the chip, so the
+   trailing padding shrinks to the ✕'s own hit area. */
+.issue-chip[data-removable="true"] {
+  padding-right: 0.15rem;
+}
+
+.issue-chip:hover {
+  border-color: var(--ring);
+}

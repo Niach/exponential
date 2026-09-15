@@ -7,14 +7,12 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import { conceptIcon } from "@/lib/icons.generated"
-import { getActionIcon } from "@/lib/board-icons"
+  conceptIcon,
+  getActionIcon,
+} from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-825: the composer's action picker — the launch dialog's Actions tab

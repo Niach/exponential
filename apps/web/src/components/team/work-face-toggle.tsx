@@ -1,10 +1,5 @@
 import type { ReactNode } from "react"
-import {
-  SEGMENTED_TAB,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
+import { SEGMENTED_TAB, Tabs, TabsList, TabsTrigger } from "@exp/ui"
 import type { WorkTabFace } from "@/lib/work-tabs"
 
 // EXP-870: an issue and its run are ONE work tab with faces. This is the

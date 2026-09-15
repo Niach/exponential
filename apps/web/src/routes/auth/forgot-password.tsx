@@ -2,9 +2,7 @@ import * as React from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Button, Input, Label } from "@exp/ui"
 import { AuthFormShell } from "@/components/auth-form-shell"
 
 export const Route = createFileRoute(`/auth/forgot-password`)({

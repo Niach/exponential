@@ -2,14 +2,14 @@ import { useState, useEffect } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@exp/ui"
 import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
 
 export const Route = createFileRoute(`/invite/$token`)({

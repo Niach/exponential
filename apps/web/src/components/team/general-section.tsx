@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Team } from "@/db/schema"
-import {
-  GlassGroup,
-  GlassInputRow,
-  GlassSectionHeader,
-} from "@/components/ui/glass-rows"
+import { GlassGroup, GlassInputRow, GlassSectionHeader } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 
 // Team visibility is deliberately NOT configurable: every team is

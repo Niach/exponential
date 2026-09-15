@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { conceptIcon } from "@/lib/icons.generated"
-import { Button } from "@/components/ui/button"
 import {
+  conceptIcon,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@exp/ui"
 
 const LicensesIcon = conceptIcon(`settings-licenses`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)

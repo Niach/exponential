@@ -1,14 +1,14 @@
 import { useState } from "react"
 import { Sparkles, Users } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@exp/ui"
 import { PlanComparison } from "@/components/team/plan-comparison"
 import { AdjustSeatsDialog } from "@/components/team/adjust-seats-dialog"
 import { useBillingPlan } from "@/hooks/use-billing"

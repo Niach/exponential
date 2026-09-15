@@ -19,7 +19,31 @@ import type {
   McpTransport,
 } from "@exp/db-schema/domain"
 import type { Device, User } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  Input,
+  Pill,
+  GlassGroup,
+  GlassInputRow,
+  GlassPickerRow,
+  GlassRow,
+  GlassSectionHeader,
+  GlassToggleRow,
+  ListRow,
+  Dialog,
+  DialogBody,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { deviceCollection, userCollection } from "@/lib/collections"
@@ -48,35 +72,7 @@ import {
 import { builtinExpTools } from "@/lib/agent-feed"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useNow } from "@/hooks/use-now"
-import { Button } from "@/components/ui/button"
 import { ExponentialLogo } from "@/components/exponential-logo"
-import { Input } from "@/components/ui/input"
-import { Pill } from "@/components/ui/pill"
-import {
-  GlassGroup,
-  GlassInputRow,
-  GlassPickerRow,
-  GlassRow,
-  GlassSectionHeader,
-  GlassToggleRow,
-  ListRow,
-} from "@/components/ui/glass-rows"
-import {
-  Dialog,
-  DialogBody,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
 const McpIcon = conceptIcon(`settings-mcp`)

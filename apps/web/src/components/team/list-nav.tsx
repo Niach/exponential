@@ -22,20 +22,21 @@ import {
   PastSessionRow,
   RunningSessionRow,
 } from "@/components/session-list-rows"
-import { conceptIcon } from "@/lib/icons.generated"
-import { BoardIssueListPane } from "@/components/board-issue-list-pane"
-import { InboxView } from "@/components/inbox/inbox-view"
-import { SupportThreadList } from "@/components/helpdesk/support-inbox"
-import { SessionsList } from "@/components/agent-shell"
-import { SidebarBackRow } from "@/components/team/sidebar-back-row"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
 import {
+  conceptIcon,
+  GlassSectionHeader,
+  ListRow,
   SEGMENTED_ROW_COMPACT,
   SEGMENTED_TAB,
   Tabs,
   TabsList,
   TabsTrigger,
-} from "@/components/ui/tabs"
+} from "@exp/ui"
+import { BoardIssueListPane } from "@/components/board-issue-list-pane"
+import { InboxView } from "@/components/inbox/inbox-view"
+import { SupportThreadList } from "@/components/helpdesk/support-inbox"
+import { SessionsList } from "@/components/agent-shell"
+import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 
 // EXP-851: the sidebar's list panel — the list a detail came from. EXP-870:
 // it sits in the 17rem panel slot beside the compact rail (never replacing

@@ -6,21 +6,12 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
-import { isPlanLimitError } from "@/lib/plan-limit-error"
-import { toast } from "sonner"
-import type { User, TeamMember } from "@/db/schema"
-import { trpc } from "@/lib/trpc-client"
-import { invalidateBillingCache } from "@/hooks/use-billing"
-import { useTeamInvites } from "@/hooks/use-team-data"
-import { getRuntimeConfig } from "@/lib/runtime-config"
-import { getInitials } from "@/lib/utils"
-import { displayUserName } from "@/lib/user-display"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
+  conceptIcon,
+  Pill,
+  Button,
+  GlassRow,
+  GlassSectionHeader,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -28,15 +19,22 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
+  Input,
+  Separator,
+  UserAvatar,
+} from "@exp/ui"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
+import { toast } from "sonner"
+import type { User, TeamMember } from "@/db/schema"
+import { trpc } from "@/lib/trpc-client"
+import { invalidateBillingCache } from "@/hooks/use-billing"
+import { useTeamInvites } from "@/hooks/use-team-data"
+import { getRuntimeConfig } from "@/lib/runtime-config"
+import { displayUserName } from "@/lib/user-display"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 
 // EXP-687: leaving a team is a sign-out, removing someone is a user-minus —
@@ -125,12 +123,15 @@ export function TeamMembersSection({
                 className="justify-between gap-3 px-3 py-2"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <Avatar className="h-8 w-8 shrink-0">
-                    {user?.image && <AvatarImage src={user.image} />}
-                    <AvatarFallback className="text-xs" userId={member.userId}>
-                      {getInitials(displayName)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar
+                    size={32}
+                    className="shrink-0"
+                    user={{
+                      id: member.userId,
+                      name: displayName,
+                      image: user?.image,
+                    }}
+                  />
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="truncate text-sm font-medium">

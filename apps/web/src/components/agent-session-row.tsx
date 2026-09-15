@@ -1,16 +1,32 @@
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { SessionDisplayState } from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
-import { SESSION_DOT_CLASS } from "@/lib/session-dot"
+import { LiveDot, type LiveDotTone, type SessionDotTone } from "@exp/ui"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 
 // The session state dot and the Recent caption, shared by every session list
 // (EXP-874: the rows themselves live in `components/session-list-rows.tsx`)
 // plus the sidebar's Pinned group and the work-tab strip.
 
+/** EXP-887: the session tones, as `LiveDot` tones. The COLOURS still live in
+ * the ×4 `SESSION_DOT_CLASS` table — this only says which of the primitive's
+ * tones paints each one, and `lib/session-dot.test.ts` locks the two together
+ * so a colour can never drift between the table and the dot that draws it. */
+export const LIVE_DOT_TONE_BY_SESSION_TONE: Record<
+  SessionDotTone,
+  LiveDotTone
+> = {
+  running: `live`,
+  review: `live`,
+  needs_input: `attention`,
+  done: `done`,
+  muted: `idle`,
+}
+
 /** The row's state dot. EXP-862: the colours are the shared session-dot table
- * (`lib/session-dot.ts`, the desktop's `queries::session_dot_tone`); the row
- * adds the EXP-848 ping, which fires only while the agent is WORKING. */
+ * (`SESSION_DOT_CLASS`, the desktop's `queries::session_dot_tone`), drawn here
+ * through the `LiveDot` primitive; the row adds the EXP-848 ping, which fires
+ * only while the agent is WORKING. */
 export function RunningIndicator({
   state,
   paused = false,
@@ -23,32 +39,11 @@ export function RunningIndicator({
    * thing that pings. A live-but-idle run draws the steady emerald dot. */
   working?: boolean
 }) {
-  if (paused) {
-    return (
-      <span
-        className={`inline-flex size-2 rounded-full ${SESSION_DOT_CLASS.muted}`}
-      />
-    )
-  }
-  if (state !== `running`) {
-    return (
-      <span
-        className={`inline-flex size-2 rounded-full ${SESSION_DOT_CLASS[state]}`}
-      />
-    )
-  }
-  if (!working) {
-    return (
-      <span
-        className={`inline-flex size-2 rounded-full ${SESSION_DOT_CLASS.running}`}
-      />
-    )
-  }
+  if (paused) return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
+  if (state !== `running`)
+    return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE[state]} />
   return (
-    <span className="relative flex size-2">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-    </span>
+    <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.running} ping={working} />
   )
 }
 

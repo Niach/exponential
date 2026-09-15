@@ -33,12 +33,6 @@ const page = `
   --ok: ${designTokens.semantic.green};
   --warn: ${designTokens.semantic.yellow};
   --r-sm: ${radius.sm}px;
-  /* The ONE sub-ladder corner in the system: the issue chip's, which is 6 on
-     web (apps/web/src/styles.css .issue-chip), 4 on desktop and 5 on
-     iOS/Android. A badge that small wearing the 8px --r-sm step reads as a
-     capsule, which is exactly what the chip is not — so it gets a name here
-     rather than a literal in a demo. */
-  --r-chip: 6px;
   --r-md: ${radius.md}px;
   --r-lg: ${radius.lg}px;
   --shot-h: 520px;
@@ -86,6 +80,22 @@ ${Object.entries(designTokens.avatar).filter(([k]) => !k.startsWith(`$`)).map(([
   --menu-bg: linear-gradient(var(--card), var(--card)) var(--popover);
   --opaque-card: linear-gradient(var(--card), var(--card)) var(--card-solid);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+/* EXP-887 — a byte-for-byte MIRROR of packages/ui/src/styles.css's root font
+   size. The islands are shadow trees: the package stylesheet is adopted into
+   each of them, but its own html font-size rule matches nothing in there, so
+   a rem inside a real component resolves against THIS page's root instead. Set
+   it wrong and every island renders at the wrong scale. Safe to mirror because
+   the page's own CSS below is px-only — nothing else on the page moves.
+   components.test.tsx locks the pair. */
+html {
+  font-size: 1.15625rem;
+}
+
+@media (max-width: 767px) {
+  html {
+    font-size: 1rem;
+  }
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }

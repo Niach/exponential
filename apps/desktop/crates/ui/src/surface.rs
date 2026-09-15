@@ -15,7 +15,7 @@ use gpui_component::select::Select;
 use gpui_component::{h_flex, text::TextViewStyle, v_flex, ActiveTheme as _};
 use theme::tokens as t;
 
-/// EXP-698 — the web `GlassSectionHeader` (`components/ui/glass-rows.tsx`,
+/// EXP-698 — the web `GlassSectionHeader` (`@exp/ui glass-rows.tsx`,
 /// EXP-616): a PLAIN-TEXT heading over a glass list — no band, no fill, no
 /// border — `px_1 pt_1 pb_2`, the label `text_sm` MEDIUM at 70% foreground,
 /// then a spacer and the optional trailing control. No count slot: EXP-698
@@ -157,7 +157,7 @@ pub(crate) fn glass_card() -> Div {
 }
 
 /// EXP-642: ONE row of a carded list — the web `GlassRow`
-/// (`components/ui/glass-rows.tsx`: `rounded-md border border-glass-stroke
+/// (`@exp/ui glass-rows.tsx`: `rounded-md border border-glass-stroke
 /// bg-glass-row`). Unlike [`glass_card`] these stack with a GAP instead of
 /// fusing into one bordered block, which is what the reviews/support/actions
 /// lists and the machines section wear since the glass-row ladder (EXP-616)
@@ -541,7 +541,7 @@ pub(crate) enum PillMode {
 }
 
 /// EXP-698 — the ONE capsule of the desktop, the twin of the web
-/// `components/ui/pill.tsx` and the mobile `GlassPill`s. Every chip, tag,
+/// `@exp/ui pill.tsx` and the mobile `GlassPill`s. Every chip, tag,
 /// badge, filter pill, header button and picker trigger that used to be its
 /// own recipe (`glass_chip`, the old two-arg `glass_pill`, `pickers::
 /// chip_button`, `issue_list::label_chip`,

@@ -8,16 +8,16 @@ import {
   Github,
   User,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+  Checkbox,
+  Label,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { githubConnectedDeepLink } from "@/lib/deep-link"
 

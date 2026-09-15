@@ -1,8 +1,16 @@
 import { useState } from "react"
 import type { CodingSession } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  SESSION_DOT_CLASS,
+  type SessionDotTone,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@exp/ui"
 import { isLiveRunStatus } from "@/lib/past-runs"
-import { SESSION_DOT_CLASS, type SessionDotTone } from "@/lib/session-dot"
 import { cn } from "@/lib/utils"
 import {
   CHANGES_FACE_LABEL,
@@ -18,13 +26,6 @@ import type { PastRunRow } from "@/hooks/use-agents-data"
 import { issueRunEntryLabel } from "@/components/issue-run-switcher"
 import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
 import { DiffFaceLabel } from "@/components/team/work-face-toggle"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 // EXP-893: the phone's FACE SWITCHER — the bottom-right circle of the Work
 // screen, the desktop face toggle's touch twin. With exactly one other

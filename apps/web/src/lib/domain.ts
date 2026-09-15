@@ -1,19 +1,13 @@
-import type { LucideIcon } from "lucide-react"
 import type { IssuePriority, IssueStatus } from "@exp/db-schema/domain"
-import { conceptIcon } from "@/lib/icons.generated"
+import { BUILTIN_STATUS_COLOR_CLASS, conceptIcon } from "@exp/ui"
 
 export * from "@exp/db-schema/domain"
 
-export interface IssueOption<TValue extends string> {
-  color: string
-  // EXP-314: custom issue statuses carry a per-row hex instead of a Tailwind
-  // token class. When present it wins (applied as an inline `color` style);
-  // priorities and builtin statuses leave it undefined and keep `color`.
-  colorHex?: string
-  icon: LucideIcon
-  label: string
-  value: TValue
-}
+// EXP-887: the interface itself lives in @exp/ui (the menu primitive that
+// consumes it does), re-exported here so the option tables below and their
+// ~30 call sites keep naming it from one place.
+import type { IssueOption } from "@exp/ui"
+export type { IssueOption }
 
 // Option tables — the ONE picker vocabulary (REV2-85): every status/priority
 // menu on every client walks the contract `displayOrder`
@@ -29,42 +23,47 @@ export interface IssueOption<TValue extends string> {
 // fallback for legacy URL tokens / old timeline payloads, and (c) anchor-keyed
 // logic (`CODEABLE_STATUSES` and friends). New UI must not group or pick from
 // them directly.
+// EXP-887: the `color` strings live in @exp/ui's `status-icons.ts` — Tailwind
+// v4 only emits a palette utility it can SEE in a scanned file, and a class
+// named only here would stop being generated once the last package-side
+// consumer needed it. The PRIORITY palette stays below: nothing in the package
+// renders a priority.
 export const issueStatusOptions = [
   {
     value: `backlog`,
     label: `Backlog`,
     icon: conceptIcon(`status-backlog`),
-    color: `text-muted-foreground`,
+    color: BUILTIN_STATUS_COLOR_CLASS.backlog,
   },
   {
     value: `in_progress`,
     label: `In Progress`,
     icon: conceptIcon(`status-in-progress`),
-    color: `text-yellow-500`,
+    color: BUILTIN_STATUS_COLOR_CLASS.in_progress,
   },
   {
     value: `in_review`,
     label: `In Review`,
     icon: conceptIcon(`status-in-review`),
-    color: `text-green-500`,
+    color: BUILTIN_STATUS_COLOR_CLASS.in_review,
   },
   {
     value: `done`,
     label: `Done`,
     icon: conceptIcon(`status-done`),
-    color: `text-blue-500`,
+    color: BUILTIN_STATUS_COLOR_CLASS.done,
   },
   {
     value: `cancelled`,
     label: `Cancelled`,
     icon: conceptIcon(`status-cancelled`),
-    color: `text-muted-foreground`,
+    color: BUILTIN_STATUS_COLOR_CLASS.cancelled,
   },
   {
     value: `duplicate`,
     label: `Duplicate`,
     icon: conceptIcon(`status-duplicate`),
-    color: `text-muted-foreground`,
+    color: BUILTIN_STATUS_COLOR_CLASS.duplicate,
   },
 ] as const satisfies readonly IssueOption<IssueStatus>[]
 

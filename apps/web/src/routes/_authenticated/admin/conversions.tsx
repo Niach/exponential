@@ -8,15 +8,15 @@ import {
 } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { getRuntimeConfig } from "@/lib/runtime-config"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  Pill,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
   DayBars,

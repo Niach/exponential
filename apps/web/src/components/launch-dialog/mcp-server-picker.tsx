@@ -4,22 +4,20 @@
 // machine, per the readiness matrix) is greyed with the reason as a tooltip;
 // picking it anyway is allowed, the desktop launcher then names the blocker.
 // Hidden by the caller when the team has no servers at all.
-import { Checkbox } from "@/components/ui/checkbox"
 import {
+  Checkbox,
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import { Pill } from "@/components/ui/pill"
-import { conceptIcon } from "@/lib/icons.generated"
+  Pill,
+  conceptIcon,
+} from "@exp/ui"
 import { serverBlockReason, type McpServerRow } from "@/lib/mcp-servers"
 import type { SteerDevice } from "@/lib/steer-devices"
 import { cn } from "@/lib/utils"

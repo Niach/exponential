@@ -74,7 +74,7 @@ public struct GlassRow: ViewModifier {
 /// row's `fillActive` (a phone has no hover to wash). `GlassRow` stays for the
 /// few real CARDS — a transcript's tool output, a diff, a settings section.
 ///
-/// Web `ListRow` (`components/ui/glass-rows.tsx`) / desktop
+/// Web `ListRow` (`packages/ui/src/glass-rows.tsx`) / desktop
 /// `surface::flat_row` twin; padding, gap and the tap are the caller's, exactly
 /// as on the other two.
 public struct FlatRow: ViewModifier {

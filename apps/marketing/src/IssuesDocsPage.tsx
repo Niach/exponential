@@ -7,6 +7,7 @@ import {
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { DocShot } from "./components/DocShot"
+import { UiDemo } from "./components/UiDemo"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `board`, num: `01`, label: `The board` },
@@ -211,6 +212,12 @@ export function IssuesDocsPage() {
               and labels, and tapping one on mobile does the same. Unknown
               identifiers stay plain text, so pasting logs or commit messages
               never produces broken links.
+            </p>
+
+            <UiDemo id="issue-chip" />
+            <p className="docs-embed-caption">
+              The real chip, rendered by the app&apos;s own component: status
+              glyph, identifier, title.
             </p>
           </DocsSection>
 

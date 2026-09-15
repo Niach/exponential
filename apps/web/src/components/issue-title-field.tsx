@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
-import { Textarea } from "@/components/ui/textarea"
+import { Textarea } from "@exp/ui"
 
 // EXP-877: the issue title, lifted out of the detail view so the unified work
 // header can carry it on BOTH the issue route and the session route (an

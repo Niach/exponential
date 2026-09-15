@@ -16,7 +16,33 @@
 import { useMemo, useState } from "react"
 import { LoaderCircle } from "lucide-react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  Pill,
+  GlassSectionHeader,
+  ListRow,
+  Dialog,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  LiveDot,
+} from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -52,34 +78,6 @@ import {
   type DeviceAccountChip,
 } from "@/lib/agent-usage"
 import { agentLabel } from "@/components/agent-picker"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule); the LoaderCircle
@@ -295,7 +293,7 @@ export function DeviceStatusLine({
   }
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+      <LiveDot tone="live" className="size-1.5 shrink-0" />
       <span className="truncate">Online</span>
     </div>
   )

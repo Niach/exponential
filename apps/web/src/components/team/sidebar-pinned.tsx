@@ -2,15 +2,9 @@ import { useMemo } from "react"
 import type * as React from "react"
 import { Link, useLocation, useParams, useSearch } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { conceptIcon } from "@/lib/icons.generated"
-import { getActionIcon } from "@/lib/board-icons"
-import type { Board, Issue, Pin, SyncedAction } from "@/db/schema"
-import { actionCollection, issueCollection } from "@/lib/collections"
-import { useOpenComposer } from "@/hooks/use-open-composer"
-import { useTeamPins } from "@/hooks/use-pins"
-import { useTeamBoards } from "@/hooks/use-team-data"
-import { trpc } from "@/lib/trpc-client"
 import {
+  conceptIcon,
+  getActionIcon,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -18,7 +12,13 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
+} from "@exp/ui"
+import type { Board, Issue, Pin, SyncedAction } from "@/db/schema"
+import { actionCollection, issueCollection } from "@/lib/collections"
+import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useTeamPins } from "@/hooks/use-pins"
+import { useTeamBoards } from "@/hooks/use-team-data"
+import { trpc } from "@/lib/trpc-client"
 
 // EXP-778: the sidebar's Pinned group — the caller's favourites in this team
 // (issues and actions), in pin order. A row renders only when its target is

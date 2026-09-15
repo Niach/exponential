@@ -3,7 +3,7 @@ import { Maximize2 } from "lucide-react"
 import { isVideoContentType } from "@/lib/storage/issue-attachments"
 import { buildAttachmentPosterUrl } from "@/lib/storage/issue-attachments"
 import { formatDuration } from "@/lib/storage/video-metadata"
-import { Button } from "@/components/ui/button"
+import { Button } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 /** The subset of an `attachments` row the player needs (synced shape or

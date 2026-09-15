@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { GlassGroup } from "@/components/ui/glass-rows"
+import { GlassGroup } from "@exp/ui"
 
 // The wizard card every step shares (EXP-698 r6 style contract: this is the
 // desktop IDE's reference, `onboarding.rs` mirrors the chrome): a primary-

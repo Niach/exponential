@@ -10,14 +10,14 @@ import {
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Copy, Download, Eye, Ellipsis, Trash2 } from "lucide-react"
 import { attachmentCollection } from "@/lib/collections"
-import { Button } from "@/components/ui/button"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@exp/ui"
+import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import { cn } from "@/lib/utils"
 
 /** Pull the attachment id out of a `/api/attachments/{id}` (relative or

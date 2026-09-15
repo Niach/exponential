@@ -13,22 +13,12 @@
 export const componentStyles = `
 /* ---------------------------------------------------------------- layout */
 .cmp-stack { display: grid; gap: 12px; }
-.cmp-list { display: grid; gap: 0; }
-.cmp-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
 /* -------------------------------------------------------- section header */
 /* EXP-818: the group BAND — a strip on the section fill over its flat rows. */
 .cmp-section-header { display: flex; align-items: center; gap: 6px; padding: 6px 12px; margin-bottom: 4px; border-radius: var(--r-md); background: var(--section); }
 .cmp-section-header .title { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg-85); }
 .cmp-section-header .trailing { margin-left: auto; }
-
-/* EXP-818: the flat LIST row — no stroke, no fill; hover = row fill, active =
-   active fill; rows stack with no gap under the band. */
-.cmp-list-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--r-md); transition: background var(--dur) var(--ease); }
-.cmp-list-row .label { flex: 1; min-width: 0; }
-.cmp-list-row .trailing { flex: none; font-size: 12px; color: var(--fg-50); }
-.cmp-list-row.interactive:hover { background: var(--row); }
-.cmp-list-row.active { background: var(--active); }
 
 /* ------------------------------------------------------- group container */
 /* Borderless on purpose: the fill IS the edge, and hairlines between children
@@ -99,23 +89,6 @@ export const componentStyles = `
 }
 .cmp-row-shell input.value::placeholder { color: var(--fg-50); }
 
-/* ------------------------------------------------------------ glass row */
-/* The GAPPED list item — carries its own stroke because nothing separates it
-   from its neighbours. The grouped shell above never does. */
-.cmp-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--r-md);
-  background: var(--row);
-  border: 1px solid var(--stroke-soft);
-  transition: background var(--dur) var(--ease);
-}
-.cmp-row .label { flex: 1; min-width: 0; }
-.cmp-row .trailing { flex: none; display: flex; align-items: center; gap: 8px; }
-.cmp-row.interactive:hover { background: var(--active-50); }
-
 /* --------------------------------------------------------------- switch */
 .cmp-switch {
   position: relative;
@@ -139,38 +112,6 @@ export const componentStyles = `
 }
 .cmp-switch.on { background: var(--primary); }
 .cmp-switch.on::after { background: var(--primary-fg); transform: translateX(16px); }
-
-/* -------------------------------------------------------------- segments */
-.cmp-tabs-row, .cmp-segmented { display: flex; align-items: center; }
-/* Embedded: the FIRST row of a group, so it carries no fill and no stroke —
-   the group already draws both. */
-.cmp-tabs-row { width: 100%; padding: 8px; }
-.cmp-segmented {
-  height: var(--ctl-lg);
-  padding: 3px;
-  border-radius: 9999px;
-  border: 1px solid var(--stroke-section);
-  background: var(--section);
-}
-.cmp-tabs-row .tab, .cmp-segmented .tab {
-  flex: 1;
-  padding: 4px 8px;
-  border-radius: 9999px;
-  border: 1px solid transparent;
-  font-size: 14px;
-  line-height: 18px;
-  text-align: center;
-  white-space: nowrap;
-  color: var(--muted-fg);
-  transition: background var(--dur) var(--ease);
-}
-/* Embedded in a group the strip has no capsule to fill, so the segments take py-1.5. */
-.cmp-tabs-row .tab { padding-top: 6px; padding-bottom: 6px; }
-.cmp-tabs-row .tab.active, .cmp-segmented .tab.active {
-  background: var(--active);
-  border-color: var(--stroke-active);
-  color: var(--fg);
-}
 
 /* ------------------------------------------------------------- rich tab */
 /* The STRIP tab — desktop's top tab strip and session bar, web's agent dock.
@@ -280,50 +221,6 @@ export const componentStyles = `
 }
 .cmp-button-primary.disabled { background: var(--card); border-color: var(--stroke); color: var(--fg-50); }
 
-/* ----------------------------------------------------------- icon picker */
-/* EXP-771 narrowed by EXP-862, the shape rule: a circle is the PRIMARY action
-   (everything secondary is the ghost button above) and a rounded square is a
-   PICKER. The trigger and the swatch cells take the MD step, so a picker can
-   never be read as one of the circular icon buttons above; only COLOUR
-   swatches stay circles, because a colour has no shape to read. */
-.cmp-icon-picker-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--ctl-lg);
-  height: var(--ctl-lg);
-  padding: 0;
-  border-radius: var(--r-md);
-  background: var(--card);
-  border: 1px solid var(--stroke);
-  color: var(--fg);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
-}
-.cmp-icon-picker-trigger:hover { background: var(--active); }
-/* Nothing picked: the hairline goes dashed under a muted placeholder glyph. */
-.cmp-icon-picker-trigger[data-empty] { border-style: dashed; color: var(--fg-50); }
-.cmp-icon-picker-trigger .glyph { width: 16px; height: 16px; }
-.cmp-icon-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.cmp-icon-grid .item {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ctl-md);
-  height: var(--ctl-md);
-  padding: 0;
-  border-radius: var(--r-md);
-  background: var(--section);
-  border: 1px solid var(--stroke-section);
-  color: var(--fg-70);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.cmp-icon-grid .item:hover { background: var(--active); color: var(--fg); }
-.cmp-icon-grid .item.selected { background: var(--active); border-color: var(--stroke-active); color: var(--fg); }
-.cmp-icon-grid .glyph { width: 16px; height: 16px; }
-
 /* ------------------------------------------------------------------ pill */
 /* ONE capsule for every label-sized thing (EXP-698). What used to be a chip is
    readonly, what used to be a "header button" is sm + action: the same
@@ -370,71 +267,6 @@ export const componentStyles = `
   color: var(--primary-fg);
 }
 
-/* ----------------------------------------------------------- issue chip */
-/* EXP-885 — the ONE issue badge. These numbers MIRROR, declaration for
-   declaration, apps/web/src/styles.css .issue-chip — the class the
-   React component (components/issue-chip.tsx) and the markdown editor's
-   #IDENT decoration both wear, which is why the rem values here are the
-   web's own rather than this page's usual px. Nothing reads that stylesheet
-   at build time: this is a hand-kept copy, like every other demo in the
-   group.
-   A rounded RECT at --r-chip, never the pill's capsule; the hairline over the
-   wash is what makes the chip legible, so it survives every state but hover,
-   which swaps it for the ring. */
-.cmp-issue-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 18rem;
-  border-radius: var(--r-chip);
-  background: var(--active);
-  border: 1px solid var(--stroke);
-  /* EXP-469: the left padding sits directly against the status glyph, which
-     carries its own gap — a symmetric 0.4rem read as the icon floating off
-     the chip's edge. */
-  padding: 0.05rem 0.4rem 0.05rem 0.25rem;
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-/* The ✕ variant (composers only): the glyph sits INSIDE the chip, so the
-   trailing padding shrinks to the ✕'s own hit area. */
-.cmp-issue-chip[data-removable] { padding-right: 0.15rem; }
-.cmp-issue-chip:hover { border-color: var(--ring); }
-/* 0.875em of the chip's own 0.75rem — the exact glyph box the editor
-   decoration paints with its mask. The tint is the status row's colour; the
-   demo shows the muted backlog default and the completed green. */
-.cmp-issue-chip .glyph { flex: none; width: 0.875em; height: 0.875em; color: var(--fg-50); }
-.cmp-issue-chip[data-status="done"] .glyph { color: var(--ok); }
-/* The identifier recedes; the title carries the weight. */
-.cmp-issue-chip .id {
-  flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--muted-fg);
-}
-.cmp-issue-chip .title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--fg);
-}
-/* Web's ✕ is a 16px box with a 4px corner; it takes the chip's own corner
-   here rather than adding a second sub-ladder number. */
-.cmp-issue-chip .close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--r-chip);
-  color: var(--muted-fg);
-  cursor: pointer;
-}
-.cmp-issue-chip .close:hover { background: var(--active); color: var(--fg); }
-.cmp-issue-chip .close .glyph { width: 12px; height: 12px; color: inherit; }
-
 /* ---------------------------------------------------------------- avatar */
 /* Picture first. Without one the initials sit on the PERSON'S hue — the
    avatar token list, index = fnv1a32(utf8(userId)) % 8 — as a 20% fill under
@@ -479,32 +311,6 @@ export const componentStyles = `
 }
 .cmp-text-field:focus { border-color: var(--stroke-active); }
 .cmp-text-field::placeholder { color: var(--fg-50); }
-
-/* ------------------------------------------------------------ text area */
-/* The field's recipe, grown: same fill, stroke and focus swap, three rows tall,
-   and it GROWS with content — the drag handle is off everywhere, because a
-   hand-resized box does not survive a re-render on any of the four clients. */
-.cmp-textarea {
-  display: block;
-  width: 100%;
-  min-height: 64px;
-  padding: 8px 12px;
-  border-radius: var(--r-lg);
-  background: var(--card);
-  border: 1px solid var(--stroke);
-  color: var(--fg);
-  font: inherit;
-  font-size: 14px;
-  line-height: 20px;
-  resize: none;
-  outline: none;
-  transition: border-color var(--dur) var(--ease);
-}
-.cmp-textarea:focus { border-color: var(--stroke-active); }
-.cmp-textarea::placeholder { color: var(--fg-50); }
-/* Inside a group the ROW is the chrome, exactly as for the input row. */
-.cmp-textarea.borderless { padding: 0; border-color: transparent; background: none; min-height: 60px; }
-.cmp-row-shell .cmp-textarea { flex: 1; min-width: 0; }
 
 /* ------------------------------------------------------------- app shell */
 /* EXP-723, the CUTOUT, as amended by EXP-771. Four parts: the ground (the page

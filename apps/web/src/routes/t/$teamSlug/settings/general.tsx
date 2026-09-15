@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { TeamGeneralSection } from "@/components/team/general-section"
-import { Button } from "@/components/ui/button"
-import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
+  Button,
+  GlassRow,
+  GlassSectionHeader,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -12,9 +13,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  Input,
+  Label,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   SettingsSectionGuard,

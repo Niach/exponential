@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { TeamAvatar } from "@/components/team/team-avatar"
+import { TeamAvatar } from "@exp/ui"
 
 // The team mark is a SQUARE at a quarter radius in the primary accent — the
 // one thing that stops a team from reading like a member (EXP-698 r5).

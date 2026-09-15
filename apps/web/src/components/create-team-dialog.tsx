@@ -10,10 +10,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  Button,
+  Input,
+  Label,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 
 export function CreateTeamDialog({

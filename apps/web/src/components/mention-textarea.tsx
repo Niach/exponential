@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import type { User } from "@/db/schema"
-import { Textarea } from "@/components/ui/textarea"
+import { Textarea } from "@exp/ui"
 import {
   EmojiCandidateRow,
   IssueCandidateRow,

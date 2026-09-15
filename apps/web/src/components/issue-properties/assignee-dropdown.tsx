@@ -3,22 +3,18 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"
-import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+  Button,
+  UserAvatar,
+} from "@exp/ui"
 import { User as UserIcon, X } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import type { User } from "@/db/schema"
-import { getInitials } from "@/lib/utils"
-
 interface AssigneeDropdownProps {
   issueId: string
   assigneeId: string | null
@@ -44,14 +40,7 @@ export function AssigneeDropdown({
   const people = users
 
   const avatarVisual = assignee ? (
-    <Avatar className="size-5">
-      {assignee.image && (
-        <AvatarImage src={assignee.image} alt={assignee.name} />
-      )}
-      <AvatarFallback className="text-[0.625rem]" userId={assignee.id}>
-        {getInitials(assignee.name)}
-      </AvatarFallback>
-    </Avatar>
+    <UserAvatar size={20} user={assignee} />
   ) : (
     <div className="size-5 rounded-full border border-dashed border-border flex items-center justify-center">
       <UserIcon className="size-2.5 text-muted-foreground/50" />
@@ -79,12 +68,7 @@ export function AssigneeDropdown({
       onSelect={() => handleSelect(user.id)}
       className="flex items-center gap-2"
     >
-      <Avatar className="size-5">
-        {user.image && <AvatarImage src={user.image} alt={user.name} />}
-        <AvatarFallback className="text-[0.5625rem]" userId={user.id}>
-          {getInitials(user.name)}
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar size={20} user={user} />
       <span className="truncate text-sm">{user.name}</span>
     </CommandItem>
   )

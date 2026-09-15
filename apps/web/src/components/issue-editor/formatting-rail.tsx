@@ -1,14 +1,14 @@
 import { useEffect, useReducer, useRef, useState } from "react"
 import type { Editor } from "@tiptap/react"
 import { NodeSelection } from "@tiptap/pm/state"
-import { conceptIcon } from "@/lib/icons.generated"
-import { EmojiPickerPopover } from "@/components/emoji-picker"
 import {
+  conceptIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@exp/ui"
+import { EmojiPickerPopover } from "@/components/emoji-picker"
 import {
   acceptedImageContentTypes,
   acceptedVideoUploadContentTypes,

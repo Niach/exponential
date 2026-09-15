@@ -4,11 +4,7 @@ import {
   HEADER_SLOT_CLASS,
   MOBILE_DETAIL_HEADER_CLASS,
 } from "@/components/team/mobile-detail-header"
-import {
-  SEGMENTED_ROW,
-  SEGMENTED_ROW_COMPACT,
-  SEGMENTED_TAB,
-} from "@/components/ui/tabs"
+import { SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exp/ui"
 
 // EXP-851: the ONE detail header — the native layout (round back, centred
 // identifier, round `…`). The class strings are the contract; a second

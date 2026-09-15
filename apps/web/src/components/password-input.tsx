@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Button, Input } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 type PasswordInputProps = Omit<React.ComponentProps<typeof Input>, `type`>

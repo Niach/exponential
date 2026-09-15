@@ -174,6 +174,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/issues/index.html`,
     sources: [
       `src/IssuesDocsPage.tsx`,
+      `src/ui-demos/demos.tsx`,
       `../../shots/board`,
       `../../shots/issue-detail`,
       `../../shots/inbox`,
@@ -190,7 +191,11 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/coding/`,
     htmlFile: `docs/coding/index.html`,
-    sources: [`src/CodingDocsPage.tsx`, `../../shots/issue-detail`],
+    sources: [
+      `src/CodingDocsPage.tsx`,
+      `src/ui-demos/demos.tsx`,
+      `../../shots/issue-detail`,
+    ],
     title: `Coding agents · Exponential docs`,
     description: `Hand issues to Claude Code or Codex from the desktop IDE or the CLI: setup, the Agent page composer, single and batch runs, steering live sessions, reviewing and merging.`,
     ogImage: `/og/og-docs.png`,

@@ -6,8 +6,33 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router"
-import { conceptIcon } from "@/lib/icons.generated"
-import { getBoardIcon } from "@/lib/board-icons"
+import {
+  conceptIcon,
+  getBoardIcon,
+  TeamAvatar,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Separator,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupAction,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
@@ -30,7 +55,6 @@ import {
   UserAvatar,
   UserMenuItems,
 } from "@/components/team/sidebar-rail"
-import { TeamAvatar } from "@/components/team/team-avatar"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { panelOffset } from "@/lib/detail-origin"
@@ -38,34 +62,6 @@ import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
 import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
-import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Separator } from "@/components/ui/separator"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupAction,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.

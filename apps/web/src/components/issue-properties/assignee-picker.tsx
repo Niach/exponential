@@ -3,20 +3,18 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Pill } from "@/components/ui/pill"
+  Pill,
+  UserAvatar,
+} from "@exp/ui"
 import { User as UserIcon, X } from "lucide-react"
 import type { User } from "@/db/schema"
-import { cn, getInitials } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 
 interface AssigneePickerProps {
@@ -68,22 +66,14 @@ export function AssigneePicker({
           >
             {selectedUser ? (
               <>
-                <Avatar className="size-4">
-                  {selectedUser.image && (
-                    <AvatarImage
-                      src={selectedUser.image}
-                      alt={displayUserName(selectedUser, selectedUser.id)}
-                    />
-                  )}
-                  <AvatarFallback
-                    className="text-[0.5rem]"
-                    userId={selectedUser.id}
-                  >
-                    {getInitials(
-                      displayUserName(selectedUser, selectedUser.id)
-                    )}
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  size={16}
+                  user={{
+                    id: selectedUser.id,
+                    name: displayUserName(selectedUser, selectedUser.id),
+                    image: selectedUser.image,
+                  }}
+                />
                 <span className="truncate">
                   {displayUserName(selectedUser, selectedUser.id)}
                 </span>
@@ -133,17 +123,10 @@ export function AssigneePicker({
                     }}
                     className="flex items-center gap-2"
                   >
-                    <Avatar className="size-5">
-                      {user.image && (
-                        <AvatarImage src={user.image} alt={name} />
-                      )}
-                      <AvatarFallback
-                        className="text-[0.5625rem]"
-                        userId={user.id}
-                      >
-                        {getInitials(name)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      size={20}
+                      user={{ id: user.id, name, image: user.image }}
+                    />
                     <span className="truncate text-sm">{name}</span>
                   </CommandItem>
                 )

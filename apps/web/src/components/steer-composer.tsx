@@ -8,7 +8,17 @@ import {
 } from "react"
 import { toast } from "sonner"
 import { X } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  Dialog,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@exp/ui"
 import type { User } from "@/db/schema"
 import {
   planModeChipLabel,
@@ -41,7 +51,6 @@ import {
   renumberImageMarkers,
 } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import {
   Composer,
   ComposerSubmit,
@@ -51,15 +60,6 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 
 // EXP-698/EXP-724/EXP-790: the STEERING COMPOSER — the field a live run is
 // driven from, lifted out of `agent-session.tsx` by EXP-877 so the session

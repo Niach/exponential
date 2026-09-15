@@ -7,7 +7,29 @@ import {
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  Pill,
+  Dialog,
+  DialogCancel,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  GlassSectionHeader,
+  ListRow,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  getActionIcon,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { useSteerConfig } from "@/components/agent-session"
 import {
@@ -24,31 +46,6 @@ import {
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import {
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
-import { getActionIcon } from "@/lib/board-icons"
 import {
   PinToggleMenuItem,
   usePinToggleVisible,

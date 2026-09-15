@@ -5,11 +5,13 @@ The gallery for the cross-platform screenshot store (EXP-566): every view in
 side by side, so a board on one platform can be compared with the same
 board on the others.
 
-Zero runtime dependencies. The output is ONE self-contained HTML file plus a
-copy of `shots/` — `open dist/index.html` works with no server.
+The output is ONE self-contained HTML file plus a copy of `shots/` — no
+runtime dependencies IN THE OUTPUT, `open dist/index.html` works with no
+server. (The build itself uses `@exp/ui` + React to render the Components
+group's islands.)
 
 ```bash
-bun run dev:styleguide      # http://localhost:4173, re-renders from disk per request
+bun run dev:styleguide      # http://localhost:4173, re-reads the store per request (restart after a component edit; ?recompile=1 rebuilds the css)
 bun run build:styleguide    # writes apps/styleguide/dist/
 bun run shots:check         # build --check: fails on missing / undeclared shots
 ```
@@ -26,11 +28,25 @@ Per platform a view is either **captured**, **missing** or **n/a**:
 ## Components
 
 The last sidebar group is **Components** (EXP-698), and nothing in it is a
-screenshot. Each glass control is hardcoded ONCE in plain HTML/CSS driven by
-`@exp/design-tokens` (`src/components.ts` + `src/component-styles.ts`), so the
-page renders the canonical form live rather than a photograph of one platform's
-guess at it. `shots/` holds nothing for these, `views.json` declares nothing —
-the group is synthetic — and `--check` never sees them.
+screenshot. Since EXP-887 most entries are **islands**: the REAL `@exp/ui`
+component, rendered to static markup inside a declarative shadow root and
+painted by the package's own stylesheet, compiled once per build
+(`@exp/ui/island`). The page shows the control the product ships, not a
+lookalike of it — a lookalike drifts silently, a component cannot disagree with
+itself.
+
+What stays hand-written HTML/CSS driven by `@exp/design-tokens`
+(`src/components.tsx` + `src/component-styles.ts`) is what no single component
+owns: the **compositions** (app shell, settings page header, comment card,
+sheet shell, composer, markdown blocks, menu surface, tab bar, bulk bar, usage
+bar, session bar, relations card, the GitHub connect pair) and the **token**
+swatch tables. Two entries — **sheet shell** and **menu surface** — have their
+web symbol in `packages/ui` and still keep a demo, because a closed Radix portal
+renders nothing at all statically; `PORTAL_ONLY_IDS` names them and the test
+checks the exception stays honest.
+
+`shots/` holds nothing for these, `views.json` declares nothing — the group is
+synthetic — and `--check` never sees them.
 
 The set is deliberately SMALL, and shrinking it counts as progress. There is no
 chip and no header button: both were the **pill** under a second name, so the
@@ -75,10 +91,35 @@ is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
 `leftover` (it exists but still disagrees; the note says how) or `n/a` (that
 platform deliberately has none). `bun test` gates the parts that rot: every
 named file exists, every platform is accounted for, notes stay one short line,
-the demos carry no inline styles, the retired names never come back, the pill
-demo shows all six size × mode combinations, and `component-styles.ts` contains
-no colour literal — every value is a `var(--…)` declared from the tokens, and
-every radius is a ladder step.
+**a web symbol under `packages/ui/` is an island and nothing else is**, every
+island renders real markup, the page carries one shadow root per island and the
+stylesheet exactly once, the page's root font size still mirrors the package's,
+the hand-written demos carry no inline styles and no unused `.cmp-` rule, the
+retired names never come back, the pill demo shows all six size × mode
+combinations read off the real `Pill`, and `component-styles.ts` contains no
+colour literal — every value is a `var(--…)` declared from the tokens, and every
+radius is a ladder step.
+
+### Adding a component entry
+
+1. **The component lives in `packages/ui/src/<name>.tsx`** and is exported from
+   `src/index.ts`. If it is not in the package it is not an entry — put it there
+   first, or the gate will refuse the spec.
+2. **One spec in `src/components.tsx`**: id, title, kind, blurb, the four
+   platform rows (`web` pointing at `packages/ui/src/<name>.tsx`) and
+   `island: () => <Name …fixture />`. The fixture is the RESTING state: no live
+   data, `noop` callbacks, glyphs through `conceptIcon`.
+3. `bun test` (from `apps/styleguide`, or `bun run test:shots` from the root),
+   then `bun run build:styleguide` and open `dist/index.html`.
+
+The island limits are `@exp/ui`'s (see its README): a closed Radix **portal**
+renders nothing, `AvatarImage` never renders (use initials), a `Select` with a
+value shows an empty trigger unless you pass `renderValue`, Inter is not loaded
+here, and the island never paints its own ground — the `.cmp-demo` canvas does.
+
+EXP-895's `FileDiffList` slots straight in: a fixture array of files beside the
+spec, `island: () => <FileDiffList files={FIXTURE} />`, four platform rows, done
+— no CSS, no lookalike, no capture lane.
 
 `SHOTS_DIR` points both commands at another store (scratch copies, tests);
 by default it is the repo-root `shots/`.

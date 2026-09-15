@@ -23,7 +23,7 @@ use gpui_component::{
 use theme::tokens as t;
 
 /// EXP-720: the ONE text-field recipe (styleguide `text-field`, web
-/// `components/ui/input.tsx`): card fill under the card stroke, and focus
+/// `@exp/ui input.tsx`): card fill under the card stroke, and focus
 /// swaps the STROKE to `glass::STROKE_ACTIVE` — no ring. gpui-component's
 /// `Input` paints its focused state as `theme.ring` (the neutral RING token
 /// the web keeps for BUTTON focus-visible halos) plus a halo child, which is
@@ -298,7 +298,7 @@ pub(crate) fn danger_menu_item(
         .icon(icon.text_color(danger))
 }
 
-/// Web segmented `TabsList` capsule (`components/ui/tabs.tsx`): h-9 full-width
+/// Web segmented `TabsList` capsule (`@exp/ui tabs.tsx`): h-9 full-width
 /// capsule with a 3px inset. Pair with [`segmented_item`] children.
 pub(crate) fn segmented(cx: &App) -> Div {
     let theme = cx.theme();

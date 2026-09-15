@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   Check,
-  ExternalLink,
   Info,
   LifeBuoy,
   LoaderCircle,
@@ -20,37 +19,36 @@ import { isReporterActivelyViewing } from "@/lib/helpdesk/presence"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { displayUserName } from "@/lib/user-display"
 import { useTeamUsers } from "@/hooks/use-team-data"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
 import {
-  Composer,
-  ComposerSubmit,
-} from "@/components/composer"
-import {
+  Button,
+  Pill,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet"
-import { GlassSectionHeader, ListRow } from "@/components/ui/glass-rows"
-import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
-import {
+  GlassSectionHeader,
+  ListRow,
   SEGMENTED_ROW,
   SEGMENTED_ROW_COMPACT,
   SEGMENTED_TAB,
   Tabs,
   TabsList,
   TabsTrigger,
-} from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
-import { conceptIcon } from "@/lib/icons.generated"
+  Textarea,
+  conceptIcon,
+  LiveDot,
+} from "@exp/ui"
+import {
+  Composer,
+  ComposerSubmit,
+} from "@/components/composer"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { IssueChip } from "@/components/issue-chip"
 import { cn } from "@/lib/utils"
 
 // EXP-525: the Open/Resolved pills carry the shared registry's support glyphs,
@@ -272,9 +270,10 @@ export function SupportThreadList({
                     </span>
                     <span className="w-2 shrink-0">
                       {thread.unread && (
-                        <span
-                          className="block h-2 w-2 rounded-full bg-primary"
-                          aria-label="Awaiting reply"
+                        <LiveDot
+                          tone="unread"
+                          className="block"
+                          label="Awaiting reply"
                         />
                       )}
                     </span>
@@ -646,7 +645,7 @@ export function SupportConversation({
 // board picker / linked-issue chip. Rendered twice — in the ≥lg details rail
 // and in the <lg details sheet — so every viewport can escalate and reach
 // the linked issue.
-function ThreadDetails({
+export function ThreadDetails({
   thread,
   teamId,
   teamSlug,
@@ -786,21 +785,25 @@ function ThreadDetails({
         board && (
           <section>
             <GlassSectionHeader label="Linked issue" className="px-0 pt-0" />
-            <Link
-              to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-              params={{
-                teamSlug,
-                boardSlug: board.slug,
-                issueIdentifier: issue.identifier,
-              }}
-              className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
-            >
-              {issue.identifier}
-              <ExternalLink className="h-3 w-3 text-muted-foreground" />
-            </Link>
-            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-              {issue.title}
-            </p>
+            {/* EXP-887: the escalated issue is THE issue chip — the same box
+                the timeline, the steering feed and the composer draw — not a
+                second hand-rolled identifier link. Still a real `<Link>`:
+                ⌘-click / middle-click open it beside the ticket. */}
+            <IssueChip
+              issue={issue}
+              testId="support-linked-issue"
+              link={(props) => (
+                <Link
+                  to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                  params={{
+                    teamSlug,
+                    boardSlug: board.slug,
+                    issueIdentifier: issue.identifier,
+                  }}
+                  {...props}
+                />
+              )}
+            />
           </section>
         )
       ) : (

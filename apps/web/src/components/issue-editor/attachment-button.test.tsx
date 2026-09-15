@@ -3,7 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 
-vi.mock(`@/components/ui/tooltip`, () => ({
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Tooltip: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   TooltipContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>

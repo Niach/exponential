@@ -1,8 +1,6 @@
 import { useState } from "react"
 import { Search } from "lucide-react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle, Input, Button } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import {
   useIssueRefs,

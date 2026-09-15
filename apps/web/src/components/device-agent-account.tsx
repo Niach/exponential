@@ -35,7 +35,23 @@ import type {
   DeviceAgentHealth,
   DeviceAgentProfileEntry,
 } from "@/db/schema"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  Input,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@exp/ui"
 import {
   agentHealth,
   parseAgentLoginResult,
@@ -55,24 +71,6 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { agentLabel } from "@/components/agent-picker"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
 const SwapIcon = conceptIcon(`ui-swap`)

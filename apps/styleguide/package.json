@@ -10,12 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@exp/design-tokens": "workspace:*",
+    "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",
-    "@exp/design-tokens": "workspace:*"
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
     "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "typescript": "^5.7.2"
   }
 }

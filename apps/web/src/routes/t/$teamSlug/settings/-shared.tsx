@@ -11,7 +11,7 @@ import {
   type TeamPermissions,
 } from "@/hooks/use-team-permissions"
 import { getRuntimeConfig, type RuntimeConfig } from "@/lib/runtime-config"
-import { conceptIcon } from "@/lib/icons.generated"
+import { conceptIcon } from "@exp/ui"
 
 export interface SettingsNavContext {
   isCloud: boolean

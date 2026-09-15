@@ -2,13 +2,10 @@ import { useEffect, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
 import { MAX_ACTION_PROMPT_PLACEHOLDER, type BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
-import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
-import { IconPicker } from "@/components/ui/icon-picker"
-import type { BuiltinAction } from "@/lib/builtin-actions"
-import { trpc } from "@/lib/trpc-client"
-import { Button } from "@/components/ui/button"
-import { PinToggleButton } from "@/components/pin-toggle-button"
 import {
+  BOARD_ICON_OPTIONS,
+  IconPicker,
+  Button,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -16,10 +13,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+  GlassGroup,
+  GlassPickerRow,
+  Input,
+  Textarea,
+} from "@exp/ui"
+import type { BuiltinAction } from "@/lib/builtin-actions"
+import { trpc } from "@/lib/trpc-client"
+import { PinToggleButton } from "@/components/pin-toggle-button"
 
 // Edit dialog for team actions (EXP-253) — owner-only writes (the server
 // enforces it; a non-owner opens the same dialog `readOnly`, exactly as the

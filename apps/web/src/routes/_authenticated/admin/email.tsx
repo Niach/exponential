@@ -6,24 +6,25 @@ import {
 } from "@tanstack/react-router"
 import { ShieldBan, ShieldCheck } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Pill } from "@/components/ui/pill"
-import { Button } from "@/components/ui/button"
 import {
+  Pill,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import {
+  Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@exp/ui"
 import { EmailDeliveriesTable, formatRelative } from "./-shared"
 
 type BounceRow = Awaited<

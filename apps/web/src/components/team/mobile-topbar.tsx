@@ -1,11 +1,19 @@
 import { useState } from "react"
 import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
-import { conceptIcon } from "@/lib/icons.generated"
+import {
+  conceptIcon,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  UserAvatar,
+} from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { isAdminUser } from "@/lib/auth/app-user"
-import { getInitials } from "@/lib/utils"
 import { openFeedbackWidget } from "@/components/feedback-widget-provider"
 import { useFeedbackWidgetAvailable } from "@/components/feedback-button"
 import { ChangelogSheet } from "@/components/whats-new"
@@ -14,16 +22,7 @@ import {
   resolveBoardTarget,
   useMobileChromeVisible,
 } from "@/components/team/mobile-tab-bar"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { BoardGlyph } from "@/components/board-glyph"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
@@ -91,10 +90,6 @@ export function TeamMobileTopbar({
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const switcherLabel = boardTarget?.name ?? team?.name ?? teamSlug
 
-  // Name-less accounts (Apple sign-in stores an empty name) fall back to the
-  // email for initials instead of a bare "?".
-  const userLabel = session?.user?.name || session?.user?.email
-  const userInitials = userLabel ? getInitials(userLabel) : `?`
 
   return (
     <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border/60 px-3 glass-chrome-top md:hidden">
@@ -124,14 +119,7 @@ export function TeamMobileTopbar({
               className="size-9 rounded-full"
               aria-label="User menu"
             >
-              <Avatar className="size-7">
-                {session?.user?.image && (
-                  <AvatarImage src={session.user.image} />
-                )}
-                <AvatarFallback className="text-xs" userId={session?.user?.id}>
-                  {userInitials}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar size={28} user={session?.user} />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">

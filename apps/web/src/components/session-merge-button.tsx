@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { conceptIcon } from "@/lib/icons.generated"
-import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
-import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
-import { trpc } from "@/lib/trpc-client"
-import { useOpenComposer } from "@/hooks/use-open-composer"
-import { Button, type buttonVariants } from "@/components/ui/button"
-import type { VariantProps } from "class-variance-authority"
 import {
+  conceptIcon,
+  Button,
+  type buttonVariants,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -15,7 +11,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@exp/ui"
+import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
+import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
+import { trpc } from "@/lib/trpc-client"
+import { useOpenComposer } from "@/hooks/use-open-composer"
+import type { VariantProps } from "class-variance-authority"
 
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)

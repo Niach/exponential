@@ -5,8 +5,6 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -14,15 +12,15 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@/components/ui/command"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
-import { Input } from "@/components/ui/input"
+  Checkbox,
+  Button,
+  Pill,
+  Input,
+  LABEL_COLORS,
+  ColorSwatchGrid,
+} from "@exp/ui"
 import { Tag, Plus, ArrowLeft } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { LABEL_COLORS } from "@/lib/label-colors"
-import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import type { Label } from "@/db/schema"
 
 interface LabelPickerProps {
