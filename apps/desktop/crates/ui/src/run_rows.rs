@@ -6,9 +6,9 @@
 //! draws a `coding_sessions` row through one of two renderers:
 //!
 //! - [`render_running_run_row`]: dot · identifier · title, the agent caption,
-//!   a toned status line and the usage-wall badge, with trailing circle
-//!   buttons (Merge / open the issue / open the action). "Stop session" is on
-//!   the row's right-click menu, never a button.
+//!   a toned status line and the usage-wall badge. The whole row opens the
+//!   run (EXP-893: no trailing Merge / open-the-subject buttons); "Stop
+//!   session" is on the row's right-click menu, never a button.
 //! - [`render_past_run_row`]: identifier · title over the byline, a trailing
 //!   chevron. The whole row opens the session.
 //!
@@ -23,10 +23,8 @@ use gpui::{
     div, App, ClickEvent, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{menu::ContextMenuExt as _, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
+use gpui_component::{menu::ContextMenuExt as _, ActiveTheme as _, Icon, Sizable as _};
 
-use crate::changes_bar::MergeTarget;
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::queries::{self, CodingSessionDisplay};
 
@@ -71,16 +69,6 @@ impl StatusTone {
     }
 }
 
-/// What a running row's trailing "open the subject" button opens.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RunSubject {
-    Issue { issue_id: String },
-    /// The automation that fired the run (owner-only editor).
-    Automation { automation_id: String, icon: Option<String> },
-    /// A non-builtin action run (owner-only editor).
-    Action { action_id: String, icon: Option<String> },
-}
-
 /// Everything a running row draws, derived off the synced rows.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RunningRunFacts {
@@ -95,8 +83,6 @@ pub(crate) struct RunningRunFacts {
     /// The machine's name (the kill confirm names it).
     pub(crate) device_label: Option<String>,
     pub(crate) paused: bool,
-    pub(crate) merge: Option<MergeTarget>,
-    pub(crate) subject: Option<RunSubject>,
 }
 
 /// Everything a past row draws.
@@ -151,46 +137,6 @@ pub(crate) fn running_run_facts(
     let (status, status_tone) =
         running_status_line(display, paused, presentation.label.as_deref(), &started);
     let blocked = crate::usage_bar::parse_blocked(session.blocked.as_ref());
-    let merge = collections.as_ref().and_then(|collections| {
-        crate::changes_bar::merge_target_for_run(
-            session.issue_id.as_deref(),
-            session.branch.as_deref().unwrap_or_default(),
-            Some(session),
-            collections.issues.read(cx).iter(),
-        )
-    });
-    let is_owner = session
-        .team_id
-        .as_deref()
-        .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
-    let action_icon = || {
-        let action_id = session.action_id.as_deref()?;
-        collections
-            .as_ref()?
-            .actions
-            .read(cx)
-            .get(action_id)
-            .and_then(|action| action.icon.clone())
-    };
-    let subject = if let Some(issue) = issue.as_ref() {
-        Some(RunSubject::Issue {
-            issue_id: issue.id.clone(),
-        })
-    } else if let (true, Some(automation_id)) = (is_owner, session.automation_id.as_deref()) {
-        Some(RunSubject::Automation {
-            automation_id: automation_id.to_string(),
-            icon: action_icon(),
-        })
-    } else {
-        session
-            .action_id
-            .as_deref()
-            .filter(|id| is_owner && !api::actions::is_builtin_action_id(id))
-            .map(|action_id| RunSubject::Action {
-                action_id: action_id.to_string(),
-                icon: action_icon(),
-            })
-    };
     RunningRunFacts {
         session_id: session.id.clone(),
         identifier: issue
@@ -210,8 +156,6 @@ pub(crate) fn running_run_facts(
             .map(SharedString::from),
         device_label: presentation.label,
         paused,
-        merge,
-        subject,
     }
 }
 
@@ -349,17 +293,11 @@ fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: 
         })
 }
 
-/// A 24px outlined glass circle — the row's trailing buttons.
-fn row_circle_button(id: impl Into<gpui::ElementId>, icon: Icon, cx: &App) -> gpui_component::button::Button {
-    crate::controls::glass_icon_button(id, icon, cx).web_icon_xs()
-}
-
-/// One LIVE run row (EXP-874). `cx` is mutable only to reach the shared
-/// [`crate::pr_merge::MergeState`]; callers observe it for repaints.
+/// One LIVE run row (EXP-874). The whole row opens the run.
 pub(crate) fn render_running_run_row(
     spec: RunningRunSpec,
     active: bool,
-    cx: &mut App,
+    cx: &App,
 ) -> gpui::AnyElement {
     let RunningRunSpec {
         id_prefix,
@@ -370,10 +308,6 @@ pub(crate) fn render_running_run_row(
         on_open,
         kill,
     } = spec;
-    let merge_button = facts
-        .merge
-        .clone()
-        .map(|target| render_merge_button(id_prefix, index, target, cx));
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let foreground = theme.foreground;
@@ -428,60 +362,9 @@ pub(crate) fn render_running_run_row(
                 .map(|label| small_line(label, theme::tokens::YELLOW.to_hsla())),
         );
 
-    let subject_button = facts.subject.clone().map(|subject| {
-        let id = (SharedString::from(format!("{id_prefix}-subject")), index);
-        let (icon, on_click): (Icon, RunRowAction) = match subject {
-            RunSubject::Issue { issue_id } => (
-                Icon::from(registry::UI_ISSUE),
-                Box::new(move |_, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::IssueDetail {
-                            issue_id: issue_id.clone(),
-                        },
-                    );
-                }),
-            ),
-            RunSubject::Automation { automation_id, icon } => (
-                crate::icons::action_icon(icon.as_deref()),
-                Box::new(move |_, window, cx| {
-                    crate::automation_dialog::open_edit(window, cx, automation_id.clone());
-                }),
-            ),
-            RunSubject::Action { action_id, icon } => (
-                crate::icons::action_icon(icon.as_deref()),
-                Box::new(move |_, window, cx| {
-                    crate::action_editor_dialog::open(window, cx, action_id.clone());
-                }),
-            ),
-        };
-        row_circle_button(id, icon, cx)
-            .on_click(move |event, window, cx| {
-                cx.stop_propagation();
-                on_click(event, window, cx);
-            })
-            .into_any_element()
-    });
-    let has_trailing = merge_button.is_some() || subject_button.is_some();
-
     let row = row_shell(id_prefix, index, depth, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
-        .child(body)
-        .when(has_trailing, |this| {
-            // The buttons are their own targets: the row's click must not
-            // fire underneath them.
-            this.child(
-                gpui_component::h_flex()
-                    .id((SharedString::from(format!("{id_prefix}-trailing")), index))
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1()
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .children(merge_button)
-                    .children(subject_button),
-            )
-        });
+        .child(body);
     match kill {
         Some(RunRowKill { label, on_kill }) => {
             let on_kill = Rc::new(on_kill);
@@ -500,87 +383,6 @@ pub(crate) fn render_running_run_row(
         }
         None => row.into_any_element(),
     }
-}
-
-/// The run's Merge circle: the shared two-click arm/confirm
-/// ([`crate::pr_merge::two_click`]). A real conflict swaps it for the
-/// fix-conflicts launcher (an issue PR) or the Reviews page (a run's own PR,
-/// which the builtin cannot target).
-fn render_merge_button(
-    id_prefix: &'static str,
-    index: usize,
-    target: MergeTarget,
-    cx: &mut App,
-) -> gpui::AnyElement {
-    let key = target.key();
-    let state = crate::pr_merge::MergeState::global(cx);
-    let (armed, merging, conflict) = {
-        let state = state.read(cx);
-        (
-            state.armed(&key),
-            state.merging(&key),
-            state.is_conflict(&key)
-                && state.failed_op(&key) == Some(crate::pr_merge::FailedOp::Merge),
-        )
-    };
-    let id = (SharedString::from(format!("{id_prefix}-merge")), index);
-    if conflict && !merging {
-        return row_circle_button(id, Icon::from(registry::UI_BRANCH), cx)
-            .tooltip("Fix conflicts")
-            .on_click(move |_, window, cx| {
-                cx.stop_propagation();
-                match &target {
-                    MergeTarget::Issue { issue_id } => crate::navigation::navigate_to_chat(
-                        window,
-                        cx,
-                        crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()),
-                    ),
-                    MergeTarget::Session { .. } => crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::Reviews,
-                    ),
-                }
-            })
-            .into_any_element();
-    }
-    let danger = theme::tokens::RED.to_hsla();
-    let mut button = row_circle_button(
-        id,
-        Icon::from(registry::PR_MERGED).when(armed, |icon| icon.text_color(danger)),
-        cx,
-    );
-    if merging {
-        button = button.loading(true).disabled(true);
-    } else if armed {
-        button = button.border_color(danger).tooltip("Confirm merge");
-    }
-    button
-        .on_click(move |_, window, cx| {
-            cx.stop_propagation();
-            let handle = window.window_handle();
-            let key = target.key();
-            crate::pr_merge::two_click(
-                target.op(),
-                Some(Box::new(move |cx: &mut App| {
-                    // A conflict swaps this button for Fix conflicts; any
-                    // other failure captions on the Reviews page.
-                    let _ = handle.update(cx, |_, window, cx| {
-                        let state = crate::pr_merge::MergeState::global(cx);
-                        if !state.read(cx).is_conflict(&key) {
-                            crate::navigation::navigate(
-                                window,
-                                cx,
-                                crate::navigation::Screen::Reviews,
-                            );
-                        }
-                    });
-                })),
-                None,
-                cx,
-            );
-        })
-        .into_any_element()
 }
 
 /// One FINISHED run row (EXP-874): a plain link to the session.
@@ -677,7 +479,7 @@ pub(crate) fn render_run_list_row(
     facts: RunListFacts,
     active: bool,
     on_open: RunRowAction,
-    cx: &mut App,
+    cx: &App,
 ) -> gpui::AnyElement {
     match facts {
         RunListFacts::Running(facts) => render_running_run_row(
