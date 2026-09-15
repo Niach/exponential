@@ -10,6 +10,7 @@
 // hand-mirrored on iOS, Android and the desktop IDE. Change a string here,
 // change it there.
 import type { DeviceAgentUsage } from "@/db/schema"
+import { GLASS_CARD_CLASS } from "@exp/ui"
 import { usageGroups, type UsageSeverity } from "@/lib/agent-usage"
 import { relativeTime } from "@/components/comment-rows/format"
 import { cn } from "@/lib/utils"
@@ -61,9 +62,8 @@ export function AgentUsageCards({
               key={card.key}
               className={cn(
                 dense ? `space-y-1` : `space-y-1.5`,
-                !compact &&
-                  !dense &&
-                  `rounded-xl border border-glass-stroke-card bg-glass-card px-3 py-2`
+                !compact && !dense && GLASS_CARD_CLASS,
+                !compact && !dense && `px-3 py-2`
               )}
             >
               <div className="flex items-baseline gap-2">

@@ -6,6 +6,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  GlassCard,
   UserAvatar,
   type UserAvatarSize,
 } from "@exp/ui"
@@ -191,7 +192,7 @@ export function RegularCommentRow({
       }
       markerSize={28}
     >
-      <div className="rounded-xl border border-glass-stroke-card bg-glass-card px-3 pt-2.5 pb-3">
+      <GlassCard className="px-3 pt-2.5 pb-3">
         <CommentCardContent {...card} />
         {onReply && (
           <div
@@ -241,7 +242,7 @@ export function RegularCommentRow({
             )}
           </div>
         )}
-      </div>
+      </GlassCard>
     </TimelineRow>
   )
 }

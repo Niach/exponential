@@ -37,6 +37,7 @@ import {
   conceptIcon,
   DiffCounts,
   FileDiffList,
+  GlassCard,
   useIsMobile,
   type SessionDotTone,
   Button,
@@ -2801,7 +2802,7 @@ function AskCard({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-glass-stroke-card bg-glass-card p-3">
+    <GlassCard className="p-3">
       <div className="flex items-start gap-2">
         {plan ? (
           <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
@@ -2827,7 +2828,7 @@ function AskCard({
           {children}
         </div>
       </div>
-    </div>
+    </GlassCard>
   )
 }
 
