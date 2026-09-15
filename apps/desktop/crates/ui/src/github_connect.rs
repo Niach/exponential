@@ -93,7 +93,7 @@ impl GithubInstallation {
     pub(crate) fn label(&self) -> String {
         self.account_login
             .clone()
-            .unwrap_or_else(|| format!("installation {}", self.installation_id))
+            .unwrap_or_else(|| copy::installation_fallback(self.installation_id))
     }
 
     /// The reconnect-nag arm: an OAuth reconnect can actually refresh this
@@ -111,6 +111,17 @@ impl GithubInstallation {
     }
 }
 
+/// The logins of the reconnectable (needs-reauth, non-suspended, non-stale)
+/// accounts, in installation order — accounts without a login are skipped
+/// (the banners name only what they can name, web parity).
+pub(crate) fn reauth_logins(installations: &[GithubInstallation]) -> Vec<String> {
+    installations
+        .iter()
+        .filter(|inst| inst.needs_reconnect())
+        .filter_map(|inst| inst.account_login.clone())
+        .collect()
+}
+
 /// " from a, b" naming the reconnectable (needs-reauth, non-suspended,
 /// non-stale) accounts — names make the reconnect actionable when several
 /// accounts are linked (EXP-365). Empty when none are known. Stale accounts
@@ -120,11 +131,7 @@ pub(crate) fn reauth_account_suffix(
     installations: &[GithubInstallation],
     preposition: &str,
 ) -> String {
-    let names: Vec<String> = installations
-        .iter()
-        .filter(|inst| inst.needs_reconnect())
-        .filter_map(|inst| inst.account_login.clone())
-        .collect();
+    let names = reauth_logins(installations);
     if names.is_empty() {
         String::new()
     } else {
@@ -407,9 +414,220 @@ pub(crate) fn connect_error_message(code: &str) -> &'static str {
     }
 }
 
+/// FEED-42: the ONE copy of the GitHub connection block (Settings ›
+/// Repositories) and the Add-repository picker. Byte-identical ×4 — web
+/// `github-connect-copy.ts`, iOS `GithubCopy.swift`, Android `GithubCopy.kt`
+/// mirror these literals; the `copy_is_locked` test pins the key ones.
+/// Typographic ’ everywhere.
+pub(crate) mod copy {
+    // --- A. Connection block -------------------------------------------------
+    pub const SECTION_TITLE: &str = "Repositories";
+    pub const ADD_REPOSITORY: &str = "Add repository";
+    pub const INTRO: &str = "Connect a GitHub account or organization first, then add its \
+        repositories to share them with the team \u{2014} everyone can code on a shared repo. \
+        Point a board at one to make it the clone target for \u{201c}Start coding\u{201d}.";
+    pub const STATUS_FAILED: &str = "Couldn\u{2019}t reach GitHub connect state.";
+    pub const RETRY: &str = "Retry";
+    pub const NOT_CONFIGURED: &str = "GitHub isn\u{2019}t configured on this server.";
+    pub const NOT_INSTALLED: &str = "No GitHub account connected";
+    pub const CONNECT_GITHUB: &str = "Connect GitHub";
+    pub const INSTALL_ON_AN_ACCOUNT: &str = "Install on an account";
+    pub const MANAGE: &str = "Manage";
+    pub const ACCOUNTS_HEADER: &str = "GitHub accounts connected to this team";
+    pub const CONFIGURE: &str = "Configure";
+    pub const INSTALLATION_CAPTION: &str = "An installation is per GitHub account or \
+        organization. Repositories come from the accounts listed here.";
+    pub const CONNECT_ANOTHER_ACCOUNT: &str = "Connect another account";
+    pub const REFRESH_ACCESS: &str = "Refresh access";
+    pub const RECONNECT: &str = "Reconnect";
+    pub const DISCONNECT_ACCOUNT: &str = "Disconnect account";
+    pub const DISCONNECT_TITLE: &str = "Disconnect GitHub account";
+    pub const DISCONNECT: &str = "Disconnect";
+    pub const NO_REPOSITORIES: &str = "No repositories connected yet.";
+
+    /// The account label when GitHub gave no login (lower-case, ×4).
+    pub fn installation_fallback(installation_id: i64) -> String {
+        format!("installation {installation_id}")
+    }
+
+    pub fn suspended_status(names: &str) -> String {
+        format!("GitHub suspended the Exponential app for {names}. Unsuspend it on GitHub.")
+    }
+
+    pub fn reauth_status(names: &str) -> String {
+        format!("Reconnect GitHub to refresh which repositories you can access from {names}.")
+    }
+
+    pub fn stale_line(label: &str) -> String {
+        format!(
+            "No one\u{2019}s GitHub connection covers {label} anymore \u{2014} reconnecting \
+             can\u{2019}t refresh it."
+        )
+    }
+
+    /// Unlink confirm for a LIVE link (the server refuses while a connected
+    /// repo still rides it).
+    pub fn disconnect_live_confirm(label: &str) -> String {
+        format!(
+            "This disconnects {label} from the team. Repositories connected through it must \
+             be removed first."
+        )
+    }
+
+    /// Unlink confirm for a STALE link (EXP-557).
+    pub fn disconnect_stale_confirm(label: &str) -> String {
+        format!(
+            "This removes {label} from the team. Nobody\u{2019}s GitHub connection covers it, \
+             so no repositories are lost."
+        )
+    }
+
+    // --- B. Add-repository picker --------------------------------------------
+    pub const LOADING_REPOS: &str = "Loading your GitHub repositories\u{2026}";
+    pub const PICKER_NOT_CONFIGURED: &str = "GitHub isn\u{2019}t configured on this server, so \
+        repositories can\u{2019}t be connected.";
+    pub const PICKER_NOT_INSTALLED: &str = "Connect the Exponential GitHub App to pick a \
+        repository. You\u{2019}ll come right back here.";
+    pub const I_HAVE_CONNECTED: &str = "I\u{2019}ve connected";
+    /// A suspended installation with no login in the picker banner.
+    pub const SUSPENDED_FALLBACK: &str = "a connected account";
+    pub const RECONNECT_GITHUB: &str = "Reconnect GitHub";
+    pub const SEARCH_PLACEHOLDER: &str = "Search repositories\u{2026}";
+    pub const NO_REPOS_FOUND: &str = "No repositories found.";
+    pub const NO_GRANTS: &str = "None of your connected GitHub accounts grants a repository yet.";
+    pub const FOOTER_SENTENCE: &str = "Only repositories your GitHub installation grants appear \
+        here. Missing one? Grant it on GitHub, then refresh.";
+    pub const HAS_MORE: &str = "Showing the first 500 repositories per account \u{2014} use the \
+        field below for the rest.";
+    pub const REFRESH: &str = "Refresh";
+    pub const INSTALL_ON_ANOTHER_ACCOUNT: &str = "Install on another account";
+    pub const LOOKUP_PLACEHOLDER: &str = "owner/name";
+    /// The by-name field's accessibility label on web/iOS/Android; gpui's
+    /// `Input` exposes no label slot yet, so desktop only mirrors it.
+    #[allow(dead_code)]
+    pub const LOOKUP_A11Y: &str = "Add repository by name";
+    pub const LOOK_UP: &str = "Look up";
+    pub const ADD_FORBIDDEN: &str = "GitHub says you don\u{2019}t have access to this repository, \
+        or your connection is stale. Reconnect GitHub and try again.";
+    pub const UPGRADE_ON_THE_WEB: &str = "Upgrade on the web";
+
+    pub fn picker_suspended(names: &str) -> String {
+        format!(
+            "GitHub suspended the Exponential app for {names}. Its repositories can\u{2019}t be \
+             connected until you unsuspend it on GitHub."
+        )
+    }
+
+    /// Re-auth banner over a list that HAS rows.
+    pub fn picker_reauth(logins: &[String]) -> String {
+        let names = if logins.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", logins.join(", "))
+        };
+        format!(
+            "Reconnect GitHub{names} to refresh. Repos created or shared with you since your \
+             last connect won\u{2019}t appear until you do."
+        )
+    }
+
+    /// Re-auth banner over an EMPTY list.
+    pub fn picker_reauth_empty(logins: &[String]) -> String {
+        let names = if logins.is_empty() {
+            String::new()
+        } else {
+            format!(" from {}", logins.join(", "))
+        };
+        format!("Reconnect GitHub to load the repositories you can access{names}.")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEED-42: the copy is byte-identical ×4 — these literals mirror web
+    /// `github-connect-copy.ts`; change all four clients together.
+    #[test]
+    fn copy_is_locked() {
+        assert_eq!(
+            copy::INTRO,
+            "Connect a GitHub account or organization first, then add its repositories to share them with the team — everyone can code on a shared repo. Point a board at one to make it the clone target for “Start coding”."
+        );
+        assert_eq!(copy::STATUS_FAILED, "Couldn’t reach GitHub connect state.");
+        assert_eq!(copy::RETRY, "Retry");
+        assert_eq!(copy::NOT_CONFIGURED, "GitHub isn’t configured on this server.");
+        assert_eq!(copy::NOT_INSTALLED, "No GitHub account connected");
+        assert_eq!(
+            copy::INSTALLATION_CAPTION,
+            "An installation is per GitHub account or organization. Repositories come from the accounts listed here."
+        );
+        assert_eq!(copy::installation_fallback(42), "installation 42");
+        assert_eq!(
+            copy::suspended_status("acme"),
+            "GitHub suspended the Exponential app for acme. Unsuspend it on GitHub."
+        );
+        assert_eq!(
+            copy::reauth_status("a, b"),
+            "Reconnect GitHub to refresh which repositories you can access from a, b."
+        );
+        assert_eq!(
+            copy::stale_line("acme"),
+            "No one’s GitHub connection covers acme anymore — reconnecting can’t refresh it."
+        );
+        assert_eq!(
+            copy::disconnect_live_confirm("acme"),
+            "This disconnects acme from the team. Repositories connected through it must be removed first."
+        );
+        assert_eq!(
+            copy::disconnect_stale_confirm("acme"),
+            "This removes acme from the team. Nobody’s GitHub connection covers it, so no repositories are lost."
+        );
+        assert_eq!(copy::LOADING_REPOS, "Loading your GitHub repositories…");
+        assert_eq!(
+            copy::PICKER_NOT_CONFIGURED,
+            "GitHub isn’t configured on this server, so repositories can’t be connected."
+        );
+        assert_eq!(
+            copy::PICKER_NOT_INSTALLED,
+            "Connect the Exponential GitHub App to pick a repository. You’ll come right back here."
+        );
+        assert_eq!(copy::I_HAVE_CONNECTED, "I’ve connected");
+        assert_eq!(
+            copy::picker_suspended("a connected account"),
+            "GitHub suspended the Exponential app for a connected account. Its repositories can’t be connected until you unsuspend it on GitHub."
+        );
+        let logins = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(
+            copy::picker_reauth(&logins),
+            "Reconnect GitHub (a, b) to refresh. Repos created or shared with you since your last connect won’t appear until you do."
+        );
+        assert_eq!(
+            copy::picker_reauth(&[]),
+            "Reconnect GitHub to refresh. Repos created or shared with you since your last connect won’t appear until you do."
+        );
+        assert_eq!(
+            copy::picker_reauth_empty(&logins),
+            "Reconnect GitHub to load the repositories you can access from a, b."
+        );
+        assert_eq!(
+            copy::NO_GRANTS,
+            "None of your connected GitHub accounts grants a repository yet."
+        );
+        assert_eq!(
+            copy::FOOTER_SENTENCE,
+            "Only repositories your GitHub installation grants appear here. Missing one? Grant it on GitHub, then refresh."
+        );
+        assert_eq!(
+            copy::HAS_MORE,
+            "Showing the first 500 repositories per account — use the field below for the rest."
+        );
+        assert_eq!(
+            copy::ADD_FORBIDDEN,
+            "GitHub says you don’t have access to this repository, or your connection is stale. Reconnect GitHub and try again."
+        );
+        assert_eq!(copy::UPGRADE_ON_THE_WEB, "Upgrade on the web");
+    }
 
     #[test]
     fn parses_success_forms() {

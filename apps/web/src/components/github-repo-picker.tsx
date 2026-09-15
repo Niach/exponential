@@ -1,19 +1,42 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import {
-  Check,
   ExternalLink,
   Github,
   LoaderCircle,
   Lock,
   Plus,
   RefreshCw,
+  TriangleAlert,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc-client"
 import { isRepoFullName } from "@/lib/repo-full-name"
+import {
+  GH_CAP_NOTE,
+  GH_CONNECT_GITHUB,
+  GH_FOOTER_EXPLAIN,
+  GH_INSTALL_ANOTHER,
+  GH_LOOK_UP,
+  GH_LOOKUP_A11Y,
+  GH_LOOKUP_PLACEHOLDER,
+  GH_NO_MATCH,
+  GH_NONE_GRANTED,
+  GH_PICKER_CONNECTED_CHECK,
+  GH_PICKER_LOADING,
+  GH_PICKER_NOT_CONFIGURED,
+  GH_PICKER_NOT_INSTALLED,
+  GH_RECONNECT_GITHUB,
+  GH_REFRESH,
+  GH_SEARCH_PLACEHOLDER,
+  GH_SUSPENDED_ACCOUNT_FALLBACK,
+  ghPickerReauthBanner,
+  ghPickerSuspendedBanner,
+  githubInstallationLabel,
+} from "@/lib/github-connect-copy"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Pill } from "@/components/ui/pill"
 import {
   Command,
   CommandEmpty,
@@ -56,7 +79,9 @@ type ReposResult = {
 // onboarding board step, and the create-board dialog. Self-contained: loads
 // the team's installable repos (its linked GitHub accounts), offers an
 // inline connect when none are linked, and re-detects after the user returns
-// from the GitHub hop (window focus). Calls `onSelect` with the chosen repo.
+// from the GitHub hop (window focus). Calls `onSelect` with the chosen repo —
+// FEED-42: every host treats that as the add itself (tap adds, ×4), so there
+// is no selection marker.
 //
 // The connect hop prefers `connectUrl` (the OAuth claim flow — one authorize
 // screen, no configure page) and falls back to `installUrl` (the install-page
@@ -130,17 +155,12 @@ export function GithubRepoPicker({
   onSelect,
   installEmptyState,
   variant = `card`,
-  selectedFullName,
   listClassName,
 }: {
   teamId: string
   onSelect: (repo: PickerRepo) => void
   installEmptyState?: ReactNode
   variant?: `card` | `plain`
-  // Optional selection marker for hosts that treat `onSelect` as a two-step
-  // pick-then-confirm (the Add-repository dialog) — renders a check on the
-  // matching row. Hosts that connect immediately just omit it.
-  selectedFullName?: string | null
   // Optional override for the list's max-height (the ONE scroll container).
   listClassName?: string
 }) {
@@ -235,7 +255,7 @@ export function GithubRepoPicker({
     return (
       <div className="flex items-center gap-2 rounded-md border px-3 py-6 text-sm text-muted-foreground">
         <LoaderCircle className="h-4 w-4 animate-spin" />
-        Loading your GitHub repositories…
+        {GH_PICKER_LOADING}
       </div>
     )
   }
@@ -246,10 +266,7 @@ export function GithubRepoPicker({
     return (
       <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
         <Github className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>
-          GitHub isn’t configured on this server, so repositories can’t be
-          connected.
-        </span>
+        <span>{GH_PICKER_NOT_CONFIGURED}</span>
       </div>
     )
   }
@@ -262,27 +279,19 @@ export function GithubRepoPicker({
       <div className="space-y-3">
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
           <Github className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            Connect the Exponential GitHub App to pick a repository.
-            You&rsquo;ll come right back here.
-          </span>
+          <span>{GH_PICKER_NOT_INSTALLED}</span>
         </div>
         {/* flex-wrap: narrow hosts (mobile-width dialogs) must wrap the
             refresh button instead of clipping it (EXP-390). */}
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={openConnect}>
             <Github className="mr-2 h-4 w-4" />
-            Connect GitHub
+            {GH_CONNECT_GITHUB}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => void refresh(true)}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            I’ve connected
-          </Button>
+          <Pill mode="action" onClick={() => void refresh(true)}>
+            <RefreshCw />
+            {GH_PICKER_CONNECTED_CHECK}
+          </Pill>
         </div>
         {popupBlocked && (
           <p className="text-xs text-destructive">{POPUP_BLOCKED_MESSAGE}</p>
@@ -298,7 +307,7 @@ export function GithubRepoPicker({
   // account whose grants haven't been captured at all.
   const suspendedAccounts = (data.installations ?? [])
     .filter((i) => i.suspended)
-    .map((i) => i.accountLogin || `a connected account`)
+    .map((i) => i.accountLogin || GH_SUSPENDED_ACCOUNT_FALLBACK)
   const reauthAccounts = (data.installations ?? [])
     .filter((i) => i.needsReauth && !i.suspended)
     .map((i) => i.accountLogin)
@@ -319,25 +328,21 @@ export function GithubRepoPicker({
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <Github className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1">
-            GitHub suspended the Exponential app for{` `}
-            {suspendedAccounts.join(`, `)}. Its repositories can’t be connected
-            until you unsuspend it on GitHub.
+            {ghPickerSuspendedBanner(suspendedAccounts)}
           </span>
         </div>
       )}
 
       {needsReauth && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
-          <Github className="h-4 w-4 shrink-0" />
+          <TriangleAlert className="h-4 w-4 shrink-0 text-amber-500" />
           <span className="min-w-0 flex-1">
-            {empty
-              ? `Reconnect GitHub to load the repositories you can access${reauthAccounts.length > 0 ? ` from ${reauthAccounts.join(`, `)}` : ``}.`
-              : `Reconnect GitHub${reauthAccounts.length > 0 ? ` (${reauthAccounts.join(`, `)})` : ``} to refresh. Repos created or shared with you since your last connect won’t appear until you do.`}
+            {ghPickerReauthBanner(reauthAccounts, empty)}
           </span>
-          <Button type="button" size="sm" variant="outline" onClick={openConnect}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Reconnect GitHub
-          </Button>
+          <Pill mode="action" onClick={openConnect}>
+            <RefreshCw />
+            {GH_RECONNECT_GITHUB}
+          </Pill>
         </div>
       )}
 
@@ -351,9 +356,9 @@ export function GithubRepoPicker({
             variant === `plain` ? undefined : `rounded-md border bg-glass-card`
           }
         >
-          <CommandInput placeholder="Search repositories…" />
+          <CommandInput placeholder={GH_SEARCH_PLACEHOLDER} />
           <CommandList className={cn(`max-h-[min(20rem,50dvh)]`, listClassName)}>
-            <CommandEmpty>No repositories found.</CommandEmpty>
+            <CommandEmpty>{GH_NO_MATCH}</CommandEmpty>
             <CommandGroup>
               {data.repos.map((repo) => (
                 <CommandItem
@@ -363,14 +368,9 @@ export function GithubRepoPicker({
                 >
                   <Github className="mr-2 h-4 w-4 shrink-0" />
                   <span className="truncate">{repo.fullName}</span>
-                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                    {repo.private && (
-                      <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                    {selectedFullName === repo.fullName && (
-                      <Check className="h-4 w-4 text-primary" />
-                    )}
-                  </span>
+                  {repo.private && (
+                    <Lock className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -380,7 +380,7 @@ export function GithubRepoPicker({
 
       {empty && !needsReauth && suspendedAccounts.length === 0 && (
         <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
-          None of your connected GitHub accounts grants a repository yet.
+          {GH_NONE_GRANTED}
         </div>
       )}
 
@@ -395,8 +395,7 @@ export function GithubRepoPicker({
         data-testid="repo-picker-footer"
       >
         <p>
-          Only repositories your GitHub installation grants appear here.
-          Missing one? Grant it on GitHub, then refresh.
+          {GH_FOOTER_EXPLAIN}
           {manageLinks.length > 0 && (
             <>
               {` `}
@@ -408,7 +407,7 @@ export function GithubRepoPicker({
                     rel="noreferrer"
                     className="inline-flex items-center gap-0.5 text-foreground underline-offset-2 hover:underline"
                   >
-                    {inst.accountLogin || `installation`}
+                    {githubInstallationLabel(inst)}
                     <ExternalLink className="h-3 w-3" />
                   </a>
                   {index < manageLinks.length - 1 && `, `}
@@ -418,32 +417,18 @@ export function GithubRepoPicker({
           )}
         </p>
         {data.hasMore && (
-          <p>
-            Showing the first 500 repositories per account — use the field
-            below for the rest.
-          </p>
+          <p>{GH_CAP_NOTE}</p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={refreshAccess}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            Refresh
-          </Button>
+          <Pill mode="action" onClick={refreshAccess} disabled={loading}>
+            <RefreshCw />
+            {GH_REFRESH}
+          </Pill>
           {data.installUrl && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={openInstall}
-            >
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              Install on another account
-            </Button>
+            <Pill mode="action" onClick={openInstall}>
+              <Plus />
+              {GH_INSTALL_ANOTHER}
+            </Pill>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -459,24 +444,20 @@ export function GithubRepoPicker({
                 void lookup()
               }
             }}
-            placeholder="owner/name"
-            aria-label="Add repository by name"
+            placeholder={GH_LOOKUP_PLACEHOLDER}
+            aria-label={GH_LOOKUP_A11Y}
             spellCheck={false}
             autoCapitalize="none"
             className="h-8 font-mono text-xs"
           />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
+          <Pill
+            mode="action"
             disabled={!isRepoFullName(lookupName.trim()) || lookupBusy}
             onClick={() => void lookup()}
           >
-            {lookupBusy ? (
-              <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            Look up
-          </Button>
+            {lookupBusy ? <LoaderCircle className="animate-spin" /> : null}
+            {GH_LOOK_UP}
+          </Pill>
         </div>
         {lookupError && <p className="text-destructive">{lookupError}</p>}
       </div>

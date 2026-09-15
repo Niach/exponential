@@ -123,14 +123,18 @@ public final class IntegrationsApi: Sendable {
     /// `teamId` to scope the result to that team's linked GitHub
     /// accounts; omit it to fall back to the server's deprecated
     /// union-across-memberships shim.
-    public func githubStatus(accountId: String, teamId: String) async throws -> GithubStatusResult {
+    /// `mobile: true` marks the minted connect/install URLs like `githubRepos`
+    /// does, so the hop deep-links back via `exponential://github-connected`
+    /// (FEED-42: the settings section reads ONLY this endpoint).
+    public func githubStatus(accountId: String, teamId: String, mobile: Bool = false) async throws -> GithubStatusResult {
         struct Input: Encodable {
             let teamId: String
+            let platform: String?
         }
         return try await trpc.query(
             accountId: accountId,
             path: "integrations.github.status",
-            input: Input(teamId: teamId)
+            input: Input(teamId: teamId, platform: mobile ? "mobile" : nil)
         )
     }
 

@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.GithubPickerRepo
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
+import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.githubConnectErrorMessage
 import com.exponential.app.domain.isRepoFullName
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,6 +28,13 @@ import kotlinx.coroutines.launch
 // the exponential://github-connected deep link the server's post-install page fires
 // (observed here via the DeepLinkBus), and the sheet's on-resume refresh as a
 // fallback for servers without the deep-link page / a manually closed tab.
+/** FEED-42: a failed add, rendered inline in the still-open picker. */
+data class GithubAddError(
+    val message: String,
+    /** The grant-model refusal: [GithubCopy.ADD_FORBIDDEN] + "Reconnect GitHub". */
+    val forbidden: Boolean = false,
+)
+
 @HiltViewModel
 class GithubRepoPickerViewModel @Inject constructor(
     private val integrationsApi: IntegrationsApi,
@@ -42,7 +51,7 @@ class GithubRepoPickerViewModel @Inject constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
 
     // A failed connect hop's message (EXP-390) — separate from `error`, which
-    // belongs to the repos query and wears a "Couldn't refresh" prefix.
+    // belongs to the repos query.
     private val _connectError = MutableStateFlow<String?>(null)
     val connectError: StateFlow<String?> = _connectError.asStateFlow()
 
@@ -53,6 +62,14 @@ class GithubRepoPickerViewModel @Inject constructor(
 
     private val _lookupError = MutableStateFlow<String?>(null)
     val lookupError: StateFlow<String?> = _lookupError.asStateFlow()
+
+    // FEED-42: tap adds. The add runs HERE (viewModelScope) so the sheet stays
+    // open while it's in flight and on failure, and dismisses on success.
+    private val _adding = MutableStateFlow(false)
+    val adding: StateFlow<Boolean> = _adding.asStateFlow()
+
+    private val _addError = MutableStateFlow<GithubAddError?>(null)
+    val addError: StateFlow<GithubAddError?> = _addError.asStateFlow()
 
     private var lastAccountId: String? = null
     private var lastTeamId: String? = null
@@ -93,6 +110,43 @@ class GithubRepoPickerViewModel @Inject constructor(
         _lookupError.value = null
     }
 
+    // A freshly opened sheet starts clean — the VM outlives one presentation.
+    fun resetTransient() {
+        _addError.value = null
+        _lookupError.value = null
+        _connectError.value = null
+    }
+
+    /**
+     * FEED-42: add [repo] through the host's [onAdd] (which throws on failure),
+     * then [onAdded] (the sheet dismisses). A failure stays inline: the plan cap,
+     * the grant-model FORBIDDEN arm, or the server message verbatim.
+     */
+    fun add(repo: GithubPickerRepo, onAdd: suspend (GithubPickerRepo) -> Unit, onAdded: () -> Unit) {
+        if (_adding.value) return
+        viewModelScope.launch {
+            _adding.value = true
+            _addError.value = null
+            try {
+                onAdd(repo)
+                _adding.value = false
+                onAdded()
+            } catch (e: CancellationException) {
+                _adding.value = false
+                throw e
+            } catch (e: Exception) {
+                val message = trpcErrorMessage(e, "Couldn’t add the repository")
+                val trpc = e as? TrpcException
+                _addError.value = when {
+                    GithubCopy.isGrantForbidden(trpc?.code, trpc?.status?.value, trpc?.message) ->
+                        GithubAddError(GithubCopy.ADD_FORBIDDEN, forbidden = true)
+                    else -> GithubAddError(message)
+                }
+                _adding.value = false
+            }
+        }
+    }
+
     // FEED-30: integrations.github.lookupRepo for the typed `owner/name` — a
     // hit is handed to [onFound] exactly like a row pick, a miss lands in
     // [lookupError]. Shape-invalid names and a lookup already in flight are
@@ -112,7 +166,7 @@ class GithubRepoPickerViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _lookupError.value = trpcErrorMessage(e, "Couldn't look up the repository")
+                _lookupError.value = trpcErrorMessage(e, "Couldn’t look up the repository")
                 _lookupBusy.value = false
             }
         }
@@ -133,7 +187,7 @@ class GithubRepoPickerViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = e.message
+                _error.value = trpcErrorMessage(e, "Couldn’t load your GitHub repositories")
                 _loading.value = false
             }
         }

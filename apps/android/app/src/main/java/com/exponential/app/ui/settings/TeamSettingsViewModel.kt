@@ -7,7 +7,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.githubConnectErrorMessage
 import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.CreateLabelInput
-import com.exponential.app.data.api.GithubReposResult
+import com.exponential.app.data.api.GithubStatusResult
 import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.RepositoriesApi
@@ -58,10 +58,17 @@ data class TeamSettingsState(
     // FEED-32: the repo id a one-shot re-list is resolving right now (a board
     // whose synced repositoryId the registry copy doesn't know yet).
     val resolvingRepoId: String? = null,
-    // GitHub grant state (integrations.github.repos, mobile-marked URLs) —
-    // drives the "Reconnect GitHub" affordance when a linked installation has
-    // no captured grants (needsReauth). Null while loading / not configured.
-    val github: GithubReposResult? = null,
+    // FEED-42: the connection block's ONE source, `integrations.github.status`
+    // (mobile-marked URLs) — exactly as web and desktop: the viewer's accounts
+    // plus, for owners, the team's STALE links (the `repos` payload never
+    // carries `stale`). Null while loading or after a failed probe.
+    val githubStatus: GithubStatusResult? = null,
+    // The status probe failed (and no earlier value is on screen) — the block
+    // says so with a Retry instead of rendering nothing.
+    val githubFailed: Boolean = false,
+    // FEED-42: registry/GitHub failures (list load, remove, unlink, a failed
+    // connect hop) render INLINE above the list, never as a snackbar.
+    val repositoriesError: String? = null,
     val currentUserId: String? = null,
     val transient: String? = null,
     val instanceUrl: String? = null,
@@ -121,7 +128,9 @@ class TeamSettingsViewModel @Inject constructor(
     // FEED-32: ids a one-shot re-list already ran for — a repo the server
     // genuinely doesn't list (archived) must not loop the fetch.
     private val resolvedRepoIds = mutableSetOf<String>()
-    private val _github = MutableStateFlow<GithubReposResult?>(null)
+    private val _githubStatus = MutableStateFlow<GithubStatusResult?>(null)
+    private val _githubFailed = MutableStateFlow(false)
+    private val _repositoriesError = MutableStateFlow<String?>(null)
     val transient: StateFlow<String?> = _transient.asStateFlow()
 
     init {
@@ -135,18 +144,18 @@ class TeamSettingsViewModel @Inject constructor(
                     _reposLoaded.value = false
                     _resolvingRepoId.value = null
                     resolvedRepoIds.clear()
-                    _github.value = null
+                    _githubStatus.value = null
+                    _githubFailed.value = false
+                    _repositoriesError.value = null
                     if (accountId != null && teamId != null) {
-                        // Failures surface as a transient instead of silently
-                        // rendering "No repositories connected." / hiding the
-                        // whole GitHub row (EXP-365).
+                        // Failures surface inline instead of silently
+                        // rendering "No repositories connected yet." / hiding
+                        // the whole GitHub block (EXP-365, FEED-42).
                         runCatching { repositoriesApi.list(accountId, teamId) }
                             .onSuccess { _repos.value = it }
-                            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load repositories") }
+                            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t load repositories") }
                         _reposLoaded.value = true
-                        runCatching { integrationsApi.githubRepos(accountId, teamId) }
-                            .onSuccess { _github.value = it }
-                            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load the GitHub connection state") }
+                        loadGithubStatus(accountId, teamId)
                     }
                 }
         }
@@ -159,7 +168,7 @@ class TeamSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             deepLinkBus.githubConnected.drop(1).collect { event ->
                 if (event.error != null) {
-                    _transient.value = githubConnectErrorMessage(event.error)
+                    _repositoriesError.value = githubConnectErrorMessage(event.error)
                 } else {
                     refreshGithub()
                 }
@@ -170,18 +179,28 @@ class TeamSettingsViewModel @Inject constructor(
     // Re-fetch the registry + grant state (bypassing the server's repo cache)
     // after a GitHub reconnect lands, or on screen resume as the deep-link
     // fallback (EXP-365 — a swallowed deep link left the row stale forever).
-    // Failures keep the last good value; a transient explains the refresh miss.
+    // Failures keep the last good value (the failed line shows only when
+    // there is none) — also the failed state's Retry.
     fun refreshGithub() {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             val teamId = selection.selectedId.value ?: return@launch
             runCatching { repositoriesApi.list(accountId, teamId) }
                 .onSuccess { _repos.value = it }
-            runCatching { integrationsApi.githubRepos(accountId, teamId, refresh = true) }
-                .onSuccess { _github.value = it }
-                .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't refresh the GitHub connection state") }
+            loadGithubStatus(accountId, teamId)
         }
     }
+
+    private suspend fun loadGithubStatus(accountId: String, teamId: String) {
+        runCatching { integrationsApi.githubStatus(accountId, teamId) }
+            .onSuccess {
+                _githubStatus.value = it
+                _githubFailed.value = false
+            }
+            .onFailure { if (_githubStatus.value == null) _githubFailed.value = true }
+    }
+
+    fun clearRepositoriesError() { _repositoriesError.value = null }
 
     // FEED-32: a board's synced repositoryId can point at a repo this registry
     // copy has never seen — the settings sheet connects a new repo and the
@@ -210,8 +229,9 @@ class TeamSettingsViewModel @Inject constructor(
     fun unlinkGithub(installationId: Long) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
+        _repositoriesError.value = null
         runCatching { integrationsApi.githubUnlink(accountId, teamId, installationId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't disconnect the GitHub account") }
+            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t disconnect the GitHub account") }
         refreshGithub()
     }
 
@@ -222,7 +242,7 @@ class TeamSettingsViewModel @Inject constructor(
             labelsFlow,
             boardsFlow,
             _repos,
-            _github,
+            _githubStatus,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             auth.userId,
             auth.instanceUrl,
@@ -231,6 +251,8 @@ class TeamSettingsViewModel @Inject constructor(
             auth.activeAccountId,
             _reposLoaded,
             _resolvingRepoId,
+            _githubFailed,
+            _repositoriesError,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -243,7 +265,7 @@ class TeamSettingsViewModel @Inject constructor(
         val boards = values[3] as List<BoardEntity>
         @Suppress("UNCHECKED_CAST")
         val repos = values[4] as List<TeamRepo>
-        val github = values[5] as GithubReposResult?
+        val githubStatus = values[5] as GithubStatusResult?
         @Suppress("UNCHECKED_CAST")
         val users = values[6] as List<UserEntity>
         val currentUserId = values[7] as String?
@@ -253,6 +275,8 @@ class TeamSettingsViewModel @Inject constructor(
         val accountId = values[11] as String?
         val reposLoaded = values[12] as Boolean
         val resolvingRepoId = values[13] as String?
+        val githubFailed = values[14] as Boolean
+        val repositoriesError = values[15] as String?
         TeamSettingsState(
             team = team,
             // Rows whose user hasn't synced yet (user == null) still render
@@ -264,7 +288,9 @@ class TeamSettingsViewModel @Inject constructor(
             repos = repos,
             reposLoaded = reposLoaded,
             resolvingRepoId = resolvingRepoId,
-            github = github,
+            githubStatus = githubStatus,
+            githubFailed = githubFailed,
+            repositoriesError = repositoriesError,
             currentUserId = currentUserId,
             transient = transient,
             instanceUrl = instance,
@@ -343,18 +369,20 @@ class TeamSettingsViewModel @Inject constructor(
         val teamId = selection.selectedId.value ?: return@launch
         runCatching { repositoriesApi.list(accountId, teamId) }
             .onSuccess { _repos.value = it }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t load repositories") }
     }
 
     // Member-level since EXP-557: register a repo picked from the caller's own
     // GitHub connection in the registry (repositories.add — web parity,
-    // EXP-225; connecting shares it with the team), then re-fetch.
-    fun addRepository(fullName: String, defaultBranch: String, isPrivate: Boolean) = viewModelScope.launch {
-        val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
-        runCatching { repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't add the repository") }
-        refreshRepos()
+    // EXP-225; connecting shares it with the team), then re-fetch. FEED-42:
+    // SUSPENDS and THROWS — the Add-repository sheet awaits it and keeps
+    // itself open with the failure inline, dismissing only on success.
+    suspend fun addRepository(fullName: String, defaultBranch: String, isPrivate: Boolean) {
+        val accountId = auth.activeAccountId.value ?: return
+        val teamId = selection.selectedId.value ?: return
+        repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
+        _repositoriesError.value = null
+        refreshGithub()
     }
 
     // Remove a repo from the registry (sharer-or-owner, EXP-557). Blocked
@@ -362,8 +390,9 @@ class TeamSettingsViewModel @Inject constructor(
     // message verbatim (masterplan §6).
     fun removeRepo(repositoryId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
+        _repositoriesError.value = null
         runCatching { repositoriesApi.remove(accountId, repositoryId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't remove the repository") }
+            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t remove the repository") }
         refreshRepos()
     }
 

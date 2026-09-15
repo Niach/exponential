@@ -2,10 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TeamRepositoriesSection } from "@/components/team/repositories-section"
 
-// EXP-365 regressions under test: picking a repo row must only SELECT it (the
-// footer button connects), a failed add must stay visible inside the open
-// dialog, and the status line must keep the account list (with its unlink ✕)
-// visible alongside — never replaced by — the named reconnect warning.
+// EXP-365/FEED-42 regressions under test: picking a repo row adds it at once
+// (tap adds, ×4) and closes the dialog, a failed add must stay visible inside
+// the open dialog, and the status line must keep the account list (with its
+// confirm-first unlink ✕) visible alongside the named reconnect warning.
 
 const mockState = vi.hoisted(() => ({
   listQuery: vi.fn(),
@@ -136,24 +136,21 @@ describe(`TeamRepositoriesSection`, () => {
       .mockResolvedValue({ repository: {} })
   })
 
-  it(`selecting a row does NOT connect — the footer Add button does`, async () => {
+  it(`tapping a row adds it immediately and closes the dialog`, async () => {
     renderSection()
     fireEvent.click(
       await screen.findByRole(`button`, { name: /Add repository/ })
     )
 
-    const row = await screen.findByText(`siteviewer-app/app`)
-    fireEvent.click(row)
-    expect(mockState.addMutate).not.toHaveBeenCalled()
-
-    // The footer button (inside the dialog) fires the mutation.
-    const buttons = screen.getAllByRole(`button`, { name: /Add repository/ })
-    fireEvent.click(buttons[buttons.length - 1])
+    fireEvent.click(await screen.findByText(`siteviewer-app/app`))
     await waitFor(() => expect(mockState.addMutate).toHaveBeenCalledTimes(1))
     expect(mockState.addMutate.mock.calls[0][0]).toMatchObject({
       teamId: `team-1`,
       fullName: `siteviewer-app/app`,
     })
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText(`Search repositories…`)).toBeNull()
+    )
   })
 
   it(`a failed add keeps the dialog open with the error inside it`, async () => {
@@ -166,8 +163,6 @@ describe(`TeamRepositoriesSection`, () => {
     )
 
     fireEvent.click(await screen.findByText(`siteviewer-app/app`))
-    const buttons = screen.getAllByRole(`button`, { name: /Add repository/ })
-    fireEvent.click(buttons[buttons.length - 1])
 
     // Error renders, and the dialog (its search input) is still up.
     await screen.findByText(/You don't have access/)
@@ -188,14 +183,50 @@ describe(`TeamRepositoriesSection`, () => {
     // Both accounts stay listed (the unlink ✕ lives on this line)…
     await screen.findByText(/siteviewer-app/)
     expect(screen.getAllByText(/Niach/).length).toBeGreaterThan(0)
-    expect(
-      screen.getAllByTitle(`Disconnect this GitHub account from the team`)
-    ).toHaveLength(2)
+    const unlinks = screen.getAllByTitle(
+      `Disconnect this GitHub account from the team`
+    )
+    expect(unlinks).toHaveLength(2)
     // …and the warning names the offending account.
     expect(
       screen.getByText(/which repositories you can access.*from Niach/)
     ).toBeTruthy()
     expect(screen.getByRole(`button`, { name: `Reconnect` })).toBeTruthy()
+
+    // FEED-42: the ✕ confirms with the live-link copy before unlinking.
+    fireEvent.click(unlinks[1]!)
+    expect(mockState.unlinkMutate).not.toHaveBeenCalled()
+    await screen.findByText(
+      `This disconnects Niach from the team. Repositories connected through it must be removed first.`
+    )
+    fireEvent.click(screen.getByRole(`button`, { name: `Disconnect` }))
+    await waitFor(() =>
+      expect(mockState.unlinkMutate).toHaveBeenCalledTimes(1)
+    )
+    expect(mockState.unlinkMutate.mock.calls[0][0]).toMatchObject({
+      installationId: 2,
+    })
+  })
+
+  it(`a GitHub-grant FORBIDDEN add shows the reconnect arm inline`, async () => {
+    const { TRPCClientError } = await import(`@trpc/client`)
+    const err = new TRPCClientError(
+      `You don't have access to siteviewer-app/app on GitHub, or your connection is stale. Reconnect GitHub in team settings.`
+    )
+    ;(err as { data?: unknown }).data = { code: `FORBIDDEN` }
+    mockState.addMutate.mockRejectedValue(err)
+    renderSection()
+    fireEvent.click(
+      await screen.findByRole(`button`, { name: /Add repository/ })
+    )
+    fireEvent.click(await screen.findByText(`siteviewer-app/app`))
+
+    await screen.findByText(
+      `GitHub says you don’t have access to this repository, or your connection is stale. Reconnect GitHub and try again.`
+    )
+    expect(
+      screen.getAllByRole(`button`, { name: `Reconnect GitHub` }).length
+    ).toBeGreaterThan(0)
   })
 
   // EXP-462: the row's branch badge is a picker — branches load on open, a
@@ -333,6 +364,11 @@ describe(`TeamRepositoriesSection`, () => {
 
     await screen.findByText(/Couldn.t reach GitHub connect state\./)
     expect(screen.queryByText(/No GitHub account connected/)).toBeNull()
+
+    // FEED-42: Retry refetches the connect state.
+    mockState.statusQuery.mockResolvedValue(githubStatus([installation()]))
+    fireEvent.click(screen.getByRole(`button`, { name: `Retry` }))
+    await screen.findByText(`GitHub accounts connected to this team`)
   })
 
   it(`suspension outranks reconnect and never offers it`, async () => {

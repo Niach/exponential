@@ -67,6 +67,9 @@ narrowed by EXP-862):
 settings page opens with on web and desktop, on a centred 56rem column (896 at a 16px root) inside a
 full-width scroll region.
 
+**GitHub connection** and **Add-repository picker** (FEED-42) are the Settings › Repositories block and
+its picker, one canonical form on all four clients (tap adds, the ✕ always confirms).
+
 Under each control is a per-platform table naming the ONE symbol and file that
 is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
 `leftover` (it exists but still disagrees; the note says how) or `n/a` (that

@@ -49,12 +49,13 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.data.api.GithubInstallation
-import com.exponential.app.data.api.GithubReposResult
+import com.exponential.app.data.api.GithubStatusResult
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.BoardRepoLabel
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.GithubCopy
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.BoardRepoField
@@ -102,7 +103,7 @@ private sealed interface SettingsConfirm {
 }
 
 private fun installationLabel(inst: GithubInstallation) =
-    inst.accountLogin ?: "Installation ${inst.installationId}"
+    GithubCopy.installationLabel(inst.accountLogin, inst.installationId)
 
 private data class ConfirmCopy(
     val title: String,
@@ -152,15 +153,13 @@ private fun SettingsConfirmDialog(
             button = "Remove",
         )
         is SettingsConfirm.UnlinkGithub -> ConfirmCopy(
-            title = "Disconnect GitHub account",
+            title = GithubCopy.DISCONNECT_TITLE,
             message = if (confirm.stale) {
-                "This removes ${installationLabel(confirm.installation)} from the " +
-                    "team. Nobody's GitHub connection covers it, so no repositories are lost."
+                GithubCopy.staleConfirm(installationLabel(confirm.installation))
             } else {
-                "This disconnects ${installationLabel(confirm.installation)} from the " +
-                    "team. Repositories connected through it must be removed first."
+                GithubCopy.unlinkConfirm(installationLabel(confirm.installation))
             },
-            button = "Disconnect",
+            button = GithubCopy.DISCONNECT,
         )
         is SettingsConfirm.ChangeRole -> {
             val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
@@ -447,17 +446,13 @@ private fun DangerZone(
     }
 }
 
-// The server-only repositories registry (masterplan v4 §3/§6): a pure registry
-// listing connected repos with the boards that use each (a repo backs one or
-// more boards). Member-visible since EXP-557 (per-user sharing): the GitHub
-// state is VIEWER-scoped, any member connects/adds their own repos (connecting
-// shares them), and per-row management (remove) is sharer-or-owner — blocked
-// (CONFLICT) while any board still points at it. Primary-star / per-board link
-// editing is gone (a board = a repository now). Connecting NEW repos happens
-// in-app (EXP-45):
-// the OAuth connect / App install hop runs in a Custom Tab, exactly like the
-// repo picker — the web team settings link survives only as a fallback
-// when the GitHub grant state can't be loaded at all.
+// The server-only repositories registry (masterplan v4 §3/§6) with the ONE
+// GitHub connection block (FEED-42 canonical form, byte-identical copy ×4 in
+// [GithubCopy]): header pill → intro → status block → inline errors → the list.
+// Member-visible since EXP-557 (per-user sharing): the GitHub state is
+// VIEWER-scoped (owners also see STALE links), any member connects/adds their
+// own repos, and per-row management (remove) is sharer-or-owner. The connect /
+// install hops run in a Custom Tab; exponential://github-connected refreshes.
 @Composable
 private fun RepositoriesSection(
     state: TeamSettingsState,
@@ -465,22 +460,7 @@ private fun RepositoriesSection(
     isOwner: Boolean,
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
-    val context = LocalContext.current
     var showAddRepo by remember { mutableStateOf(false) }
-    val github = state.github
-    val installations = github?.installations.orEmpty()
-    // Suspension outranks reconnect (REV2-29): a suspended installation mints
-    // no tokens and lists no repos, and a reconnect CANNOT fix it — only
-    // unsuspending on GitHub can. Never nudge the wrong fix (EXP-365).
-    val suspended = installations.filter { it.suspended }
-    // STALE accounts (EXP-557): zero grants from ANY member — reconnecting can
-    // never refresh them either, so they get a visible "Disconnect account"
-    // row instead of the reconnect warning (which stays for the viewer's own
-    // needsReauth-and-not-stale accounts).
-    val staleAccounts = installations.filter { it.stale && !it.suspended }
-    val reauthInstalls = installations.filter { it.needsReauth && !it.stale && !it.suspended }
-    val needsReauth = suspended.isEmpty() && reauthInstalls.isNotEmpty()
-    val configured = github != null && github.configured
 
     // Resume-refresh fallback (EXP-365): if the exponential://github-connected
     // deep link never arrives (older server, swallowed handoff, user closed the
@@ -494,29 +474,46 @@ private fun RepositoriesSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Header row: title + repo count + a compact "Add repository" button
-        // (owner + ≥1 linked installation), mirroring the Labels header's
-        // inline action and the iOS Repositories header.
-        SectionHeader("Repositories") {
-            // Member-level since EXP-557 (repositories.add operates on the
-            // viewer's OWN GitHub connection; connecting shares the repo).
-            // Only meaningful once the server has a GitHub App — the picker
-            // itself handles the not-yet-connected case with its inline
-            // connect hop.
-            if (configured) {
-                GlassPill(
-                    "Add repository",
-                    icon = ExpIcons.uiAdd,
-                    onClick = { showAddRepo = true },
-                )
-            }
+        // Always shown (member-level since EXP-557): the picker itself handles
+        // the not-configured / not-connected states.
+        SectionHeader(GithubCopy.SECTION_TITLE) {
+            GlassPill(
+                GithubCopy.ADD_REPOSITORY,
+                icon = ExpIcons.uiGithub,
+                onClick = { showAddRepo = true },
+            )
         }
-        // EXP-721: one self-bordered glass row per repository (the Boards and
-        // Labels idiom, now the rule on every client) — not a grouped card
-        // divided by hairlines. The section's spacedBy(8.dp) owns the gaps.
-        if (state.repos.isEmpty()) {
+        Text(
+            GithubCopy.INTRO,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
+        GithubStatusBlock(
+            status = state.githubStatus,
+            failed = state.githubFailed,
+            onRetry = viewModel::refreshGithub,
+            onUnlink = { inst, stale -> onConfirm(SettingsConfirm.UnlinkGithub(inst, stale = stale)) },
+        )
+
+        // FEED-42: load/link/remove failures render inline above the list.
+        state.repositoriesError?.let { message ->
             Text(
-                "No repositories connected.",
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassRow()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+
+        // EXP-721: one self-bordered glass row per repository.
+        if (state.reposLoaded && state.repos.isEmpty()) {
+            Text(
+                GithubCopy.NO_REPOSITORIES,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -536,167 +533,17 @@ private fun RepositoriesSection(
                 onConfirm = onConfirm,
             )
         }
-
-        // One GitHub status LINE (EXP-329, byte-identical to web/desktop): the
-        // connection state on the left, the single action on the right — the
-        // old accounts card (caption + chips + explainer + manage link) is
-        // gone. Rendered once the grant state has loaded, for EVERY member:
-        // since EXP-557 the state is viewer-scoped and any member may connect
-        // their own GitHub account.
-        if (github != null) {
-            // Grant-model connect (web parity, same hop as the repo picker): the
-            // single-consent OAuth connect claims the installation for this team
-            // AND captures the repo grants; the server's post-connect page fires
-            // exponential://github-connected, which refreshes this section without
-            // leaving the screen. A linked installation with no captured grants
-            // (linked before grants existed, or OAuth revoked) flags `needsReauth`.
-            val connectUrl = github.connectUrl ?: github.installUrl
-            val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
-                state.team?.slug?.let { slug -> "$base/t/$slug/settings/repositories" }
-            }
-            if (configured && github.installed && suspended.isEmpty()) {
-                // FEED-31: a healthy installed state lists one row per
-                // connected account with its own actions.
-                InstalledAccountsBlock(
-                    github = github,
-                    reauthInstalls = reauthInstalls,
-                    onUnlink = { inst -> onConfirm(SettingsConfirm.UnlinkGithub(inst, stale = false)) },
-                )
-            } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassRow()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                if (configured && suspended.isNotEmpty()) {
-                    Icon(
-                        ExpIcons.uiWarning,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = DesignTokens.Semantic.Red,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    when {
-                        !configured -> "GitHub isn't configured on this server."
-                        suspended.isNotEmpty() ->
-                            "GitHub suspended the Exponential app for " +
-                                suspended.joinToString(", ", transform = ::installationLabel) +
-                                ". Unsuspend it on GitHub."
-                        else -> "No GitHub account connected"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.weight(1f),
-                )
-                // Member-level action since EXP-557 — the connect hop claims
-                // the viewer's own GitHub account for the team (sharing its
-                // repos). Nothing to offer when the server has no GitHub App
-                // at all.
-                if (configured) {
-                    Spacer(Modifier.width(8.dp))
-                    if (suspended.isNotEmpty()) {
-                        // Unsuspend happens on GitHub's installation settings
-                        // page — never offer the (useless) reconnect here.
-                        GlassPill(
-                            "Manage",
-                            icon = ExpIcons.uiExternalLink,
-                            onClick = {
-                                CustomTabsIntent.Builder().build()
-                                    .launchUrl(context, Uri.parse(suspended.first().manageUrl))
-                            },
-                        )
-                    } else if (connectUrl != null) {
-                        // Primary = the OAuth hop (finds installations the
-                        // viewer already controls; a zero-installation user is
-                        // sent on to GitHub's install page by the callback).
-                        // The secondary goes straight to the account picker —
-                        // only worth a second button when the two URLs differ
-                        // (FEED-31).
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            GlassPill(
-                                "Connect GitHub",
-                                icon = ExpIcons.uiGithub,
-                                onClick = {
-                                    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(connectUrl))
-                                },
-                            )
-                            val installUrl = github.installUrl
-                            if (github.connectUrl != null && installUrl != null) {
-                                GlassPill(
-                                    "Install on an account",
-                                    onClick = {
-                                        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(installUrl))
-                                    },
-                                )
-                            }
-                        }
-                    } else if (webSettingsUrl != null) {
-                        // The server mints no connect/install URL — fall back to
-                        // the web repositories page, which explains/handles it.
-                        TextButton(
-                            onClick = {
-                                runCatching {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webSettingsUrl))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                }
-                            },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Connect on the web", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-            }
-            }
-            // One row per STALE account (EXP-557): reconnecting can never
-            // refresh it, so the only offered fix is the confirm-first
-            // disconnect (integrations.github.unlink — creator-or-owner
-            // server-side; a member who can't may see the server's message).
-            staleAccounts.forEach { inst ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        "No one's GitHub connection covers ${installationLabel(inst)} " +
-                            "anymore — reconnecting can't refresh it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    GlassPill(
-                        "Disconnect account",
-                        onClick = { onConfirm(SettingsConfirm.UnlinkGithub(inst)) },
-                    )
-                }
-            }
-        }
     }
 
-    // Same picker sheet as board creation (BoardRepoField); here the pick
-    // lands in the registry directly via repositories.add. The sheet calls
-    // onPick then dismisses itself on selection.
+    // FEED-42: tap adds INSIDE the sheet — it awaits repositories.add, keeps
+    // itself open with the failure inline, and dismisses on success.
     val accountId = state.accountId
     val teamId = state.team?.id
     if (showAddRepo && accountId != null && teamId != null) {
         GithubRepoPickerSheet(
             accountId = accountId,
             teamId = teamId,
-            onPick = { repo ->
+            onAdd = { repo ->
                 viewModel.addRepository(repo.fullName, repo.defaultBranch, repo.isPrivate)
             },
             onDismiss = { showAddRepo = false },
@@ -1281,20 +1128,20 @@ private fun BoardRepositorySheet(
 private const val DEFAULT_BRANCH_FALLBACK = "main"
 
 /**
- * FEED-31 (web GithubStatusLine, installed state): an installation is per
- * GitHub account/organization, so list ONE ROW PER ACCOUNT — icon, login, a
- * Configure link to that installation's GitHub settings page, the unlink ✕ —
- * then the helper sentence and the two SEPARATE actions: "Connect another
- * account" opens GitHub's account picker (installUrl, installations/new — the
- * ONLY way to a second org once one is linked) and "Refresh access" the OAuth
- * re-auth (connectUrl, which re-links what the viewer already controls and
- * re-captures their grants). The needs-reauth nag keeps its own line below.
+ * FEED-42 (web GithubStatusLine, desktop repositories.rs, iOS — one canonical
+ * form): the connection state from `integrations.github.status`. Loading →
+ * nothing; failed → line + Retry; not configured / not installed → a GitHub
+ * line (+ Connect GitHub / Install on an account); suspended → one destructive
+ * line + Manage; installed → one indented row per account (Configure, ✕ with
+ * confirm), the caption, Connect another account / Refresh access, the
+ * re-auth line and the STALE lines (confirm-first Disconnect account).
  */
 @Composable
-private fun InstalledAccountsBlock(
-    github: GithubReposResult,
-    reauthInstalls: List<GithubInstallation>,
-    onUnlink: (GithubInstallation) -> Unit,
+private fun GithubStatusBlock(
+    status: GithubStatusResult?,
+    failed: Boolean,
+    onRetry: () -> Unit,
+    onUnlink: (GithubInstallation, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -1302,6 +1149,7 @@ private fun InstalledAccountsBlock(
     val open: (String) -> Unit = { url ->
         CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
     }
+    if (status == null && !failed) return
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
@@ -1309,8 +1157,98 @@ private fun InstalledAccountsBlock(
             .glassRow()
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
+        when {
+            status == null -> StatusLine(ExpIcons.uiGithub, GithubCopy.STATUS_FAILED, secondary) {
+                GlassPill(GithubCopy.RETRY, size = PillSize.Sm, onClick = onRetry)
+            }
+            !status.configured -> StatusLine(ExpIcons.uiGithub, GithubCopy.NOT_CONFIGURED, secondary)
+            !status.installed -> StatusLine(ExpIcons.uiGithub, GithubCopy.NOT_INSTALLED, secondary) {
+                val connectUrl = status.connectUrl ?: status.installUrl
+                if (connectUrl != null) {
+                    GlassPill(GithubCopy.CONNECT_GITHUB, size = PillSize.Sm, onClick = { open(connectUrl) })
+                }
+                val installUrl = status.installUrl
+                if (status.connectUrl != null && installUrl != null) {
+                    GlassPill(GithubCopy.INSTALL_ON_ACCOUNT, size = PillSize.Sm, onClick = { open(installUrl) })
+                }
+            }
+            status.installations.any { it.suspended } -> {
+                // REV2-29: unsuspend on GitHub is the only fix — no stale lines.
+                val suspended = status.installations.filter { it.suspended }
+                val manageUrl = suspended.first().manageUrl.ifEmpty { null } ?: status.installUrl
+                val error = MaterialTheme.colorScheme.error
+                StatusLine(
+                    ExpIcons.uiWarning,
+                    GithubCopy.suspendedLine(suspended.map(::installationLabel)),
+                    error,
+                    iconTint = error,
+                ) {
+                    if (manageUrl != null) {
+                        GlassPill(
+                            GithubCopy.MANAGE,
+                            size = PillSize.Sm,
+                            trailing = {
+                                Icon(
+                                    ExpIcons.uiExternalLink,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+                                )
+                            },
+                            onClick = { open(manageUrl) },
+                        )
+                    }
+                }
+            }
+            else -> InstalledAccounts(status, secondary, tertiary, open, onUnlink)
+        }
+    }
+}
+
+/** One status line: leading glyph, the sentence, and trailing pills that wrap. */
+@Composable
+private fun StatusLine(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    color: Color,
+    iconTint: Color = color,
+    actions: (@Composable () -> Unit)? = null,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (reauthInstalls.isEmpty()) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = iconTint)
+            Spacer(Modifier.width(8.dp))
+            Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.weight(1f))
+        }
+        if (actions != null) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(start = AccountIndent),
+            ) { actions() }
+        }
+    }
+}
+
+private val AccountIndent = 22.dp
+
+@Composable
+private fun InstalledAccounts(
+    status: GithubStatusResult,
+    secondary: Color,
+    tertiary: Color,
+    open: (String) -> Unit,
+    onUnlink: (GithubInstallation, Boolean) -> Unit,
+) {
+    val installations = status.installations
+    // STALE (EXP-557): zero grants from anyone — reconnecting can never refresh
+    // them, so they get a Disconnect line instead of the re-auth nag.
+    val stale = installations.filter { it.stale && !it.suspended }
+    val staleIds = stale.map { it.installationId }.toSet()
+    val needingReauth = installations.filter { it.needsReauth && it.installationId !in staleIds }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(14.dp), contentAlignment = Alignment.Center) {
+            if (needingReauth.isEmpty()) {
                 Box(Modifier.size(8.dp).background(DesignTokens.Semantic.Green, CircleShape))
             } else {
                 Icon(
@@ -1320,90 +1258,112 @@ private fun InstalledAccountsBlock(
                     tint = DesignTokens.Semantic.Yellow,
                 )
             }
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(GithubCopy.ACCOUNTS_HEADER, style = MaterialTheme.typography.bodySmall, color = secondary)
+    }
+    installations.forEach { inst ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = AccountIndent),
+        ) {
+            Icon(
+                if (inst.accountType == "Organization") ExpIcons.uiOrganization else ExpIcons.uiAvatarPlaceholder,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = secondary,
+            )
             Spacer(Modifier.width(8.dp))
             Text(
-                "GitHub accounts connected to this team",
+                installationLabel(inst),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (inst.manageUrl.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { open(inst.manageUrl) }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                ) {
+                    Text(GithubCopy.CONFIGURE, style = MaterialTheme.typography.labelMedium, color = secondary)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(12.dp), tint = secondary)
+                }
+            }
+            CircleIconButton(
+                ExpIcons.uiClose,
+                contentDescription = GithubCopy.UNLINK_A11Y,
+                onClick = { onUnlink(inst, inst.installationId in staleIds) },
+                glyphSize = 14.dp,
+                borderless = true,
+            )
+        }
+    }
+    Text(
+        GithubCopy.INSTALLATION_CAPTION,
+        style = MaterialTheme.typography.bodySmall,
+        color = tertiary,
+        modifier = Modifier.padding(start = AccountIndent),
+    )
+    val installUrl = status.installUrl
+    val connectUrl = status.connectUrl
+    if (installUrl != null || connectUrl != null) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = AccountIndent),
+        ) {
+            if (installUrl != null) {
+                GlassPill(GithubCopy.CONNECT_ANOTHER_ACCOUNT, icon = ExpIcons.uiAdd, size = PillSize.Sm, onClick = { open(installUrl) })
+            }
+            if (connectUrl != null) {
+                GlassPill(GithubCopy.REFRESH_ACCESS, icon = ExpIcons.uiRefresh, size = PillSize.Sm, onClick = { open(connectUrl) })
+            }
+        }
+    }
+    if (needingReauth.isNotEmpty()) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = AccountIndent),
+        ) {
+            Text(
+                GithubCopy.reauthLine(needingReauth.map(::installationLabel)),
                 style = MaterialTheme.typography.bodySmall,
                 color = secondary,
             )
+            val reconnectUrl = connectUrl ?: installUrl
+            if (reconnectUrl != null) {
+                GlassPill(GithubCopy.RECONNECT, size = PillSize.Sm, onClick = { open(reconnectUrl) })
+            }
         }
-        github.installations.forEach { inst ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+    }
+    stale.forEach { inst ->
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
                 Icon(
-                    if (inst.accountType == "Organization") ExpIcons.uiOrganization else ExpIcons.uiAvatarPlaceholder,
+                    ExpIcons.uiWarning,
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = secondary,
+                    modifier = Modifier.padding(top = 2.dp).size(14.dp),
+                    tint = DesignTokens.Semantic.Yellow,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    installationLabel(inst),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (inst.manageUrl.isNotEmpty()) {
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = { open(inst.manageUrl) },
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) {
-                        Text("Configure", style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.width(4.dp))
-                        Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
-                    }
-                }
-                CircleIconButton(
-                    ExpIcons.uiClose,
-                    contentDescription = "Disconnect this GitHub account from the team",
-                    onClick = { onUnlink(inst) },
-                    glyphSize = 14.dp,
-                    borderless = true,
-                )
-            }
-        }
-        Text(
-            "An installation is per GitHub account or organization. Repositories come from the accounts listed here.",
-            style = MaterialTheme.typography.bodySmall,
-            color = tertiary,
-        )
-        val installUrl = github.installUrl
-        val connectUrl = github.connectUrl
-        if (installUrl != null || connectUrl != null) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (installUrl != null) {
-                    GlassPill("Connect another account", icon = ExpIcons.uiAdd, onClick = { open(installUrl) })
-                }
-                if (connectUrl != null) {
-                    GlassPill("Refresh access", icon = ExpIcons.uiRefresh, onClick = { open(connectUrl) })
-                }
-            }
-        }
-        // A linked installation whose per-user repo grants were never captured
-        // lists no repos until the user re-runs the OAuth connect.
-        if (reauthInstalls.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Reconnect GitHub to refresh which repositories you can access from " +
-                        reauthInstalls.joinToString(", ", transform = ::installationLabel) + ".",
+                    GithubCopy.staleLine(installationLabel(inst)),
                     style = MaterialTheme.typography.bodySmall,
                     color = secondary,
-                    modifier = Modifier.weight(1f),
                 )
-                val reconnectUrl = connectUrl ?: installUrl
-                if (reconnectUrl != null) {
-                    Spacer(Modifier.width(8.dp))
-                    GlassPill("Reconnect", icon = ExpIcons.uiRefresh, onClick = { open(reconnectUrl) })
-                }
             }
+            GlassPill(
+                GithubCopy.DISCONNECT_ACCOUNT,
+                size = PillSize.Sm,
+                onClick = { onUnlink(inst, true) },
+                modifier = Modifier.padding(start = AccountIndent),
+            )
         }
     }
 }

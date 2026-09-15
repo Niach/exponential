@@ -63,6 +63,11 @@ pub struct BoardDetailPane {
     /// fetched under (EXP-139) — a link to a repo this cache doesn't know yet
     /// (connected on another client) re-fetches exactly once per change.
     loaded_links: Option<Vec<(String, String)>>,
+    /// FEED-42: the linked repository id this pane already re-listed ONCE
+    /// for — a load that came back without the board's repo (a server cache
+    /// that lagged a connect on another client) gets one retry before the
+    /// label settles on "Repository unavailable", never a fetch loop.
+    relisted_unknown: Option<String>,
     /// The last `boards.setRepository` rejection, rendered inline (web
     /// parity: the ChangeRepositoryDialog error). Cleared on the next
     /// attempt / team switch.
@@ -108,6 +113,7 @@ impl BoardDetailPane {
             loaded_team: None,
             account_id: None,
             loaded_links: None,
+            relisted_unknown: None,
             link_error: None,
             branches: None,
             generation: 0,
@@ -254,6 +260,27 @@ impl BoardDetailPane {
             self.repos = RepoLoad::Idle;
             cx.notify();
         }
+    }
+
+    /// FEED-42: the board's linked repository is missing from the FIRST load
+    /// (the link snapshot matched, so [`Self::refresh_if_links_changed`]
+    /// never fires) — re-list once, reading "Loading repository…" meanwhile,
+    /// before showing "Repository unavailable".
+    fn relist_if_unknown(
+        &mut self,
+        team_id: &str,
+        repository_id: Option<&str>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(repo_id) = repository_id else {
+            return;
+        };
+        if !should_relist(repo_id, &self.repos, self.relisted_unknown.as_deref()) {
+            return;
+        }
+        self.relisted_unknown = Some(repo_id.to_string());
+        self.repos = RepoLoad::Idle;
+        self.ensure_repos(team_id, cx);
     }
 
     /// The trash confirm (EXP-288: honest 48h-soft-delete copy — the server
@@ -572,6 +599,9 @@ impl Render for BoardDetailPane {
             return v_flex().into_any_element();
         };
         self.sync_selected_board(&board, window, cx);
+        if let Some(team_id) = team_id.as_deref() {
+            self.relist_if_unknown(team_id, board.repository_id.as_deref(), cx);
+        }
 
         let prefix: SharedString = board.prefix.clone().unwrap_or_default().into();
 
@@ -736,9 +766,33 @@ fn repo_picker_label(repository_id: Option<&str>, repos: &RepoLoad) -> SharedStr
     }
 }
 
+/// FEED-42: re-list when a READY list lacks the linked id and this id has
+/// not been retried yet (one-shot per id).
+fn should_relist(repository_id: &str, repos: &RepoLoad, relisted: Option<&str>) -> bool {
+    match repos {
+        RepoLoad::Ready(repos) => {
+            relisted != Some(repository_id) && !repos.iter().any(|repo| repo.id == repository_id)
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEED-42: an unknown linked id re-lists exactly once; a known id, a
+    /// load in flight or a failed load never do.
+    #[test]
+    fn unknown_linked_repo_relists_once() {
+        let empty = RepoLoad::Ready(Vec::new());
+        assert!(should_relist("repo-1", &empty, None));
+        assert!(!should_relist("repo-1", &empty, Some("repo-1")));
+        assert!(should_relist("repo-2", &empty, Some("repo-1")));
+        assert!(!should_relist("repo-1", &RepoLoad::Loading, None));
+        assert!(!should_relist("repo-1", &RepoLoad::Idle, None));
+        assert!(!should_relist("repo-1", &RepoLoad::Failed("boom".into()), None));
+    }
 
     #[test]
     fn unlinked_board_reads_no_repository_in_every_load_state() {
