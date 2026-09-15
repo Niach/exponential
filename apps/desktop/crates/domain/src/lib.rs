@@ -22,7 +22,10 @@
 //! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
 //!   every session list renders (web `lib/session-tree.ts` twin);
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
-//!   `lib/steer-image-message.ts`'s byte-identical twin.
+//!   `lib/steer-image-message.ts`'s byte-identical twin;
+//! * [`diff`] — EXP-895's ONE diff model + parser (`git diff`, bare steer
+//!   sections, GitHub patches), byte-locked ×4 by
+//!   `packages/domain-contract/fixtures/diff/`.
 //!
 //! gpui-free — headless-testable.
 
@@ -32,6 +35,7 @@ pub mod contract {
 
 pub mod board;
 pub mod client_version;
+pub mod diff;
 pub mod enums;
 pub mod hydrate;
 pub mod image_message;
