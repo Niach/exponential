@@ -10,9 +10,10 @@ import { useWorkTabs } from "@/hooks/use-work-tabs"
 import type { CodingSession, Issue } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueDetailView } from "@/components/issue-detail-view"
+import { selectIssueRuns } from "@/lib/past-runs"
 import {
   ISSUE_FACE_LABEL,
-  RUN_FACE_LABEL,
+  runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
 
@@ -97,6 +98,17 @@ function IssueDetailPage() {
       ),
     [runRows, boundRunId, authSession?.user?.id]
   )
+  // EXP-886: with MORE THAN ONE run of mine on the issue the segment reads
+  // "Runs" — the session view it opens carries the switcher between them.
+  const multipleRuns = useMemo(
+    () =>
+      selectIssueRuns(
+        (runRows ?? []) as CodingSession[],
+        authSession?.user?.id,
+        issue?.id
+      ).length > 1,
+    [runRows, authSession?.user?.id, issue?.id]
+  )
 
   if (!team || !board) {
     // Ready-and-empty boards means the slug is dead (trashed board, rename,
@@ -155,7 +167,7 @@ function IssueDetailPage() {
               ? [
                   {
                     face: `run` as const,
-                    label: RUN_FACE_LABEL,
+                    label: runFaceLabel(multipleRuns),
                     onSelect: () =>
                       void navigate({
                         to: `/t/$teamSlug/sessions/$sessionId`,

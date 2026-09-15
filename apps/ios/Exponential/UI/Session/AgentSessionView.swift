@@ -97,6 +97,10 @@ struct AgentSessionView: View {
     /// slid in from the bottom.
     @State private var menuAnchor: CGRect = .zero
     @State private var menuOpen = false
+    /// EXP-886: the run SWITCHER's popup — the same in-view overlay as the
+    /// `…`, anchored to its own bar button.
+    @State private var runsMenuAnchor: CGRect = .zero
+    @State private var runsMenuOpen = false
     /// EXP-773: the ended run's Resume — its confirm and the in-flight send.
     /// The watcher above owns the "waiting for the desktop" caption and
     /// pushes the resumed run's own screen.
@@ -178,6 +182,42 @@ struct AgentSessionView: View {
         // EXP-818: NO Kill row — stopping a run is the header's own Stop pill
         // now (identical whether this phone hosts the run or only watches it),
         // not a destructive row buried in a menu.
+    }
+
+    /// EXP-886: the run switcher shows once the issue has MORE THAN ONE run
+    /// of mine (`PastRuns.issueRuns`) — the phone's twin of the web/desktop
+    /// header pill beside the `Issue | Runs` toggle. An issue-less run has
+    /// none. Its own property: this screen's chains are at the type
+    /// checker's budget (#644, #656).
+    private var hasRunSwitcher: Bool {
+        (model?.issueRuns.count ?? 0) > 1
+    }
+
+    /// The switcher's rows: every run of mine on this issue, live first, as
+    /// `<device> · <when>` (`Live` for a live one, else when it ended — the
+    /// ×4 entry). A live row wears the running glyph, the run on show the
+    /// check; picking another pushes its own screen, the way every run list
+    /// opens one.
+    @ViewBuilder
+    private var runSwitcherItems: some View {
+        ForEach(model?.issueRuns ?? []) { run in
+            let onShow = run.session.id == session.id
+            let live = PastRuns.isLiveRunStatus(run.session.status)
+            GlassMenuItem(
+                PastRuns.byline(
+                    device: run.device.displayLabel,
+                    relativeTime: PastRuns.issueRunWhen(
+                        run.session,
+                        endedRelative: relativeWireDate(PastRuns.endedAt(run.session))
+                    )
+                ),
+                icon: onShow ? AppIcons.uiCheck : (live ? AppIcons.codingRunning : nil)
+            ) {
+                if !onShow {
+                    pushRoute(.agentSession(accountId: accountId, sessionId: run.session.id))
+                }
+            }
+        }
     }
 
     // Four small chains instead of one long one. The whole modifier chain is
@@ -276,6 +316,10 @@ struct AgentSessionView: View {
             .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
                 toolbarMenuItems
             }
+            // EXP-886: the run switcher's popup, off its own bar button.
+            .glassMenuOverlay(isPresented: $runsMenuOpen, anchor: runsMenuAnchor, presentation: .inline) {
+                runSwitcherItems
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
@@ -314,6 +358,17 @@ struct AgentSessionView: View {
                 // chevron to their left. EXP-858 dropped the pin: the phone
                 // has no sidebar for it to land in.
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    // EXP-886: the run switcher leads the trailing cluster —
+                    // Stop stays the loud one beside the `…`.
+                    if hasRunSwitcher {
+                        GlassMenuBarButton(
+                            icon: AppIcons.runSwitcher,
+                            accessibilityLabel: "Switch run",
+                            anchor: $runsMenuAnchor,
+                            isPresented: $runsMenuOpen
+                        )
+                        .accessibilityIdentifier("session-run-switcher")
+                    }
                     stopPill
                     if hasToolbarMenu {
                         GlassMenuBarButton(

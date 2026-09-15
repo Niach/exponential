@@ -1507,28 +1507,39 @@ pub(crate) fn own_ended_runs<'a>(
     out
 }
 
-/// EXP-886 — an issue detail's "Runs" band (×4): the caller's own ENDED runs
-/// of THAT issue, any `started_reason`, newest end first, UNCAPPED.
+/// A run that is alive by STATUS — running or in review. Staleness is not
+/// consulted (that is [`coding_session_is_live`]): a run whose machine went
+/// quiet is still one of the issue's runs, it only sorts by its heartbeat.
+pub(crate) fn is_live_run_status(session: &domain::rows::CodingSession) -> bool {
+    matches!(
+        session.status.as_deref(),
+        Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
+            | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
+    )
+}
+
+/// EXP-886 — an issue's RUNS (×4): the caller's own runs of THAT issue,
+/// whatever their status and `started_reason` (a live run, an ended one, an
+/// automated one), UNCAPPED. Live runs first, then by the Recent ordering key
+/// (the end, else the heartbeat). Backs the work header's `Run`/`Runs` face
+/// label and the session screen's run switcher.
 ///
 /// Unlike [`own_ended_runs`] this keeps automation runs (the issue is the
 /// subject either way) and needs no team filter — the issue id already pins
-/// it. Batch runs (`issue_id` NULL) never match. Same ordering rule and
-/// tiebreak as Recent. Pure.
+/// it. Batch runs (`issue_id` NULL) never match. Pure.
 pub(crate) fn issue_runs<'a>(
     rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
     me: &str,
     issue_id: &str,
 ) -> Vec<&'a domain::rows::CodingSession> {
     let mut out: Vec<&domain::rows::CodingSession> = rows
-        .filter(|session| {
-            session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
-        })
         .filter(|session| session.user_id.as_deref() == Some(me))
         .filter(|session| session.issue_id.as_deref() == Some(issue_id))
         .collect();
     out.sort_by(|a, b| {
-        past_run_ended_key(b)
-            .cmp(&past_run_ended_key(a))
+        is_live_run_status(b)
+            .cmp(&is_live_run_status(a))
+            .then_with(|| past_run_ended_key(b).cmp(&past_run_ended_key(a)))
             .then_with(|| b.id.cmp(&a.id))
     });
     out
@@ -3199,14 +3210,18 @@ mod tests {
         );
     }
 
-    /// EXP-886: the issue's Runs band lists only the caller's ENDED runs of
-    /// THAT issue — a live run, a teammate's, another issue's and a batch run
-    /// stay out, while an automation run of the issue is kept.
+    /// EXP-886: an issue's runs are only the caller's OWN runs of THAT issue
+    /// — a teammate's, another issue's and a batch run stay out, while a live
+    /// run (any live status) and an automation run of the issue are kept,
+    /// the live ones first.
     #[test]
-    fn issue_runs_list_only_the_callers_ended_runs_of_that_issue() {
+    fn issue_runs_list_only_the_callers_own_runs_of_that_issue() {
         let mine = past_row("mine", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
         let mut live = past_row("live", "me", Some("t-1"), None, Some("2026-07-17T12:00:00Z"));
         live.status = Some("running".to_string());
+        let mut review =
+            past_row("review", "me", Some("t-1"), None, Some("2026-07-17T11:30:00Z"));
+        review.status = Some("in_review".to_string());
         let theirs = past_row("theirs", "someone", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
         let mut other_issue =
             past_row("other", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
@@ -3216,16 +3231,20 @@ mod tests {
         let mut automated =
             past_row("auto", "me", Some("t-1"), Some("2026-07-17T10:00:00Z"), None);
         automated.started_reason = Some("schedule".to_string());
-        let rows = vec![mine, live, theirs, other_issue, batch, automated];
+        let rows = vec![mine, live, review, theirs, other_issue, batch, automated];
         let picked = issue_runs(rows.iter(), "me", "issue-1");
         let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["mine", "auto"]);
+        assert_eq!(ids, vec!["live", "review", "mine", "auto"]);
+        assert!(is_live_run_status(&rows[1]));
+        assert!(is_live_run_status(&rows[2]));
+        assert!(!is_live_run_status(&rows[0]));
     }
 
-    /// EXP-886: newest END first (`updated_at` standing in for a swept row),
+    /// EXP-886: live runs first (by STATUS — a stale heartbeat does not demote
+    /// one), then newest END first (`updated_at` standing in for a swept row),
     /// and — unlike Recent — no [`PAST_RUNS_CAP`] truncation.
     #[test]
-    fn issue_runs_sort_newest_end_first_and_are_uncapped() {
+    fn issue_runs_put_live_first_then_newest_end_first_uncapped() {
         let mut rows: Vec<domain::rows::CodingSession> = (0..30)
             .map(|n| {
                 past_row(
@@ -3238,11 +3257,15 @@ mod tests {
             })
             .collect();
         rows.push(past_row("swept", "me", Some("t-1"), None, Some("2026-08-01T00:00:00Z")));
+        let mut stale_live = past_row("stale-live", "me", Some("t-1"), None, Some("2026-06-01T00:00:00Z"));
+        stale_live.status = Some("running".to_string());
+        rows.push(stale_live);
         let picked = issue_runs(rows.iter(), "me", "issue-1");
-        assert_eq!(picked.len(), 31);
-        assert_eq!(picked[0].id, "swept");
-        assert_eq!(picked[1].id, "run-29");
-        assert_eq!(picked[30].id, "run-00");
+        assert_eq!(picked.len(), 32);
+        assert_eq!(picked[0].id, "stale-live");
+        assert_eq!(picked[1].id, "swept");
+        assert_eq!(picked[2].id, "run-29");
+        assert_eq!(picked[31].id, "run-00");
     }
 
     /// EXP-676: an automation's runs live in the Automations tab's "Recent

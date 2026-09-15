@@ -758,17 +758,48 @@ pub(crate) fn past_run_byline(
     device_label: Option<&str>,
     now_epoch: i64,
 ) -> String {
+    let when = past_run_ended_at(session)
+        .map(|at| crate::comments::relative_time(at, now_epoch))
+        .unwrap_or_default();
+    byline_parts(device_label, when)
+}
+
+/// `<device> · <when>`, either part dropped when it has nothing to say.
+fn byline_parts(device_label: Option<&str>, when: String) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(label) = device_label.map(str::trim).filter(|label| !label.is_empty()) {
         parts.push(label.to_string());
     }
-    if let Some(at) = past_run_ended_at(session) {
-        let when = crate::comments::relative_time(at, now_epoch);
-        if !when.is_empty() {
-            parts.push(when);
-        }
+    if !when.is_empty() {
+        parts.push(when);
     }
     parts.join(" · ")
+}
+
+/// EXP-886 — the word a live run wears in the run switcher's time slot, in
+/// place of the ended relative time. Byte-identical ×4 (web `LIVE_RUN_LABEL`).
+pub(crate) const LIVE_RUN_LABEL: &str = "Live";
+
+/// EXP-886 — the switcher's `<when>` for a run: [`LIVE_RUN_LABEL`] for a
+/// live-status run, else when it ended (empty without an honest stamp). The
+/// switcher's trigger names the run on show by this. ×4 (web `issueRunWhen`).
+pub(crate) fn issue_run_when(session: &domain::rows::CodingSession, now_epoch: i64) -> String {
+    if queries::is_live_run_status(session) {
+        return LIVE_RUN_LABEL.to_string();
+    }
+    past_run_ended_at(session)
+        .map(|at| crate::comments::relative_time(at, now_epoch))
+        .unwrap_or_default()
+}
+
+/// EXP-886 — one run switcher entry: the Recent byline with
+/// [`issue_run_when`] in the time slot. ×4 (web `issueRunEntryLabel`).
+pub(crate) fn issue_run_label(
+    session: &domain::rows::CodingSession,
+    device_label: Option<&str>,
+    now_epoch: i64,
+) -> String {
+    byline_parts(device_label, issue_run_when(session, now_epoch))
 }
 
 /// When a past run finished: its `ended_at`, else the last `updated_at` (a
@@ -787,6 +818,36 @@ mod tests {
 
     fn session(id: &str) -> domain::rows::CodingSession {
         serde_json::from_value(serde_json::json!({ "id": id })).expect("row")
+    }
+
+    /// EXP-886: a switcher entry says `Live` for a live-status run and the
+    /// ended time otherwise, either part dropped when the row cannot prove it
+    /// — byte-identical with the web `issueRunEntryLabel`.
+    #[test]
+    fn a_run_entry_says_live_for_a_live_run_and_the_ended_time_otherwise() {
+        let now = 1_800_000_000;
+        let live: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
+            "id": "live", "status": "running"
+        }))
+        .expect("row");
+        assert_eq!(issue_run_when(&live, now), "Live");
+        assert_eq!(issue_run_label(&live, Some("macbook"), now), "macbook · Live");
+        // The device label may be missing; the word alone then.
+        assert_eq!(issue_run_label(&live, Some("  "), now), "Live");
+        let review: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
+            "id": "review", "status": "in_review"
+        }))
+        .expect("row");
+        assert_eq!(issue_run_when(&review, now), "Live");
+        // An ended run with no honest stamp keeps only its machine.
+        let ended: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
+            "id": "ended", "status": "ended"
+        }))
+        .expect("row");
+        assert_eq!(issue_run_when(&ended, now), "");
+        assert_eq!(issue_run_label(&ended, Some("macbook"), now), "macbook");
+        assert_eq!(past_run_byline(&ended, Some("macbook"), now), "macbook");
+        assert_eq!(LIVE_RUN_LABEL, "Live");
     }
 
     /// EXP-874: the status line names the state first and the machine after

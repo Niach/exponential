@@ -60,21 +60,6 @@ final class IssueDetailViewModel {
     /// Live coding sessions for this issue (synced coding_sessions shape) —
     /// drives the "Coding now" badge + Watch/Steer entry (masterplan §5c).
     var runningSessions: [CodingSessionEntity] = []
-    /// EXP-886: the caller's OWN ended runs of this issue, newest end first,
-    /// uncapped (`PastRuns.issueRuns`) — the "Runs" band's rows. Empty = the
-    /// band is absent.
-    private(set) var endedRuns: [EndedRun] = []
-    /// Raw inputs `endedRuns` recomposes from (either observation may fire first).
-    private var observedEndedSessions: [CodingSessionEntity] = []
-    private var observedDevices: [DeviceEntity] = []
-
-    /// One "Runs" row: the session plus its host machine as it presents now
-    /// (the live devices row's label, not the start-time snapshot).
-    struct EndedRun: Identifiable {
-        let session: CodingSessionEntity
-        let device: SessionDevicePresentation
-        var id: String { session.id }
-    }
     /// The canonical issue when this one is marked a duplicate — resolves the
     /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
     var duplicateOf: IssueEntity?
@@ -319,42 +304,6 @@ final class IssueDetailViewModel {
             } catch {}
         })
 
-        // EXP-886: the caller's own ENDED runs of this issue ("Runs" band).
-        // SQL narrows to the issue + user; `PastRuns.issueRuns` is the ×4 rule
-        // and re-applies the predicate and the ordering on the way out.
-        if let userId = auth.userId, !userId.isEmpty {
-            let endedObs = ValueObservation.tracking { db in
-                try CodingSessionEntity
-                    .filter(Column("issue_id") == issueId)
-                    .filter(Column("user_id") == userId)
-                    .filter(Column("status") == DomainContract.codingSessionStatusEnded)
-                    .fetchAll(db)
-            }
-            observationTasks.append(Task { [weak self] in
-                do {
-                    for try await sessions in endedObs.values(in: pool) {
-                        guard let self else { return }
-                        self.observedEndedSessions = sessions
-                        self.rebuildEndedRuns()
-                    }
-                } catch {}
-            })
-            // Device labels for the byline — a rename repaints the rows.
-            let deviceObs = ValueObservation.tracking { db in try DeviceEntity.fetchAll(db) }
-            observationTasks.append(Task { [weak self] in
-                do {
-                    for try await devices in deviceObs.values(in: pool) {
-                        guard let self else { return }
-                        self.observedDevices = devices
-                        self.rebuildEndedRuns()
-                    }
-                } catch {}
-            })
-        } else {
-            observedEndedSessions = []
-            rebuildEndedRuns()
-        }
-
         let labelObs = ValueObservation.tracking { db in try LabelEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
@@ -551,20 +500,6 @@ final class IssueDetailViewModel {
     // DELETE (EXP-153).
     private func applySessionLiveness() {
         runningSessions = observedSessions.filter { CodingSessionLiveness.isLive($0) }
-    }
-
-    private func rebuildEndedRuns() {
-        let now = Date()
-        endedRuns = PastRuns.issueRuns(
-            observedEndedSessions, issueId: issueId, userId: auth.userId
-        ).map { session in
-            EndedRun(
-                session: session,
-                device: SessionDevicePresentation.resolve(
-                    session: session, devices: observedDevices, now: now
-                )
-            )
-        }
     }
 
     var assignedLabelIds: Set<String> {

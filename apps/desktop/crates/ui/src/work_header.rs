@@ -56,6 +56,23 @@ pub(crate) struct FaceToggle {
     pub run: Option<String>,
     pub diff: Option<(u32, u32)>,
     pub active: Face,
+    /// EXP-886: the issue has MORE THAN ONE run of mine, so the Run item
+    /// reads "Runs" ([`run_face_label`]). It still opens the tab's run; the
+    /// session screen's switcher is where the others are picked.
+    pub multiple_runs: bool,
+}
+
+/// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
+pub(crate) const RUN_FACE_LABEL: &str = "Run";
+pub(crate) const RUNS_FACE_LABEL: &str = "Runs";
+
+/// The Run item's label: the plural once the issue has several runs of mine.
+pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
+    if multiple_runs {
+        RUNS_FACE_LABEL
+    } else {
+        RUN_FACE_LABEL
+    }
 }
 
 impl FaceToggle {
@@ -103,7 +120,7 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
             .text_sm()
             .map(|item| match face {
                 Face::Issue => item.child("Issue"),
-                Face::Run => item.child("Run"),
+                Face::Run => item.child(run_face_label(spec.multiple_runs)),
                 Face::Diff => {
                     let (additions, deletions) = spec.diff.unwrap_or_default();
                     item.child(diff_label(additions, deletions, cx))
@@ -684,16 +701,33 @@ mod tests {
     /// The toggle hides what is unavailable and needs two items to exist.
     #[test]
     fn face_toggle_items_follow_availability() {
-        let issue_only = FaceToggle { issue: true, run: None, diff: None, active: Face::Issue };
+        let toggle = |issue: bool, run: Option<&str>, diff: Option<(u32, u32)>, active: Face| FaceToggle {
+            issue,
+            run: run.map(str::to_string),
+            diff,
+            active,
+            multiple_runs: false,
+        };
+        let issue_only = toggle(true, None, None, Face::Issue);
         assert_eq!(issue_only.items(), vec![Face::Issue]);
-        let run_only = FaceToggle { issue: false, run: Some("r".into()), diff: None, active: Face::Run };
+        let run_only = toggle(false, Some("r"), None, Face::Run);
         assert_eq!(run_only.items(), vec![Face::Run]);
-        let with_run = FaceToggle { issue: true, run: Some("r".into()), diff: None, active: Face::Issue };
+        let with_run = toggle(true, Some("r"), None, Face::Issue);
         assert_eq!(with_run.items(), vec![Face::Issue, Face::Run]);
-        let with_diff = FaceToggle { issue: false, run: Some("r".into()), diff: Some((3, 1)), active: Face::Diff };
+        let with_diff = toggle(false, Some("r"), Some((3, 1)), Face::Diff);
         assert_eq!(with_diff.items(), vec![Face::Run, Face::Diff]);
         // A diff without a run is not a face.
-        let orphan_diff = FaceToggle { issue: true, run: None, diff: Some((3, 1)), active: Face::Issue };
+        let orphan_diff = toggle(true, None, Some((3, 1)), Face::Issue);
         assert_eq!(orphan_diff.items(), vec![Face::Issue]);
+    }
+
+    /// EXP-886: the Run item reads "Runs" once the issue has several runs of
+    /// mine — byte-identical with the web `RUN_FACE_LABEL`/`RUNS_FACE_LABEL`.
+    #[test]
+    fn the_run_face_reads_runs_with_several_runs() {
+        assert_eq!(run_face_label(false), "Run");
+        assert_eq!(run_face_label(true), "Runs");
+        assert_eq!(RUN_FACE_LABEL, "Run");
+        assert_eq!(RUNS_FACE_LABEL, "Runs");
     }
 }

@@ -4,6 +4,8 @@ import {
   DiffFaceLabel,
   ISSUE_FACE_LABEL,
   RUN_FACE_LABEL,
+  RUNS_FACE_LABEL,
+  runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
 import { RUN_TITLE_CLASS, WorkHeader } from "@/components/work-header"
@@ -94,6 +96,10 @@ describe(`shared strings (×2 with the IDE)`, () => {
   it(`are byte-identical`, () => {
     expect(ISSUE_FACE_LABEL).toBe(`Issue`)
     expect(RUN_FACE_LABEL).toBe(`Run`)
+    // EXP-886: the plural once the issue has more than one run of mine.
+    expect(RUNS_FACE_LABEL).toBe(`Runs`)
+    expect(runFaceLabel(false)).toBe(`Run`)
+    expect(runFaceLabel(true)).toBe(`Runs`)
     expect(STOP_LABEL).toBe(`Stop`)
     expect(RESUME_LABEL).toBe(`Resume`)
     expect(MERGE_PR_LABEL).toBe(`Merge PR`)

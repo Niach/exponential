@@ -36,7 +36,6 @@ import {
 } from "@/components/issue-editor/markdown-editor"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
-import { IssueRunsSection } from "@/components/issue-runs-section"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
@@ -626,16 +625,6 @@ export function IssueDetailView({
     />
   ) : null
 
-  // EXP-886: the caller's finished runs of this issue, a folded "Runs" band
-  // under the PR row on both viewports.
-  const runsSection = currentUserId ? (
-    <IssueRunsSection
-      issueId={issue.id}
-      teamId={teamId}
-      currentUserId={currentUserId}
-    />
-  ) : null
-
   // Keyed on issue.id: prev/next navigation swaps issues in place, and the
   // composer draft (and comment edit state) must not carry over — an unsent
   // reply typed on one issue would otherwise post to the next (REV-47).
@@ -701,7 +690,6 @@ export function IssueDetailView({
           {attachmentError}
           {filesSection}
           {prRow}
-          {runsSection}
           {widgetCard}
           {timeline}
         </div>
@@ -762,7 +750,6 @@ export function IssueDetailView({
               <IssueRelationsSection issueId={issue.id} readOnly={readOnly} />
               {subIssueComposer}
               {prRow}
-              {runsSection}
               {widgetCard}
               {timeline}
             </div>

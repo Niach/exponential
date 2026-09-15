@@ -302,7 +302,8 @@
     "support-open": "circle-dot",
     "support-resolved": "circle-check",
 
-    "run-resume": "rotate-ccw"
+    "run-resume": "rotate-ccw",
+    "run-switcher": "history"
   },
   "custom": {
     "progress-1-4": [

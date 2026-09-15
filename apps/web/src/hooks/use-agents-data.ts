@@ -410,7 +410,7 @@ export function useSessionRow(
 
 // ── Past runs (EXP-746) ──────────────────────────────────────────────────────
 
-/** One row of the Agent page's "Recent" band (and an issue's "Runs"). */
+/** One row of the Agent page's "Recent" band (and the run switcher's entries). */
 export interface PastRunRow {
   session: CodingSession
   /** May be undefined while the issue row is still syncing (or for a
@@ -480,9 +480,10 @@ export function usePastRuns(
 }
 
 /**
- * EXP-886: an issue's "Runs" band — the caller's OWN ended runs of THAT issue
- * (any `startedReason`), newest first, UNCAPPED (`selectIssueRuns`). Same row
- * shape as Recent, so the band reuses `PastSessionRow` + `pastRunRowByline`.
+ * EXP-886: an issue's RUNS — the caller's OWN runs of THAT issue, live and
+ * ended alike, live first then newest end first, UNCAPPED (`selectIssueRuns`).
+ * Feeds the session view's run switcher; the rows carry the same joins as
+ * Recent's (device label for the byline), so `pastRunRowByline` applies.
  */
 export function useIssueRuns(
   issueId: string | undefined,
@@ -497,8 +498,7 @@ export function useIssueRuns(
             .where(({ sessions }) =>
               and(
                 eq(sessions.issueId, issueId),
-                eq(sessions.userId, currentUserId),
-                eq(sessions.status, `ended`)
+                eq(sessions.userId, currentUserId)
               )
             )
         : undefined,

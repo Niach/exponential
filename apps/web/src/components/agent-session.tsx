@@ -131,7 +131,7 @@ import {
 import {
   DiffFaceLabel,
   ISSUE_FACE_LABEL,
-  RUN_FACE_LABEL,
+  runFaceLabel,
   WorkFaceToggle,
   type WorkFace,
   type WorkFaceItem,
@@ -323,6 +323,8 @@ export function AgentSessionView({
   onFace,
   onIssueFace,
   issueHeader,
+  runSwitcher,
+  multipleRuns = false,
   onBack,
 }: {
   session: CodingSession
@@ -355,6 +357,13 @@ export function AgentSessionView({
     trailing?: ReactNode
     tray?: ReactNode
   }
+  /** EXP-886: the switcher between the issue's runs of mine
+   *  (`IssueRunSwitcher`, absent under two runs) — beside the face toggle on
+   *  md+, in the phone's compact row. */
+  runSwitcher?: ReactNode
+  /** EXP-886: the issue has more than one run of mine, so the Run face
+   *  reads "Runs". */
+  multipleRuns?: boolean
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
 }) {
@@ -1018,6 +1027,8 @@ export function AgentSessionView({
           header's (`run-action-pills.tsx`); the confirm is `useKillSession`'s. */}
       {canKill && <StopRunPill onStop={requestKill} />}
       {sessionEnded && canResumeOnPhone && <ResumeRunPill session={session} />}
+      {/* EXP-886: the run switcher, where the phone has no header cluster. */}
+      {runSwitcher}
       {/* The md+ face toggle is the way to the issue; a phone gets a pill. */}
       {onIssueFace && (
         <Pill
@@ -1042,7 +1053,11 @@ export function AgentSessionView({
     ...(onIssueFace
       ? [{ face: `issue` as const, label: ISSUE_FACE_LABEL, onSelect: onIssueFace }]
       : []),
-    { face: `run` as const, label: RUN_FACE_LABEL, onSelect: () => onFace(`run`) },
+    {
+      face: `run` as const,
+      label: runFaceLabel(multipleRuns),
+      onSelect: () => onFace(`run`),
+    },
     ...(diffFiles.length > 0
       ? [
           {
@@ -1162,6 +1177,9 @@ export function AgentSessionView({
                 face={showDiffFace ? face : `run`}
                 items={faceItems}
               />
+              {/* EXP-886: the switcher between the issue's runs, right after
+                  the toggle whose "Runs" segment announces it. */}
+              {runSwitcher}
               {runTrailing}
             </>
           }

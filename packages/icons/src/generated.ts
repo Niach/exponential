@@ -398,6 +398,7 @@ export const SEMANTIC_ICONS = {
   "relation-section": `link-2`,
   "relation-sub-issue": `corner-down-right`,
   "run-resume": `rotate-ccw`,
+  "run-switcher": `history`,
   "sc-push": `upload`,
   "session-shell": `terminal`,
   "settings-about": `info`,

@@ -3,7 +3,10 @@ package com.exponential.app.ui.session
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.LIVE_RUN_LABEL
 import com.exponential.app.domain.MergeTarget
+import com.exponential.app.domain.isLiveRunStatus
+import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.pastRunTitle
 import org.junit.Assert.assertEquals
@@ -622,36 +625,41 @@ class AgentRowsTest {
         assertNull(rows.last().issue)
     }
 
-    // ── EXP-886: issue detail's "Runs" band ─────────────────────────────────
+    // ── EXP-886: an issue's runs (the Run/Runs label + the run switcher) ────
 
     @Test
-    fun `issue runs list only the callers ended runs of that issue`() {
+    fun `issue runs list only the callers own runs of that issue`() {
         val rows = issueRunRows(
             sessions = listOf(
                 pastRun("mine", issueId = "issue-1"),
-                // Any started_reason — an automated run is this issue's history too.
+                // Any started_reason — an automated run is one of the issue's runs too.
                 pastRun("mine-scheduled", issueId = "issue-1", startedReason = "schedule"),
                 pastRun("theirs", issueId = "issue-1", userId = "teammate"),
                 pastRun("other-issue", issueId = "issue-2"),
                 // A batch run carries no issue.
                 pastRun("batch", issueId = null),
-                session("live", userId = "me", issueId = "issue-1"),
+                // The live ones lead, whichever live status they carry.
+                session("live", userId = "me", issueId = "issue-1", updatedAt = "2026-07-17T11:50:00Z"),
+                session("review", userId = "me", issueId = "issue-1", status = "in_review", updatedAt = "2026-07-17T11:40:00Z"),
             ),
             issueId = "issue-1",
             issue = issue("issue-1"),
             currentUserId = "me",
             nowMs = nowMs,
         )
-        assertEquals(listOf("mine", "mine-scheduled"), rows.map { it.session.id })
+        assertEquals(listOf("live", "review", "mine", "mine-scheduled"), rows.map { it.session.id })
         assertTrue(rows.all { it.issue?.identifier == "EXP-1" })
         assertEquals(
             emptyList<PastRunRow>(),
             issueRunRows(listOf(pastRun("mine", issueId = "issue-1")), "issue-1", null, currentUserId = null),
         )
+        assertTrue(isLiveRunStatus("running"))
+        assertTrue(isLiveRunStatus("in_review"))
+        assertTrue(!isLiveRunStatus("ended"))
     }
 
     @Test
-    fun `issue runs sort newest end first and are uncapped`() {
+    fun `issue runs put live first then newest end first uncapped`() {
         val rows = issueRunRows(
             sessions = (1..40).map {
                 pastRun(
@@ -664,17 +672,41 @@ class AgentRowsTest {
                 issueId = "issue-1",
                 endedAt = null,
                 updatedAt = "2026-07-30T08:00:00Z",
+            ) + session(
+                // A live run with an OLD heartbeat still leads: liveness is by
+                // status, the stamp only orders within a group.
+                "stale-live",
+                userId = "me",
+                issueId = "issue-1",
+                updatedAt = "2026-06-01T00:00:00Z",
             ),
             issueId = "issue-1",
             issue = null,
             currentUserId = "me",
             nowMs = nowMs,
         )
-        assertEquals(41, rows.size)
+        assertEquals(42, rows.size)
+        assertEquals("stale-live", rows[0].session.id)
         // A row that never stamped ended_at orders off its heartbeat.
-        assertEquals("swept", rows.first().session.id)
-        val stamps = rows.map { it.session.endedAt ?: it.session.updatedAt }
+        assertEquals("swept", rows[1].session.id)
+        val stamps = rows.drop(1).map { it.session.endedAt ?: it.session.updatedAt }
         assertEquals(stamps.sortedDescending(), stamps)
+    }
+
+    // EXP-886: a switcher entry says `Live` for a live run and the ended time
+    // otherwise — byte-identical ×4 (web `issueRunEntryLabel`).
+    @Test
+    fun `a run entry says live for a live run and the ended time otherwise`() {
+        assertEquals("Live", LIVE_RUN_LABEL)
+        val live = session("live", userId = "me")
+        assertEquals("Live", issueRunWhen(live, endedRelative = "2 hours ago"))
+        assertEquals("macbook · Live", pastRunByline("macbook", issueRunWhen(live, endedRelative = "")))
+        val review = session("review", userId = "me", status = "in_review")
+        assertEquals("Live", issueRunWhen(review, endedRelative = ""))
+        val ended = pastRun("ended")
+        assertEquals("2 hours ago", issueRunWhen(ended, endedRelative = "2 hours ago"))
+        // No honest stamp: the time segment simply drops.
+        assertEquals("macbook", pastRunByline("macbook", issueRunWhen(ended, endedRelative = "")))
     }
 
     @Test

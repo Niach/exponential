@@ -40,8 +40,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, AnyElement, App, AppContext as _, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, px, AnyElement, App, AppContext as _, Entity, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::Button, h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon,
@@ -78,6 +79,22 @@ pub(crate) fn open_session_with_origin(
         Some(origin) => open_session_inner(session_id, Origin::List(origin), window, cx),
         None => open_session(session_id, window, cx),
     }
+}
+
+/// EXP-886: the issue's runs of mine ([`crate::queries::issue_runs`]), cloned
+/// out of the collection — empty when signed out or before the store exists.
+fn issue_runs_of(issue_id: &str, cx: &App) -> Vec<domain::rows::CodingSession> {
+    let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else {
+        return Vec::new();
+    };
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let sessions = store.collections().coding_sessions.read(cx);
+    crate::queries::issue_runs(sessions.iter(), &me, issue_id)
+        .into_iter()
+        .cloned()
+        .collect()
 }
 
 /// Which list (if any) the opened run is pinned beside.
@@ -585,6 +602,11 @@ impl SessionScreenView {
     fn face_toggle(&self, issue_id: Option<String>, cx: &App) -> Option<AnyElement> {
         use crate::work_header::{Face, FaceToggle};
         let inner = self.inner.clone();
+        // EXP-886: "Runs" once the issue has several runs of mine — the
+        // switcher beside this toggle is where they are picked.
+        let multiple_runs = issue_id
+            .as_deref()
+            .is_some_and(|issue_id| issue_runs_of(issue_id, cx).len() > 1);
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
@@ -594,6 +616,7 @@ impl SessionScreenView {
             } else {
                 Face::Run
             },
+            multiple_runs,
         };
         crate::work_header::face_toggle(
             spec,
@@ -614,6 +637,87 @@ impl SessionScreenView {
             }),
             cx,
         )
+    }
+
+    /// EXP-886: the run SWITCHER — a glass pill naming the run on show by its
+    /// `<when>` (`Live` / when it ended) over a popup listing the issue's runs
+    /// of mine (`queries::issue_runs`: live first, then newest end first),
+    /// each `<device> · <when>`, the one on show checked. Absent under two
+    /// runs. Picking one flips this tab's Run face to it — the same
+    /// `set_tab_face` the toggle uses, so the tab rebinds and nothing else
+    /// moves. Web `IssueRunSwitcher`, iOS/Android session-screen twins.
+    fn run_switcher(&self, issue_id: &str, cx: &App) -> Option<AnyElement> {
+        use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+        let runs = issue_runs_of(issue_id, cx);
+        if runs.len() < 2 {
+            return None;
+        }
+        let now = chrono::Utc::now().timestamp();
+        let store = sync::Store::try_global(cx)?;
+        let entries: Vec<(String, String, bool)> = {
+            let devices = store.collections().devices.read(cx);
+            runs.iter()
+                .map(|session| {
+                    let label = crate::queries::session_device_presentation(
+                        session,
+                        devices.iter(),
+                        now * 1_000,
+                    )
+                    .label;
+                    (
+                        session.id.clone(),
+                        crate::run_rows::issue_run_label(session, label.as_deref(), now),
+                        crate::queries::is_live_run_status(session),
+                    )
+                })
+                .collect()
+        };
+        let viewed = self.session_id.clone();
+        let trigger = runs
+            .iter()
+            .find(|run| run.id == viewed)
+            .map(|run| crate::run_rows::issue_run_when(run, now))
+            .filter(|when| !when.is_empty())
+            .unwrap_or_else(|| format!("{} runs", runs.len()));
+        let issue_id = issue_id.to_string();
+        let muted = cx.theme().muted_foreground;
+        let button = crate::surface::glass_pill_button(
+            "session-run-switcher",
+            crate::surface::PillSize::Sm,
+            cx,
+        )
+        .icon(
+            Icon::new(registry::RUN_SWITCHER)
+                .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                .text_color(muted),
+        )
+        .label(trigger)
+        .tooltip("Switch run")
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            for (run_id, label, live) in entries.clone() {
+                let is_viewed = run_id == viewed;
+                let issue_id = issue_id.clone();
+                let mut item = PopupMenuItem::new(label).checked(is_viewed);
+                if live && !is_viewed {
+                    // The running glyph marks a live run; the checked entry
+                    // wears the check in that slot instead.
+                    item = item.icon(Icon::new(registry::CODING_RUNNING));
+                }
+                menu = menu.item(item.on_click(move |_, window, cx| {
+                    if !is_viewed {
+                        crate::screens::set_tab_face(
+                            &issue_id,
+                            crate::screens::TabFace::Run,
+                            Some(run_id.clone()),
+                            window,
+                            cx,
+                        );
+                    }
+                }));
+            }
+            menu
+        });
+        Some(button.into_any_element())
     }
 
     /// EXP-877: the shared `WorkHeader`. Issue-bound → the SAME header the
@@ -638,7 +742,18 @@ impl SessionScreenView {
 
         if let (Some(row), Some(issue)) = (row.as_ref(), issue) {
             let title = crate::work_header::title_row(crate::run_rows::run_title(row, Some(&issue)));
-            let toggle = self.face_toggle(Some(issue.id.clone()), cx);
+            // EXP-886: `[Issue | Runs | +N -M] [switcher]` lead the cluster.
+            let toggle = match (self.face_toggle(Some(issue.id.clone()), cx), self.run_switcher(&issue.id, cx)) {
+                (None, None) => None,
+                (toggle, switcher) => Some(
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .children(toggle)
+                        .children(switcher)
+                        .into_any_element(),
+                ),
+            };
             let action = crate::work_header::issue_coding_action(
                 &issue.id,
                 Some(self.session_id.as_str()),

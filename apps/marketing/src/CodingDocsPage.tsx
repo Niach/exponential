@@ -428,9 +428,10 @@ export function CodingDocsPage() {
               transcript lives on <em>that</em> machine, never on our servers.
               Past transcripts stay there for as long as that machine&apos;s
               {` `}<strong>Settings → Sessions</strong> allows (unlimited by
-              default). An issue lists all of your runs of it under{` `}
-              <strong>Runs</strong>, while the <strong>Agent</strong> page
-              shows your 20 most recent.
+              default). The <strong>Agent</strong> page shows your 20 most
+              recent runs; when an issue has more than one run of yours, its
+              {` `}<strong>Run</strong> toggle reads <strong>Runs</strong> and
+              the run&apos;s page carries a picker that opens any of them.
             </p>
             <p>
               A session whose host machine goes offline reads{` `}

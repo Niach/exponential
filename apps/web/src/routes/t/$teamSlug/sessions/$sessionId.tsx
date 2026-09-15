@@ -10,6 +10,7 @@ import { AgentSessionView } from "@/components/agent-session"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
+import { IssueRunSwitcher } from "@/components/issue-run-switcher"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PinToggleButton } from "@/components/pin-toggle-button"
@@ -26,6 +27,7 @@ import { useOpenSession } from "@/hooks/use-open-session"
 import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
   rowPrState,
+  useIssueRuns,
   useSessionRow,
   type AgentSessionRow,
 } from "@/hooks/use-agents-data"
@@ -235,6 +237,21 @@ function OwnSessionPage({
     [navigate, teamSlug, session.id, from, openIssue]
   )
 
+  // EXP-886: the issue's runs of mine — the header's Run/Runs label and the
+  // switcher between them. Picking one is the same navigation the Run face
+  // makes (`from` rides along); the tab's Run face follows the URL.
+  const { runs: issueRuns } = useIssueRuns(issue?.id, team.id, currentUserId)
+  const openRun = useCallback(
+    (target: CodingSession) => {
+      void navigate({
+        to: `/t/$teamSlug/sessions/$sessionId`,
+        params: { teamSlug, sessionId: target.id },
+        search: from ? { from } : {},
+      })
+    },
+    [navigate, teamSlug, from]
+  )
+
   const issueHeader =
     issue && board
       ? {
@@ -292,6 +309,16 @@ function OwnSessionPage({
         onFace={onFace}
         onIssueFace={issue && board ? openIssue : undefined}
         issueHeader={issueHeader}
+        runSwitcher={
+          issue ? (
+            <IssueRunSwitcher
+              runs={issueRuns}
+              viewedRunId={session.id}
+              onOpen={openRun}
+            />
+          ) : undefined
+        }
+        multipleRuns={issueRuns.length > 1}
         onBack={onBack}
       />
       {handlers.duplicatePicker}

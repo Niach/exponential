@@ -130,8 +130,6 @@ fun IssueDetailScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val runningSession by viewModel.runningSession.collectAsStateWithLifecycle()
-    // EXP-886: the caller's own ended runs of this issue (the "Runs" band).
-    val issueRuns by viewModel.issueRuns.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val widgetSubmission by viewModel.widgetSubmission.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
@@ -729,18 +727,6 @@ fun IssueDetailScreen(
                 AgentPrCard(
                     issue = issue,
                     onOpenChanges = onOpenChanges,
-                )
-            }
-
-            // EXP-886: the run history, right under the PR/branch rows — the
-            // caller's OWN ended runs of this issue in a folded "Runs" band
-            // (Recent's rows; a tap opens that run's session view). Renders
-            // and pads nothing without a run.
-            if (issueRuns.isNotEmpty()) {
-                IssueRunsBand(
-                    runs = issueRuns,
-                    onOpenRun = onOpenSteer,
-                    modifier = Modifier.padding(top = 20.dp),
                 )
             }
 

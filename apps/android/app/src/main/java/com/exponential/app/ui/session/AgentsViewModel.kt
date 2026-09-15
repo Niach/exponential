@@ -37,6 +37,7 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.isLiveRunStatus
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.resumeTargetFor
@@ -692,11 +693,12 @@ fun pastRunRows(
 }
 
 /**
- * EXP-886: issue detail's folded "Runs" band — the caller's OWN ENDED runs of
- * ONE issue, any `started_reason` (an automated run of this issue belongs to
- * its history too), newest first by when they ended, UNCAPPED. A batch run
- * (issue_id NULL) never matches. Rows reuse the Recent list's shape so titles
- * and bylines come off the same ×4 rules. Signed out lists nothing.
+ * EXP-886: an issue's RUNS — the caller's OWN runs of ONE issue, whatever
+ * their status and `started_reason` (a live run, an ended one, an automated
+ * one), UNCAPPED: live runs first (by status), then newest end first. Backs
+ * the session screen's run switcher. A batch run (issue_id NULL) never
+ * matches. Rows reuse the Recent list's shape so bylines come off the same ×4
+ * rules. Signed out lists nothing.
  */
 fun issueRunRows(
     sessions: List<CodingSessionEntity>,
@@ -708,12 +710,11 @@ fun issueRunRows(
 ): List<PastRunRow> {
     if (currentUserId == null) return emptyList()
     return sessions
-        .filter {
-            it.issueId == issueId &&
-                it.userId == currentUserId &&
-                it.status == DomainContract.codingSessionStatusEnded
-        }
-        .sortedByDescending { it.endedAt ?: it.updatedAt }
+        .filter { it.issueId == issueId && it.userId == currentUserId }
+        .sortedWith(
+            compareByDescending<CodingSessionEntity> { isLiveRunStatus(it.status) }
+                .thenByDescending { it.endedAt ?: it.updatedAt },
+        )
         .map { session ->
             PastRunRow(
                 session = session,

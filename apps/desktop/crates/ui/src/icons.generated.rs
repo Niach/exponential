@@ -498,6 +498,8 @@ pub const RELATION_SECTION: ExpIcon = ExpIcon::Link2;
 pub const RELATION_SUB_ISSUE: ExpIcon = ExpIcon::CornerDownRight;
 /// Registry concept `run-resume` -> Lucide `rotate-ccw`.
 pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
+/// Registry concept `run-switcher` -> Lucide `history`.
+pub const RUN_SWITCHER: ExpIcon = ExpIcon::History;
 /// Registry concept `sc-push` -> Lucide `upload`.
 pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
 /// Registry concept `session-shell` -> Lucide `terminal`.

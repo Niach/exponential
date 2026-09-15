@@ -410,6 +410,9 @@ pub(crate) struct FaceState {
     pub issue_id: String,
     pub active: TabFace,
     pub run_id: Option<String>,
+    /// EXP-886: the issue has MORE THAN ONE run of mine
+    /// (`queries::issue_runs`), so the Run face reads "Runs".
+    pub multiple_runs: bool,
 }
 
 /// EXP-870: the reconcile's view of one tab.
@@ -1717,25 +1720,31 @@ impl ScreensPanel {
         // (`work_header::coding_target`, the web `issue-coding-action` order)
         // — a live own run outranks a newer ended one, so the Run face and
         // the Start/Stop/Resume button can never name different runs.
-        let run_id = (|| {
+        let (run_id, multiple_runs) = (|| {
             let me = crate::queries::active_account(cx)?.user_id;
             let store = Store::try_global(cx)?;
             let sessions = store.collections().coding_sessions.read(cx);
-            crate::work_header::coding_target(
+            let run_id = crate::work_header::coding_target(
                 sessions.iter(),
                 issue_id,
                 bound,
                 &me,
                 chrono::Utc::now().timestamp(),
             )
-            .map(|row| row.id.clone())
+            .map(|row| row.id.clone());
+            // EXP-886: the plural label once the issue has several runs of
+            // mine — the session screen's switcher is where they are picked.
+            let multiple = crate::queries::issue_runs(sessions.iter(), &me, issue_id).len() > 1;
+            Some((run_id, multiple))
         })()
+        .unwrap_or((None, false));
         // A local start ahead of its synced row is still this tab's run.
-        .or_else(|| bound.map(str::to_string));
+        let run_id = run_id.or_else(|| bound.map(str::to_string));
         FaceState {
             issue_id: issue_id.to_string(),
             active,
             run_id,
+            multiple_runs,
         }
     }
 
