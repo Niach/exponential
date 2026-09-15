@@ -463,6 +463,8 @@ public enum AppIcons {
     public static let notificationPrOpened: String = "git-pull-request"
     /// Concept `notification-support-reply`.
     public static let notificationSupportReply: String = "life-buoy"
+    /// Concept `pr-batch`.
+    public static let prBatch: String = "boxes"
     /// Concept `pr-closed`.
     public static let prClosed: String = "circle-x"
     /// Concept `pr-draft`.
@@ -471,6 +473,8 @@ public enum AppIcons {
     public static let prMerged: String = "git-merge"
     /// Concept `pr-open`.
     public static let prOpen: String = "git-pull-request"
+    /// Concept `pr-stack`.
+    public static let prStack: String = "layers"
     /// Concept `priority-high`.
     public static let priorityHigh: String = "signal-high"
     /// Concept `priority-low`.

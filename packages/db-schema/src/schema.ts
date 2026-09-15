@@ -454,6 +454,17 @@ export const issues = pgTable(
     prState: prStateEnum(`pr_state`),
     branch: text(`branch`),
     prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
+    // EXP-897: the PR's base ref as GitHub last reported it (written by
+    // `pr_open`, retarget, the merge cohort rewrite and the `edited`/`stacked`
+    // webhook legs). SYNCED: the stack edge every client derives is
+    // `child.pr_base_branch == lower.branch` within one repository. NULL =
+    // the board's default branch / no PR.
+    prBaseBranch: text(`pr_base_branch`),
+    // EXP-897: GitHub's stack `number` when this PR is a member of a REAL
+    // GitHub stack (the path segment of `/stacks/{n}/add|unstack`). NULL = a
+    // candidate stack (base-branch only) or no stack. SERVER-ONLY — behind
+    // the issues shape allowlist; a stack member merges only via merge-async.
+    prStackNumber: integer(`pr_stack_number`),
     ...timestamps,
   },
   (table) => [
@@ -468,6 +479,11 @@ export const issues = pgTable(
     index(`idx_issues_pr_url`)
       .on(table.prUrl)
       .where(sql`pr_url IS NOT NULL`),
+    // EXP-897: "who is stacked on my branch?" — walked on every merge, on
+    // the `synchronize` webhook leg and by `sessions_get`. Partial like above.
+    index(`idx_issues_pr_base_branch`)
+      .on(table.prBaseBranch)
+      .where(sql`pr_base_branch IS NOT NULL`),
     // The duplicate_of_id SET NULL RI trigger fires on every issue delete;
     // without this it seq-scans issues per deleted row inside the cascade.
     index(`idx_issues_duplicate_of`)
@@ -765,10 +781,9 @@ export const codingSessions = pgTable(
       onDelete: `set null`,
     }),
     // EXP-679: the run that started this one via `exponential_sessions_start`
-    // (stamped by the MCP tool from its session header). SERVER-ONLY —
-    // exposed through tRPC / MCP `sessions_get`, NEVER in the shape
-    // allowlist; history only, so SET NULL keeps the child when the parent
-    // is purged.
+    // (stamped by the MCP tool from its session header). Synced since EXP-818
+    // (the session tree nests on it ×4); history only, so SET NULL keeps the
+    // child when the parent is purged.
     parentSessionId: uuid(`parent_session_id`).references(
       (): AnyPgColumn => codingSessions.id,
       { onDelete: `set null` }
@@ -905,6 +920,8 @@ export const codingSessions = pgTable(
     index(`idx_coding_sessions_board`).on(table.boardId),
     index(`idx_coding_sessions_user`).on(table.userId),
     index(`idx_coding_sessions_action`).on(table.actionId),
+    // EXP-897: the session-tree CTEs (depth, subtree, root walk) run on it.
+    index(`idx_coding_sessions_parent`).on(table.parentSessionId),
   ]
 )
 
