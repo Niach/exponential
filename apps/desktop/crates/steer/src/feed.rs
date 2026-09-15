@@ -157,7 +157,7 @@ pub enum FeedKind {
         subagent_id: Option<String>,
         /// EXP-785: the ACP tool-call id — the key a `tool_update` folds
         /// into this row by. Absent from a REPLAYED journal line older than
-        /// EXP-785 (the device keeps 60 days of them), which then never
+        /// EXP-785 (the device may keep them indefinitely), which then never
         /// settles.
         call_id: Option<String>,
         /// EXP-785: ACP's kind bucket (`edit`, `execute`, …), when the

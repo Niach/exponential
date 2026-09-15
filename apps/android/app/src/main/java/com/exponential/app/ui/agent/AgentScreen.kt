@@ -359,7 +359,7 @@ fun AgentScreen(
     var editActionId by remember { mutableStateOf<String?>(null) }
     var editAutomation by remember { mutableStateOf<AutomationEntity?>(null) }
     var mergeConfirmRow by remember { mutableStateOf<AgentRow?>(null) }
-    // EXP-862: the Past band is FOLDED until asked for — a finished run is
+    // EXP-862: the Recent band is FOLDED until asked for — a finished run is
     // history, and the composer is what the page is for. Hoisted here because
     // the list itself is a LazyListScope extension, not a composable.
     var pastExpanded by remember { mutableStateOf(false) }

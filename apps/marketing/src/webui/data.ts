@@ -116,7 +116,7 @@ export const AGENTS_RUNNING = AGENT_SESSIONS.length
 export const sessionFor = (issueId: string): AgentSession | undefined =>
   AGENT_SESSIONS.find((s) => s.issueId === issueId)
 
-/* The Agent page's folded "Past" list (EXP-862: folded by default). */
+/* The Agent page's folded "Recent" list (EXP-862: folded by default; EXP-886: was "Past"). */
 export const PAST_RUNS: { identifier: string | null; title: string; byline: string }[] = [
   { identifier: `EXP-5`, title: `Side-by-side diff view`, byline: `${WEB_DEVICE} · yesterday` },
   { identifier: null, title: `Weekly standup digest`, byline: `${WEB_DEVICE} · 3 days ago` },

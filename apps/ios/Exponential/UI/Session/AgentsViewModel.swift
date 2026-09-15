@@ -32,7 +32,7 @@ final class AgentsViewModel {
         var id: String { session.id }
     }
 
-    /// EXP-746: one finished run under "Past" — an ended, PERSON-started run
+    /// EXP-746: one finished run under "Recent" — an ended, PERSON-started run
     /// of the caller's in the active team. Automation runs are not here: they
     /// live under Automations' "Recent automated runs" (EXP-676) and the two
     /// sets are disjoint by `started_reason`, so the two Resume paths can
@@ -109,7 +109,7 @@ final class AgentsViewModel {
     var activeTeamId: String? {
         didSet {
             guard oldValue != activeTeamId else { return }
-            // EXP-758: the "Past" query is USER- and TEAM-scoped in SQL, so a
+            // EXP-758: the "Recent" query is USER- and TEAM-scoped in SQL, so a
             // team switch has to RE-ARM that observation — re-filtering what
             // the previous one emitted would show the old team's rows.
             startEndedObservation()
@@ -322,7 +322,7 @@ final class AgentsViewModel {
         }
     }
 
-    /// EXP-746/758: the finished runs behind "Past" — the caller's OWN rows in
+    /// EXP-746/758: the finished runs behind "Recent" — the caller's OWN rows in
     /// the ACTIVE team, PERSON-started (`started_reason IS NULL`), newest end
     /// first and hard-capped, all of it in the QUERY. Android's
     /// `CodingSessionDao.observePastByTeamAndUser` is the reference predicate:
@@ -418,7 +418,7 @@ final class AgentsViewModel {
         )
         rebuildAccounts(deviceEntities, now: now)
         // EXP-746: the Resume affordance is gated on the run's machine being
-        // online and `resume-run`-capable, so a heartbeat repaints Past too.
+        // online and `resume-run`-capable, so a heartbeat repaints Recent too.
         rebuildPast()
     }
 
@@ -661,7 +661,7 @@ final class AgentsViewModel {
         }
     }
 
-    /// EXP-746: the "Past" rows — own, active-team, ended, person-started,
+    /// EXP-746: the "Recent" rows — own, active-team, ended, person-started,
     /// newest by `ended_at ?? updated_at`, capped at 20. The predicate, the
     /// ordering key and the cap are the ×4-locked `PastRuns` rules; only the
     /// joins (issue, device presentation, resume target) are local.
@@ -780,7 +780,7 @@ final class AgentsViewModel {
                     )
                 )
             }
-        // The Past rows join the same issues and device rows this pass read.
+        // The Recent rows join the same issues and device rows this pass read.
         rebuildPast()
     }
 }

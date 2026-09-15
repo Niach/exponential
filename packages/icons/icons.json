@@ -106,6 +106,7 @@
     "settings-agents": "bot",
     "auth-passkey": "fingerprint",
     "settings-local-repos": "hard-drive",
+    "settings-sessions": "history",
     "settings-account": "circle-user",
     "settings-notifications": "bell",
     "settings-api": "key",
@@ -301,7 +302,8 @@
     "support-open": "circle-dot",
     "support-resolved": "circle-check",
 
-    "run-resume": "rotate-ccw"
+    "run-resume": "rotate-ccw",
+    "run-switcher": "history"
   },
   "custom": {
     "progress-1-4": [

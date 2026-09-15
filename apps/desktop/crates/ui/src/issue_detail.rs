@@ -1879,6 +1879,7 @@ impl IssueDetailView {
         let face_state = crate::screens::screens_for_window(window, cx)
             .map(|panel| panel.read(cx).face_state(&issue.id, cx));
         let run_id = face_state.as_ref().and_then(|state| state.run_id.clone());
+        let multiple_runs = face_state.as_ref().is_some_and(|state| state.multiple_runs);
         let diff = run_id.as_deref().and_then(|run_id| {
             crate::screens::session_views(run_id, cx)
                 .into_iter()
@@ -1897,6 +1898,7 @@ impl IssueDetailView {
                     run: run_id.clone(),
                     diff,
                     active,
+                    multiple_runs,
                 },
                 Rc::new(move |face, window, cx| {
                     let Some(run_id) = run_id.clone() else {

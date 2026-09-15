@@ -257,7 +257,7 @@ pub enum ActivityEvent {
     /// [`ActivityEvent::ToolUpdate`] folds into this row by) and `tool_kind`
     /// is ACP's kind bucket, so a client can tell an edit from a command
     /// without parsing the name. Both stay OPTIONAL past the client floor:
-    /// this event is what the on-device journal holds (60 days of it), so a
+    /// this event is what the on-device journal holds (kept indefinitely by default), so a
     /// line written before EXP-785 has to keep parsing when the transcript is
     /// replayed. Every live publisher sends both. The wire key is `toolKind`,
     /// never `kind`: `kind` is this enum's tag.

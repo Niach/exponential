@@ -26,6 +26,14 @@ export interface WorkFaceItem {
 /** Byte-identical with the IDE. */
 export const ISSUE_FACE_LABEL = `Issue`
 export const RUN_FACE_LABEL = `Run`
+/** EXP-886: the Run face's label once the issue has MORE THAN ONE run of
+ *  mine (`selectIssueRuns`). The segment still opens the tab's run; the
+ *  plural says the session view has a switcher between them. */
+export const RUNS_FACE_LABEL = `Runs`
+
+export function runFaceLabel(multipleRuns: boolean): string {
+  return multipleRuns ? RUNS_FACE_LABEL : RUN_FACE_LABEL
+}
 
 /** The diff face's label: `+N -M` in mono, the ASCII minus, the diff pill's
  * own green/red. No glyph. */

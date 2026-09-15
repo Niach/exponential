@@ -23,8 +23,10 @@
 //! - A file stops growing at [`JOURNAL_FILE_CAP`] (one log line, then
 //!   silence): a runaway run must never fill the disk, and the head of a
 //!   transcript is the part worth keeping.
-//! - Files older than [`JOURNAL_MAX_AGE`] are pruned at daemon/app boot
-//!   ([`prune_journals`]).
+//! - Files are kept FOREVER by default (EXP-886). The per-device "Keep
+//!   session history" setting (`coding::session_retention`) is the only
+//!   thing that removes them: [`prune_session_history`] applies it at
+//!   daemon/app boot and when the desktop setting shrinks.
 //!
 //! Redaction is NOT done here. Events reach the writer already scrubbed by
 //! the emitter and stamped by the publisher's `prepare_for_journal`, exactly
@@ -46,9 +48,6 @@ use crate::{dial, DialError};
 /// journal's own budget is 4 MiB) and small enough that a thousand of them
 /// cannot surprise a laptop.
 pub const JOURNAL_FILE_CAP: u64 = 16 * 1024 * 1024;
-
-/// Journals older than this are removed at boot (60 days).
-pub const JOURNAL_MAX_AGE: Duration = Duration::from_secs(60 * 24 * 60 * 60);
 
 /// `bye` outcome that tells the relay this publisher was a history replay,
 /// not a live session ending — it answers the parked viewers with
@@ -349,8 +348,8 @@ pub fn read_journal_seq(
 
 /// EXP-785: a `tool` row needs its call `id` and `tool_kind` on the wire —
 /// the relay DROPS one without them, and a client keys its `tool_update` fold
-/// on the id. A journal line written before EXP-785 (the device keeps 60 days
-/// of them) carries neither, so a replay stamps the missing pieces: the id is
+/// on the id. A journal line written before EXP-785 (the device keeps them
+/// for as long as its session history setting says) carries neither, so a replay stamps the missing pieces: the id is
 /// the line's own position, which is unique within the file and stable across
 /// replays, and the kind is `other`, which is what an unknown tool renders as
 /// anyway. The row can never settle — nothing will ever send an update for
@@ -468,9 +467,12 @@ pub fn remove_journal(data_dir: &Path, session_id: &str) -> bool {
     }
 }
 
-/// Remove journal files whose mtime is older than `max_age`. Called once at
-/// daemon/app boot; returns how many files went.
-pub fn prune_journals(data_dir: &Path, max_age: Duration) -> usize {
+/// Remove journal files whose mtime is older than `max_age`; `None` =
+/// unlimited retention, which removes nothing. Returns how many files went.
+pub fn prune_journals(data_dir: &Path, max_age: Option<Duration>) -> usize {
+    let Some(max_age) = max_age else {
+        return 0;
+    };
     let dir = journal_dir(data_dir);
     let Ok(entries) = fs::read_dir(&dir) else {
         return 0;
@@ -496,6 +498,22 @@ pub fn prune_journals(data_dir: &Path, max_age: Duration) -> usize {
         log::info!("steer history: pruned {removed} journal file(s) older than {max_age:?}");
     }
     removed
+}
+
+/// EXP-886: apply this machine's "Keep session history" setting
+/// (`coding::session_retention`, read fresh from `settings.json`) to BOTH
+/// halves of a finished run's local history — the journals here and the
+/// resume records in `runs.json`. Unlimited (the default) touches nothing.
+/// Blocking file I/O: hosts call it off their UI/select threads, at boot and
+/// whenever the desktop setting changes. Returns (journals, records) removed.
+pub fn prune_session_history(data_dir: &Path) -> (usize, usize) {
+    let retention = coding::session_retention::load(data_dir);
+    if retention.is_none() {
+        return (0, 0);
+    }
+    let journals = prune_journals(data_dir, retention);
+    let records = coding::session_retention::prune_run_records(data_dir, retention);
+    (journals, records)
 }
 
 /// Republish a stored transcript to the relay as a one-shot publisher.
@@ -1118,11 +1136,42 @@ mod tests {
         let hour_ago = SystemTime::now() - Duration::from_secs(3600);
         filetime_set(&old, hour_ago);
 
-        assert_eq!(prune_journals(&dir, Duration::from_secs(600)), 1);
+        // EXP-886: unlimited retention removes nothing, however old.
+        assert_eq!(prune_journals(&dir, None), 0);
+        assert!(read_journal(&dir, "old").is_some());
+
+        assert_eq!(prune_journals(&dir, Some(Duration::from_secs(600))), 1);
         assert!(read_journal(&dir, "fresh").is_some());
         assert!(read_journal(&dir, "old").is_none());
         // A missing directory is a no-op, not an error.
-        assert_eq!(prune_journals(Path::new("/nonexistent-exp"), JOURNAL_MAX_AGE), 0);
+        assert_eq!(
+            prune_journals(Path::new("/nonexistent-exp"), Some(Duration::from_secs(1))),
+            0
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-886: the one host entry point reads the setting. No key = keep
+    /// everything; a window drops journals past it (records ride the same
+    /// call, tested in `coding::run_registry`).
+    #[test]
+    fn prune_session_history_follows_the_setting() {
+        let dir = temp_dir("retention");
+        let mut writer = JournalWriter::open(&dir, "ancient").unwrap();
+        writer.append(&ActivityEvent::narration("ancient"));
+        drop(writer);
+        let ancient = journal_path(&dir, "ancient").unwrap();
+        filetime_set(&ancient, SystemTime::now() - Duration::from_secs(400 * 24 * 60 * 60));
+
+        assert_eq!(prune_session_history(&dir), (0, 0), "unlimited by default");
+        assert!(read_journal(&dir, "ancient").is_some());
+
+        fs::write(dir.join("settings.json"), r#"{"sessionRetentionDays":"soon"}"#).unwrap();
+        assert_eq!(prune_session_history(&dir), (0, 0), "garbage is unlimited");
+
+        coding::session_retention::save_days(&dir, Some(365)).unwrap();
+        assert_eq!(prune_session_history(&dir).0, 1);
+        assert!(read_journal(&dir, "ancient").is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 

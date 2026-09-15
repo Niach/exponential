@@ -240,6 +240,34 @@ class AgentSessionViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * EXP-886: the issue's runs of mine (`issueRunRows`: live first, then
+     * newest end first, uncapped) — the header's run switcher, which only
+     * shows from two rows up. Empty for an issue-less run. The devices rows
+     * lend each entry its machine's current label.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val issueRuns: StateFlow<List<PastRunRow>> = session
+        .map { it?.issueId }
+        .distinctUntilChanged()
+        .flatMapLatest { issueId ->
+            if (issueId == null) {
+                flowOf(emptyList())
+            } else {
+                combine(
+                    dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) {
+                        it.codingSessionDao().observeByIssue(issueId)
+                    },
+                    issue,
+                    deviceRows,
+                    auth.userId,
+                ) { rows, issueRow, devices, userId ->
+                    issueRunRows(rows, issueId, issueRow, userId, devices)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
      * sheet's `signed in as …` caption. Same row-resolution rule as
      * [AgentUsagePresentation.sessionUsage]; null whenever the machine never

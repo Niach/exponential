@@ -37,6 +37,7 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.isLiveRunStatus
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.resumeTargetFor
@@ -91,7 +92,7 @@ data class AgentRow(
 )
 
 /**
- * EXP-746: one FINISHED run in the Devices screen's "Past" list — the session
+ * EXP-746: one FINISHED run in the Agent page's "Recent" list (and issue detail's "Runs") — the session
  * row, its issue when it had one, and the machine that ran it (for the byline
  * and the Resume target).
  */
@@ -365,7 +366,7 @@ class AgentsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
     // EXP-746: the caller's own FINISHED, person-started sessions in the
-    // selected team, newest first — the source of the "Past" list. Queried
+    // selected team, newest first — the source of the "Recent" list. Queried
     // wider than the list shows so a row the pure filter drops can't push a
     // real one off the end; the DAO already excludes automation runs, which
     // belong to the Automations tab's "Recent automated runs" alone.
@@ -637,12 +638,12 @@ internal fun accountCommandKey(deviceId: String, agent: String, profileId: Strin
 /** How many finished rows the DAO pulls before the pure filter narrows them. */
 const val PAST_RUN_QUERY_LIMIT = 50
 
-/** How many finished runs the "Past" list shows. Byte-identical ×4
+/** How many finished runs the "Recent" list shows. Byte-identical ×4
  *  (`PAST_RUN_CAP` on web, iOS `PastRuns.cap`, desktop `PAST_RUNS_CAP`). */
 const val PAST_RUN_LIMIT = 20
 
 /**
- * EXP-746: the "Past" list — the caller's OWN finished PERSON-STARTED runs in
+ * EXP-746: the "Recent" list (EXP-886; "Past" before) — the caller's OWN finished PERSON-STARTED runs in
  * the SELECTED team, newest first by when they ended, capped at [limit].
  *
  * `started_reason == null` is the whole predicate on top of ownership: a
@@ -687,6 +688,38 @@ fun pastRunRows(
                 issue = session.issueId?.let(issuesById::get),
                 device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
                 resume = resumeTargetFor(session, steerDevices, currentUserId),
+            )
+        }
+}
+
+/**
+ * EXP-886: an issue's RUNS — the caller's OWN runs of ONE issue, whatever
+ * their status and `started_reason` (a live run, an ended one, an automated
+ * one), UNCAPPED: live runs first (by status), then newest end first. Backs
+ * the session screen's run switcher. A batch run (issue_id NULL) never
+ * matches. Rows reuse the Recent list's shape so bylines come off the same ×4
+ * rules. Signed out lists nothing.
+ */
+fun issueRunRows(
+    sessions: List<CodingSessionEntity>,
+    issueId: String,
+    issue: IssueEntity?,
+    currentUserId: String?,
+    devices: List<DeviceEntity> = emptyList(),
+    nowMs: Long = System.currentTimeMillis(),
+): List<PastRunRow> {
+    if (currentUserId == null) return emptyList()
+    return sessions
+        .filter { it.issueId == issueId && it.userId == currentUserId }
+        .sortedWith(
+            compareByDescending<CodingSessionEntity> { isLiveRunStatus(it.status) }
+                .thenByDescending { it.endedAt ?: it.updatedAt },
+        )
+        .map { session ->
+            PastRunRow(
+                session = session,
+                issue = issue,
+                device = resolveSessionDevice(session, devices, nowMs),
             )
         }
 }

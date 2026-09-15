@@ -726,7 +726,8 @@ mod tests {
             "kind": "issue",
             "cwd": "/tmp/worktree",
             "transport": "acp",
-            // Inside the registry's TTL, or the next write would prune it.
+            // A realistic stamp: retention (EXP-886) keys on this field, so a
+            // zero here would read as an ancient run.
             "recordedAt": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("the clock is past the epoch")

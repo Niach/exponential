@@ -636,7 +636,7 @@ export const reviewRunScript = (issue: Issue): FeedRow[] => [
   },
 ]
 
-/* The Agent page's Past band (EXP-874): identifier + title over a
+/* The Agent page's Recent band (EXP-874; EXP-886: was "Past"): identifier + title over a
    device · time byline, a chevron, and no agent brand mark. */
 export type PastRun = { issueId: string; ended: string }
 

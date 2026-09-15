@@ -147,7 +147,7 @@ class AgentComposerViewModel @Inject constructor(
 
     fun consumeStartedSession() = steerLaunch.consumeStartedSession()
 
-    /** EXP-773: Resume an ended run from the Past list — the same rails. */
+    /** EXP-773: Resume an ended run from the Recent list — the same rails. */
     fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
 
     /** Every ONLINE machine, runnable or not — the signed-out caption's source. */

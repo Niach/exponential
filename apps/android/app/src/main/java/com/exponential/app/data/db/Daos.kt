@@ -263,7 +263,7 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE status IN (:statuses) ORDER BY started_at DESC")
     fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
-    // EXP-746: the Devices screen's "Past" feed — one user's finished
+    // EXP-746: the Agent page's "Recent" feed — one user's finished
     // PERSON-STARTED sessions in one team, newest first. `started_reason IS
     // NULL` is in the SQL on purpose: an automation-heavy team's last 50 ended
     // rows are mostly scheduled runs, so filtering in Kotlin after a LIMIT

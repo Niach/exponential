@@ -18,6 +18,7 @@ import {
 import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
 import {
   pastRunTitle,
+  selectIssueRuns,
   selectPastRuns,
   PAST_RUN_CAP,
 } from "@/lib/past-runs"
@@ -409,7 +410,7 @@ export function useSessionRow(
 
 // ── Past runs (EXP-746) ──────────────────────────────────────────────────────
 
-/** One row of the Devices screen's "Past" section. */
+/** One row of the Agent page's "Recent" band (and the run switcher's entries). */
 export interface PastRunRow {
   session: CodingSession
   /** May be undefined while the issue row is still syncing (or for a
@@ -427,14 +428,14 @@ export interface PastRunRow {
 
 /**
  * EXP-746: the caller's OWN finished, PERSON-started runs in one team — the
- * "Past" section under Devices, mirrored on iOS, Android and the desktop.
+ * "Recent" band (EXP-886, was "Past") on the Agent page, mirrored on iOS, Android and the desktop.
  * Automated runs (`started_reason` set) belong to the Automations tab's
  * "Recent automated runs" (EXP-676) and are filtered out by `selectPastRuns`.
  *
  * Known scoping caveat: the coding-sessions shape is team-scoped with the
  * static trash/archive predicate (`buildTeamScopedChildWhere`), so an ended
  * ISSUE run whose board was trashed or archived stops syncing and silently
- * drops out of Past. Batch/action/chat rows keep NULL board mirrors and
+ * drops out of Recent. Batch/action/chat rows keep NULL board mirrors and
  * always sync. Ended rows survive the sweep either way —
  * `coding-session-sweep.ts` only deletes `running`/`in_review`.
  */
@@ -474,6 +475,56 @@ export function usePastRuns(
     )
   }, [sessionRows, currentUserId, teamId, only])
 
+  const { rows, isLoading } = usePastRunRows(teamId, currentUserId, past, isReady)
+  return { past: rows, isLoading }
+}
+
+/**
+ * EXP-886: an issue's RUNS — the caller's OWN runs of THAT issue, live and
+ * ended alike, live first then newest end first, UNCAPPED (`selectIssueRuns`).
+ * Feeds the session view's run switcher; the rows carry the same joins as
+ * Recent's (device label for the byline), so `pastRunRowByline` applies.
+ */
+export function useIssueRuns(
+  issueId: string | undefined,
+  teamId: string | undefined,
+  currentUserId: string | undefined
+) {
+  const { data: sessionRows, isReady } = useLiveQuery(
+    (query) =>
+      issueId && currentUserId
+        ? query
+            .from({ sessions: codingSessionCollection })
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.issueId, issueId),
+                eq(sessions.userId, currentUserId)
+              )
+            )
+        : undefined,
+    [issueId, currentUserId]
+  )
+  const runs = useMemo(
+    () =>
+      selectIssueRuns(
+        (sessionRows ?? []) as CodingSession[],
+        currentUserId,
+        issueId
+      ),
+    [sessionRows, currentUserId, issueId]
+  )
+  const { rows, isLoading } = usePastRunRows(teamId, currentUserId, runs, isReady)
+  return { runs: rows, isLoading }
+}
+
+/** Joins selected ended runs into `PastRunRow`s: issue, board, live device
+ *  label and whether that machine can resume the run. */
+function usePastRunRows(
+  teamId: string | undefined,
+  currentUserId: string | undefined,
+  past: readonly CodingSession[],
+  isReady: boolean
+) {
   // Sorted so the same id set always yields the same dep string (the
   // useAgentsData idiom).
   const issueIds = useMemo(() => {
@@ -540,7 +591,7 @@ export function usePastRuns(
       }
     })
     return {
-      past: rows,
+      rows,
       // Without a team id or a signed-in user the query is skipped and can
       // never deliver a snapshot — ready-empty, not loading forever.
       isLoading: !isReady && Boolean(teamId && currentUserId),

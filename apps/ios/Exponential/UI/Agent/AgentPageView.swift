@@ -6,7 +6,7 @@ import SwiftUI
 /// composer card (`AgentComposerCard`: subject chips, the message, images,
 /// the labelled submit), the `@`/`#`/`:` candidate menu under it, the
 /// options line (`AgentOptionsRow`), the start captions, then the caller's
-/// Running and Past sessions (`AgentSessionsList`, moved here from the
+/// Running and Recent sessions (`AgentSessionsList`, moved here from the
 /// Devices tab, which keeps machines only — web parity, EXP-818).
 ///
 /// A PUSHED detail (no tab bar, native back), reached from the Chat FAB on
@@ -41,7 +41,7 @@ struct AgentPageView: View {
             AppBackground()
 
             if let sessions, let composer {
-                // EXP-862: with nothing running and nothing in Past, the
+                // EXP-862: with nothing running and nothing in Recent, the
                 // composer column is CENTRED in the page (×4: web's
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
                 // pinned under the nav bar over an empty screen read as a page

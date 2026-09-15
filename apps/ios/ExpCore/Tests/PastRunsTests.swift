@@ -2,9 +2,10 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-746: the "Past" section's pure rules — the same five tests web
-// (`past-runs.test.ts`), Android (`AgentRowsTest`) and the desktop
-// (`own_ended_runs_*`) run, so the four lists hold the same rows.
+// EXP-746: the "Recent" section's (and EXP-886's issue runs / run switcher)
+// pure rules — the same tests web (`past-runs.test.ts`), Android
+// (`AgentRowsTest`) and the desktop (`own_ended_runs_*` / `issue_runs_*`)
+// run, so the four lists hold the same rows.
 final class PastRunsTests: XCTestCase {
 
     private func session(
@@ -138,6 +139,71 @@ final class PastRunsTests: XCTestCase {
         }
         XCTAssertEqual(
             PastRuns.select(sessions, userId: "user-1", teamId: "team-1").count, PastRuns.cap
+        )
+    }
+
+    /// EXP-886: the issue's runs behind the Run/Runs label and the switcher.
+    func testIssueRunsListOnlyTheCallersOwnRunsOfThatIssue() {
+        let rows = PastRuns.issueRuns(
+            [
+                session(id: "mine"),
+                // An automated run of the issue is one of its runs too.
+                session(id: "automated", startedReason: "schedule"),
+                session(id: "theirs", userId: "user-2"),
+                // So are the live ones — they lead the list.
+                session(id: "live", status: "running", endedAt: nil, updatedAt: "2026-09-01T12:00:00Z"),
+                session(id: "in-review", status: "in_review", endedAt: nil, updatedAt: "2026-09-01T11:00:00Z"),
+                session(id: "other-issue", issueId: "issue-2"),
+                session(id: "batch", issueId: nil),
+                // Team does not scope it: the issue already does.
+                session(id: "other-team", teamId: "team-2", endedAt: "2026-09-01T09:00:00Z"),
+            ],
+            issueId: "issue-1",
+            userId: "user-1"
+        )
+        XCTAssertEqual(rows.map(\.id), ["live", "in-review", "mine", "automated", "other-team"])
+        XCTAssertTrue(PastRuns.issueRuns([session(id: "mine")], issueId: "issue-1", userId: nil).isEmpty)
+        XCTAssertTrue(PastRuns.issueRuns([session(id: "mine")], issueId: nil, userId: "user-1").isEmpty)
+        XCTAssertTrue(PastRuns.isLiveRunStatus("running"))
+        XCTAssertTrue(PastRuns.isLiveRunStatus("in_review"))
+        XCTAssertFalse(PastRuns.isLiveRunStatus("ended"))
+    }
+
+    func testIssueRunsPutLiveFirstThenNewestEndFirstUncapped() {
+        let sessions = (0..<30).map { i in
+            session(id: "s\(i)", endedAt: String(format: "2026-09-02T%02d:%02d:00Z", i / 2, i))
+        } + [
+            session(id: "heartbeat", endedAt: nil, updatedAt: "2026-09-03T00:00:00Z"),
+            // A live run with an OLD heartbeat still leads: liveness is by
+            // status, the stamp only orders within a group.
+            session(id: "stale-live", status: "running", endedAt: nil, updatedAt: "2026-08-01T00:00:00Z"),
+        ]
+        let rows = PastRuns.issueRuns(sessions, issueId: "issue-1", userId: "user-1")
+        XCTAssertEqual(rows.count, 32)
+        XCTAssertEqual(rows[0].id, "stale-live")
+        XCTAssertEqual(rows[1].id, "heartbeat")
+        XCTAssertEqual(rows[2].id, "s29")
+        XCTAssertEqual(rows.last?.id, "s0")
+    }
+
+    /// EXP-886: a switcher entry says `Live` for a live run and the ended
+    /// time otherwise — byte-identical ×4 (web `issueRunEntryLabel`).
+    func testARunEntrySaysLiveForALiveRunAndTheEndedTimeOtherwise() {
+        XCTAssertEqual(PastRuns.liveRunLabel, "Live")
+        let live = session(id: "live", status: "running")
+        XCTAssertEqual(PastRuns.issueRunWhen(live, endedRelative: "2 hours ago"), "Live")
+        XCTAssertEqual(
+            PastRuns.byline(device: "macbook", relativeTime: PastRuns.issueRunWhen(live, endedRelative: "")),
+            "macbook · Live"
+        )
+        let review = session(id: "review", status: "in_review")
+        XCTAssertEqual(PastRuns.issueRunWhen(review, endedRelative: ""), "Live")
+        let ended = session(id: "ended")
+        XCTAssertEqual(PastRuns.issueRunWhen(ended, endedRelative: "2 hours ago"), "2 hours ago")
+        // No honest stamp: the time segment simply drops.
+        XCTAssertEqual(
+            PastRuns.byline(device: "macbook", relativeTime: PastRuns.issueRunWhen(ended, endedRelative: "")),
+            "macbook"
         )
     }
 

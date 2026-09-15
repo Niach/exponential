@@ -64,7 +64,7 @@ export function TeamMobileTopbar({
   const feedbackAvailable = useFeedbackWidgetAvailable()
 
   // EXP-851: the Agent page joined the titled surfaces — it is a LIST screen
-  // (composer over Running/Past), not a detail, so it wears this bar like the
+  // (composer over Running/Recent), not a detail, so it wears this bar like the
   // others instead of a header of its own.
   const sectionTitle = matchRoute({
     to: `/t/$teamSlug/inbox`,

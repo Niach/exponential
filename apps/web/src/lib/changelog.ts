@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-session-history`,
+    date: `2026-09-15`,
+    title: `Session history that stays`,
+    summary: `Finished runs stay on your machine as long as you like, and an issue with several runs lets you switch between them.`,
+    body: `- **Kept on your machine**: transcripts and resume records of finished runs are no longer deleted after 60 and 10 days. They live only on the machine that ran them, never on our servers.
+- **Sessions setting**: the desktop app's new Settings → Sessions page picks how long that history is kept: unlimited by default, or 1 year, 90 days or 30 days.
+- **Switching runs**: when an issue has more than one run of yours, its Run toggle reads Runs and the run's page gets a picker that opens any of them, the live one included.
+- **Recent**: the Agent page's Past band is now called Recent and shows your 20 latest runs.`,
+  },
+  {
     id: `2026-09-one-work-header`,
     date: `2026-09-14`,
     title: `One header for an issue and its run`,

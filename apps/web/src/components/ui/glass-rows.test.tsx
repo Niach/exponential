@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
 
-// EXP-862: the group band gained a FOLDABLE variant (the Agent page's "Past").
+// EXP-862: the group band gained a FOLDABLE variant (the Agent page's "Recent").
 // The plain band every other list uses must be untouched by it.
 describe(`GlassSectionHeader`, () => {
   it(`stays a plain strip without a toggle`, () => {
@@ -18,14 +18,14 @@ describe(`GlassSectionHeader`, () => {
     const onToggle = vi.fn()
     const { rerender } = render(
       <GlassSectionHeader
-        label="Past"
+        label="Recent"
         count={7}
         expanded={false}
         onToggle={onToggle}
       />
     )
     const band = screen.getByRole(`button`, { expanded: false })
-    expect(band.textContent).toContain(`Past`)
+    expect(band.textContent).toContain(`Recent`)
     expect(band.textContent).toContain(`7`)
     // Collapsed points right, expanded points down.
     const collapsedGlyph = band.querySelector(`svg`)?.innerHTML
@@ -34,7 +34,7 @@ describe(`GlassSectionHeader`, () => {
 
     rerender(
       <GlassSectionHeader
-        label="Past"
+        label="Recent"
         count={7}
         expanded
         onToggle={onToggle}
@@ -45,7 +45,7 @@ describe(`GlassSectionHeader`, () => {
   })
 
   it(`shows a zero count rather than hiding the trailing slot`, () => {
-    render(<GlassSectionHeader label="Past" count={0} onToggle={vi.fn()} />)
+    render(<GlassSectionHeader label="Recent" count={0} onToggle={vi.fn()} />)
     expect(screen.getByRole(`button`).textContent).toContain(`0`)
   })
 

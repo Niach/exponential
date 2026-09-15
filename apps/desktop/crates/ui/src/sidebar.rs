@@ -335,6 +335,7 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "tools" => Some(S::Tools),
         "agents" => Some(S::Agents),
         "local-repos" => Some(S::LocalRepos),
+        "sessions" => Some(S::Sessions),
         "account" => Some(S::Account),
         "notifications" => Some(S::Notifications),
         "api-keys" => Some(S::ApiKeys),

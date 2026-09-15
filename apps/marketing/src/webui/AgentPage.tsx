@@ -4,7 +4,8 @@
    muted options line under it (device · agent mark · model · Plan · …), then
    the caller's own runs as filled group BANDS over flat rows — "Running"
    with the EXP-874 unified run row (state dot, identifier + title, the status
-   line, circular trailing buttons) and "Past", folded by default (EXP-862). */
+   line, circular trailing buttons) and "Recent" (EXP-886, was "Past"), folded
+   by default and uncounted (EXP-862). */
 import { useState } from "react"
 import { getIssue } from "../ide/data"
 import { useWeb } from "./state"
@@ -195,8 +196,7 @@ export function WebAgentPage() {
           onClick={interactive ? () => setPastOpen((v) => !v) : undefined}
         >
           <IcChevRight size={ICON_3} className={`web-groupchev-icon${pastOpen ? ` is-open` : ``}`} />
-          Past
-          <span className="web-band-count">{PAST_RUNS.length}</span>
+          Recent
         </button>
         {pastOpen &&
           PAST_RUNS.map((run) => (

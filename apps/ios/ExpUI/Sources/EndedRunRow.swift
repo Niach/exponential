@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// EXP-637: the ONE row a runs list draws — the Actions tab's "Recent
-/// automated runs" and the Devices tab's "Past".
+/// automated runs" and the Agent page's "Recent" and the issue detail's "Runs" (EXP-886).
 ///
 /// EXP-773 made it a plain LINK. A row used to expand to the agent's close-out
 /// summary and a Resume pill; both now live at the top of the fullscreen

@@ -209,6 +209,19 @@ final class AgentSessionModel {
     /// `devices` row's label (renames land; the session's `device_label` is a
     /// start-time snapshot) and whether that machine stopped heartbeating.
     private(set) var hostDevice = SessionDevicePresentation(label: nil, online: nil)
+    /// EXP-886: the issue's runs of mine (`PastRuns.issueRuns`: live first,
+    /// then newest end first, uncapped), each with its host machine as it
+    /// presents now — the header's run switcher. Empty for an issue-less run;
+    /// the switcher only shows from two rows up.
+    private(set) var issueRuns: [IssueRun] = []
+
+    /// One run switcher entry: the session plus its machine's CURRENT label
+    /// (the live devices row, not the start-time snapshot).
+    struct IssueRun: Identifiable {
+        let session: CodingSessionEntity
+        let device: SessionDevicePresentation
+        var id: String { session.id }
+    }
     /// EXP-484: how much of its rate-limit window the agent running THIS
     /// session has used, off the host machine's synced report. Nil whenever
     /// there is nothing honest to draw — a finished run, a pre-EXP-484 row
@@ -782,6 +795,9 @@ final class AgentSessionModel {
     /// "we don't know" back into knowledge.
     private var deviceFreshnessTask: Task<Void, Never>?
     private var deviceRows: [DeviceEntity] = []
+    /// EXP-886: the rows behind `issueRuns` — the issue's runs of mine.
+    private var issueRunObservationTask: Task<Void, Never>?
+    private var issueRunRows: [CodingSessionEntity] = []
     /// EXP-678: the rows behind `mergeIssue` — the session's own issue, or
     /// (batch runs) every issue + board the batch PR resolution scopes over.
     private var mergeObservationTask: Task<Void, Never>?
@@ -910,6 +926,7 @@ final class AgentSessionModel {
         startObservingSession()
         startObservingHostDevice()
         startObservingMergeIssue()
+        startObservingIssueRuns()
         startObservingMentionMembers()
         configureDraftEditor()
         startActivityClock()
@@ -1018,6 +1035,7 @@ final class AgentSessionModel {
         startObservingSession()
         startObservingHostDevice()
         startObservingMergeIssue()
+        startObservingIssueRuns()
         startActivityClock()
         connect()
     }
@@ -1048,6 +1066,8 @@ final class AgentSessionModel {
         activityClockTask = nil
         mergeObservationTask?.cancel()
         mergeObservationTask = nil
+        issueRunObservationTask?.cancel()
+        issueRunObservationTask = nil
         mentionObservationTask?.cancel()
         mentionObservationTask = nil
         connected = false
@@ -1383,6 +1403,8 @@ final class AgentSessionModel {
                         guard let self else { return }
                         self.deviceRows = rows
                         self.rebuildHostDevice()
+                        // EXP-886: a machine rename repaints the switcher.
+                        self.rebuildIssueRuns()
                     }
                     return
                 } catch is CancellationError {
@@ -1629,6 +1651,54 @@ final class AgentSessionModel {
                     }
                 }
             }
+        }
+    }
+
+    /// EXP-886: the issue's runs of mine, for the header's run switcher. SQL
+    /// narrows to the issue + user; `PastRuns.issueRuns` is the ×4 rule and
+    /// re-applies the predicate and the ordering on the way out. Nothing to
+    /// observe for an issue-less run or a signed-out viewer.
+    private func startObservingIssueRuns() {
+        guard issueRunObservationTask == nil else { return }
+        guard let session, let issueId = session.issueId else { return }
+        guard let currentUserId, !currentUserId.isEmpty else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("issue_id") == issueId)
+                .filter(Column("user_id") == currentUserId)
+                .fetchAll(db)
+        }
+        issueRunObservationTask = Task { [weak self] in
+            // The same one-shot re-subscribe loop as the merge observation.
+            while !Task.isCancelled {
+                do {
+                    for try await rows in observation.values(in: pool) {
+                        guard let self else { return }
+                        self.issueRunRows = rows
+                        self.rebuildIssueRuns()
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+    }
+
+    /// Re-derive the switcher's entries: the rows and the device labels move
+    /// independently, so both observers call this.
+    private func rebuildIssueRuns() {
+        let now = Date()
+        issueRuns = PastRuns.issueRuns(
+            issueRunRows, issueId: session?.issueId, userId: currentUserId
+        ).map { row in
+            IssueRun(
+                session: row,
+                device: SessionDevicePresentation.resolve(session: row, devices: deviceRows, now: now)
+            )
         }
     }
 

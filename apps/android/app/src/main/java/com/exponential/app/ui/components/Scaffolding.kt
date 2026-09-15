@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -72,9 +71,13 @@ fun SectionHeader(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = SectionBandTitleAlpha),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
+            // ONE weight, filling: the title owns every dp the leading and
+            // trailing slots leave, so a long title ellipsizes and `trailing`
+            // sits flush at the far edge. (A `fill = false` title plus a
+            // weighted spacer split the free width between the two, which
+            // parked trailing content mid-row, EXP-886.)
+            modifier = Modifier.weight(1f),
         )
-        Spacer(Modifier.weight(1f))
         trailing?.invoke()
     }
 }

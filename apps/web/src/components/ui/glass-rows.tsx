@@ -53,7 +53,7 @@ function GlassSectionHeader({
   count?: number
   /** EXP-862 FOLDABLE variant — pass both to make the band a toggle: the
    * whole strip becomes the click target, a chevron leads it and
-   * `aria-expanded` states the fold (the Agent page's "Past" band, collapsed
+   * `aria-expanded` states the fold (the Agent page's "Recent" band, collapsed
    * by default). Omit `onToggle` and the band stays the plain strip it has
    * always been. */
   expanded?: boolean

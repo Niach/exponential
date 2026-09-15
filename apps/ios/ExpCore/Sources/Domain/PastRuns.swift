@@ -1,7 +1,7 @@
 import Foundation
 
-/// EXP-746: "Past" — the caller's own finished runs under the Devices screen's
-/// Running section, on all four clients.
+/// EXP-746: "Recent" (named "Past" until EXP-886) — the caller's own finished
+/// runs under the Agent page's Running section, on all four clients.
 ///
 /// This deliberately re-adds what EXP-676 removed (`ExpUI/EndedRunRow.swift`
 /// documents that removal). The reason it comes back is a different one:
@@ -44,6 +44,50 @@ public enum PastRuns {
             .sorted { endedAt($0) > endedAt($1) }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// A run that is alive by STATUS — running or in review. Staleness is not
+    /// consulted: a run whose machine went quiet is still one of the issue's
+    /// runs, it only sorts by its last heartbeat.
+    public static func isLiveRunStatus(_ status: String) -> Bool {
+        status == DomainContract.codingSessionStatusRunning
+            || status == DomainContract.codingSessionStatusInReview
+    }
+
+    /// The word the run switcher shows in a live run's time slot, in place of
+    /// the ended relative time. Byte-identical ×4 (web `LIVE_RUN_LABEL`).
+    public static let liveRunLabel = "Live"
+
+    /// EXP-886: an issue's RUNS — the caller's OWN runs of THAT issue
+    /// (`issue_id == issue AND user_id == me`), whatever their status and
+    /// `started_reason` (a live run, an ended one, an automated one),
+    /// UNCAPPED. Live runs first, then by the same `endedAt` key as Recent.
+    /// Backs the session screen's run switcher. Batch runs carry no
+    /// `issue_id`, so they never match. Mirrored ×4 (web `selectIssueRuns`,
+    /// Android `issueRunRows`, desktop `issue_runs`).
+    public static func issueRuns(
+        _ sessions: [CodingSessionEntity],
+        issueId: String?,
+        userId: String?
+    ) -> [CodingSessionEntity] {
+        guard let issueId, !issueId.isEmpty else { return [] }
+        return sessions
+            .filter { $0.issueId == issueId }
+            .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
+            .sorted { a, b in
+                let liveA = isLiveRunStatus(a.status)
+                let liveB = isLiveRunStatus(b.status)
+                if liveA != liveB { return liveA }
+                return endedAt(a) > endedAt(b)
+            }
+    }
+
+    /// EXP-886: the switcher's `<when>` for a run — `liveRunLabel` for a
+    /// live-status run, else the caller's already-formatted ended time. The
+    /// entry is `byline(device:relativeTime:)` over it; the trigger names the
+    /// run on show by it. ×4 (web `issueRunWhen`).
+    public static func issueRunWhen(_ session: CodingSessionEntity, endedRelative: String) -> String {
+        isLiveRunStatus(session.status) ? liveRunLabel : endedRelative
     }
 
     /// When the run finished, for ordering and the byline's relative time.

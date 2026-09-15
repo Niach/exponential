@@ -4,7 +4,7 @@ import { relativeTime } from "@/components/comment-rows/format"
 import { SESSION_DOT_CLASS } from "@/lib/session-dot"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 
-// The session state dot and the Past caption, shared by every session list
+// The session state dot and the Recent caption, shared by every session list
 // (EXP-874: the rows themselves live in `components/session-list-rows.tsx`)
 // plus the sidebar's Pinned group and the work-tab strip.
 
@@ -52,9 +52,9 @@ export function RunningIndicator({
   )
 }
 
-/** EXP-746: the Past row's caption. The ORDER and the separator are the ×4
+/** EXP-746: the Recent row's caption. The ORDER and the separator are the ×4
  * rule (lib/past-runs.ts); the relative time is this client's own formatter.
- * Lives here (EXP-739) so the Devices "Past" list and the chat page's "Past
+ * Lives here (EXP-739) so the Agent page's "Recent" list and the chat page's "Past
  * chats" caption identically. */
 export function pastRunRowByline(
   row: Pick<PastRunRow, `session` | `device`>

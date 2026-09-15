@@ -174,6 +174,8 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.isLiveRunStatus
+import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.rateLimitBannerShows
 import com.exponential.app.domain.MergeTarget
@@ -403,6 +405,9 @@ fun AgentSessionScreen(
     // The run's OWN issue (EXP-688) — the header names what is being worked
     // on, exactly like the Agents list row does.
     val issue by viewModel.issue.collectAsStateWithLifecycle()
+    // EXP-886: the issue's runs of mine — the header's run switcher, shown
+    // once there are two or more.
+    val issueRuns by viewModel.issueRuns.collectAsStateWithLifecycle()
     // EXP-746: the agent's live configuration (the composer chips + the run's
     // own `/` commands) and its context/spend meter. Both null on a PTY run,
     // which publishes neither.
@@ -643,6 +648,8 @@ fun AgentSessionScreen(
     // EXP-688: the top bar's "…" menu, and the Usage sheet it opens.
     var overflowOpen by remember { mutableStateOf(false) }
     var usageSheetOpen by remember { mutableStateOf(false) }
+    // EXP-886: the run switcher's dropdown.
+    var runsMenuOpen by remember { mutableStateOf(false) }
     // The floating Latest-changes bar's measured height — the feed pads its
     // tail by it, so the last message always scrolls clear of the bar.
     var barHeightPx by remember { mutableIntStateOf(0) }
@@ -712,6 +719,57 @@ fun AgentSessionScreen(
                         accountSwitch.options.isNotEmpty()
                     // EXP-858: no pin toggle — the phone has no sidebar for a
                     // pin to land in; the trailing order is Stop then "…".
+                    // EXP-886: the run SWITCHER leads that cluster once the
+                    // issue has more than one run of mine (`issueRunRows`):
+                    // every run as `<device> · <when>` (`Live` for a live
+                    // one, else when it ended), live first, the run on show
+                    // checked; picking another opens its screen the way every
+                    // run list does. The web/desktop twin is the pill beside
+                    // the `Issue | Runs` toggle.
+                    if (issueRuns.size > 1) {
+                        val viewedId = session?.id
+                        Box {
+                            TopBarActionButton(
+                                ExpIcons.runSwitcher,
+                                "Switch run",
+                                onClick = { runsMenuOpen = true },
+                                borderless = true,
+                            )
+                            GlassDropdownMenu(
+                                expanded = runsMenuOpen,
+                                onDismissRequest = { runsMenuOpen = false },
+                            ) {
+                                issueRuns.forEach { run ->
+                                    val onShow = run.session.id == viewedId
+                                    val live = isLiveRunStatus(run.session.status)
+                                    GlassMenuItem(
+                                        leadingIcon = when {
+                                            onShow -> ({ Icon(ExpIcons.uiCheck, contentDescription = null) })
+                                            live -> ({ Icon(ExpIcons.codingRunning, contentDescription = null) })
+                                            else -> null
+                                        },
+                                        text = {
+                                            Text(
+                                                pastRunByline(
+                                                    deviceLabel = run.device.displayLabel,
+                                                    timeLabel = issueRunWhen(
+                                                        run.session,
+                                                        endedRelative = relativeTime(
+                                                            run.session.endedAt ?: run.session.updatedAt,
+                                                        ),
+                                                    ),
+                                                ),
+                                            )
+                                        },
+                                        onClick = {
+                                            runsMenuOpen = false
+                                            if (!onShow) onOpenSteer(run.session.id)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (canKill) {
                         TopBarActionButton(
                             ExpIcons.codingStop,
