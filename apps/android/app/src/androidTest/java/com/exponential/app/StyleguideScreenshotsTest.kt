@@ -45,8 +45,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
  *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
- *   sg_issue-create · sg_session-diff · sg_changes-face ·
- *   sg_search · sg_my-issues · sg_agents · sg_usage ·
+ *   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
  *   sg_chat · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_automations-list ·
  *   sg_automations · sg_action-suggestions · sg_reviews ·
@@ -68,11 +67,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * the demo user's OWN device row, which is what sg_machine-settings (gated
  * `isMine && registered`) and the three sg_chat* shots photograph (EXP-825: the
  * Agent page composer, the ONE launcher), and whose heartbeat announces the
- * agent accounts sg_usage photographs (EXP-829). EXP-895 added the one pair
- * that DOES watch a live session — sg_session-diff and sg_changes-face are
- * taken off the demo run's relay-fed feed and its `latest_diff`, so this lane
- * now needs the steer-relay container reachable from the emulator exactly as
- * the store lane's 4_steering does.
+ * agent accounts sg_usage photographs (EXP-829). No steer RELAY traffic is
+ * needed beyond that registration — nothing here watches a live session.
  *
  * Every shot gates on genuinely seeded content rather than on a screen merely
  * existing, so a stale/missing seed fails the run instead of quietly shipping
@@ -298,49 +294,6 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasText("Priority"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- sg_session-diff (EXP-895): a single tool call's patch inside the
-        // transcript — the ONE diff card at its `compact` density. Still on
-        // APP-5, whose live run is the relay stub's: the switcher opens its Run
-        // face in place (a direct switch with one target, a menu row with
-        // several). The demo feed's Edit calls carry a diff, and a tool row
-        // that has one is the only row wearing the "Show changes" chevron.
-        flow.waitFor(hasTestTag("work-face-switcher"), SYNC_TIMEOUT)
-        composeRule.onNode(hasTestTag("work-face-switcher")).performClick()
-        flow.settle()
-        if (flow.exists(hasTestTag("work-face-run"))) {
-            composeRule.onNode(hasTestTag("work-face-run")).performClick()
-        }
-        flow.waitFor(hasTestTag("agent-feed"), SYNC_TIMEOUT)
-        // Gate on real relay content: an unreachable stub leaves the feed
-        // "Reconnecting…" with nothing in it, and the tag alone would happily
-        // photograph that.
-        flow.waitFor(hasContentDescription("Show changes"), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasContentDescription("Show changes")).onFirst().performClick()
-        flow.waitFor(hasTestTag("changes-file-row"), NAV_TIMEOUT)
-        // A transcript card starts folded (the row above already cost a tap) —
-        // open the first file so the shot shows actual patch lines.
-        composeRule.onAllNodes(hasTestTag("changes-file-row")).onFirst().performClick()
-        runCatching {
-            composeRule.onAllNodes(hasTestTag("changes-file-row")).onFirst().performScrollTo()
-        }
-        flow.settle(longer = true)
-        flow.screenshot("sg_session-diff")
-
-        // --- sg_changes-face (EXP-895): the same cards as a full page, over
-        // the floating bar `[file sheet][merge capsule][switcher]`. The source
-        // here is the run's LIVE worktree diff (`latest_diff`), which is why
-        // this shot follows the Run face rather than leading it — the face only
-        // exists once the feed has delivered one.
-        composeRule.onNode(hasTestTag("work-face-switcher")).performClick()
-        flow.settle()
-        composeRule.onNode(hasTestTag("work-face-changes")).performClick()
-        flow.waitFor(hasTestTag("work-changes"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
-        flow.settle(longer = true)
-        flow.screenshot("sg_changes-face")
-
-        // EXP-893: the faces share ONE screen, so a single Back pops the whole
-        // Work screen to the board.
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()

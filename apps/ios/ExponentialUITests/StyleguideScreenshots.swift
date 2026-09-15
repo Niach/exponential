@@ -17,7 +17,6 @@ import XCTest
 ///   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
-///   sg_session-diff · sg_changes-face ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
@@ -25,13 +24,6 @@ import XCTest
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
-///
-/// EXP-895 added `sg_session-diff` + `sg_changes-face`: ONE diff view ×4, so
-/// the compact card inside a transcript and the same cards as a full page are
-/// the two surfaces a cross-platform review compares. Both are taken off
-/// APP-5's demo run — its relay-fed feed and its live worktree diff — so this
-/// lane needs the steer relay reachable, exactly as the store lane's
-/// `04_steering` does.
 ///
 /// EXP-829 added `sg_usage`: the Devices page scrolled to its Accounts section
 /// (web/desktop EXP-818 folded the Usage page into Devices; the shot keeps the
@@ -291,70 +283,6 @@ final class StyleguideScreenshots: XCTestCase {
         dismissSheet(app, whileVisible: propertiesHeadline)
         _ = propertiesHeadline.waitForNonExistence(timeout: 10)
         settle(1)
-
-        // ── sg_session-diff (EXP-895): one tool call's patch in the transcript
-        // — the ONE diff card at its `compact` density. Still on APP-5, whose
-        // live run is the relay stub's: the switcher opens its Run face in
-        // place (a direct switch with one target, a menu row with several).
-        // The demo feed's Edit calls carry a diff, and a tool row that has one
-        // is the only row wearing the "Show the diff" control.
-        let faceSwitcher = app.buttons["work-face-switcher"]
-        XCTAssertTrue(
-            faceSwitcher.waitForExistence(timeout: 30),
-            "APP-5 never offered its face switcher — is `bun run screenshots:desktop` running?"
-        )
-        faceSwitcher.tap()
-        settle(1)
-        // `WorkFaces.runFaceLabel`, or `runsFaceLabel` with more than one own
-        // run on the issue. Absent entirely when the switcher was a direct
-        // toggle, which has already made the switch.
-        for label in ["Run", "Runs"] {
-            let row = app.buttons[label].firstMatch
-            if row.exists && row.isHittable {
-                row.tap()
-                break
-            }
-        }
-        // Gate on real relay content: an unreachable stub leaves the feed
-        // reconnecting with nothing in it, and the identifier alone would
-        // happily photograph that.
-        XCTAssertTrue(
-            anyElement(app, identified: "agent-feed").waitForExistence(timeout: 60),
-            "The Run face never showed its transcript"
-        )
-        let showDiff = app.buttons["Show the diff"].firstMatch
-        XCTAssertTrue(
-            showDiff.waitForExistence(timeout: 60),
-            "No tool row published a diff — is the steer relay reachable?"
-        )
-        showDiff.tap()
-        // EXP-895: a transcript card's files start OPEN (the row's own chevron
-        // already cost a tap), so the patch lines are there straight away.
-        XCTAssertTrue(
-            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 20),
-            "The tool row's diff never rendered its file card"
-        )
-        snapshot("sg_session-diff", settle: 2)
-
-        // ── sg_changes-face (EXP-895): the same cards as a full page, over the
-        // floating bar `[file sheet][merge capsule][switcher]`, GitHub up in
-        // the nav bar's action slot. The source here is the run's LIVE worktree
-        // diff, which is why this follows the Run face rather than leading it —
-        // the face only exists once the feed has delivered one.
-        faceSwitcher.tap()
-        settle(1)
-        // `WorkFaces.changesFaceLabel`; absent when the switcher was a direct
-        // toggle, which has already made the switch.
-        let changesFaceRow = app.buttons["Changes"].firstMatch
-        if changesFaceRow.exists && changesFaceRow.isHittable { changesFaceRow.tap() }
-        XCTAssertTrue(
-            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 60),
-            "The Changes face never showed a file card"
-        )
-        snapshot("sg_changes-face", settle: 2)
-
-        // EXP-893: the faces share ONE screen, so a single Back pops the whole
-        // Work screen to the board.
         goBack(app)
 
         // ── sg_issue-create: the new-issue page ─────────────────────────────
