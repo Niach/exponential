@@ -70,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -197,8 +198,8 @@ import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
 import com.exponential.app.domain.PLAN_FEEDBACK_PLACEHOLDER
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.currentStepperStep
+import com.exponential.app.domain.Diff
 import com.exponential.app.domain.diffTruncationNote
-import com.exponential.app.domain.splitTruncatedDiff
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
@@ -229,10 +230,8 @@ import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
-import com.exponential.app.ui.issue.DiffDelColor
+import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.PatchLines
-import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.markdown.AutocompleteRows
 import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
@@ -264,7 +263,6 @@ import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
@@ -3684,14 +3682,16 @@ private fun ToolRow(
                 ExpIcons.codingTool,
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
-                tint = if (failed) DiffDelColor else {
+                // EXP-895: a FAILED call is a status, not a deleted diff
+                // line — the semantic red, never the diff palette's rose.
+                tint = if (failed) DesignTokens.Semantic.Red else {
                     MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
                 },
             )
             Text(
                 name,
                 style = transcriptToolStyle(),
-                color = if (failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
+                color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
             )
             if (!detail.isNullOrBlank()) {
                 Text(
@@ -3751,7 +3751,7 @@ private fun ExpToolCallRow(
             Text(
                 display.caption,
                 style = transcriptToolStyle(),
-                color = if (item.failed) DiffDelColor else MaterialTheme.colorScheme.onSurface,
+                color = if (item.failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
@@ -3901,52 +3901,52 @@ private fun ExpToolPreviewRow(
 private val EXP_TOOL_PREVIEW_INSET = 20.dp
 
 /**
- * EXP-806: one call's diff, through the same monospace renderer the "Latest
- * changes" sheet uses, in a scroll box no taller than [ToolDiffMaxHeight] (web
- * `ToolDiff`'s `max-h-72`). The publisher's cut note is a MUTED FOOTER outside
- * the patch — inside it, `\ 120 more lines truncated` would render as a diff
- * line, which it is not.
+ * EXP-806/EXP-895: one call's diff, as the SAME [DiffFileCard] every other
+ * Changes surface draws — `compact`, so a transcript column loses the old-side
+ * gutter and keeps the rest — in a scroll box no taller than [ToolDiffMaxHeight]
+ * (web `ToolDiff`'s `max-h-72`). The cards start COLLAPSED: the row above
+ * already cost the reader a tap, and a folded header still says which file and
+ * by how much.
  *
- * Nothing here reads [failed]: a failed call keeps the ROW's rose tint and its
- * diff renders in the ordinary +/− colors, exactly like the web.
+ * The publisher's cut note is a MUTED FOOTER outside the patch — inside it,
+ * `\ 120 more lines truncated` would render as a diff line, which it is not.
+ *
+ * Nothing here reads [failed]: a failed call keeps the ROW's red caption and
+ * its diff renders in the ordinary +/− colors, exactly like the web.
  */
 @Composable
 private fun ToolDiff(diff: String) {
-    val cut = remember(diff) { splitTruncatedDiff(diff) }
-    val sections = remember(cut.diff) { splitUnifiedDiff(cut.diff) }
-    if (sections.isEmpty() && cut.truncated == null) return
-    val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
+    // `diff --git` header) while a session diff is full `git diff` output —
+    // the ONE parser reads both, and lifts the publisher's cut count off the
+    // trailing marker (EXP-786). A file a call wrote twice arrives as two
+    // sections and folds into ONE card (`mergeFilesByPath`).
+    val parsed = remember(diff) { Diff.parse(diff) }
+    val files = remember(parsed) { Diff.mergeFilesByPath(parsed.files) }
+    val truncated = parsed.truncatedLines
+    if (files.isEmpty() && truncated == null) return
+    val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             // Aligned under the row's text, past the tool glyph and its gap.
             .padding(start = 20.dp, top = 4.dp)
-            // Bounded FIRST, so the glass fill paints the capped box and the
-            // patch scrolls inside it rather than growing the transcript row.
+            // Bounded FIRST, so the box is capped and the cards scroll inside
+            // it rather than growing the transcript row. Horizontal scrolling
+            // lives inside each card, so the two axes never fight.
             .heightIn(max = ToolDiffMaxHeight)
-            .glassGroup()
             .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        sections.forEach { section ->
-            if (section.filename.isNotBlank()) {
-                Text(
-                    section.filename,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-            }
-            // Horizontal scrolling lives inside PatchLines; this box owns only
-            // the vertical one, so the two axes never fight.
-            PatchLines(
-                lines = section.lines,
-                contextColor = contextColor,
-                modifier = Modifier.padding(bottom = 6.dp),
+        files.forEach { file ->
+            DiffFileCard(
+                file = file,
+                expanded = expanded[file.path] == true,
+                onToggle = { expanded[file.path] = expanded[file.path] != true },
+                compact = true,
             )
         }
-        cut.truncated?.let { lines ->
+        truncated?.let { lines ->
             Text(
                 diffTruncationNote(lines),
                 style = MaterialTheme.typography.labelSmall,

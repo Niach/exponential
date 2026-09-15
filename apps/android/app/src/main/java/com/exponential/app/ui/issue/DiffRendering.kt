@@ -6,14 +6,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -25,88 +28,48 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.exponential.app.domain.Diff
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.Motion
+import com.exponential.app.ui.theme.TextEmphasis
 
-// Shared unified-diff rendering primitives (iOS DiffRendering.swift parity):
-// +/−/@@ line coloring + tinted line backgrounds, used by the issue Changes
-// page and the agent-session "Latest changes" diff panel.
-
-val DiffAddColor = Color(0xFF6EE7B7) // emerald-300
-val DiffDelColor = Color(0xFFFDA4AF) // rose-300
-val DiffHunkColor = Color.White.copy(alpha = 0.5f) // muted (EXP-594, iOS parity)
-
-/** Foreground color for one unified-diff line. `+++`/`---` file headers are meta, not changes. */
-fun diffLineColor(line: String, context: Color): Color = when {
-    line.startsWith("@@") -> DiffHunkColor
-    line.startsWith("+++") || line.startsWith("---") -> context
-    line.startsWith("+") -> DiffAddColor
-    line.startsWith("-") -> DiffDelColor
-    else -> context
-}
-
-/** Faint green/red row tint behind added/deleted lines (iOS DiffFilesView parity). */
-fun diffLineBackground(line: String): Color = when {
-    line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@") -> Color.Transparent
-    line.startsWith("+") -> DiffAddColor.copy(alpha = 0.08f)
-    line.startsWith("-") -> DiffDelColor.copy(alpha = 0.08f)
-    else -> Color.Transparent
-}
-
-data class DiffStats(val additions: Int, val deletions: Int)
-
-/** Count +/− lines of a unified diff, excluding the `+++`/`---` file headers. */
-fun unifiedDiffStats(diff: String): DiffStats {
-    var add = 0
-    var del = 0
-    diff.split("\n").forEach { line ->
-        when {
-            line.startsWith("+++") || line.startsWith("---") -> Unit
-            line.startsWith("+") -> add++
-            line.startsWith("-") -> del++
-        }
-    }
-    return DiffStats(add, del)
-}
-
-/** One file's chunk of a multi-file unified diff (split on `diff --git`). */
-data class DiffFileSection(val filename: String, val lines: List<String>)
+// EXP-895 — the patch BODY of the one diff view ×4 (web
+// `packages/ui/src/file-diff-card.tsx`, desktop `crates/ui/src/diff`, iOS
+// `DiffRendering.swift`). It renders a parsed [Diff.Hunk] list and nothing
+// else: no raw patch strings, no per-line sign sniffing — the ONE parser
+// (`domain/Diff.kt`) already decided what every line is.
+//
+// Unified layout only, four columns: old gutter · new gutter · sign · text.
+// `compact` (a transcript card) drops the OLD gutter — the column a 320dp-wide
+// tool row can least afford — and keeps everything else identical.
+//
+// Every colour comes from `DesignTokens.Diff.*` (generated from
+// `packages/design-tokens/tokens.json`), never from a hand-picked emerald.
 
 /**
- * Split raw `git diff` output into per-file sections. Diffs without a
- * `diff --git` header (e.g. a bare hunk) come back as one unnamed section.
+ * What a file with no hunks says instead of rows — a binary blob, a pure
+ * rename, an empty new file and a patch GitHub refused to send all land here,
+ * and the reader has to be told WHICH. Byte-identical to web `noHunksNote`.
  */
-fun splitUnifiedDiff(diff: String): List<DiffFileSection> {
-    val sections = mutableListOf<DiffFileSection>()
-    var filename = ""
-    var lines = mutableListOf<String>()
-    fun flush() {
-        if (filename.isNotEmpty() || lines.any { it.isNotBlank() }) {
-            sections.add(DiffFileSection(filename, lines))
-        }
-    }
-    diff.split("\n").forEach { line ->
-        if (line.startsWith("diff --git ")) {
-            flush()
-            // `diff --git a/path b/path` — the b/ side is the current name.
-            filename = line.substringAfterLast(" b/", missingDelimiterValue = "")
-                .ifEmpty { line.removePrefix("diff --git ").trim() }
-            lines = mutableListOf()
-        } else {
-            lines.add(line)
-        }
-    }
-    flush()
-    return sections
+fun noHunksNote(file: Diff.File): String = when {
+    file.binary -> "Binary file"
+    file.status == Diff.Status.ADDED -> "Empty file added"
+    file.status == Diff.Status.REMOVED -> "File removed"
+    file.status == Diff.Status.RENAMED -> "Renamed without content changes"
+    file.status == Diff.Status.COPIED -> "Copied without content changes"
+    else -> "No textual diff (binary or too large)"
 }
 
 /**
- * Rendered-line cap per patch (iOS DiffRendering `maxLines: Int = 600` parity)
- * — every line composes a Text under IntrinsicSize.Max intrinsic measurement,
- * so an uncapped multi-thousand-line patch (lockfile PRs, raw worktree diffs)
- * freezes the frame.
+ * Rendered-line cap per file — every line composes a Text under
+ * IntrinsicSize.Max intrinsic measurement, so an uncapped multi-thousand-line
+ * patch (lockfile PRs, raw worktree diffs) freezes the frame. The web expands
+ * in `LINE_CHUNK` steps instead; a phone card simply stops and says so.
  */
 const val DIFF_MAX_RENDERED_LINES = 600
 
@@ -119,22 +82,81 @@ const val DIFF_MAX_RENDERED_LINES = 600
  */
 private const val DIFF_FADE_BAND_ROWS = 40
 
+/** One display row of a file's patch (web `Row`, same three kinds). */
+sealed interface DiffRow {
+    /** A `N unchanged lines` divider — context the patch never carried. */
+    data class Gap(val text: String) : DiffRow
+
+    /** The verbatim `@@ … @@` header, section heading and all. */
+    data class Header(val text: String) : DiffRow
+
+    data class Body(val line: Diff.Line) : DiffRow
+}
+
+/** [buildDiffRows]' answer: the rows to draw, and the lines that did not fit. */
+data class DiffRows(val rows: List<DiffRow>, val hidden: Int)
+
 /**
- * The monospace patch body: colored +/−/@@ lines with faint row tints.
- * Horizontal scrolling lives INSIDE this block — never on the page.
- * Capped at [maxLines] with a truncation footer (iOS DiffPatchBlock parity).
+ * A file's hunks flattened into display rows: a gap divider before each hunk
+ * that skipped context (including the file's own head, `unchangedBefore`), the
+ * `@@` header, then the hunk's lines — stopping dead at [maxLines] BODY rows,
+ * exactly where the web's reveal cap stops.
+ *
+ * Pure, so `DiffRowsTest` can hold the shape without a device.
+ */
+fun buildDiffRows(hunks: List<Diff.Hunk>, maxLines: Int = DIFF_MAX_RENDERED_LINES): DiffRows {
+    var total = 0
+    for (hunk in hunks) total += hunk.lines.size
+    val out = mutableListOf<DiffRow>()
+    var shown = 0
+    outer@ for ((index, hunk) in hunks.withIndex()) {
+        val skipped = if (index == 0) {
+            Diff.unchangedBefore(hunk)
+        } else {
+            Diff.unchangedBetween(hunks[index - 1], hunk)
+        }
+        // A PLAIN row, never a button: the skipped context is not on the wire,
+        // so there is nothing to expand to (EXP-895).
+        if (skipped > 0) out.add(DiffRow.Gap(Diff.unchangedLabel(skipped)))
+        out.add(DiffRow.Header(hunk.header))
+        for (line in hunk.lines) {
+            if (shown >= maxLines) break@outer
+            out.add(DiffRow.Body(line))
+            shown += 1
+        }
+    }
+    return DiffRows(out, maxOf(0, total - shown))
+}
+
+private val DiffFontSize = 11.sp
+private val DiffLineHeight = 15.sp
+
+/** The two number columns; the compact card keeps only the new one. */
+private val GutterWidth: Dp = 30.dp
+private val CompactGutterWidth: Dp = 26.dp
+
+/** The sign column — one glyph wide, `+` / U+2212 / nothing. */
+private val SignWidth: Dp = 12.dp
+
+/**
+ * The monospace patch body of ONE file: `@@` headers on the hunk band,
+ * `N unchanged lines` dividers between hunks, and the lines themselves on
+ * their add/del washes. Horizontal scrolling lives INSIDE this block — never
+ * on the page — and the trailing edge fades while there is more to the right.
  */
 @Composable
 fun PatchLines(
-    lines: List<String>,
-    contextColor: Color,
+    hunks: List<Diff.Hunk>,
     modifier: Modifier = Modifier,
+    /** A transcript card: drops the old-side gutter, keeps the rest. */
+    compact: Boolean = false,
     maxLines: Int = DIFF_MAX_RENDERED_LINES,
 ) {
-    val truncated = lines.size > maxLines
-    val shown = if (truncated) lines.subList(0, maxLines) else lines
+    val built = remember(hunks, maxLines) { buildDiffRows(hunks, maxLines) }
     val scrollState = rememberScrollState()
     val fadeStrength = trailingFadeStrength(scrollState)
+    val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    val gutter = if (compact) CompactGutterWidth else GutterWidth
     Column(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -143,25 +165,18 @@ fun PatchLines(
         ) {
             SelectionContainer {
                 Column(modifier = Modifier.width(IntrinsicSize.Max)) {
-                    shown.chunked(DIFF_FADE_BAND_ROWS).forEach { band ->
+                    built.rows.chunked(DIFF_FADE_BAND_ROWS).forEach { band ->
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .trailingScrollFade(scrollState, fadeStrength),
                         ) {
-                            band.forEach { line ->
-                                Text(
-                                    text = line.ifEmpty { " " },
-                                    color = diffLineColor(line, contextColor),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(diffLineBackground(line))
-                                        .padding(horizontal = 10.dp),
+                            band.forEach { row ->
+                                PatchRow(
+                                    row = row,
+                                    compact = compact,
+                                    gutter = gutter,
+                                    contextColor = contextColor,
                                 )
                             }
                         }
@@ -169,16 +184,133 @@ fun PatchLines(
                 }
             }
         }
-        if (truncated) {
+        if (built.hidden > 0) {
             Text(
                 text = "Diff truncated. Showing the first $maxLines lines.",
                 color = contextColor,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
+                fontSize = DiffFontSize,
+                lineHeight = DiffLineHeight,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }
+}
+
+@Composable
+private fun PatchRow(row: DiffRow, compact: Boolean, gutter: Dp, contextColor: Color) {
+    when (row) {
+        // The divider sits on a WEAKER wash than the `@@` header above it — it
+        // is the absence of a hunk, not one.
+        is DiffRow.Gap -> Text(
+            text = row.text,
+            color = DesignTokens.Diff.GutterFg,
+            fontFamily = FontFamily.Monospace,
+            fontSize = DiffFontSize,
+            lineHeight = DiffLineHeight,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(GapFill)
+                .padding(horizontal = 10.dp),
+        )
+        is DiffRow.Header -> Text(
+            text = row.text,
+            color = DesignTokens.Diff.HunkFg,
+            fontFamily = FontFamily.Monospace,
+            fontSize = DiffFontSize,
+            lineHeight = DiffLineHeight,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DesignTokens.Diff.HunkBg)
+                .padding(horizontal = 10.dp),
+        )
+        is DiffRow.Body -> PatchBodyRow(row.line, compact, gutter, contextColor)
+    }
+}
+
+/** `bg-diff-hunk-bg/60` — the gap divider's share of the hunk band. */
+private val GapFill: Color =
+    DesignTokens.Diff.HunkBg.copy(alpha = DesignTokens.Diff.HunkBg.alpha * 0.6f)
+
+@Composable
+private fun PatchBodyRow(line: Diff.Line, compact: Boolean, gutter: Dp, contextColor: Color) {
+    // `\ No newline at end of file` — numbered on NEITHER side, so it gets no
+    // gutters at all and leans italic to read as metadata rather than content.
+    if (line.kind == Diff.LineKind.META) {
+        Text(
+            text = line.text.ifEmpty { " " },
+            color = DesignTokens.Diff.GutterFg,
+            fontFamily = FontFamily.Monospace,
+            fontStyle = FontStyle.Italic,
+            fontSize = DiffFontSize,
+            lineHeight = DiffLineHeight,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+        )
+        return
+    }
+    val fill = when (line.kind) {
+        Diff.LineKind.ADD -> DesignTokens.Diff.AddBg
+        Diff.LineKind.DEL -> DesignTokens.Diff.DelBg
+        else -> Color.Transparent
+    }
+    val ink = when (line.kind) {
+        Diff.LineKind.ADD -> DesignTokens.Diff.AddFg
+        Diff.LineKind.DEL -> DesignTokens.Diff.DelFg
+        else -> contextColor
+    }
+    Row(modifier = Modifier.fillMaxWidth().background(fill)) {
+        if (!compact) Gutter(line.oldNo, gutter)
+        Gutter(line.newNo, gutter)
+        Text(
+            // U+2212 MINUS SIGN, never a hyphen — the same glyph the counts
+            // use, locked ×4.
+            text = when (line.kind) {
+                Diff.LineKind.ADD -> "+"
+                Diff.LineKind.DEL -> "−"
+                else -> " "
+            },
+            color = ink,
+            fontFamily = FontFamily.Monospace,
+            fontSize = DiffFontSize,
+            lineHeight = DiffLineHeight,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(SignWidth),
+        )
+        Text(
+            text = line.text.ifEmpty { " " },
+            color = ink,
+            fontFamily = FontFamily.Monospace,
+            fontSize = DiffFontSize,
+            lineHeight = DiffLineHeight,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(end = 10.dp),
+        )
+    }
+}
+
+/** One line-number column: right-aligned, dimmed, never selectable noise. */
+@Composable
+private fun Gutter(number: Int?, width: Dp) {
+    Text(
+        text = number?.toString().orEmpty(),
+        color = DesignTokens.Diff.GutterFg,
+        fontFamily = FontFamily.Monospace,
+        fontSize = DiffFontSize,
+        lineHeight = DiffLineHeight,
+        maxLines = 1,
+        softWrap = false,
+        textAlign = TextAlign.End,
+        modifier = Modifier.width(width).padding(end = 4.dp),
+    )
 }
 
 /**

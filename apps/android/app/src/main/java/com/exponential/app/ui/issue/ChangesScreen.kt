@@ -1,6 +1,5 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -40,14 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,6 +63,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
@@ -79,10 +76,8 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.theme.glassGroup
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -648,20 +643,25 @@ private fun ChangesSummaryHeader(
                 )
             }
             if (files != null) {
+                // EXP-895: summed off the SHARED model, exactly as the cards
+                // below are, so the header can never disagree with the rows —
+                // and worded/coloured by the shared labels and tokens (`−` is
+                // U+2212, never a hyphen).
+                val totals = remember(files) { Diff.totals(files.map { it.toDiffFile() }) }
                 Text(
-                    "${files.size} ${if (files.size == 1) "file" else "files"}",
+                    "${totals.files} ${if (totals.files == 1) "file" else "files"}",
                     style = MaterialTheme.typography.labelMedium,
                     color = secondary,
                 )
                 Text(
-                    "+${files.sumOf { it.additions }}",
-                    color = DiffAddColor,
+                    Diff.additionsLabel(totals.additions),
+                    color = DesignTokens.Diff.AddFg,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                 )
                 Text(
-                    "−${files.sumOf { it.deletions }}",
-                    color = DiffDelColor,
+                    Diff.deletionsLabel(totals.deletions),
+                    color = DesignTokens.Diff.DelFg,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                 )
@@ -673,7 +673,7 @@ private fun ChangesSummaryHeader(
 
 /**
  * EXP-893: the per-file rows of a PR review — a load spinner, a failure, the
- * empty note, or one collapsible [FileSection] per file — shared by the
+ * empty note, or one collapsible [DiffFileCard] per file — shared by the
  * Reviews page above and the Work screen's Changes face (`ChangesFace`).
  * A plain Column body (not a LazyListScope), so either host lays it out.
  */
@@ -709,103 +709,16 @@ internal fun ChangesFileList(
                     modifier = Modifier.padding(vertical = 12.dp),
                 )
             }
-            files.forEach { file ->
-                FileSection(
+            // EXP-895: GitHub's PullFile is parsed into the shared model here
+            // and nowhere else — the card below never sees a patch string.
+            val parsed = remember(files) { files.map { it.toDiffFile() } }
+            parsed.forEach { file ->
+                DiffFileCard(
                     file = file,
-                    expanded = expanded[file.filename] == true,
-                    onToggle = {
-                        expanded[file.filename] = expanded[file.filename] != true
-                    },
+                    expanded = expanded[file.path] == true,
+                    onToggle = { expanded[file.path] = expanded[file.path] != true },
                 )
             }
         }
     }
-}
-
-// One changed file: a tappable header (status letter, filename, +/− counts)
-// over a collapsible unified patch with the shared line coloring.
-@Composable
-private fun FileSection(file: PullFile, expanded: Boolean, onToggle: () -> Unit) {
-    val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(modifier = Modifier.fillMaxWidth().glassGroup()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("changes-file-row")
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                statusLetter(file.status),
-                color = statusColor(file.status),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                file.filename,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("+${file.additions}", color = DiffAddColor, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-            Spacer(Modifier.width(4.dp))
-            Text("−${file.deletions}", color = DiffDelColor, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-            Spacer(Modifier.width(6.dp))
-            // EXP-706: ONE glyph that turns, instead of two that swap — the
-            // rotation reads as the section opening. Motion.standard() snaps
-            // under the OS's reduce-motion setting (ui/theme/Motion.kt).
-            val rotation by animateFloatAsState(
-                targetValue = if (expanded) 180f else 0f,
-                animationSpec = Motion.standard(),
-                label = "file-chevron",
-            )
-            Icon(
-                ExpIcons.uiChevronDown,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(16.dp).rotate(rotation),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-        if (expanded) {
-            val patch = file.patch
-            if (!patch.isNullOrEmpty()) {
-                PatchLines(
-                    lines = remember(patch) { patch.split("\n") },
-                    contextColor = contextColor,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            } else {
-                Text(
-                    if (file.status == "renamed") "Renamed." else "No textual diff (binary or too large).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = contextColor,
-                    modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 10.dp),
-                )
-            }
-        }
-    }
-}
-
-// GitHub file statuses: added / modified / removed / renamed / copied / changed.
-private fun statusLetter(status: String): String = when (status) {
-    "added" -> "A"
-    "removed" -> "D"
-    "renamed" -> "R"
-    "copied" -> "C"
-    else -> "M"
-}
-
-// EXP-706: the status letter reads as a STATUS, not as diff-line chrome —
-// the shared semantic palette, web parity (M is amber, not muted grey).
-private fun statusColor(status: String): Color = when (status) {
-    "added" -> DesignTokens.Semantic.Green
-    "removed" -> DesignTokens.Semantic.Red
-    "renamed", "copied" -> DesignTokens.Semantic.Blue
-    else -> DesignTokens.Semantic.Yellow
 }
