@@ -10,6 +10,7 @@ import {
 } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { byCreatedAtDesc } from "@/lib/ordering"
+import { nestPrStacks } from "@/lib/pr-stack"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { CodingSession, Issue, Board, Team } from "@/db/schema"
 
@@ -25,8 +26,28 @@ export interface ReviewEntry {
   issues: Issue[]
 }
 
+// EXP-897: one row of the queue — an entry plus where it sits in its PR
+// STACK (`issues.pr_base_branch`, `lib/pr-stack.ts`). An upper entry follows
+// the one it is based on, indented, and the BOTTOM row of a stack is the one
+// that can merge the whole thing.
+export interface ReviewRow {
+  entry: ReviewEntry
+  depth: number
+  hasChildren: boolean
+  /** The identifier this entry is stacked on — the `on top of #IDENT`
+   *  caption. Null on a root. */
+  stackedOn: string | null
+  /** Bottom row of a real stack only: the TOP entry's representative issue id
+   *  (what `issues.mergePr({ mergeStack: true })` takes) and the stack's size. */
+  stackTopIssueId: string | null
+  stackSize: number
+}
+
 export interface ReviewGroup {
   board: Board
+  /** Nested rows, roots newest-first. */
+  rows: ReviewRow[]
+  /** The same entries, flat — the sidebar nav and the counts. */
   entries: ReviewEntry[]
 }
 
@@ -154,18 +175,66 @@ export function useReviewsData(team: Team | null | undefined) {
       }
     }
 
-    const byBoard = new Map<string, ReviewEntry[]>()
+    const allEntries: ReviewEntry[] = []
     for (const entry of entriesByKey.values()) {
       entry.issues.sort(byCreatedAtDesc)
       entry.issue = entry.issues[0]
-      // A batch PR's issues may span boards sharing one repo — the entry
-      // lives under the representative (newest) issue's board.
-      const bucket = byBoard.get(entry.issue.boardId)
-      if (bucket) {
-        bucket.push(entry)
-      } else {
-        byBoard.set(entry.issue.boardId, [entry])
+      allEntries.push(entry)
+    }
+    allEntries.sort((a, b) => byCreatedAtDesc(a.issue, b.issue))
+
+    // EXP-897: nest the WHOLE queue before bucketing — a stack can cross
+    // boards (its members share a repository, not a board), and it must read
+    // as one stack wherever its bottom lives.
+    const nested = nestPrStacks(allEntries)
+    const rows: ReviewRow[] = nested.map((row, index) => {
+      // The parent is the nearest earlier row one level up.
+      let stackedOn: string | null = null
+      if (row.depth > 0) {
+        for (let back = index - 1; back >= 0; back -= 1) {
+          if (nested[back].depth === row.depth - 1) {
+            stackedOn = nested[back].entry.issue.identifier
+            break
+          }
+        }
       }
+      // A root with children owns the stack: its size is its whole subtree,
+      // and the TOP is the deepest row of it (the one GitHub merges).
+      let stackTopIssueId: string | null = null
+      let stackSize = 1
+      if (row.depth === 0 && row.hasChildren) {
+        let top = row.entry
+        let deepest = 0
+        for (let ahead = index + 1; ahead < nested.length; ahead += 1) {
+          if (nested[ahead].depth === 0) break
+          stackSize += 1
+          if (nested[ahead].depth > deepest) {
+            deepest = nested[ahead].depth
+            top = nested[ahead].entry
+          }
+        }
+        stackTopIssueId = top.issue.id
+      }
+      return {
+        entry: row.entry,
+        depth: row.depth,
+        hasChildren: row.hasChildren,
+        stackedOn,
+        stackTopIssueId,
+        stackSize,
+      }
+    })
+
+    // A stack lives under its ROOT entry's board, so the nesting survives the
+    // grouping. A batch PR's issues may span boards sharing one repo — the
+    // entry lives under the representative (newest) issue's board.
+    const byBoard = new Map<string, ReviewRow[]>()
+    let rootBoardId = ``
+    for (const row of rows) {
+      if (row.depth === 0) rootBoardId = row.entry.issue.boardId
+      const bucket = byBoard.get(rootBoardId)
+      if (bucket) bucket.push(row)
+      else byBoard.set(rootBoardId, [row])
     }
 
     const groups: ReviewGroup[] = []
@@ -173,8 +242,11 @@ export function useReviewsData(team: Team | null | undefined) {
     for (const board of boards) {
       const bucket = byBoard.get(board.id)
       if (!bucket) continue
-      bucket.sort((a, b) => byCreatedAtDesc(a.issue, b.issue))
-      groups.push({ board, entries: bucket })
+      groups.push({
+        board,
+        rows: bucket,
+        entries: bucket.map((row) => row.entry),
+      })
     }
 
     // EXP-734: the run's OWN PR (no linked issue), newest per prUrl.

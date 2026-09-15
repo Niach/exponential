@@ -46,6 +46,7 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { WORK_COLUMN_CLASS, WorkHeader } from "@/components/work-header"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -684,6 +685,13 @@ export function IssueDetailView({
         title={titleField}
         trailing={
           <>
+            {/* EXP-897: what this issue is part of — its stack, its batch. */}
+            <PrGraphBadge
+              teamId={issue.teamId}
+              teamSlug={teamSlug}
+              face="issue"
+              issue={issue}
+            />
             {faceToggle}
             {pinToggle}
             <IssueActionsMenu

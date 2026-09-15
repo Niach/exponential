@@ -27,11 +27,7 @@ import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { pastRunRowByline } from "@/components/agent-session-row"
-import {
-  PastSessionRow,
-  RunningSessionRow,
-} from "@/components/session-list-rows"
+import { SessionTreeList } from "@/components/session-tree-list"
 import { useSessionListRows } from "@/hooks/use-agents-data"
 import { sessionIdentity } from "@/lib/session-identity"
 import type { DetailOrigin } from "@/lib/detail-origin"
@@ -448,39 +444,25 @@ export function AutomationsTab({
               Nothing has fired yet.
             </div>
           ) : (
-            <div className="flex flex-col gap-0">
-              {recentRuns.map((row) => {
-                const { session } = row
+            /* EXP-897: nested by `parent_session_id` — the cap above is
+               applied to the ROWS, before the tree. */
+            <SessionTreeList
+              rows={recentRuns}
+              onOpen={(session) =>
+                // EXP-862: opened from Automations, so Back returns here
+                // and the sidebar keeps the automated-runs list.
+                openSession(session, { origin: AUTOMATIONS_ORIGIN })
+              }
+              titleOf={(row) =>
                 // The action that fired: the row's `actionName` snapshot, or
                 // the live action's name when the snapshot is missing.
-                const title =
-                  row.issue || !session.actionId
-                    ? sessionIdentity(row).subject
-                    : (session.actionName ??
-                      actionById.get(session.actionId)?.name ??
-                      `Action`)
-                const onOpen = () =>
-                  // EXP-862: opened from Automations, so Back returns here
-                  // and the sidebar keeps the automated-runs list.
-                  openSession(session, { origin: AUTOMATIONS_ORIGIN })
-                return session.status === `ended` ? (
-                  <PastSessionRow
-                    key={session.id}
-                    sessionId={session.id}
-                    title={title}
-                    identifier={row.issue?.identifier ?? null}
-                    byline={pastRunRowByline(row)}
-                    onOpen={onOpen}
-                  />
-                ) : (
-                  <RunningSessionRow
-                    key={session.id}
-                    row={row}
-                    onOpen={onOpen}
-                  />
-                )
-              })}
-            </div>
+                row.issue || !row.session.actionId
+                  ? sessionIdentity(row).subject
+                  : (row.session.actionName ??
+                    actionById.get(row.session.actionId)?.name ??
+                    `Action`)
+              }
+            />
           )}
         </div>
       </div>

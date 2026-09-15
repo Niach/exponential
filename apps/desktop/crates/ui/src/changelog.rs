@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-stacked-pull-requests",
+    date: "2026-09-16",
+    title: "Stacked pull requests",
+    summary: "An issue blocked by another can now be started on top of it: one pull request based on the other, merged together, with the stack visible everywhere the work is.",
+    body: r#"- **Start on top of a blocker**: starting an issue that something else blocks now asks whether to start anyway or open a stacked pull request. A stacked run cuts its branch from the blocker's branch, so its diff shows only its own work, and it builds the blocker first if nobody has.
+- **Merge the whole stack**: the review queue nests a stacked pull request under the one it is based on, says which one that is, and offers Merge stack on the bottom of the chain. Merging a stacked pull request through Exponential works again on GitHub, where it used to be refused outright.
+- **A badge for related work**: an issue, its run and its changes carry one small badge saying whether they are part of a stack or of a batch pull request. Hover it (or tap it on a phone) to see the blockers, the issues sharing the pull request, and the runs a run started.
+- **Every run list nests**: a run started by another run now sits under it in every list, with a twisty to fold the whole branch away, on the web, the desktop app, iOS and Android.
+- **Questions reach you**: a run several levels deep can hand a question to the person instead of to the run above it. It lands in your inbox and on the run you are watching."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-one-diff-view",
     date: "2026-09-15",
     title: "One diff view",
@@ -54,20 +68,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Unchanged lines on request**: the gap above and between changes says how many lines it hides, and opens them where you want to read around an edit.
 - **Renames, copies and binaries**: a renamed or copied file names where it came from, and a binary file says so instead of showing an empty body.
 - **Cut output is marked**: when a run's tool output or diff is too long to send whole, the transcript says how many lines were dropped rather than ending mid line."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-phone-work-screen",
-    date: "2026-09-15",
-    title: "The issue and its run, one screen on your phone",
-    summary: "iOS, Android and the mobile web get the desktop's unified issue and session view: one header, Issue, Run and Changes as faces of one screen, and a floating bar that switches between them.",
-    body: r#"- **One screen, three faces**: an issue, its coding run and the run's changes are one screen now. The header never jumps, and the bottom-right circle switches between the faces; with several places to go it opens a menu above itself, with several runs of yours one row per run.
-- **Stop and Resume up top**: while you look at the run, Stop (or Resume once it ended) sits in the top-right corner, where the old Watch button and the usage menu used to be.
-- **The composer matches the desktop**: the run's reply box shows the plan-mode word, the attach button, the model picker and a small usage ring that opens the usage sheet.
-- **Changes as a page**: the run's diff, or the issue's open pull request, is a full page with the GitHub link and Merge PR in the bar, instead of a floating bar over the transcript.
-- **Simpler session lists**: the Agent page's rows no longer carry Merge and open-issue buttons on any client; tapping a row opens the run."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

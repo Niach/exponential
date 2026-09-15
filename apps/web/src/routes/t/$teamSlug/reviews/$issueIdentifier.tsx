@@ -36,6 +36,7 @@ import {
 import { cn } from "@/lib/utils"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
 import { ChangesTopBar } from "@/components/changes-top-bar"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { ChangesView } from "@/components/changes-view"
 import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
 import {
@@ -172,6 +173,22 @@ function ReviewDetailPage() {
       })
   }
 
+  // EXP-897: merge the WHOLE stack, from its top — the server merges every
+  // unmerged member below it. A refusal captions the bar, like a refused close.
+  const mergeStack = (topIssueId: string) => {
+    setCloseError(null)
+    trpc.issues.mergePr
+      .mutate(
+        { issueId: topIssueId, mergeStack: true },
+        { context: { skipErrorToast: true } }
+      )
+      .catch((error: unknown) => {
+        setCloseError(
+          mergeFailure(error, `The stack could not be merged`).message
+        )
+      })
+  }
+
   const openIssue = (linkedIssue: Issue) => {
     const boardSlug = boardSlugById.get(linkedIssue.boardId)
     if (!boardSlug) return
@@ -268,6 +285,18 @@ function ReviewDetailPage() {
         merge={isOpen ? mergeTarget : null}
         onClosePr={() => setConfirmCloseOpen(true)}
         closing={closing}
+        trailing={
+          /* EXP-897: the review page IS the Changes face — the same stack /
+             batch pill the run's header wears, with `Merge stack` on the
+             bottom entry of the stack. */
+          <PrGraphBadge
+            teamId={issue.teamId}
+            teamSlug={teamSlug}
+            face="changes"
+            issue={issue}
+            onMergeStack={mergeStack}
+          />
+        }
       />
 
       {/* A refused CLOSE captions the bar that produced it (EXP-333). A refused

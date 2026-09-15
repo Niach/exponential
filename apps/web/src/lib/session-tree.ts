@@ -97,9 +97,10 @@ export function descendantIds<T extends TreeSession>(
  * any ancestor) is collapsed is skipped. Keyed on the flattened depths, so it
  * needs nothing but `nestSessions`' output.
  *
- * A WEB presentation helper, not part of the ×4 nesting rule above: the two
- * session lists that fold (the sidebar group and the Agent page's list) share
- * it so their twisties behave identically. */
+ * EXP-897 promoted this to the ×4 rule with the nesting itself (every session
+ * list on every client folds a parent's subtree now — desktop
+ * `domain::session_tree::visible_rows`, iOS/Android `SessionTree.visibleRows`)
+ * with the shared test name `hides rows under a collapsed parent`. */
 export function visibleTreeRows<T extends TreeSession>(
   rows: readonly SessionTreeRow<T>[],
   collapsed: ReadonlySet<string>

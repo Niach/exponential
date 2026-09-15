@@ -6,6 +6,7 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
+import { BlockedStartDialog } from "@/components/blocked-start-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
 import { ActionPicker } from "@/components/launch-dialog/action-picker"
 import { IssuePicker } from "@/components/launch-dialog/issue-picker"
@@ -301,6 +302,17 @@ export function LaunchComposer({
         />
       </Composer>
       <LaunchOptionsLine model={model} />
+      {/* EXP-897: the submit on a BLOCKED single issue asks first. */}
+      <BlockedStartDialog
+        open={model.blockedOpen}
+        blockers={model.blockedStart}
+        busy={busy}
+        onOpenChange={(next) => {
+          if (!next) model.closeBlockedStart()
+        }}
+        onStartAnyway={() => void model.startAnyway()}
+        onStartStacked={() => void model.startStacked()}
+      />
     </div>
   )
 }
