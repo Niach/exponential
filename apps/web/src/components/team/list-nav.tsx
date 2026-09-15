@@ -17,8 +17,6 @@ import { useOpenSession } from "@/hooks/use-open-session"
 import { codingSessionCollection } from "@/lib/collections"
 import { sessionIdentity } from "@/lib/session-identity"
 import { useSessionListRows } from "@/hooks/use-agents-data"
-import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { useSteerConfig } from "@/components/agent-session"
 import { pastRunRowByline } from "@/components/agent-session-row"
 import {
   PastSessionRow,
@@ -303,10 +301,6 @@ function AutomationsListNav({ team }: { team: Team }) {
   const teamId = team.id
   const { sessionId } = useActiveDetail()
   const openSession = useOpenSession()
-  // EXP-874: resolved once for the rows' trailing buttons.
-  const { isMember, isOwner } = useTeamPermissions(team)
-  const steerConfig = useSteerConfig()
-  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const { data: sessionRows } = useLiveQuery(
     (query) =>
       query
@@ -358,8 +352,6 @@ function AutomationsListNav({ team }: { team: Team }) {
               key={session.id}
               row={row}
               active={active}
-              isOwner={isOwner}
-              steerEnabled={steerEnabled}
               onOpen={onOpen}
             />
           )

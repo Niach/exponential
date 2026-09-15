@@ -10,7 +10,8 @@ import { AgentSessionView } from "@/components/agent-session"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
-import { IssueRunSwitcher } from "@/components/issue-run-switcher"
+import { IssueCodingAction } from "@/components/issue-coding-action"
+import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PinToggleButton } from "@/components/pin-toggle-button"
@@ -23,7 +24,10 @@ import {
   CONTINUATION_NOTE,
 } from "@/components/session-account-switch"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
+import { useReviewFiles } from "@/hooks/use-review-files"
 import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
   rowPrState,
@@ -33,6 +37,7 @@ import {
 } from "@/hooks/use-agents-data"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 import { sessionIdentity } from "@/lib/session-identity"
+import type { SessionDotTone } from "@/lib/session-dot"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -44,7 +49,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 // is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`). EXP-870: this
 // is the ONE run URL — an issue's run too, whose issue is the work tab's other
 // face. EXP-877: `?view=diff` is the run's third face, the full-column diff
-// under the same header (`work-header.tsx`).
+// under the same header (`work-header.tsx`). EXP-893: on a phone the faces
+// are the Work screen's — `replace` navigations, so Back leaves the subject.
 //
 // EXP-312: a LIVE session is visible and steerable by its OWNER alone (the
 // relay ticket mint refuses everyone else). A teammate's session id therefore
@@ -194,6 +200,7 @@ function OwnSessionPage({
   onBack: () => void
 }) {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const issue: Issue | null = row.issue ?? null
   const board: Board | null = row.board ?? null
   const permissions = useTeamPermissions(team)
@@ -202,7 +209,8 @@ function OwnSessionPage({
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
 
   // EXP-870: the run's linked issue is the same work tab's ISSUE face — its
-  // canonical URL, beside the same list (`from` rides along).
+  // canonical URL, beside the same list (`from` rides along). EXP-893: a
+  // `replace` on a phone, where the faces are one screen.
   const openIssue = useCallback(() => {
     if (!board || !issue) return
     void navigate({
@@ -213,8 +221,9 @@ function OwnSessionPage({
         issueIdentifier: issue.identifier,
       },
       search: from ? { from } : {},
+      replace: isMobile,
     })
-  }, [navigate, teamSlug, board, issue, from])
+  }, [navigate, teamSlug, board, issue, from, isMobile])
 
   // EXP-877: the run and diff faces are the same URL with `?view=` — a
   // replace, so Back still leaves the run rather than stepping through faces.
@@ -239,7 +248,8 @@ function OwnSessionPage({
 
   // EXP-886: the issue's runs of mine — the header's Run/Runs label and the
   // switcher between them. Picking one is the same navigation the Run face
-  // makes (`from` rides along); the tab's Run face follows the URL.
+  // makes (`from` rides along); the tab's Run face follows the URL. EXP-893:
+  // on a phone the run swaps IN PLACE (a replace).
   const { runs: issueRuns } = useIssueRuns(issue?.id, team.id, currentUserId)
   const openRun = useCallback(
     (target: CodingSession) => {
@@ -247,10 +257,30 @@ function OwnSessionPage({
         to: `/t/$teamSlug/sessions/$sessionId`,
         params: { teamSlug, sessionId: target.id },
         search: from ? { from } : {},
+        replace: isMobile,
       })
     },
-    [navigate, teamSlug, from]
+    [navigate, teamSlug, from, isMobile]
   )
+
+  // EXP-893: the phone's Changes face without a live diff — the issue's PR
+  // files (a batch run's representative issue carries the PR). Fetched only
+  // while a phone is on that face.
+  const prIssue =
+    issue ?? (row.mergeTarget?.kind === `issue` ? row.mergeTarget.issue : null)
+  const { state: prFilesState } = useReviewFiles(prIssue, {
+    enabled: isMobile && face === `diff`,
+  })
+  const prFiles =
+    prFilesState.kind === `files` ? prFilesState.files : null
+  const prUrl = prIssue?.prUrl ?? session.prUrl ?? null
+
+  // EXP-893: the switcher's `Start coding` row once this run ended for good
+  // — a new run on the issue, through the Agent page composer.
+  const openComposer = useOpenComposer()
+  const onStart = issue
+    ? () => openComposer({ issueIds: [issue.id] })
+    : undefined
 
   const issueHeader =
     issue && board
@@ -287,6 +317,44 @@ function OwnSessionPage({
         }
       : undefined
 
+  // EXP-893: an issue subject's phone header — the SAME bar the issue face
+  // wears, with Stop / Resume in its trailing slot on the Run face only
+  // (`IssueCodingAction` without its Start capsule: the bar's circle owns
+  // Start).
+  const renderMobileHeader =
+    issue && board
+      ? ({
+          dot,
+          showingRun,
+        }: {
+          dot: { tone: SessionDotTone; connecting: boolean }
+          showingRun: boolean
+        }) => (
+          <IssueMobileHeader
+            issue={issue}
+            board={board}
+            teamSlug={teamSlug}
+            teamId={team.id}
+            readOnly={readOnly}
+            origin={from}
+            handlers={handlers}
+            dot={dot}
+            action={
+              showingRun ? (
+                <IssueCodingAction
+                  issue={issue}
+                  board={board}
+                  teamId={team.id}
+                  currentUserId={currentUserId}
+                  preferredSessionId={session.id}
+                  showStart={false}
+                />
+              ) : undefined
+            }
+          />
+        )
+      : undefined
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* The run may END while this page is open — the view stays mounted and
@@ -309,16 +377,12 @@ function OwnSessionPage({
         onFace={onFace}
         onIssueFace={issue && board ? openIssue : undefined}
         issueHeader={issueHeader}
-        runSwitcher={
-          issue ? (
-            <IssueRunSwitcher
-              runs={issueRuns}
-              viewedRunId={session.id}
-              onOpen={openRun}
-            />
-          ) : undefined
-        }
-        multipleRuns={issueRuns.length > 1}
+        issueRuns={issue ? issueRuns : undefined}
+        onOpenRun={issue ? openRun : undefined}
+        onStart={onStart}
+        prFiles={prFiles}
+        prUrl={prUrl}
+        renderMobileHeader={renderMobileHeader}
         onBack={onBack}
       />
       {handlers.duplicatePicker}

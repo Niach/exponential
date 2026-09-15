@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-phone-work-screen",
+    date: "2026-09-15",
+    title: "The issue and its run, one screen on your phone",
+    summary: "iOS, Android and the mobile web get the desktop's unified issue and session view: one header, Issue, Run and Changes as faces of one screen, and a floating bar that switches between them.",
+    body: r#"- **One screen, three faces**: an issue, its coding run and the run's changes are one screen now. The header never jumps, and the bottom-right circle switches between the faces; with several places to go it opens a menu above itself, with several runs of yours one row per run.
+- **Stop and Resume up top**: while you look at the run, Stop (or Resume once it ended) sits in the top-right corner, where the old Watch button and the usage menu used to be.
+- **The composer matches the desktop**: the run's reply box shows the plan-mode word, the attach button, the model picker and a small usage ring that opens the usage sheet.
+- **Changes as a page**: the run's diff, or the issue's open pull request, is a full page with the GitHub link and Merge PR in the bar, instead of a floating bar over the transcript.
+- **Simpler session lists**: the Agent page's rows no longer carry Merge and open-issue buttons on any client; tapping a row opens the run."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-session-history",
     date: "2026-09-15",
     title: "Session history that stays",
@@ -54,21 +68,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Sessions setting**: the desktop app's new Settings → Sessions page picks how long that history is kept: unlimited by default, or 1 year, 90 days or 30 days.
 - **Switching runs**: when an issue has more than one run of yours, its Run toggle reads Runs and the run's page gets a picker that opens any of them, the live one included.
 - **Recent**: the Agent page's Past band is now called Recent and shows your 20 latest runs."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-rail-that-stays-and-run-tabs",
-    date: "2026-09-13",
-    title: "A sidebar that never leaves, and every run in a tab beside its issue",
-    summary: "Opening an issue from a list folds the sidebar into an icon rail instead of replacing it, an issue and its coding run share one tab, and every run you have going always has a tab, on the desktop app and the web.",
-    body: r#"- **The rail stays**: opening an issue, a run or Settings from a list slides that list in beside an icon rail, so Inbox, Agent, your boards and pinned items stay one click away. Back slides the other way.
-- **One tab per piece of work**: an issue and its coding run are one tab with an Issue and Run switch in the header, and a run without an issue gets a tab of its own. The web now has tabs too.
-- **Runs always have a tab**: every run you have going gets a tab at the front of the strip, with a spinner while the agent works, amber when it waits on you and green once its PR is open. Close one and it stays closed until the run needs you again.
-- **Pinned items open in place**: a pinned issue, run or action opens full width without swapping the sidebar.
-- **The list opens every time**: on the desktop app, the first issue you open after launch or after switching teams now opens beside its board list.
-- **The same sidebar on both**: the team switcher stays at the top on the web too, the back row is the same size on both, Agent shows how many runs are going, and the web team menu gains Join team."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

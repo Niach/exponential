@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-phone-work-screen`,
+    date: `2026-09-15`,
+    title: `The issue and its run, one screen on your phone`,
+    summary: `iOS, Android and the mobile web get the desktop's unified issue and session view: one header, Issue, Run and Changes as faces of one screen, and a floating bar that switches between them.`,
+    body: `- **One screen, three faces**: an issue, its coding run and the run's changes are one screen now. The header never jumps, and the bottom-right circle switches between the faces; with several places to go it opens a menu above itself, with several runs of yours one row per run.
+- **Stop and Resume up top**: while you look at the run, Stop (or Resume once it ended) sits in the top-right corner, where the old Watch button and the usage menu used to be.
+- **The composer matches the desktop**: the run's reply box shows the plan-mode word, the attach button, the model picker and a small usage ring that opens the usage sheet.
+- **Changes as a page**: the run's diff, or the issue's open pull request, is a full page with the GitHub link and Merge PR in the bar, instead of a floating bar over the transcript.
+- **Simpler session lists**: the Agent page's rows no longer carry Merge and open-issue buttons on any client; tapping a row opens the run.`,
+  },
+  {
     id: `2026-09-session-history`,
     date: `2026-09-15`,
     title: `Session history that stays`,

@@ -13,6 +13,26 @@ import {
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
+import { FileDiffList, type PullFile } from "@/components/diff-view"
+import type { PastRunRow } from "@/hooks/use-agents-data"
+import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
+import { IssueRunSwitcher } from "@/components/issue-run-switcher"
+import {
+  MOBILE_WORK_BAR_CLEARANCE,
+  MOBILE_WORK_CIRCLE_CLASS,
+  MobileWorkBar,
+  MobileWorkCapsule,
+} from "@/components/mobile-work-bar"
+import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
+import { TitleStateDot } from "@/components/issue-mobile-header"
+import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { availableFaces, phaseDotTone } from "@/lib/work-faces"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -20,7 +40,6 @@ import {
   mergeTargetProps,
   type SessionMergeTarget,
 } from "@/hooks/use-agents-data"
-import { SessionMergeButton } from "@/components/session-merge-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
@@ -48,10 +67,8 @@ import {
   healthBadgeLabel,
   CONTEXT_SECTION_TITLE,
 } from "@/lib/agent-usage"
-import type { SessionDevice } from "@/lib/session-device"
 import type { SessionIdentity } from "@/lib/session-identity"
 import {
-  staleActivityLabel,
   staleActivityMinutes,
 } from "@/lib/stale-activity"
 import {
@@ -79,7 +96,6 @@ import {
   optionHotkey,
   pendingAnswerable,
   opensInlineField,
-  planModeChipLabel,
   QUEUE_REMOVE_LABEL,
   QUEUE_STRIP_TITLE,
   type QueuedMessage,
@@ -106,7 +122,6 @@ import {
   type TranscriptGapToken,
   type WorkflowState,
 } from "@/lib/agent-feed"
-import { workflowCaption } from "@exp/domain-contract"
 import { workingCaption } from "@/lib/working-caption"
 import {
   diffScopeTurnLabel,
@@ -115,7 +130,7 @@ import {
   toolDiffFiles,
   type SessionFileCard as SessionFileCardData,
 } from "@/lib/session-file-cards"
-import { SESSION_DOT_CLASS, type SessionDotTone } from "@/lib/session-dot"
+import type { SessionDotTone } from "@/lib/session-dot"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
 import {
   canWidenDiffScope,
@@ -159,7 +174,6 @@ import {
   type QuestionItem,
   type QuestionOption,
   type ToolItem,
-  type ViewerPhase,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -173,16 +187,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Composer, ComposerSubmit } from "@/components/composer"
 import { Progress } from "@/components/ui/progress"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { FileDiffList } from "@/components/diff-view"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
@@ -201,7 +209,6 @@ const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
-const NavIssuesIcon = conceptIcon(`nav-issues`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
@@ -323,8 +330,12 @@ export function AgentSessionView({
   onFace,
   onIssueFace,
   issueHeader,
-  runSwitcher,
-  multipleRuns = false,
+  issueRuns,
+  onOpenRun,
+  onStart,
+  prFiles,
+  prUrl,
+  renderMobileHeader,
   onBack,
 }: {
   session: CodingSession
@@ -357,16 +368,32 @@ export function AgentSessionView({
     trailing?: ReactNode
     tray?: ReactNode
   }
-  /** EXP-886: the switcher between the issue's runs of mine
-   *  (`IssueRunSwitcher`, absent under two runs) — beside the face toggle on
-   *  md+, in the phone's compact row. */
-  runSwitcher?: ReactNode
-  /** EXP-886: the issue has more than one run of mine, so the Run face
-   *  reads "Runs". */
-  multipleRuns?: boolean
+  /** EXP-886: the issue's runs of mine (`useIssueRuns`), switcher order —
+   *  the Run/Runs label, the md+ `IssueRunSwitcher` and the phone switcher's
+   *  run rows all read it. */
+  issueRuns?: readonly PastRunRow[]
+  /** EXP-886: open another of the issue's runs (the view swaps in place). */
+  onOpenRun?: (session: CodingSession) => void
+  /** EXP-893: start a NEW run on the issue — the phone switcher's `Start
+   *  coding` row once this run ended for good. */
+  onStart?: () => void
+  /** EXP-893: the issue's PR files, the phone's Changes face when the run
+   *  published no live diff (`useReviewFiles`). */
+  prFiles?: PullFile[] | null
+  /** EXP-893: the PR page, the Changes face's GitHub circle. */
+  prUrl?: string | null
+  /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
+   *  route wraps it so the same bar shows on every face; `showingRun` says
+   *  whether to put Stop / Resume in its trailing slot. */
+  renderMobileHeader?: (input: {
+    dot: { tone: SessionDotTone; connecting: boolean }
+    showingRun: boolean
+  }) => ReactNode
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
 }) {
+  /** EXP-886: more than one run of mine on the issue — "Runs". */
+  const multipleRuns = (issueRuns?.length ?? 0) > 1
   // EXP-621: the connection lives in a module-level per-session store that
   // outlives this view — mounting subscribes to the retained state (feed,
   // phase, answers) and dials only when nothing is connected yet, so
@@ -404,7 +431,8 @@ export function AgentSessionView({
     [store, session.status]
   )
 
-  const [diffOpen, setDiffOpen] = useState(false)
+  /** EXP-893: the phone's composer is a capsule until tapped. */
+  const [composerOpen, setComposerOpen] = useState(false)
   /** EXP-877: the file the diff FACE is scrolled to (null = the top). */
   const [diffFile, setDiffFile] = useState<string | null>(null)
   /** EXP-862: WHAT the diff face is showing — the whole session (the face
@@ -712,8 +740,6 @@ export function AgentSessionView({
   // run's device reported one. `usageNow` already ticks for the stale check,
   // so the countdown rides it rather than opening a second timer.
   const blockedLabel = blockedBadgeLabel(session.blocked, usageNow)
-  /** EXP-847: "Plan" while the live config says plan mode is in force. */
-  const planChip = planModeChipLabel(config)
   /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
    *  implies ownership (EXP-312), and only a live stream can be killed. */
   const {
@@ -724,14 +750,8 @@ export function AgentSessionView({
   const canKill = live && ownsLiveRow
   /** EXP-877: Resume in the run header (issue-less runs) — an issue-bound
    *  run's tray decides for itself (`issue-coding-action.tsx`). */
-  const canResumeRun = useCanResumeOn(
-    sessionEnded && !issueHeader ? session : null
-  )
-  /** The phone has neither the md+ header nor the issue tray, so its compact
-   *  row offers Resume for every ended run, issue-bound or not. */
-  const canResumeOnPhone = useCanResumeOn(
-    sessionEnded && isMobile ? session : null
-  )
+  const canResumeAny = useCanResumeOn(sessionEnded ? session : null)
+  const canResumeRun = canResumeAny && !issueHeader
   /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
    *  (with their bars) and switches between them — so it exists whenever the
    *  machine reported an account for this run, not only when numbers are
@@ -768,108 +788,14 @@ export function AgentSessionView({
     }
   }, [deviceOnline, store])
 
-  /** The floating "Changes" row — MOBILE ONLY since EXP-850 §11: on md+ the
-   *  diff is a pane beside the transcript (the Diff pill in the header opens
-   *  it) and the bottom bar is gone. The phone keeps its sheet, which is the
-   *  one place a small screen can afford a diff. EXP-678: it shares its row
-   *  with the glass Merge pill once the PR is open. */
-  const changesBar =
-    isMobile && (latestDiff || canMerge) ? (
-      <Collapsible
-        open={diffOpen && Boolean(latestDiff)}
-        onOpenChange={setDiffOpen}
-        className={`overflow-hidden rounded-xl border border-glass-stroke-card bg-glass-card shadow-lg backdrop-blur-md`}
-      >
-        <div className="flex items-stretch">
-          {latestDiff ? (
-            <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50">
-              <ChevronRight
-                className={cn(
-                  `size-3.5 shrink-0 text-muted-foreground transition-transform`,
-                  diffOpen && `rotate-90`
-                )}
-              />
-              <span className="font-medium">Changes</span>
-              <span className="ml-auto" />
-              <span className="shrink-0 font-mono">
-                <span className="text-emerald-400">+{diffStats.additions}</span>
-                {` `}
-                <span className="text-rose-400">-{diffStats.deletions}</span>
-              </span>
-            </CollapsibleTrigger>
-          ) : (
-            <span className="flex-1" />
-          )}
-          {canMerge && mergeProps && (
-            <div className="flex shrink-0 items-center py-1 pr-2 pl-1">
-              <SessionMergeButton
-                variant="glass"
-                size="sm"
-                label="Merge"
-                {...mergeProps}
-                steerEnabled={steerEnabled}
-              />
-            </div>
-          )}
-        </div>
-        {latestDiff && (
-          <CollapsibleContent>
-            <div className="max-h-72 overflow-y-auto overscroll-contain border-t border-border/60">
-              <FileDiffList files={diffFiles} />
-            </div>
-          </CollapsibleContent>
-        )}
-      </Collapsible>
-    ) : null
-  /** The floating bar's footprint, so the newest message still scrolls clear
-   *  of it (and "Jump to bottom" lands above it). */
-  const floatingBar = changesBar !== null
-
-  /** EXP-850 §10: the Context pill — `124k / 200k` behind the usage glyph,
-   *  opening the very sheet the `…` menu used to. Hidden when the engine
-   *  reported no window, and once the run is over (a finished run's context
-   *  is not a live number any more). */
+  /** EXP-850 §10 / EXP-877: the usage overlay opens off the context ring —
+   *  in the composer footer on md+, the phone bar's left circle on a phone.
+   *  Hidden once the run is over (a finished run's context is not a live
+   *  number), unless the machine reported accounts or rate limits worth
+   *  opening. */
   const contextLabel = formatContextCompact(sessionUsage)
-  /** The sheet is also the ONLY way to the machine's rate-limit cards and to
-   *  EXP-849's account switch, so a run that reports those but no context
-   *  window keeps a glyph-only pill — losing the `…` menu must not lose the
-   *  account rows with it. */
-  // EXP-863: the overlay is a POPOVER anchored to the pill (the desktop's
-  // structure, byte-for-byte in its sections), controlled so the rate-limit
-  // notice's "Switch account" can open it too.
-  const contextPill =
-    sessionEnded || (!contextLabel && !agentUsage && !hasAccountRows) ? null : (
-      <Popover open={usageOpen} onOpenChange={setUsageOpen}>
-        <PopoverTrigger asChild>
-          <Pill
-            size="sm"
-            mode="action"
-            className="shrink-0"
-            aria-label="Usage"
-            title="Usage"
-            data-testid="session-context-pill"
-          >
-            <UiUsageIcon className="size-3" />
-            {contextLabel && <span className="font-mono">{contextLabel}</span>}
-          </Pill>
-        </PopoverTrigger>
-        <SessionUsagePopover
-          sessionUsage={sessionUsage}
-          agentUsage={agentUsage}
-          accountSwitch={accountSwitch}
-          now={usageNow}
-        />
-      </Popover>
-    )
-
-  /** EXP-850 §5/§7: while a workflow runs, the header caption IS the
-   *  workflow's (`Workflow wire-probe · 2/3 agents done · Beta`) — the phase
-   *  line says "Live · macbook", which a running workflow makes the less
-   *  interesting half. Everything else keeps the phase caption. */
-  const headerCaption =
-    runningWorkflow && live && !paused
-      ? workflowCaption(runningWorkflow)
-      : phaseLabel(phase, device, awaitingInput, paused, compactingNow, staleMinutes)
+  const usageAvailable =
+    !sessionEnded && Boolean(contextLabel || agentUsage || hasAccountRows)
 
   /** EXP-850 §12: one card per turn segment, listing what that turn changed;
    *  clicking a row opens the pane at that file. */
@@ -889,20 +815,15 @@ export function AgentSessionView({
   /** The diff face opens at a file, so a file card click is one gesture.
    *  EXP-862: it opens SCOPED to the turn the card closes — what that turn
    *  changed, with the card's own patches — and the face's chip widens it
-   *  back to the session. On a phone there is no face: the same click opens
-   *  the floating Changes sheet, which is that breakpoint's diff (§11 keeps
-   *  the mobile sheet) and has no scope of its own. */
+   *  back to the session. EXP-893: the phone's Changes face is the same
+   *  face (no sheet any more). */
   const openDiffFile = useCallback(
     (path: string, card: SessionFileCardData) => {
       setDiffFile(path)
-      if (isMobile) {
-        setDiffOpen(true)
-        return
-      }
       setDiffTurn(card.turnId)
       onFace(`diff`)
     },
-    [isMobile, onFace]
+    [onFace]
   )
 
   /** The scoped card, or null once the session scope is back (or the turn has
@@ -990,61 +911,6 @@ export function AgentSessionView({
     return byRow
   }, [fileCards, rows, feed, windowStart])
 
-  /** The PHONE's compact second row under the native header (the one bar
-   *  the five detail screens share): the read-only Plan chip, Reconnect,
-   *  Stop. EXP-877: md+ draws the unified work header instead — its controls
-   *  are the face toggle and the face's own cluster, and the context meter
-   *  moved into the composer. */
-  const headerControls = (
-    <>
-      {/* EXP-847: plan mode, VISIBLE. Read-only by design — EXP-790 made
-          mode a launch-time choice, so this says what the run is doing and
-          clears itself the moment an approved ExitPlanMode changes
-          `currentMode`. */}
-      {planChip && (
-        <span
-          className="shrink-0 rounded-sm border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
-          title="This run is in plan mode — it proposes a plan before it edits anything. Mode is chosen at launch."
-          data-testid="session-plan-chip"
-        >
-          {planChip}
-        </span>
-      )}
-      {/* A dropped stream redials from here too — a phone has no desktop
-          header to fall back on. */}
-      {phase.kind === `closed` && !paused && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => store.reconnect()}
-        >
-          <UiRefreshIcon />
-          Reconnect
-        </Button>
-      )}
-      {/* EXP-818: the ONE Stop — the same red-tinted glass pill as the md+
-          header's (`run-action-pills.tsx`); the confirm is `useKillSession`'s. */}
-      {canKill && <StopRunPill onStop={requestKill} />}
-      {sessionEnded && canResumeOnPhone && <ResumeRunPill session={session} />}
-      {/* EXP-886: the run switcher, where the phone has no header cluster. */}
-      {runSwitcher}
-      {/* The md+ face toggle is the way to the issue; a phone gets a pill. */}
-      {onIssueFace && (
-        <Pill
-          size="sm"
-          mode="action"
-          className="shrink-0"
-          onClick={onIssueFace}
-          data-testid="session-open-issue-pill"
-        >
-          <NavIssuesIcon className="size-3" />
-          {ISSUE_FACE_LABEL}
-        </Pill>
-      )}
-    </>
-  )
-
   /** EXP-877: the faces this work tab offers — `Issue` when the run links
    *  one, `Run` always (this IS the run), the diff once the run has changes.
    *  Under two faces the toggle renders nothing. Selecting the diff from
@@ -1076,9 +942,18 @@ export function AgentSessionView({
         ]
       : []),
   ]
+  /** EXP-893: what the Changes face draws — the run's live diff (scoped or
+   *  whole), else the issue's PR files the route fetched for a phone. */
+  const changesFiles = paneFiles.length > 0 ? paneFiles : (prFiles ?? [])
   /** EXP-877: the diff face stands only while there is something to draw —
    *  with no files it falls back to the run face. */
-  const showDiffFace = !isMobile && face === `diff` && paneFiles.length > 0
+  const showDiffFace = face === `diff` && changesFiles.length > 0
+  /** EXP-893: the subject HAS changes — a live diff, PR files, or an open PR
+   *  whose files are one fetch away. The phone's Changes face exists then. */
+  const hasChanges =
+    diffFiles.length > 0 ||
+    (prFiles?.length ?? 0) > 0 ||
+    mergeProps?.prState === `open`
 
   /** The run header's own right cluster (issue-less runs): Merge, then
    *  Stop while live or Resume once ended and resumable on its machine. An
@@ -1103,23 +978,145 @@ export function AgentSessionView({
    *  `usageSlot`), anchoring the same usage popover the header pill used to.
    *  Gone once the run is over — a finished run's context is not a live
    *  number any more. */
-  const usageSlot =
-    sessionEnded || (!contextLabel && !agentUsage && !hasAccountRows) ? null : (
-      <Popover open={usageOpen} onOpenChange={setUsageOpen}>
-        <PopoverTrigger asChild>
-          <ContextRing
-            usage={sessionUsage}
-            showEmpty={Boolean(agentUsage) || hasAccountRows}
-          />
-        </PopoverTrigger>
-        <SessionUsagePopover
+  const showEmptyRing = Boolean(agentUsage) || hasAccountRows
+  const usageSlot = !usageAvailable ? null : isMobile ? (
+    // EXP-893: on a phone the overlay is a bottom SHEET rendered once below;
+    // every ring only opens it.
+    <ContextRing
+      usage={sessionUsage}
+      showEmpty={showEmptyRing}
+      onClick={() => setUsageOpen(true)}
+    />
+  ) : (
+    <Popover open={usageOpen} onOpenChange={setUsageOpen}>
+      <PopoverTrigger asChild>
+        <ContextRing usage={sessionUsage} showEmpty={showEmptyRing} />
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        collisionPadding={8}
+        className="w-80 p-0"
+        aria-label="Usage"
+        data-testid="session-usage-popover"
+      >
+        <SessionUsageSections
           sessionUsage={sessionUsage}
           agentUsage={agentUsage}
           accountSwitch={accountSwitch}
           now={usageNow}
         />
-      </Popover>
-    )
+      </PopoverContent>
+    </Popover>
+  )
+
+  /** EXP-893: the phone's state dot — the header title's, and the switcher
+   *  badge's off the Run face. */
+  const dot = phaseDotTone({
+    live,
+    connecting:
+      phase.kind === `connecting` ||
+      phase.kind === `starting` ||
+      phase.kind === `history_pending`,
+    awaitingInput,
+    paused,
+    stale: staleMinutes !== null,
+  })
+  const showingRun = !showDiffFace
+
+  /** EXP-893: the phone's face switcher — the bottom-right circle. Faces:
+   *  Issue when the run links one, Run (this IS the run), Changes once there
+   *  is a diff or an open PR. `Start coding` joins the menu once this run
+   *  ended and no machine can resume it. */
+  const mobileSwitcher = isMobile ? (
+    <MobileFaceSwitcher
+      faces={availableFaces({
+        hasIssue: Boolean(onIssueFace),
+        hasRun: true,
+        hasChanges,
+      })}
+      face={showDiffFace ? `changes` : `run`}
+      runs={issueRuns}
+      viewedRunId={session.id}
+      diffStats={diffFiles.length > 0 ? diffStats : null}
+      hasChanges={hasChanges}
+      sessionTone={dot.tone}
+      offerStart={Boolean(onStart) && sessionEnded && !canResumeAny}
+      onFace={(next) => {
+        if (next === `issue`) {
+          onIssueFace?.()
+          return
+        }
+        if (next === `changes`) setDiffTurn(null)
+        onFace(next === `changes` ? `diff` : `run`)
+      }}
+      onOpenRun={onOpenRun}
+      onStart={onStart}
+    />
+  ) : null
+
+  /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
+   *  composer capsule (expanding into the composer), the switcher. Run over:
+   *  the switcher alone. Changes: GitHub, Merge PR while mergeable, the
+   *  switcher. */
+  const mobileBar = !isMobile ? null : showDiffFace ? (
+    <MobileWorkBar
+      leading={prUrl ? <GithubCircle prUrl={prUrl} /> : undefined}
+      capsule={
+        canMerge && mergeProps ? (
+          <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
+        ) : undefined
+      }
+      trailing={mobileSwitcher}
+    />
+  ) : (
+    <MobileWorkBar
+      leading={
+        sessionOpen && usageAvailable ? (
+          <ContextRing
+            usage={sessionUsage}
+            showEmpty={showEmptyRing}
+            onClick={() => setUsageOpen(true)}
+            className={cn(
+              MOBILE_WORK_CIRCLE_CLASS,
+              `[&>svg]:size-6 [&>svg]:shrink-0`
+            )}
+          />
+        ) : undefined
+      }
+      capsule={
+        composerVisible ? (
+          <MobileWorkCapsule
+            onClick={() => setComposerOpen(true)}
+            data-testid="steer-composer-capsule"
+          >
+            <span className="truncate text-muted-foreground">
+              {COMPOSER_PLACEHOLDER}
+            </span>
+          </MobileWorkCapsule>
+        ) : undefined
+      }
+      expanded={
+        composerVisible && composerOpen ? (
+          <div className="rounded-2xl border border-glass-stroke-card bg-popover/85 p-1.5 shadow-lg shadow-black/40 backdrop-blur-xl">
+            <SteerComposer
+              store={store}
+              live={live && connected}
+              onSend={sendMessage}
+              working={working}
+              sessionId={session.id}
+              users={teamUsers}
+              agent={session.agent}
+              config={config}
+              usageSlot={usageSlot}
+              autoFocus
+              onEmptyBlur={() => setComposerOpen(false)}
+            />
+          </div>
+        ) : null
+      }
+      trailing={mobileSwitcher}
+    />
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1130,30 +1127,36 @@ export function AgentSessionView({
           bar carries exactly one. On md+ the single header row names the run
           over its phase caption and carries every control on the right. */}
       {isMobile ? (
-        <>
+        /* EXP-893: the phone header never jumps between faces — an issue
+           subject wears the issue's header (the route renders it, with Stop
+           / Resume in its trailing slot on the Run face only); a run subject
+           the shared detail header with the state dot + its title, and the
+           same Stop / Resume on the right. No caption row, no plan chip:
+           the strips under the transcript say what the run is doing. */
+        renderMobileHeader ? (
+          renderMobileHeader({ dot, showingRun })
+        ) : (
           <MobileDetailHeader
-            title={identity.identifier ?? identity.subject}
+            title={
+              <>
+                <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
+                {identity.subject}
+              </>
+            }
             onBack={onBack}
-            menu={contextPill ?? undefined}
+            menu={
+              showingRun && (canKill || (sessionEnded && canResumeAny)) ? (
+                <div className="flex shrink-0 items-center">
+                  {canKill ? (
+                    <StopRunPill onStop={requestKill} />
+                  ) : (
+                    <ResumeRunPill session={session} />
+                  )}
+                </div>
+              ) : undefined
+            }
           />
-          <div className="flex min-w-0 items-center gap-1 border-b border-border px-2 py-1">
-            <PhaseDot
-              phase={phase}
-              awaitingInput={awaitingInput}
-              paused={paused}
-              stale={staleMinutes !== null}
-            />
-            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-              {headerCaption}
-            </span>
-            {blockedLabel && (
-              <span className="shrink-0 text-[11px] font-medium text-amber-400">
-                {blockedLabel}
-              </span>
-            )}
-            {headerControls}
-          </div>
-        </>
+        )
       ) : (
         /* EXP-877: the ONE work header — the same node the issue route
            renders, so nothing moves when the face flips. No back control on
@@ -1179,7 +1182,13 @@ export function AgentSessionView({
               />
               {/* EXP-886: the switcher between the issue's runs, right after
                   the toggle whose "Runs" segment announces it. */}
-              {runSwitcher}
+              {issueRuns && onOpenRun && (
+                <IssueRunSwitcher
+                  runs={issueRuns}
+                  viewedRunId={session.id}
+                  onOpen={onOpenRun}
+                />
+              )}
               {runTrailing}
             </>
           }
@@ -1192,10 +1201,15 @@ export function AgentSessionView({
       {showDiffFace ? (
         /* EXP-877: the diff FACE — the run's changes in the same 896 column
            under the same header, in place of the transcript. */
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40">
+        <div
+          className={cn(
+            `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
+            isMobile && MOBILE_WORK_BAR_CLEARANCE
+          )}
+        >
           <div className={cn(WORK_COLUMN_CLASS, `px-4 py-3`)}>
             <SessionDiffFace
-              files={paneFiles}
+              files={changesFiles}
               selected={diffFile}
               onSelect={setDiffFile}
               scopeLabel={
@@ -1214,7 +1228,14 @@ export function AgentSessionView({
         </div>
       ) : (
       <div className="flex min-h-0 flex-1 overflow-hidden">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40">
+      <div
+        className={cn(
+          `flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40`,
+          // EXP-893: the phone's floating bar owns the bottom edge — the
+          // strips and the last row stop above it.
+          isMobile && MOBILE_WORK_BAR_CLEARANCE
+        )}
+      >
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
           {visibleTabs.length > 0 && (
@@ -1290,10 +1311,7 @@ export function AgentSessionView({
                   ref={setContentRef}
                   className={cn(
                     `flex min-h-full flex-col justify-end py-2`,
-                    TRANSCRIPT_COLUMN,
-                    // Room for the floating changes bar, so the newest row
-                    // still scrolls fully clear of it (EXP-688).
-                    floatingBar && `pb-14`
+                    TRANSCRIPT_COLUMN
                   )}
                 >
                   <AgentConversation
@@ -1306,10 +1324,7 @@ export function AgentSessionView({
                   ref={setContentRef}
                   className={cn(
                     `flex min-h-full flex-col justify-end py-2`,
-                    TRANSCRIPT_COLUMN,
-                    // Room for the floating changes bar, so the newest row
-                    // still scrolls fully clear of it (EXP-688).
-                    floatingBar && `pb-14`
+                    TRANSCRIPT_COLUMN
                   )}
                 >
                   {canLoadEarlier ? (
@@ -1524,22 +1539,12 @@ export function AgentSessionView({
               <Button
                 variant="secondary"
                 size="sm"
-                className={cn(
-                  `absolute left-1/2 h-7 -translate-x-1/2 rounded-full border border-border shadow-md`,
-                  floatingBar ? `bottom-16` : `bottom-2`
-                )}
+                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 rounded-full border border-border shadow-md"
                 onClick={jumpToBottom}
               >
                 Jump to bottom
                 <ArrowDown />
               </Button>
-            )}
-            {/* EXP-688: the mobile changes bar floats over the feed's bottom
-                edge instead of taking a slice of it. */}
-            {floatingBar && (
-              <div className="absolute inset-x-0 bottom-0 px-3 pb-2">
-                {changesBar}
-              </div>
             )}
           </div>
 
@@ -1558,19 +1563,16 @@ export function AgentSessionView({
               <span className="min-w-0 flex-1">
                 {phase.detail ?? `Connection lost.`}
               </span>
-              {/* EXP-877: a dropped stream redials from its own strip on md+
-                  (the phone keeps the button in its compact header row). */}
-              {!isMobile && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 shrink-0"
-                  onClick={() => store.reconnect()}
-                >
-                  <UiRefreshIcon />
-                  Reconnect
-                </Button>
-              )}
+              {/* EXP-877: a dropped stream redials from its own strip. */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 shrink-0"
+                onClick={() => store.reconnect()}
+              >
+                <UiRefreshIcon />
+                Reconnect
+              </Button>
             </div>
           )}
           {/* EXP-804: the PERSISTED usage wall off the session row — a walled
@@ -1578,8 +1580,8 @@ export function AgentSessionView({
               `RateLimitBanner` below, which is the LIVE stream's own report:
               this one is already there when you open a run whose stream has
               not connected yet, which is exactly the moment a silently walled
-              run looks healthy. The phone shows it in its compact header row. */}
-          {blockedLabel && !isMobile && (
+              run looks healthy. */}
+          {blockedLabel && (
             <div
               className="border-t border-border/60 px-3 py-1.5 text-[11px] font-medium text-amber-400"
               data-testid="session-blocked-strip"
@@ -1614,8 +1616,7 @@ export function AgentSessionView({
               // old run). Hidden only when this run could never switch — or
               // has no pill to anchor the overlay to (EXP-863).
               onSwitchAccount={
-                hasAccountRows &&
-                (isMobile ? contextPill !== null : usageSlot !== null)
+                hasAccountRows && usageSlot !== null
                   ? () => setUsageOpen(true)
                   : undefined
               }
@@ -1653,7 +1654,7 @@ export function AgentSessionView({
 
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
-          {composerVisible && (
+          {composerVisible && !isMobile && (
             <div className="border-t border-border p-2">
               <div className={WORK_COLUMN_CLASS}>
                 <SteerComposer
@@ -1676,14 +1677,39 @@ export function AgentSessionView({
                   // view already holds the full one.
                   config={config}
                   // EXP-877: the context meter lives in the composer's tool
-                  // row (md+; the phone keeps its header pill).
-                  usageSlot={isMobile ? null : usageSlot}
+                  // row.
+                  usageSlot={usageSlot}
                 />
               </div>
             </div>
           )}
       </div>
       </div>
+      )}
+
+      {mobileBar}
+      {/* EXP-893: the phone's usage overlay — ONE bottom sheet, the same
+          sections as the desktop popover, opened by whichever ring. */}
+      {isMobile && (
+        <Sheet open={usageOpen} onOpenChange={setUsageOpen}>
+          <SheetContent
+            side="bottom"
+            className="gap-0 p-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            data-testid="session-usage-popover"
+          >
+            <SheetHeader className="px-3 pt-2 pb-1">
+              <SheetTitle>Usage</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <SessionUsageSections
+                sessionUsage={sessionUsage}
+                agentUsage={agentUsage}
+                accountSwitch={accountSwitch}
+                now={usageNow}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
 
       {killDialog}
@@ -1704,7 +1730,7 @@ export function AgentSessionView({
  *     row-specific refusal; hidden when there is none;
  *  5. ONE footer note — the run-level blocker when every other account is
  *     refused for the same one, else the one-time cost. */
-function SessionUsagePopover({
+function SessionUsageSections({
   sessionUsage,
   agentUsage,
   accountSwitch,
@@ -1744,13 +1770,7 @@ function SessionUsagePopover({
   const section = `border-t border-border/60 px-3 py-2.5`
   const title = `text-[11px] uppercase tracking-wide text-muted-foreground`
   return (
-    <PopoverContent
-      align="end"
-      collisionPadding={8}
-      className="w-80 p-0"
-      aria-label="Usage"
-      data-testid="session-usage-popover"
-    >
+    <>
       <div className="px-3 py-2.5">
         <p className="truncate text-xs" title={header ?? undefined}>
           {header ?? `Usage`}
@@ -1792,92 +1812,11 @@ function SessionUsagePopover({
           <p className="text-[11px] text-muted-foreground/70">{footer}</p>
         </div>
       )}
-    </PopoverContent>
+    </>
   )
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
-
-/** What the viewer's connection reads as: `Live · macbook`, `Needs your
- * input · macbook`, `Paused · macbook is offline`, `Session ended`. EXP-688:
- * the mobile header demotes it to a caption under the run's name.
- *
- * `awaitingInput`: live but blocked on a trailing question/plan — waiting for
- * a human, not stuck (EXP-97). `paused` (EXP-550): no stream and the host
- * machine is offline, which is neither starting nor gone. */
-function phaseLabel(
-  phase: ViewerPhase,
-  /** EXP-549: the host machine per the synced devices row (renamed label). */
-  device: SessionDevice,
-  awaitingInput: boolean,
-  paused: boolean,
-  /** EXP-724: folding its context, which is neither working nor waiting. */
-  compacting = false,
-  /** FEED-26: minutes past the no-activity threshold, null while healthy. */
-  staleMinutes: number | null = null
-): string {
-  const deviceLabel = device.label
-  if (paused) return `Paused · ${deviceLabel ?? `device`} is offline`
-  if (phase.kind === `live`) {
-    if (compacting) {
-      return deviceLabel
-        ? `${COMPACTING_LABEL} · ${deviceLabel}`
-        : COMPACTING_LABEL
-    }
-    if (awaitingInput) {
-      return deviceLabel ? `Needs your input · ${deviceLabel}` : `Needs your input`
-    }
-    if (staleMinutes !== null) return staleActivityLabel(staleMinutes, deviceLabel)
-    return deviceLabel ? `Live · ${deviceLabel}` : `Live`
-  }
-  if (phase.kind === `starting`) return `Agent starting…`
-  // EXP-773: the run is over; its transcript is coming off the device.
-  if (phase.kind === `history_pending`) {
-    return deviceLabel ? `Loading transcript · ${deviceLabel}` : `Loading transcript`
-  }
-  if (phase.kind === `connecting` || phase.kind === `idle`) return `Connecting…`
-  if (phase.kind === `ended`) return `Session ended`
-  return `Disconnected`
-}
-
-/** The status dot that leads the phase. EXP-862: the colours are the ONE
- * session-dot mapping every client draws (`SESSION_DOT_CLASS`, the desktop's
- * `queries::session_dot_tone`) — emerald while the run is live, amber while
- * it waits on a human (or, FEED-26, has gone quiet past the threshold), muted
- * once it is over or paused. Connecting is the muted dot, pulsing. */
-function PhaseDot({
-  phase,
-  awaitingInput = false,
-  paused = false,
-  stale = false,
-}: {
-  phase: ViewerPhase
-  awaitingInput?: boolean
-  paused?: boolean
-  stale?: boolean
-}) {
-  const connecting =
-    !paused &&
-    (phase.kind === `connecting` ||
-      phase.kind === `starting` ||
-      phase.kind === `history_pending`)
-  const awaiting = phase.kind === `live` && (awaitingInput || stale)
-  const tone: SessionDotTone =
-    !paused && phase.kind === `live`
-      ? awaiting
-        ? `needs_input`
-        : `running`
-      : `muted`
-  return (
-    <span
-      className={cn(
-        `size-2 shrink-0 rounded-full`,
-        SESSION_DOT_CLASS[tone],
-        connecting && `animate-pulse`
-      )}
-    />
-  )
-}
 
 function CenteredState({ children }: { children: React.ReactNode }) {
   return (

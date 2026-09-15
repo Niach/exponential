@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react"
-import { useParams } from "@tanstack/react-router"
 import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { pastRunRowByline } from "@/components/agent-session-row"
@@ -7,12 +6,9 @@ import {
   PastSessionRow,
   RunningSessionRow,
 } from "@/components/session-list-rows"
-import { useSteerConfig } from "@/components/agent-session"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
-import { useTeamBySlug } from "@/hooks/use-team-data"
-import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { DetailOrigin } from "@/lib/detail-origin"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
@@ -51,17 +47,6 @@ export function SessionsList({
   const { running, isLoading } = useAgentsData(teamId, currentUserId)
   const { past } = usePastRuns(teamId, currentUserId)
   const openSession = useOpenSession()
-  // EXP-874: the rows' trailing buttons need the caller's role and whether a
-  // conflicted Merge may launch "Fix conflicts" — resolved ONCE per list (the
-  // permissions hook fetches the billing plan), never per row. The team comes
-  // off the route: every mount lives under `/t/$teamSlug`.
-  const { teamSlug } = useParams({ strict: false })
-  const team = useTeamBySlug(teamSlug ?? ``)
-  const { isMember, isOwner } = useTeamPermissions(
-    team?.id === teamId ? team : null
-  )
-  const steerConfig = useSteerConfig()
-  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const runningById = new Map(running.map((row) => [row.session.id, row]))
   // EXP-849: a parent run's subtree folds away here too — an orchestrator with
   // six children used to push Recent off the list. Expanded by default, per
@@ -121,8 +106,6 @@ export function SessionsList({
                     expandable={hasChildren}
                     expanded={!collapsed.has(session.id)}
                     onToggle={() => toggle(session.id)}
-                    isOwner={isOwner}
-                    steerEnabled={steerEnabled}
                     onOpen={() => openSession(session, { origin })}
                   />
                 )

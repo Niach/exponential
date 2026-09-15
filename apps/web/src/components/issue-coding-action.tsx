@@ -36,12 +36,16 @@ export function IssueCodingAction({
   teamId,
   currentUserId,
   preferredSessionId,
+  showStart = true,
 }: {
   issue: Issue
   board: Board
   teamId: string
   currentUserId: string
   preferredSessionId?: string
+  /** EXP-893: the phone's Run-face header carries Stop / Resume only — its
+   *  bottom-right circle owns Start coding. `false` = no Start capsule. */
+  showStart?: boolean
 }) {
   const { data: sessionRows } = useLiveQuery(
     (query) =>
@@ -95,6 +99,7 @@ export function IssueCodingAction({
   if (ownEnded && canResume) {
     return <ResumeRunPill session={ownEnded} />
   }
+  if (!showStart) return null
   return (
     <IssueCodingControl
       issue={issue}
