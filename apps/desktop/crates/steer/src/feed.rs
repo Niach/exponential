@@ -171,6 +171,10 @@ pub enum FeedKind {
         /// EXP-786: the per-call unified diff an `edit` published, already
         /// cut to the contract's caps on the publisher.
         diff: Option<String>,
+        /// EXP-895: what an `execute` call PRINTED, as its settle published it
+        /// — redacted and tail-cut to the contract's caps. `None` until the
+        /// call settles, and for every kind but `execute`.
+        output: Option<String>,
         /// EXP-846: what an Exponential MCP call settled on (the issue it
         /// created, the PR it opened, `N results`). Plumbed and stored in
         /// phase 1; the custom rendering is a later one.
@@ -958,6 +962,7 @@ impl SteerFeed {
                     settled: false,
                     failed: false,
                     diff: None,
+                    output: None,
                     preview: None,
                 });
             }
@@ -969,6 +974,7 @@ impl SteerFeed {
                 id,
                 status,
                 diff: patch,
+                output: printed,
                 preview: settled_preview,
                 ..
             } => {
@@ -982,6 +988,7 @@ impl SteerFeed {
                     settled,
                     failed,
                     diff,
+                    output,
                     preview,
                     ..
                 } = &mut item.kind
@@ -992,6 +999,11 @@ impl SteerFeed {
                     }
                     if let Some(patch) = non_blank(patch) {
                         *diff = Some(patch);
+                    }
+                    // EXP-895: the settle's command output. An update that
+                    // carries none never clears what an earlier one did.
+                    if let Some(printed) = non_blank(printed) {
+                        *output = Some(printed);
                     }
                     // EXP-846: an empty preview says nothing and never
                     // replaces one a previous update carried.
@@ -1536,9 +1548,17 @@ fn item_bytes(kind: &FeedKind) -> usize {
     let text = match kind {
         FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => text.len(),
         FeedKind::Tool {
-            name, detail, diff, ..
+            name,
+            detail,
+            diff,
+            output,
+            ..
         } => {
-            name.len() + detail.as_ref().map_or(0, String::len) + diff.as_ref().map_or(0, String::len)
+            name.len()
+                + detail.as_ref().map_or(0, String::len)
+                + diff.as_ref().map_or(0, String::len)
+                // EXP-895: the folded command output weighs too.
+                + output.as_ref().map_or(0, String::len)
         }
         FeedKind::Permission { tool, detail } => {
             tool.len() + detail.as_ref().map_or(0, String::len)
@@ -1701,6 +1721,27 @@ impl FeedItem {
     /// renders it alone.
     pub fn class(&self) -> RowClass {
         self.kind.class()
+    }
+}
+
+/// EXP-895 — the ONE tool row that is still RUNNING, or `None`.
+///
+/// The transcript runs inside the flow: exactly one row is ever expanded (its
+/// live bash tail, its edit diff open) and every other row is the compact
+/// headline plus its `exit N` / `+a −b` chip. That row is the LAST feed item
+/// and only while it is an UNSETTLED tool call — the moment its
+/// [`ActivityEvent::ToolUpdate`] settles, or the agent says anything after it,
+/// the transcript has moved on and the row folds.
+///
+/// A pure projection over the flat feed, mirrored ×4 (web `liveToolRowId`,
+/// ExpCore `AgentFeed.liveToolRowId`, Android `liveToolRowId`). Callers that
+/// know the run ENDED pass nothing through it — a feed whose last row never
+/// settled (the publisher died mid-call) is history, not a live tail.
+pub fn live_tool_row_id(items: &[FeedItem]) -> Option<FeedItemId> {
+    let last = items.last()?;
+    match &last.kind {
+        FeedKind::Tool { settled: false, .. } => Some(last.id),
+        _ => None,
     }
 }
 
@@ -2523,6 +2564,7 @@ mod tests {
                 settled: false,
                 failed: false,
                 diff: None,
+                output: None,
                 preview: None,
             }
         );
@@ -2633,6 +2675,7 @@ mod tests {
             id: "tc-1".into(),
             status: Some(ToolUpdateStatus::Completed),
             diff: None,
+            output: None,
             at: None,
             preview: Some(preview.clone()),
         });
@@ -2646,6 +2689,7 @@ mod tests {
             id: "tc-1".into(),
             status: None,
             diff: Some("+x\n".into()),
+            output: None,
             at: None,
             preview: Some(crate::frames::ToolPreview::default()),
         });
@@ -2655,10 +2699,78 @@ mod tests {
             id: "tc-9".into(),
             status: Some(ToolUpdateStatus::Completed),
             diff: None,
+            output: None,
             at: None,
             preview: None,
         });
         assert_eq!(feed.len(), 1);
+    }
+
+    /// EXP-895: an `execute` settle's command output folds onto the tool row,
+    /// weighs against the byte budget, and is never cleared by a later update
+    /// that carries none.
+    #[test]
+    fn a_tool_update_output_lands_on_the_tool_row_and_counts_its_bytes() {
+        let mut feed = SteerFeed::new();
+        feed.apply(tool_with_id("tc-1", ToolKind::Execute));
+        let empty = feed.bytes();
+        let printed = "\\ 2 more lines truncated\n12 passed\n";
+        feed.apply(ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: Some(printed.into()),
+            at: None,
+            preview: None,
+        });
+        let row_output = |feed: &SteerFeed| match &feed.items()[0].kind {
+            FeedKind::Tool { output, .. } => output.clone(),
+            other => panic!("expected a tool row, got {other:?}"),
+        };
+        assert_eq!(row_output(&feed), Some(printed.to_string()));
+        assert_eq!(feed.bytes(), empty + printed.len());
+        // A later update with no output leaves the settled one alone, and a
+        // BLANK one says nothing either.
+        feed.apply(ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None));
+        assert_eq!(row_output(&feed), Some(printed.to_string()));
+        feed.apply(ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: None,
+            diff: None,
+            output: Some("   ".into()),
+            at: None,
+            preview: None,
+        });
+        assert_eq!(row_output(&feed), Some(printed.to_string()));
+        assert_eq!(feed.len(), 1, "an update is never a row of its own");
+    }
+
+    /// EXP-895: the ONE expanded row — the last item, and only while it is an
+    /// unsettled tool call.
+    #[test]
+    fn the_live_tool_row_is_the_last_unsettled_tool_call_and_nothing_else() {
+        let mut feed = SteerFeed::new();
+        assert_eq!(live_tool_row_id(feed.items()), None, "an empty feed runs nothing");
+        feed.apply(ActivityEvent::narration("Running the tests."));
+        assert_eq!(live_tool_row_id(feed.items()), None, "prose is not a tool row");
+
+        feed.apply(tool_with_id("tc-1", ToolKind::Execute));
+        let running = feed.items()[1].id;
+        assert_eq!(live_tool_row_id(feed.items()), Some(running));
+
+        // Its settle folds INTO that row — the row stays last, and stops
+        // being live.
+        feed.apply(ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Completed), None));
+        assert_eq!(live_tool_row_id(feed.items()), None);
+
+        // A second call runs; the row before it is compact again even though
+        // that one never settled.
+        feed.apply(tool_with_id("tc-2", ToolKind::Execute));
+        let second = feed.items()[2].id;
+        assert_eq!(live_tool_row_id(feed.items()), Some(second));
+        // Anything the agent says after a call moves the transcript on.
+        feed.apply(ActivityEvent::narration("All green."));
+        assert_eq!(live_tool_row_id(feed.items()), None);
     }
 
     // ── EXP-848: the turn slot ─────────────────────────────────────────────

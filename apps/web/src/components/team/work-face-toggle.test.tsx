@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import {
-  DiffFaceLabel,
   ISSUE_FACE_LABEL,
   RUN_FACE_LABEL,
   RUNS_FACE_LABEL,
@@ -18,7 +17,9 @@ import {
 
 // EXP-877: the unified work header's face toggle — byte-identical labels
 // with the IDE (`work_header.rs`), hidden faces rather than disabled ones,
-// and no control at all under two faces.
+// and no control at all under two faces. EXP-895 moved the diff face's own
+// label into `@exp/ui` `DiffCounts` (locked by `diff-counts.test.tsx`, U+2212
+// minus and the `--diff-*` token colours).
 
 describe(`WorkFaceToggle`, () => {
   it(`renders nothing under two faces`, () => {
@@ -45,22 +46,13 @@ describe(`WorkFaceToggle`, () => {
     expect(screen.getByTestId(`work-face-toggle`)).toBeTruthy()
     expect(screen.getByText(`Issue`)).toBeTruthy()
     expect(screen.getByText(`Run`)).toBeTruthy()
-    expect(screen.queryByText(/^\+\d+ -\d+$/)).toBeNull()
+    // No diff segment: `DiffCounts`'s `+N −M` (U+2212) is absent.
+    expect(screen.queryByText(/^\+\d+ \u2212\d+$/)).toBeNull()
     fireEvent.mouseDown(screen.getByText(`Run`))
     fireEvent.click(screen.getByText(`Run`))
     expect(onRun).toHaveBeenCalled()
   })
 
-  it(`the diff face is the mono +N -M with an ASCII minus and no glyph`, () => {
-    const { container } = render(
-      <DiffFaceLabel additions={12} deletions={3} />
-    )
-    expect(container.textContent).toBe(`+12 -3`)
-    expect(container.querySelector(`svg`)).toBeNull()
-    expect(container.querySelector(`.font-mono`)).not.toBeNull()
-    expect(container.querySelector(`.text-emerald-400`)?.textContent).toBe(`+12`)
-    expect(container.querySelector(`.text-rose-400`)?.textContent).toBe(`-3`)
-  })
 })
 
 describe(`WorkHeader`, () => {

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.CHANGES_FACE_LABEL
+import com.exponential.app.domain.Diff
 import com.exponential.app.domain.ISSUE_FACE_LABEL
 import com.exponential.app.domain.RUN_FACE_LABEL
 import com.exponential.app.domain.START_CODING_LABEL
@@ -42,9 +43,6 @@ import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.DiffAddColor
-import com.exponential.app.ui.issue.DiffDelColor
-import com.exponential.app.ui.issue.DiffStats
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.LiveGreen
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -54,6 +52,7 @@ import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.session.LostGray
 import com.exponential.app.ui.session.PastRunRow
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
@@ -77,7 +76,7 @@ fun FaceSwitcher(
     badgeBusy: Boolean,
     runs: List<PastRunRow>,
     shownRunId: String?,
-    diffStats: DiffStats?,
+    diffStats: Diff.Totals?,
     onPick: (SwitcherTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -178,7 +177,7 @@ private fun SwitcherRow(
     target: SwitcherTarget,
     runs: List<PastRunRow>,
     shownRunId: String?,
-    diffStats: DiffStats?,
+    diffStats: Diff.Totals?,
     onClick: () -> Unit,
 ) {
     when (target) {
@@ -187,18 +186,20 @@ private fun SwitcherRow(
             text = { Text(targetLabel(target)) },
             trailingIcon = if (target.face == WorkFaceKind.Changes && diffStats != null) {
                 {
-                    // `+A -D` in mono, only off a LIVE diff — the PR files
+                    // EXP-895: `+A −D` in mono off the SHARED labels (the
+                    // deletion count's minus is U+2212, never a hyphen) and
+                    // the shared tokens, only off a LIVE diff — the PR files
                     // page sums its own.
                     Row {
                         Text(
-                            "+${diffStats.additions}",
-                            color = DiffAddColor,
+                            Diff.additionsLabel(diffStats.additions),
+                            color = DesignTokens.Diff.AddFg,
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.labelSmall,
                         )
                         Text(
-                            " -${diffStats.deletions}",
-                            color = DiffDelColor,
+                            " ${Diff.deletionsLabel(diffStats.deletions)}",
+                            color = DesignTokens.Diff.DelFg,
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.labelSmall,
                         )

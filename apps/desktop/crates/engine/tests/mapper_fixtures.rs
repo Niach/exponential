@@ -162,7 +162,9 @@ fn a_command_never_reaches_the_wire_and_a_secret_never_reaches_a_detail() {
         wire,
         vec![
             json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-9", "toolKind": "execute"}),
-            json!({"kind": "tool_update", "id": "tc-9", "status": "completed"}),
+            // EXP-895: the settle carries what the command PRINTED — never
+            // the command itself, which is where the secret is.
+            json!({"kind": "tool_update", "id": "tc-9", "status": "completed", "output": "12 passed"}),
             // tc-2 was never announced: its settle AND its diff (an `other`
             // kind besides) stay off the wire.
         ]
@@ -178,6 +180,10 @@ fn a_command_never_reaches_the_wire_and_a_secret_never_reaches_a_detail() {
     );
 }
 
+/// EXP-895 narrowed this: the WHOLE stream and every edit's whole patch are
+/// still local-only (the wire gets a tail-cut copy of the output on the settle
+/// and a capped patch, never the stream itself), and the local `Output` card
+/// keeps carrying the exact bytes the command wrote.
 #[test]
 fn command_output_and_edit_diffs_stay_local() {
     let local = local("execute.jsonl");
@@ -216,6 +222,52 @@ fn command_output_and_edit_diffs_stay_local() {
     );
 }
 
+/// EXP-895 — the bash output goes on the wire AT SETTLE and only there: one
+/// `tool_update` per call, redacted like every other free text, tail-cut to
+/// the contract's `steerFeed.toolOutputMaxLines`/`Bytes` with the dropped
+/// lines counted in a leading `\\ N more lines truncated` marker. Mid-flight
+/// chunks publish nothing, and a non-`execute` call publishes no output at
+/// all however much content its result carries.
+#[test]
+fn an_execute_settle_carries_the_redacted_capped_output_and_nothing_else_does() {
+    let wire = wire("tool_output.jsonl");
+    let updates: Vec<&Value> = wire.iter().filter(|event| event["kind"] == "tool_update").collect();
+    assert_eq!(updates.len(), 2, "one settle each, no mid-flight update: {wire:#?}");
+
+    let settle = updates[0];
+    assert_eq!(settle["id"], "tc-out");
+    assert_eq!(settle["status"], "completed");
+    let output = settle["output"].as_str().expect("the settle carries its output");
+    // The MARKER first: the cut is a tail cut, so what was dropped came before
+    // what was kept (a patch's marker trails for the same reason).
+    assert!(
+        output.starts_with("\\ 52 more lines truncated\nline 53\n"),
+        "{output}"
+    );
+    // The LAST thing the command wrote is the last thing on the wire — the
+    // verdict is why the output is there at all.
+    assert!(output.ends_with("done\n"), "{output}");
+    // Exactly the contract's line budget, plus the one marker line.
+    assert_eq!(
+        output.lines().count(),
+        domain::contract::STEER_FEED_TOOL_OUTPUT_MAX_LINES + 1,
+        "{output}"
+    );
+    assert!(output.len() <= domain::contract::STEER_FEED_TOOL_OUTPUT_MAX_BYTES + 128);
+    // Redacted: the secret the command echoed is masked, and the command
+    // string itself was never on the wire to begin with.
+    assert!(!output.contains("expu_supersecretkey"), "{output}");
+    assert!(output.contains("curl -H"), "the line itself still reads: {output}");
+
+    // A `read` call's result is content too, and carries no `output` key.
+    assert_eq!(updates[1]["id"], "tc-read");
+    assert!(updates[1].get("output").is_none(), "{:#?}", updates[1]);
+
+    let serialized = serde_json::to_string(&wire).expect("the vector serializes");
+    assert!(!serialized.contains("expu_"), "no secret may reach the relay: {serialized}");
+    assert!(!serialized.contains("--token"), "no raw command may reach the relay: {serialized}");
+}
+
 /// EXP-785/786: a settle rides the wire as a `tool_update` (completed AND
 /// failed), and an `edit` call's diff rides with it — built from old/new
 /// text, redacted, worktree-relative. An update for a call the mapper never
@@ -233,7 +285,12 @@ fn settles_and_edit_diffs_ride_the_wire_as_tool_updates() {
         wire[2],
         json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-bad", "toolKind": "execute"})
     );
-    assert_eq!(wire[3], json!({"kind": "tool_update", "id": "tc-bad", "status": "failed"}));
+    // EXP-895: a FAILED execute call still reports what it printed — that is
+    // exactly the output a reader wants.
+    assert_eq!(
+        wire[3],
+        json!({"kind": "tool_update", "id": "tc-bad", "status": "failed", "output": "1 failed"})
+    );
     assert_eq!(
         wire[4],
         json!({"kind": "tool", "name": "Edit", "detail": "src/lib.rs", "id": "tc-edit", "toolKind": "edit"})
@@ -861,7 +918,7 @@ fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
             // What the subagent ran, attributed to the card, never a top-level
             // row of its own; its settle folds into that row by id.
             json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-child", "toolKind": "execute", "subagentId": "tc-parent"}),
-            json!({"kind": "tool_update", "id": "tc-child", "status": "completed"}),
+            json!({"kind": "tool_update", "id": "tc-child", "status": "completed", "output": "12 passed"}),
             // EXP-748: the completed edge carries the tool-call count — the
             // mapper's own count of attributed calls, or the adapter's
             // `toolCalls` meta when that is larger.

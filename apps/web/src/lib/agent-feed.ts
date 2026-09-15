@@ -71,6 +71,8 @@ export function feedItemBytes(item: {
   header?: string
   /** EXP-786: a tool row's folded per-call diff weighs too. */
   diff?: string
+  /** EXP-895: and so does the command output its settle folded in. */
+  output?: string
   options?: { label: string; key: string }[]
 }): number {
   const OVERHEAD = contract.steerFeed.itemOverheadBytes
@@ -84,6 +86,7 @@ export function feedItemBytes(item: {
     len(item.answer) +
     len(item.header) +
     len(item.diff) +
+    len(item.output) +
     (item.options?.reduce((sum, o) => sum + o.label.length + o.key.length, 0) ?? 0)
   )
 }
@@ -716,6 +719,28 @@ export function mergeNarrationFragment<
     ]
   }
   return null
+}
+
+/** EXP-895: the ONE tool row that is still RUNNING, or `undefined`.
+ *
+ *  The transcript runs inside the flow: exactly one row is ever expanded (its
+ *  live bash tail, its edit diff open) and every other row is the compact
+ *  headline plus its `exit N` / `+a −b` chip. That row is the LAST feed item
+ *  and only while it is an UNSETTLED tool call — the moment its `tool_update`
+ *  settles, or the agent says anything after it, the transcript has moved on
+ *  and the row folds.
+ *
+ *  A pure projection over the flat feed, mirrored ×4 (desktop
+ *  `steer::feed::live_tool_row_id`, ExpCore `AgentFeed.liveToolRowId`, Android
+ *  `liveToolRowId`). Callers that know the run ENDED do not consult it — a
+ *  feed whose last row never settled (the publisher died mid-call) is history,
+ *  not a live tail. */
+export function liveToolRowId<
+  T extends { id: number; kind: string; settled?: boolean },
+>(feed: readonly T[]): number | undefined {
+  const last = feed[feed.length - 1]
+  if (!last || last.kind !== `tool` || last.settled === true) return undefined
+  return last.id
 }
 
 /** Group the flat feed into render rows — a pure projection: the feed (and
@@ -1601,29 +1626,6 @@ export function toolGroupCaption(
       failed: item.failed === true,
     }))
   )
-}
-
-// ── EXP-786: the per-call diff ──────────────────────────────────────────────
-
-/** A publisher-cut diff ends in ONE metadata line saying how much it dropped
- *  (`\ 120 more lines truncated`). Split it off: the diff proper renders as a
- *  diff, the note as a muted footer. */
-const DIFF_TRUNCATION_LINE = /(?:^|\n)\\ (\d+) more lines? truncated\s*$/
-
-export function splitTruncatedDiff(diff: string): {
-  diff: string
-  truncated: number | null
-} {
-  const match = DIFF_TRUNCATION_LINE.exec(diff)
-  if (!match) return { diff, truncated: null }
-  return {
-    diff: diff.slice(0, match.index),
-    truncated: Number(match[1]),
-  }
-}
-
-export function diffTruncationNote(lines: number): string {
-  return `${lines} more line${lines === 1 ? `` : `s`} truncated`
 }
 
 // ── EXP-784: the rate-limit banner ──────────────────────────────────────────

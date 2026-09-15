@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { TRPCClientError } from "@trpc/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { SessionMergeButton } from "@/components/session-merge-button"
+import {
+  SessionMergeButton,
+  SessionMergePill,
+} from "@/components/session-merge-button"
 
 const mockState = vi.hoisted(() => ({
   mergeMutate: vi.fn(),
@@ -268,6 +271,53 @@ describe(`SessionMergeButton`, () => {
     expect(
       screen.queryByRole(`button`, { name: `Fix merge conflicts` })
     ).toBeNull()
+  })
+
+  // EXP-895: the `pill` arm — the ONE merge control every Changes surface wears.
+  // Same behaviour, a `Pill size="md" mode="action" primary` instead of a Button.
+  it(`the pill arm is the primary Pill, with the same confirm`, async () => {
+    render(<SessionMergePill prState="open" prNumber={7} issueId="i1" label="Merge PR" />)
+    const pill = screen.getByRole<HTMLButtonElement>(`button`, {
+      name: `Merge pull request`,
+    })
+    expect(pill.dataset.slot).toBe(`pill`)
+    expect(pill.textContent).toContain(`Merge PR`)
+    // The accent paint comes from `Pill`'s own `primary` flag — no hand-rolled
+    // `bg-primary` class beside it any more.
+    expect(pill.className).toContain(`bg-primary`)
+    expect(pill.className).toContain(`h-8`)
+
+    fireEvent.click(pill)
+    expect(mockState.mergeMutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+    await waitFor(() =>
+      expect(mockState.mergeMutate).toHaveBeenCalledWith(
+        { issueId: `i1` },
+        { context: { skipErrorToast: true } }
+      )
+    )
+  })
+
+  it(`the pill arm swaps to Fix conflicts in the SAME slot`, async () => {
+    mockState.mergeMutate.mockRejectedValue(conflictError())
+    render(
+      <SessionMergePill
+        prState="open"
+        prNumber={7}
+        issueId="i1"
+        label="Merge PR"
+        branch="exp/MET-12"
+        teamId="t1"
+        steerEnabled
+      />
+    )
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+    const fix = await screen.findByRole<HTMLButtonElement>(`button`, {
+      name: `Fix merge conflicts`,
+    })
+    expect(fix.dataset.slot).toBe(`pill`)
+    expect(screen.queryByRole(`button`, { name: `Merge pull request` })).toBeNull()
   })
 
   it(`keeps the plain Merge button when the caller wired no recovery run`, async () => {

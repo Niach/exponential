@@ -104,6 +104,13 @@ struct AgentSessionView<Switcher: View>: View {
     /// rather than scanned on every frame the feed repaints.
     @State private var diffAdditions = 0
     @State private var diffDeletions = 0
+    /// EXP-895: the worktree diff through the ONE parser — read on the diff
+    /// edge, never per frame.
+    @State private var parsedDiff = Diff.Parsed(files: [])
+    /// The phone's file list, off the Changes bar's leading slot, and the path
+    /// it last picked.
+    @State private var diffFileSheet = false
+    @State private var selectedDiffPath: String?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -174,9 +181,23 @@ struct AgentSessionView<Switcher: View>: View {
     /// the Run face, when it vanishes).
     @ViewBuilder
     private func changesFace(_ model: AgentSessionModel) -> some View {
-        if let diff = model.latestDiff {
-            SessionDiffList(diff: diff)
-                .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
+        if model.latestDiff != nil {
+            // EXP-895: the raw `git diff` was read by the ONE parser the
+            // moment it landed (`diffChanged`), so the face draws the same
+            // cards every other Changes surface does.
+            SessionDiffList(
+                files: parsedDiff.files,
+                truncatedLines: parsedDiff.truncatedLines,
+                focusPath: selectedDiffPath
+            )
+            .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
+            .sheet(isPresented: $diffFileSheet) {
+                DiffFileListSheet(
+                    files: parsedDiff.files,
+                    selected: selectedDiffPath,
+                    onSelect: { selectedDiffPath = $0 }
+                )
+            }
         } else {
             Spacer()
             changesFaceBar(model)
@@ -359,15 +380,22 @@ struct AgentSessionView<Switcher: View>: View {
         }
     }
 
+    /// EXP-895: the worktree diff is parsed ONCE, here, off the edge — the
+    /// Changes face, the switcher's counts and the file sheet all read the
+    /// same `Diff.Parsed`.
     private func diffChanged(_ diff: String?) {
         guard let diff else {
+            parsedDiff = Diff.Parsed(files: [])
+            selectedDiffPath = nil
             diffAdditions = 0
             diffDeletions = 0
             return
         }
-        let stats = DiffRendering.stats(of: diff)
-        diffAdditions = stats.additions
-        diffDeletions = stats.deletions
+        let parsed = Diff.parse(diff)
+        parsedDiff = parsed
+        let totals = Diff.totals(parsed.files)
+        diffAdditions = totals.additions
+        diffDeletions = totals.deletions
     }
 
     // MARK: - Chrome report (EXP-893)
@@ -928,10 +956,13 @@ struct AgentSessionView<Switcher: View>: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
-            case let .tool(_, name, detail, _, callId, _, settled, failed, diff, preview):
+            case let .tool(
+                id, name, detail, _, callId, _, settled, failed, diff, preview, output
+            ):
                 toolOrWorkflowRow(
                     name: name, detail: detail, callId: callId,
-                    settled: settled, failed: failed, diff: diff, preview: preview
+                    settled: settled, failed: failed, diff: diff, preview: preview,
+                    output: output, live: id == liveToolRowId
                 )
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -977,7 +1008,9 @@ struct AgentSessionView<Switcher: View>: View {
         settled: Bool,
         failed: Bool,
         diff: String?,
-        preview: AgentToolPreview?
+        preview: AgentToolPreview?,
+        output: String?,
+        live: Bool
     ) -> some View {
         if let workflow: AgentWorkflow = model?.workflow(for: callId) {
             AgentWorkflowCardRow(
@@ -989,9 +1022,18 @@ struct AgentSessionView<Switcher: View>: View {
             ToolRow(
                 name: name, detail: detail, failed: failed, diff: diff,
                 settled: settled, preview: preview,
-                refs: markdownContext.issueRefs
+                refs: markdownContext.issueRefs, output: output, live: live
             )
         }
+    }
+
+    /// EXP-895: the ONE row the transcript keeps EXPANDED — the last feed item
+    /// while it is an unsettled tool call, and only in a LIVE run (an ended
+    /// run's trailing unsettled row is history, not a tail). `AgentFeed`'s rule,
+    /// shared ×4.
+    private var liveToolRowId: Int? {
+        guard model?.phase == .live, let feed = model?.feed else { return nil }
+        return AgentFeed.liveToolRowId(feed)
     }
 
     /// The nested run behind one workflow agent — a method rather than a
@@ -1577,7 +1619,12 @@ struct AgentSessionView<Switcher: View>: View {
     /// for the recovery run (EXP-706).
     private func changesFaceBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
-            if let url = prURL(model) {
+            // EXP-895: the leading slot is the file list. GitHub keeps the
+            // slot only where there is no list to put there — an issue-less
+            // run has no header action slot to move it to.
+            if !parsedDiff.files.isEmpty {
+                DiffFilesBarCircle(count: parsedDiff.files.count) { diffFileSheet = true }
+            } else if let url = prURL(model) {
                 FloatingBarCircle(accessibilityLabel: "Open PR on GitHub", action: { openURL(url) }) {
                     AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -2937,11 +2984,26 @@ private struct ToolRow: View {
     var preview: AgentToolPreview? = nil
     /// EXP-846: the run's team + where a tapped issue preview goes.
     var refs: AgentIssueRefContext? = nil
+    /// EXP-895: what an `execute` call PRINTED, as its settle published it —
+    /// redacted and tail-cut by the publisher. Nil for every other call.
+    var output: String? = nil
+    /// EXP-895: this call is the ONE still running (`AgentFeed.liveToolRowId`).
+    /// The transcript runs inside the flow, so this row — and only this row —
+    /// opens itself.
+    var live: Bool = false
 
-    /// EXP-806: COLLAPSED by default, unlike web's always-open `ToolDiff` —
-    /// a phone transcript is one narrow column, and a dozen open patches
-    /// would bury the prose between them.
-    @State private var showsDiff = false
+    /// EXP-806/895: nil = "whatever the flow says", so the RUNNING row is open
+    /// and every other row is the compact headline; a tap pins it either way.
+    /// The pin drops on the live→settled edge, which is what folds a row away
+    /// by itself once the transcript has moved past it. (A row the reader opened
+    /// AFTER it settled stays open: `live` no longer moves.)
+    @State private var pinned: Bool? = nil
+
+    /// The disclosure's state. One toggle for one row: a call carries a diff
+    /// (`edit`) or output (`execute`), never both.
+    private var showsDetail: Bool { pinned ?? live }
+    /// Whether there is anything to disclose at all.
+    private var hasDetail: Bool { diff != nil || output != nil }
 
     var body: some View {
         // EXP-846: one of OUR OWN MCP tools gets its own row — the Exponential
@@ -2963,25 +3025,37 @@ private struct ToolRow: View {
         }
     }
 
-    /// Every other tool: the neutral glyph, the tool's name, its detail, and
-    /// the diff an `edit` published behind a disclosure.
+    /// Every other tool: the neutral glyph, the tool's name, its detail, and —
+    /// behind a disclosure — the evidence the call produced: an `edit`'s diff
+    /// or an `execute`'s output.
     private var genericRow: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if diff == nil {
+            if !hasDetail {
                 headline
             } else {
-                Button { showsDiff.toggle() } label: {
+                Button { pinned = !showsDetail } label: {
                     headline.contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(showsDiff ? "Hide the diff" : "Show the diff")
+                .accessibilityLabel(
+                    showsDetail
+                        ? (output != nil ? "Hide the output" : "Hide the diff")
+                        : (output != nil ? "Show the output" : "Show the diff")
+                )
             }
-            if showsDiff, let diff {
+            if showsDetail, let diff {
                 ToolDiffBlock(diff: diff)
+                    .padding(.top, 4)
+            }
+            if showsDetail, let output {
+                ToolOutputBlock(output: output)
                     .padding(.top, 4)
             }
         }
         .padding(.vertical, nested ? 2 : 0)
+        // EXP-895: the live→settled edge drops the reader's pin, so the row
+        // folds behind the flow instead of staying open forever.
+        .onChange(of: live) { pinned = nil }
     }
 
     private var headline: some View {
@@ -3003,10 +3077,10 @@ private struct ToolRow: View {
                 Spacer(minLength: 0)
             }
             // The disclosure sits on the TRAILING edge on purpose: a leading
-            // chevron would indent the diff-carrying rows out of line with
+            // chevron would indent the evidence-carrying rows out of line with
             // every other tool row in the same run.
-            if diff != nil {
-                AppIcon(showsDiff ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+            if hasDetail {
+                AppIcon(showsDetail ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
@@ -3197,17 +3271,21 @@ private struct ExpToolIssuePreview: View {
     }
 }
 
-/// EXP-806: one call's diff, under its tool row — the same per-file renderer
-/// the "Latest changes" sheet uses (`DiffPatchBlock`), in a scroll box no
-/// taller than that bar, mirroring web's `ToolDiff`.
+/// EXP-806/895: one call's diff, under its tool row — the SAME `DiffFileCard`
+/// every Changes surface draws, only `compact` (no old-side gutter, a point
+/// smaller), in a scroll box no taller than the "Latest changes" bar, mirroring
+/// web's `ToolDiff`.
 ///
-/// The publisher's cut note is split off FIRST and drawn as a muted footer
-/// OUTSIDE the patch: `\ 120 more lines truncated` is metadata about the
-/// diff, and inside the block `DiffRendering.kind` would colour it as a
-/// context line the agent supposedly read. That footer is a different fact
-/// from `DiffPatchBlock`'s own "Diff truncated…" line, which reports THIS
-/// renderer's 600-line layout cap — both can show at once and mean different
-/// things.
+/// EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
+/// `diff --git` header) while the session diff is full `git diff` output — the
+/// ONE parser reads both, and lifts the publisher's cut count off its trailing
+/// `\ 120 more lines truncated` marker (`Diff.Parsed.truncatedLines`). That
+/// footer is a different fact from `DiffPatchBlock`'s own "Diff truncated…"
+/// line, which reports THAT renderer's 600-line layout cap — both can show at
+/// once and mean different things.
+///
+/// The cards start OPEN, unlike web's: the row's own chevron already collapses
+/// the whole block, so a second fold would be two taps to see one patch.
 private struct ToolDiffBlock: View {
     let diff: String
 
@@ -3215,23 +3293,25 @@ private struct ToolDiffBlock: View {
     /// that the prose after the call stays on screen.
     private static let maxHeight: CGFloat = 288
 
+    /// Sparse reader overrides on the open-by-default cards, keyed by path.
+    @State private var overrides: [String: Bool] = [:]
+
     var body: some View {
-        let split = AgentFeed.splitTruncatedDiff(diff)
-        let sections = DiffRendering.splitFiles(split.diff)
-        if !sections.isEmpty || split.truncated != nil {
+        let parsed = Diff.parse(diff)
+        if !parsed.files.isEmpty || parsed.truncatedLines != nil {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(sections) { section in
-                        if let filename = section.filename {
-                            Text(filename)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        DiffPatchBlock(patch: section.patch)
+                    ForEach(parsed.files) { file in
+                        DiffFileCard(
+                            file: file,
+                            expanded: overrides[file.path] ?? true,
+                            compact: true,
+                            onToggle: {
+                                overrides[file.path] = !(overrides[file.path] ?? true)
+                            }
+                        )
                     }
-                    if let truncated = split.truncated {
+                    if let truncated = parsed.truncatedLines {
                         Text(AgentFeed.diffTruncationNote(truncated))
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -3254,6 +3334,50 @@ private struct ToolDiffBlock: View {
     }
 }
 
+/// EXP-895 — what one `execute` call printed, as its settle put it on the wire:
+/// already redacted and tail-cut by the publisher, so this only has to be a
+/// readable box. A cut log OPENS with the `\ N more lines truncated` marker (the
+/// dropped lines were at the front, unlike a patch's trailing note), which reads
+/// as its first line and needs no parsing.
+///
+/// Scrolled to the BOTTOM: the verdict is the last line, and it is why the output
+/// is on the wire at all.
+private struct ToolOutputBlock: View {
+    let output: String
+
+    /// Web's `max-h-72` — tall enough to read a failure in, short enough that
+    /// the prose after the call stays on screen.
+    private static let maxHeight: CGFloat = 288
+    private static let bottom = "exp-tool-output-bottom"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(output)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(height: 0).id(Self.bottom)
+                }
+                .padding(8)
+            }
+            .frame(maxHeight: Self.maxHeight)
+            // Web's `overscroll-contain`: a short log has nothing to scroll
+            // here, so the drag belongs to the transcript.
+            .scrollBounceBehavior(.basedOnSize)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+            )
+            .onAppear { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+        }
+    }
+}
+
 /// A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
 /// (EXP-97), expandable to the individual rows. While the run is the trailing
 /// row of a live session, the latest call stays visible under the count so
@@ -3272,7 +3396,7 @@ private struct ToolGroupRow: View {
     /// contract fixture, not a bare count.
     private var caption: String {
         ToolGroupSummary.summarize(items.compactMap { item in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _) = item
             else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         })
@@ -3302,12 +3426,16 @@ private struct ToolGroupRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         if case let .tool(
-                            _, name, detail, _, _, _, settled, failed, diff, preview
+                            id, name, detail, _, _, _, settled, failed, diff, preview, output
                         ) = item {
+                            // EXP-895: inside the group too, only the RUNNING
+                            // call is expanded — the same rule the top-level
+                            // rows follow.
                             ToolRow(
                                 name: name, detail: detail, failed: failed,
                                 nested: true, diff: diff,
-                                settled: settled, preview: preview, refs: refs
+                                settled: settled, preview: preview, refs: refs,
+                                output: output, live: liveTail && id == items.last?.id
                             )
                         }
                     }
@@ -3315,11 +3443,12 @@ private struct ToolGroupRow: View {
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
                       case let .tool(
-                          _, name, detail, _, _, _, settled, failed, diff, preview
+                          _, name, detail, _, _, _, settled, failed, diff, preview, output
                       ) = last {
                 ToolRow(
                     name: name, detail: detail, failed: failed, nested: true, diff: diff,
-                    settled: settled, preview: preview, refs: refs
+                    settled: settled, preview: preview, refs: refs,
+                    output: output, live: true
                 )
                     .padding(.leading, 20)
             }
@@ -3359,7 +3488,7 @@ private struct SubagentGroupRow: View {
     /// contradict the row's own history. Empty = nothing to say yet.
     private var summary: String {
         let calls = run.items.compactMap { item -> ToolCallSummary? in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _) = item
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _) = item
             else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         }
@@ -3473,10 +3602,14 @@ struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview):
+        case let .tool(_, name, detail, _, _, _, settled, failed, diff, preview, output):
+            // A subagent's rows are a digest inside the main transcript — its
+            // own tab is where its work is read — so none of them is the live
+            // row here; the reader's tap still opens one.
             ToolRow(
                 name: name, detail: detail, failed: failed, diff: diff,
-                settled: settled, preview: preview, refs: context.issueRefs
+                settled: settled, preview: preview, refs: context.issueRefs,
+                output: output
             )
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)

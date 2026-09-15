@@ -88,6 +88,8 @@ object DomainContract {
     const val steerFeedHistoryPageMax: Int = 200
     const val steerFeedToolDiffMaxLines: Int = 200
     const val steerFeedToolDiffMaxBytes: Int = 16384
+    const val steerFeedToolOutputMaxLines: Int = 200
+    const val steerFeedToolOutputMaxBytes: Int = 16384
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"

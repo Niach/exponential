@@ -171,14 +171,18 @@ export type ActivityEvent =
       subagentId?: string
       at?: number
     }
-  // EXP-785/786: a call settled and/or an edit's per-call diff — a LOG row
-  // on the wire that folds INTO the tool row with that `id`, never a row of
-  // its own; an id this feed does not hold is dropped.
+  // EXP-785/786/895: a call settled, an edit's per-call diff and an execute
+  // call's output — a LOG row on the wire that folds INTO the tool row with
+  // that `id`, never a row of its own; an id this feed does not hold is
+  // dropped.
   | {
       kind: `tool_update`
       id: string
       status?: `completed` | `failed`
       diff?: string
+      /** EXP-895: what an `execute` call printed, published once on the settle
+       *  and tail-cut by the publisher. */
+      output?: string
       /** EXP-846: the Exponential MCP tool result the engine distilled — only
        *  ever present for an `exponential_*` call. */
       preview?: ExpToolPreview
@@ -453,6 +457,11 @@ export type FeedItem = FeedSeq &
       /** EXP-786: the per-call unified diff an `edit` published, already cut
        *  to the contract's caps by the publisher. */
       diff?: string
+      /** EXP-895: what an `execute` call PRINTED, as its settle published it
+       *  — redacted and tail-cut to the contract's caps (a cut output OPENS
+       *  with the `\ N more lines truncated` marker: the dropped lines were
+       *  at the front). Absent until the call settles. */
+      output?: string
       /** EXP-846: the Exponential MCP result preview a `tool_update` folded
        *  in (issue/PR/list…). Plumbed now, rendered in a later phase. */
       preview?: ExpToolPreview
@@ -1030,6 +1039,10 @@ export function createSteerSessionStore(
           next.failed = event.status === `failed`
         }
         if (typeof event.diff === `string` && event.diff.trim()) next.diff = event.diff
+        // EXP-895: the settle's command output. An update carrying none never
+        // clears what an earlier one folded in.
+        if (typeof event.output === `string` && event.output.trim())
+          next.output = event.output
         // EXP-846: the Exponential-tool result preview, stored on the row.
         const preview = parseToolPreview(event.preview)
         if (preview) next.preview = preview

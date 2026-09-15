@@ -1,146 +1,33 @@
+import ExpCore
 import ExpUI
 import SwiftUI
 
-/// Shared unified-diff line classification + coloring — the ONE place both the
-/// dedicated Changes page (EXP-34) and the agent-session "Latest changes" sheet
-/// (EXP-32) get their diff look from, so patches render identically everywhere.
-enum DiffLineKind {
-    case hunk
-    case addition
-    case deletion
-    /// File headers (`diff --git`, `index`, `+++`/`---`, mode lines) — plain.
-    case meta
-    case context
-}
-
-enum DiffRendering {
-    struct Line: Identifiable {
-        let id: Int
-        let text: String
-        let kind: DiffLineKind
-    }
-
-    struct FileSection: Identifiable {
-        let id: Int
-        /// Parsed from the `diff --git a/… b/…` header; nil for a headerless
-        /// single-patch blob (e.g. a bare GitHub `patch` fragment).
-        let filename: String?
-        let patch: String
-    }
-
-    static func kind(of line: some StringProtocol) -> DiffLineKind {
-        if line.hasPrefix("@@") { return .hunk }
-        if line.hasPrefix("+++") || line.hasPrefix("---") { return .meta }
-        if line.hasPrefix("diff --git") || line.hasPrefix("index ")
-            || line.hasPrefix("new file") || line.hasPrefix("deleted file")
-            || line.hasPrefix("rename ") || line.hasPrefix("similarity ")
-            || line.hasPrefix("old mode") || line.hasPrefix("new mode")
-            || line.hasPrefix("Binary files") {
-            return .meta
-        }
-        if line.hasPrefix("+") { return .addition }
-        if line.hasPrefix("-") { return .deletion }
-        return .context
-    }
-
-    static func color(_ kind: DiffLineKind) -> Color {
-        switch kind {
-        case .hunk: .white.opacity(TextOpacity.tertiary)
-        case .addition: .green
-        case .deletion: .red
-        case .meta: .white.opacity(TextOpacity.tertiary)
-        case .context: .white.opacity(TextOpacity.secondary)
-        }
-    }
-
-    static func background(_ kind: DiffLineKind) -> Color {
-        switch kind {
-        case .addition: Color.green.opacity(0.08)
-        case .deletion: Color.red.opacity(0.08)
-        default: .clear
-        }
-    }
-
-    /// `+A −D` counts: body `+`/`-` lines, excluding the `+++`/`---` headers.
-    static func stats(of diff: String) -> (additions: Int, deletions: Int) {
-        var additions = 0
-        var deletions = 0
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("+++") || line.hasPrefix("---") { continue }
-            if line.hasPrefix("+") { additions += 1 } else if line.hasPrefix("-") { deletions += 1 }
-        }
-        return (additions, deletions)
-    }
-
-    /// A patch's lines, classified and right-padded to a common width so the
-    /// per-line background tints form a uniform block inside the horizontal
-    /// scroller (the font is monospaced, so equal character count == equal
-    /// width). Capped at `maxLines` to keep huge diffs from choking layout.
-    static func lines(of patch: String, maxLines: Int = 600) -> (lines: [Line], truncated: Bool) {
-        var raw = patch.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let truncated = raw.count > maxLines
-        if truncated { raw = Array(raw.prefix(maxLines)) }
-        let maxLen = raw.map(\.count).max() ?? 0
-        let lines = raw.enumerated().map { index, line in
-            let padded = line.count < maxLen
-                ? line + String(repeating: " ", count: maxLen - line.count)
-                : line
-            return Line(id: index, text: padded.isEmpty ? " " : padded, kind: kind(of: line))
-        }
-        return (lines, truncated)
-    }
-
-    /// Split a multi-file unified diff on `diff --git` boundaries. A diff with
-    /// no such header comes back as a single unnamed section.
-    static func splitFiles(_ diff: String) -> [FileSection] {
-        let allLines = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        var sections: [FileSection] = []
-        var current: [String] = []
-        var currentName: String?
-
-        func flush() {
-            let body = current.joined(separator: "\n")
-            guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            sections.append(FileSection(id: sections.count, filename: currentName, patch: body))
-        }
-
-        for line in allLines {
-            if line.hasPrefix("diff --git ") {
-                flush()
-                current = [line]
-                currentName = filename(fromDiffGitHeader: line)
-            } else {
-                current.append(line)
-            }
-        }
-        flush()
-        return sections
-    }
-
-    /// `diff --git a/path b/path` → `path` (the post-image side).
-    private static func filename(fromDiffGitHeader line: String) -> String? {
-        guard let range = line.range(of: " b/", options: .backwards) else { return nil }
-        let name = String(line[range.upperBound...])
-        return name.isEmpty ? nil : name
-    }
-}
-
-/// One patch rendered as a colored, monospaced block. Horizontal panning stays
-/// INSIDE this block (each line is single-line + fixed-size, the scroller owns
-/// the horizontal axis) — the page around it only ever scrolls vertically.
+/// EXP-895 — the ONE unified-diff BODY, ×4. Everything about what a diff IS
+/// (parsing, counts, the skipped-context arithmetic, every label) lives in
+/// ExpCore `Diff` / `DiffPresentation`; this file is presentation only:
+/// a `Diff.File`'s hunks as rows of `old · new · sign · text`, painted from
+/// `DesignTokens.Diff.*` (never a raw `.green`/`.red`), with the `@@` header on
+/// its own band and a plain `N unchanged lines` divider wherever the patch
+/// skipped context.
 ///
-/// EXP-722: a scroller that hides its indicators has NO affordance at rest —
-/// a line cut flush at the block's edge reads as truncated, not as "more to
-/// the right". So the trailing edge FADES while content still lies beyond it
-/// and turns crisp once the reader has panned to the end. It is a mask, not a
-/// painted gradient: the block sits on translucent glass over the page
-/// gradient, so no single colour would match what is behind it.
+/// Unified layout only — a split view on a phone is two unreadable columns.
+/// `compact` (a transcript's tool card) drops the OLD gutter and tightens the
+/// type; it never changes WHAT is drawn.
+///
+/// The dividers are plain rows, never buttons: the skipped context is not on
+/// the wire, so there is nothing to expand to.
 struct DiffPatchBlock: View {
-    let patch: String
+    let file: Diff.File
+    var compact = false
 
     /// Wide enough to dissolve a few characters, narrow enough to leave the
     /// line readable — the horizontal twin of `StickyHeaderFade.height`.
     static let trailingFadeWidth: CGFloat = 36
+
+    /// The layout cap. A 20k-line file must not be handed to SwiftUI as 20k
+    /// rows; past this the block says so and stops. (A publisher's OWN cut is a
+    /// different fact, reported by `Diff.Parsed.truncatedLines` above this.)
+    static let maxRows = 600
 
     @Environment(\.motion) private var motion
     @State private var viewportWidth: CGFloat = 0
@@ -154,40 +41,217 @@ struct DiffPatchBlock: View {
         contentTrailingEdge > viewportWidth + 1
     }
 
-    var body: some View {
-        let rendered = DiffRendering.lines(of: patch)
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(rendered.lines) { line in
-                        Text(line.text)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(DiffRendering.color(line.kind))
-                            .background(DiffRendering.background(line.kind))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                .padding(8)
-                .textSelection(.enabled)
-                .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .scrollView).maxX }) { edge in
-                    contentTrailingEdge = edge
-                }
-            }
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                viewportWidth = width
-            }
-            .mask(trailingFadeMask)
-            if rendered.truncated {
-                Text("Diff truncated. Showing the first \(rendered.lines.count) lines.")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
+    // MARK: - Rows
+
+    /// One display row. A `gap` is the divider, a `hunk` the verbatim `@@` line,
+    /// a `line` one of the file's own rows.
+    private enum Row: Identifiable {
+        case gap(id: String, text: String)
+        case hunk(id: String, text: String)
+        case line(id: String, Diff.Line)
+
+        var id: String {
+            switch self {
+            case let .gap(id, _): id
+            case let .hunk(id, _): id
+            case let .line(id, _): id
             }
         }
-        .background(Color.white.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// The file flattened: a divider before each hunk that skipped context (the
+    /// FIRST hunk measures against the top of the file), the header, the lines.
+    private static func rows(of file: Diff.File) -> [Row] {
+        var out: [Row] = []
+        for (index, hunk) in file.hunks.enumerated() {
+            let skipped = index == 0
+                ? Diff.unchangedBefore(hunk)
+                : Diff.unchangedBetween(file.hunks[index - 1], hunk)
+            if skipped > 0 {
+                out.append(.gap(id: "g\(index)", text: Diff.unchangedLabel(skipped)))
+            }
+            out.append(.hunk(id: "h\(index)", text: hunk.header))
+            for (at, line) in hunk.lines.enumerated() {
+                out.append(.line(id: "l\(index)-\(at)", line))
+            }
+        }
+        return out
+    }
+
+    // MARK: - Metrics
+    //
+    // The font is measured, not guessed: the row washes have to span the whole
+    // block (a wash that stops at the end of the text reads as a second cut),
+    // and a monospaced advance is the only way to give every row the same width
+    // without padding the text with spaces.
+
+    private struct Metrics {
+        let font: Font
+        let advance: CGFloat
+        let gutter: CGFloat
+        let sign: CGFloat
+        let rowHeight: CGFloat
+    }
+
+    private var metrics: Metrics {
+        // Dynamic type still drives the size — a transcript card just sits one
+        // point below the page's own diff.
+        let size = UIFont.preferredFont(forTextStyle: .caption2).pointSize - (compact ? 1 : 0)
+        let uiFont = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let advance = ("0" as NSString).size(withAttributes: [.font: uiFont]).width
+        return Metrics(
+            font: Font(uiFont),
+            advance: advance,
+            // Four digits plus breathing room — the line numbers are
+            // right-aligned inside it (web's `text-right tabular-nums`).
+            gutter: advance * 4 + 8,
+            sign: advance * 1.5,
+            rowHeight: uiFont.lineHeight + 2
+        )
+    }
+
+    /// The widest row in characters — the block's content width.
+    private func contentColumns(_ rows: [Row]) -> Int {
+        var widest = 0
+        for row in rows {
+            let count: Int
+            switch row {
+            case let .gap(_, text): count = text.count
+            case let .hunk(_, text): count = text.count
+            case let .line(_, line): count = line.text.count
+            }
+            if count > widest { widest = count }
+        }
+        return widest
+    }
+
+    var body: some View {
+        let all = Self.rows(of: file)
+        let shown = Array(all.prefix(Self.maxRows))
+        let m = metrics
+        let gutters = (compact ? m.gutter : m.gutter * 2) + m.sign
+        let textWidth = max(CGFloat(contentColumns(shown)) * m.advance, 1)
+        let rowWidth = max(gutters + textWidth, viewportWidth)
+
+        VStack(alignment: .leading, spacing: 0) {
+            if file.hunks.isEmpty {
+                Text(DiffPresentation.noHunksNote(file))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(shown) { row in
+                            rowView(row, m: m, width: rowWidth, gutters: gutters)
+                        }
+                    }
+                    .textSelection(.enabled)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .scrollView).maxX }) { edge in
+                        contentTrailingEdge = edge
+                    }
+                }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                    viewportWidth = width
+                }
+                .mask(trailingFadeMask)
+                if all.count > shown.count {
+                    Text("Diff truncated. Showing the first \(shown.count) lines.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: Row, m: Metrics, width: CGFloat, gutters: CGFloat) -> some View {
+        switch row {
+        case let .gap(_, text):
+            // A PLAIN row, never a button (EXP-895).
+            Text(text)
+                .font(m.font)
+                .foregroundStyle(DesignTokens.Diff.gutterFg)
+                .frame(width: width, alignment: .center)
+                .background(DesignTokens.Diff.hunkBg.opacity(0.6))
+                .accessibilityIdentifier("diff-gap-row")
+        case let .hunk(_, text):
+            Text(text)
+                .font(m.font)
+                .foregroundStyle(DesignTokens.Diff.hunkFg)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(width: width, alignment: .leading)
+                .background(DesignTokens.Diff.hunkBg)
+        case let .line(_, line):
+            if line.kind == .meta {
+                // `\ No newline at end of file` — numbered on neither side.
+                Text(line.text)
+                    .font(m.font.italic())
+                    .foregroundStyle(DesignTokens.Diff.gutterFg)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .frame(width: width, alignment: .leading)
+            } else {
+                HStack(spacing: 0) {
+                    if !compact {
+                        gutterCell(line.oldNo, m: m)
+                    }
+                    gutterCell(line.newNo, m: m)
+                    Text(sign(line.kind))
+                        .font(m.font)
+                        .foregroundStyle(foreground(line.kind))
+                        .frame(width: m.sign, alignment: .center)
+                    Text(line.text.isEmpty ? " " : line.text)
+                        .font(m.font)
+                        .foregroundStyle(foreground(line.kind))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(width: max(width - gutters, 1), alignment: .leading)
+                }
+                .frame(width: width, alignment: .leading)
+                .background(background(line.kind))
+            }
+        }
+    }
+
+    private func gutterCell(_ number: Int?, m: Metrics) -> some View {
+        Text(number.map(String.init) ?? "")
+            .font(m.font)
+            .monospacedDigit()
+            .foregroundStyle(DesignTokens.Diff.gutterFg)
+            .lineLimit(1)
+            .padding(.trailing, 4)
+            .frame(width: m.gutter, alignment: .trailing)
+    }
+
+    private func sign(_ kind: Diff.LineKind) -> String {
+        switch kind {
+        case .add: "+"
+        // U+2212 MINUS SIGN, the ×4 rule (`Diff.deletionsLabel`).
+        case .del: "\u{2212}"
+        default: " "
+        }
+    }
+
+    private func foreground(_ kind: Diff.LineKind) -> Color {
+        switch kind {
+        case .add: DesignTokens.Diff.addFg
+        case .del: DesignTokens.Diff.delFg
+        case .context, .meta: .white.opacity(TextOpacity.secondary)
+        }
+    }
+
+    private func background(_ kind: Diff.LineKind) -> Color {
+        switch kind {
+        case .add: DesignTokens.Diff.addBg
+        case .del: DesignTokens.Diff.delBg
+        case .context, .meta: .clear
+        }
     }
 
     /// Opaque everywhere but the trailing strip, which fades to clear only

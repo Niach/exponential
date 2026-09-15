@@ -251,6 +251,14 @@ struct ConfigSnapshot {
 struct ToolState {
     title: String,
     kind: ToolKind,
+    /// EXP-895: what an `execute` call has printed so far, accumulated from
+    /// its `ToolCallContent::Content` blocks and published ONCE on the settle.
+    /// Bounded as it grows ([`Mapper::note_tool_output`]) — a `bun install`
+    /// writes megabytes and only its tail is ever sent.
+    output: String,
+    /// Lines [`Mapper::note_tool_output`] already dropped off the FRONT of
+    /// `output`, so the settle's marker counts them too.
+    output_dropped: usize,
 }
 
 struct PermissionAsk {
@@ -1547,6 +1555,8 @@ impl Mapper {
             ToolState {
                 title: call.title.clone(),
                 kind: call.kind,
+                output: String::new(),
+                output_dropped: 0,
             },
         );
         let diff = self.tool_content(&id, call.kind, &call.content, call.raw_output.as_ref(), out);
@@ -1630,6 +1640,10 @@ impl Mapper {
     /// its own JSON answer. Only our tools have a result shape we know, so
     /// `preview` is `None` for everything else — including a settle with no
     /// output at all.
+    ///
+    /// EXP-895: plus what an `execute` call PRINTED ([`Self::wire_tool_output`]),
+    /// on the settle and nowhere else — a viewer's row shows the verdict, the
+    /// live tail stays the runner's own card.
     fn emit_tool_update(
         &mut self,
         id: &str,
@@ -1643,16 +1657,69 @@ impl Mapper {
             (Some(_), Some(result)) => self.exp_tool_preview(id, result),
             _ => None,
         };
-        if status.is_none() && diff.is_none() && preview.is_none() {
+        let output = match status {
+            Some(_) => self.wire_tool_output(id),
+            None => None,
+        };
+        if status.is_none() && diff.is_none() && preview.is_none() && output.is_none() {
             return;
         }
         let event = match ActivityEvent::tool_update(id, status, diff) {
             ActivityEvent::ToolUpdate { id, status, diff, at, .. } => {
-                ActivityEvent::ToolUpdate { id, status, diff, at, preview }
+                ActivityEvent::ToolUpdate { id, status, diff, output, at, preview }
             }
             other => other,
         };
         emit(out, event, Some(id.to_string()));
+    }
+
+    /// EXP-895 — the settle's command output for `id`, when there is any: the
+    /// accumulated stdout of an `execute` call, redacted like every other free
+    /// text and TAIL-cut to the contract's caps (a command's verdict is its
+    /// last line). A cut output OPENS with `\ N more lines truncated`, the
+    /// marker a cut patch closes with, because the dropped lines were at the
+    /// front. `None` for every other kind and for a call that printed nothing.
+    fn wire_tool_output(&self, id: &str) -> Option<String> {
+        let state = self.tools.get(id)?;
+        if state.kind != ToolKind::Execute {
+            return None;
+        }
+        // Blank is nothing to say: every client's fold drops a blank `output`,
+        // so publishing one is pure wire.
+        if state.output.trim().is_empty() && state.output_dropped == 0 {
+            return None;
+        }
+        let redacted = self.config.redactor.redact(&state.output);
+        let (kept, omitted) = steer::truncate_output(
+            &redacted,
+            steer::TOOL_OUTPUT_MAX_LINES,
+            steer::TOOL_OUTPUT_MAX_BYTES,
+        );
+        let omitted = omitted + state.output_dropped;
+        Some(if omitted > 0 {
+            format!("\\ {omitted} more lines truncated\n{kept}")
+        } else {
+            kept
+        })
+    }
+
+    /// Fold one output chunk of `id` into its accumulator, keeping the buffer
+    /// bounded: past twice the wire cap it is tail-cut in place and the
+    /// dropped lines are counted, so a command that prints for ten minutes
+    /// costs the same as one that prints once. Unknown ids (a chunk for a call
+    /// this mapper never announced) are dropped like every other update.
+    fn note_tool_output(&mut self, id: &str, chunk: &str) {
+        let Some(state) = self.tools.get_mut(id) else { return };
+        if state.kind != ToolKind::Execute {
+            return;
+        }
+        state.output.push_str(chunk);
+        if state.output.len() > steer::TOOL_OUTPUT_MAX_BYTES.saturating_mul(2) {
+            let (kept, dropped) =
+                steer::truncate_output(&state.output, usize::MAX, steer::TOOL_OUTPUT_MAX_BYTES);
+            state.output = kept;
+            state.output_dropped += dropped;
+        }
     }
 
     /// EXP-846: the preview for a SETTLED call, when it is one of ours and its
@@ -1685,8 +1752,17 @@ impl Mapper {
     /// local cards get both whole. EXP-786 sends ONE derived piece onward —
     /// an `edit` call's diff, as a unified patch built from old/new text,
     /// redacted, then cut to the contract's caps on line boundaries — and
-    /// returns it for the caller's `tool_update`. Command output never goes;
-    /// the wire `diff` stays the debounced whole-worktree snapshot.
+    /// returns it for the caller's `tool_update`; the wire `diff` stays the
+    /// debounced whole-worktree snapshot.
+    ///
+    /// EXP-895: an `execute` call's output goes on too, but not from here —
+    /// the chunks only ACCUMULATE ([`Self::note_tool_output`]) and the settle
+    /// publishes the tail once ([`Self::wire_tool_output`]). A chunk per event
+    /// would be a live stream on the wire, which is the local card's job.
+    /// (An agent's ACP `terminal/*` output never reaches this mapper at all —
+    /// `crate::terminals` writes `LocalFeedEvent::Output` straight to the
+    /// local feed from its PTY reader, and neither first-party adapter uses
+    /// the capability: both report command output as `Content` blocks.)
     fn tool_content(
         &mut self,
         id: &str,
@@ -1718,6 +1794,9 @@ impl Mapper {
                 ToolCallContent::Content(block) if kind == ToolKind::Execute => {
                     let chunk = block_text(&block.content);
                     if !chunk.is_empty() {
+                        // EXP-895: the same bytes twice over — whole to the
+                        // local card, accumulated for the settle's wire tail.
+                        self.note_tool_output(id, &chunk);
                         out.local.push(LocalFeedEvent::Output {
                             tool_call_id: id.to_string(),
                             chunk,

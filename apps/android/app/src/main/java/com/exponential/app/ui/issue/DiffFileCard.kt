@@ -1,0 +1,309 @@
+package com.exponential.app.ui.issue
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.exponential.app.data.api.PullFile
+import com.exponential.app.domain.Diff
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.Motion
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassRow
+
+// EXP-895 — ONE file's diff, the whole of the per-file rendering ×4 (web
+// `FileDiffCard`): a tappable `letter · path · +a −b · chevron` header over the
+// unified body ([PatchLines]). It takes a [Diff.File] off the shared parser and
+// nothing else — no PullFile, no patch strings — so every surface that shows a
+// diff (the Review page, both Changes faces, a transcript's Edit row) draws the
+// same card.
+
+/**
+ * GitHub's PullFile → the shared model (web `fromPullFile`, iOS
+ * `PrFile.diffFile`). When the patch carries NO hunks — absent, empty, a pure
+ * rename, or a diff too large for GitHub to send — GitHub's own
+ * additions/deletions are kept, because they are the only counts there are;
+ * with hunks, the parser's counts win, so the header can never disagree with
+ * the rows under it.
+ */
+fun PullFile.toDiffFile(): Diff.File {
+    val file = Diff.parsePatch(filename, Diff.Status.fromPullFile(status), patch)
+    if (file.hunks.isNotEmpty()) return file
+    return file.copy(additions = maxOf(0, additions), deletions = maxOf(0, deletions))
+}
+
+/** The one-letter status a file list leads with. */
+fun diffStatusLetter(status: Diff.Status): String = when (status) {
+    Diff.Status.ADDED -> "A"
+    Diff.Status.REMOVED -> "D"
+    Diff.Status.MODIFIED -> "M"
+    Diff.Status.RENAMED -> "R"
+    Diff.Status.COPIED -> "C"
+}
+
+/** The directory of a path WITH its trailing slash (`apps/web/src/`), empty at
+ *  the repo root. */
+fun diffPathDir(path: String): String {
+    val slash = path.lastIndexOf('/')
+    return if (slash >= 0) path.substring(0, slash + 1) else ""
+}
+
+/** The basename — the part a trailing ellipsis must never eat. */
+fun diffPathBase(path: String): String {
+    val slash = path.lastIndexOf('/')
+    return path.substring(slash + 1)
+}
+
+/** A file with more hunk lines than this starts folded (web `COLLAPSE_THRESHOLD`). */
+private const val COLLAPSE_THRESHOLD = 300
+
+/** The hunk lines of a file — what the cap above is measured in. */
+fun diffLineCount(file: Diff.File): Int {
+    var n = 0
+    for (hunk in file.hunks) n += hunk.lines.size
+    return n
+}
+
+/**
+ * Whether a file opens by default at this surface's setting (web
+ * `diffOpensByDefault`). A review queue passes [defaultCollapsed] and every
+ * card starts shut; a run's own output opens — except for the one file so long
+ * that opening it buries everything after it.
+ */
+fun diffOpensByDefault(file: Diff.File, defaultCollapsed: Boolean): Boolean =
+    !defaultCollapsed && diffLineCount(file) <= COLLAPSE_THRESHOLD
+
+/**
+ * The file list's filter (web `FileDiffNav`): a case-insensitive substring of
+ * the WHOLE path, so `values/str` finds `res/values/strings.xml`. A blank
+ * needle keeps every file.
+ */
+fun filterDiffFiles(files: List<Diff.File>, query: String): List<Diff.File> {
+    val needle = query.trim().lowercase()
+    if (needle.isEmpty()) return files
+    return files.filter { it.path.lowercase().contains(needle) }
+}
+
+/**
+ * Shorten [value] to at most [max] characters by replacing its MIDDLE with an
+ * ellipsis — mirrors web `middleTruncate`. On a phone a trailing ellipsis eats
+ * the only part of a path that identifies the file, so the DIRECTORY gives way
+ * instead and both of its ends stay readable.
+ */
+fun middleTruncatePath(value: String, max: Int): String {
+    if (max <= 0 || max < 3) return value
+    if (value.length <= max) return value
+    val keep = max - 1
+    val head = keep / 2
+    val tail = keep - head
+    return value.take(head) + "…" + value.takeLast(tail)
+}
+
+/** How much directory a phone card keeps (web `MOBILE_DIR_CHARS`). */
+private const val DIR_CHARS = 22
+
+private val PathFontSize = 12.sp
+private val CountFontSize = 11.sp
+
+/**
+ * `apps/web/src/` dimmed, `file.kt` at full weight — ONE monospace run, so the
+ * path never breaks into two competing labels.
+ */
+@Composable
+private fun diffPathText(path: String, dirChars: Int = DIR_CHARS): AnnotatedString {
+    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    return remember(path, dim, dirChars) {
+        val dir = diffPathDir(path)
+        buildAnnotatedString {
+            if (dir.isNotEmpty()) {
+                withStyle(SpanStyle(color = dim)) { append(middleTruncatePath(dir, dirChars)) }
+            }
+            append(diffPathBase(path))
+        }
+    }
+}
+
+/**
+ * The status letter. Only the two states that ARE a colour in the diff body
+ * carry one: `A` the addition green, `D` the deletion red. `M`/`R`/`C` stay
+ * muted — an amber "modified" and a sky "renamed" (the pre-EXP-895 palette)
+ * invented two accent hues the token set does not have.
+ */
+@Composable
+fun DiffStatusLetter(status: Diff.Status, modifier: Modifier = Modifier) {
+    Text(
+        diffStatusLetter(status),
+        color = when (status) {
+            Diff.Status.ADDED -> DesignTokens.Diff.AddFg
+            Diff.Status.REMOVED -> DesignTokens.Diff.DelFg
+            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+        },
+        fontFamily = FontFamily.Monospace,
+        fontSize = CountFontSize,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier,
+    )
+}
+
+/** `+12 −2` — the deletion count is U+2212, never a hyphen ([Diff.deletionsLabel]). */
+@Composable
+fun DiffCounts(additions: Int, deletions: Int, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            Diff.additionsLabel(additions),
+            color = DesignTokens.Diff.AddFg,
+            fontFamily = FontFamily.Monospace,
+            fontSize = CountFontSize,
+        )
+        Text(
+            Diff.deletionsLabel(deletions),
+            color = DesignTokens.Diff.DelFg,
+            fontFamily = FontFamily.Monospace,
+            fontSize = CountFontSize,
+        )
+    }
+}
+
+/**
+ * One changed file. [compact] is the transcript rung: a tighter header and a
+ * body with no old-side gutter, for a card that lives inside a tool row rather
+ * than on a page of its own.
+ */
+@Composable
+fun DiffFileCard(
+    file: Diff.File,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    Column(modifier = modifier.fillMaxWidth().glassRow()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("changes-file-row")
+                .clickable(onClick = onToggle)
+                .padding(
+                    horizontal = if (compact) 10.dp else 12.dp,
+                    vertical = if (compact) 7.dp else 10.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DiffStatusLetter(file.status)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                diffPathText(file.path),
+                fontFamily = FontFamily.Monospace,
+                fontSize = PathFontSize,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            DiffCounts(file.additions, file.deletions)
+            Spacer(Modifier.width(6.dp))
+            // EXP-706: ONE glyph that turns, instead of two that swap — the
+            // rotation reads as the card opening. Motion.standard() snaps
+            // under the OS's reduce-motion setting (ui/theme/Motion.kt).
+            val rotation by animateFloatAsState(
+                targetValue = if (expanded) 180f else 0f,
+                animationSpec = Motion.standard(),
+                label = "file-chevron",
+            )
+            Icon(
+                ExpIcons.uiChevronDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(16.dp).rotate(rotation),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
+        if (expanded) {
+            if (file.hunks.isNotEmpty()) {
+                PatchLines(
+                    hunks = file.hunks,
+                    compact = compact,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            } else {
+                Text(
+                    noHunksNote(file),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A file LIST row (web `FileDiffNav`): `letter · name · dimmed dir · counts`,
+ * the basename first because that is what a reader scans for. Flat — the rows
+ * stack under a group band, EXP-818.
+ */
+@Composable
+fun DiffFileRow(file: Diff.File, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("changes-file-list-row")
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DiffStatusLetter(file.status)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            diffPathBase(file.path),
+            fontFamily = FontFamily.Monospace,
+            fontSize = PathFontSize,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val dir = diffPathDir(file.path).trimEnd('/')
+        if (dir.isNotEmpty()) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                dir,
+                fontFamily = FontFamily.Monospace,
+                fontSize = PathFontSize,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.width(8.dp))
+        DiffCounts(file.additions, file.deletions)
+    }
+}

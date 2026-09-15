@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-one-diff-view",
+    date: "2026-09-15",
+    title: "One diff view",
+    summary: "Every diff in Exponential now reads the same, on the web, the desktop app, iOS and Android: the same colours, the same line numbers, the same way to open the unchanged lines around a change.",
+    body: r#"- **The same diff everywhere**: a pull request's files, a run's changes and the edit cards in a transcript all render through one diff view now, with one shared palette and one set of line numbers.
+- **Unchanged lines on request**: the gap above and between changes says how many lines it hides, and opens them where you want to read around an edit.
+- **Renames, copies and binaries**: a renamed or copied file names where it came from, and a binary file says so instead of showing an empty body.
+- **Cut output is marked**: when a run's tool output or diff is too long to send whole, the transcript says how many lines were dropped rather than ending mid line."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-phone-work-screen",
     date: "2026-09-15",
     title: "The issue and its run, one screen on your phone",
@@ -55,19 +68,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **The composer matches the desktop**: the run's reply box shows the plan-mode word, the attach button, the model picker and a small usage ring that opens the usage sheet.
 - **Changes as a page**: the run's diff, or the issue's open pull request, is a full page with the GitHub link and Merge PR in the bar, instead of a floating bar over the transcript.
 - **Simpler session lists**: the Agent page's rows no longer carry Merge and open-issue buttons on any client; tapping a row opens the run."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-session-history",
-    date: "2026-09-15",
-    title: "Session history that stays",
-    summary: "Finished runs stay on your machine as long as you like, and an issue with several runs lets you switch between them.",
-    body: r#"- **Kept on your machine**: transcripts and resume records of finished runs are no longer deleted after 60 and 10 days. They live only on the machine that ran them, never on our servers.
-- **Sessions setting**: the desktop app's new Settings → Sessions page picks how long that history is kept: unlimited by default, or 1 year, 90 days or 30 days.
-- **Switching runs**: when an issue has more than one run of yours, its Run toggle reads Runs and the run's page gets a picker that opens any of them, the live one included.
-- **Recent**: the Agent page's Past band is now called Recent and shows your 20 latest runs."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

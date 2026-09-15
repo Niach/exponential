@@ -9,10 +9,13 @@ import SwiftUI
 /// source flips live when a PR opens) and loads the files from the tier that
 /// applies (`ChangesViewModel`).
 ///
-/// Two hosts, one bar recipe (`FloatingBottomBar`):
-/// - Reviews (`reviewMode`): close-PR circle · Merge / Fix conflicts · GitHub,
-///   plus the close-without-merge dialog (Close exists nowhere else on iOS).
-/// - The Work screen: GitHub · Merge / Fix conflicts · the face switcher.
+/// Two hosts, one bar recipe (`FloatingBottomBar`). EXP-895 locks the leading
+/// slot to the phone's FILE SHEET on both, and moves GitHub up into the nav
+/// bar's action slot:
+/// - Reviews (`reviewMode`): file sheet · Merge / Fix conflicts · close-PR
+///   circle, plus the close-without-merge dialog (Close exists nowhere else
+///   on iOS).
+/// - The Work screen: file sheet · Merge / Fix conflicts · the face switcher.
 struct PrChangesFace<Trailing: View>: View {
     let issueId: String
     let reviewMode: Bool
@@ -22,9 +25,6 @@ struct PrChangesFace<Trailing: View>: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.openURL) private var openURL
-    /// EXP-706: the file rows' chevron rotates instead of swapping glyph, so
-    /// the screen needs the shared motion tokens (nil under Reduce Motion).
-    @Environment(\.motion) private var motion
     @State private var viewModel: ChangesViewModel?
     @State private var mergeConfirm = false
     @State private var closeConfirm = false
@@ -32,6 +32,10 @@ struct PrChangesFace<Trailing: View>: View {
     // conflict, so the bar offers the builtin recovery run seeded with THIS
     // pull request. EXP-825: NAVIGATION into the Agent page composer.
     @State private var steerEnabled = false
+    /// EXP-895: the phone's file list, off the bar's leading slot.
+    @State private var fileSheet = false
+    /// The path the sheet last picked — the card list expands it and jumps.
+    @State private var selectedPath: String?
 
     var body: some View {
         Group {
@@ -88,6 +92,24 @@ struct PrChangesFace<Trailing: View>: View {
         } message: {
             Text("Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
         }
+        // EXP-895: the file list. A column beside the cards leaves neither
+        // readable on a phone, so it is a bottom sheet off the bar.
+        .sheet(isPresented: $fileSheet) {
+            DiffFileListSheet(
+                files: viewModel.flatMap(loadedFiles) ?? [],
+                selected: selectedPath,
+                onSelect: { selectedPath = $0 }
+            )
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // The Work screen carries its own (it owns that toolbar across
+                // every face); this is the Reviews page's.
+                if reviewMode, let vm = viewModel, let url = prURL(vm) {
+                    githubToolbarButton(url)
+                }
+            }
+        }
     }
 
     /// The merge alert message — carries the PR number when known.
@@ -98,63 +120,62 @@ struct PrChangesFace<Trailing: View>: View {
         return "Squash-merges this pull request via the GitHub App. Any live coding session for it closes."
     }
 
-    @ViewBuilder
+    /// The loaded files, or nil while the fetch is out / failed.
+    private func loadedFiles(_ vm: ChangesViewModel) -> [Diff.File]? {
+        if case let .loaded(files) = vm.load { return files }
+        return nil
+    }
+
     private func content(_ vm: ChangesViewModel) -> some View {
-        let loadedFiles: [PrFile]? = {
-            if case let .loaded(files) = vm.load { return files }
-            return nil
-        }()
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
+        let files = loadedFiles(vm)
+        // EXP-895: the ONE diff view. Every card starts closed (EXP-248) —
+        // uniform with web's `defaultCollapsed` review layout.
+        return DiffFileList(
+            files: files ?? [],
+            defaultCollapsed: true,
+            emptyLabel: files == nil ? nil : "No changed files.",
+            focusPath: selectedPath,
+            accessibilityId: "changes-file-cards",
+            header: {
                 // The PR/branch header (and the floating action bar below)
                 // come from synced issue fields, so they render in EVERY load
                 // state — a diff-fetch failure must never strand a member
                 // without Merge / Close. The stats line only shows once files
                 // are loaded.
                 if vm.issue != nil {
-                    summaryHeader(vm: vm, files: loadedFiles)
+                    summaryHeader(vm: vm, files: files)
                 }
-
-                switch vm.load {
-                case .loading:
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small).tint(.white)
-                        Text("Loading changes…")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
-                case let .failed(message):
-                    Text("Couldn't load changes: \(message)")
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                case let .loaded(files):
-                    if files.isEmpty {
-                        Text("No changed files.")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .padding(.vertical, 12)
-                    }
-                    ForEach(files) { file in
-                        fileSection(file, expanded: vm.expanded.contains(file.filename)) {
-                            vm.toggle(file.filename)
-                        }
-                    }
-                }
+                loadStatus(vm)
             }
-            .padding(.horizontal, 16)
+        )
+    }
+
+    @ViewBuilder
+    private func loadStatus(_ vm: ChangesViewModel) -> some View {
+        switch vm.load {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(.white)
+                Text("Loading changes…")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
-            .padding(.bottom, 24)
+        case let .failed(message):
+            Text("Couldn't load changes: \(message)")
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+        case .loaded:
+            EmptyView()
         }
-        .stickyHeaderFade()
     }
 
     // MARK: - Summary header
 
-    private func summaryHeader(vm: ChangesViewModel, files: [PrFile]?) -> some View {
+    private func summaryHeader(vm: ChangesViewModel, files: [Diff.File]?) -> some View {
         let issue = vm.issue
         return VStack(alignment: .leading, spacing: 8) {
             if let branch = issue?.branch, !branch.isEmpty {
@@ -170,11 +191,7 @@ struct PrChangesFace<Trailing: View>: View {
                 }
                 // Stats depend on the diff fetch — shown only once it lands.
                 if let files {
-                    DiffSummaryRow(
-                        files: files.count,
-                        additions: files.reduce(0) { $0 + $1.additions },
-                        deletions: files.reduce(0) { $0 + $1.deletions }
-                    )
+                    DiffSummaryRow(totals: Diff.totals(files))
                 }
                 Spacer(minLength: 0)
             }
@@ -201,7 +218,7 @@ struct PrChangesFace<Trailing: View>: View {
     /// Reviews shows the bar only with something to act on (the pushed-branch
     /// tier has none); the Work screen always carries the switcher.
     private func barVisible(_ vm: ChangesViewModel) -> Bool {
-        !reviewMode || canReview(vm) || prURL(vm) != nil
+        !reviewMode || canReview(vm) || loadedFiles(vm)?.isEmpty == false
     }
 
     /// Review actions (EXP-248) on the shared floating bar. A failed
@@ -237,14 +254,14 @@ struct PrChangesFace<Trailing: View>: View {
         }
     }
 
+    /// EXP-895: the bar's LEADING slot is the phone's file list, on every
+    /// Changes surface — GitHub moved up into the nav bar's action slot, where
+    /// a phone header has room for it. The locked layout is
+    /// `[file sheet][merge capsule][switcher]`.
     @ViewBuilder
     private func barLeading(_ vm: ChangesViewModel) -> some View {
-        if reviewMode {
-            if canReview(vm) {
-                closeCircle(vm)
-            }
-        } else if let url = prURL(vm) {
-            githubCircle(url)
+        if let files = loadedFiles(vm), !files.isEmpty {
+            DiffFilesBarCircle(count: files.count) { fileSheet = true }
         }
     }
 
@@ -283,11 +300,14 @@ struct PrChangesFace<Trailing: View>: View {
         }
     }
 
+    /// The Work screen's face switcher; on the Reviews page (which has no
+    /// switcher) the close-without-merge circle, the one control that exists
+    /// nowhere else on iOS.
     @ViewBuilder
     private func barTrailing(_ vm: ChangesViewModel) -> some View {
         if reviewMode {
-            if let url = prURL(vm) {
-                githubCircle(url)
+            if canReview(vm) {
+                closeCircle(vm)
             }
         } else {
             trailing()
@@ -309,11 +329,15 @@ struct PrChangesFace<Trailing: View>: View {
         }
     }
 
-    private func githubCircle(_ url: URL) -> some View {
-        FloatingBarCircle(accessibilityLabel: "Open PR on GitHub", action: { openURL(url) }) {
+    /// EXP-895: GitHub in the nav bar's ACTION slot. The Work screen hosts its
+    /// own (it owns that toolbar across faces); the Reviews page's is here.
+    private func githubToolbarButton(_ url: URL) -> some View {
+        Button { openURL(url) } label: {
             AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
+        .accessibilityLabel("Open PR on GitHub")
+        .accessibilityIdentifier("changes-github-action")
     }
 
     // MARK: - Fix conflicts (EXP-323)
@@ -343,83 +367,4 @@ struct PrChangesFace<Trailing: View>: View {
             && !(vm.issue?.branch ?? "").isEmpty
     }
 
-    // MARK: - Per-file section
-
-    /// One changed file: a tappable header (status letter, filename, +/−
-    /// counts) over a collapsible unified patch with the shared line coloring.
-    private func fileSection(_ file: PrFile, expanded: Bool, onToggle: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: onToggle) {
-                HStack(spacing: 8) {
-                    Text(Self.statusLetter(file.status))
-                        .font(.caption.monospaced().weight(.bold))
-                        .foregroundStyle(Self.statusColor(file.status))
-                    Text(file.filename)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("+\(file.additions)")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.green)
-                    Text("-\(file.deletions)")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.red)
-                    // EXP-706: ONE chevron that turns over, not two glyphs
-                    // swapping — the rotation reads as the section opening.
-                    AppIcon(AppIcons.uiChevronDown, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                        .animation(motion.standard, value: expanded)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Collapse \(file.filename)" : "Expand \(file.filename)")
-            .accessibilityIdentifier("changes-file-row")
-
-            if expanded {
-                if let patch = file.patch, !patch.isEmpty {
-                    DiffPatchBlock(patch: patch)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 8)
-                } else {
-                    Text(file.status == "renamed" ? "Renamed." : "No textual diff (binary or too large).")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 10)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // A gapped list item (one file among many), so it wears the row
-        // hairline the borderless group no longer draws.
-        .glassRow()
-    }
-
-    // GitHub file statuses: added / modified / removed / renamed / copied / changed.
-    private static func statusLetter(_ status: String) -> String {
-        switch status {
-        case "added": "A"
-        case "removed": "D"
-        case "renamed": "R"
-        case "copied": "C"
-        default: "M"
-        }
-    }
-
-    /// EXP-706: all four letters come from the shared semantic palette — A
-    /// green, D red, R/C blue, M amber.
-    private static func statusColor(_ status: String) -> Color {
-        switch status {
-        case "added": DesignTokens.Semantic.green
-        case "removed": DesignTokens.Semantic.red
-        case "renamed", "copied": DesignTokens.Semantic.blue
-        default: DesignTokens.Semantic.yellow
-        }
-    }
 }

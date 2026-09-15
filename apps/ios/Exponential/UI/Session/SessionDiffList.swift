@@ -2,89 +2,153 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-893: the diff summary line every changes surface prints — `3 files
-/// +12 -4`, ASCII hyphen, two spaces between the count and the stats — the
-/// Work screen's Changes face and the Reviews page alike (web / desktop /
-/// Android parity).
-enum DiffSummary {
-    static func label(files: Int, additions: Int, deletions: Int) -> String {
-        "\(files) \(files == 1 ? "file" : "files")  +\(additions) -\(deletions)"
-    }
-}
-
-/// The summary row: the count in secondary, the stats in mono green / red.
+/// EXP-895: the summary line every Changes surface prints — `Changes +82 −6 ·
+/// 3 files`, the U+2212 minus the contract owns (`Diff.additionsLabel` /
+/// `deletionsLabel` / `summaryLabel`), web's `ChangesTopBar` reading order.
 struct DiffSummaryRow: View {
-    let files: Int
-    let additions: Int
-    let deletions: Int
+    let totals: Diff.Totals
+    /// The word in front of the counts. The phone file sheet's own header
+    /// already says what it is, so it drops it.
+    var title: String?
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("\(files) \(files == 1 ? "file" : "files")")
+            if let title {
+                Text(title)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+            }
+            DiffCountsLabel(additions: totals.additions, deletions: totals.deletions)
+            Text(totals.files == 1 ? "1 file" : "\(totals.files) files")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("+\(additions)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.green)
-            Text("-\(deletions)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.red)
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(DiffSummary.label(files: files, additions: additions, deletions: deletions))
+        .accessibilityLabel(
+            Diff.summaryLabel(
+                files: totals.files, additions: totals.additions, deletions: totals.deletions
+            )
+        )
     }
 }
 
-/// The run's latest worktree diff as a full page (EXP-893; the pinned
-/// "Latest changes" sheet until then): the raw `git diff` output split on
-/// `diff --git` into per-file glass rows with the shared DiffRendering
-/// coloring — horizontal panning stays inside each file's code block only.
-/// The Work screen's Changes face while the run has a live diff.
-struct SessionDiffList: View {
-    let diff: String
+/// EXP-895: the ONE diff view as a page — the summary over `DiffFileCard`s, the
+/// publisher's cut note under them. `DiffFileList` is what the run's Changes
+/// face (the live worktree diff) and the issue's PR files both draw; the file
+/// column that sits beside it on a desktop is a bottom SHEET here
+/// (`DiffFileListSheet`), so this only reacts to the path it picked.
+struct DiffFileList<Header: View>: View {
+    let files: [Diff.File]
+    /// The publisher's OWN dropped-line count (`Diff.Parsed.truncatedLines`).
+    var truncatedLines: Int?
+    /// Every card starts closed (the review layout) rather than open.
+    var defaultCollapsed = false
+    /// What an EMPTY file set says.
+    var emptyLabel: String?
+    /// The file the reader picked in the sheet: expand it and scroll to it. A
+    /// CHANGE jumps; re-picking the file in view is a no-op.
+    var focusPath: String?
+    /// What the surface answers to in a UI test.
+    var accessibilityId = "session-diff-list"
+    /// Anything the surface puts above the cards (the PR/branch header).
+    @ViewBuilder var header: () -> Header
+
+    /// Sparse reader overrides on top of the default, keyed by path — a refresh
+    /// replaces `files` without discarding the toggles.
+    @State private var overrides: [String: Bool] = [:]
 
     var body: some View {
-        let stats = DiffRendering.stats(of: diff)
-        let sections = DiffRendering.splitFiles(diff)
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    header()
+                    if files.isEmpty, let emptyLabel {
+                        Text(emptyLabel)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .padding(.vertical, 12)
+                    }
+                    ForEach(files) { file in
+                        DiffFileCard(
+                            file: file,
+                            expanded: isExpanded(file.path),
+                            onToggle: { overrides[file.path] = !isExpanded(file.path) }
+                        )
+                        .id(file.path)
+                    }
+                    if let truncatedLines, truncatedLines > 0 {
+                        Text(AgentFeed.diffTruncationNote(truncatedLines))
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .padding(.horizontal, 4)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+            }
+            .stickyHeaderFade()
+            .onChange(of: focusPath) { _, path in
+                guard let path, !path.isEmpty else { return }
+                overrides[path] = true
+                withAnimation { proxy.scrollTo(path, anchor: .top) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(accessibilityId)
+    }
+
+    private func isExpanded(_ path: String) -> Bool {
+        overrides[path] ?? !defaultCollapsed
+    }
+}
+
+extension DiffFileList where Header == EmptyView {
+    /// The headerless list — cards and nothing above them.
+    init(
+        files: [Diff.File],
+        truncatedLines: Int? = nil,
+        defaultCollapsed: Bool = false,
+        emptyLabel: String? = nil,
+        focusPath: String? = nil,
+        accessibilityId: String = "session-diff-list"
+    ) {
+        self.init(
+            files: files,
+            truncatedLines: truncatedLines,
+            defaultCollapsed: defaultCollapsed,
+            emptyLabel: emptyLabel,
+            focusPath: focusPath,
+            accessibilityId: accessibilityId,
+            header: { EmptyView() }
+        )
+    }
+}
+
+/// The run's latest worktree diff as a full page — the Work screen's Changes
+/// face while the run has one. The raw `git diff` goes through the ONE parser
+/// (`Diff.parse`) and comes out as the same cards every other Changes surface
+/// draws.
+struct SessionDiffList: View {
+    let files: [Diff.File]
+    var truncatedLines: Int?
+    var focusPath: String?
+
+    var body: some View {
+        DiffFileList(
+            files: files,
+            truncatedLines: truncatedLines,
+            emptyLabel: "No changed files.",
+            focusPath: focusPath,
+            header: {
                 DiffSummaryRow(
-                    files: sections.count,
-                    additions: stats.additions,
-                    deletions: stats.deletions
+                    totals: Diff.totals(files), title: DiffPresentation.changesTitle
                 )
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassCard()
-                ForEach(sections) { section in
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let filename = section.filename {
-                            Text(filename)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                        }
-                        DiffPatchBlock(patch: section.patch)
-                            .padding(.horizontal, 8)
-                            .padding(.top, section.filename == nil ? 8 : 0)
-                            .padding(.bottom, 8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // One file among many in a gapped stack — a row, not a
-                    // borderless group.
-                    .glassRow()
-                }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .padding(.bottom, 24)
-        }
-        .stickyHeaderFade()
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("session-diff-list")
+        )
     }
 }

@@ -31,6 +31,7 @@ import {
   createActivityCoalescer,
   failAnswer,
   groupFeedRows,
+  liveToolRowId,
   hasPendingCard,
   isAnswerLocked,
   looksLikeMarkdown,
@@ -47,7 +48,6 @@ import {
   COMPACTION_TIMEOUT_MS,
   ECHO_CAP,
   ECHO_TTL_MS,
-  diffTruncationNote,
   freeAnswerFor,
   optionForHotkey,
   optionHotkey,
@@ -58,7 +58,6 @@ import {
   rateLimitExpired,
   rateLimitIsWall,
   rateLimitResetsAtMs,
-  splitTruncatedDiff,
   toolGroupCaption,
   FREE_TEXT_KEY,
   BACK_TO_CURRENT_STEP,
@@ -1292,6 +1291,51 @@ describe(`tool kinds, rate limit and diff bytes (EXP-784/785/786)`, () => {
       base + 5
     )
   })
+
+  // EXP-895: and so does the command output a settle folded in.
+  it(`a folded command output weighs against the byte budget`, () => {
+    const base = feedItemBytes({ kind: `tool`, name: `Bash`, detail: `bun` })
+    expect(
+      feedItemBytes({ kind: `tool`, name: `Bash`, detail: `bun`, output: `ok\n` })
+    ).toBe(base + 3)
+    expect(
+      feedItemBytes({
+        kind: `tool`,
+        name: `Bash`,
+        detail: `bun`,
+        diff: `+a\n`,
+        output: `ok\n`,
+      })
+    ).toBe(base + 6)
+  })
+})
+
+// EXP-895: the ONE expanded row — the last item, and only while it is an
+// unsettled tool call. Locked ×4 (desktop `live_tool_row_id`, ExpCore and
+// Android `liveToolRowId`).
+describe(`liveToolRowId`, () => {
+  const item = (id: number, kind: string, over: Record<string, unknown> = {}) =>
+    ({ id, kind, ...over }) as { id: number; kind: string; settled?: boolean }
+
+  it(`names the trailing unsettled tool row and nothing else`, () => {
+    expect(liveToolRowId([])).toBeUndefined()
+    expect(liveToolRowId([item(1, `narration`)])).toBeUndefined()
+    expect(liveToolRowId([item(1, `narration`), item(2, `tool`)])).toBe(2)
+    // A settled trailing call is history — its `tool_update` landed.
+    expect(
+      liveToolRowId([item(1, `tool`), item(2, `tool`, { settled: true })])
+    ).toBeUndefined()
+    // Only the LAST row can be live, however many calls never settled.
+    expect(liveToolRowId([item(1, `tool`), item(2, `tool`)])).toBe(2)
+    // Anything the agent says after a call moves the transcript on.
+    expect(
+      liveToolRowId([item(1, `tool`), item(2, `narration`)])
+    ).toBeUndefined()
+    // A question or a user turn is not a tool row either.
+    expect(
+      liveToolRowId([item(1, `tool`), item(2, `user_message`)])
+    ).toBeUndefined()
+  })
 })
 
 describe(`narration fragments`, () => {
@@ -1716,32 +1760,6 @@ describe(`tool group caption (EXP-785)`, () => {
   it(`counts kind-less rows as other tools`, () => {
     expect(toolGroupCaption([{}, {}, { toolKind: `think` }])).toBe(`Used 3 tools`)
     expect(toolGroupCaption([])).toBe(`No tool calls`)
-  })
-})
-
-// EXP-786: the publisher's cut note is a footer, never a diff line.
-describe(`per-call diff truncation (EXP-786)`, () => {
-  const diff = `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b`
-
-  it(`splits the trailing truncation line off`, () => {
-    expect(splitTruncatedDiff(`${diff}\n\\ 120 more lines truncated`)).toEqual({
-      diff,
-      truncated: 120,
-    })
-    expect(splitTruncatedDiff(`${diff}\n\\ 1 more line truncated\n`)).toEqual({
-      diff,
-      truncated: 1,
-    })
-  })
-
-  it(`leaves an uncut diff alone, "no newline" markers included`, () => {
-    const eof = `${diff}\n\\ No newline at end of file`
-    expect(splitTruncatedDiff(eof)).toEqual({ diff: eof, truncated: null })
-  })
-
-  it(`words the footer`, () => {
-    expect(diffTruncationNote(1)).toBe(`1 more line truncated`)
-    expect(diffTruncationNote(120)).toBe(`120 more lines truncated`)
   })
 })
 

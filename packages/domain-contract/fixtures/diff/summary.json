@@ -1,0 +1,32 @@
+[
+  {
+    "files": 0,
+    "additions": 0,
+    "deletions": 0,
+    "expected": "No changes"
+  },
+  {
+    "files": 1,
+    "additions": 2,
+    "deletions": 0,
+    "expected": "1 file +2 −0"
+  },
+  {
+    "files": 1,
+    "additions": 0,
+    "deletions": 9,
+    "expected": "1 file +0 −9"
+  },
+  {
+    "files": 3,
+    "additions": 12,
+    "deletions": 4,
+    "expected": "3 files +12 −4"
+  },
+  {
+    "files": 12,
+    "additions": 340,
+    "deletions": 128,
+    "expected": "12 files +340 −128"
+  }
+]

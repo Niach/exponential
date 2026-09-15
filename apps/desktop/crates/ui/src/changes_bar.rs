@@ -4,8 +4,9 @@
 //! The bottom "Changes" band is GONE: the session's diff is the run's DIFF
 //! FACE now ([`crate::diff_pane`]), opened by the work header's toggle
 //! (EXP-877). What survived the band is everything that was never chrome —
-//! the diff PARSE and its cache ([`sync`], [`ChangesSnapshot`],
-//! [`changes_totals`]) and the ONE merge-target rule every session surface
+//! the diff PARSE and its cache ([`sync`], [`ChangesSnapshot`], whose counts
+//! are the contract's [`domain::diff::totals`]) and the ONE merge-target rule
+//! every session surface
 //! applies ([`MergeTarget`], [`merge_target_for_run`],
 //! [`merge_meta_for_session`], [`merge_when_live`]); the Merge pill itself is
 //! `work_header::merge_pill`.
@@ -38,13 +39,15 @@ pub(crate) fn sync(
         .filter(|state| state.session_id == session_id)
         .is_some_and(|state| state.expanded);
     let files = coding::scm::parse_unified_diff(raw);
-    let (additions, deletions) = changes_totals(&files);
+    // EXP-895: the `+adds −dels` arithmetic is the CONTRACT's, shared with
+    // every other client — nothing sums a diff locally any more.
+    let totals = domain::diff::totals(&files);
     Some(Some(ChangesSnapshot {
         session_id: session_id.to_string(),
         raw: Some(raw.to_string()),
         files,
-        additions,
-        deletions,
+        additions: totals.additions,
+        deletions: totals.deletions,
         expanded,
     }))
 }
@@ -70,13 +73,6 @@ pub(crate) struct ChangesSnapshot {
 /// and shared by both placements so "over" can never mean two things.
 pub(crate) fn merge_when_live(merge: Option<MergeTarget>, over: bool) -> Option<MergeTarget> {
     merge.filter(|_| !over)
-}
-
-/// `+adds -dels` over every file in the snapshot. Pure.
-pub(crate) fn changes_totals(files: &[coding::scm::DiffFile]) -> (u32, u32) {
-    files.iter().fold((0, 0), |(adds, dels), file| {
-        (adds + file.additions, dels + file.deletions)
-    })
 }
 
 /// What the session's Merge pill acts on. An ISSUE target (EXP-498) is the
@@ -208,34 +204,6 @@ pub(crate) fn open_pr_issue_on_branch<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn diff_file(path: &str, additions: u32, deletions: u32) -> coding::scm::DiffFile {
-        coding::scm::DiffFile {
-            path: path.to_string(),
-            previous_path: None,
-            status: coding::scm::FileStatus::Modified,
-            additions,
-            deletions,
-            hunks: Vec::new(),
-            binary: false,
-        }
-    }
-
-    /// EXP-688: the bar's `+adds -dels` counts the WHOLE snapshot, not the
-    /// first file.
-    #[test]
-    fn changes_totals_sum_every_file() {
-        assert_eq!(changes_totals(&[]), (0, 0));
-        assert_eq!(
-            changes_totals(&[
-                diff_file("f", 3, 1),
-                diff_file("f", 0, 7),
-                diff_file("f", 10, 0)
-            ]),
-            (13, 8)
-        );
-    }
-
 
     /// EXP-850 §10: the Merge control is offered only while the run is LIVE
     /// — the header drops it the moment the session is over, and the PR
@@ -384,12 +352,11 @@ mod tests {
     /// session starts collapsed; `None` clears.
     #[test]
     fn the_diff_parse_cache_only_reparses_a_new_diff() {
-        const RAW: &str = "diff --git a/a.rs b/a.rs\n\
---- a/a.rs\n\
-+++ b/a.rs\n\
-@@ -1 +1,2 @@\n\
- one\n\
-+two\n";
+        // Written with explicit escapes: a `\`-continued literal would eat
+        // the context line's LEADING SPACE, and a body line without its
+        // marker ends the hunk (the contract parser reads a patch strictly).
+        const RAW: &str =
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1,2 @@\n one\n+two\n";
 
         let first = sync(None, "sess-1", Some(RAW))
             .expect("a first diff installs a snapshot")

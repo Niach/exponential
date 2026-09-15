@@ -7,6 +7,9 @@ import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 export interface PullFile {
   filename: string
+  /** EXP-895: where a `renamed`/`copied` file came from — the shared diff model
+   *  carries it as `DiffFile.previousPath`, and the clients print it. */
+  previous_filename?: string
   status: string
   additions: number
   deletions: number
@@ -698,6 +701,7 @@ export async function fetchPullFiles(
     const data = (await res.json()) as PullFile[]
     return data.map((f) => ({
       filename: f.filename,
+      previous_filename: f.previous_filename,
       status: f.status,
       additions: f.additions,
       deletions: f.deletions,

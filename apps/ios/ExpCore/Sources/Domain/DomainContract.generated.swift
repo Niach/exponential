@@ -89,6 +89,8 @@ public enum DomainContract {
     public static let steerFeedHistoryPageMax: Int = 200
     public static let steerFeedToolDiffMaxLines: Int = 200
     public static let steerFeedToolDiffMaxBytes: Int = 16384
+    public static let steerFeedToolOutputMaxLines: Int = 200
+    public static let steerFeedToolOutputMaxBytes: Int = 16384
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

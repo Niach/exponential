@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@exp/db-schema": "workspace:*",
+    "@exp/domain-contract": "workspace:*",
     "@exp/icons": "workspace:*",
     "@radix-ui/react-progress": "^1.1.7",
     "@tailwindcss/node": "^4.3.0",
@@ -27,6 +28,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "lowlight": "^3.3.0",
     "lucide-react": "^0.544.0",
     "radix-ui": "^1.4.3",
     "react-day-picker": "^9.14.0",

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { useResumeRun } from "@/hooks/use-resume-run"
 import { useSessionDevice } from "@/hooks/use-session-device"
-import { SessionMergeButton } from "@/components/session-merge-button"
+import { SessionMergePill } from "@/components/session-merge-button"
 import type { SessionMergeTargetProps } from "@/hooks/use-agents-data"
 
 // EXP-877: the run's action pills, ONE look wherever a run is acted on — the
@@ -19,11 +19,6 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 export const STOP_LABEL = `Stop`
 export const RESUME_LABEL = `Resume`
 export const MERGE_PR_LABEL = `Merge PR`
-
-/** The primary PAINT on the glass capsule — the same accent fill `Pill`'s
- * `primary` flag draws, so Merge reads as the one call to action in its row
- * whatever the surface. */
-export const MERGE_PILL_CLASS = `border-transparent bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground`
 
 /** EXP-818: the ONE Stop — a small red-tinted glass pill, identical on the
  * machine that hosts the run and on one that only watches it (the IDE's
@@ -112,9 +107,10 @@ export function ResumeRunPill({
   )
 }
 
-/** Merge, the one look everywhere: the primary glass capsule with the merge
- * glyph and the two-click confirm `SessionMergeButton` already carries. It
- * self-hides unless the target's PR is open. */
+/** Merge, the one look everywhere: the primary `Pill` with the merge glyph and
+ * the two-click confirm `SessionMergePill` already carries (EXP-895 folded the
+ * hand-rolled accent class into `Pill`'s own `primary`). It self-hides unless
+ * the target's PR is open. */
 export function MergePrPill({
   className,
   steerEnabled,
@@ -124,12 +120,10 @@ export function MergePrPill({
   steerEnabled: boolean
 }) {
   return (
-    <SessionMergeButton
+    <SessionMergePill
       {...target}
-      variant="glass"
-      size="sm"
       label={MERGE_PR_LABEL}
-      className={cn(MERGE_PILL_CLASS, className)}
+      className={cn(`shrink-0`, className)}
       steerEnabled={steerEnabled}
     />
   )

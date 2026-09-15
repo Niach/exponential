@@ -23,6 +23,9 @@ interface Tokens {
   // so every emitter also writes the list form the hash indexes into.
   avatar: Record<string, string>
   glass: Record<string, string>
+  // EXP-895: the shared unified-diff palette (add/del foreground + row wash,
+  // the `@@` band, the gutter). Same flat colour-map shape as `glass`.
+  diff: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
   // EXP-787: the transcript's measure, gap ladder and type scale (flat
@@ -220,6 +223,10 @@ function emitKotlin(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
     .join(`\n`)
+  const diff = Object.entries(tokens.diff)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
+    .join(`\n`)
   const radius = Object.entries(tokens.radius)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Dp = ${v}.dp`)
@@ -276,6 +283,13 @@ ${avatar}
     // aliases; the styleguide Components group renders the same values (EXP-698).
     object Glass {
 ${glass}
+    }
+
+    // The unified-diff palette (EXP-895) — one look on all four clients:
+    // Add/DelFg are the line foregrounds, Add/DelBg the row wash, Hunk* the
+    // \`@@\` separator band, GutterFg the line-number column.
+    object Diff {
+${diff}
     }
 
     // Corner radii (px ≡ dp), matching the web rounded-* scale.
@@ -338,6 +352,10 @@ function emitSwift(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
     .join(`\n`)
+  const diff = Object.entries(tokens.diff)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
+    .join(`\n`)
   const radius = Object.entries(tokens.radius)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
@@ -388,6 +406,13 @@ ${avatar}
     // styleguide Components group renders the same values (EXP-698).
     public enum Glass {
 ${glass}
+    }
+
+    // The unified-diff palette (EXP-895) — one look on all four clients:
+    // add/delFg are the line foregrounds, add/delBg the row wash, hunk* the
+    // \`@@\` separator band, gutterFg the line-number column.
+    public enum Diff {
+${diff}
     }
 
     // Corner radii (px ≡ pt), matching the web rounded-* scale.
@@ -452,6 +477,10 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustSrgb8(k, v)}`)
     .join(`\n`)
+  const diff = Object.entries(tokens.diff)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `    ${rustSrgb8(k, v)}`)
+    .join(`\n`)
   const radius = Object.entries(tokens.radius)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
@@ -495,6 +524,14 @@ ${avatar}
 pub mod glass {
     use crate::Srgb8;
 ${glass}
+}
+
+// The unified-diff palette (EXP-895) — one look on all four clients: ADD/DEL_FG
+// are the line foregrounds, ADD/DEL_BG the row wash, HUNK_* the \`@@\` separator
+// band, GUTTER_FG the line-number column. Nested for the same reason \`glass\` is.
+pub mod diff {
+    use crate::Srgb8;
+${diff}
 }
 
 // Corner radii in px, matching the web rounded-* scale.

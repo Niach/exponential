@@ -114,8 +114,8 @@ pub use agent_usage::{
 };
 pub use mcp_servers::{McpBlocker, McpReadinessState, ResolvedMcp};
 pub use scm::{
-    CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
-    FileStatus, StatusSummary, UnifiedHunk,
+    diff_status, CommitInfo, ConflictKind, ConflictState, DiffFile, DiffHunk, DiffLine,
+    DiffLineKind, DiffStatus, FileChange, FileStatus, StatusSummary,
 };
 pub use git_credentials::{ensure_repo_auth, ensure_repo_auth_with_margin};
 pub use token_cache::{token_cache, MintedToken, TokenCache};

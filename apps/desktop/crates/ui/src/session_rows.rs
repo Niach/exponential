@@ -308,6 +308,9 @@ pub(crate) fn strip_lines(tasks: &[BackgroundTask], items: &[FeedItem]) -> Vec<S
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FileEdit {
     pub(crate) path: String,
+    /// EXP-895: the contract's status, so the card's rows wear the same
+    /// letter the diff's file header does.
+    pub(crate) status: domain::diff::DiffStatus,
     pub(crate) additions: u32,
     pub(crate) deletions: u32,
 }
@@ -479,12 +482,13 @@ fn edits_files(kind: Option<ToolKind>) -> bool {
 }
 
 /// One per-call patch read into `path +a -d` — the SAME parse the edit card
-/// under the row uses ([`crate::session_extras::parse_tool_diff`]), so the
-/// card and the row can never disagree about a file.
+/// under the row uses ([`crate::session_extras::tool_diff_file`], i.e. the
+/// contract parser), so the card and the row can never disagree about a file.
 fn edit_of(diff: &str) -> Option<FileEdit> {
-    let (file, _) = crate::session_extras::parse_tool_diff(diff)?;
+    let (file, _) = crate::session_extras::tool_diff_file(diff)?;
     Some(FileEdit {
         path: file.path,
+        status: file.status,
         additions: file.additions,
         deletions: file.deletions,
     })
@@ -556,6 +560,7 @@ mod tests {
                 settled,
                 failed: false,
                 diff: diff.map(str::to_string),
+                output: None,
                 preview: None,
             },
         )
@@ -896,11 +901,13 @@ mod tests {
             vec![
                 FileEdit {
                     path: "src/a.rs".to_string(),
+                    status: domain::diff::DiffStatus::Modified,
                     additions: 4,
                     deletions: 2,
                 },
                 FileEdit {
                     path: "src/b.rs".to_string(),
+                    status: domain::diff::DiffStatus::Modified,
                     additions: 2,
                     deletions: 0,
                 },

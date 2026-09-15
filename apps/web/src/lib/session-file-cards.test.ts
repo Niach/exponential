@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   DIFF_SCOPE_ALL_LABEL,
+  canWidenDiffScope,
   diffScopeTurnLabel,
-  fileCardDiffFiles,
   fileCardMoreLabel,
   fileCardTitle,
   sessionFileCards,
@@ -41,10 +41,11 @@ describe(`toolDiffFiles`, () => {
   it(`reads the engine's bare per-call patch`, () => {
     const files = toolDiffFiles(editDiff(`src/a.ts`, 2, 1))
     expect(files).toHaveLength(1)
-    expect(files[0].filename).toBe(`src/a.ts`)
+    expect(files[0].path).toBe(`src/a.ts`)
     expect(files[0].additions).toBe(2)
     expect(files[0].deletions).toBe(1)
-    expect(files[0].patch?.startsWith(`@@`)).toBe(true)
+    expect(files[0].hunks).toHaveLength(1)
+    expect(files[0].hunks[0].header.startsWith(`@@`)).toBe(true)
   })
 
   it(`reads full git diff output too`, () => {
@@ -58,7 +59,7 @@ describe(`toolDiffFiles`, () => {
         `+added`,
       ].join(`\n`)
     )
-    expect(files.map((f) => f.filename)).toEqual([`src/b.ts`])
+    expect(files.map((f) => f.path)).toEqual([`src/b.ts`])
     expect(files[0].additions).toBe(1)
   })
 
@@ -68,7 +69,7 @@ describe(`toolDiffFiles`, () => {
     )
     expect(files).toEqual([
       expect.objectContaining({
-        filename: `src/new.ts`,
+        path: `src/new.ts`,
         status: `added`,
         additions: 1,
         deletions: 0,
@@ -80,7 +81,7 @@ describe(`toolDiffFiles`, () => {
     const files = toolDiffFiles(
       `${editDiff(`src/c.ts`, 1, 0)}\n\\ 120 more lines truncated`
     )
-    expect(files.map((f) => f.filename)).toEqual([`src/c.ts`])
+    expect(files.map((f) => f.path)).toEqual([`src/c.ts`])
   })
 
   it(`a patchless string yields nothing`, () => {
@@ -143,9 +144,10 @@ describe(`sessionFileCards`, () => {
         ],
       },
     ])
-    // EXP-862: BOTH calls' hunks ride the row, so the turn scope shows the
-    // whole turn's change to that file.
-    expect(cards[0].files[0].patch?.match(/^@@/gm)).toHaveLength(2)
+    // EXP-862/EXP-895: BOTH calls' hunks ride the row — two HUNKS on one
+    // `DiffFile` (`mergeFilesByPath`), never two patches concatenated into a
+    // string.
+    expect(cards[0].files[0].hunks).toHaveLength(2)
   })
 
   it(`ignores unsettled edits, other kinds and subagent rows`, () => {
@@ -214,16 +216,17 @@ describe(`sessionFileCards`, () => {
   })
 })
 
-describe(`the pane scope a card opens (EXP-862)`, () => {
-  it(`hands the turn's rows over as diff-view files, patches and all`, () => {
+describe(`the Changes scope a card opens (EXP-862)`, () => {
+  it(`the card's rows ARE diff files, hunks and all (EXP-895)`, () => {
     const cards = sessionFileCards([edit(1, `src/a.ts`, 2, 1)])
-    expect(fileCardDiffFiles(cards[0].files)).toEqual([
+    expect(cards[0].files).toEqual([
       {
-        filename: `src/a.ts`,
+        path: `src/a.ts`,
         status: `modified`,
         additions: 2,
         deletions: 1,
-        patch: expect.stringContaining(`@@`),
+        binary: false,
+        hunks: [expect.objectContaining({ header: expect.stringContaining(`@@`) })],
       },
     ])
   })
@@ -240,13 +243,18 @@ describe(`the pane scope a card opens (EXP-862)`, () => {
         ),
       },
     ])
-    expect(fileCardDiffFiles(cards[0].files)[0].status).toBe(`added`)
+    expect(cards[0].files[0].status).toBe(`added`)
   })
 
   it(`labels the chip and its action`, () => {
     expect(diffScopeTurnLabel(1)).toBe(`This turn: 1 file`)
     expect(diffScopeTurnLabel(3)).toBe(`This turn: 3 files`)
     expect(DIFF_SCOPE_ALL_LABEL).toBe(`Show all changes`)
+  })
+
+  it(`offers the widen chip only once the run published a session diff`, () => {
+    expect(canWidenDiffScope(0)).toBe(false)
+    expect(canWidenDiffScope(1)).toBe(true)
   })
 })
 

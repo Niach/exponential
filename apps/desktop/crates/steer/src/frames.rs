@@ -275,13 +275,14 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
-    /// EXP-785/786: a tool call SETTLED (`status`) and/or an `edit` call's
+    /// EXP-785/786/895: a tool call SETTLED (`status`), an `edit` call's
     /// per-file unified diff (`diff`, already redacted and cut to the
     /// contract's `toolDiffMaxLines`/`toolDiffMaxBytes` on line boundaries; a
-    /// cut patch ends in a `\ N more lines truncated` marker line). A LOG row
-    /// on the wire and in every journal, but never a row on screen: clients
-    /// fold it INTO the [`ActivityEvent::Tool`] row whose `id` matches and
-    /// DROP one for an id they do not hold (evicted, or before their window).
+    /// cut patch ends in a `\ N more lines truncated` marker line), and an
+    /// `execute` call's `output`. A LOG row on the wire and in every journal,
+    /// but never a row on screen: clients fold it INTO the
+    /// [`ActivityEvent::Tool`] row whose `id` matches and DROP one for an id
+    /// they do not hold (evicted, or before their window).
     #[serde(rename_all = "camelCase")]
     ToolUpdate {
         id: String,
@@ -289,6 +290,15 @@ pub enum ActivityEvent {
         status: Option<ToolUpdateStatus>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<String>,
+        /// EXP-895: what an `execute` call PRINTED, redacted and tail-cut to
+        /// the contract's `toolOutputMaxLines`/`toolOutputMaxBytes` (a cut
+        /// output opens with the same `\ N more lines truncated` marker line
+        /// a cut patch closes with — the dropped lines were at the front).
+        /// Sent ONCE, on the settle, and only for `execute`: the live tail is
+        /// the runner's own card, and the row a reader scrolls back to wants
+        /// the verdict rather than the stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
         /// EXP-846: the SUBJECT an Exponential MCP call settled on, pulled out
@@ -926,6 +936,7 @@ impl ActivityEvent {
             id: id.into(),
             status,
             diff,
+            output: None,
             at: None,
             preview: None,
         }
@@ -1027,8 +1038,16 @@ impl ActivityEvent {
             // EXP-846: the preview's strings are the tool's OWN answer (an
             // issue title, a PR url) and pass through the redactor like any
             // other free text.
-            ActivityEvent::ToolUpdate { diff, preview, .. } => {
+            ActivityEvent::ToolUpdate {
+                diff,
+                output,
+                preview,
+                ..
+            } => {
                 let mut fields: Vec<&mut String> = diff.as_mut().into_iter().collect();
+                // EXP-895: a command's own stdout is exactly where a secret
+                // lands if anything here is ever skipped.
+                fields.extend(output.as_mut());
                 if let Some(preview) = preview {
                     fields.extend(preview.text_fields_mut());
                 }
@@ -2018,6 +2037,7 @@ mod tests {
             id: "tc-1".into(),
             status: Some(ToolUpdateStatus::Completed),
             diff: None,
+            output: None,
             at: None,
             preview: Some(ToolPreview {
                 id: Some("c0ffee".into()),
@@ -2041,6 +2061,7 @@ mod tests {
                 id: "tc-1".into(),
                 status: Some(ToolUpdateStatus::Completed),
                 diff: None,
+                output: None,
                 at: None,
                 preview: Some(ToolPreview {
                     identifier: Some("EXP-42".into()),
@@ -2345,7 +2366,24 @@ mod tests {
             r#"{"kind":"tool_update","id":"tc-2","status":"completed","diff":"--- a/x\n+++ b/x\n"}"#
         );
         assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), diffed);
-        // A bare update (no status, no diff) is legal and says nothing.
+        // EXP-895: an `execute` call's output rides the SAME event, after the
+        // diff slot and before `at` — the relay's zod order.
+        let printed = ActivityEvent::ToolUpdate {
+            id: "tc-4".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: Some("\\ 2 more lines truncated\nall tests passed\n".into()),
+            at: None,
+            preview: None,
+        };
+        let json = serde_json::to_string(&printed).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool_update","id":"tc-4","status":"completed","output":"\\ 2 more lines truncated\nall tests passed\n"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), printed);
+        // A bare update (no status, no diff, no output) is legal and says
+        // nothing; a pre-895 publisher sends no `output` key at all.
         assert_eq!(
             serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool_update","id":"tc-3"}"#).unwrap(),
             ActivityEvent::tool_update("tc-3", None, None)

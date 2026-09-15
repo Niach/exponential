@@ -1,5 +1,6 @@
 package com.exponential.app.ui.work
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -13,12 +14,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
@@ -50,6 +54,12 @@ fun WorkTopBar(
     verb: WorkBarVerb?,
     verbEnabled: Boolean,
     onVerb: () -> Unit,
+    /**
+     * EXP-895: the face's own action, left of the `…` — the Changes face's
+     * "open the PR on GitHub" circle, which moved off the floating bar so the
+     * bar's leading slot could carry the changed-files sheet.
+     */
+    action: (@Composable () -> Unit)? = null,
     /** The issue `…` menu, for an issue subject. */
     menu: (@Composable () -> Unit)?,
 ) {
@@ -94,9 +104,36 @@ fun WorkTopBar(
                 )
                 null -> Unit
             }
+            action?.invoke()
             menu?.invoke()
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+    )
+}
+
+/**
+ * EXP-895: "open the PR on GitHub" as a header action. It used to be the
+ * Changes bar's leading circle; the changed-files sheet took that slot, and a
+ * link OUT of the app belongs with the other header verbs anyway.
+ */
+@Composable
+fun GithubHeaderAction(prUrl: String) {
+    val context = LocalContext.current
+    TopBarActionButton(
+        icon = ExpIcons.uiGithub,
+        contentDescription = "Open PR on GitHub",
+        onClick = {
+            // A device with no browser (a stripped emulator image) throws
+            // rather than resolving the intent — a dead tap beats a crash.
+            runCatching {
+                val intent = Intent(Intent.ACTION_VIEW, prUrl.toUri())
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            }
+        },
+        // EXP-862: a secondary header control is the GHOST variant — the glass
+        // circle is left to the primary actions.
+        borderless = true,
     )
 }
 

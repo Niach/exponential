@@ -20,12 +20,19 @@ const tokens = JSON.parse(
   semantic: Record<string, string>
   avatar: Record<string, string>
   glass: Record<string, string>
+  diff: Record<string, string>
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
   transcript: Record<string, number | string>
 }
 
 const stylesCss = readFileSync(
   join(repoRoot, `packages/ui/src/styles.css`),
+  `utf8`
+)
+
+// The app's own sheet — what is left in it after EXP-887 moved the theme out.
+const appCss = readFileSync(
+  join(repoRoot, `apps/web/src/styles.css`),
   `utf8`
 )
 
@@ -111,6 +118,62 @@ describe(`design-tokens parity with web styles.css`, () => {
         `tokens.glass.${key} should equal --${cssVar} in styles.css`
       ).toBe(value)
     }
+  })
+
+  // EXP-895: the shared unified-diff palette. Theme-invariant like the glass
+  // tokens (the app is dark-only), so the SAME values sit in :root and .dark
+  // and both copies are checked — nothing else keeps the two in step.
+  it(`every diff token matches the corresponding --diff-* CSS variable`, () => {
+    const keys = Object.keys(tokens.diff).filter((k) => !k.startsWith(`$`))
+    expect(keys).toEqual([
+      `addFg`,
+      `addBg`,
+      `delFg`,
+      `delBg`,
+      `hunkFg`,
+      `hunkBg`,
+      `gutterFg`,
+    ])
+    for (const key of keys) {
+      const value = tokens.diff[key]
+      const cssVar = `diff-${kebab(key)}`
+      expect(
+        darkVars[cssVar],
+        `tokens.diff.${key} should equal --${cssVar} in styles.css`
+      ).toBe(value)
+      expect(
+        rootVars[cssVar],
+        `tokens.diff.${key} should equal --${cssVar} in :root`
+      ).toBe(value)
+    }
+  })
+
+  // The `--color-diff-*` @theme aliases are what make `text-diff-add-fg` and
+  // `bg-diff-add-bg` real Tailwind utilities; like the glass and ease
+  // aliases they must POINT at the raw vars, never restate the colours.
+  it(`the @theme diff aliases reference the raw --diff-* vars`, () => {
+    const themeBlock = cssNoComments.match(/@theme inline\s*\{([^}]*)\}/)
+    if (!themeBlock) throw new Error(`Could not find @theme inline block`)
+    for (const key of Object.keys(tokens.diff)) {
+      if (key.startsWith(`$`)) continue
+      const name = kebab(key)
+      expect(
+        themeBlock[1],
+        `@theme inline should alias --color-diff-${name} to --diff-${name}`
+      ).toContain(`--color-diff-${name}: var(--diff-${name});`)
+    }
+  })
+
+  // EXP-895: the diff renderer moved into @exp/ui, so its `.diff-code` lowlight
+  // scope moved with it. The app keeps ONLY tiptap's copy of the same palette
+  // (the editor is the app's, the diff is the package's) — a `.diff-code` rule
+  // left behind here would silently shadow or duplicate the package's.
+  it(`the .diff-code highlight scope lives in @exp/ui, not in the app`, () => {
+    expect(stylesCss).toContain(`.diff-code .hljs-keyword`)
+    expect(appCss).not.toContain(`.diff-code`)
+    // …and tiptap's stays put.
+    expect(appCss).toContain(`.tiptap-content pre code .hljs-keyword`)
+    expect(stylesCss).not.toContain(`.tiptap-content`)
   })
 
   // EXP-698 r3: the chat inline-code trio is the only semantic colour the web

@@ -54,4 +54,25 @@ describe(`@exp/ui styles.css`, () => {
     }
     expect(css).not.toContain(`@utility emoji-glyph`)
   })
+
+  // EXP-895: the diff view moved into the package, so the `.diff-code` scope
+  // its per-line lowlight output renders under has to move with it — an app
+  // that kept only the tiptap block would draw an uncoloured diff.
+  it(`owns the .diff-code highlight scope`, () => {
+    for (const token of [
+      `.diff-code .hljs-comment`,
+      `.diff-code .hljs-keyword`,
+      `.diff-code .hljs-string`,
+      `.diff-code .hljs-number`,
+      `.diff-code .hljs-title`,
+      `.diff-code .hljs-variable`,
+      `.diff-code .hljs-tag`,
+      `.diff-code .hljs-deletion`,
+      `.diff-code .hljs-addition`,
+    ]) {
+      expect(css, `missing ${token}`).toContain(`${token}`)
+    }
+    // The EDITOR's copy of the same palette stays in apps/web with tiptap.
+    expect(css).not.toContain(`.tiptap-content`)
+  })
 })

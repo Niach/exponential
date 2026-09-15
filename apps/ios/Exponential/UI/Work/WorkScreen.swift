@@ -22,6 +22,7 @@ struct WorkScreen: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var face: WorkFaceKind
     /// The run the Run and Changes faces show. Follows `WorkFaces.codingTarget`
     /// until the reader picks one from the switcher.
@@ -100,6 +101,11 @@ struct WorkScreen: View {
     private var issueHasChanges: Bool {
         guard let issue else { return false }
         return issue.prUrl?.isEmpty == false || issue.branch?.isEmpty == false
+    }
+
+    /// The issue's pull request on GitHub — the Changes face's header action.
+    private var prURL: URL? {
+        issue?.prUrl.flatMap { URL(string: $0) }
     }
 
     /// The run's live diff outranks the issue's PR files.
@@ -322,6 +328,21 @@ struct WorkScreen: View {
                     if face == .run {
                         runPill
                     }
+                    // EXP-895: on the Changes face GitHub rides the HEADER's
+                    // action slot — the work bar's leading slot belongs to the
+                    // file sheet now.
+                    if face == .changes, let url = prURL {
+                        Button { openURL(url) } label: {
+                            AppIcon(
+                                AppIcons.uiExternalLink,
+                                size: AppIcon.Size.medium,
+                                weight: .medium
+                            )
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
+                        .accessibilityLabel("Open PR on GitHub")
+                        .accessibilityIdentifier("changes-github-action")
+                    }
                     if hasIssueMenu {
                         GlassMenuBarButton(
                             icon: AppIcons.uiMore,
@@ -485,14 +506,9 @@ struct WorkScreen: View {
     @ViewBuilder
     private var diffCounts: some View {
         if hasRun, runChrome.hasDiff {
-            HStack(spacing: 6) {
-                Text("+\(runChrome.additions)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.green)
-                Text("-\(runChrome.deletions)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.red)
-            }
+            DiffCountsLabel(
+                additions: runChrome.additions, deletions: runChrome.deletions
+            )
             .padding(.trailing, GlassMenuTokens.itemHPadding)
             .allowsHitTesting(false)
         }

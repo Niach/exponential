@@ -180,7 +180,13 @@ function ListRow({
   )
 }
 
-const GLASS_ROW = `flex items-center gap-3 rounded-md border border-glass-stroke bg-glass-row p-3`
+/** EXP-895: the glass SURFACE itself — the 6px-radius card fill under the row
+ *  hairline, with no layout of its own. `GlassRow` adds the row's flex box and
+ *  padding; a bigger box that wants the same paint (`FileDiffCard`) takes this
+ *  and brings its own. */
+export const GLASS_SURFACE = `rounded-md border border-glass-stroke bg-glass-row`
+
+const GLASS_ROW = `flex items-center gap-3 ${GLASS_SURFACE} p-3`
 const GLASS_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-ring/50`
 
 function GlassRow({

@@ -1,13 +1,12 @@
 //! PR diff center screen (EXP-181): the Reviews rows open this instead of the
-//! issue detail — the shared side-by-side [`DiffView`] over `issues.prFiles`,
-//! under a sticky header.
+//! issue detail — the shared unified [`DiffView`] over `issues.prFiles`.
 //!
-//! EXP-706 reshaped that header into the review DETAIL bar the web route
-//! grew: two lines on the left (identifier link + branch, then the PR state,
-//! the file count and the `+`/`−` totals) and the merge cluster on the right —
-//! close, Merge, open-on-GitHub, undock. The `#N` sub is gone (PR numbers are
-//! leaving the surfaces), and the diff below renders per-file COLLAPSED cards
-//! in a centered column instead of one endless flat list.
+//! EXP-895: the screen is no longer a header of its own. It IS the shared
+//! Changes layout ([`crate::diff_pane`]) — `Changes +N −M · K files · branch
+//! · state` over the file list and the per-file cards — the same thing the
+//! run's Changes face renders, so a review and a run read identically. All
+//! this module still owns is WHAT to put in the bar's slots: the issue's PR
+//! state, the merge/close cluster and the way back to the issue.
 //!
 //! Merge/close drive the SAME [`crate::pr_merge`] two-click machinery the
 //! Reviews list does, so an arm/spinner/failure started on either surface
@@ -27,26 +26,26 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FocusHandle,
-    Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    div, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
 
 use crate::controls::WebControl as _;
 use crate::diff::DiffView;
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, navigate, Navigation, Screen};
 use crate::pr_merge::{close_pr_key, MergeOp, MergeState};
 use crate::queries;
 
-/// The diff column's cap — the same 768px the issue detail centers its body
-/// to, so a review and an issue read at one width.
-const DIFF_COLUMN_W: f32 = 768.;
+/// EXP-895: the diff column is the shared WORK column
+/// ([`crate::work_header::WORK_COLUMN_W`], applied by [`crate::diff_pane`]) —
+/// a review, a run and an issue all read at one width.
 
 /// The read-only PR diff center screen.
 pub struct PrDiffView {
@@ -54,6 +53,11 @@ pub struct PrDiffView {
     nav: Entity<Navigation>,
     diff: Entity<DiffView>,
     issue_id: Option<String>,
+    /// EXP-895: the file list's state — which row the list highlights,
+    /// whether it is unfolded, and the `Filter files` field.
+    selected: usize,
+    list_open: bool,
+    filter: Entity<gpui_component::input::InputState>,
     /// EXP-525: the diff lost its tab chip (and with it the chip's undock
     /// button), so the ScreensPanel-owned instance offers "open in new
     /// window" in its own header. Stays `false` on the instances
@@ -68,9 +72,12 @@ impl PrDiffView {
         let nav = nav_for_window(window, cx);
         let diff = cx.new(|cx| {
             let mut diff = DiffView::new(window, cx);
-            // EXP-706: the review diff opens as a stack of per-file cards.
-            diff.set_collapsible(true);
+            // EXP-706/EXP-895: the review diff is a stack of per-file cards.
+            diff.set_options(crate::diff::DiffOptions::review());
             diff
+        });
+        let filter = cx.new(|cx| {
+            gpui_component::input::InputState::new(window, cx).placeholder("Filter files")
         });
         // The header's merge/close cluster mirrors the shared two-click state
         // (EXP-325), and its identity/state line rides the synced issue row.
@@ -82,11 +89,22 @@ impl PrDiffView {
         }
         // The file counts + `+`/`−` totals come off the diff's own summaries.
         subscriptions.push(cx.observe(&diff, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.subscribe(
+            &filter,
+            |_, _, event: &gpui_component::input::InputEvent, cx| {
+                if matches!(event, gpui_component::input::InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
         Self {
             focus_handle: cx.focus_handle(),
             nav,
             diff,
             issue_id: None,
+            selected: 0,
+            list_open: true,
+            filter,
             show_undock: false,
             _subscriptions: subscriptions,
         }
@@ -108,6 +126,7 @@ impl PrDiffView {
             return;
         };
         self.issue_id = Some(issue_id.clone());
+        self.selected = 0;
         // Re-pointing is a refetch: a refusal captioned on the PREVIOUS review
         // describes a snapshot that is no longer on screen, and leaving it
         // standing would keep "Fix conflicts" parked in the Merge slot.
@@ -116,22 +135,12 @@ impl PrDiffView {
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
     }
 
-    /// The "Fix conflicts" recovery run (EXP-259): the Start coding dialog with
-    /// the builtin "Fix merge conflicts" action and this PR preselected.
-    fn on_fix_conflicts_click(
-        &mut self,
-        issue_id: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if active_team_id(&self.nav, cx).is_none() {
-            return;
-        }
-        crate::navigation::navigate_to_chat(
-            window,
-            cx,
-            crate::navigation::ChatSeed::fix_conflicts(issue_id),
-        );
+    /// Name `index` in the file list and scroll the diff to it.
+    fn select_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+        self.selected = index;
+        self.diff
+            .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
+        cx.notify();
     }
 }
 
@@ -142,16 +151,7 @@ impl Focusable for PrDiffView {
 }
 
 impl Render for PrDiffView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme_colors = cx.theme();
-        let muted = theme_colors.muted_foreground;
-        let fg = theme_colors.foreground;
-        let danger = theme_colors.danger;
-        // EXP-277: content headers use the faint glass row stroke, not the
-        // heavier chrome border (fewer/softer section lines).
-        let border = theme::tokens::glass::STROKE_ROW.to_hsla();
-        let green = theme::tokens::GREEN.to_hsla();
-
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Header off the live synced issue row (identifier/branch/PR fields
         // stay fresh); a deleted issue degrades to the bare diff.
         let issue = self.issue_id.as_ref().and_then(|id| {
@@ -163,76 +163,89 @@ impl Render for PrDiffView {
                 .cloned()
         });
 
-        // Totals off the loaded diff — nothing renders while it is still
-        // loading (a "0 files" flash would read as an empty PR).
-        let totals = {
-            let diff = self.diff.read(cx);
-            let files = diff.files();
-            (!files.is_empty()).then(|| {
-                let additions: u32 = files.iter().map(|file| file.additions).sum();
-                let deletions: u32 = files.iter().map(|file| file.deletions).sum();
-                (files.len(), additions, deletions)
+        // The files (and with them the counts) come off the diff's own
+        // summaries — nothing is counted until they are in hand.
+        let files: Vec<crate::diff_pane::PaneFile> = self
+            .diff
+            .read(cx)
+            .files()
+            .iter()
+            .map(|file| {
+                crate::diff_pane::PaneFile::from_parts(
+                    &file.filename,
+                    file.status,
+                    file.additions,
+                    file.deletions,
+                )
             })
+            .collect();
+        let totals = domain::diff::Totals {
+            files: files.len(),
+            additions: files.iter().map(|file| file.additions).sum(),
+            deletions: files.iter().map(|file| file.deletions).sum(),
         };
 
-        let mut error_caption: Option<SharedString> = None;
-        let header = issue.map(|issue| {
-            let nav_id = issue.id.clone();
+        let mut caption: Option<SharedString> = None;
+        let mut trailing: Vec<gpui::AnyElement> = Vec::with_capacity(4);
+        let mut merge: Option<crate::diff_pane::MergeSlot> = None;
+        let mut branch: Option<SharedString> = None;
+        let mut state: Option<SharedString> = None;
+
+        if let Some(issue) = issue.as_ref() {
             let is_open = issue.pr_state.as_deref() == Some("open");
             let close_key = close_pr_key(&issue.id);
-            let (merging, armed, closing, close_armed, error, failed_op, is_conflict) = {
-                let state = MergeState::global(cx);
-                let state = state.read(cx);
+            let (merging, closing, close_armed, error, failed_op, is_conflict) = {
+                let merge_state = MergeState::global(cx);
+                let merge_state = merge_state.read(cx);
                 (
-                    state.merging(&issue.id),
-                    state.armed(&issue.id),
-                    state.merging(&close_key),
-                    state.armed(&close_key),
-                    state.error(&issue.id),
-                    state.failed_op(&issue.id),
-                    state.is_conflict(&issue.id),
+                    merge_state.merging(&issue.id),
+                    merge_state.merging(&close_key),
+                    merge_state.armed(&close_key),
+                    merge_state.error(&issue.id),
+                    merge_state.failed_op(&issue.id),
+                    merge_state.is_conflict(&issue.id),
                 )
             };
-            error_caption = error.clone();
+            caption = error.clone();
+            branch = issue.branch.clone().map(SharedString::from);
+            state = issue.pr_state.as_deref().map(capitalize);
 
-            // EXP-533 + EXP-706: only a REAL content conflict on a failed
-            // MERGE offers the recovery run — and when it does, it TAKES the
-            // Merge slot (merging is the blocked action).
-            let fixing = issue.branch.as_deref().is_some_and(|branch| {
-                crate::coding_flow::LocalSessions::global_ref(cx)
-                    .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
-            });
-            let fix_button = error
-                .as_ref()
-                .filter(|_| is_open)
-                .filter(|_| failed_op == Some(crate::pr_merge::FailedOp::Merge))
-                .filter(|_| is_conflict)
-                .filter(|_| issue.branch.is_some())
-                .map(|_| {
-                    let mut button = Button::new("pr-diff-fix").primary().web_sm();
-                    if fixing {
-                        button = button.label("Fixing…").disabled(true);
-                    } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
-                        // EXP-367: no agent CLI → disabled with the reason.
-                        button = button.label("Fix conflicts").tooltip(reason).disabled(true);
-                    } else {
-                        button = button.label("Fix conflicts");
-                    }
-                    let click_id = issue.id.clone();
-                    button
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.on_fix_conflicts_click(click_id.clone(), window, cx);
-                        }))
-                        .into_any_element()
-                });
+            // The way back: the row click lands HERE now, so the identifier
+            // is what reopens the issue.
+            let nav_id = issue.id.clone();
+            trailing.push(
+                div()
+                    .id("pr-diff-open-issue")
+                    .flex_shrink_0()
+                    .px_1()
+                    .text_xs()
+                    .cursor_pointer()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .text_color(cx.theme().muted_foreground)
+                    .hover(|this| this.text_color(theme::tokens::PRIMARY.to_hsla()))
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        navigate(
+                            window,
+                            cx,
+                            Screen::IssueDetail {
+                                issue_id: nav_id.clone(),
+                            },
+                        );
+                    }))
+                    .child(SharedString::from(issue.identifier.clone()))
+                    .into_any_element(),
+            );
 
             // The reject path — a quiet round `×` that only grows into a
-            // labeled danger confirm once armed (EXP-100). EXP-862: the
-            // glyph is a GHOST icon button — a circle means a primary action,
-            // and closing a PR without merging is not one.
-            let close_button = is_open.then(|| {
+            // labeled danger confirm once armed (EXP-100). EXP-862: the glyph
+            // is a GHOST icon button — a circle means a primary action, and
+            // closing a PR without merging is not one.
+            if is_open {
                 let mut button = if close_armed && !closing {
-                    Button::new("pr-diff-close").web_sm().label("Close PR").danger()
+                    Button::new("pr-diff-close")
+                        .web_sm()
+                        .label("Close PR")
+                        .danger()
                 } else {
                     crate::controls::ghost_icon_button(
                         "pr-diff-close",
@@ -243,259 +256,132 @@ impl Render for PrDiffView {
                 if closing {
                     button = button.loading(true).disabled(true);
                 } else if !close_armed {
-                    button = button
-                        .tooltip("Close PR without merging")
-                        .disabled(merging);
+                    button = button.tooltip("Close PR without merging").disabled(merging);
                 }
                 let click_id = issue.id.clone();
-                button
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        crate::pr_merge::two_click(
-                            MergeOp::CloseIssuePr {
-                                issue_id: click_id.clone(),
-                            },
-                            None,
-                            None,
-                            cx,
-                        );
-                    }))
-                    .into_any_element()
-            });
+                trailing.push(
+                    button
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                            crate::pr_merge::two_click(
+                                MergeOp::CloseIssuePr {
+                                    issue_id: click_id.clone(),
+                                },
+                                None,
+                                None,
+                                cx,
+                            );
+                        }))
+                        .into_any_element(),
+                );
+            }
 
-            // While the recovery run holds the primary slot, Merge stays
-            // reachable beside it as a ghost "Retry merge": the conflict may
-            // have been resolved outside that run (a teammate rebased and
-            // pushed), and the swap must never be a dead end.
-            let swapped = fix_button.is_some();
-            let merge_button = is_open.then(|| {
-                let mut button = Button::new("pr-diff-merge").web_sm();
-                button = if swapped {
-                    button.ghost()
-                } else {
-                    button.primary()
-                };
-                if merging {
-                    button = button.label("Merging…").loading(true).disabled(true);
-                } else if armed {
-                    button = button.label("Confirm merge").danger();
-                } else {
-                    button = button
-                        .icon(Icon::new(registry::PR_MERGED))
-                        .label(if swapped { "Retry merge" } else { "Merge" })
-                        .disabled(closing);
-                }
-                let click_id = issue.id.clone();
-                button
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        crate::pr_merge::two_click(
-                            MergeOp::MergeIssuePr {
-                                issue_id: click_id.clone(),
-                            },
-                            None,
-                            None,
-                            cx,
-                        );
-                    }))
-                    .into_any_element()
-            });
-            // The swap: a conflict-classified merge failure takes the PRIMARY
-            // slot instead of trailing the error caption — Merge steps down to
-            // the ghost secondary above rather than vanishing until the PR
-            // closes.
-            let actions: Vec<gpui::AnyElement> =
-                merge_button.into_iter().chain(fix_button).collect();
-
-            let external = issue.pr_url.clone().map(|url| {
-                crate::controls::ghost_icon_button(
-                    "pr-diff-open-github",
-                    Icon::new(registry::UI_EXTERNAL_LINK),
-                    cx,
-                )
+            if let Some(url) = issue.pr_url.clone() {
+                trailing.push(
+                    crate::controls::ghost_icon_button(
+                        "pr-diff-open-github",
+                        Icon::new(registry::UI_EXTERNAL_LINK),
+                        cx,
+                    )
                     .tooltip("Open pull request on GitHub")
                     .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                         crate::settings::open_url(cx, url.clone());
                     }))
-                    .into_any_element()
-            });
-
-            // Line 2: PR state as plain muted text (no chip), the file count,
-            // then the totals — absent entirely while the diff loads.
-            let state_text = issue.pr_state.as_deref().map(capitalize);
-            let mut meta = h_flex().min_w_0().items_center().gap_2().text_xs();
-            if let Some(state) = state_text {
-                meta = meta.child(div().flex_shrink_0().text_color(muted).child(state));
-            }
-            if let Some((files, additions, deletions)) = totals {
-                meta = meta
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_color(muted)
-                            .child(SharedString::from(if files == 1 {
-                                "1 file".to_string()
-                            } else {
-                                format!("{files} files")
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_color(green)
-                            .child(SharedString::from(format!("+{additions}"))),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_color(danger)
-                            .child(SharedString::from(format!("\u{2212}{deletions}"))),
-                    );
+                    .into_any_element(),
+                );
             }
 
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .flex_shrink_0()
-                .px_3()
-                .py_2()
-                .gap_3()
-                .items_center()
-                .border_b_1()
-                .border_color(border)
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_0p5()
-                        .child(
-                            h_flex()
-                                .min_w_0()
-                                .items_center()
-                                .gap_2()
-                                .child(
-                                    Icon::from(ExpIcon::GitPullRequest)
-                                        .xsmall()
-                                        .flex_shrink_0()
-                                        .text_color(green),
-                                )
-                                // The identifier opens the issue detail — the
-                                // row click no longer does (it lands here), so
-                                // this is the way back.
-                                .child(
-                                    div()
-                                        .id("pr-diff-open-issue")
-                                        .flex_shrink_0()
-                                        .text_sm()
-                                        .text_color(fg)
-                                        .font_family(theme::terminal::FONT_FAMILY)
-                                        .hover(|this| this.text_color(theme::tokens::PRIMARY.to_hsla()))
-                                        .cursor_pointer()
-                                        .on_click(cx.listener(move |_, _, window, cx| {
-                                            navigate(
-                                                window,
-                                                cx,
-                                                Screen::IssueDetail {
-                                                    issue_id: nav_id.clone(),
-                                                },
-                                            );
-                                        }))
-                                        .child(SharedString::from(issue.identifier.clone())),
-                                )
-                                .children(issue.branch.clone().map(|branch| {
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .text_xs()
-                                        .truncate()
-                                        .font_family(theme::terminal::FONT_FAMILY)
-                                        .text_color(muted)
-                                        .child(SharedString::from(branch))
-                                })),
-                        )
-                        .child(meta),
-                )
-                .child(
-                    h_flex()
-                        .flex_shrink_0()
-                        .items_center()
-                        .gap_1()
-                        .children(close_button)
-                        .children(actions)
-                        .children(external)
-                        .when(self.show_undock, |row| {
-                            let undock_id = issue.id.clone();
-                            row.child(
-                                // The undock glyph is `UI_UNDOCK`, not the
-                                // ExternalLink every other undock button
-                                // wears: this is the ONE place it would sit
-                                // beside an actual external link (the GitHub
-                                // button), and two identical icons in one
-                                // cluster read as a duplicate control.
-                                crate::controls::ghost_icon_button(
-                                    "pr-diff-undock",
-                                    Icon::new(registry::UI_UNDOCK),
-                                    cx,
-                                )
-                                    .tooltip("Open in new window")
-                                    .on_click(cx.listener(
-                                        move |_, _: &ClickEvent, window, cx| {
-                                            crate::undock::open_undocked_screen(
-                                                Screen::PrDiff {
-                                                    issue_id: undock_id.clone(),
-                                                },
-                                                window.window_handle(),
-                                                cx,
-                                            );
-                                            crate::navigation::set_screen(window, cx, None);
-                                        },
-                                    )),
-                            )
-                        }),
-                )
-        });
+            if self.show_undock {
+                let undock_id = issue.id.clone();
+                trailing.push(
+                    // The undock glyph is `UI_UNDOCK`, not the ExternalLink
+                    // every other undock button wears: this is the ONE place
+                    // it would sit beside an actual external link (the GitHub
+                    // button), and two identical icons in one cluster read as
+                    // a duplicate control.
+                    crate::controls::ghost_icon_button(
+                        "pr-diff-undock",
+                        Icon::new(registry::UI_UNDOCK),
+                        cx,
+                    )
+                    .tooltip("Open in new window")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        crate::undock::open_undocked_screen(
+                            Screen::PrDiff {
+                                issue_id: undock_id.clone(),
+                            },
+                            window.window_handle(),
+                            cx,
+                        );
+                        crate::navigation::set_screen(window, cx, None);
+                    }))
+                    .into_any_element(),
+                );
+            }
 
-        // The failure caption is its own thin row under the header — message
-        // only (EXP-706: the recovery button lives in the Merge slot above).
-        let caption = error_caption.map(|message| {
-            div()
-                .w_full()
-                .flex_shrink_0()
-                .px_3()
-                .py_1()
-                .text_xs()
-                .truncate()
-                .text_color(danger)
-                .child(message)
-        });
+            // EXP-533 + EXP-706 + EXP-895: the merge SLOT. A real content
+            // conflict on a failed MERGE hands it to the recovery run — and
+            // leaves Merge beside it as the secondary "retry".
+            let target = crate::changes_bar::MergeTarget::Issue {
+                issue_id: issue.id.clone(),
+            };
+            let conflicted = error.is_some()
+                && failed_op == Some(crate::pr_merge::FailedOp::Merge)
+                && is_conflict
+                && issue.branch.is_some()
+                && active_team_id(&self.nav, cx).is_some();
+            if is_open {
+                merge = Some(if conflicted {
+                    let fixing = issue.branch.as_deref().is_some_and(|branch| {
+                        crate::coding_flow::LocalSessions::global_ref(cx)
+                            .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
+                    });
+                    crate::diff_pane::MergeSlot::FixConflicts {
+                        issue_id: issue.id.clone(),
+                        fixing,
+                        blocked: crate::coding_flow::no_agent_reason(cx).map(SharedString::from),
+                        retry: Some(target),
+                    }
+                } else {
+                    crate::diff_pane::MergeSlot::Merge(target)
+                });
+            }
+        }
 
-        // EXP-282: no fill — the screen floats on the page gradient.
-        v_flex()
-            .size_full()
-            .min_w_0()
-            .children(header)
-            .children(caption)
-            .child(
-                // The diff body centers to the same column the issue detail
-                // uses — a display-BLOCK wrapper + `mx_auto` (the EXP-179-safe
-                // recipe), `min_w_0` on every flex hop below it.
-                div().flex_1().min_h_0().w_full().min_w_0().child(
-                    div()
-                        .w_full()
-                        .h_full()
-                        .max_w(px(DIFF_COLUMN_W))
-                        .mx_auto()
-                        .flex()
-                        .flex_col()
-                        .min_w_0()
-                        .child(self.diff.clone()),
-                ),
-            )
+        crate::diff_pane::render(
+            crate::diff_pane::DiffPaneSpec {
+                bar: crate::diff_pane::DiffBarSpec {
+                    totals,
+                    state,
+                    branch,
+                    merge,
+                    trailing,
+                },
+                files,
+                selected: self.selected,
+                list_open: self.list_open,
+                filter: Some(self.filter.clone()),
+                scope_label: None,
+                caption,
+                diff: self.diff.clone(),
+                on_toggle_list: Box::new(|this: &mut Self, cx| {
+                    this.list_open = !this.list_open;
+                    cx.notify();
+                }),
+                on_show_session: Box::new(|_, _| {}),
+                on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
+                    this.select_file(index, cx);
+                }),
+            },
+            window,
+            cx,
+        )
     }
 }
 
 /// `open` → `Open` (the PR state reads as prose next to the counts, not as a
 /// wire value). ASCII-safe: the `pr_state` vocabulary is `open`/`closed`/
 /// `merged`.
-fn capitalize(value: &str) -> SharedString {
+pub(crate) fn capitalize(value: &str) -> SharedString {
     let mut chars = value.chars();
     match chars.next() {
         Some(first) => {

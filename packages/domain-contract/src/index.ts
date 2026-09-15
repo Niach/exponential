@@ -102,6 +102,15 @@ export interface DomainContract {
     historyPageMax: number
     toolDiffMaxLines: number
     toolDiffMaxBytes: number
+    /**
+     * EXP-895: the same cut, applied to a tool call's TEXT output before it
+     * goes on the wire (a command's stdout, a read's contents) — the twin of
+     * the `toolDiff*` caps, so a transcript row is a glance, never a dump.
+     * The publisher truncates on LINE boundaries and appends the same
+     * `\ N more lines truncated` marker the diff cut uses.
+     */
+    toolOutputMaxLines: number
+    toolOutputMaxBytes: number
   }
   /**
    * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so
@@ -260,3 +269,30 @@ export {
   type WorkflowCaptionAgent,
   type WorkflowCaptionPhase,
 } from "./workflow-caption"
+
+// EXP-895: the shared diff model + parser. Not part of contract.json (it is
+// behaviour, not an enum table) but it lives here for the same reason
+// `tool-group-summary` does: web, the styleguide and marketing all import it,
+// and the natives mirror it against `fixtures/diff/*.json`.
+export {
+  parseDiff,
+  parsePatch,
+  pullFileStatus,
+  fromPullFile,
+  totals,
+  mergeFilesByPath,
+  unchangedBefore,
+  unchangedBetween,
+  unchangedLabel,
+  additionsLabel,
+  deletionsLabel,
+  summaryLabel,
+  renderDiff,
+  DIFF_LINE_MAX,
+  type Diff,
+  type DiffFile,
+  type DiffHunk,
+  type DiffLine,
+  type DiffStatus,
+  type DiffTotals,
+} from "./diff"

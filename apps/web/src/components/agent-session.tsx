@@ -10,10 +10,10 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
+import { parseDiff, totals, type DiffFile } from "@exp/domain-contract/diff"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
-import { FileDiffList, type PullFile } from "@/components/diff-view"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
 import { IssueRunSwitcher } from "@/components/issue-run-switcher"
@@ -24,6 +24,9 @@ import {
   MobileWorkCapsule,
 } from "@/components/mobile-work-bar"
 import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
+import { ChangesFileSheet } from "@/components/changes-file-sheet"
+import { ChangesTopBar } from "@/components/changes-top-bar"
+import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
@@ -32,6 +35,8 @@ import {
   SheetHeader,
   SheetTitle,
   conceptIcon,
+  DiffCounts,
+  FileDiffList,
   useIsMobile,
   type SessionDotTone,
   Button,
@@ -87,7 +92,6 @@ import {
   answerKey,
   askStepperView,
   collectSubagents,
-  diffTruncationNote,
   expToolCaption,
   expToolDisplay,
   freeAnswerFor,
@@ -98,6 +102,7 @@ import {
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
+  liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
   optionForHotkey,
@@ -112,7 +117,6 @@ import {
   rowClass,
   sessionIsWorking,
   subagentLabel,
-  splitTruncatedDiff,
   subagentIdOf,
   summarizeSubagentRow,
   toolGroupCaption,
@@ -133,17 +137,12 @@ import {
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
 import {
+  canWidenDiffScope,
   diffScopeTurnLabel,
-  fileCardDiffFiles,
   sessionFileCards,
-  toolDiffFiles,
   type SessionFileCard as SessionFileCardData,
 } from "@/lib/session-file-cards"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
-import {
-  canWidenDiffScope,
-  SessionDiffFace,
-} from "@/components/session-diff-face"
 import { SteerComposer } from "@/components/steer-composer"
 import { ContextRing } from "@/components/context-ring"
 import {
@@ -152,7 +151,6 @@ import {
   StopRunPill,
 } from "@/components/run-action-pills"
 import {
-  DiffFaceLabel,
   ISSUE_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
@@ -187,7 +185,6 @@ import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { parseSteerMessage } from "@/lib/steer-image-message"
-import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Composer, ComposerSubmit } from "@/components/composer"
 import { ExponentialLogo } from "@/components/exponential-logo"
@@ -378,7 +375,7 @@ export function AgentSessionView({
   onStart?: () => void
   /** EXP-893: the issue's PR files, the phone's Changes face when the run
    *  published no live diff (`useReviewFiles`). */
-  prFiles?: PullFile[] | null
+  prFiles?: DiffFile[] | null
   /** EXP-893: the PR page, the Changes face's GitHub circle. */
   prUrl?: string | null
   /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
@@ -516,21 +513,13 @@ export function AgentSessionView({
     setAtBottom(true)
   }, [agentTab])
 
+  /** EXP-895: the run's live `git diff` through the ONE parser — the same
+   *  `DiffFile[]` the review page and the tool cards render. */
   const diffFiles = useMemo(
-    () => (latestDiff ? splitUnifiedDiff(latestDiff) : []),
+    () => (latestDiff ? parseDiff(latestDiff).files : []),
     [latestDiff]
   )
-  const diffStats = useMemo(
-    () =>
-      diffFiles.reduce(
-        (acc, f) => ({
-          additions: acc.additions + f.additions,
-          deletions: acc.deletions + f.deletions,
-        }),
-        { additions: 0, deletions: 0 }
-      ),
-    [diffFiles]
-  )
+  const diffStats = useMemo(() => totals(diffFiles), [diffFiles])
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
@@ -580,6 +569,14 @@ export function AgentSessionView({
   const rows = useMemo(
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
+  )
+  /** EXP-895: the ONE row the transcript keeps EXPANDED — the last item while
+   *  it is an unsettled tool call, and only in a live run (an ended run's
+   *  trailing unsettled row is history, not a tail). Every other row is
+   *  compact; the shared rule is `liveToolRowId` ×4. */
+  const liveRowId = useMemo(
+    () => (live ? liveToolRowId(feed) : undefined),
+    [live, feed]
   )
   /** There is more of this run above the window: either rows the feed already
    *  holds, or (EXP-783) a page only the device has. */
@@ -838,10 +835,7 @@ export function AgentSessionView({
   )
   /** What the diff FACE draws: the turn's files, or the whole branch. Its
    *  totals are the scope's; the face toggle keeps the branch's. */
-  const paneFiles = useMemo(
-    () => (diffCard ? fileCardDiffFiles(diffCard.files) : diffFiles),
-    [diffCard, diffFiles]
-  )
+  const paneFiles = diffCard?.files ?? diffFiles
 
   /** §4: the duplicate warnings a workflow card carries, by workflow id. A
    *  duplicate edge WITHOUT one renders inline in its subagent group row. */
@@ -928,7 +922,7 @@ export function AgentSessionView({
           {
             face: `diff` as const,
             label: (
-              <DiffFaceLabel
+              <DiffCounts
                 additions={diffStats.additions}
                 deletions={diffStats.deletions}
               />
@@ -962,7 +956,9 @@ export function AgentSessionView({
     issueHeader.trailing
   ) : (
     <>
-      {canMerge && mergeProps && (
+      {/* EXP-895: the Changes face's own top bar owns the merge control while
+          that face is up — exactly ONE Merge per surface. */}
+      {canMerge && mergeProps && !showDiffFace && (
         <MergePrPill {...mergeProps} steerEnabled={steerEnabled} />
       )}
       {canKill ? (
@@ -1059,7 +1055,19 @@ export function AgentSessionView({
    *  switcher. */
   const mobileBar = !isMobile ? null : showDiffFace ? (
     <MobileWorkBar
-      leading={prUrl ? <GithubCircle prUrl={prUrl} /> : undefined}
+      /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides the
+         issue header's action slot (an issue-less run keeps the circle). */
+      leading={
+        changesFiles.length > 0 ? (
+          <ChangesFileSheet
+            files={changesFiles}
+            selected={diffFile}
+            onSelect={setDiffFile}
+          />
+        ) : prUrl ? (
+          <GithubCircle prUrl={prUrl} />
+        ) : undefined
+      }
       capsule={
         canMerge && mergeProps ? (
           <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
@@ -1206,9 +1214,21 @@ export function AgentSessionView({
             isMobile && MOBILE_WORK_BAR_CLEARANCE
           )}
         >
-          <div className={cn(WORK_COLUMN_CLASS, `px-4 py-3`)}>
-            <SessionDiffFace
+          <div className={cn(WORK_COLUMN_CLASS)}>
+            <ChangesTopBar
               files={changesFiles}
+              branch={session.branch}
+              prState={mergeProps?.prState ?? null}
+              prUrl={prUrl}
+              merge={
+                canMerge && mergeProps
+                  ? { ...mergeProps, steerEnabled }
+                  : null
+              }
+            />
+            <ChangesView
+              files={changesFiles}
+              nav="auto"
               selected={diffFile}
               onSelect={setDiffFile}
               scopeLabel={
@@ -1373,7 +1393,10 @@ export function AgentSessionView({
                           items={
                             row.items as Extract<FeedItem, { kind: `tool` }>[]
                           }
-                          liveTail={live && index === rows.length - 1}
+                          liveTail={
+                            liveRowId !== undefined &&
+                            row.items[row.items.length - 1]?.id === liveRowId
+                          }
                         />
                       )
                     }
@@ -1431,7 +1454,13 @@ export function AgentSessionView({
                             />
                           )
                         }
-                        return wrap(<ToolRow item={item} flush />)
+                        return wrap(
+                          <ToolRow
+                            item={item}
+                            flush
+                            live={item.id === liveRowId}
+                          />
+                        )
                       }
                       case `user_message`: {
                         // EXP-724: a steered slash command renders as a
@@ -3339,47 +3368,123 @@ function AgentConversation({
  *  bounded box (the publisher already cut it to the contract's caps; the cut
  *  note becomes a muted footer, never a diff line); a `failed` call is tinted
  *  rose. The pinned "Latest changes" bar is untouched — that is the whole
- *  worktree, this is the one call. */
-function ToolRow({ item, flush = false }: { item: ToolItem; flush?: boolean }) {
+ *  worktree, this is the one call.
+ *
+ *  EXP-895: the transcript runs inside the flow, so `live` — set for the ONE
+ *  row `liveToolRowId` names — is the only row that opens itself: its diff
+ *  cards unfold, its output box is up. Every other row is the headline plus
+ *  its compact evidence (the collapsed file cards' `+a −b`, the `failed`
+ *  chip), and the reader's own tap still opens a settled one. */
+function ToolRow({
+  item,
+  flush = false,
+  live = false,
+}: {
+  item: ToolItem
+  flush?: boolean
+  /** EXP-895: this call is the one still RUNNING (`liveToolRowId`). */
+  live?: boolean
+}) {
   const failed = item.failed === true
+  // EXP-895: `null` = "whatever the flow says" (open while the call runs), and
+  // the reader's tap pins it either way. The pin drops on the live edge, so a
+  // row folds by itself once the transcript has moved past it — and a row the
+  // reader opened AFTER it settled stays open, because `live` no longer moves.
+  const [pinned, setPinned] = useState<boolean | null>(null)
+  useEffect(() => setPinned(null), [live])
+  const open = pinned ?? live
   // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
   // "Created issue · <title>" plus the preview its answer carried — instead of
   // the raw `mcp__exponential__exponential_issues_create`.
   const exp = expToolDisplay(item.name)
   if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
+  const headline = (
+    <div
+      className={cn(
+        `flex min-w-0 items-center gap-2`,
+        TRANSCRIPT_TOOL_TEXT,
+        failed && `text-rose-400`
+      )}
+    >
+      <CodingToolIcon
+        className={cn(
+          `size-3 shrink-0`,
+          failed ? `text-rose-400/70` : `text-muted-foreground/60`
+        )}
+      />
+      <span className="shrink-0 font-medium">{item.name}</span>
+      {item.detail && (
+        <span
+          className={cn(
+            `truncate font-mono text-[0.6875rem]`,
+            failed ? `text-rose-400/80` : `text-muted-foreground`
+          )}
+          title={item.detail}
+        >
+          {item.detail}
+        </span>
+      )}
+      {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
+      {item.output !== undefined && (
+        <>
+          {/* The chevron sits on the TRAILING edge (iOS/Android parity): a
+              leading one would indent the log-carrying rows out of line with
+              every other tool row in the same run. */}
+          <span className="min-w-0 flex-1" />
+          {open ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
+          )}
+        </>
+      )}
+    </div>
+  )
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
-      <div
-        className={cn(
-          `flex min-w-0 items-center gap-2`,
-          TRANSCRIPT_TOOL_TEXT,
-          failed && `text-rose-400`
-        )}
-      >
-        <CodingToolIcon
-          className={cn(
-            `size-3 shrink-0`,
-            failed ? `text-rose-400/70` : `text-muted-foreground/60`
-          )}
-        />
-        <span className="shrink-0 font-medium">{item.name}</span>
-        {item.detail && (
-          <span
-            className={cn(
-              `truncate font-mono text-[0.6875rem]`,
-              failed ? `text-rose-400/80` : `text-muted-foreground`
-            )}
-            title={item.detail}
-          >
-            {item.detail}
-          </span>
-        )}
-        {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
-      </div>
-      {item.diff && <ToolDiff diff={item.diff} />}
+      {item.output === undefined ? (
+        headline
+      ) : (
+        // The output is the only thing a row-level toggle has to reveal — an
+        // `edit` row's diff cards carry their own chevrons.
+        <button
+          type="button"
+          onClick={() => setPinned(!open)}
+          className="w-full min-w-0 text-left"
+          aria-label={open ? `Hide the output` : `Show the output`}
+        >
+          {headline}
+        </button>
+      )}
+      {item.diff && <ToolDiff diff={item.diff} live={open} />}
+      {open && item.output !== undefined && <ToolOutput output={item.output} />}
     </div>
   )
 }
+
+/** EXP-895 — what one `execute` call printed, as its settle put it on the wire:
+ *  already redacted and tail-cut by the publisher, so this only has to be a
+ *  readable box. A cut output OPENS with the `\ N more lines truncated` marker
+ *  (the dropped lines were at the front, unlike a patch's trailing note), which
+ *  reads as the first line of the log and needs no parsing.
+ *
+ *  Scrolled to the BOTTOM on mount: the verdict is the last line, and it is why
+ *  the output is on the wire at all. */
+const ToolOutput = memo(function ToolOutput({ output }: { output: string }) {
+  const box = useRef<HTMLPreElement | null>(null)
+  useEffect(() => {
+    const node = box.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [output])
+  return (
+    <pre
+      ref={box}
+      className="mt-1 max-h-72 overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md border border-border/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground"
+    >
+      {output}
+    </pre>
+  )
+})
 
 /** EXP-846: an Exponential MCP call. The brand mark leads (the same asset the
  *  auth shell and the About card draw), then the contract caption —
@@ -3539,23 +3644,30 @@ function ExpToolResult({
 
 /** EXP-786: one call's diff, through the same file renderer the "Latest
  *  changes" bar uses, in a scroll box no taller than that bar. */
-const ToolDiff = memo(function ToolDiff({ diff }: { diff: string }) {
-  const { files, truncated } = useMemo(() => {
-    // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
-    // `diff --git` header), which `splitUnifiedDiff` alone reads as zero
-    // files — `toolDiffFiles` handles both shapes.
-    const split = splitTruncatedDiff(diff)
-    return { files: toolDiffFiles(split.diff), truncated: split.truncated }
-  }, [diff])
-  if (files.length === 0 && truncated === null) return null
+const ToolDiff = memo(function ToolDiff({
+  diff,
+  live = false,
+}: {
+  diff: string
+  /** EXP-895: a card in the LIVE tail opens its files so the reader watches the
+   *  edit land; every other card stays folded. */
+  live?: boolean
+}) {
+  // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
+  // `diff --git` header) while the session diff is full `git diff` output —
+  // the shared parser reads both, and lifts the publisher's cut count off the
+  // trailing marker (EXP-786).
+  const { files, truncatedLines } = useMemo(() => parseDiff(diff), [diff])
+  if (files.length === 0 && truncatedLines === undefined) return null
   return (
     <div className="mt-1 max-h-72 overflow-auto overscroll-contain rounded-md border border-border/60">
-      {files.length > 0 && <FileDiffList files={files} showFileNav={false} />}
-      {truncated !== null && (
-        <div className="px-3 py-1.5 text-[0.6875rem] text-muted-foreground/70">
-          {diffTruncationNote(truncated)}
-        </div>
-      )}
+      <FileDiffList
+        files={files}
+        nav="none"
+        density="compact"
+        defaultCollapsed={!live}
+        truncatedLines={truncatedLines}
+      />
     </div>
   )
 })
@@ -3599,13 +3711,19 @@ function ToolGroupRow({
       {expanded ? (
         <div className="ml-5">
           {items.map((item) => (
-            <ToolRow key={item.id} item={item} />
+            // EXP-895: inside the group only the RUNNING call is expanded —
+            // the same rule the top-level rows follow.
+            <ToolRow
+              key={item.id}
+              item={item}
+              live={liveTail && item.id === latest.id}
+            />
           ))}
         </div>
       ) : (
         liveTail && (
           <div className="ml-5">
-            <ToolRow item={latest} />
+            <ToolRow item={latest} live />
           </div>
         )
       )}

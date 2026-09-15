@@ -108,7 +108,7 @@ export const setModeFrame = z.object({
 // audience, never interpreting a field.
 //   narration:         assistant prose        { kind, text, beforeQuestionId?, messageId?, subagentId? }
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
-//   tool_update:       a settle / diff / MCP preview, folded into its tool row
+//   tool_update:       a settle / diff / output / MCP preview, folded into its tool row
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
 //   user_message:      a human turn           { kind, text, subagentId? }
 //   question:          interactive question   { kind, text, options[], id, askId?, … }
@@ -159,6 +159,12 @@ export const TOOL_KINDS = contract.toolKind.values as [string, ...string[]]
  *  for its one `\ N more lines truncated` marker line. Counted in UTF-16
  *  units by zod, which never exceeds the publisher's UTF-8 byte count. */
 export const TOOL_DIFF_MAX_WIRE_BYTES = contract.steerFeed.toolDiffMaxBytes + 128
+
+/** EXP-895: what a `tool_update.output` may weigh on the wire — the contract's
+ *  `toolOutputMaxBytes` the publisher tail-cuts to (on line boundaries), plus
+ *  room for its one `\ N more lines truncated` marker line. Counted in UTF-16
+ *  units by zod, which never exceeds the publisher's UTF-8 byte count. */
+export const TOOL_OUTPUT_MAX_WIRE_BYTES = contract.steerFeed.toolOutputMaxBytes + 128
 
 /** EXP-846: what an Exponential MCP call settled on, as the tool's own answer
  *  named it — the issue it created, the PR it opened, how many rows a list
@@ -251,16 +257,21 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     subagentId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
-  // EXP-785/786: a tool call settled (`status`) and/or an `edit` call's
-  // per-file unified diff (`diff`, cut by the publisher to the contract's
-  // toolDiffMaxLines/Bytes on line boundaries, plus one marker line). A LOG
-  // row like `tool` — NOT latest-wins — that clients fold INTO the tool row
-  // whose `id` matches, never a row of its own; an unknown id is dropped.
+  // EXP-785/786/895: a tool call settled (`status`), an `edit` call's per-file
+  // unified diff (`diff`, cut by the publisher to the contract's
+  // toolDiffMaxLines/Bytes on line boundaries, plus one marker line) and an
+  // `execute` call's `output` (the same, tail-cut — a command's verdict is its
+  // last line — so its marker LEADS). A LOG row like `tool` — NOT latest-wins
+  // — that clients fold INTO the tool row whose `id` matches, never a row of
+  // its own; an unknown id is dropped.
   z.object({
     kind: z.literal(`tool_update`),
     id: z.string().min(1).max(128),
     status: z.enum([`completed`, `failed`]).optional(),
     diff: z.string().max(TOOL_DIFF_MAX_WIRE_BYTES).optional(),
+    // EXP-895: sent ONCE, on the settle, and only for `execute` — the live
+    // tail is the runner's own card, never a stream on the wire.
+    output: z.string().max(TOOL_OUTPUT_MAX_WIRE_BYTES).optional(),
     at: z.number().optional(),
     // EXP-846: the subject an `exponential_*` call settled on.
     preview: toolPreviewSchema.optional(),

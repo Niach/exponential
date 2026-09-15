@@ -106,7 +106,8 @@ describe(`MobileFaceSwitcher`, () => {
     const changes = screen.getByTestId(`mobile-face-option-changes`)
     expect(changes.textContent).toContain(`Changes`)
     expect(changes.textContent).toContain(`+12`)
-    expect(changes.textContent).toContain(`-3`)
+    // EXP-895: U+2212 MINUS SIGN, `DiffCounts`'s own spelling.
+    expect(changes.textContent).toContain(`\u22123`)
     // The shown face itself is never a target.
     expect(screen.queryByTestId(`mobile-face-option-run`)).toBeNull()
     fireEvent.click(changes)

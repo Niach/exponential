@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-one-diff-view`,
+    date: `2026-09-15`,
+    title: `One diff view`,
+    summary: `Every diff in Exponential now reads the same, on the web, the desktop app, iOS and Android: the same colours, the same line numbers, the same way to open the unchanged lines around a change.`,
+    body: `- **The same diff everywhere**: a pull request's files, a run's changes and the edit cards in a transcript all render through one diff view now, with one shared palette and one set of line numbers.
+- **Unchanged lines on request**: the gap above and between changes says how many lines it hides, and opens them where you want to read around an edit.
+- **Renames, copies and binaries**: a renamed or copied file names where it came from, and a binary file says so instead of showing an empty body.
+- **Cut output is marked**: when a run's tool output or diff is too long to send whole, the transcript says how many lines were dropped rather than ending mid line.`,
+  },
+  {
     id: `2026-09-phone-work-screen`,
     date: `2026-09-15`,
     title: `The issue and its run, one screen on your phone`,

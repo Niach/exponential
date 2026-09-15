@@ -1,0 +1,416 @@
+[
+  {
+    "name": "git diff of a typescript file with two hunks",
+    "form": "git",
+    "input": "diff --git a/apps/web/src/lib/integrations/github-pr.ts b/apps/web/src/lib/integrations/github-pr.ts\nindex 775ef52..5dca49c 100644\n--- a/apps/web/src/lib/integrations/github-pr.ts\n+++ b/apps/web/src/lib/integrations/github-pr.ts\n@@ -26,8 +26,9 @@ export interface CreatedPull {\n   number: number\n }\n \n-// Create a PR server-side (the agent pushes the branch, the server opens the PR\n-// with the owner's connected token). Throws on any non-2xx with GitHub's message.\n+// Create a PR server-side (the desktop coding session pushes the branch, the\n+// server opens the PR with the App installation token). Throws on any non-2xx\n+// with GitHub's message.\n export async function createPullRequest(opts: {\n   repo: string\n   head: string\n@@ -97,7 +98,7 @@ export async function fetchPullState(\n \n // Fetch a pull request's changed files from GitHub for the diff view.\n //\n-// Token priority: a `token` passed in (an agent's reported token — covers\n+// Token priority: a `token` passed in (the App installation token — covers\n // private repos), then the optional `GITHUB_TOKEN` env (a self-hoster PAT),\n // then unauthenticated (public repos only). A private repo with no token\n // available returns a not-found error, surfaced to the UI.\n",
+    "expected": [
+      "file modified apps/web/src/lib/integrations/github-pr.ts +4 -3",
+      "hunk 26,8 26,9 |@@ -26,8 +26,9 @@ export interface CreatedPull {|",
+      "ctx 26 26 |  number: number|",
+      "ctx 27 27 |}|",
+      "ctx 28 28 ||",
+      "del 29 - |// Create a PR server-side (the agent pushes the branch, the server opens the PR|",
+      "del 30 - |// with the owner's connected token). Throws on any non-2xx with GitHub's message.|",
+      "add - 29 |// Create a PR server-side (the desktop coding session pushes the branch, the|",
+      "add - 30 |// server opens the PR with the App installation token). Throws on any non-2xx|",
+      "add - 31 |// with GitHub's message.|",
+      "ctx 31 32 |export async function createPullRequest(opts: {|",
+      "ctx 32 33 |  repo: string|",
+      "ctx 33 34 |  head: string|",
+      "hunk 97,7 98,7 |@@ -97,7 +98,7 @@ export async function fetchPullState(|",
+      "ctx 97 98 ||",
+      "ctx 98 99 |// Fetch a pull request's changed files from GitHub for the diff view.|",
+      "ctx 99 100 |//|",
+      "del 100 - |// Token priority: a `token` passed in (an agent's reported token — covers|",
+      "add - 101 |// Token priority: a `token` passed in (the App installation token — covers|",
+      "ctx 101 102 |// private repos), then the optional `GITHUB_TOKEN` env (a self-hoster PAT),|",
+      "ctx 102 103 |// then unauthenticated (public repos only). A private repo with no token|",
+      "ctx 103 104 |// available returns a not-found error, surfaced to the UI.|"
+    ],
+    "summary": "1 file +4 −3",
+    "unchanged": [
+      25,
+      63
+    ]
+  },
+  {
+    "name": "git diff of a rust file with two hunks",
+    "form": "git",
+    "input": "diff --git a/apps/desktop/crates/theme/src/lib.rs b/apps/desktop/crates/theme/src/lib.rs\nindex fa9f660..704fa75 100644\n--- a/apps/desktop/crates/theme/src/lib.rs\n+++ b/apps/desktop/crates/theme/src/lib.rs\n@@ -68,6 +68,8 @@ pub mod tokens {\n     include!(\"tokens.generated.rs\");\n }\n \n+pub mod terminal;\n+\n use tokens as t;\n \n /// Compact-density base font size (§4.4 knob 1): web is 14px (`text-sm`);\n@@ -346,7 +348,8 @@ pub fn apply_exponential_dark(cx: &mut App) {\n     // AssetSource and registers them with `cx.text_system().add_fonts(...)`\n     // BEFORE any window opens (§3.2 — no runtime font path), so the family is\n     // always resolvable. Mono stays the component's platform default (web's\n-    // mono stack is ui-monospace/system too).\n+    // mono stack is ui-monospace/system too); the TERMINAL grid uses its own\n+    // bundled JetBrains Mono family (`terminal::FONT_FAMILY`, §6.9).\n     theme.font_family = \"Inter\".into();\n     // Compact density (§4.4): base font one notch under web's 14px text-sm;\n     // radius from the generated token scale — theme.radius drives the general\n",
+    "expected": [
+      "file modified apps/desktop/crates/theme/src/lib.rs +4 -1",
+      "hunk 68,6 68,8 |@@ -68,6 +68,8 @@ pub mod tokens {|",
+      "ctx 68 68 |    include!(\"tokens.generated.rs\");|",
+      "ctx 69 69 |}|",
+      "ctx 70 70 ||",
+      "add - 71 |pub mod terminal;|",
+      "add - 72 ||",
+      "ctx 71 73 |use tokens as t;|",
+      "ctx 72 74 ||",
+      "ctx 73 75 |/// Compact-density base font size (§4.4 knob 1): web is 14px (`text-sm`);|",
+      "hunk 346,7 348,8 |@@ -346,7 +348,8 @@ pub fn apply_exponential_dark(cx: &mut App) {|",
+      "ctx 346 348 |    // AssetSource and registers them with `cx.text_system().add_fonts(...)`|",
+      "ctx 347 349 |    // BEFORE any window opens (§3.2 — no runtime font path), so the family is|",
+      "ctx 348 350 |    // always resolvable. Mono stays the component's platform default (web's|",
+      "del 349 - |    // mono stack is ui-monospace/system too).|",
+      "add - 351 |    // mono stack is ui-monospace/system too); the TERMINAL grid uses its own|",
+      "add - 352 |    // bundled JetBrains Mono family (`terminal::FONT_FAMILY`, §6.9).|",
+      "ctx 350 353 |    theme.font_family = \"Inter\".into();|",
+      "ctx 351 354 |    // Compact density (§4.4): base font one notch under web's 14px text-sm;|",
+      "ctx 352 355 |    // radius from the generated token scale — theme.radius drives the general|"
+    ],
+    "summary": "1 file +4 −1",
+    "unchanged": [
+      67,
+      272
+    ]
+  },
+  {
+    "name": "github pull file patch, hunks only",
+    "form": "hunks",
+    "input": "@@ -12,7 +12,8 @@ export function totals(files: DiffFile[]) {\n   let additions = 0\n   let deletions = 0\n   for (const file of files) {\n-    additions += file.additions\n+    additions += file.additions ?? 0\n+    deletions += file.deletions ?? 0\n   }\n   return { files: files.length, additions, deletions }\n }\n",
+    "path": "apps/web/src/lib/diff.ts",
+    "status": "modified",
+    "expected": [
+      "file modified apps/web/src/lib/diff.ts +2 -1",
+      "hunk 12,7 12,8 |@@ -12,7 +12,8 @@ export function totals(files: DiffFile[]) {|",
+      "ctx 12 12 |  let additions = 0|",
+      "ctx 13 13 |  let deletions = 0|",
+      "ctx 14 14 |  for (const file of files) {|",
+      "del 15 - |    additions += file.additions|",
+      "add - 15 |    additions += file.additions ?? 0|",
+      "add - 16 |    deletions += file.deletions ?? 0|",
+      "ctx 16 17 |  }|",
+      "ctx 17 18 |  return { files: files.length, additions, deletions }|",
+      "ctx 18 19 |}|"
+    ],
+    "summary": "1 file +2 −1",
+    "unchanged": [
+      11
+    ]
+  },
+  {
+    "name": "hunks only, no header at all, becomes one pathless file",
+    "form": "hunks",
+    "input": "@@ -1,3 +1,4 @@\n alpha\n-beta\n+BETA\n+gamma\n delta\n",
+    "expected": [
+      "file modified  +2 -1",
+      "hunk 1,3 1,4 |@@ -1,3 +1,4 @@|",
+      "ctx 1 1 |alpha|",
+      "del 2 - |beta|",
+      "add - 2 |BETA|",
+      "add - 3 |gamma|",
+      "ctx 3 4 |delta|"
+    ],
+    "summary": "1 file +2 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "git diff adding a new file",
+    "form": "git",
+    "input": "diff --git a/docs/new.md b/docs/new.md\nnew file mode 100644\nindex 0000000..e69de29\n--- /dev/null\n+++ b/docs/new.md\n@@ -0,0 +1,3 @@\n+# Title\n+\n+Body.\n",
+    "expected": [
+      "file added docs/new.md +3 -0",
+      "hunk 0,0 1,3 |@@ -0,0 +1,3 @@|",
+      "add - 1 |# Title|",
+      "add - 2 ||",
+      "add - 3 |Body.|"
+    ],
+    "summary": "1 file +3 −0",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "git diff deleting a file",
+    "form": "git",
+    "input": "diff --git a/docs/old.md b/docs/old.md\ndeleted file mode 100644\nindex e69de29..0000000\n--- a/docs/old.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-# Gone\n-Body.\n",
+    "expected": [
+      "file removed docs/old.md +0 -2",
+      "hunk 1,2 0,0 |@@ -1,2 +0,0 @@|",
+      "del 1 - |# Gone|",
+      "del 2 - |Body.|"
+    ],
+    "summary": "1 file +0 −2",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "git diff renaming a file with edits",
+    "form": "git",
+    "input": "diff --git a/src/old-name.ts b/src/new-name.ts\nsimilarity index 84%\nrename from src/old-name.ts\nrename to src/new-name.ts\nindex 1234567..89abcde 100644\n--- a/src/old-name.ts\n+++ b/src/new-name.ts\n@@ -1,4 +1,4 @@\n import { thing } from \"./thing\"\n \n-export const NAME = \"old\"\n+export const NAME = \"new\"\n \n",
+    "expected": [
+      "file renamed src/new-name.ts <- src/old-name.ts +1 -1",
+      "hunk 1,4 1,4 |@@ -1,4 +1,4 @@|",
+      "ctx 1 1 |import { thing } from \"./thing\"|",
+      "ctx 2 2 ||",
+      "del 3 - |export const NAME = \"old\"|",
+      "add - 3 |export const NAME = \"new\"|",
+      "ctx 4 4 ||"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "git diff renaming a file with no content change",
+    "form": "git",
+    "input": "diff --git a/README.md b/docs/README.md\nsimilarity index 100%\nrename from README.md\nrename to docs/README.md\n",
+    "expected": [
+      "file renamed docs/README.md <- README.md +0 -0"
+    ],
+    "summary": "1 file +0 −0",
+    "unchanged": []
+  },
+  {
+    "name": "git diff copying a file",
+    "form": "git",
+    "input": "diff --git a/config/base.yml b/config/staging.yml\nsimilarity index 97%\ncopy from config/base.yml\ncopy to config/staging.yml\nindex aaaaaaa..bbbbbbb 100644\n--- a/config/base.yml\n+++ b/config/staging.yml\n@@ -1,3 +1,3 @@\n name: exponential\n-env: base\n+env: staging\n",
+    "expected": [
+      "file copied config/staging.yml <- config/base.yml +1 -1",
+      "hunk 1,3 1,3 |@@ -1,3 +1,3 @@|",
+      "ctx 1 1 |name: exponential|",
+      "del 2 - |env: base|",
+      "add - 2 |env: staging|",
+      "ctx 3 3 ||"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "git diff of a binary file",
+    "form": "git",
+    "input": "diff --git a/public/logo.png b/public/logo.png\nindex 1111111..2222222 100644\nBinary files a/public/logo.png and b/public/logo.png differ\n",
+    "expected": [
+      "file modified public/logo.png binary +0 -0"
+    ],
+    "summary": "1 file +0 −0",
+    "unchanged": []
+  },
+  {
+    "name": "git diff of a quoted path with a space",
+    "form": "git",
+    "input": "diff --git \"a/docs/release notes.md\" \"b/docs/release notes.md\"\nindex 3333333..4444444 100644\n--- \"a/docs/release notes.md\"\n+++ \"b/docs/release notes.md\"\n@@ -1 +1 @@\n-draft\n+final\n",
+    "expected": [
+      "file modified docs/release notes.md +1 -1",
+      "hunk 1,1 1,1 |@@ -1 +1 @@|",
+      "del 1 - |draft|",
+      "add - 1 |final|"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "bare steer section creating a file",
+    "form": "bare",
+    "input": "--- /dev/null\n+++ b/crates/ui/src/diff/mod.rs\n@@ -0,0 +1,2 @@\n+pub mod model;\n+pub mod view;\n",
+    "expected": [
+      "file added crates/ui/src/diff/mod.rs +2 -0",
+      "hunk 0,0 1,2 |@@ -0,0 +1,2 @@|",
+      "add - 1 |pub mod model;|",
+      "add - 2 |pub mod view;|"
+    ],
+    "summary": "1 file +2 −0",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "bare steer section deleting a file",
+    "form": "bare",
+    "input": "--- a/crates/ui/src/diff/legacy.rs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-pub fn legacy() {}\n-// gone\n",
+    "expected": [
+      "file removed crates/ui/src/diff/legacy.rs +0 -2",
+      "hunk 1,2 0,0 |@@ -1,2 +0,0 @@|",
+      "del 1 - |pub fn legacy() {}|",
+      "del 2 - |// gone|"
+    ],
+    "summary": "1 file +0 −2",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "bare sections for two files with tab timestamps",
+    "form": "bare",
+    "input": "--- a/one.txt\t2026-09-15 10:00:00.000000000 +0200\n+++ b/one.txt\t2026-09-15 10:01:00.000000000 +0200\n@@ -1,2 +1,2 @@\n keep\n-one\n+ONE\n--- a/two.txt\t2026-09-15 10:00:00.000000000 +0200\n+++ b/two.txt\t2026-09-15 10:01:00.000000000 +0200\n@@ -1,2 +1,2 @@\n-two\n+TWO\n keep\n",
+    "expected": [
+      "file modified one.txt +1 -1",
+      "hunk 1,2 1,2 |@@ -1,2 +1,2 @@|",
+      "ctx 1 1 |keep|",
+      "del 2 - |one|",
+      "add - 2 |ONE|",
+      "file modified two.txt +1 -1",
+      "hunk 1,2 1,2 |@@ -1,2 +1,2 @@|",
+      "del 1 - |two|",
+      "add - 1 |TWO|",
+      "ctx 2 2 |keep|"
+    ],
+    "summary": "2 files +2 −2",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "an empty line inside a hunk is a context line",
+    "form": "bare",
+    "input": "--- a/src/empty.ts\n+++ b/src/empty.ts\n@@ -1,4 +1,4 @@\n const a = 1\n\n-const b = 2\n+const b = 3\n \n",
+    "expected": [
+      "file modified src/empty.ts +1 -1",
+      "hunk 1,4 1,4 |@@ -1,4 +1,4 @@|",
+      "ctx 1 1 |const a = 1|",
+      "ctx 2 2 ||",
+      "del 3 - |const b = 2|",
+      "add - 3 |const b = 3|",
+      "ctx 4 4 ||"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "no newline at end of file on both sides",
+    "form": "git",
+    "input": "diff --git a/src/tail.ts b/src/tail.ts\nindex 5555555..6666666 100644\n--- a/src/tail.ts\n+++ b/src/tail.ts\n@@ -1,2 +1,2 @@\n keep\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
+    "expected": [
+      "file modified src/tail.ts +1 -1",
+      "hunk 1,2 1,2 |@@ -1,2 +1,2 @@|",
+      "ctx 1 1 |keep|",
+      "del 2 - |old|",
+      "meta - - |No newline at end of file|",
+      "add - 2 |new|",
+      "meta - - |No newline at end of file|"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "a truncated steer patch keeps its dropped-line count",
+    "form": "bare",
+    "input": "--- a/src/long.ts\n+++ b/src/long.ts\n@@ -1,40 +1,40 @@\n one\n-two\n+TWO\n\\ 120 more lines truncated",
+    "expected": [
+      "truncated 120",
+      "file modified src/long.ts +1 -1",
+      "hunk 1,40 1,40 |@@ -1,40 +1,40 @@|",
+      "ctx 1 1 |one|",
+      "del 2 - |two|",
+      "add - 2 |TWO|"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "two sections for the same file stay two files until merged",
+    "form": "bare",
+    "input": "--- a/src/twice.ts\n+++ b/src/twice.ts\n@@ -1,2 +1,2 @@\n head\n-a\n+A\n--- a/src/twice.ts\n+++ b/src/twice.ts\n@@ -10,2 +10,2 @@\n-b\n+B\n tail\n",
+    "expected": [
+      "file modified src/twice.ts +1 -1",
+      "hunk 1,2 1,2 |@@ -1,2 +1,2 @@|",
+      "ctx 1 1 |head|",
+      "del 2 - |a|",
+      "add - 2 |A|",
+      "file modified src/twice.ts +1 -1",
+      "hunk 10,2 10,2 |@@ -10,2 +10,2 @@|",
+      "del 10 - |b|",
+      "add - 10 |B|",
+      "ctx 11 11 |tail|"
+    ],
+    "summary": "2 files +2 −2",
+    "unchanged": [
+      0
+    ],
+    "expectedMerged": [
+      "file modified src/twice.ts +2 -2",
+      "hunk 1,2 1,2 |@@ -1,2 +1,2 @@|",
+      "ctx 1 1 |head|",
+      "del 2 - |a|",
+      "add - 2 |A|",
+      "hunk 10,2 10,2 |@@ -10,2 +10,2 @@|",
+      "del 10 - |b|",
+      "add - 10 |B|",
+      "ctx 11 11 |tail|"
+    ]
+  },
+  {
+    "name": "hunk header with omitted counts",
+    "form": "git",
+    "input": "diff --git a/src/one-liner.ts b/src/one-liner.ts\nindex 7777777..8888888 100644\n--- a/src/one-liner.ts\n+++ b/src/one-liner.ts\n@@ -1 +1 @@ export const VERSION\n-export const VERSION = 1\n+export const VERSION = 2\n",
+    "expected": [
+      "file modified src/one-liner.ts +1 -1",
+      "hunk 1,1 1,1 |@@ -1 +1 @@ export const VERSION|",
+      "del 1 - |export const VERSION = 1|",
+      "add - 1 |export const VERSION = 2|"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "counts past the 32-bit ceiling saturate",
+    "form": "bare",
+    "input": "--- a/src/huge.txt\n+++ b/src/huge.txt\n@@ -2147483646,3 +2147483646,3 @@\n near\n-the\n+THE\n@@ -9999999999,1 +9999999999,1 @@\n ceiling\n",
+    "expected": [
+      "file modified src/huge.txt +1 -1",
+      "hunk 2147483646,3 2147483646,3 |@@ -2147483646,3 +2147483646,3 @@|",
+      "ctx 2147483646 2147483646 |near|",
+      "del 2147483647 - |the|",
+      "add - 2147483647 |THE|",
+      "hunk 2147483647,1 2147483647,1 |@@ -9999999999,1 +9999999999,1 @@|",
+      "ctx 2147483647 2147483647 |ceiling|"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      2147483645,
+      0
+    ]
+  },
+  {
+    "name": "a diff --git line mid hunk starts the next file",
+    "form": "git",
+    "input": "diff --git a/src/cut.ts b/src/cut.ts\n--- a/src/cut.ts\n+++ b/src/cut.ts\n@@ -1,4 +1,4 @@\n one\n-two\ndiff --git a/src/next.ts b/src/next.ts\n--- a/src/next.ts\n+++ b/src/next.ts\n@@ -1 +1 @@\n-x\n+y\n",
+    "expected": [
+      "file modified src/cut.ts +0 -1",
+      "hunk 1,4 1,4 |@@ -1,4 +1,4 @@|",
+      "ctx 1 1 |one|",
+      "del 2 - |two|",
+      "file modified src/next.ts +1 -1",
+      "hunk 1,1 1,1 |@@ -1 +1 @@|",
+      "del 1 - |x|",
+      "add - 1 |y|"
+    ],
+    "summary": "2 files +1 −2",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "pure garbage yields no files",
+    "form": "none",
+    "input": "Reading package lists...\nBuilding dependency tree...\nnothing here is a diff\n",
+    "expected": [],
+    "summary": "No changes",
+    "unchanged": []
+  },
+  {
+    "name": "empty input yields no files",
+    "form": "none",
+    "input": "",
+    "expected": [],
+    "summary": "No changes",
+    "unchanged": []
+  }
+]

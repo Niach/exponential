@@ -74,6 +74,19 @@ public enum DesignTokens {
         public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1608)
     }
 
+    // The unified-diff palette (EXP-895) — one look on all four clients:
+    // add/delFg are the line foregrounds, add/delBg the row wash, hunk* the
+    // `@@` separator band, gutterFg the line-number column.
+    public enum Diff {
+        public static let addFg: Color = Color(red: 0.2039, green: 0.8275, blue: 0.6000, opacity: 1.0000)
+        public static let addBg: Color = Color(red: 0.0627, green: 0.7255, blue: 0.5059, opacity: 0.1020)
+        public static let delFg: Color = Color(red: 0.9843, green: 0.4431, blue: 0.5216, opacity: 1.0000)
+        public static let delBg: Color = Color(red: 0.9569, green: 0.2471, blue: 0.3686, opacity: 0.1020)
+        public static let hunkFg: Color = Color(red: 0.6314, green: 0.6314, blue: 0.6314, opacity: 1.0000)
+        public static let hunkBg: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0392)
+        public static let gutterFg: Color = Color(red: 0.6314, green: 0.6314, blue: 0.6314, opacity: 0.5020)
+    }
+
     // Corner radii (px ≡ pt), matching the web rounded-* scale.
     public enum Radius {
         public static let sm: CGFloat = 8

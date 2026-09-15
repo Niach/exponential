@@ -27,6 +27,7 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.SwitcherMode
@@ -49,7 +50,6 @@ import com.exponential.app.ui.issue.IssueMenuActions
 import com.exponential.app.ui.issue.StartButtonUi
 import com.exponential.app.ui.issue.StartCircle
 import com.exponential.app.ui.issue.rememberIssueFaceController
-import com.exponential.app.ui.issue.unifiedDiffStats
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
@@ -174,7 +174,10 @@ fun WorkScreen(
     val awaitingInput = phase == AgentPhase.Live &&
         remember(activity.feed) { activeQuestionIds(activity.feed) }.isNotEmpty()
     val latestDiff = activity.latestDiff
-    val diffStats = remember(latestDiff) { latestDiff?.let { unifiedDiffStats(it) } }
+    // EXP-895: the raw `git diff` is parsed ONCE here — the Changes face draws
+    // the files, the switcher row shows their totals.
+    val parsedDiff = remember(latestDiff) { latestDiff?.let { Diff.parse(it) } }
+    val diffStats = remember(parsedDiff) { parsedDiff?.let { Diff.totals(it.files) } }
 
     // EXP-773/849: a Resume or an account switch lands a NEW row — the
     // continuation swaps into the same screen in place.
@@ -189,6 +192,10 @@ fun WorkScreen(
     // ── Faces ───────────────────────────────────────────────────────────────
     val prOpen = issue != null && issue.prState == DomainContract.prStateOpen && !issue.prUrl.isNullOrBlank()
     val hasChanges = latestDiff != null || prOpen
+    // EXP-895: the PR the Changes face links out to — the issue's, or the
+    // shown run's OWN issue-less one (EXP-734). It wears the header's action
+    // slot now, because the bar's leading slot opens the changed-files sheet.
+    val changesPrUrl = (issue?.prUrl ?: shownSession?.prUrl)?.takeIf { it.isNotBlank() }
     val faces = availableFaces(
         hasIssue = issueId != null,
         hasRun = shownSessionId != null,
@@ -313,6 +320,12 @@ fun WorkScreen(
                             null -> Unit
                         }
                     },
+                    // EXP-895: the Changes face's GitHub circle lives in the
+                    // header's action slot — the bar's leading slot now opens
+                    // the changed-files sheet.
+                    action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
+                        { GithubHeaderAction(url) }
+                    },
                     menu = if (issueVm != null) {
                         { IssueMenuActions(viewModel = issueVm, controller = issueController) }
                     } else {
@@ -424,9 +437,8 @@ fun WorkScreen(
                     }
                     ChangesFace(
                         padding = padding,
-                        diff = latestDiff,
+                        diff = parsedDiff,
                         changesViewModel = changesVm,
-                        prUrl = issue?.prUrl ?: shownSession?.prUrl,
                         merge = merge,
                         trailingBarSlot = trailingSlot,
                     )

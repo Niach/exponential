@@ -66,6 +66,11 @@ pub struct IssueHeader {
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
     start_coding: Entity<StartCodingControl>,
+    /// EXP-895: the Changes face's bar OWNS the merge control while it is up
+    /// — the tray must not offer a second Merge PR beside it. Set by the
+    /// session screen before it builds the tray; the issue detail leaves it
+    /// false.
+    merge_suppressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -140,8 +145,15 @@ impl IssueHeader {
             label_query,
             board_query,
             start_coding,
+            merge_suppressed: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-895: hide the tray's Merge PR while another surface owns the merge
+    /// control (the run's Changes bar).
+    pub(crate) fn set_merge_suppressed(&mut self, suppressed: bool) {
+        self.merge_suppressed = suppressed;
     }
 
     /// Point the header at another issue.
@@ -843,7 +855,7 @@ impl IssueHeader {
         self.start_coding
             .update(cx, |control, cx| control.set_demoted(styles.demote_start, cx));
         let mut actions = Vec::with_capacity(2);
-        if styles.merge {
+        if styles.merge && !self.merge_suppressed {
             actions.push(self.merge_button(issue, cx).into_any_element());
         }
         match action {

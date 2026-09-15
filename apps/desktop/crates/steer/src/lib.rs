@@ -73,6 +73,7 @@ pub mod journal;
 pub mod login_picker;
 pub mod publisher;
 pub mod tool_diff;
+pub mod tool_output;
 pub mod tool_group_summary;
 pub mod viewer;
 /// EXP-850 §3/§7: the `workflow` payload and the shared caption.
@@ -123,6 +124,7 @@ pub use workflow::{
     WorkflowStatus, WORKFLOW_AGENTS_MAX, WORKFLOW_CAPTION_SEPARATOR, WORKFLOW_PHASES_MAX,
 };
 pub use tool_diff::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
+pub use tool_output::{truncate_output, TOOL_OUTPUT_MAX_BYTES, TOOL_OUTPUT_MAX_LINES};
 pub use image_message::{
     build_steer_image_message, image_marker, insert_image_marker, parse_steer_message,
     renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,

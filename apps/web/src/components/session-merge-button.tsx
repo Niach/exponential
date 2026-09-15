@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react"
+import {
+  useEffect,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+} from "react"
 import { toast } from "sonner"
 import {
   conceptIcon,
   Button,
+  Pill,
   type buttonVariants,
   Dialog,
   DialogCancel,
@@ -49,7 +56,68 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // button keeps the plain merge one click away. Without both, a conflict
 // resolved OUTSIDE the recovery run (a teammate rebases and pushes, GitHub
 // recomputes mergeability) would hide Merge for the life of the open PR.
+
+/** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
+ *  `Pill size="md" mode="action" primary` every Changes surface uses (the
+ *  review's top bar, the run's, the phone capsule); `button` is the shadcn
+ *  Button the list rows and the icon-only slots keep. */
+export type MergeControlShape = `button` | `pill`
+
+/** One control, either shape — so the merge logic below never branches twice. */
+function MergeControl({
+  as,
+  variant,
+  size,
+  className,
+  disabled,
+  ariaLabel,
+  title,
+  onClick,
+  children,
+}: {
+  as: MergeControlShape
+  variant?: VariantProps<typeof buttonVariants>[`variant`]
+  size?: VariantProps<typeof buttonVariants>[`size`]
+  className?: string
+  disabled?: boolean
+  ariaLabel: string
+  title: string
+  onClick: (e: MouseEvent) => void
+  children: ReactNode
+}) {
+  if (as === `pill`) {
+    return (
+      <Pill
+        size="md"
+        mode="action"
+        primary
+        className={className}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        title={title}
+        onClick={onClick}
+      >
+        {children}
+      </Pill>
+    )
+  }
+  return (
+    <Button
+      variant={variant}
+      size={size}
+      className={className}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      title={title}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  )
+}
+
 export function SessionMergeButton({
+  as = `button`,
   prState,
   prNumber,
   issueId,
@@ -63,6 +131,9 @@ export function SessionMergeButton({
   teamId,
   steerEnabled = false,
 }: {
+  /** EXP-895: `pill` = the primary glass capsule every Changes surface wears;
+   *  `button` (the default) = the shadcn Button of the list rows. */
+  as?: MergeControlShape
   prState: string | null
   prNumber: number | null
   /** The issue whose PR this merges. Pass this OR `sessionId`, never both. */
@@ -160,6 +231,7 @@ export function SessionMergeButton({
       {showFix ? (
         <>
           <FixConflictsButton
+            as={as}
             issueId={issueId}
             variant={variant}
             size={size}
@@ -189,12 +261,13 @@ export function SessionMergeButton({
           </Button>
         </>
       ) : (
-        <Button
+        <MergeControl
+          as={as}
           variant={variant}
           size={size}
           className={className}
           disabled={merging}
-          aria-label={merging ? `Merging…` : `Merge pull request`}
+          ariaLabel={merging ? `Merging…` : `Merge pull request`}
           title={merging ? `Merging…` : `Merge`}
           onClick={(e) => {
             e.stopPropagation()
@@ -207,7 +280,7 @@ export function SessionMergeButton({
             <PrMergedIcon />
           )}
           {label}
-        </Button>
+        </MergeControl>
       )}
       <Dialog
         open={confirmOpen}
@@ -251,6 +324,7 @@ export function SessionMergeButton({
 // EXP-825: a navigation to the Agent page composer with the builtin picked
 // and this PR pre-filled — no dialog, no device lookup here.
 function FixConflictsButton({
+  as,
   issueId,
   variant,
   size,
@@ -258,6 +332,7 @@ function FixConflictsButton({
   label,
   message,
 }: {
+  as: MergeControlShape
   issueId: string
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
@@ -268,11 +343,12 @@ function FixConflictsButton({
   const openComposer = useOpenComposer()
 
   return (
-    <Button
+    <MergeControl
+      as={as}
       variant={variant}
       size={size}
       className={className}
-      aria-label="Fix merge conflicts"
+      ariaLabel="Fix merge conflicts"
       title={message ?? `Fix merge conflicts`}
       onClick={(e) => {
         e.stopPropagation()
@@ -281,6 +357,16 @@ function FixConflictsButton({
     >
       <UiBranchIcon />
       {label ? `Fix conflicts` : null}
-    </Button>
+    </MergeControl>
   )
+}
+
+/** EXP-895: THE merge control of a Changes surface — the primary glass pill,
+ *  the same confirm/spinner/Fix-conflicts/Retry behaviour. Every Changes
+ *  surface renders exactly ONE of these (the review's top bar, the run's, the
+ *  phone work bar's capsule); it self-hides unless the PR is open. */
+export function SessionMergePill(
+  props: Omit<ComponentProps<typeof SessionMergeButton>, `as` | `variant` | `size`>
+) {
+  return <SessionMergeButton {...props} as="pill" />
 }

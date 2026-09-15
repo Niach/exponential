@@ -79,6 +79,15 @@ html {
   --color-code-text: var(--code-text);
   --color-code-fill: var(--code-fill);
   --color-code-stroke: var(--code-stroke);
+  /* EXP-895 — the shared unified-diff palette. Same var-indirection shape as
+     --color-glass-* above; the raw --diff-* vars mirror tokens.json `diff`. */
+  --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-del-fg: var(--diff-del-fg);
+  --color-diff-del-bg: var(--diff-del-bg);
+  --color-diff-hunk-fg: var(--diff-hunk-fg);
+  --color-diff-hunk-bg: var(--diff-hunk-bg);
+  --color-diff-gutter-fg: var(--diff-gutter-fg);
   /* EXP-698 r4 — avatar fallback hues, tokens.json `avatar` in order. */
   --color-avatar-0: var(--avatar-0);
   --color-avatar-1: var(--avatar-1);
@@ -171,6 +180,15 @@ html {
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
   --code-stroke: #8AB4F833;
+  /* EXP-895: the ONE diff palette ×4 — tokens.json `diff`. Theme-invariant
+     like --glass-*, so the same values sit in :root and .dark. */
+  --diff-add-fg: #34D399;
+  --diff-add-bg: #10B9811A;
+  --diff-del-fg: #FB7185;
+  --diff-del-bg: #F43F5E1A;
+  --diff-hunk-fg: oklch(0.708 0 0);
+  --diff-hunk-bg: oklch(1 0 0 / 4%);
+  --diff-gutter-fg: oklch(0.708 0 0 / 50%);
   /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (avatar-color.ts). */
   --avatar-0: #F87171;
   --avatar-1: #FB923C;
@@ -269,6 +287,15 @@ html {
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
   --code-stroke: #8AB4F833;
+  /* EXP-895: the ONE diff palette ×4 — tokens.json `diff`. Theme-invariant
+     like --glass-*, so the same values sit in :root and .dark. */
+  --diff-add-fg: #34D399;
+  --diff-add-bg: #10B9811A;
+  --diff-del-fg: #FB7185;
+  --diff-del-bg: #F43F5E1A;
+  --diff-hunk-fg: oklch(0.708 0 0);
+  --diff-hunk-bg: oklch(1 0 0 / 4%);
+  --diff-gutter-fg: oklch(0.708 0 0 / 50%);
   /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (avatar-color.ts). */
   --avatar-0: #F87171;
   --avatar-1: #FB923C;
@@ -511,6 +538,64 @@ html {
   padding: 0.05rem 0.4rem 0.05rem 0.25rem;
   white-space: nowrap;
 }
+/* The same highlight.js palette, scoped for the diff view's per-line
+   highlighting (file-diff-card.tsx renders lowlight output under a
+   `.diff-code` wrapper). */
+.diff-code .hljs-comment,
+.diff-code .hljs-quote {
+  color: var(--hljs-comment);
+  font-style: italic;
+}
+.diff-code .hljs-keyword,
+.diff-code .hljs-selector-tag,
+.diff-code .hljs-literal,
+.diff-code .hljs-meta {
+  color: var(--hljs-keyword);
+}
+.diff-code .hljs-string,
+.diff-code .hljs-doctag,
+.diff-code .hljs-regexp,
+.diff-code .hljs-attr {
+  color: var(--hljs-string);
+}
+.diff-code .hljs-number,
+.diff-code .hljs-symbol,
+.diff-code .hljs-built_in,
+.diff-code .hljs-bullet {
+  color: var(--hljs-number);
+}
+.diff-code .hljs-title,
+.diff-code .hljs-section,
+.diff-code .hljs-function,
+.diff-code .hljs-title.function_,
+.diff-code .hljs-title.class_ {
+  color: var(--hljs-title);
+}
+.diff-code .hljs-variable,
+.diff-code .hljs-name,
+.diff-code .hljs-params,
+.diff-code .hljs-property {
+  color: var(--hljs-variable);
+}
+.diff-code .hljs-tag,
+.diff-code .hljs-selector-class,
+.diff-code .hljs-selector-id,
+.diff-code .hljs-type {
+  color: var(--hljs-tag);
+}
+.diff-code .hljs-deletion {
+  color: var(--hljs-deletion);
+}
+.diff-code .hljs-addition {
+  color: var(--hljs-addition);
+}
+.diff-code .hljs-emphasis {
+  font-style: italic;
+}
+.diff-code .hljs-strong {
+  font-weight: 600;
+}
+
 
 /* The ✕ variant (composers only): the glyph sits inside the chip, so the
    trailing padding shrinks to the ✕'s own hit area. */

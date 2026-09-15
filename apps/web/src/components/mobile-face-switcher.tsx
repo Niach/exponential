@@ -2,6 +2,7 @@ import { useState } from "react"
 import type { CodingSession } from "@/db/schema"
 import {
   conceptIcon,
+  DiffCounts,
   SESSION_DOT_CLASS,
   type SessionDotTone,
   DropdownMenu,
@@ -25,7 +26,6 @@ import {
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import { issueRunEntryLabel } from "@/components/issue-run-switcher"
 import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
-import { DiffFaceLabel } from "@/components/team/work-face-toggle"
 
 // EXP-893: the phone's FACE SWITCHER — the bottom-right circle of the Work
 // screen, the desktop face toggle's touch twin. With exactly one other
@@ -240,7 +240,7 @@ export function MobileFaceSwitcher({
                 target.face === `changes` &&
                 diffStats && (
                   <span className="ml-3 shrink-0 text-xs">
-                    <DiffFaceLabel
+                    <DiffCounts
                       additions={diffStats.additions}
                       deletions={diffStats.deletions}
                     />

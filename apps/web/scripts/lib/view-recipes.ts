@@ -370,11 +370,20 @@ async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
  * Expand the biggest file in the review diff so the shot shows an actual patch
  * rather than a file list. The diff is fetched live from GitHub — the slowest
  * and flakiest view in the catalog, hence the generous timeout.
+ *
+ * EXP-895: the file COLUMN is the reliable target (`diff-nav-row-<path>`, one
+ * per file, and a click there expands the card AND scrolls to it). The card's
+ * own header is the fallback for a single-file diff, which draws no column.
  */
 async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
-  const file = page.getByText(`TopicScreen.kt`)
-  await file.first().waitFor({ timeout: 60_000 })
-  await file.first().click()
+  const navRow = page.locator(`[data-testid^="diff-nav-row-"]`).first()
+  if (await appears(navRow, 60_000)) {
+    await navRow.click()
+  } else {
+    const header = page.getByText(`TopicScreen.kt`)
+    await header.first().waitFor({ timeout: 30_000 })
+    await header.first().click()
+  }
   await page.getByText(`@Composable`).first().waitFor({ timeout: 30_000 })
 }
 
