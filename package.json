@@ -20,7 +20,7 @@
     "build": "bun --filter @exp/widget build && bun --filter @exp/web build && bun --filter @exp/marketing build",
     "build:web": "bun --filter @exp/web build",
     "start": "bun --filter @exp/web start",
-    "test": "bun --filter @exp/ui --filter @exp/web test",
+    "test": "bun --filter @exp/domain-contract test && bun --filter @exp/ui --filter @exp/web test",
     "test:e2e": "bun --filter @exp/web test:e2e",
     "typecheck": "bun --filter @exp/ui --filter @exp/web --filter @exp/view-catalog --filter @exp/shots --filter @exp/styleguide typecheck",
     "migrate": "bun --filter @exp/web migrate",

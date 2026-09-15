@@ -80,6 +80,19 @@ object DesignTokens {
         val StrokeActive: Color = Color(0x29FFFFFF)
     }
 
+    // The unified-diff palette (EXP-895) — one look on all four clients:
+    // Add/DelFg are the line foregrounds, Add/DelBg the row wash, Hunk* the
+    // `@@` separator band, GutterFg the line-number column.
+    object Diff {
+        val AddFg: Color = Color(0xFF34D399)
+        val AddBg: Color = Color(0x1A10B981)
+        val DelFg: Color = Color(0xFFFB7185)
+        val DelBg: Color = Color(0x1AF43F5E)
+        val HunkFg: Color = Color(0xFFA1A1A1)
+        val HunkBg: Color = Color(0x0AFFFFFF)
+        val GutterFg: Color = Color(0x80A1A1A1)
+    }
+
     // Corner radii (px ≡ dp), matching the web rounded-* scale.
     object Radius {
         val Sm: Dp = 8.dp

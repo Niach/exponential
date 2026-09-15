@@ -20,6 +20,7 @@ const tokens = JSON.parse(
   semantic: Record<string, string>
   avatar: Record<string, string>
   glass: Record<string, string>
+  diff: Record<string, string>
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
   transcript: Record<string, number | string>
 }
@@ -110,6 +111,50 @@ describe(`design-tokens parity with web styles.css`, () => {
         darkVars[cssVar],
         `tokens.glass.${key} should equal --${cssVar} in styles.css`
       ).toBe(value)
+    }
+  })
+
+  // EXP-895: the shared unified-diff palette. Theme-invariant like the glass
+  // tokens (the app is dark-only), so the SAME values sit in :root and .dark
+  // and both copies are checked — nothing else keeps the two in step.
+  it(`every diff token matches the corresponding --diff-* CSS variable`, () => {
+    const keys = Object.keys(tokens.diff).filter((k) => !k.startsWith(`$`))
+    expect(keys).toEqual([
+      `addFg`,
+      `addBg`,
+      `delFg`,
+      `delBg`,
+      `hunkFg`,
+      `hunkBg`,
+      `gutterFg`,
+    ])
+    for (const key of keys) {
+      const value = tokens.diff[key]
+      const cssVar = `diff-${kebab(key)}`
+      expect(
+        darkVars[cssVar],
+        `tokens.diff.${key} should equal --${cssVar} in styles.css`
+      ).toBe(value)
+      expect(
+        rootVars[cssVar],
+        `tokens.diff.${key} should equal --${cssVar} in :root`
+      ).toBe(value)
+    }
+  })
+
+  // The `--color-diff-*` @theme aliases are what make `text-diff-add-fg` and
+  // `bg-diff-add-bg` real Tailwind utilities; like the glass and ease
+  // aliases they must POINT at the raw vars, never restate the colours.
+  it(`the @theme diff aliases reference the raw --diff-* vars`, () => {
+    const themeBlock = cssNoComments.match(/@theme inline\s*\{([^}]*)\}/)
+    if (!themeBlock) throw new Error(`Could not find @theme inline block`)
+    for (const key of Object.keys(tokens.diff)) {
+      if (key.startsWith(`$`)) continue
+      const name = kebab(key)
+      expect(
+        themeBlock[1],
+        `@theme inline should alias --color-diff-${name} to --diff-${name}`
+      ).toContain(`--color-diff-${name}: var(--diff-${name});`)
     }
   })
 

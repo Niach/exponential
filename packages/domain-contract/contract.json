@@ -203,7 +203,9 @@
     "windowStep": 500,
     "historyPageMax": 200,
     "toolDiffMaxLines": 200,
-    "toolDiffMaxBytes": 16384
+    "toolDiffMaxBytes": 16384,
+    "toolOutputMaxLines": 200,
+    "toolOutputMaxBytes": 16384
   },
   "toolKind": {
     "values": [

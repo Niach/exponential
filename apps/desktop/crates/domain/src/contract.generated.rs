@@ -86,6 +86,8 @@ pub const STEER_FEED_WINDOW_STEP: usize = 500;
 pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = 200;
 pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = 200;
 pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = 16384;
+pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = 200;
+pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = 16384;
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";

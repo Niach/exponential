@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "generate": "bun run ./scripts/generate.ts"
+    "generate": "bun run ./scripts/generate.ts",
+    "test": "bun test ./src"
   },
   "exports": {
     ".": "./src/index.ts",

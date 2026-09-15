@@ -79,6 +79,15 @@ html {
   --color-code-text: var(--code-text);
   --color-code-fill: var(--code-fill);
   --color-code-stroke: var(--code-stroke);
+  /* EXP-895 — the shared unified-diff palette. Same var-indirection shape as
+     --color-glass-* above; the raw --diff-* vars mirror tokens.json `diff`. */
+  --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-del-fg: var(--diff-del-fg);
+  --color-diff-del-bg: var(--diff-del-bg);
+  --color-diff-hunk-fg: var(--diff-hunk-fg);
+  --color-diff-hunk-bg: var(--diff-hunk-bg);
+  --color-diff-gutter-fg: var(--diff-gutter-fg);
   /* EXP-698 r4 — avatar fallback hues, tokens.json `avatar` in order. */
   --color-avatar-0: var(--avatar-0);
   --color-avatar-1: var(--avatar-1);
@@ -171,6 +180,15 @@ html {
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
   --code-stroke: #8AB4F833;
+  /* EXP-895: the ONE diff palette ×4 — tokens.json `diff`. Theme-invariant
+     like --glass-*, so the same values sit in :root and .dark. */
+  --diff-add-fg: #34D399;
+  --diff-add-bg: #10B9811A;
+  --diff-del-fg: #FB7185;
+  --diff-del-bg: #F43F5E1A;
+  --diff-hunk-fg: oklch(0.708 0 0);
+  --diff-hunk-bg: oklch(1 0 0 / 4%);
+  --diff-gutter-fg: oklch(0.708 0 0 / 50%);
   /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (avatar-color.ts). */
   --avatar-0: #F87171;
   --avatar-1: #FB923C;
@@ -269,6 +287,15 @@ html {
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
   --code-stroke: #8AB4F833;
+  /* EXP-895: the ONE diff palette ×4 — tokens.json `diff`. Theme-invariant
+     like --glass-*, so the same values sit in :root and .dark. */
+  --diff-add-fg: #34D399;
+  --diff-add-bg: #10B9811A;
+  --diff-del-fg: #FB7185;
+  --diff-del-bg: #F43F5E1A;
+  --diff-hunk-fg: oklch(0.708 0 0);
+  --diff-hunk-bg: oklch(1 0 0 / 4%);
+  --diff-gutter-fg: oklch(0.708 0 0 / 50%);
   /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (avatar-color.ts). */
   --avatar-0: #F87171;
   --avatar-1: #FB923C;

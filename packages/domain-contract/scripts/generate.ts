@@ -54,6 +54,8 @@ interface Contract {
     historyPageMax: number
     toolDiffMaxLines: number
     toolDiffMaxBytes: number
+    toolOutputMaxLines: number
+    toolOutputMaxBytes: number
   }
   toolKind: Section
   subscriberSource: Section
@@ -362,6 +364,8 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
     public static let steerFeedToolDiffMaxLines: Int = ${steerFeed.toolDiffMaxLines}
     public static let steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
+    public static let steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
+    public static let steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -468,6 +472,8 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
     const val steerFeedToolDiffMaxLines: Int = ${steerFeed.toolDiffMaxLines}
     const val steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
+    const val steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
+    const val steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -576,6 +582,8 @@ pub const STEER_FEED_WINDOW_STEP: usize = ${steerFeed.windowStep};
 pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = ${steerFeed.historyPageMax};
 pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = ${steerFeed.toolDiffMaxLines};
 pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = ${steerFeed.toolDiffMaxBytes};
+pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLines};
+pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = ${steerFeed.toolOutputMaxBytes};
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}

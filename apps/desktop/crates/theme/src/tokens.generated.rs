@@ -70,6 +70,20 @@ pub mod glass {
     pub const STROKE_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 41 };
 }
 
+// The unified-diff palette (EXP-895) — one look on all four clients: ADD/DEL_FG
+// are the line foregrounds, ADD/DEL_BG the row wash, HUNK_* the `@@` separator
+// band, GUTTER_FG the line-number column. Nested for the same reason `glass` is.
+pub mod diff {
+    use crate::Srgb8;
+    pub const ADD_FG: Srgb8 = Srgb8 { r: 52, g: 211, b: 153, a: 255 };
+    pub const ADD_BG: Srgb8 = Srgb8 { r: 16, g: 185, b: 129, a: 26 };
+    pub const DEL_FG: Srgb8 = Srgb8 { r: 251, g: 113, b: 133, a: 255 };
+    pub const DEL_BG: Srgb8 = Srgb8 { r: 244, g: 63, b: 94, a: 26 };
+    pub const HUNK_FG: Srgb8 = Srgb8 { r: 161, g: 161, b: 161, a: 255 };
+    pub const HUNK_BG: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 10 };
+    pub const GUTTER_FG: Srgb8 = Srgb8 { r: 161, g: 161, b: 161, a: 128 };
+}
+
 // Corner radii in px, matching the web rounded-* scale.
 pub mod radius {
     pub const SM: f32 = 8.0;
