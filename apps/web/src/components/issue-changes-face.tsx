@@ -14,7 +14,6 @@ import {
 import { MERGE_PILL_CLASS, MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionDiffFace } from "@/components/session-diff-face"
 import { SessionMergeButton } from "@/components/session-merge-button"
-import { AddDelCounts, type PullFile } from "@/components/diff-view"
 import type { SessionDotTone } from "@/lib/session-dot"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
@@ -27,31 +26,6 @@ import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
 const GithubIcon = conceptIcon(`ui-github`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-
-/** The summary row above the file blocks: `N files  +A -D`, the desktop's
- *  `DiffFaceLabel` counts. */
-export function ChangesSummaryRow({
-  files,
-  className,
-}: {
-  files: readonly PullFile[]
-  className?: string
-}) {
-  const additions = files.reduce((n, f) => n + f.additions, 0)
-  const deletions = files.reduce((n, f) => n + f.deletions, 0)
-  return (
-    <div
-      className={cn(
-        `flex items-center gap-3 text-xs text-muted-foreground`,
-        className
-      )}
-      data-testid="changes-summary-row"
-    >
-      <span>{files.length === 1 ? `1 file` : `${files.length} files`}</span>
-      <AddDelCounts additions={additions} deletions={deletions} />
-    </div>
-  )
-}
 
 /** The GitHub circle of the Changes face's bar — the PR page in a new tab. */
 export function GithubCircle({ prUrl }: { prUrl: string }) {
@@ -163,14 +137,13 @@ export function IssueChangesFace({
           </p>
         )}
         {state.kind === `files` && state.files.length > 0 && (
-          <>
-            <ChangesSummaryRow files={state.files} className="pb-3" />
-            <SessionDiffFace
-              files={state.files}
-              selected={selected}
-              onSelect={setSelected}
-            />
-          </>
+          /* `SessionDiffFace`'s file nav already heads the list with the
+             count and the +/- totals — the summary row the natives draw. */
+          <SessionDiffFace
+            files={state.files}
+            selected={selected}
+            onSelect={setSelected}
+          />
         )}
       </div>
       <MobileWorkBar

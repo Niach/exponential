@@ -138,8 +138,7 @@ function IssueDetailPage() {
     currentUserId
   )
   const diffStats = useSessionDiffStats(isMobile ? runTarget?.id : null)
-  const hasChanges =
-    diffStats.fileCount > 0 || (issue?.prState === `open` && isMobile)
+  const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
   const openComposer = useOpenComposer()
 
   const goRun = useCallback(
