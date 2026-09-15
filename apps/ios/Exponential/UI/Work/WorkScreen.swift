@@ -86,7 +86,14 @@ struct WorkScreen: View {
         subjectModel?.codingTarget(boundId: boundSessionId)?.id
     }
 
-    private var hasIssue: Bool { issue != nil }
+    /// An issue SUBJECT always has its Issue face, even before its row has
+    /// landed — otherwise the fallback rule would flip a freshly opened
+    /// issue onto its live run while the issue shape is still syncing. A
+    /// session subject grows the face once its row names an issue.
+    private var hasIssue: Bool {
+        if case .issue = subject { return true }
+        return issue != nil
+    }
     private var hasRun: Bool { shownSession != nil }
 
     /// The issue's PR / pushed branch — what the PR row opens.
