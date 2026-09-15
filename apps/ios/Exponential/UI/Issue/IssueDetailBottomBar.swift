@@ -6,46 +6,46 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// How the bar's right-hand Start-coding circle renders (EXP-240). Computed by
-/// IssueDetailView from the view model's steer state so the bar stays dumb.
-enum StartCircleUi: Equatable {
+/// What the bar's right-hand circle does (EXP-240, EXP-893). Computed by the
+/// Work screen from the view model's steer state so the bar stays dumb: with
+/// no own run the circle STARTS one; once a run exists the circle is the face
+/// switcher the screen passes in.
+enum IssueBarTrailing: Equatable {
     case hidden
-    /// A live session on this issue — state dot, tap navigates to the viewer.
-    /// EXP-848: `busy` is the synced `agent_busy` — the dot only pulses while
-    /// the agent is inside a turn.
-    case session(CodingSessionDisplayState, sessionId: String, busy: Bool)
     /// Startable: relay on, member, repo-backed board, a desktop online.
     case start
     /// Same gates but no desktop online — dimmed, tap explains.
     case noDevices
+    /// The Work screen's face switcher circle (`switcher` slot).
+    case switcher
 }
 
 /// The issue-detail floating bottom bar (EXP-240): properties circle +
-/// expanding comment pill + start-coding circle, cloning the main
-/// MobileTabBar treatment exactly (EXP-698: the OPAQUE card fill on the
-/// capsule and circles — they float over the scrolling issue, so a low-alpha
-/// tint would let it through — `strokeStrong` hairline, black-35% shadow
-/// r16 y6, 5pt inner padding).
+/// expanding comment pill + the trailing circle (start coding, or the Work
+/// screen's face switcher), on the ONE `FloatingBottomBar` recipe (EXP-893).
 /// Tapping the pill expands it into the docked comment composer — a
 /// full-width glass card that rides the keyboard (the bar lives in a bottom
 /// `safeAreaInset`). Collapse on blur only when the draft is empty (drafts
 /// are never lost) and after a successful submit. While another editor owns
 /// the keyboard (title / description / comment edit) the collapsed bar hides
 /// itself — but stays mounted at zero height so the draft state survives.
-struct IssueDetailBottomBar: View {
+struct IssueDetailBottomBar<Switcher: View>: View {
     let issue: IssueEntity
     let mentionMembers: [MentionMember]
     /// Solo teams hide the composer's @ button (nobody to mention but
     /// yourself, EXP-246) — same gate as the assignee chip.
     let singleMemberTeam: Bool
     let isModerator: Bool
-    let startUi: StartCircleUi
+    let trailing: IssueBarTrailing
     let onOpenProperties: () -> Void
     let onStartCoding: () -> Void
     /// EXP-741: the comment this composer replies to. Setting it expands the
     /// composer in reply mode ("Replying to …" + `parentId` on send); the ✕,
     /// a send and a collapse clear it.
     @Binding var replyTarget: CommentReplyTarget?
+    /// EXP-893: the Work screen's face switcher, drawn in the trailing slot
+    /// while `trailing == .switcher`.
+    @ViewBuilder let switcher: () -> Switcher
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -80,25 +80,22 @@ struct IssueDetailBottomBar: View {
     var body: some View {
         Group {
             if barVisible {
-                Group {
-                    if expanded {
-                        VStack(spacing: 8) {
-                            // EXP-581: the `@`/`#`/`:` menu lives ABOVE the
-                            // card — inside it, the height-bounded editor
-                            // clipped the menu and it covered the typed line.
-                            if composerEditor.showsAutocompleteMenu {
-                                EditorAutocompleteMenu(model: composerEditor)
-                            }
-                            expandedComposer
+                if expanded {
+                    VStack(spacing: 8) {
+                        // EXP-581: the `@`/`#`/`:` menu lives ABOVE the
+                        // card — inside it, the height-bounded editor
+                        // clipped the menu and it covered the typed line.
+                        if composerEditor.showsAutocompleteMenu {
+                            EditorAutocompleteMenu(model: composerEditor)
                         }
-                        .padding(.horizontal, 12)
-                    } else {
-                        collapsedBar
-                            .padding(.horizontal, 20)
+                        expandedComposer
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.top, FloatingBarTokens.topPadding)
+                    .padding(.bottom, FloatingBarTokens.bottomPadding)
+                } else {
+                    collapsedBar
                 }
-                .padding(.top, 8)
-                .padding(.bottom, 4)
             } else {
                 Color.clear.frame(height: 0)
             }
@@ -158,9 +155,9 @@ struct IssueDetailBottomBar: View {
     // MARK: - Collapsed bar
 
     private var collapsedBar: some View {
-        HStack(spacing: 12) {
+        FloatingBottomBar {
             if isModerator {
-                circleButton(action: onOpenProperties, accessibilityLabel: "Properties") {
+                FloatingBarCircle(accessibilityLabel: "Properties", action: onOpenProperties) {
                     AppIcon(AppIcons.uiProperties, size: AppIcon.Size.medium, weight: .medium)
                         .foregroundStyle(.white)
                 }
@@ -170,118 +167,35 @@ struct IssueDetailBottomBar: View {
                 // contentDescription).
                 .accessibilityIdentifier("issue-properties-button")
             }
-
-            Button {
-                expand()
-            } label: {
-                HStack(spacing: 6) {
-                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium, weight: .medium)
-                    Text("Comment")
-                        .font(.subheadline)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .padding(.horizontal, 14)
-                .frame(height: 42)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(5)
-                .background(GlassTokens.opaqueCardFill, in: Capsule())
-                .overlay(
-                    Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-                .contentShape(Capsule())
+        } center: {
+            FloatingBarCapsule(accessibilityLabel: "Comment", action: expand) {
+                AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium, weight: .medium)
+                Text("Comment")
+                    .font(.subheadline)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Comment")
-
-            startCircle
+        } trailing: {
+            trailingSlot
         }
     }
 
     @ViewBuilder
-    private var startCircle: some View {
-        switch startUi {
+    private var trailingSlot: some View {
+        switch trailing {
         case .hidden:
             EmptyView()
-        case let .session(state, sessionId, busy):
-            NavigationLink(value: AppRoute.agentSession(accountId: accountId, sessionId: sessionId)) {
-                circleChrome {
-                    sessionGlyph(state, busy: busy)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Coding session")
+        case .switcher:
+            switcher()
         case .start:
-            circleButton(action: onStartCoding, accessibilityLabel: "Start coding") {
+            FloatingBarCircle(accessibilityLabel: "Start coding", action: onStartCoding) {
                 AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
                     .foregroundStyle(.white)
             }
         case .noDevices:
-            circleButton(action: { showNoDeviceAlert = true }, accessibilityLabel: "Start coding") {
+            FloatingBarCircle(accessibilityLabel: "Start coding", action: { showNoDeviceAlert = true }) {
                 AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.quaternary))
             }
         }
-    }
-
-    /// EXP-698: the circle NAMES the thing it opens — the machine glyph the
-    /// Devices tab wears — and the state dot rides it as a badge. A bare dot
-    /// in a glass circle said nothing about where the tap went, and read as a
-    /// decoration next to the two labelled controls beside it.
-    @ViewBuilder
-    private func sessionGlyph(_ state: CodingSessionDisplayState, busy: Bool) -> some View {
-        AppIcon(AppIcons.navDevices, size: AppIcon.Size.medium, weight: .medium)
-            .foregroundStyle(.white)
-            .overlay(alignment: .topTrailing) {
-                sessionDot(state, busy: busy)
-                    // Clear of the glyph's own bounds, like a notification
-                    // badge — the dot is state, not part of the mark.
-                    .offset(x: 6, y: -5)
-            }
-    }
-
-    @ViewBuilder
-    private func sessionDot(_ state: CodingSessionDisplayState, busy: Bool) -> some View {
-        switch state {
-        case .running:
-            // EXP-848: a live row that is between turns gets the static green
-            // dot — only an open turn pulses.
-            if CodingSessionDisplayState.pulses(state: state, agentBusy: busy) {
-                PulsingLiveDot()
-            } else {
-                Circle().fill(DesignTokens.Semantic.green).frame(width: 9, height: 9)
-            }
-        case .needsInput:
-            Circle().fill(DesignTokens.Semantic.yellow).frame(width: 9, height: 9)
-        case .review:
-            Circle().fill(DesignTokens.Semantic.green).frame(width: 9, height: 9)
-        case .done:
-            Circle().fill(DesignTokens.Semantic.blue).frame(width: 9, height: 9)
-        }
-    }
-
-    private func circleButton<Content: View>(
-        action: @escaping () -> Void,
-        accessibilityLabel: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        Button(action: action) {
-            circleChrome(content: content)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private func circleChrome<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .frame(width: 52, height: 52)
-            .background(GlassTokens.opaqueCardFill, in: Circle())
-            .overlay(
-                Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-            )
-            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-            .contentShape(Circle())
     }
 
     // MARK: - Expanded composer

@@ -33,7 +33,9 @@ final class AgentSessionComposerTests: XCTestCase {
 
     func testTheComposerCopyIsByteLockedToTheWeb() {
         XCTAssertEqual(AgentFeed.submitLabel, "Submit")
-        XCTAssertEqual(AgentFeed.composerPlaceholder, "Message the agent…")
+        // EXP-893: the phone's steer composer wears the desktop's words.
+        XCTAssertEqual(AgentFeed.composerPlaceholder, "Type / for commands")
+        XCTAssertEqual(AgentFeed.planModeFooterLabel, "Plan mode")
         XCTAssertEqual(AgentFeed.freeTextPlaceholder, "Type your answer…")
         XCTAssertEqual(AgentFeed.planFeedbackPlaceholder, "Tell the agent what to change…")
         XCTAssertEqual(AgentFeed.backToCurrentStepLabel, "Back to current step")

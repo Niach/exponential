@@ -1,23 +1,31 @@
-import { useMemo } from "react"
+import { useCallback, useMemo } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
-import { issueSessionTarget } from "@/hooks/use-open-session"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { useNow } from "@/hooks/use-now"
+import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useIssueRuns } from "@/hooks/use-agents-data"
 import { useSession } from "@/hooks/use-session"
+import { useSessionDiffStats } from "@/hooks/use-session-diff-stats"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useWorkTabs } from "@/hooks/use-work-tabs"
 import type { CodingSession, Issue } from "@/db/schema"
 import { BoardNotFound } from "@/components/board-not-found"
+import { IssueChangesFace } from "@/components/issue-changes-face"
 import { IssueDetailView } from "@/components/issue-detail-view"
+import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
 import { selectIssueRuns } from "@/lib/past-runs"
+import type { SessionDotTone } from "@/lib/session-dot"
+import { availableFaces, codingTarget, isSessionLive } from "@/lib/work-faces"
 import {
   ISSUE_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
 
-type IssueSearch = { from?: string }
+type IssueSearch = { from?: string; view?: `diff` }
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -31,9 +39,12 @@ export const Route = createFileRoute(
   // EXP-851: `?from=` is the LIST this issue was opened from
   // (`lib/detail-origin.ts`) — the sidebar keeps it beside the issue, and
   // absent means the main menu stays.
+  // EXP-893: `?view=diff` is the phone's Changes face over the issue's PR
+  // files (a run's live diff lives on the session route instead).
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    view: search.view === `diff` ? `diff` : undefined,
   }),
   component: IssueDetailPage,
 })
@@ -72,10 +83,13 @@ function IssueDetailPage() {
   const permissions = useTeamPermissions(team)
 
   // EXP-870: the Run face — the run this issue's work tab is bound to, else
-  // the issue's newest run of mine (`issueSessionTarget`). No such run = the
-  // toggle has one face and does not render (EXP-877).
+  // the issue's newest run of mine (`codingTarget`: the bound run when live,
+  // else the newest live own run, else the newest own run). No such run =
+  // the toggle has one face and does not render (EXP-877).
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { data: authSession } = useSession()
+  const currentUserId = authSession?.user?.id
   const { data: runRows } = useLiveQuery(
     (query) =>
       issue
@@ -89,14 +103,19 @@ function IssueDetailPage() {
   const boundRunId = issue
     ? tabs.find((tab) => tab.kind === `issue` && tab.issueId === issue.id)
     : undefined
+  const now = useNow(30_000)
   const runTarget = useMemo(
     () =>
-      issueSessionTarget(
-        (runRows ?? []) as CodingSession[],
-        boundRunId?.kind === `issue` ? (boundRunId.runId ?? undefined) : undefined,
-        authSession?.user?.id
-      ),
-    [runRows, boundRunId, authSession?.user?.id]
+      issue
+        ? codingTarget(
+            (runRows ?? []) as CodingSession[],
+            issue.id,
+            boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
+            currentUserId,
+            now
+          )
+        : null,
+    [runRows, issue, boundRunId, currentUserId, now]
   )
   // EXP-886: with MORE THAN ONE run of mine on the issue the segment reads
   // "Runs" — the session view it opens carries the switcher between them.
@@ -104,10 +123,52 @@ function IssueDetailPage() {
     () =>
       selectIssueRuns(
         (runRows ?? []) as CodingSession[],
-        authSession?.user?.id,
+        currentUserId,
         issue?.id
       ).length > 1,
-    [runRows, authSession?.user?.id, issue?.id]
+    [runRows, currentUserId, issue?.id]
+  )
+
+  // EXP-893: the phone's Work screen — the issue's runs of mine for the
+  // switcher's run rows, the target run's live diff (so the Changes face is
+  // known without mounting the view), and the faces on offer.
+  const { runs: issueRuns } = useIssueRuns(
+    isMobile ? issue?.id : undefined,
+    team?.id,
+    currentUserId
+  )
+  const diffStats = useSessionDiffStats(isMobile ? runTarget?.id : null)
+  const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
+  const openComposer = useOpenComposer()
+
+  const goRun = useCallback(
+    (sessionId: string, view?: `diff`) => {
+      void navigate({
+        to: `/t/$teamSlug/sessions/$sessionId`,
+        params: { teamSlug, sessionId },
+        search: {
+          ...(search.from ? { from: search.from } : {}),
+          ...(view ? { view } : {}),
+        },
+        replace: isMobile,
+      })
+    },
+    [navigate, teamSlug, search.from, isMobile]
+  )
+  const goFace = useCallback(
+    (view?: `diff`) => {
+      if (!board) return
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: { teamSlug, boardSlug: board.slug, issueIdentifier },
+        search: {
+          ...(search.from ? { from: search.from } : {}),
+          ...(view ? { view } : {}),
+        },
+        replace: isMobile,
+      })
+    },
+    [navigate, teamSlug, board, issueIdentifier, search.from, isMobile]
   )
 
   if (!team || !board) {
@@ -146,6 +207,78 @@ function IssueDetailPage() {
     )
   }
 
+  const readOnly = !permissions.canMutateIssue(issue)
+
+  // EXP-893: the phone. Faces are screen state behind `replace` navigations,
+  // so Back always leaves the issue. The Changes face: the run's live diff
+  // (the session route's `?view=diff`) when there is one, else the issue's
+  // PR files right here. The bar's right circle is the switcher once there
+  // is anywhere to go; otherwise the view draws its Start coding circle.
+  if (isMobile) {
+    const faces = availableFaces({
+      hasIssue: true,
+      hasRun: Boolean(runTarget),
+      hasChanges,
+    })
+    const runLive = runTarget ? isSessionLive(runTarget, now) : false
+    // The synced row is all the issue face knows: live → the running dot
+    // (amber while it waits on a person); no live run → no dot.
+    const sessionTone: SessionDotTone | null = runLive
+      ? runTarget?.needsInput
+        ? `needs_input`
+        : `running`
+      : null
+    const showChanges = search.view === `diff` && hasChanges
+    const switcher = (
+      <MobileFaceSwitcher
+        faces={faces}
+        face={showChanges ? `changes` : `issue`}
+        runs={issueRuns}
+        viewedRunId={runTarget?.id ?? null}
+        diffStats={diffStats.fileCount > 0 ? diffStats : null}
+        hasChanges={hasChanges}
+        sessionTone={sessionTone}
+        onFace={(next) => {
+          if (next === `issue`) goFace()
+          else if (next === `run` && runTarget) goRun(runTarget.id)
+          else if (next === `changes`) {
+            if (diffStats.fileCount > 0 && runTarget) goRun(runTarget.id, `diff`)
+            else goFace(`diff`)
+          }
+        }}
+        onOpenRun={(target) => goRun(target.id)}
+        onStart={() => openComposer({ issueIds: [issue.id] })}
+      />
+    )
+    const dot = sessionTone ? { tone: sessionTone } : null
+    if (showChanges) {
+      return (
+        <IssueChangesFace
+          issue={issue}
+          board={board}
+          teamSlug={teamSlug}
+          teamId={team.id}
+          readOnly={readOnly}
+          origin={search.from}
+          switcher={switcher}
+          dot={dot}
+        />
+      )
+    }
+    return (
+      <IssueDetailView
+        issue={issue}
+        users={users}
+        board={board}
+        teamSlug={teamSlug}
+        teamId={team.id}
+        readOnly={readOnly}
+        origin={search.from}
+        mobileWork={{ switcher: faces.length > 1 ? switcher : undefined, dot }}
+      />
+    )
+  }
+
   // EXP-851: the issue IS the content panel — the board list that used to sit
   // on its left moved into the sidebar's list nav (one list, one place, every
   // detail), which is what gives the description and timeline the full width.
@@ -156,7 +289,7 @@ function IssueDetailPage() {
       board={board}
       teamSlug={teamSlug}
       teamId={team.id}
-      readOnly={!permissions.canMutateIssue(issue)}
+      readOnly={readOnly}
       origin={search.from}
       faceToggle={
         <WorkFaceToggle
@@ -168,12 +301,7 @@ function IssueDetailPage() {
                   {
                     face: `run` as const,
                     label: runFaceLabel(multipleRuns),
-                    onSelect: () =>
-                      void navigate({
-                        to: `/t/$teamSlug/sessions/$sessionId`,
-                        params: { teamSlug, sessionId: runTarget.id },
-                        search: search.from ? { from: search.from } : {},
-                      }),
+                    onSelect: () => goRun(runTarget.id),
                   },
                 ]
               : []),

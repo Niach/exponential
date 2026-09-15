@@ -35,13 +35,13 @@ enum PopRects {
     /// screen, which is not a pop-out.
     ///
     /// The identifiers themselves live on the product views (`issue-description`,
-    /// `coding-now-row`, `agent-composer` + `agent-options-row`, `agent-feed-question`,
+    /// `agent-composer` + `agent-options-row`, `agent-feed-question`,
     /// `pr-merge-bar`, `notification-row`, plus the pre-existing `issue-row-*`,
     /// `action-row`, `support-thread-row`) and are mirrored 1:1 as Android
     /// testTags — see `PopRects.kt`.
     static let identifiers: [String: [String]] = [
         "01_board": ["issue-row-APP-5"],
-        "02_issue-detail": ["issue-description", "coding-now-row"],
+        "02_issue-detail": ["issue-description"],
         "03_start-coding": ["agent-composer", "agent-options-row"],
         "04_steering": ["agent-feed-question"],
         "05_review": ["pr-merge-bar"],

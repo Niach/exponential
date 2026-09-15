@@ -3,7 +3,6 @@ import type * as React from "react"
 import { Files } from "lucide-react"
 import { toast } from "sonner"
 import { conceptIcon } from "@/lib/icons.generated"
-import { useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
@@ -23,10 +22,9 @@ import {
 } from "@/lib/storage/media-upload"
 import { isInlineMediaAttachment } from "@/lib/attachment-files"
 import { useSession } from "@/hooks/use-session"
-import { parseLocalDate } from "@/lib/utils"
+import { cn, parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Pill } from "@/components/ui/pill"
-import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -37,19 +35,20 @@ import {
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
-import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import { MOBILE_WORK_BAR_CLEARANCE } from "@/components/mobile-work-bar"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { IssueRelationsSection } from "@/components/issue-relations-card"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
 import { SubIssueComposer } from "@/components/sub-issue-composer"
-import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
-import { IssueActionsMenu, issueUrlFor } from "@/components/issue-actions-menu"
+import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { WORK_COLUMN_CLASS, WorkHeader } from "@/components/work-header"
+import type { SessionDotTone } from "@/lib/session-dot"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -70,6 +69,13 @@ interface IssueDetailViewProps {
   /** EXP-870/877: the md+ work header's face toggle (`WorkFaceToggle`) — the
    *  issue and its run are one work tab with faces. */
   faceToggle?: React.ReactNode
+  /** EXP-893: the phone's Work screen parts — the face switcher for the
+   *  bar's right circle (absent = the Start coding circle) and the shown
+   *  session's state dot for the header title. */
+  mobileWork?: {
+    switcher?: React.ReactNode
+    dot?: { tone: SessionDotTone; connecting?: boolean } | null
+  }
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -129,12 +135,11 @@ export function IssueDetailView({
   origin,
   showMobileHeader = true,
   faceToggle,
+  mobileWork,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
   const isMobile = useIsMobile()
-  const navigate = useNavigate()
-
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
@@ -429,20 +434,11 @@ export function IssueDetailView({
     }
   }
 
-  // Delete is a hard delete (issues.delete cleans up attachments server-side);
-  // once it commits, land back on the board. The phone `…` menu's path; the
-  // md+ header menu carries its own (`issue-actions-menu.tsx`).
-  const handleDeleteIssue = async () => {
-    await trpc.issues.delete.mutate({ id: issue.id })
-    void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug`,
-      params: { teamSlug, boardSlug: board.slug },
-      search: {},
-    })
-  }
-
+  // EXP-893: the bar's right circle is Start coding only while the issue has
+  // nothing to switch to; the moment a run (or a PR) of mine exists the route
+  // hands down the face switcher instead.
   const codingFab =
-    currentUserId && isMobile ? (
+    currentUserId && isMobile && !mobileWork?.switcher ? (
       <IssueCodingControl
         issue={issue}
         board={board}
@@ -500,8 +496,6 @@ export function IssueDetailView({
     />
   )
 
-  const issueUrl = issueUrlFor(teamSlug, board.slug, issue.identifier)
-
   // EXP-778: the small pin toggle beside the title — pinned issues land in
   // the sidebar's Pinned group on every client.
   const pinToggle = (
@@ -515,52 +509,20 @@ export function IssueDetailView({
     />
   )
 
-  // The phone header collapses copy-link / unmark / delete into ONE `…`
-  // (EXP-687), the way the iOS and Android toolbars already do.
-  const mobileMenu = (
-    <IssueDetailMobileMenu
-      issueTitle={issue.title}
-      issueUrl={issueUrl}
-      teamId={teamId}
-      boardId={issue.boardId}
-      issueIdentifier={issue.identifier}
-      duplicateOfId={issue.duplicateOfId ?? null}
-      readOnly={readOnly}
-      onDelete={handleDeleteIssue}
-      onMoveBoard={handlers.handleBoardChange}
-      onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
-    />
-  )
-
-  // EXP-851 / EXP-870: back returns to the LIST this issue was opened from
-  // (`originListNavigation`, the list nav's own back row), else the issue's
-  // board. The phone header uses it.
-  const goBackToList = () => {
-    void navigate(
-      (originListNavigation(teamSlug, parseOrigin(origin)) ?? {
-        to: `/t/$teamSlug/boards/$boardSlug`,
-        params: { teamSlug, boardSlug: board.slug },
-        search: {},
-      }) as never
-    )
-  }
-
-  // EXP-851 phone header: the shared `MobileDetailHeader`, the native layout —
-  // round back on the left, the IDENTIFIER centred, the `…` on the right. The
-  // board-glyph breadcrumb is gone (the sidebar's list nav says where you
-  // are); back returns to the LIST this issue was opened from.
+  // EXP-893 phone header: the ONE header every face of the Work screen
+  // wears (`issue-mobile-header.tsx`) — round back to the list this issue
+  // was opened from, the state dot + IDENTIFIER centred, the `…` on the
+  // right. Nothing jumps when the face flips.
   const mobileHeader = (
-    <MobileDetailHeader
-      title={<span className="font-mono">{issue.identifier}</span>}
-      backLabel="Back"
-      onBack={goBackToList}
-      menu={
-        // EXP-698 r5: no prev/next on phones — the natives have none either.
-        <div className="flex shrink-0 items-center">
-          {pinToggle}
-          {mobileMenu}
-        </div>
-      }
+    <IssueMobileHeader
+      issue={issue}
+      board={board}
+      teamSlug={teamSlug}
+      teamId={teamId}
+      readOnly={readOnly}
+      origin={origin}
+      handlers={handlers}
+      dot={mobileWork?.dot ?? null}
     />
   )
 
@@ -678,12 +640,11 @@ export function IssueDetailView({
       <div className="flex flex-col h-full min-h-0">
         {showMobileHeader && mobileHeader}
         {duplicateBanner}
-        {/* EXP-698: clearance for the floating IssueDetailMobileBar below, so
-            the last comment scrolls clear of it instead of ending under the
-            glass. Same recipe as the tab bar's (52px circles + the bar's own
-            safe-area padding + a gap); the tab bar itself is hidden on this
+        {/* EXP-698: clearance for the floating bar below, so the last comment
+            scrolls clear of it instead of ending under the glass
+            (`MOBILE_WORK_BAR_CLEARANCE`); the tab bar itself is hidden on this
             route, so nothing else is reserved here. */}
-        <div className="flex-1 overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+        <div className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}>
           {propsTray(false)}
           {titleField}
           {editor}
@@ -698,7 +659,7 @@ export function IssueDetailView({
             issueId={issue.id}
             users={users}
             propertiesNode={mobilePropertiesPanel}
-            codingNode={codingFab}
+            trailingNode={mobileWork?.switcher ?? codingFab}
             onSubmitComment={handleCommentSubmit}
             hidden={descriptionFocused}
           />

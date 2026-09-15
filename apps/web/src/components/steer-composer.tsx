@@ -15,6 +15,7 @@ import {
   sessionModel,
   type SessionConfigState,
 } from "@/lib/agent-feed"
+import { PLAN_MODE_LABEL, STEER_COMPOSER_PLACEHOLDER } from "@/lib/work-faces"
 import { agentModelValues } from "@/lib/coding-launch-prefs"
 import { InlinePicker } from "@/components/launch-dialog/launch-options-line"
 import { modelLabel } from "@/components/launch-dialog/launch-options-pane"
@@ -70,10 +71,9 @@ import {
 
 const UiAddIcon = conceptIcon(`ui-add`)
 
-/** EXP-877: one placeholder on every run — the `/` menu is always there. */
-const COMPOSER_PLACEHOLDER = `Type / for commands`
-/** The footer's plan-mode word, shown only while plan mode is in force. */
-const PLAN_MODE_LABEL = `Plan mode`
+/** EXP-877: one placeholder on every run — the `/` menu is always there.
+ *  EXP-893: the phone's collapsed capsule prints the same words. */
+export const COMPOSER_PLACEHOLDER = STEER_COMPOSER_PLACEHOLDER
 
 export interface SteerComposerProps {
   store: SteerSessionStore
@@ -101,6 +101,14 @@ export interface SteerComposerProps {
   /** EXP-877: the footer's trailing slot — the caller mounts the context ring
    *  inside its own usage popover here (`components/context-ring.tsx`). */
   usageSlot?: ReactNode
+  /** EXP-893: the phone expands this composer out of a capsule — focus the
+   *  field on mount. */
+  autoFocus?: boolean
+  /** EXP-893: focus left the composer while it held nothing worth keeping —
+   *  no text, no pending image, no file chooser or menu in flight. The phone
+   *  bar collapses back to its capsule on this (the draft lives in the store,
+   *  so collapsing never loses text anyway). */
+  onEmptyBlur?: () => void
 }
 
 export function SteerComposer({
@@ -113,6 +121,8 @@ export function SteerComposer({
   config,
   users,
   usageSlot,
+  autoFocus = false,
+  onEmptyBlur,
 }: SteerComposerProps) {
   // EXP-621: the draft lives in the per-session store, so it survives
   // reconnects, dock collapse/reopen and navigation. Blob URLs are the
@@ -267,8 +277,27 @@ export function SteerComposer({
   // strip, a borderless full-width field, then the `[+]`·spacer·send row (the
   // natives' composerCard), now the shared `Composer`. Behavior and wire
   // format are unchanged.
+  // EXP-893: the empty-blur rule the comment composer follows — deferred a
+  // frame, because the model picker's portal and the `/` menu take focus
+  // OUTSIDE this subtree for a tick before it comes back.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const handleBlur = () => {
+    if (!onEmptyBlur) return
+    requestAnimationFrame(() => {
+      const root = rootRef.current
+      if (!root) return
+      const active = document.activeElement
+      if (active && root.contains(active)) return
+      if (filePickerOpenRef.current) return
+      if (menu.open || confirming !== null) return
+      const draft = store.getDraftSnapshot()
+      if (draft.text.trim().length > 0 || draft.images.length > 0) return
+      onEmptyBlur()
+    })
+  }
+
   return (
-    <>
+    <div ref={rootRef} onBlur={handleBlur} data-testid="steer-composer">
       <Composer
         inline
         strip={
@@ -335,6 +364,7 @@ export function SteerComposer({
         <div className="relative">
           <MentionTextarea
             ref={fieldRef}
+            autoFocus={autoFocus}
             value={text}
             onValueChange={(next) => store.setDraftText(next)}
             users={users}
@@ -465,6 +495,6 @@ export function SteerComposer({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   )
 }

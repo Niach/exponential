@@ -192,6 +192,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "italic" => ExpIcon::Italic,
         "key" => ExpIcon::Key,
         "layers" => ExpIcon::Layers,
+        "layers-2" => ExpIcon::Layers2,
         "leaf" => ExpIcon::Leaf,
         "life-buoy" => ExpIcon::LifeBuoy,
         "lightbulb" => ExpIcon::Lightbulb,
@@ -744,3 +745,5 @@ pub const UI_WARNING: ExpIcon = ExpIcon::TriangleAlert;
 pub const UI_WATCH: ExpIcon = ExpIcon::Eye;
 /// Registry concept `ui-widget` -> Lucide `megaphone`.
 pub const UI_WIDGET: ExpIcon = ExpIcon::Megaphone;
+/// Registry concept `work-faces` -> Lucide `layers-2`.
+pub const WORK_FACES: ExpIcon = ExpIcon::Layers2;

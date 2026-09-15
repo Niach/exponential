@@ -1,11 +1,10 @@
 import {
   useEffect,
-  useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react"
-import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import {
   ChevronRight,
@@ -15,13 +14,9 @@ import {
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession, Issue, Board } from "@/db/schema"
-import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
-import { useSessionDevice } from "@/hooks/use-session-device"
-import { sessionIsPaused } from "@/lib/session-device"
 import {
-  codingSessionCollection,
   teamMemberCollection,
 } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -29,7 +24,6 @@ import { cn } from "@/lib/utils"
 import { Pill } from "@/components/ui/pill"
 import { GlassRow } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
-import { useOpenSession } from "@/hooks/use-open-session"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 
@@ -38,9 +32,6 @@ import { useOpenComposer } from "@/hooks/use-open-composer"
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 // The phone bar's start button — the same glyph the Actions surfaces run with.
 const ActionRunIcon = conceptIcon(`action-run`)
-// EXP-698 r4: the Watch pill draws the concept the natives draw on their own
-// Watch pill, never a raw lucide glyph.
-const WatchIcon = conceptIcon(`nav-devices`)
 
 // EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
 // owns the bar itself; the coding circle's gating lives here).
@@ -106,13 +97,6 @@ import {
 
 export { sessionDisplayState, type SessionDisplayState }
 
-/** Static counterpart of RunningPing for the parked states (EXP-194/EXP-214):
- * review green (matches the in_review issue status), done blue (matches the
- * done issue status), needs-input amber. */
-function StateDot({ className }: { className: string }) {
-  return <span className={cn(`inline-flex size-2 rounded-full`, className)} />
-}
-
 // EXP-698 r5: the coding-now badge is the readonly `sm` pill on every client —
 // a tone dot, the tone as the text colour, and the tone at 40% as the stroke
 // (IDE `.border_color(tone.opacity(0.4))`, iOS/Android `GlassPill(tint:)`).
@@ -132,35 +116,6 @@ const PAUSED_TONE = `var(--muted-foreground)`
 // EXP-804: the usage wall reuses the "Needs input" amber — both mean the run
 // is alive but cannot move until something outside it changes.
 const BLOCKED_TONE = `var(--color-amber-400)`
-
-/** The phone bar's badge dot — the pulsing ping while the agent WORKS
- * (EXP-848: `working`, never the bare `running` state), the badge's own tone
- * once it parks, so the circle and the pill never disagree about a state's
- * colour (iOS `sessionDot`, Android's mirror). */
-function SessionStateDot({
-  state,
-  working = false,
-}: {
-  state: SessionDisplayState
-  working?: boolean
-}) {
-  if (state === `running`) {
-    return working ? (
-      <RunningPing />
-    ) : (
-      <span
-        className="inline-flex size-2 rounded-full"
-        style={{ backgroundColor: RUNNING_TONE }}
-      />
-    )
-  }
-  return (
-    <span
-      className="inline-flex size-2 rounded-full"
-      style={{ backgroundColor: SESSION_STATE_BADGE[state].tone }}
-    />
-  )
-}
 
 /** Text in the tone, stroke in the tone at 40% — the readonly pill's tint. */
 function toneStyle(tone: string): CSSProperties {
@@ -362,103 +317,14 @@ function AgentRow({
   variant: CodingControlVariant
   tone: CodingStartTone
 }) {
-  const openSession = useOpenSession()
-
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) =>
-          and(
-            eq(s.issueId, issue.id),
-            inArray(s.status, [`running`, `in_review`])
-          )
-        ),
-    [issue.id]
-  )
-  // Staleness guard (EXP-153): heartbeat-dead rows render as absent.
-  // Multi-window desktops can run several sessions on one issue; surface the
-  // most recent (the badge counts them all).
-  const now = useNow()
-  const sessions = ((sessionRows ?? []) as CodingSession[]).filter(
-    (s) => !isCodingSessionStale(s.updatedAt, now)
-  )
-  const latest = useMemo(() => {
-    if (sessions.length === 0) return null
-    return sessions.reduce((newest, row) =>
-      new Date(row.startedAt) > new Date(newest.startedAt) ? row : newest
-    )
-  }, [sessions])
-  // EXP-312: live sessions are owner-only — the Watch affordance targets the
-  // caller's own most-recent session (teammates see just badge + byline).
-  const ownLatest = useMemo(() => {
-    const own = sessions.filter((s) => s.userId === currentUserId)
-    if (own.length === 0) return null
-    return own.reduce((newest, row) =>
-      new Date(row.startedAt) > new Date(newest.startedAt) ? row : newest
-    )
-  }, [sessions, currentUserId])
-  // EXP-549/550: the latest session's host machine per the synced devices
-  // row — renamed label, and "Paused" while that machine is offline.
-  const latestDevice = useSessionDevice(latest)
-
-  if (latest) {
-    const paused = sessionIsPaused(
-      sessionDisplayState(latest, issue.prState),
-      latestDevice
-    )
-
-    // EXP-568 phone bar: one 52px circle, no words. Own live session → tap to
-    // open its session page; someone else's → a static badge circle that says
-    // "busy, not yours" (EXP-312 keeps live sessions owner-only).
-    // EXP-698 r7: the circle NAMES what it opens — the Devices/monitor glyph —
-    // and the state dot rides its top-trailing corner as a badge, clear of the
-    // glyph's own bounds (iOS/Android `sessionGlyph`). A bare dot in a glass
-    // circle said nothing about where the tap went.
-    if (variant === `fab`) {
-      const dot = paused ? (
-        <StateDot className="bg-muted-foreground/40" />
-      ) : (
-        <SessionStateDot
-          state={sessionDisplayState(latest, issue.prState)}
-          working={sessionRowIsWorking(latest, issue.prState)}
-        />
-      )
-      const glyph = (
-        <span className="relative flex">
-          <WatchIcon className="size-5" />
-          <span className="absolute -right-1.5 -top-1">{dot}</span>
-        </span>
-      )
-      if (ownLatest && steerEnabled) {
-        return (
-          <button
-            type="button"
-            aria-label="Open coding session"
-            onClick={() => openSession(ownLatest)}
-            className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
-          >
-            {glyph}
-          </button>
-        )
-      }
-      return (
-        <div
-          aria-label="Coding session running"
-          className={cn(FAB_CIRCLE_CLASS, `text-muted-foreground`)}
-        >
-          {glyph}
-        </div>
-      )
-    }
-
-    // EXP-877: the tray's coding slot says nothing about a run any more. A
-    // live run of mine is a top TAB (work-tabs-strip.tsx) and a teammate's is
-    // their own business (EXP-312), so `start` always offers Start coding —
-    // the "Watch" pill and the teammate coding caption are gone.
-    // `row` draws nothing any more (EXP-818).
-    if (variant === `row`) return null
-  }
+  // EXP-877: the tray's coding slot says nothing about a run any more. A
+  // live run of mine is a top TAB (work-tabs-strip.tsx) and a teammate's is
+  // their own business (EXP-312), so `start` always offers Start coding —
+  // the "Watch" pill and the teammate coding caption are gone. EXP-893: the
+  // phone's `fab` is the same — a play circle, never a Watch glyph; the
+  // Work screen's face switcher is how a run of mine is reached.
+  // `row` draws nothing any more (EXP-818).
+  if (variant === `row`) return null
 
   // Not running: only members can remote-start, and only on a repo-backed
   // board with the relay enabled. Gate the device wiring behind that —

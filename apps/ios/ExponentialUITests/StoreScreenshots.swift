@@ -104,28 +104,27 @@ final class StoreScreenshots: XCTestCase {
             print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
         }
         XCTAssertTrue(detailOpened, "Issue detail did not open")
-        // The live session row sits above the comment thread — it is what makes
-        // this shot say "an agent is coding on this right now" rather than
-        // "live steering is unavailable on this instance". EXP-818/849: the
-        // reader's OWN run with steering on is the Watch pill alone; the
-        // "Coding now" caption only renders for a teammate's run or while the
-        // steer config has not resolved yet, so waiting for it was a race.
-        let watchPill = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "Watch")).firstMatch
+        // EXP-893: the reader's OWN live run makes the bottom-bar circle the
+        // face switcher — that is what makes this shot say "an agent is
+        // coding on this right now" rather than "live steering is unavailable
+        // on this instance". Wait for the switcher, never a caption.
+        let switcher = app.descendants(matching: .any)
+            .matching(identifier: "work-face-switcher").firstMatch
         XCTAssertTrue(
-            watchPill.waitForExistence(timeout: 30),
+            switcher.waitForExistence(timeout: 30),
             "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // The bottom-bar circle turns into the session link once the demo user
-        // has a live session of their own (EXP-312 — owner-only). Wait for the
-        // FEED, not just the screen: it renders "Connecting…" / "Waiting for
-        // activity…" placeholders until the first relay frame lands.
-        let sessionLink = app.buttons["Coding session"]
-        XCTAssertTrue(sessionLink.waitForExistence(timeout: 15), "Session link missing on the issue detail")
-        sessionLink.tap()
+        // The switcher flips the SAME screen to its Run face (EXP-893): a
+        // direct switch with one other face, else a menu whose "Run" row is
+        // the switch. Wait for the FEED, not just the face: it renders
+        // "Connecting…" / "Waiting for activity…" placeholders until the
+        // first relay frame lands.
+        switcher.tap()
+        let runRow = app.buttons["Run"].firstMatch
+        if runRow.waitForExistence(timeout: 2) { runRow.tap() }
         let agentFeed = app.descendants(matching: .any)
             .matching(identifier: "agent-feed").firstMatch
         XCTAssertTrue(
@@ -145,13 +144,13 @@ final class StoreScreenshots: XCTestCase {
             "The relay never replayed the transcript — is STEER_RELAY_URL reachable from the simulator?"
         )
         snapshot("04_steering", settle: 3, popRects: app)
-        goBack(app)
 
         // ── 03: the Agent page composer (EXP-825, shot id unchanged) ────────
         // From a repo-backed issue the demo user is NOT already coding on, so
         // the circle offers the start action — which PUSHES the Agent page
         // with the issue chipped. The circle needs an online desktop: without
-        // one it shows a notice instead of navigating.
+        // one it shows a notice instead of navigating. EXP-893: the run is a
+        // face of the issue's screen, so ONE Back returns to the board.
         goBack(app)
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
         openIssue(app, title: Self.startCodingTitle)

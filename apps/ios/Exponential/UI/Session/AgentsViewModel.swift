@@ -15,15 +15,6 @@ final class AgentsViewModel {
     struct Row: Identifiable {
         let session: CodingSessionEntity
         let issue: IssueEntity?
-        /// EXP-535: a batch session's resolved open PR, as a representative
-        /// linked issue (merging through it merges the ONE batch PR — Reviews
-        /// pattern). Set only on issueless batch rows in review with an
-        /// UNAMBIGUOUS match.
-        let batchPrIssue: IssueEntity?
-        /// EXP-734: what this row's Merge button merges through — the issue's
-        /// PR (issue and batch runs) or the run's OWN issue-less PR (an action
-        /// or chat run that opened one). Nil when there is nothing to merge.
-        let mergeTarget: MergeTarget?
         /// EXP-549/550: the host machine as it presents right now — the LIVE
         /// devices row's label (a rename never rewrites the session's
         /// snapshot) plus whether that machine stopped heartbeating, which
@@ -733,14 +724,6 @@ final class AgentsViewModel {
         let fresh = devicesFresh(now: now)
         let deviceRows = deviceEntities ?? []
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        // EXP-535: the active team's open batch PRs, collapsed once per
-        // rebuild — each in-review batch row then resolves ITS OWN PR by the
-        // branch the pr_open flip stamped on it (EXP-545, see
-        // BatchPrResolution).
-        let teamBoardIds = Set(boards.filter { $0.teamId == activeTeamId }.map(\.id))
-        let openBatchPrs = BatchPrResolution.openBatchPrs(
-            issues: issues, teamBoardIds: teamBoardIds
-        )
         rows = sessions
             // Own runs in the active team only: a teammate's session can't be
             // opened or steered (EXP-312), so listing it only read as "computer
@@ -753,28 +736,14 @@ final class AgentsViewModel {
             .filter { CodingSessionLiveness.isLive($0) }
             .sorted { $0.startedAt > $1.startedAt }
             // issueId is nil for a desktop batch (multi-issue) run's session —
-            // those rows render without an issue link, but an issueless,
-            // actionless batch run whose PR is open (status in_review —
-            // flipped in the pr_open transaction) gets the resolved batch PR
-            // for its Merge button (EXP-535).
+            // those rows render without an issue link. EXP-893: a row only
+            // OPENS the run, so the batch-PR / merge-target resolution the
+            // row's Merge circle needed lives in `AgentSessionModel` alone.
             .map { session in
-                let isBatch = session.issueId == nil && session.actionName == nil
                 let issue = session.issueId.flatMap { issuesById[$0] }
                 return Row(
                     session: session,
                     issue: issue,
-                    batchPrIssue: isBatch
-                        && session.status == DomainContract.codingSessionStatusInReview
-                        ? BatchPrResolution.resolve(
-                            sessionBranch: session.branch,
-                            openBatchPrs: openBatchPrs
-                        ) : nil,
-                    // EXP-734: one rule for every merge surface — an action or
-                    // chat run's PR links no issue, so it merges through the
-                    // session row the server stamped it on.
-                    mergeTarget: MergeTargetResolution.resolve(
-                        session: session, issue: issue, openBatchPrs: openBatchPrs
-                    ),
                     device: SessionDevicePresentation.resolve(
                         session: session, devices: deviceRows, now: now, devicesFresh: fresh
                     )

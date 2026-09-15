@@ -214,26 +214,21 @@ struct MobileTabBar: View {
     }
 
     /// The detached circular button beside the pill — one slot, whatever the
-    /// active surface puts in it (compose an issue, start a chat).
+    /// active surface puts in it (compose an issue, start a chat). EXP-893:
+    /// the shared `FloatingBarCircle` chrome, badge slot included.
     private func fab(
         glyph: String,
         badge: Color? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        FloatingBarCircle(accessibilityLabel: "Start chat", action: action) {
             AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
                 .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .overlay(alignment: .topTrailing) { launcherDot(badge) }
-                // EXP-698: the same opaque chrome as the pill beside it — a
-                // circle floating over the feed, so no material, no tint.
-                .background(GlassTokens.opaqueCardFill, in: Circle())
-                .overlay(
-                    Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+        } badge: {
+            if let badge {
+                FloatingBarBadgeDot(color: badge)
+            }
         }
-        .buttonStyle(.plain)
     }
 
     private func tab(

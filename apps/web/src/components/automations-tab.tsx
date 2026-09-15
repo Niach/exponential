@@ -480,8 +480,6 @@ export function AutomationsTab({
                   <RunningSessionRow
                     key={session.id}
                     row={row}
-                    isOwner={isOwner}
-                    steerEnabled={steerEnabled}
                     onOpen={onOpen}
                   />
                 )

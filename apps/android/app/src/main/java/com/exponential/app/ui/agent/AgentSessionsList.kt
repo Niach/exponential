@@ -2,7 +2,6 @@ package com.exponential.app.ui.agent
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -14,17 +13,11 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.db.AutomationEntity
-import com.exponential.app.domain.MergeFailure
-import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.session.AgentRow
@@ -47,17 +40,8 @@ internal fun LazyListScope.agentSessionsList(
     pastExpanded: Boolean,
     onTogglePast: () -> Unit,
     steerEnabled: Boolean,
-    merging: Set<String>,
-    mergeErrors: Map<String, MergeFailure>,
-    actions: List<ActionDto>,
-    automations: List<AutomationEntity>,
-    isTeamOwner: Boolean,
     onOpenSteer: (String) -> Unit,
     onOpenIssue: (String) -> Unit,
-    onEditAction: (String) -> Unit,
-    onEditAutomation: (AutomationEntity) -> Unit,
-    onMerge: (AgentRow) -> Unit,
-    onFixConflicts: (issueId: String) -> Unit,
 ) {
     item(key = "__running_header__") { SectionHeader("Running") }
     if (rows.isEmpty()) {
@@ -85,36 +69,13 @@ internal fun LazyListScope.agentSessionsList(
         items(tree, key = { it.session.session.id }) { entry ->
             val row = entry.session
             Box(Modifier.padding(start = (entry.depth * 16).dp)) {
-                // EXP-535: batch rows merge (and fix conflicts) through their
-                // resolved PR's representative issue — the server resolves a
-                // batch PR to ALL linked issues (Reviews pattern).
-                val mergeIssue = row.issue ?: row.batchPrIssue
-                // EXP-734: only an issue target can be handed to the "Fix
-                // merge conflicts" run (its input IS an issue-linked PR); a
-                // run's own PR has no issue.
-                val issueMergeTarget = row.mergeTarget as? MergeTarget.Issue
-                // EXP-694 (S6): the trailing control names what the run is
-                // about — an issue's identifier, or the action/automation's
-                // own glyph. A chat or batch run has neither, and gets no
-                // button at all.
-                val rowAction = row.session.actionId?.let { id -> actions.firstOrNull { it.id == id } }
-                val rowAutomation = row.session.automationId?.let { id ->
-                    automations.firstOrNull { it.id == id }
-                }
-                // An automated run edits the AUTOMATION (owner-only, like the
-                // Automations tab); everything else — an unresolved
-                // automation, or a member — edits the action, whose sheet is
-                // read-only for members anyway. Destination AND label come
-                // off this one resolution (iOS AgentsView.editTarget), so the
-                // button can never announce what it doesn't open.
-                val editsAutomation = rowAutomation != null && isTeamOwner
+                // EXP-893: a row only OPENS the run — the Work screen it
+                // lands on merges (Changes face) and reaches the issue or
+                // the action from there; the trailing circles are gone.
                 RunningSessionRow(
                     session = row.session,
                     issue = row.issue,
                     device = row.device,
-                    mergeTarget = row.mergeTarget,
-                    merging = row.mergeTarget?.key in merging,
-                    failure = row.mergeTarget?.key?.let(mergeErrors::get),
                     onClick = {
                         // Every listed row is the caller's own (EXP-312), so
                         // steer availability alone decides the live viewer.
@@ -125,30 +86,6 @@ internal fun LazyListScope.agentSessionsList(
                             row.session.issueId?.let(onOpenIssue)
                         }
                     },
-                    // The pill shows only once the issue itself has synced —
-                    // it IS the identifier.
-                    issueIdentifier = row.issue?.identifier,
-                    actionIcon = row.session.actionId?.let { actionGlyph(rowAction) },
-                    actionLabel = if (editsAutomation) "Edit automation" else "Edit action",
-                    onOpenIssue = { row.session.issueId?.let(onOpenIssue) },
-                    onOpenAction = {
-                        if (editsAutomation) {
-                            rowAutomation?.let(onEditAutomation)
-                        } else {
-                            row.session.actionId?.let(onEditAction)
-                        }
-                    },
-                    onMerge = { onMerge(row) },
-                    // A REAL conflict only (EXP-533); the recovery run rebases
-                    // the PR's branch, so it needs one recorded — the same gate
-                    // as the Reviews rows (EXP-323), plus a reachable machine.
-                    canFixConflicts = issueMergeTarget != null &&
-                        canOfferFixConflicts(
-                            mergeErrors[issueMergeTarget.key],
-                            mergeIssue?.branch,
-                            steerEnabled = steerEnabled,
-                        ),
-                    onFixConflicts = { issueMergeTarget?.issueId?.let(onFixConflicts) },
                 )
             }
         }

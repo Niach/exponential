@@ -27,7 +27,6 @@ struct AgentPageView: View {
     /// nil until the relay config resolves — the composer waits for it
     /// rather than flashing the relay-off note.
     @State private var steerEnabled: Bool?
-    @State private var canEditActions = false
     /// The started run's push target, consumed once.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// The seed's team has been made the active one (once per push).
@@ -73,16 +72,7 @@ struct AgentPageView: View {
 
                         AgentSessionsList(
                             vm: sessions,
-                            steerEnabled: steerEnabled == true,
-                            canEditActions: canEditActions,
-                            onFixConflicts: { issueId in
-                                // The composer IS the launcher: seed the
-                                // builtin with this row's PR in place.
-                                composer.apply(AgentComposerSeed(
-                                    actionId: DomainContract.builtinFixConflictsId,
-                                    prIssueId: issueId
-                                ))
-                            }
+                            steerEnabled: steerEnabled == true
                         )
                         .padding(.top, 8)
                     }
@@ -111,14 +101,12 @@ struct AgentPageView: View {
             alignActiveTeamToSeed()
             ensureModels()
             sessions?.activeTeamId = teamState.activeTeam?.id
-            refreshCanEditActions()
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
             sessions?.startObserving()
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             sessions?.activeTeamId = teamId
-            refreshCanEditActions()
             // The composer is bound to ONE team (its pools, its builtins'
             // teamId) — a team switch under the page starts a fresh one. A
             // composer nobody touched yet keeps the play button's seed (the
@@ -148,7 +136,7 @@ struct AgentPageView: View {
             }
         }
         .navigationDestination(item: $sessionTarget) { target in
-            AgentSessionRouteView(sessionId: target.sessionId)
+            WorkScreen(subject: .session(id: target.sessionId))
                 .environment(\.accountId, accountId)
         }
     }
@@ -187,20 +175,6 @@ struct AgentPageView: View {
         )
         Task { await model.load() }
         return model
-    }
-
-    /// Re-resolves the owner mirror for the team on screen.
-    private func refreshCanEditActions() {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else {
-            canEditActions = false
-            return
-        }
-        canEditActions = TeamPermissions.resolve(
-            team: teamState.activeTeam,
-            currentUserId: deps.auth.userId,
-            isAdmin: deps.auth.isAdmin,
-            dbPool: pool
-        ).isOwner
     }
 
     // MARK: - Suggestions (EXP-820)

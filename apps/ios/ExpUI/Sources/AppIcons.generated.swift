@@ -187,6 +187,7 @@ public enum AppIcons {
         "italic",
         "key",
         "layers",
+        "layers-2",
         "leaf",
         "life-buoy",
         "lightbulb",
@@ -742,4 +743,6 @@ public enum AppIcons {
     public static let uiWatch: String = "eye"
     /// Concept `ui-widget`.
     public static let uiWidget: String = "megaphone"
+    /// Concept `work-faces`.
+    public static let workFaces: String = "layers-2"
 }

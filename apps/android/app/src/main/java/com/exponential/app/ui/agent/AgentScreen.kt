@@ -19,14 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,18 +44,13 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_STEER_IMAGES
-import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.resumeWorktreeFor
-import com.exponential.app.ui.actions.ActionEditSheet
-import com.exponential.app.ui.actions.ActionsViewModel
-import com.exponential.app.ui.actions.AutomationFormSheet
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
@@ -76,7 +69,6 @@ import com.exponential.app.ui.markdown.mentionCandidatesFor
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
-import com.exponential.app.ui.session.AgentRow
 import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
@@ -113,10 +105,6 @@ fun AgentScreen(
     // The sessions under the composer: the Devices tab's own model, reused
     // rather than mirrored (both read the same synced shapes).
     sessionsViewModel: AgentsViewModel = hiltViewModel(),
-    // EXP-694: a session row's trailing control opens the run's ACTION or
-    // its AUTOMATION, so the list needs the Actions surface's rows and its
-    // owner-gated automation mutation.
-    actionsViewModel: ActionsViewModel = hiltViewModel(),
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
@@ -151,14 +139,6 @@ fun AgentScreen(
     // ── Sessions ────────────────────────────────────────────────────────────
     val sessionsState by sessionsViewModel.state.collectAsStateWithLifecycle()
     val pastRuns by sessionsViewModel.pastRuns.collectAsStateWithLifecycle()
-    val merging by sessionsViewModel.merging.collectAsStateWithLifecycle()
-    val mergeErrors by sessionsViewModel.mergeErrors.collectAsStateWithLifecycle()
-    val teamActions by actionsViewModel.state.collectAsStateWithLifecycle()
-    val automations by actionsViewModel.automations.collectAsStateWithLifecycle()
-    val automationDevices by actionsViewModel.automationDevices.collectAsStateWithLifecycle()
-    val automationBusy by actionsViewModel.automationBusy.collectAsStateWithLifecycle()
-    val automationError by actionsViewModel.automationError.collectAsStateWithLifecycle()
-    val isTeamOwner by actionsViewModel.isTeamOwner.collectAsStateWithLifecycle()
 
     // The desktop picked the start up — open the live session ONCE (EXP-536).
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
@@ -356,9 +336,6 @@ fun AgentScreen(
     var issuePickerOpen by remember { mutableStateOf(false) }
     var actionPickerOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
-    var editActionId by remember { mutableStateOf<String?>(null) }
-    var editAutomation by remember { mutableStateOf<AutomationEntity?>(null) }
-    var mergeConfirmRow by remember { mutableStateOf<AgentRow?>(null) }
     // EXP-862: the Recent band is FOLDED until asked for — a finished run is
     // history, and the composer is what the page is for. Hoisted here because
     // the list itself is a LazyListScope extension, not a composable.
@@ -569,29 +546,8 @@ fun AgentScreen(
                 pastExpanded = pastExpanded,
                 onTogglePast = { pastExpanded = !pastExpanded },
                 steerEnabled = steerEnabled == true,
-                merging = merging,
-                mergeErrors = mergeErrors,
-                actions = teamActions.actions,
-                automations = automations,
-                isTeamOwner = isTeamOwner,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
-                onEditAction = { editActionId = it },
-                onEditAutomation = {
-                    actionsViewModel.clearAutomationError()
-                    editAutomation = it
-                },
-                onMerge = { mergeConfirmRow = it },
-                // The composer IS the launcher: seed the builtin with this
-                // row's PR in place (EXP-486, Reviews parity EXP-323).
-                onFixConflicts = { issueId ->
-                    viewModel.applySeed(
-                        AgentComposerSeed(
-                            actionId = DomainContract.builtinFixConflictsId,
-                            prIssueId = issueId,
-                        ),
-                    )
-                },
             )
         }
     }
@@ -622,68 +578,7 @@ fun AgentScreen(
         )
     }
 
-    // EXP-694 (S6): the run's action, opened straight off its session row —
-    // the full editor, read-only for members.
-    editActionId?.let { id ->
-        ActionEditSheet(actionId = id, onDismiss = { editActionId = null })
-    }
 
-    // An automated run opens the automation that fired it instead (the
-    // Automations tab's own form, owner-gated).
-    editAutomation?.let { automation ->
-        AutomationFormSheet(
-            actions = teamActions.actions,
-            devices = automationDevices,
-            busy = automationBusy,
-            error = automationError,
-            editing = automation,
-            onSubmit = { actionId, deviceId, trigger, agent, model, effort ->
-                actionsViewModel.updateAutomation(
-                    automationId = automation.id,
-                    actionId = actionId,
-                    deviceId = deviceId,
-                    trigger = trigger,
-                    agent = agent,
-                    model = model,
-                    effort = effort,
-                    onDone = { editAutomation = null },
-                )
-            },
-            onDismiss = { editAutomation = null },
-        )
-    }
-
-    // EXP-498: merging always closes the session too, so the merge is
-    // confirm-gated — same shape as the Reviews dialog.
-    mergeConfirmRow?.let { row ->
-        val target = row.mergeTarget
-        AlertDialog(
-            onDismissRequest = { mergeConfirmRow = null },
-            title = { Text("Merge pull request?") },
-            text = {
-                Text(
-                    when (target) {
-                        is MergeTarget.Session ->
-                            "Merges this run's pull request and closes the coding session."
-                        else ->
-                            "Merges the pull request, completes every linked issue, " +
-                                "and closes the coding session."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        target?.let(sessionsViewModel::merge)
-                        mergeConfirmRow = null
-                    },
-                ) { Text("Merge") }
-            },
-            dismissButton = {
-                TextButton(onClick = { mergeConfirmRow = null }) { Text("Cancel") }
-            },
-        )
-    }
 }
 
 /**

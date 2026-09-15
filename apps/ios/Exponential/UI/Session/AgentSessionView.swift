@@ -6,67 +6,55 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Resolves an AppRoute.agentSession's synced coding_sessions row and hosts
-/// AgentSessionView as a pushed navigation destination (EXP-221) — pushed,
-/// not a fullScreenCover, so the screen gets the native back button and
-/// interactive swipe-back like every other page.
-struct AgentSessionRouteView: View {
-    let sessionId: String
-
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
-    @State private var session: CodingSessionEntity?
-
-    var body: some View {
-        Group {
-            if let session {
-                AgentSessionView(accountId: accountId, session: session)
-            } else {
-                ZStack {
-                    AppBackground()
-                    ProgressView().tint(.white)
-                }
-            }
-        }
-        .onAppear {
-            guard session == nil,
-                  let pool = try? deps.db.pool(forAccountId: accountId)
-            else { return }
-            session = try? pool.read { db in
-                try CodingSessionEntity.filter(Column("id") == sessionId).fetchOne(db)
-            }
-        }
-    }
+/// The run's transcript and composer (EXP-32) — a chat-style view of a live
+/// coding session over the relay's scrubbed activity channel. NO terminal
+/// rendering: narration bubbles, compact tool rows, collapsible subagent
+/// runs, question cards. Steering is message-shaped (text + \r, perm-gated by
+/// the relay) and questions answer through the semantic `answer` frame
+/// (EXP-249). Identical UX to the Android AgentSessionScreen.
+///
+/// EXP-893: a FACE of the Work screen, never a screen of its own. The nav
+/// bar, its title dot, the Stop / Resume pill and the face switcher belong
+/// to `WorkScreen`; this view reports what they need through `RunChrome`
+/// and takes the screen's requests (`RunRequest`) and its switcher slot.
+/// `face` picks the transcript (`.run`) or the run's live diff
+/// (`.changes`, `SessionDiffList` + the Merge bar).
+/// The feed's scroll constants — outside the view because it is generic over
+/// its switcher slot (EXP-893) and a generic type cannot hold stored statics.
+private enum AgentSessionLayout {
+    static let bottomAnchor = "feed-bottom"
+    static let feedCoordSpace = "feed-scroll"
+    /// Within this many points of the bottom still counts as pinned (Android
+    /// carries 96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
+    /// pill hard to dismiss — a short drag had to land on the exact bottom to
+    /// re-pin, so it lingered while the list visually WAS at the end (EXP-588).
+    /// iOS gets a little more room than Android (EXP-591): the pill should
+    /// only appear after a deliberate scroll-up and hide again well before
+    /// the finger reaches the true end.
+    static let followSlack: CGFloat = 120
 }
 
-/// The "Agent session" screen (EXP-32) — a chat-style view of a live coding
-/// session over the relay's scrubbed activity channel. NO terminal rendering:
-/// narration bubbles, compact tool rows, collapsible subagent runs, question
-/// cards, and a pinned "Latest changes" diff chip above the input bar. Steering
-/// is message-shaped (text + \r, perm-gated by the relay) and questions answer through the
-/// semantic `answer` frame (EXP-249).
-/// Identical UX to the Android AgentSessionScreen (glass design system).
-/// Pushed onto the NavigationStack (EXP-221) — status lives in the native
-/// nav bar; back is the system chevron + swipe gesture.
-struct AgentSessionView: View {
+struct AgentSessionView<Switcher: View>: View {
     let accountId: String
     let session: CodingSessionEntity
+    let face: WorkFaceKind
+    /// The screen's Stop pill asks; the kill confirm and the model are here.
+    @Binding var request: RunRequest?
+    /// A resumed / switched run's continuation row landed — the screen swaps
+    /// it in place (EXP-773/849 pushed a second screen).
+    let onContinuation: (StartedRunWatcher.StartedSession) -> Void
+    @ViewBuilder let switcher: () -> Switcher
 
     @Environment(AppDependencies.self) private var deps
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.openURL) private var openURL
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
-    @State private var showDiffSheet = false
     @State private var showKillConfirm = false
-    /// EXP-688: the `…` menu's Usage sheet — the per-window cards that used to
-    /// be a hairline strip under the nav bar.
+    /// EXP-688: the Usage sheet — the per-window cards that used to be a
+    /// hairline strip under the nav bar. EXP-893: opened by the usage RING.
     @State private var showUsageSheet = false
-    /// The measured height of the floating Latest-changes bar (EXP-688), so a
-    /// feed shorter than the viewport bottom-anchors ABOVE it instead of
-    /// underneath.
-    @State private var changesBarHeight: CGFloat = 0
     /// EXP-678: the Merge pill's confirm + in-flight call. No success state:
     /// the server ends the run and flips `pr_state`, and the pill disappears
     /// when that echo syncs back.
@@ -78,10 +66,9 @@ struct AgentSessionView: View {
     @State private var mergeFailure: MergeFailure?
     // "Fix conflicts" (EXP-323 rails, EXP-706 on this screen): the builtin
     // recovery run — EXP-825: NAVIGATION into the Agent page composer. The
-    // watcher and the push target below serve the Resume send (EXP-773).
+    // watcher serves the account switch (EXP-849).
     @State private var steerEnabled = false
     @State private var startWatcher = StartedRunWatcher()
-    @State private var fixSessionTarget: StartedRunWatcher.StartedSession?
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -92,28 +79,10 @@ struct AgentSessionView: View {
     @State private var agentTab: String?
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
-    /// EXP-687: the `…` popup is an in-view overlay on this screen's root —
-    /// a presentation launched from inside the UIKit bar item dropped taps and
-    /// slid in from the bottom.
-    @State private var menuAnchor: CGRect = .zero
-    @State private var menuOpen = false
-    /// EXP-886: the run SWITCHER's popup — the same in-view overlay as the
-    /// `…`, anchored to its own bar button.
-    @State private var runsMenuAnchor: CGRect = .zero
-    @State private var runsMenuOpen = false
-    /// EXP-773: the ended run's Resume — its confirm and the in-flight send.
-    /// The watcher above owns the "waiting for the desktop" caption and
-    /// pushes the resumed run's own screen.
-    @State private var showResumeConfirm = false
-    @State private var resuming = false
     /// EXP-849: a "switch account" is on the wire. It IS a resume naming
-    /// another login, so it rides the same watcher and pushes the run it
-    /// produces — the continuation of this one.
+    /// another login, so it rides the same watcher and hands the run it
+    /// produces — the continuation of this one — to the screen.
     @State private var switchingAccount = false
-    /// EXP-696: whether THIS screen ever saw the run live — the auto-back on
-    /// the ended edge only fires after that, so a finished run's feed opened
-    /// from a list stays browsable.
-    @State private var sawLiveSession = false
     /// EXP-724: the draft the `/` menu was dismissed at (Escape / an accepted
     /// row). Keyed on the DRAFT, not a bool, so the menu comes back on its own
     /// the moment the text changes and no `onChange` has to race the accept.
@@ -131,28 +100,11 @@ struct AgentSessionView: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
+    /// EXP-893: the latest diff's +/− counts, re-derived on the diff edge
+    /// rather than scanned on every frame the feed repaints.
+    @State private var diffAdditions = 0
+    @State private var diffDeletions = 0
     @Environment(\.motion) private var motion
-
-    private static let bottomAnchor = "feed-bottom"
-    private static let feedCoordSpace = "feed-scroll"
-    /// Within this many points of the bottom still counts as pinned (Android
-    /// carries 96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
-    /// pill hard to dismiss — a short drag had to land on the exact bottom to
-    /// re-pin, so it lingered while the list visually WAS at the end (EXP-588).
-    /// iOS gets a little more room than Android (EXP-591): the pill should
-    /// only appear after a deliberate scroll-up and hide again well before
-    /// the finger reaches the true end.
-    private static let followSlack: CGFloat = 120
-
-    /// EXP-688: one `…` (the issue-detail pattern) instead of a bare red kill
-    /// glyph. Usage opens the per-window cards; EXP-818 moved stopping the run
-    /// out of here onto the header's own Stop pill (owner-only, like everything
-    /// about a live session — EXP-312).
-    private var hasToolbarMenu: Bool {
-        // EXP-858: the Pin row is gone, so the menu is only worth a button
-        // when one of its remaining rows would render.
-        headerIssue != nil || hasUsage
-    }
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
     /// (EXP-484) or this run's own context/spend off the relay. A fresh run on
@@ -164,63 +116,7 @@ struct AgentSessionView: View {
             || model?.accountOptions.isEmpty == false
     }
 
-    @ViewBuilder
-    private var toolbarMenuItems: some View {
-        // EXP-698: the run's issue is reachable from the run. The Agents list
-        // dropped its duplicate identifier pill (the title prints it), so this
-        // menu — and the list row's long press — are the two ways there.
-        if let issue = headerIssue {
-            GlassMenuItem("Open issue", icon: AppIcons.uiIssue) {
-                deps.deepLinkBus.navigateToIssue(issue.id, accountId: accountId)
-            }
-        }
-        if hasUsage {
-            GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
-                showUsageSheet = true
-            }
-        }
-        // EXP-818: NO Kill row — stopping a run is the header's own Stop pill
-        // now (identical whether this phone hosts the run or only watches it),
-        // not a destructive row buried in a menu.
-    }
-
-    /// EXP-886: the run switcher shows once the issue has MORE THAN ONE run
-    /// of mine (`PastRuns.issueRuns`) — the phone's twin of the web/desktop
-    /// header pill beside the `Issue | Runs` toggle. An issue-less run has
-    /// none. Its own property: this screen's chains are at the type
-    /// checker's budget (#644, #656).
-    private var hasRunSwitcher: Bool {
-        (model?.issueRuns.count ?? 0) > 1
-    }
-
-    /// The switcher's rows: every run of mine on this issue, live first, as
-    /// `<device> · <when>` (`Live` for a live one, else when it ended — the
-    /// ×4 entry). A live row wears the running glyph, the run on show the
-    /// check; picking another pushes its own screen, the way every run list
-    /// opens one.
-    @ViewBuilder
-    private var runSwitcherItems: some View {
-        ForEach(model?.issueRuns ?? []) { run in
-            let onShow = run.session.id == session.id
-            let live = PastRuns.isLiveRunStatus(run.session.status)
-            GlassMenuItem(
-                PastRuns.byline(
-                    device: run.device.displayLabel,
-                    relativeTime: PastRuns.issueRunWhen(
-                        run.session,
-                        endedRelative: relativeWireDate(PastRuns.endedAt(run.session))
-                    )
-                ),
-                icon: onShow ? AppIcons.uiCheck : (live ? AppIcons.codingRunning : nil)
-            ) {
-                if !onShow {
-                    pushRoute(.agentSession(accountId: accountId, sessionId: run.session.id))
-                }
-            }
-        }
-    }
-
-    // Four small chains instead of one long one. The whole modifier chain is
+    // Three small chains instead of one long one. The whole modifier chain is
     // ONE expression to the type checker, and at this view's size that budget
     // has been blown twice already (#644, #656) — each time by a condition
     // spelled out inside one of its closures, and each fix bought exactly one
@@ -228,169 +124,68 @@ struct AgentSessionView: View {
     // new modifier costs its group and not the whole view. Nesting reads
     // inside out; the order of application is unchanged.
     var body: some View {
-        withSheets(withLifecycle(withAlerts(withChrome(sessionContent))))
+        withSheets(withLifecycle(withAlerts(sessionContent)))
     }
 
     private var sessionContent: some View {
-        ZStack {
-            AppBackground()
-
-            VStack(spacing: 0) {
-                if let model {
-                    // EXP-849: a resumed/switched run says it is a
-                    // continuation, above everything else on the screen.
-                    continuationNote(model)
-                    // EXP-773: an ended run's close-out and its Resume sit
-                    // ABOVE its transcript, where the list rows used to hide
-                    // them behind a chevron.
-                    endedHeader(model)
-                    feedArea(model)
-                    banners(model)
-                    rateLimitBanner(model)
-                    compactionStrip(model)
-                    // EXP-850 §1/§2: the monitors and background shell
-                    // commands, directly above the composer. Absent when
-                    // there is nothing running.
-                    AgentBottomStrip(lines: model.visibleStripLines)
-                    // EXP-861: the messages the device holds until the turn
-                    // ends, each with an X that revokes it. Absent when
-                    // nothing is queued or the run is over.
-                    if !model.queued.isEmpty, !model.isOver {
-                        AgentQueueStrip(messages: model.queued) { id in
-                            model.unqueue(id)
-                        }
-                    }
-                    bottomBar(model)
+        VStack(spacing: 0) {
+            if let model {
+                if face == .changes {
+                    changesFace(model)
                 } else {
-                    Spacer()
+                    runFace(model)
                 }
+            } else {
+                Spacer()
             }
         }
     }
 
-    /// EXP-818: the ONE Stop — a small red-tinted glass pill in the header,
-    /// IDENTICAL whether this phone hosts the run or only watches it
-    /// (`canKill` is ownership plus a live row, never socket liveness; web's
-    /// `agent-session.tsx` and the IDE's `stop_session_pill` are the twins).
-    /// The confirm is the alert the retired "Kill session" menu row used.
-    ///
-    /// Its own property, not an inline branch: this screen's modifier chains
-    /// are at the type checker's budget, and every condition spelled out inside
-    /// one of their closures has cost a wave of headroom (#644, #656).
+    /// The transcript face: the ended byline, the feed, the strips and the
+    /// composer band.
     @ViewBuilder
-    private var stopPill: some View {
-        if model?.canKill == true {
-            GlassPill(
-                "Stop",
-                icon: AppIcons.codingStop,
-                size: .sm,
-                mode: .action { showKillConfirm = true },
-                tint: DesignTokens.Semantic.red
-            )
-            .accessibilityLabel("Stop the agent and end the session")
-            .accessibilityIdentifier("session-stop")
+    private func runFace(_ model: AgentSessionModel) -> some View {
+        // EXP-849: a resumed/switched run says it is a continuation, above
+        // everything else on the screen.
+        continuationNote(model)
+        // EXP-773: an ended run's close-out sits ABOVE its transcript.
+        endedHeader(model)
+        feedArea(model)
+        banners(model)
+        rateLimitBanner(model)
+        compactionStrip(model)
+        // EXP-850 §1/§2: the monitors and background shell commands,
+        // directly above the composer. Absent when there is nothing running.
+        AgentBottomStrip(lines: model.visibleStripLines)
+        // EXP-861: the messages the device holds until the turn ends, each
+        // with an X that revokes it. Absent when nothing is queued or the run
+        // is over.
+        if !model.queued.isEmpty, !model.isOver {
+            AgentQueueStrip(messages: model.queued) { id in
+                model.unqueue(id)
+            }
         }
+        bottomBar(model)
     }
 
-    /// EXP-847: the READ-ONLY Plan chip beside the phase caption — shown only
-    /// while the latest `config_state` says the run is in plan mode, so an
-    /// approved ExitPlanMode visibly clears it. NEVER a control: EXP-790 keeps
-    /// plan mode launch-time, and this is the missing half of that decision —
-    /// a plan run has to say that it is one.
+    /// EXP-893: the Changes face — the run's latest worktree diff as a full
+    /// page, with the Merge bar under it. The screen only shows this face
+    /// while there IS a diff (it falls back to the issue's PR files, or to
+    /// the Run face, when it vanishes).
     @ViewBuilder
-    private var planChip: some View {
-        if model?.planModeActive == true {
-            Text(AgentFeed.planToggleLabel)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(DesignTokens.Semantic.blue)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(DesignTokens.Semantic.blue.opacity(0.12), in: Capsule())
-                .accessibilityIdentifier("session-plan-chip")
+    private func changesFace(_ model: AgentSessionModel) -> some View {
+        if let diff = model.latestDiff {
+            SessionDiffList(diff: diff)
+                .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
+        } else {
+            Spacer()
+            changesFaceBar(model)
         }
     }
 
-    /// Nav bar, title block and the `…` menu.
-    private func withChrome(_ content: some View) -> some View {
-        content
-            .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
-                toolbarMenuItems
-            }
-            // EXP-886: the run switcher's popup, off its own bar button.
-            .glassMenuOverlay(isPresented: $runsMenuOpen, anchor: runsMenuAnchor, presentation: .inline) {
-                runSwitcherItems
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .toolbar {
-                // EXP-688: the header names the ISSUE, like the list row it was
-                // opened from — the phase/machine line it used to be is demoted to
-                // a caption under it.
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        SessionRowTitle(
-                            identifier: headerIssue?.identifier,
-                            title: headerTitle,
-                            state: headerState,
-                            paused: hostPaused || headerLost,
-                            live: model?.phase == .live,
-                            // EXP-848: this screen knows more than the row does
-                            // — its own working predicate drives the dot, and
-                            // the synced flag only covers the pre-model frame.
-                            busy: model.map { $0.agentWorking } ?? session.agentBusy
-                        )
-                        HStack(spacing: 6) {
-                            Text(headerCaption)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                            // EXP-804: the usage wall rides BESIDE the phase
-                            // caption. It never replaces it — a walled run is
-                            // still `Live`, it just cannot make progress, and
-                            // that is exactly the pair a viewer needs to see.
-                            SessionBlockedBadge(blocked: (model?.session ?? session).blocked)
-                            planChip
-                        }
-                    }
-                }
-                // EXP-818 ×4: Stop · `…`, in that order — the web header's
-                // own trailing row (`agent-session.tsx`). Back is the system
-                // chevron to their left. EXP-858 dropped the pin: the phone
-                // has no sidebar for it to land in.
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    // EXP-886: the run switcher leads the trailing cluster —
-                    // Stop stays the loud one beside the `…`.
-                    if hasRunSwitcher {
-                        GlassMenuBarButton(
-                            icon: AppIcons.runSwitcher,
-                            accessibilityLabel: "Switch run",
-                            anchor: $runsMenuAnchor,
-                            isPresented: $runsMenuOpen
-                        )
-                        .accessibilityIdentifier("session-run-switcher")
-                    }
-                    stopPill
-                    if hasToolbarMenu {
-                        GlassMenuBarButton(
-                            icon: AppIcons.uiMore,
-                            accessibilityLabel: "More",
-                            anchor: $menuAnchor,
-                            isPresented: $menuOpen
-                        )
-                    }
-                }
-            }
-    }
-
-    /// The four confirms: Resume, Kill, Merge, and a `/`-command's own.
+    /// The confirms: Kill, Merge, and a `/`-command's own.
     private func withAlerts(_ content: some View) -> some View {
         content
-            .alert("Resume this run?", isPresented: $showResumeConfirm) {
-                Button("Resume") { if let model { resumeRun(model) } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
-            }
             .alert("Kill this coding session?", isPresented: $showKillConfirm) {
                 Button("Kill session", role: .destructive) {
                     Task { await model?.killSession() }
@@ -400,7 +195,7 @@ struct AgentSessionView: View {
                 Text("This stops the agent on the desktop and ends the session.")
             }
             // EXP-678: merging from the steering screen — same confirm-gated flow
-            // as the Agents list and Reviews.
+            // as Reviews.
             .alert("Merge pull request?", isPresented: $showMergeConfirm) {
                 Button("Merge", role: .destructive) {
                     if let model { merge(model) }
@@ -458,28 +253,19 @@ struct AgentSessionView: View {
             .onChange(of: model?.draftEditor.isEditing) { _, editing in
                 draftEditingChanged(editing)
             }
-            // EXP-696: leave the screen when the run finishes under the viewer
-            // (kill, merge, the agent's own exit — the synced row edge covers every
-            // path). Gated on having SEEN the run live here first: the model
-            // attaches after onAppear, so a plain false→true onChange would also
-            // fire when opening an ALREADY-ended run's feed, which must stay put.
-            // Row status, not `isOver`: a relay `bye` alone shouldn't yank a
-            // screen the row still calls live.
-            // EXP-706: NOT while a recovery run is pushed on top of this screen —
-            // that run's merge is what ends this one, and popping the parent would
-            // yank the viewer out of the session they just started.
-            // The decision lives in `sessionEndedChanged` rather than inline: this
-            // body is a 200-line modifier chain, and every condition spelled out
-            // inside one of its closures is type-checked as part of it. Spelling
-            // this one out inline is what tipped the budget over twice already
-            // (the app target is only compiled by the `ios-v*` tag build and the
-            // staging archive, so it fails nowhere else).
-            .onChange(of: model?.sessionEnded) { _, ended in
-                sessionEndedChanged(ended)
+            // EXP-893: the screen's Stop pill — the confirm is still this
+            // view's, where the model is.
+            .onChange(of: request) { _, request in
+                requestChanged(request)
             }
-            // No scenePhase handler here: foreground revival (EXP-243) is
-            // app-scoped since EXP-621 — the root handler reconnects every retained
-            // session, not just the one that happens to be on screen.
+            // EXP-893: the +/− counts follow the diff edge, not the frame.
+            .onChange(of: model?.latestDiff, initial: true) { _, diff in
+                diffChanged(diff)
+            }
+            // EXP-893: what the Work screen draws its nav bar and switcher
+            // from. No scenePhase handler here: foreground revival (EXP-243)
+            // is app-scoped since EXP-621.
+            .preference(key: RunChrome.Key.self, value: runChrome)
             .onAppear {
                 // The socket owner is app-scoped (EXP-621): popping back to this
                 // screen re-attaches to the SAME model, so the feed is already
@@ -507,31 +293,22 @@ struct AgentSessionView: View {
                 // into. (The text is untouched; only the caret's claim goes.)
                 model?.draftEditor.setFocused(nil)
             }
-            // Steering on/off gates the Resume pill and the recovery run.
+            // Steering on/off gates the recovery run.
             .task(id: accountId) {
                 let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
                 steerEnabled = config.enabled
             }
     }
 
-    /// Sheets and the one pushed destination (the resumed run, EXP-773).
+    /// Sheets, and the continuation hand-off (EXP-849).
     private func withSheets(_ content: some View) -> some View {
         content
-            // The desktop picked the resume up — push the new run's own steer
-            // screen ONCE, exactly like Reviews does (EXP-536).
+            // The desktop picked the switch up — hand the new run to the
+            // screen ONCE, which swaps it in place of this one.
             .onChange(of: startWatcher.startedSession) { _, started in
                 if let started {
                     startWatcher.startedSession = nil
-                    fixSessionTarget = started
-                }
-            }
-            .navigationDestination(item: $fixSessionTarget) { target in
-                AgentSessionRouteView(sessionId: target.sessionId)
-                    .environment(\.accountId, accountId)
-            }
-            .sheet(isPresented: $showDiffSheet) {
-                if let diff = model?.latestDiff {
-                    LatestChangesSheet(diff: diff)
+                    onContinuation(started)
                 }
             }
             // EXP-688: usage lives in its own sheet now — every window the machine
@@ -572,29 +349,57 @@ struct AgentSessionView: View {
         withAnimation(motion.standard) { composerExpanded = false }
     }
 
-    // EXP-696: leave the screen when the run finishes under the viewer (kill,
-    // merge, the agent's own exit — the synced row edge covers every path).
-    // Gated on having SEEN the run live here first: the model attaches after
-    // onAppear, so a plain false→true change would also fire when opening an
-    // ALREADY-ended run's feed, which must stay put. Row status, not `isOver`:
-    // a relay `bye` alone shouldn't yank a screen the row still calls live.
-    // EXP-706: NOT while a recovery run is pushed on top of this screen — that
-    // run's merge is what ends this one, and popping the parent would yank the
-    // viewer out of the session they just started.
-    private func sessionEndedChanged(_ ended: Bool?) {
-        guard let ended else { return }
-        if !ended {
-            sawLiveSession = true
+    /// EXP-893: the screen's request, consumed once.
+    private func requestChanged(_ request: RunRequest?) {
+        guard let request else { return }
+        self.request = nil
+        switch request {
+        case .stop:
+            if model?.canKill == true { showKillConfirm = true }
+        }
+    }
+
+    private func diffChanged(_ diff: String?) {
+        guard let diff else {
+            diffAdditions = 0
+            diffDeletions = 0
             return
         }
-        // EXP-849: a "switch account" ENDS this run on purpose — the device
-        // relaunches it as a continuation. Dismissing on that edge would tear
-        // down the watcher waiting for the new row (`onDisappear` stops it),
-        // so the screen holds while a start of ours is in flight or pending:
-        // it pushes the continuation instead, exactly like a Resume.
-        guard startWatcher.sentCaption == nil, !switchingAccount, !resuming else { return }
-        guard sawLiveSession, fixSessionTarget == nil else { return }
-        dismiss()
+        let stats = DiffRendering.stats(of: diff)
+        diffAdditions = stats.additions
+        diffDeletions = stats.deletions
+    }
+
+    // MARK: - Chrome report (EXP-893)
+
+    /// Whether the socket is on its way — the title dot pulses.
+    private var isConnecting: Bool {
+        switch model?.phase {
+        case .starting, .connecting, .idle, .none: return true
+        case let .closed(_, reconnecting): return reconnecting
+        default: return false
+        }
+    }
+
+    /// Everything the Work screen's nav bar, title dot and switcher read.
+    private var runChrome: RunChrome {
+        guard let model else { return RunChrome() }
+        var chrome = RunChrome()
+        chrome.live = model.phase == .live
+        chrome.connecting = isConnecting
+        chrome.paused = hostPaused || headerLost
+        chrome.awaitingInput = model.awaitingInput
+        chrome.stale = model.staleActivityMinutes != nil
+        chrome.busy = model.agentWorking
+        chrome.over = model.isOver
+        chrome.cardPending = model.cardPending
+        chrome.hasDiff = model.latestDiff != nil
+        chrome.additions = diffAdditions
+        chrome.deletions = diffDeletions
+        chrome.canMerge = model.canMerge
+        chrome.canKill = model.canKill
+        chrome.continuationPending = startWatcher.sentCaption != nil || switchingAccount
+        return chrome
     }
 
     // MARK: - Header
@@ -640,46 +445,14 @@ struct AgentSessionView: View {
             ?? SessionDevicePresentation.resolve(session: session, devices: []).displayLabel
     }
 
-    /// EXP-688: the issue this run is steering. The model already observes
-    /// that row for the Merge pill (EXP-678), and for an issue-linked session
-    /// it IS the issue — a batch or action run has none.
-    private var headerIssue: IssueEntity? {
-        guard session.issueId != nil else { return nil }
-        return model?.mergeIssue
-    }
-
-    /// Line 1's title, by the Agents-list rule: an action run says its action
-    /// name, a batch run "Batch run", an issue run its title.
-    private var headerTitle: String {
-        sessionRowTitle(issue: headerIssue, session: model?.session ?? session)
-    }
-
     /// The socket is gone for good as far as this screen is concerned — a
     /// dropped connection or an ended run. The dot goes static neutral with
-    /// the paused ones: none of them is "coding now", and the caption right
-    /// under it already says which.
+    /// the paused ones: none of them is "coding now".
     private var headerLost: Bool {
         switch model?.phase {
         case .ended, .closed: return true
         default: return false
         }
-    }
-
-    /// Line 1's dot, by the Agents-list rule (EXP-194/EXP-214), narrowed by
-    /// the live phase — the row alone cannot know the socket is down.
-    private var headerState: CodingSessionDisplayState {
-        let row = model?.session ?? session
-        // EXP-734: a run that opened its own issue-less PR carries the state
-        // on its OWN row.
-        let state = CodingSessionDisplayState.of(
-            session: row, prState: headerIssue?.prState ?? row.prState
-        )
-        // FEED-26: a live run whose feed went quiet gets the steady amber of
-        // "Needs your input" — a pulsing green "coding now" dot over a caption
-        // that says `No activity for 27 min` is a lie. Never over review/done:
-        // those outrank every attention state (EXP-531).
-        if state == .running, model?.staleActivityMinutes != nil { return .needsInput }
-        return state
     }
 
     /// EXP-773: the journal fetch's own status line — which machine is being
@@ -694,65 +467,21 @@ struct AgentSessionView: View {
         }
     }
 
-    /// Line 2: what the header used to say on its own — the phase, and the
-    /// machine the run is parked on.
-    private var headerCaption: String {
-        let label = model?.hostDevice.label ?? session.deviceLabel
-        let deviceName = (label?.isEmpty == false) ? label : nil
-        let device = deviceName.map { " · \($0)" } ?? ""
-        if let model, model.history != nil { return "Session ended" }
-        if hostPaused { return "Paused\(device)" }
-        switch model?.phase {
-        case .live:
-            // A trailing question/plan means the session is blocked on a
-            // human — say so instead of looking silently stuck (EXP-97).
-            if model?.awaitingInput == true { return "Needs your input\(device)" }
-            // EXP-850 §5/§7: while a workflow runs the caption IS the
-            // workflow's. It carries its own phase segment, so the device
-            // suffix is dropped rather than truncated off a one-line header.
-            if let workflow = model?.runningWorkflow { return workflow.caption }
-            // FEED-26: nothing is blocking it and nothing has happened for ten
-            // minutes — say how long instead of a healthy-looking "Live".
-            if let minutes = model?.staleActivityMinutes {
-                return AgentFeed.staleActivityLabel(minutes: minutes, deviceLabel: deviceName)
-            }
-            return "Live\(device)"
-        case .ended: return "Session ended"
-        case let .closed(_, reconnecting): return reconnecting ? "Reconnecting…" : "Disconnected"
-        default: return "Connecting…"
-        }
-    }
-
     // MARK: - Ended header (EXP-773)
 
-    /// A finished run's byline and its Resume, above the transcript. EXP-862
-    /// dropped the close-out summary from every client: the server takes the
-    /// report (it still notifies a parent run) but no longer stores it, and
-    /// `summary` left the coding-sessions shape — the transcript right below
-    /// is what a finished run has to say.
+    /// A finished run's byline above the transcript, and the account
+    /// switch's progress captions. EXP-893: Resume moved to the Work
+    /// screen's nav bar; EXP-862 dropped the close-out summary — the
+    /// transcript right below is what a finished run has to say.
     @ViewBuilder
     private func endedHeader(_ model: AgentSessionModel) -> some View {
         if model.sessionEnded {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text(endedByline(model))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    // Only on the machine that still holds the run's worktree
-                    // (`RunResume`) — everywhere else there is nothing to
-                    // pick up.
-                    if steerEnabled, model.resumeDevice != nil {
-                        GlassPill(
-                            "Resume",
-                            icon: AppIcons.runResume,
-                            mode: .action { showResumeConfirm = true },
-                            enabled: !resuming
-                        )
-                        .accessibilityIdentifier("resume-run")
-                    }
-                }
+                Text(endedByline(model))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if let failure = startWatcher.failure {
                     Text(failure)
                         .font(.caption2)
@@ -776,44 +505,8 @@ struct AgentSessionView: View {
         let row = model.session ?? session
         return PastRuns.byline(
             device: model.hostDevice.displayLabel,
-            relativeTime: relativeDate(PastRuns.endedAt(row))
+            relativeTime: relativeWireDate(PastRuns.endedAt(row))
         )
-    }
-
-    private func relativeDate(_ stamp: String) -> String {
-        guard let date = WireTimestamps.parse(stamp) else { return "" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    /// Pick this finished run up again on the machine that ran it — the SAME
-    /// `steer.startSession({resumeSessionId})` the list rows used to send.
-    /// A start is a COMMAND, so the shared watcher waits for the row the
-    /// desktop inserts and pushes that session.
-    private func resumeRun(_ model: AgentSessionModel) {
-        guard let device = model.resumeDevice, !resuming else { return }
-        resuming = true
-        startWatcher.sending()
-        Task {
-            do {
-                try await deps.steerApi.resumeSession(
-                    accountId: accountId,
-                    sessionId: session.id,
-                    deviceId: device.deviceId
-                )
-                startWatcher.begin(
-                    key: .resumed(fromId: session.id),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                startWatcher.failed(error.userFacingMessage)
-            }
-            resuming = false
-        }
     }
 
     /// EXP-849: change the account this run uses — a RESUME on the same
@@ -823,13 +516,12 @@ struct AgentSessionView: View {
     /// re-reads this run's transcript there, once, on the account moved to
     /// (`SessionAccountSwitch.costNote`).
     ///
-    /// Exactly the Resume path from here on: a start is a COMMAND, so the
-    /// shared watcher waits for the row the desktop inserts (linked by
-    /// `resumed_from_id`) and pushes that session, which presents itself as
-    /// this run's continuation. The wall notice that prompted the switch goes
-    /// with it.
+    /// A start is a COMMAND, so the shared watcher waits for the row the
+    /// desktop inserts (linked by `resumed_from_id`) and hands that session to
+    /// the screen, which swaps it in as this run's continuation. The wall
+    /// notice that prompted the switch goes with it.
     private func switchAccount(_ model: AgentSessionModel, _ option: SessionAccountOption) {
-        guard model.accountSwitchRefusal(option) == nil, !switchingAccount, !resuming else {
+        guard model.accountSwitchRefusal(option) == nil, !switchingAccount else {
             return
         }
         guard let device = model.switchDevice else { return }
@@ -1005,9 +697,6 @@ struct AgentSessionView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The bar is the feed's, not the composer's (EXP-688) — a run with an
-        // open PR must still offer Merge while the feed is still arriving.
-        .safeAreaInset(edge: .bottom, spacing: 0) { changesBar() }
     }
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
@@ -1113,7 +802,7 @@ struct AgentSessionView: View {
                         }
                         Color.clear
                             .frame(height: 1)
-                            .id(Self.bottomAnchor)
+                            .id(AgentSessionLayout.bottomAnchor)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -1124,50 +813,41 @@ struct AgentSessionView: View {
                     // to edge.
                     .frame(maxWidth: DesignTokens.Transcript.maxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity)
-                    .frame(
-                        minHeight: max(0, geo.size.height - (changesBarVisible ? changesBarHeight : 0)),
-                        alignment: .bottom
-                    )
+                    .frame(minHeight: geo.size.height, alignment: .bottom)
                     .background(
                         GeometryReader { content in
                             Color.clear.preference(
                                 key: FeedBottomOverflowKey.self,
-                                value: content.frame(in: .named(Self.feedCoordSpace)).maxY
+                                value: content.frame(in: .named(AgentSessionLayout.feedCoordSpace)).maxY
                                     - geo.size.height
                             )
                         }
                     )
                 }
-                // EXP-688: the floating Latest-changes/Merge bar. As a safe
-                // area inset it becomes a CONTENT inset: the feed scrolls
-                // under it, and `visibleRect` (what FollowPinTracker reads)
-                // already accounts for it, so the last line still comes to
-                // rest fully above the bar.
-                .safeAreaInset(edge: .bottom, spacing: 0) { changesBar() }
                 // EXP-698: the nav bar is `.ultraThinMaterial`, so a scrolled
                 // narration line used to be sliced through its letterforms at
                 // the header's edge. The fade lets it recede instead.
                 .stickyHeaderFade()
-                .coordinateSpace(name: Self.feedCoordSpace)
+                .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
-                    slack: Self.followSlack,
-                    repin: { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                    slack: AgentSessionLayout.followSlack,
+                    repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
                 .onAppear {
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     // Lazy rows can still be sizing on the first pass, landing
                     // the scroll short — re-assert once layout has settled.
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(50))
                         if atBottom {
-                            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                            proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: model.feed.count) { _, _ in
                     if atBottom {
-                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                        proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     }
                 }
                 // Switching conversation tabs re-pins to the newest event
@@ -1177,7 +857,7 @@ struct AgentSessionView: View {
                 .onChange(of: atBottom) { _, now in model.noteAtBottom(now) }
                 .onChange(of: agentTab) { _, _ in
                     atBottom = true
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
                 .overlay(alignment: .bottom) {
                     if !atBottom {
@@ -1200,16 +880,12 @@ struct AgentSessionView: View {
                                 // chasing the bottom.
                                 atBottom = true
                                 withAnimation {
-                                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                                 }
                             },
                             isOpaque: true
                         )
-                        // EXP-743: above the floating Latest-changes bar, not
-                        // on top of it — the bar is a safe-area inset of this
-                        // scroller, so the overlay's bottom edge is the bar's
-                        // bottom edge (Android: `8.dp + bottomInset`).
-                        .padding(.bottom, 8 + (changesBarVisible ? changesBarHeight : 0))
+                        .padding(.bottom, 8)
                     }
                 }
             }
@@ -1488,8 +1164,22 @@ struct AgentSessionView: View {
 
     // MARK: - Status banners (feed retained above)
 
+    /// EXP-804: the usage wall used to ride beside the nav-bar caption; the
+    /// Work screen's title has no caption line, so it is a banner here.
+    private func blockedLabel(_ model: AgentSessionModel) -> String? {
+        AgentUsagePresentation.blockedBadgeLabel(
+            AgentUsagePresentation.parseBlocked((model.session ?? session).blocked),
+            now: model.activityNow
+        )
+    }
+
     @ViewBuilder
     private func banners(_ model: AgentSessionModel) -> some View {
+        if blockedLabel(model) != nil {
+            bannerRow {
+                SessionBlockedBadge(blocked: (model.session ?? session).blocked)
+            }
+        }
         // Kill-switch failure (EXP-268) — inline banner; cleared on retry.
         if let killError = model.killError {
             bannerRow {
@@ -1508,8 +1198,8 @@ struct AgentSessionView: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
-        // The recovery run's own progress (EXP-536): "sent to <machine>",
-        // then the live session pushes itself once the desktop picks it up.
+        // The switch's own progress (EXP-536): "sent to <machine>", then the
+        // continuation swaps in once the desktop picks it up.
         if let runCaption = startWatcher.sentCaption {
             bannerRow {
                 Text(runCaption)
@@ -1676,19 +1366,31 @@ struct AgentSessionView: View {
 
     // MARK: - Bottom bar (steering input)
 
+    /// EXP-820: while a question or plan card is pending on this steerer
+    /// (`cardPending`: live, not ended, an unresolved card in the feed) the
+    /// composer band is GONE — the card's free answer is its own inline
+    /// field, so the composer would only compete with it. The draft stays in
+    /// the model and the band is back once the card resolves. EXP-621: the
+    /// composer is tied to the SESSION, not the socket — it stays up through
+    /// a reconnect (send disabled, draft intact) and only goes away once the
+    /// session is over.
+    private func bandRetired(_ model: AgentSessionModel) -> Bool {
+        model.isOver || model.cardPending
+    }
+
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
-        // EXP-312: live implies ownership — the ticket mint refuses others.
-        // EXP-621: the composer is tied to the SESSION, not the socket — it
-        // stays up through a reconnect (send disabled, draft intact) and only
-        // goes away once the session is over. It used to vanish on every drop,
-        // taking the half-typed message with it.
-        // EXP-820: while a question or plan card is pending on this steerer
-        // (`cardPending`: live, not ended, an unresolved card in the feed) the
-        // whole band is GONE — the card's free answer is its own inline
-        // field, so the composer would only compete with it. The draft stays
-        // in the model and the band is back once the card resolves.
-        if !model.isOver, !model.cardPending {
+        if bandRetired(model) {
+            // EXP-893: the switcher circle alone — the way back to the issue
+            // (and to the diff) never leaves the bar.
+            FloatingBottomBar {
+                EmptyView()
+            } center: {
+                EmptyView()
+            } trailing: {
+                switcher()
+            }
+        } else {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
             VStack(spacing: 8) {
@@ -1697,39 +1399,46 @@ struct AgentSessionView: View {
                 // keyboard instead of being clipped by the field. EXP-802:
                 // the `@`/`#`/`:` one is mounted here for the same reason,
                 // and `composerMenu` is what keeps them to one at a time.
-                switch composerMenu(model) {
-                case .slash:
-                    SlashCommandMenu(
-                        commands: model.slashMatches,
-                        highlighted: slashHighlight
-                    ) { command in
-                        applySlashCommand(command, model)
-                    }
-                case .autocomplete:
-                    // EXP-802: the same `@`/`#`/`:` menu the comment composer
-                    // mounts, over the same rows — picks route through the
-                    // draft editor, which keeps first responder, so the
-                    // keyboard never drops mid-message.
-                    EditorAutocompleteMenu(
-                        mentions: model.draftEditor.mentionCandidates,
-                        issueRefs: model.draftEditor.issueRefCandidates,
-                        emoji: model.draftEditor.emojiCandidates,
-                        onPickMention: { model.draftEditor.applyMention($0) },
-                        onPickIssueRef: { model.draftEditor.applyIssueRef($0) },
-                        onPickEmoji: { model.draftEditor.applyEmoji($0) }
-                    )
-                case .none:
-                    EmptyView()
-                }
+                composerMenuView(model)
                 if composerOpen(model) {
                     composerCard(model)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                 } else {
                     collapsedComposerBar(model)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
             .animation(motion.standard, value: composerExpanded)
+        }
+    }
+
+    @ViewBuilder
+    private func composerMenuView(_ model: AgentSessionModel) -> some View {
+        switch composerMenu(model) {
+        case .slash:
+            SlashCommandMenu(
+                commands: model.slashMatches,
+                highlighted: slashHighlight
+            ) { command in
+                applySlashCommand(command, model)
+            }
+            .padding(.horizontal, 16)
+        case .autocomplete:
+            // EXP-802: the same `@`/`#`/`:` menu the comment composer
+            // mounts, over the same rows — picks route through the
+            // draft editor, which keeps first responder, so the
+            // keyboard never drops mid-message.
+            EditorAutocompleteMenu(
+                mentions: model.draftEditor.mentionCandidates,
+                issueRefs: model.draftEditor.issueRefCandidates,
+                emoji: model.draftEditor.emojiCandidates,
+                onPickMention: { model.draftEditor.applyMention($0) },
+                onPickIssueRef: { model.draftEditor.applyIssueRef($0) },
+                onPickEmoji: { model.draftEditor.applyEmoji($0) }
+            )
+            .padding(.horizontal, 16)
+        case .none:
+            EmptyView()
         }
     }
 
@@ -1740,56 +1449,41 @@ struct AgentSessionView: View {
         composerExpanded || !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
     }
 
-    /// EXP-790: the folded composer — the capsule IssueDetailBottomBar folds
-    /// its comment box into, wearing the placeholder the open field would,
-    /// plus a Stop circle while the agent works, so an interrupt never needs
-    /// the keyboard first.
+    /// EXP-893: the folded composer on the shared bar — the usage ring on the
+    /// left (the Usage sheet), the capsule wearing the placeholder the open
+    /// field would, the face switcher on the right. The separate interrupt
+    /// circle is gone: Stop stays the expanded composer's own glyph.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                expandComposer()
-            } label: {
-                HStack(spacing: 6) {
-                    Text(model.composerPlaceholder)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .padding(.horizontal, 14)
-                .frame(height: 42)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(5)
-                .background(GlassTokens.opaqueCardFill, in: Capsule())
-                .overlay(
-                    Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-                )
-                .contentShape(Capsule())
+        FloatingBottomBar {
+            if hasUsage {
+                usageRingCircle(model)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Message the agent")
+        } center: {
+            FloatingBarCapsule(accessibilityLabel: "Message the agent", action: expandComposer) {
+                Text(model.composerPlaceholder)
+                    .font(.subheadline)
+                    .lineLimit(1)
+            }
             .accessibilityIdentifier("agent-composer-collapsed")
-
-            if model.agentWorking {
-                Button {
-                    model.sendInterrupt()
-                } label: {
-                    AppIcon(AppIcons.uiStop, size: AppIcon.Size.medium, weight: .medium)
-                        .foregroundStyle(
-                            model.canSteer ? .white : .white.opacity(TextOpacity.quaternary)
-                        )
-                        .frame(width: 52, height: 52)
-                        .background(GlassTokens.opaqueCardFill, in: Circle())
-                        .overlay(
-                            Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-                        )
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!model.canSteer)
-                .accessibilityLabel("Stop")
-            }
+        } trailing: {
+            switcher()
         }
+    }
+
+    /// 0…1 of the context window, off the engine's latest `usage` slot.
+    private func usageFraction(_ model: AgentSessionModel) -> Double? {
+        model.sessionUsage?.percent.map { Double($0) / 100 }
+    }
+
+    private func usageSeverity(_ model: AgentSessionModel) -> AgentUsageSeverity {
+        AgentUsagePresentation.severity(model.sessionUsage?.percent.map(Double.init))
+    }
+
+    private func usageRingCircle(_ model: AgentSessionModel) -> some View {
+        FloatingBarCircle(accessibilityLabel: "Usage", action: { showUsageSheet = true }) {
+            ContextRing(fraction: usageFraction(model), severity: usageSeverity(model))
+        }
+        .accessibilityIdentifier("session-usage-ring")
     }
 
     private func expandComposer() {
@@ -1869,126 +1563,76 @@ struct AgentSessionView: View {
         slashHighlight = ((slashHighlight + delta) % count + count) % count
     }
 
-    // MARK: - Floating changes bar (EXP-688)
+    // MARK: - Changes face bar (EXP-893)
 
-    /// Whether the Latest-changes / Merge bar is on screen. Unchanged gate —
-    /// only WHERE it draws moved: it floats over the feed now instead of
-    /// eating a band of height above the composer.
-    private var changesBarVisible: Bool {
-        guard let model else { return false }
-        return model.latestDiff != nil || model.canMerge
+    /// The PR page a GitHub circle opens — the issue's, or the run's OWN
+    /// issue-less one (EXP-734).
+    private func prURL(_ model: AgentSessionModel) -> URL? {
+        (model.mergeIssue?.prUrl ?? model.session?.prUrl).flatMap { URL(string: $0) }
     }
 
-    /// The bar itself, hung off the feed as a bottom safe-area inset so the
-    /// feed scrolls under it and its last line still comes to rest above it.
-    @ViewBuilder
-    private func changesBar() -> some View {
-        if let model, changesBarVisible {
-            HStack(spacing: 8) {
-                if let diff = model.latestDiff {
-                    diffChip(diff)
+    /// GitHub · Merge / Fix conflicts · the switcher. Merge only while there
+    /// IS an open PR on a session this screen still considers live
+    /// (`model.canMerge`); a merge refused on a REAL conflict swaps the pill
+    /// for the recovery run (EXP-706).
+    private func changesFaceBar(_ model: AgentSessionModel) -> some View {
+        FloatingBottomBar {
+            if let url = prURL(model) {
+                FloatingBarCircle(accessibilityLabel: "Open PR on GitHub", action: { openURL(url) }) {
+                    AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+            }
+        } center: {
+            if model.canMerge {
+                if canFixConflicts {
+                    fixConflictsPill()
                 } else {
-                    Spacer()
-                }
-                // EXP-678: merge this run's PR without leaving the steering
-                // screen — same height as the chip it sits beside. EXP-706: a
-                // merge refused on a REAL conflict swaps the pill for the
-                // recovery run, which is the only thing that can unblock it.
-                if model.canMerge {
-                    if canFixConflicts {
-                        fixConflictsPill()
-                    } else {
-                        mergePill(model)
-                    }
+                    mergePill(model)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                changesBarHeight = height
-            }
+        } trailing: {
+            switcher()
         }
     }
 
-    /// Pinned collapsible "Changes" chip — +/− counts, opens the diff
-    /// sheet. The latest worktree diff replaces the previous one.
-    private func diffChip(_ diff: String) -> some View {
-        let stats = DiffRendering.stats(of: diff)
-        return Button {
-            showDiffSheet = true
-        } label: {
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.codingDiff, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("Changes")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-                Spacer()
-                Text("+\(stats.additions)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.green)
-                Text("−\(stats.deletions)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.red)
-                AppIcon(AppIcons.uiChevronUp, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .padding(.horizontal, 12)
-            // EXP-698: the chip shares its row with the `.md` Merge /
-            // Fix-conflicts pills, so it takes their height rather than
-            // whatever its own padding happened to add up to.
-            .frame(height: GlassPillTokens.heightMd)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        // Opaque: the feed scrolls beneath the bar (EXP-165, the
-        // Jump-to-bottom pill's rule; Android + mobile web parity, EXP-743).
-        .glassRow(isOpaque: true)
-    }
-
-    /// The Merge pill beside the diff chip — merging always ends the run too
-    /// (EXP-498), so it only shows while there IS an open PR (`model.canMerge`,
-    /// which resolves a batch run's PR through EXP-535's representative issue).
+    /// The Merge pill — merging always ends the run too (EXP-498).
     private func mergePill(_ model: AgentSessionModel) -> some View {
-        GlassPill(
-            "Merge",
-            size: .md,
-            mode: .action { showMergeConfirm = true },
-            // Floats over the feed like the chip beside it (EXP-743).
-            isOpaque: true,
-            enabled: !merging
+        FloatingBarSolidPill(
+            accessibilityLabel: "Merge pull request",
+            enabled: !merging,
+            action: { showMergeConfirm = true }
         ) {
             if merging {
-                ProgressView().controlSize(.mini).tint(.white)
+                ProgressView().controlSize(.small).tint(.black.opacity(0.6))
             } else {
-                AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphMd)
+                AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
             }
+            Text("Merge PR")
+                .font(.subheadline.weight(.medium))
         }
-        .accessibilityLabel("Merge pull request")
     }
 
-    /// EXP-706: the recovery run in the Merge pill's slot — same glass pill,
-    /// same height. EXP-825: it pushes the Agent page composer with the
-    /// "Fix merge conflicts" builtin picked and THIS run's pull request
-    /// pre-picked.
+    /// EXP-706: the recovery run in the Merge pill's slot. EXP-825: it pushes
+    /// the Agent page composer with the "Fix merge conflicts" builtin picked
+    /// and THIS run's pull request pre-picked.
     private func fixConflictsPill() -> some View {
-        GlassPill(
-            "Fix conflicts",
-            icon: AppIcons.uiBranch,
-            size: .md,
-            mode: .action {
-                guard let issueId = model?.mergeIssue?.id else { return }
-                pushRoute(.agent(
-                    accountId: accountId,
-                    seed: AgentComposerSeed(
-                        actionId: DomainContract.builtinFixConflictsId,
-                        prIssueId: issueId
-                    )
-                ))
-            },
-            isOpaque: true
-        )
-        .accessibilityLabel("Fix merge conflicts")
+        FloatingBarSolidPill(accessibilityLabel: "Fix merge conflicts", action: openFixConflicts) {
+            AppIcon(AppIcons.uiBranch, size: AppIcon.Size.medium, weight: .medium)
+            Text("Fix conflicts")
+                .font(.subheadline.weight(.medium))
+        }
+    }
+
+    private func openFixConflicts() {
+        guard let issueId = model?.mergeIssue?.id else { return }
+        pushRoute(.agent(
+            accountId: accountId,
+            seed: AgentComposerSeed(
+                actionId: DomainContract.builtinFixConflictsId,
+                prIssueId: issueId
+            )
+        ))
     }
 
     /// Only a REAL content conflict (EXP-533) gets the run — every other
@@ -2029,12 +1673,12 @@ struct AgentSessionView: View {
         }
     }
 
+    // MARK: - Composer card
+
     /// EXP-554: the steer composer wears the comment composer's chrome, and
     /// since EXP-698 that IS the same object — one `GlassComposer` holding the
-    /// transparent field, the pending strip and the `[+]`·spacer·send row. No
-    /// material, no shadow, no radius of its own. Behavior is untouched: four
-    /// images max, the same `sendSteerImages` upload, the same frozen
-    /// `SteerImageMessage` wire format.
+    /// transparent field, the pending strip and the footer row. EXP-893: the
+    /// footer is `SessionComposerFooter` (Plan mode · `+` · model · ring).
     private func composerCard(_ model: AgentSessionModel) -> some View {
         // EXP-702: images attach to the SESSION, so every run can carry them —
         // a batch or action run no longer has "nowhere to put them".
@@ -2098,9 +1742,6 @@ struct AgentSessionView: View {
             .padding(.horizontal, 6)
             .padding(.top, 6)
         } strip: {
-            // EXP-790 retired the mode chip that used to ride this strip:
-            // Plan/Build is the plan card's own business now, and a live
-            // toggle beside the field only ever raced the card.
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
                     removePendingImage(model, id: id)
@@ -2118,15 +1759,17 @@ struct AgentSessionView: View {
                     .padding(.bottom, 4)
             }
         } tools: {
-            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
-            // concept ×4; `editor-image` stays the comment/description glyph.
-            GlassComposerToolButton(
-                AppIcons.uiAdd,
-                accessibilityLabel: "Attach image",
-                enabled: !attachDisabled
-            ) {
-                showPhotoPicker = true
-            }
+            SessionComposerFooter(
+                planModeActive: model.planModeActive,
+                attachEnabled: !attachDisabled,
+                onAttach: { showPhotoPicker = true },
+                modelValue: WorkFaces.sessionModel(model.sessionConfig),
+                agent: model.catalogAgent,
+                onPickModel: { alias in sendModelSwitch(model, alias) },
+                usageFraction: usageFraction(model),
+                usageSeverity: usageSeverity(model),
+                onUsage: { showUsageSheet = true }
+            )
         } submit: {
             GlassComposerSubmitButton(
                 showsStop ? AppIcons.uiStop : AppIcons.uiSubmit,
@@ -2140,6 +1783,12 @@ struct AgentSessionView: View {
                 }
             }
         }
+    }
+
+    /// EXP-877: a model switch is a PLAIN MESSAGE — `/model <alias>` — the
+    /// agent answers with the next `config_state`, which repaints the pill.
+    private func sendModelSwitch(_ model: AgentSessionModel, _ alias: String) {
+        _ = model.sendMessage("/model \(alias)")
     }
 
     /// The return key. With a menu open it ACCEPTS the top row and never
@@ -4130,63 +3779,5 @@ private struct FeedBottomOverflowKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-// MARK: - Latest-changes diff sheet
-
-/// The pinned "Latest changes" diff, expanded: the latest worktree diff (raw
-/// `git diff` output) split on `diff --git` into per-file glass sections with
-/// the shared DiffRendering coloring — horizontal panning stays inside each
-/// file's code block only.
-private struct LatestChangesSheet: View {
-    let diff: String
-
-    var body: some View {
-        let stats = DiffRendering.stats(of: diff)
-        let sections = DiffRendering.splitFiles(diff)
-        GlassSheetChrome(
-            title: "Changes",
-            height: .full,
-            headerTrailing: {
-                HStack(spacing: 8) {
-                    Text("+\(stats.additions)")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.green)
-                    Text("−\(stats.deletions)")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.red)
-                }
-            },
-            content: {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(sections) { section in
-                            VStack(alignment: .leading, spacing: 0) {
-                                if let filename = section.filename {
-                                    Text(filename)
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.white)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                }
-                                DiffPatchBlock(patch: section.patch)
-                                    .padding(.horizontal, 8)
-                                    .padding(.top, section.filename == nil ? 8 : 0)
-                                    .padding(.bottom, 8)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            // One file among many in a gapped stack — a row,
-                            // not a borderless group.
-                            .glassRow()
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 24)
-                }
-            }
-        )
     }
 }

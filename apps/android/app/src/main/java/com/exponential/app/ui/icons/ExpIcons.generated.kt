@@ -3179,6 +3179,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `layers-2`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "layers-2",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M13 13.74a2 2 0 0 1-2 0L2.5 8.87a1 1 0 0 1 0-1.74L11 2.26a2 2 0 0 1 2 0l8.5 4.87a1 1 0 0 1 0 1.74z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m20 14.285 1.5.845a1 1 0 0 1 0 1.74L13 21.74a2 2 0 0 1-2 0l-8.5-4.87a1 1 0 0 1 0-1.74l1.5-.845"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `leaf`: ImageVector by lazy {
         ImageVector.Builder(
             name = "leaf",
@@ -6518,6 +6543,7 @@ public object ExpIcons {
         "italic" -> `italic`
         "key" -> `key`
         "layers" -> `layers`
+        "layers-2" -> `layers-2`
         "leaf" -> `leaf`
         "life-buoy" -> `life-buoy`
         "lightbulb" -> `lightbulb`
@@ -7069,4 +7095,6 @@ public object ExpIcons {
     public val uiWatch: ImageVector get() = `eye`
     /** Concept `ui-widget`. */
     public val uiWidget: ImageVector get() = `megaphone`
+    /** Concept `work-faces`. */
+    public val workFaces: ImageVector get() = `layers-2`
 }

@@ -8,11 +8,10 @@ import SwiftUI
 ///
 /// Line 1 is `SessionRowTitle` (dot, identifier for issue runs only, title);
 /// then the device-written caption on a live run, the status line
-/// (`sessionStatusLine`), and the usage wall on its OWN line. The trailing
-/// slot holds the row's circle buttons (Merge / Fix conflicts, Open issue or
-/// the action glyph); the footer sits under the row inside the same flat band
-/// (a refused merge's caption).
-struct RunningSessionRow<Trailing: View, Footer: View>: View {
+/// (`sessionStatusLine`), and the usage wall on its OWN line. EXP-893
+/// dropped the trailing circles: a row only OPENS the run. The footer sits
+/// under the row inside the same flat band.
+struct RunningSessionRow<Footer: View>: View {
     let session: CodingSessionEntity
     /// Nil for a batch/action/chat run — the identifier is then hidden.
     let identifier: String?
@@ -20,16 +19,12 @@ struct RunningSessionRow<Trailing: View, Footer: View>: View {
     let state: CodingSessionDisplayState
     let device: SessionDevicePresentation
     let open: RunningSessionRowOpen
-    @ViewBuilder let trailing: () -> Trailing
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                primary
-                trailing()
-            }
-            .frame(minHeight: GlassTokens.controlSize)
+            primary
+                .frame(minHeight: GlassTokens.controlSize)
             footer()
         }
         .padding(.horizontal, 12)
@@ -100,8 +95,7 @@ extension RunningSessionRow where Footer == EmptyView {
         title: String,
         state: CodingSessionDisplayState,
         device: SessionDevicePresentation,
-        open: RunningSessionRowOpen,
-        @ViewBuilder trailing: @escaping () -> Trailing
+        open: RunningSessionRowOpen
     ) {
         self.init(
             session: session,
@@ -110,7 +104,6 @@ extension RunningSessionRow where Footer == EmptyView {
             state: state,
             device: device,
             open: open,
-            trailing: trailing,
             footer: { EmptyView() }
         )
     }

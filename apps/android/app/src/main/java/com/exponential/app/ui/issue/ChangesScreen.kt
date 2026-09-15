@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -53,7 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -85,8 +83,10 @@ import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassGroup
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -117,9 +117,10 @@ sealed interface ChangesLoadState {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@HiltViewModel
-class ChangesViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+@HiltViewModel(assistedFactory = ChangesViewModel.Factory::class)
+class ChangesViewModel @AssistedInject constructor(
+    /** EXP-893: assisted — the Work screen's Changes face keys one per issue. */
+    @Assisted val issueId: String,
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val prFilesApi: PrFilesApi,
@@ -128,7 +129,10 @@ class ChangesViewModel @Inject constructor(
     private val steerLaunch: SteerLaunchDelegate,
 ) : ViewModel() {
 
-    val issueId: String = savedStateHandle["issueId"] ?: ""
+    @AssistedFactory
+    interface Factory {
+        fun create(issueId: String): ChangesViewModel
+    }
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
@@ -279,10 +283,13 @@ class ChangesViewModel @Inject constructor(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChangesScreen(
+    issueId: String,
     onBack: () -> Unit,
     // EXP-825: "Fix conflicts" navigates to the composer with this PR picked.
     onOpenAgent: (AgentComposerSeed) -> Unit,
-    viewModel: ChangesViewModel = hiltViewModel(),
+    viewModel: ChangesViewModel = hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
+        key = "changes:$issueId",
+    ) { factory -> factory.create(issueId) },
 ) {
     val issue by viewModel.issue.collectAsStateWithLifecycle()
     val load by viewModel.load.collectAsStateWithLifecycle()
@@ -308,9 +315,6 @@ fun ChangesScreen(
             )
         },
     ) { padding ->
-        val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-        val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-
         // The summary header renders regardless of the diff fetch — and the
         // floating action bar comes from synced issue fields, so a
         // prFiles/branchDiff failure must NOT strand a member with no PR
@@ -343,46 +347,9 @@ fun ChangesScreen(
                 item(key = "__summary__") {
                     ChangesSummaryHeader(issue = issue, files = loadedFiles)
                 }
-                when (val state = load) {
-                    ChangesLoadState.Loading -> item(key = "__loading__") {
-                        Row(
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text("Loading changes…", style = MaterialTheme.typography.bodySmall, color = secondary)
-                        }
-                    }
-                    is ChangesLoadState.Failed -> item(key = "__failed__") {
-                        Text(
-                            "Couldn’t load changes: ${state.message}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(vertical = 12.dp),
-                        )
-                    }
-                    is ChangesLoadState.Loaded -> {
-                        val files = state.files
-                        if (files.isEmpty()) {
-                            item(key = "__empty__") {
-                                Text(
-                                    "No changed files.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = tertiary,
-                                    modifier = Modifier.padding(vertical = 12.dp),
-                                )
-                            }
-                        }
-                        items(files, key = { it.filename }) { file ->
-                            FileSection(
-                                file = file,
-                                expanded = expanded[file.filename] == true,
-                                onToggle = {
-                                    expanded[file.filename] = expanded[file.filename] != true
-                                },
-                            )
-                        }
+                item(key = "__files__") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ChangesFileList(load = load, expanded = expanded)
                     }
                 }
             }
@@ -598,7 +565,7 @@ private fun ChangesBottomBar(
 // stay legible left-aligned in the primary text color. Wrap-width, so a short
 // message is a compact centered chip and a long one grows to the bar's width.
 @Composable
-private fun ChangesRefusalNotice(
+internal fun ChangesRefusalNotice(
     message: String,
     modifier: Modifier = Modifier,
 ) {
@@ -700,6 +667,57 @@ private fun ChangesSummaryHeader(
                 )
             }
             Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+/**
+ * EXP-893: the per-file rows of a PR review — a load spinner, a failure, the
+ * empty note, or one collapsible [FileSection] per file — shared by the
+ * Reviews page above and the Work screen's Changes face (`ChangesFace`).
+ * A plain Column body (not a LazyListScope), so either host lays it out.
+ */
+@Composable
+internal fun ChangesFileList(
+    load: ChangesLoadState,
+    expanded: MutableMap<String, Boolean>,
+) {
+    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    when (load) {
+        ChangesLoadState.Loading -> Row(
+            modifier = Modifier.padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text("Loading changes…", style = MaterialTheme.typography.bodySmall, color = secondary)
+        }
+        is ChangesLoadState.Failed -> Text(
+            "Couldn’t load changes: ${load.message}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(vertical = 12.dp),
+        )
+        is ChangesLoadState.Loaded -> {
+            val files = load.files
+            if (files.isEmpty()) {
+                Text(
+                    "No changed files.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tertiary,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+            }
+            files.forEach { file ->
+                FileSection(
+                    file = file,
+                    expanded = expanded[file.filename] == true,
+                    onToggle = {
+                        expanded[file.filename] = expanded[file.filename] != true
+                    },
+                )
+            }
         }
     }
 }
