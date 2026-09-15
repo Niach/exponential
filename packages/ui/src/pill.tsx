@@ -22,6 +22,15 @@ import { cn } from "./cn"
 // because only there is it a target. Mirrored on the natives as `.primary()` /
 // `primary:` / `primary =`.
 
+// The accent PAINT the `primary` flag draws, split so the two halves have ONE
+// source. `PILL_PRIMARY_PAINT` is exported for the rare surface whose own
+// chrome would beat the cva arm through tailwind-merge — the phone work bar's
+// 52px Merge capsule brings `bg-popover/85`, so the accent has to come LAST in
+// its `cn`. Nothing else may restate these classes.
+const PRIMARY_FILL = `border-transparent bg-primary text-primary-foreground`
+const PRIMARY_HOVER = `hover:bg-primary/90 hover:text-primary-foreground`
+export const PILL_PRIMARY_PAINT = `${PRIMARY_FILL} ${PRIMARY_HOVER}`
+
 const pillVariants = cva(
   `inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-glass-stroke-card bg-glass-card font-medium text-foreground/70 transition-colors duration-fast [&_svg]:pointer-events-none [&_svg]:shrink-0`,
   {
@@ -36,7 +45,7 @@ const pillVariants = cva(
         readonly: ``,
       },
       primary: {
-        true: `border-transparent bg-primary text-primary-foreground`,
+        true: PRIMARY_FILL,
         false: ``,
       },
     },
@@ -44,7 +53,7 @@ const pillVariants = cva(
       {
         mode: `action`,
         primary: true,
-        class: `hover:bg-primary/90 hover:text-primary-foreground`,
+        class: PRIMARY_HOVER,
       },
     ],
     defaultVariants: {

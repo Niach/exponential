@@ -565,6 +565,7 @@ export async function fetchBranchDiff(opts: {
   const data = (await res.json()) as {
     files?: Array<{
       filename: string
+      previous_filename?: string
       status: string
       additions: number
       deletions: number
@@ -576,6 +577,7 @@ export async function fetchBranchDiff(opts: {
     prNumber: null,
     files: (data.files ?? []).map((f) => ({
       filename: f.filename,
+      previous_filename: f.previous_filename,
       status: f.status,
       additions: f.additions,
       deletions: f.deletions,

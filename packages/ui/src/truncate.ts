@@ -1,9 +1,10 @@
-// EXP-698 — string shaping shared by the surfaces that print paths.
+// EXP-698 — string shaping shared by the surfaces that print paths. Moved into
+// the package with the diff view (EXP-895), its only caller.
 //
 // A diff's file paths are the one place where `truncate` (a trailing ellipsis)
 // destroys the only part a reader needs: the FILENAME. Middle-truncation drops
-// the middle of the path instead, so `apps/web/src/…/diff-view.tsx` still names
-// the file. CSS can't do this, so it is a string transform.
+// the middle of the path instead, so `apps/web/src/…/file-diff-card.tsx` still
+// names the file. CSS can't do this, so it is a string transform.
 /**
  * Shorten `value` to at most `max` characters by replacing its middle with an
  * ellipsis, keeping both ends visible (the tail slightly longer, since that is

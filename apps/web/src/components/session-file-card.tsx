@@ -1,6 +1,5 @@
 import { useState } from "react"
-import { conceptIcon } from "@exp/ui"
-import { AddDelCounts } from "@/components/diff-view"
+import { conceptIcon, DiffCounts } from "@exp/ui"
 import {
   fileCardMoreLabel,
   fileCardTitle,
@@ -55,7 +54,7 @@ export function SessionFileCard({
             title={file.path}
           >
             <span className="min-w-0 flex-1 truncate font-mono">{file.path}</span>
-            <AddDelCounts
+            <DiffCounts
               additions={file.additions}
               deletions={file.deletions}
             />

@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react"
+import { parseDiff, totals } from "@exp/domain-contract/diff"
 import { acquireSteerSession } from "@/lib/steer-session-store"
-import { splitUnifiedDiff } from "@/lib/unified-diff"
 
 // EXP-893: whether (and how big) the run's LIVE diff is, read off the
 // per-session steer store without mounting the session view — the phone's
@@ -32,14 +32,11 @@ export function useSessionDiffStats(
   )
   return useMemo(() => {
     if (!latestDiff) return EMPTY
-    const files = splitUnifiedDiff(latestDiff)
-    return files.reduce(
-      (acc, file) => ({
-        fileCount: acc.fileCount + 1,
-        additions: acc.additions + file.additions,
-        deletions: acc.deletions + file.deletions,
-      }),
-      { ...EMPTY }
-    )
+    const sum = totals(parseDiff(latestDiff).files)
+    return {
+      fileCount: sum.files,
+      additions: sum.additions,
+      deletions: sum.deletions,
+    }
   }, [latestDiff])
 }

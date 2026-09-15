@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
+import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
 import type { Issue } from "@/db/schema"
-import type { PullFile } from "@/components/diff-view"
 import { trpc } from "@/lib/trpc-client"
 
 // EXP-706: the review's file list is fetched by the caller, not by the diff
@@ -11,10 +11,14 @@ import { trpc } from "@/lib/trpc-client"
 // ever pushed). EXP-893 lifts it out of the review route: the phone's
 // Changes face draws the same files for an issue whose PR is open and whose
 // run published no live diff (`enabled` keeps the fetch off until then).
+//
+// EXP-895: GitHub's `PullFile` stops at the transport boundary — every caller
+// gets the shared `DiffFile` model (`fromPullFile`, which parses the patch
+// into hunks and keeps GitHub's counts only when there are none).
 
 export type ReviewFilesState =
   | { kind: `loading` }
-  | { kind: `files`; files: PullFile[] }
+  | { kind: `files`; files: DiffFile[] }
   | { kind: `none` } // no PR and the branch was never pushed (GitHub 404)
   | { kind: `error`; message: string }
 
@@ -31,11 +35,13 @@ export function useReviewFiles(
     if (!issueId || !enabled) return
     let cancelled = false
     setState({ kind: `loading` })
-    const request: Promise<PullFile[] | null> = hasPr
-      ? trpc.issues.prFiles.query({ issueId }).then((res) => res.files)
+    const request: Promise<DiffFile[] | null> = hasPr
+      ? trpc.issues.prFiles
+          .query({ issueId })
+          .then((res) => res.files.map(fromPullFile))
       : trpc.repositories.branchDiff
           .query({ issueId })
-          .then((res) => res?.files ?? null)
+          .then((res) => res?.files.map(fromPullFile) ?? null)
     request
       .then((files) => {
         if (cancelled) return

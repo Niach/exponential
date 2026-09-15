@@ -30,7 +30,7 @@ import type { IssueGroup } from "@/lib/board-view"
 
 // REV-46: the desktop IDE virtualizes this exact list (issue_list.rs
 // v_virtual_list — "the list can be long; virtualization is mandatory"). The
-// web analog follows diff-view.tsx instead: cap + expand, so a board with
+// web analog follows @exp/ui file-diff-card.tsx instead: cap + expand, so a board with
 // thousands of issues never mounts thousands of interactive rows (each row is
 // a Radix context menu around three dropdown components) in one commit.
 // Each group renders this many rows before a "Show more" button takes over.

@@ -6,8 +6,10 @@ import type { WorkTabFace } from "@/lib/work-tabs"
 // segmented control the unified work header carries (desktop `work_header.rs`
 // top row) — the same segmented pill as the list nav's Inbox / My Issues
 // strip. EXP-877: the faces are `Issue` (issue-bound), `Run` (a run exists)
-// and the diff (`+N -M`, once the run has changes); an unavailable face is
-// HIDDEN, never disabled, and the control itself is absent under two faces.
+// and the diff (`@exp/ui` `DiffCounts` — `+N −M`, once the run has changes; the
+// label lives there since EXP-895, with the rest of the diff vocabulary); an
+// unavailable face is HIDDEN, never disabled, and the control itself is absent
+// under two faces.
 
 /** The three faces a work tab can show. `diff` is the run's changes. */
 export type WorkFace = WorkTabFace | `diff`
@@ -28,24 +30,6 @@ export const RUNS_FACE_LABEL = `Runs`
 
 export function runFaceLabel(multipleRuns: boolean): string {
   return multipleRuns ? RUNS_FACE_LABEL : RUN_FACE_LABEL
-}
-
-/** The diff face's label: `+N -M` in mono, the ASCII minus, the diff pill's
- * own green/red. No glyph. */
-export function DiffFaceLabel({
-  additions,
-  deletions,
-}: {
-  additions: number
-  deletions: number
-}) {
-  return (
-    <span className="font-mono">
-      <span className="text-emerald-400">+{additions}</span>
-      {` `}
-      <span className="text-rose-400">-{deletions}</span>
-    </span>
-  )
 }
 
 export function WorkFaceToggle({

@@ -6,28 +6,19 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import {
-  ExternalLink,
-  GitBranch,
-  GitMerge,
-  LoaderCircle,
-  RotateCw,
-  X,
-} from "lucide-react"
 import type { Issue } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
+import { useTeamBySlug, useTeamBoards } from "@/hooks/use-team-data"
+import { useReviewFiles } from "@/hooks/use-review-files"
 import {
-  useTeamBySlug,
-  useTeamBoards,
-} from "@/hooks/use-team-data"
-import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
-import { useOpenComposer } from "@/hooks/use-open-composer"
-import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+  HEADER_BUTTON_CLASS,
+  MobileDetailHeader,
+} from "@/components/team/mobile-detail-header"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
-import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
+import { mergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import {
+  conceptIcon,
   Button,
   Pill,
   Dialog,
@@ -37,18 +28,32 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@exp/ui"
+import { cn } from "@/lib/utils"
+import { ChangesFileSheet } from "@/components/changes-file-sheet"
+import { ChangesTopBar } from "@/components/changes-top-bar"
+import { ChangesView } from "@/components/changes-view"
+import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
 import {
-  AddDelCounts,
-  FileDiffList,
-  type PullFile,
-} from "@/components/diff-view"
+  MOBILE_WORK_BAR_CLEARANCE,
+  MobileWorkBar,
+} from "@/components/mobile-work-bar"
 import { useSteerConfig } from "@/components/agent-session"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
 // merging/closing acts on the ONE PR, and the server completes every linked
 // issue (a batch run's issues all share one prUrl).
+//
+// EXP-895: the page is now a `ChangesTopBar` over a `ChangesView` — the exact
+// pair the run's Changes face draws. Merge is `SessionMergePill` (one control,
+// with its own confirm and the Fix-conflicts swap), so the route keeps only the
+// CLOSE mutation; on a phone the bar is the shared `MobileWorkBar` (file sheet ·
+// Merge capsule · GitHub) and Close moves into the header's `…`.
 export const Route = createFileRoute(
   `/t/$teamSlug/reviews/$issueIdentifier`
 )({
@@ -69,62 +74,15 @@ export const Route = createFileRoute(
   component: ReviewDetailPage,
 })
 
-type FilesState =
-  | { kind: `loading` }
-  | { kind: `files`; files: PullFile[] }
-  | { kind: `none` } // no PR and the branch was never pushed (GitHub 404)
-  | { kind: `error`; message: string }
-
-// EXP-706: the file list is fetched by the ROUTE, not by the diff component —
-// the header prints the file count and the +/- totals, so it needs the files
-// before they are rendered. Two tiers behind one state machine: the PR diff
-// (`issues.prFiles`) and, for a pushed branch with no PR yet,
-// `repositories.branchDiff` (which answers null when nothing was ever pushed).
-function useReviewFiles(issue: Issue | null) {
-  const issueId = issue?.id ?? null
-  const hasPr = issue?.prNumber != null
-  const [state, setState] = useState<FilesState>({ kind: `loading` })
-
-  const load = useCallback(() => {
-    if (!issueId) return
-    let cancelled = false
-    setState({ kind: `loading` })
-    const request: Promise<PullFile[] | null> = hasPr
-      ? trpc.issues.prFiles.query({ issueId }).then((res) => res.files)
-      : trpc.repositories.branchDiff
-          .query({ issueId })
-          .then((res) => res?.files ?? null)
-    request
-      .then((files) => {
-        if (cancelled) return
-        setState(files ? { kind: `files`, files } : { kind: `none` })
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setState({
-          kind: `error`,
-          message: err instanceof Error ? err.message : `Failed to load changes`,
-        })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [issueId, hasPr])
-
-  useEffect(() => load(), [load])
-
-  return { state, reload: load }
-}
+const UiLoadingIcon = conceptIcon(`ui-loading`)
+const UiMoreIcon = conceptIcon(`ui-more`)
+const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
 function ReviewDetailPage() {
   const { teamSlug, issueIdentifier } = Route.useParams()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const boards = useTeamBoards(team?.id)
-  // EXP-698: the docked mobile action bar measures itself, so the diff pane's
-  // bottom clearance follows it — including the extra line a merge failure
-  // adds. 0 when the bar isn't rendered, and on md+ where it is `display:none`.
-  const publishReviewBarHeight = useChromeHeightVar(`--reviewbar-h`)
 
   const boardIds = useMemo(() => {
     const ids = boards.map((p) => p.id)
@@ -171,93 +129,45 @@ function ReviewDetailPage() {
     [linkedRows]
   )
 
-  // The diff itself, hoisted so the header can caption it (EXP-706).
+  // The diff itself, hoisted so the top bar can caption it (EXP-706) — the
+  // SHARED hook since EXP-895, the same one the phone's Changes face uses.
   const { state: filesState, reload: reloadFiles } = useReviewFiles(issue)
-  const loadedFiles = filesState.kind === `files` ? filesState.files : null
-  const totals = useMemo(() => {
-    const list = loadedFiles ?? []
-    return {
-      additions: list.reduce((n, f) => n + f.additions, 0),
-      deletions: list.reduce((n, f) => n + f.deletions, 0),
-    }
-  }, [loadedFiles])
+  const files = filesState.kind === `files` ? filesState.files : []
+  const [selected, setSelected] = useState<string | null>(null)
 
-  // Merge / close hold their spinner until the Electric echo flips prState away
-  // from `open` (which hides the actions), matching the Reviews list.
-  const [merging, setMerging] = useState(false)
+  // Close holds its spinner until the Electric echo flips prState away from
+  // `open` (which hides the action), matching the Reviews list. Merge's own
+  // spinner lives inside `SessionMergePill`.
   const [closing, setClosing] = useState(false)
-  const [confirmMergeOpen, setConfirmMergeOpen] = useState(false)
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
-  // A refused merge/close captions the action bar that produced it (EXP-323)
-  // instead of only flashing a toast — the reason has to stay next to the
-  // conflict-recovery button. WHICH action failed rides along: the recovery
-  // run rebases, force-pushes and then MERGES the PR, so it may only be
-  // offered after a failed MERGE — a user who asked to CLOSE a PR must never
-  // be handed a button that merges it.
-  const [actionError, setActionError] = useState<
-    ({ action: `merge` | `close` } & MergeFailure) | null
-  >(null)
+  const [closeError, setCloseError] = useState<string | null>(null)
 
-  // A refusal describes ONE snapshot of the pull request, so it must not
-  // outlive that snapshot: a re-synced issue row (Electric echo) or a fresh
-  // file fetch drops it, and with it the "Fix conflicts" swap below. Without
-  // this a conflict resolved OUTSIDE the recovery run (a teammate rebases and
-  // pushes, GitHub recomputes mergeability) would hide Merge for the life of
-  // the open PR. A refused merge writes nothing server-side, so the echo can
-  // never race the failure that was just stored.
+  // A refusal describes ONE snapshot of the pull request, so it must not outlive
+  // that snapshot: a re-synced issue row (Electric echo) drops it.
   const issueUpdatedAt = issue?.updatedAt
   useEffect(() => {
-    setActionError(null)
+    setCloseError(null)
   }, [issueUpdatedAt])
   const reloadReview = useCallback(() => {
-    setActionError(null)
+    setCloseError(null)
     reloadFiles()
   }, [reloadFiles])
 
-  // "Fix conflicts" (EXP-323, desktop parity). Presence is fetched only once
-  // an action has actually failed — opening a review must not poll for
-  // desktops, but waiting for the click would open the dialog on a momentary
-  // "no desktop online".
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  // EXP-825: "Fix conflicts" is a navigation to the Agent page composer with
-  // the builtin picked and this PR pre-filled (the launch dialog is gone).
-  const openComposer = useOpenComposer()
-  const openFixConflicts = () => {
-    if (!issue) return
-    openComposer({ actionId: BUILTIN_FIX_CONFLICTS_ID, prIssueId: issue.id })
-  }
-
-  const confirmMerge = () => {
-    if (!issue) return
-    setConfirmMergeOpen(false)
-    setMerging(true)
-    setActionError(null)
-    // Merge always closes the live coding sessions (EXP-498).
-    trpc.issues.mergePr
-      .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
-      .catch((error: unknown) => {
-        setActionError({
-          action: `merge`,
-          ...mergeFailure(error, `The pull request could not be merged`),
-        })
-        setMerging(false)
-      })
-  }
 
   const confirmClose = () => {
     if (!issue) return
     setConfirmCloseOpen(false)
     setClosing(true)
-    setActionError(null)
+    setCloseError(null)
     trpc.issues.closePr
       .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
-        setActionError({
-          action: `close`,
-          ...mergeFailure(error, `The pull request could not be closed`),
-        })
+        setCloseError(
+          mergeFailure(error, `The pull request could not be closed`).message
+        )
         setClosing(false)
       })
   }
@@ -298,53 +208,22 @@ function ReviewDetailPage() {
 
   const isOpen = issue.prState === `open`
   const isBatch = linked.length > 1
-  // EXP-706: a real merge conflict REPLACES the Merge control in its own slot
-  // (desktop header and mobile bar alike) instead of adding a second button
-  // next to the refusal caption — one action per slot, on every client.
-  const canFixConflicts = Boolean(
-    actionError?.action === `merge` &&
-      actionError.conflict &&
-      isOpen &&
-      issue.branch &&
-      steerEnabled
-  )
-  const prStateLabel =
-    issue.prNumber == null ? `No pull request` : (issue.prState ?? `open`)
-
-  // EXP-698: the diff header's Merge and the Reviews list's Merge are the SAME
-  // control at the SAME weight — one `Pill size="md" mode="action"`, never a
-  // filled Button here and an outline Button there.
-  const mergeControl = canFixConflicts ? (
-    <Pill size="md" mode="action" onClick={openFixConflicts}>
-      <GitBranch className="size-3.5" />
-      Fix conflicts
-    </Pill>
-  ) : (
-    <Pill
-      size="md"
-      mode="action"
-      disabled={merging || closing}
-      onClick={() => setConfirmMergeOpen(true)}
-    >
-      {merging ? (
-        <>
-          <LoaderCircle className="size-3.5 animate-spin" />
-          Merging…
-        </>
-      ) : (
-        <>
-          <GitMerge className="size-3.5" />
-          Merge
-        </>
-      )}
-    </Pill>
-  )
+  const mergeTarget = {
+    issueId: issue.id,
+    prState: issue.prState,
+    prNumber: issue.prNumber,
+    branch: issue.branch,
+    teamId: issue.teamId,
+    updatedAt: issue.updatedAt,
+    steerEnabled,
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* EXP-851: the shared detail header on phones — round back, the
-          identifier centred. The desktop breadcrumb is gone: the sidebar's
-          list nav says where you are, and the queue is one click away in it. */}
+          identifier centred. EXP-895: Close PR lives in its `…` now; the bottom
+          bar is the shared three-slot work bar, which has no room for a fourth
+          control. */}
       <MobileDetailHeader
         className="md:hidden"
         title={<span className="font-mono">{issue.identifier}</span>}
@@ -352,90 +231,50 @@ function ReviewDetailPage() {
         onBack={() =>
           void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
         }
+        menu={
+          isOpen ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={HEADER_BUTTON_CLASS}
+                  aria-label="Review actions"
+                  data-testid="review-actions-menu"
+                >
+                  <UiMoreIcon className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={closing}
+                  onSelect={() => setConfirmCloseOpen(true)}
+                >
+                  Close PR without merging
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : undefined
+        }
       />
 
-      {/* Desktop header (EXP-706) — deliberately NOT a card: the branch over a
-          quiet state · files · ±totals line, with the actions on the right.
-          The PR number is gone from this page entirely; GitHub is one round
-          glass button away. */}
-      <div className="hidden min-w-0 items-center gap-2 border-b border-border px-4 py-2 md:flex">
-        <div className="min-w-0">
-          {issue.branch && (
-            <div className="truncate font-mono text-xs text-muted-foreground">
-              {issue.branch}
-            </div>
-          )}
-          <div className="flex items-center gap-3 text-xs">
-            <span className="capitalize text-muted-foreground">
-              {prStateLabel}
-            </span>
-            {loadedFiles && (
-              <>
-                <span className="text-muted-foreground">
-                  {loadedFiles.length === 1
-                    ? `1 file`
-                    : `${loadedFiles.length} files`}
-                </span>
-                <AddDelCounts
-                  additions={totals.additions}
-                  deletions={totals.deletions}
-                />
-              </>
-            )}
-          </div>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {isOpen && (
-            <Button
-              variant="glass"
-              size="icon-sm"
-              aria-label="Close pull request without merging"
-              title="Close PR without merging"
-              disabled={merging || closing}
-              onClick={() => setConfirmCloseOpen(true)}
-            >
-              {closing ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <X className="size-4" />
-              )}
-            </Button>
-          )}
-          {isOpen && mergeControl}
-          {issue.prUrl && (
-            <Button
-              variant="glass"
-              size="icon-sm"
-              aria-label="Open pull request on GitHub"
-              title="Open PR on GitHub"
-              onClick={() =>
-                window.open(issue.prUrl ?? ``, `_blank`, `noopener,noreferrer`)
-              }
-            >
-              <ExternalLink className="size-4" />
-            </Button>
-          )}
-        </div>
-      </div>
+      {/* The md+ header: the ONE Changes bar (EXP-895) — it owns the merge
+          control, Close and the GitHub link. */}
+      <ChangesTopBar
+        files={files}
+        branch={issue.branch}
+        prState={issue.prNumber == null ? null : (issue.prState ?? `open`)}
+        prUrl={issue.prUrl}
+        merge={isOpen ? mergeTarget : null}
+        onClosePr={() => setConfirmCloseOpen(true)}
+        closing={closing}
+      />
 
-      {/* Desktop refusal caption (EXP-333) — right under the header actions
-          that produced it. EXP-706: message only; the recovery run has taken
-          the Merge button's slot above — except that the swap must never be a
-          dead end, so Merge rides the caption as a quiet secondary while it
-          holds that slot. */}
-      {actionError && (
-        <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
-          <span className="text-destructive text-xs">{actionError.message}</span>
-          {canFixConflicts && (
-            <Pill
-              mode="action"
-              disabled={merging || closing}
-              onClick={() => setConfirmMergeOpen(true)}
-            >
-              <GitMerge className="size-3" />
-              Retry merge
-            </Pill>
-          )}
+      {/* A refused CLOSE captions the bar that produced it (EXP-333). A refused
+          MERGE captions itself, inside `SessionMergePill`. */}
+      {closeError && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+          <span className="text-destructive text-xs">{closeError}</span>
         </div>
       )}
 
@@ -458,34 +297,35 @@ function ReviewDetailPage() {
         </div>
       )}
 
-      {/* Diff body — bottom padding clears the mobile action bar. EXP-698:
-          scrolls on BOTH axes, so an over-wide patch line is a scroll rather
-          than a hard clip at the pane's edge. */}
-      {/* EXP-698: the clearance is MEASURED (`--reviewbar-h`), not guessed —
-          a merge failure grows the bar by a whole error line, which a fixed
-          `pb-24` no longer cleared. */}
       {/* EXP-771: the scroller is the FULL-width flex child; the max-w column
-          is its child. The scrollbar then rides the panel's right edge
-          instead of appearing mid-page beside the centred diff. */}
+          is its child. The scrollbar then rides the panel's right edge instead
+          of appearing mid-page beside the centred diff. EXP-895: the phone's
+          clearance is the shared work-bar constant — no measured `--reviewbar-h`
+          any more, because the bar is the standard 52px one. */}
       <div className="flex-1 overflow-x-auto overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl pb-[calc(var(--reviewbar-h,0px)+1rem)] md:pb-4">
+        <div
+          className={cn(`mx-auto w-full max-w-5xl`, MOBILE_WORK_BAR_CLEARANCE, `md:pb-4`)}
+        >
           {filesState.kind === `loading` ? (
             <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
+              <UiLoadingIcon className="size-3.5 animate-spin" /> Loading
+              changes…
             </div>
           ) : filesState.kind === `error` ? (
-            <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-rose-300">
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-destructive">
               {`Couldn’t load changes: ${filesState.message}`}
               <Pill mode="action" onClick={() => reloadReview()}>
-                <RotateCw className="size-3" />
+                <UiRefreshIcon className="size-3" />
                 Retry
               </Pill>
             </div>
-          ) : filesState.kind === `files` && filesState.files.length > 0 ? (
-            <FileDiffList
-              files={filesState.files}
-              showFileNav={false}
+          ) : files.length > 0 ? (
+            <ChangesView
+              files={files}
+              nav="auto"
               defaultCollapsed
+              selected={selected}
+              onSelect={setSelected}
             />
           ) : (
             <div className="px-4 py-6 text-xs text-muted-foreground">
@@ -495,133 +335,25 @@ function ReviewDetailPage() {
         </div>
       </div>
 
-      {/* Mobile action bar (EXP-248) — dismiss · Merge · GitHub, matching the
-          mobile clients' review-detail bar. Mobile-only since EXP-333 —
-          desktop gets the inline header actions above, like the IDE.
-          EXP-698: DOCKED and OPAQUE, not floating. Three glass circles hovering
-          over a scrolling diff read as debris; the bar is now the bottom edge
-          of the page — the issue-detail bar's safe-area idiom, an opaque card
-          fill and one top hairline. */}
-      {(isOpen || issue.prUrl) && (
-        <div
-          ref={publishReviewBarHeight}
-          className="fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 border-t border-glass-stroke-strong bg-glass-card-opaque px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
-        >
-          {actionError && (
-            <div className="flex max-w-lg flex-wrap items-center justify-center gap-2 px-1">
-              {/* EXP-706: message only — the recovery run (merge failures
-                  only, and only REAL conflicts: EXP-533) has replaced the
-                  Merge pill below instead of doubling up here. Merge is still
-                  reachable from the caption while that swap stands: the
-                  conflict may have been resolved outside the recovery run. */}
-              <span className="text-destructive text-xs">
-                {actionError.message}
-              </span>
-              {canFixConflicts && (
-                <Pill
-                  mode="action"
-                  disabled={merging || closing}
-                  onClick={() => setConfirmMergeOpen(true)}
-                >
-                  <GitMerge className="size-3" />
-                  Retry merge
-                </Pill>
-              )}
-            </div>
-          )}
-          <div className="flex w-full items-center justify-center gap-3">
-            {isOpen && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-11 text-muted-foreground hover:text-foreground"
-                aria-label="Close pull request without merging"
-                title="Close PR without merging"
-                disabled={merging || closing}
-                onClick={() => setConfirmCloseOpen(true)}
-              >
-                {closing ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <X className="size-4" />
-                )}
-              </Button>
-            )}
-            {/* EXP-706: same slot, same pill — a real conflict swaps Merge
-                for the recovery run rather than adding a button. */}
-            {isOpen &&
-              (canFixConflicts ? (
-                <Button
-                  className="h-11 flex-1 rounded-full px-6"
-                  onClick={openFixConflicts}
-                >
-                  <GitBranch className="size-4" />
-                  Fix conflicts
-                </Button>
-              ) : (
-                <Button
-                  className="h-11 flex-1 rounded-full px-6"
-                  disabled={merging || closing}
-                  onClick={() => setConfirmMergeOpen(true)}
-                >
-                  {merging ? (
-                    <>
-                      <LoaderCircle className="size-4 animate-spin" />
-                      Merging…
-                    </>
-                  ) : (
-                    <>
-                      <GitMerge className="size-4" />
-                      Merge
-                    </>
-                  )}
-                </Button>
-              ))}
-            {issue.prUrl && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-11 text-muted-foreground hover:text-foreground"
-                aria-label="Open pull request on GitHub"
-                title="Open PR on GitHub"
-                onClick={() =>
-                  window.open(
-                    issue.prUrl ?? ``,
-                    `_blank`,
-                    `noopener,noreferrer`
-                  )
-                }
-              >
-                <ExternalLink className="size-4" />
-              </Button>
-            )}
-          </div>
-        </div>
+      {/* The phone bar (EXP-895): the same three-slot work bar every Work-screen
+          face wears — the file sheet, the Merge capsule, GitHub. */}
+      {(files.length > 0 || isOpen || issue.prUrl) && (
+        <MobileWorkBar
+          leading={
+            files.length > 0 ? (
+              <ChangesFileSheet
+                files={files}
+                selected={selected}
+                onSelect={setSelected}
+              />
+            ) : undefined
+          }
+          capsule={isOpen ? <MergeCapsule {...mergeTarget} /> : undefined}
+          trailing={
+            issue.prUrl ? <GithubCircle prUrl={issue.prUrl} /> : undefined
+          }
+        />
       )}
-
-      <Dialog open={confirmMergeOpen} onOpenChange={setConfirmMergeOpen}>
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>
-              {isBatch
-                ? `Merge PR #${issue.prNumber}?`
-                : `Merge ${issue.identifier}?`}
-            </DialogTitle>
-            <DialogDescription>
-              {`Squash-merges pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} into the repository's default branch via the GitHub App. Any live coding session for it closes.`}
-              {isBatch
-                ? ` Completes all ${linked.length} linked issues: ${linked
-                    .map((i) => i.identifier)
-                    .join(`, `)}.`
-                : ``}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setConfirmMergeOpen(false)} />
-            <Button onClick={confirmMerge}>Merge pull request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
         <DialogContent mobile="alert">

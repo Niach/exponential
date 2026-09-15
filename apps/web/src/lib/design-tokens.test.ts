@@ -30,6 +30,12 @@ const stylesCss = readFileSync(
   `utf8`
 )
 
+// The app's own sheet — what is left in it after EXP-887 moved the theme out.
+const appCss = readFileSync(
+  join(repoRoot, `apps/web/src/styles.css`),
+  `utf8`
+)
+
 // EXP-523: strip comments BEFORE any block matching. The `[^}]*` block
 // regexes below stop at the first `}`, and a `}` inside a CSS comment — even
 // one merely quoting that regex — silently truncates the capture, after which
@@ -156,6 +162,18 @@ describe(`design-tokens parity with web styles.css`, () => {
         `@theme inline should alias --color-diff-${name} to --diff-${name}`
       ).toContain(`--color-diff-${name}: var(--diff-${name});`)
     }
+  })
+
+  // EXP-895: the diff renderer moved into @exp/ui, so its `.diff-code` lowlight
+  // scope moved with it. The app keeps ONLY tiptap's copy of the same palette
+  // (the editor is the app's, the diff is the package's) — a `.diff-code` rule
+  // left behind here would silently shadow or duplicate the package's.
+  it(`the .diff-code highlight scope lives in @exp/ui, not in the app`, () => {
+    expect(stylesCss).toContain(`.diff-code .hljs-keyword`)
+    expect(appCss).not.toContain(`.diff-code`)
+    // …and tiptap's stays put.
+    expect(appCss).toContain(`.tiptap-content pre code .hljs-keyword`)
+    expect(stylesCss).not.toContain(`.tiptap-content`)
   })
 
   // EXP-698 r3: the chat inline-code trio is the only semantic colour the web

@@ -10,10 +10,10 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
+import { parseDiff, totals, type DiffFile } from "@exp/domain-contract/diff"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
-import { FileDiffList, type PullFile } from "@/components/diff-view"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
 import { IssueRunSwitcher } from "@/components/issue-run-switcher"
@@ -24,6 +24,9 @@ import {
   MobileWorkCapsule,
 } from "@/components/mobile-work-bar"
 import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
+import { ChangesFileSheet } from "@/components/changes-file-sheet"
+import { ChangesTopBar } from "@/components/changes-top-bar"
+import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
@@ -32,6 +35,8 @@ import {
   SheetHeader,
   SheetTitle,
   conceptIcon,
+  DiffCounts,
+  FileDiffList,
   useIsMobile,
   type SessionDotTone,
   Button,
@@ -87,7 +92,6 @@ import {
   answerKey,
   askStepperView,
   collectSubagents,
-  diffTruncationNote,
   expToolCaption,
   expToolDisplay,
   freeAnswerFor,
@@ -112,7 +116,6 @@ import {
   rowClass,
   sessionIsWorking,
   subagentLabel,
-  splitTruncatedDiff,
   subagentIdOf,
   summarizeSubagentRow,
   toolGroupCaption,
@@ -133,17 +136,12 @@ import {
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
 import {
+  canWidenDiffScope,
   diffScopeTurnLabel,
-  fileCardDiffFiles,
   sessionFileCards,
-  toolDiffFiles,
   type SessionFileCard as SessionFileCardData,
 } from "@/lib/session-file-cards"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
-import {
-  canWidenDiffScope,
-  SessionDiffFace,
-} from "@/components/session-diff-face"
 import { SteerComposer } from "@/components/steer-composer"
 import { ContextRing } from "@/components/context-ring"
 import {
@@ -152,7 +150,6 @@ import {
   StopRunPill,
 } from "@/components/run-action-pills"
 import {
-  DiffFaceLabel,
   ISSUE_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
@@ -187,7 +184,6 @@ import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { parseSteerMessage } from "@/lib/steer-image-message"
-import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Composer, ComposerSubmit } from "@/components/composer"
 import { ExponentialLogo } from "@/components/exponential-logo"
@@ -378,7 +374,7 @@ export function AgentSessionView({
   onStart?: () => void
   /** EXP-893: the issue's PR files, the phone's Changes face when the run
    *  published no live diff (`useReviewFiles`). */
-  prFiles?: PullFile[] | null
+  prFiles?: DiffFile[] | null
   /** EXP-893: the PR page, the Changes face's GitHub circle. */
   prUrl?: string | null
   /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
@@ -516,21 +512,13 @@ export function AgentSessionView({
     setAtBottom(true)
   }, [agentTab])
 
+  /** EXP-895: the run's live `git diff` through the ONE parser — the same
+   *  `DiffFile[]` the review page and the tool cards render. */
   const diffFiles = useMemo(
-    () => (latestDiff ? splitUnifiedDiff(latestDiff) : []),
+    () => (latestDiff ? parseDiff(latestDiff).files : []),
     [latestDiff]
   )
-  const diffStats = useMemo(
-    () =>
-      diffFiles.reduce(
-        (acc, f) => ({
-          additions: acc.additions + f.additions,
-          deletions: acc.deletions + f.deletions,
-        }),
-        { additions: 0, deletions: 0 }
-      ),
-    [diffFiles]
-  )
+  const diffStats = useMemo(() => totals(diffFiles), [diffFiles])
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
@@ -838,10 +826,7 @@ export function AgentSessionView({
   )
   /** What the diff FACE draws: the turn's files, or the whole branch. Its
    *  totals are the scope's; the face toggle keeps the branch's. */
-  const paneFiles = useMemo(
-    () => (diffCard ? fileCardDiffFiles(diffCard.files) : diffFiles),
-    [diffCard, diffFiles]
-  )
+  const paneFiles = diffCard?.files ?? diffFiles
 
   /** §4: the duplicate warnings a workflow card carries, by workflow id. A
    *  duplicate edge WITHOUT one renders inline in its subagent group row. */
@@ -928,7 +913,7 @@ export function AgentSessionView({
           {
             face: `diff` as const,
             label: (
-              <DiffFaceLabel
+              <DiffCounts
                 additions={diffStats.additions}
                 deletions={diffStats.deletions}
               />
@@ -962,7 +947,9 @@ export function AgentSessionView({
     issueHeader.trailing
   ) : (
     <>
-      {canMerge && mergeProps && (
+      {/* EXP-895: the Changes face's own top bar owns the merge control while
+          that face is up — exactly ONE Merge per surface. */}
+      {canMerge && mergeProps && !showDiffFace && (
         <MergePrPill {...mergeProps} steerEnabled={steerEnabled} />
       )}
       {canKill ? (
@@ -1059,7 +1046,19 @@ export function AgentSessionView({
    *  switcher. */
   const mobileBar = !isMobile ? null : showDiffFace ? (
     <MobileWorkBar
-      leading={prUrl ? <GithubCircle prUrl={prUrl} /> : undefined}
+      /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides the
+         issue header's action slot (an issue-less run keeps the circle). */
+      leading={
+        changesFiles.length > 0 ? (
+          <ChangesFileSheet
+            files={changesFiles}
+            selected={diffFile}
+            onSelect={setDiffFile}
+          />
+        ) : prUrl ? (
+          <GithubCircle prUrl={prUrl} />
+        ) : undefined
+      }
       capsule={
         canMerge && mergeProps ? (
           <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
@@ -1206,9 +1205,21 @@ export function AgentSessionView({
             isMobile && MOBILE_WORK_BAR_CLEARANCE
           )}
         >
-          <div className={cn(WORK_COLUMN_CLASS, `px-4 py-3`)}>
-            <SessionDiffFace
+          <div className={cn(WORK_COLUMN_CLASS)}>
+            <ChangesTopBar
               files={changesFiles}
+              branch={session.branch}
+              prState={mergeProps?.prState ?? null}
+              prUrl={prUrl}
+              merge={
+                canMerge && mergeProps
+                  ? { ...mergeProps, steerEnabled }
+                  : null
+              }
+            />
+            <ChangesView
+              files={changesFiles}
+              nav="auto"
               selected={diffFile}
               onSelect={setDiffFile}
               scopeLabel={
@@ -3539,23 +3550,30 @@ function ExpToolResult({
 
 /** EXP-786: one call's diff, through the same file renderer the "Latest
  *  changes" bar uses, in a scroll box no taller than that bar. */
-const ToolDiff = memo(function ToolDiff({ diff }: { diff: string }) {
-  const { files, truncated } = useMemo(() => {
-    // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
-    // `diff --git` header), which `splitUnifiedDiff` alone reads as zero
-    // files — `toolDiffFiles` handles both shapes.
-    const split = splitTruncatedDiff(diff)
-    return { files: toolDiffFiles(split.diff), truncated: split.truncated }
-  }, [diff])
-  if (files.length === 0 && truncated === null) return null
+const ToolDiff = memo(function ToolDiff({
+  diff,
+  live = false,
+}: {
+  diff: string
+  /** EXP-895: a card in the LIVE tail opens its files so the reader watches the
+   *  edit land; every other card stays folded. */
+  live?: boolean
+}) {
+  // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
+  // `diff --git` header) while the session diff is full `git diff` output —
+  // the shared parser reads both, and lifts the publisher's cut count off the
+  // trailing marker (EXP-786).
+  const { files, truncatedLines } = useMemo(() => parseDiff(diff), [diff])
+  if (files.length === 0 && truncatedLines === undefined) return null
   return (
     <div className="mt-1 max-h-72 overflow-auto overscroll-contain rounded-md border border-border/60">
-      {files.length > 0 && <FileDiffList files={files} showFileNav={false} />}
-      {truncated !== null && (
-        <div className="px-3 py-1.5 text-[0.6875rem] text-muted-foreground/70">
-          {diffTruncationNote(truncated)}
-        </div>
-      )}
+      <FileDiffList
+        files={files}
+        nav="none"
+        density="compact"
+        defaultCollapsed={!live}
+        truncatedLines={truncatedLines}
+      />
     </div>
   )
 })

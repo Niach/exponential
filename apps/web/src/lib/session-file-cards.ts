@@ -4,8 +4,12 @@
 // rows that SETTLED with a diff become one card: "3 files edited", the paths
 // with their `+a -d`, and a click that opens the diff pane at that file.
 // Hand-mirrored on the desktop (`crates/ui` session screen).
-import { splitUnifiedDiff, type UnifiedDiffFile } from "@/lib/unified-diff"
-import { splitTruncatedDiff, type ToolKind } from "@/lib/agent-feed"
+import {
+  mergeFilesByPath,
+  parseDiff,
+  type DiffFile,
+} from "@exp/domain-contract/diff"
+import type { ToolKind } from "@/lib/agent-feed"
 
 /** The tool kinds whose settled diff counts as a file edit. */
 export const FILE_CARD_KINDS: readonly ToolKind[] = [`edit`, `delete`, `move`]
@@ -13,17 +17,11 @@ export const FILE_CARD_KINDS: readonly ToolKind[] = [`edit`, `delete`, `move`]
 /** How many paths a card lists before it folds the rest behind "N more". */
 export const FILE_CARD_PREVIEW = 5
 
-/** One row of a card. EXP-862: the row carries the PER-TOOL patch text of the
- *  call(s) that wrote it (`status` + `patch` = the diff-view file shape), so a
- *  click can open the diff pane SCOPED to this turn without going back to the
- *  whole-branch diff. A file written twice in the segment keeps both hunks. */
-export interface SessionFileEntry {
-  path: string
-  status: string
-  additions: number
-  deletions: number
-  patch?: string
-}
+/** One row of a card IS a `DiffFile` (EXP-895): the row carries the per-call
+ *  hunks of the call(s) that wrote it, so a click can open the Changes face
+ *  SCOPED to this turn without going back to the whole-branch diff. A file
+ *  written twice in the segment keeps both hunks (`mergeFilesByPath`). */
+export type SessionFileEntry = DiffFile
 
 /** One card: the files a turn segment touched, anchored AFTER the feed row
  *  that closed the segment. */
@@ -35,7 +33,7 @@ export interface SessionFileCard {
   turnId: number
   /** The id of the last feed row of the segment — the card renders behind it. */
   afterId: number
-  files: SessionFileEntry[]
+  files: DiffFile[]
 }
 
 /** A row the derivation reads: a feed item, narrowed to what it needs. */
@@ -50,66 +48,19 @@ export interface FileCardFeedItem {
 }
 
 /** The files a per-call patch touches. The engine's per-call diff is a BARE
- *  unified diff (`--- a/path` / `+++ b/path`, no `diff --git` header), while
- *  the session diff on the "Changes" wire is full `git diff` output — this
- *  reads both, so one derivation serves both shapes. */
-export function toolDiffFiles(diff: string): UnifiedDiffFile[] {
-  const body = splitTruncatedDiff(diff).diff
-  const git = splitUnifiedDiff(body)
-  if (git.length > 0) return git
-  return splitBareUnifiedDiff(body)
+ *  unified diff (`--- a/path` / `+++ b/path`, no `diff --git` header) while the
+ *  session diff on the "Changes" wire is full `git diff` output — the shared
+ *  parser auto-detects both, and strips the publisher's truncation marker. */
+export function toolDiffFiles(diff: string): DiffFile[] {
+  return parseDiff(diff).files
 }
 
-/** `--- a/x` / `+++ b/x` sections, the form `steer::unified_diff` writes. */
-function splitBareUnifiedDiff(diff: string): UnifiedDiffFile[] {
-  const files: UnifiedDiffFile[] = []
-  let current: UnifiedDiffFile | null = null
-  let inBody = false
-  const patch: string[] = []
-  const flush = () => {
-    if (!current) return
-    current.patch = patch.length > 0 ? patch.join(`\n`) : undefined
-    files.push(current)
-    patch.length = 0
-  }
-  for (const line of diff.split(`\n`)) {
-    if (line.startsWith(`--- `)) {
-      flush()
-      const old = pathOf(line.slice(4), `a/`)
-      current = {
-        filename: old ?? ``,
-        status: old === null ? `added` : `modified`,
-        additions: 0,
-        deletions: 0,
-      }
-      inBody = false
-      continue
-    }
-    if (!current) continue
-    if (line.startsWith(`+++ `)) {
-      const next = pathOf(line.slice(4), `b/`)
-      if (next === null) current.status = `removed`
-      else current.filename = next
-      continue
-    }
-    if (!inBody && line.startsWith(`@@`)) inBody = true
-    if (!inBody) continue
-    patch.push(line)
-    if (line.startsWith(`+`)) current.additions++
-    else if (line.startsWith(`-`)) current.deletions++
-  }
-  flush()
-  return files.filter((file) => file.filename !== ``)
-}
-
-/** `a/src/x.ts` → `src/x.ts`; `/dev/null` → null (a create or a delete). */
-function pathOf(raw: string, prefix: `a/` | `b/`): string | null {
-  let path = raw.trim()
-  if (path.startsWith(`"`) && path.endsWith(`"`) && path.length >= 2) {
-    path = path.slice(1, -1)
-  }
-  if (path === `/dev/null`) return null
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path
+/** EXP-862: whether a turn-scoped Changes face may widen BACK to the whole run
+ *  — only once the run has published a session diff. Until then the turn's
+ *  files are everything there is, and offering the chip would blank the face
+ *  on click. */
+export function canWidenDiffScope(sessionFileCount: number): boolean {
+  return sessionFileCount > 0
 }
 
 /** The cards for a whole feed, in transcript order. A segment with no settled
@@ -120,14 +71,16 @@ export function sessionFileCards(
   feed: readonly FileCardFeedItem[]
 ): SessionFileCard[] {
   const cards: SessionFileCard[] = []
-  let files = new Map<string, SessionFileEntry>()
+  let files: DiffFile[] = []
   let lastId: number | null = null
   let turnId: number | null = null
   const close = () => {
-    if (lastId !== null && turnId !== null && files.size > 0) {
-      cards.push({ turnId, afterId: lastId, files: [...files.values()] })
+    if (lastId !== null && turnId !== null && files.length > 0) {
+      // ONE row per path, hunks concatenated in arrival order — the contract's
+      // own fold, not a string concatenation of two patches.
+      cards.push({ turnId, afterId: lastId, files: mergeFilesByPath(files) })
     }
-    files = new Map()
+    files = []
   }
   for (const item of feed) {
     if (item.subagentId !== undefined) continue
@@ -148,25 +101,11 @@ export function sessionFileCards(
       continue
     }
     for (const file of toolDiffFiles(item.diff)) {
-      const path = file.filename || item.detail?.trim()
+      // A pathless section (hunks with no header) borrows the tool row's own
+      // subject — the engine names the file in `detail`.
+      const path = file.path || item.detail?.trim()
       if (!path) continue
-      const held = files.get(path)
-      if (held) {
-        held.additions += file.additions
-        held.deletions += file.deletions
-        // The second call's hunks follow the first's: one patch, both edits.
-        if (file.patch) {
-          held.patch = held.patch ? `${held.patch}\n${file.patch}` : file.patch
-        }
-        continue
-      }
-      files.set(path, {
-        path,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-        patch: file.patch,
-      })
+      files.push(file.path === path ? file : { ...file, path })
     }
   }
   close()
@@ -176,21 +115,6 @@ export function sessionFileCards(
 /** The card's title — `1 file edited` / `4 files edited`, ×4. */
 export function fileCardTitle(count: number): string {
   return `${count} ${count === 1 ? `file` : `files`} edited`
-}
-
-/** EXP-862: the turn's rows as diff-view files — the scope the pane opens on
- *  when a card row is clicked. The patches are the calls' own, so the pane
- *  shows what THIS turn changed rather than the whole branch. */
-export function fileCardDiffFiles(
-  files: readonly SessionFileEntry[]
-): UnifiedDiffFile[] {
-  return files.map((file) => ({
-    filename: file.path,
-    status: file.status,
-    additions: file.additions,
-    deletions: file.deletions,
-    patch: file.patch,
-  }))
 }
 
 /** The pane's scope chip while it shows one turn — `This turn: 3 files`, ×4. */

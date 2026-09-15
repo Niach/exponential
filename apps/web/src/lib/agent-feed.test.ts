@@ -47,7 +47,6 @@ import {
   COMPACTION_TIMEOUT_MS,
   ECHO_CAP,
   ECHO_TTL_MS,
-  diffTruncationNote,
   freeAnswerFor,
   optionForHotkey,
   optionHotkey,
@@ -58,7 +57,6 @@ import {
   rateLimitExpired,
   rateLimitIsWall,
   rateLimitResetsAtMs,
-  splitTruncatedDiff,
   toolGroupCaption,
   FREE_TEXT_KEY,
   BACK_TO_CURRENT_STEP,
@@ -1716,32 +1714,6 @@ describe(`tool group caption (EXP-785)`, () => {
   it(`counts kind-less rows as other tools`, () => {
     expect(toolGroupCaption([{}, {}, { toolKind: `think` }])).toBe(`Used 3 tools`)
     expect(toolGroupCaption([])).toBe(`No tool calls`)
-  })
-})
-
-// EXP-786: the publisher's cut note is a footer, never a diff line.
-describe(`per-call diff truncation (EXP-786)`, () => {
-  const diff = `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b`
-
-  it(`splits the trailing truncation line off`, () => {
-    expect(splitTruncatedDiff(`${diff}\n\\ 120 more lines truncated`)).toEqual({
-      diff,
-      truncated: 120,
-    })
-    expect(splitTruncatedDiff(`${diff}\n\\ 1 more line truncated\n`)).toEqual({
-      diff,
-      truncated: 1,
-    })
-  })
-
-  it(`leaves an uncut diff alone, "no newline" markers included`, () => {
-    const eof = `${diff}\n\\ No newline at end of file`
-    expect(splitTruncatedDiff(eof)).toEqual({ diff: eof, truncated: null })
-  })
-
-  it(`words the footer`, () => {
-    expect(diffTruncationNote(1)).toBe(`1 more line truncated`)
-    expect(diffTruncationNote(120)).toBe(`120 more lines truncated`)
   })
 })
 

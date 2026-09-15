@@ -1603,29 +1603,6 @@ export function toolGroupCaption(
   )
 }
 
-// ── EXP-786: the per-call diff ──────────────────────────────────────────────
-
-/** A publisher-cut diff ends in ONE metadata line saying how much it dropped
- *  (`\ 120 more lines truncated`). Split it off: the diff proper renders as a
- *  diff, the note as a muted footer. */
-const DIFF_TRUNCATION_LINE = /(?:^|\n)\\ (\d+) more lines? truncated\s*$/
-
-export function splitTruncatedDiff(diff: string): {
-  diff: string
-  truncated: number | null
-} {
-  const match = DIFF_TRUNCATION_LINE.exec(diff)
-  if (!match) return { diff, truncated: null }
-  return {
-    diff: diff.slice(0, match.index),
-    truncated: Number(match[1]),
-  }
-}
-
-export function diffTruncationNote(lines: number): string {
-  return `${lines} more line${lines === 1 ? `` : `s`} truncated`
-}
-
 // ── EXP-784: the rate-limit banner ──────────────────────────────────────────
 
 /** `resetsAt` is unix MS on the wire; a publisher that sent SECONDS (any

@@ -1,21 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
+import { parsePatch } from "@exp/domain-contract/diff"
 import { SessionFileCard } from "@/components/session-file-card"
 
-// The card pulls in diff-view (for the shared +N -M cell), which imports the
-// tRPC client at module load.
-vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
-
+// EXP-895: a card row IS a `DiffFile` — the call's own hunks ride it, so the
+// Changes face can open on the turn alone (EXP-862).
 const files = (count: number) =>
-  Array.from({ length: count }, (_, i) => ({
-    path: `src/file-${i}.ts`,
-    status: `modified`,
-    additions: i,
-    deletions: 1,
-    // EXP-862: the call's own hunks ride the row, so the pane can open on the
-    // turn alone.
-    patch: `@@ -1 +1 @@\n-old ${i}\n+new ${i}`,
-  }))
+  Array.from({ length: count }, (_, i) =>
+    parsePatch(
+      `src/file-${i}.ts`,
+      `modified`,
+      `@@ -1 +1 @@\n-old ${i}\n+new ${i}`
+    )
+  )
 
 describe(`SessionFileCard (§12)`, () => {
   it(`titles the turn's files and opens the pane at one, scoped to the turn`, () => {
