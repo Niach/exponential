@@ -3,8 +3,10 @@ package com.exponential.app.ui.session
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +21,7 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.ui.components.FoldChevron
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.LiveDot
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -46,6 +49,11 @@ internal fun RunningSessionRow(
     // the current label, and offline = the run is paused until it returns.
     device: SessionDevicePresentation,
     onClick: () -> Unit,
+    // EXP-897: this row has children nested under it (the session TREE) — a
+    // 12dp fold chevron leads the row, on Running and Recent alike (×4).
+    expandable: Boolean = false,
+    expanded: Boolean = true,
+    onToggle: () -> Unit = {},
 ) {
     // EXP-734: an issueless run carries its own PR state, so "in review with
     // a merged PR" reads as Done there too.
@@ -64,6 +72,10 @@ internal fun RunningSessionRow(
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (expandable) {
+                FoldChevron(expanded = expanded, onToggle = onToggle)
+                Spacer(Modifier.width(4.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 // EXP-688: the identity line is shared with the steering
                 // screen's header (SessionRowTitle) so the two can't drift.

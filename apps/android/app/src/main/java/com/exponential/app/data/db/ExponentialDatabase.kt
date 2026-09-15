@@ -266,9 +266,14 @@ import androidx.room.TypeConverters
     //      the 22nd Electric shape, static per user (never team/trash scoped;
     //      a row renders only once its board resolves locally). New table, so
     //      the destructive fallback wipes + resyncs.
+    // v59 (EXP-897): issues.pr_base_branch — the branch a pull request is
+    //      BASED on, which is the whole stack model (`child.pr_base_branch ==
+    //      lower.branch`); without it every stacked PR reads as a lone one.
+    //      New column on the issues shape allowlist; destructive fallback
+    //      wipes + resyncs so every issue row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 58,
+    version = 59,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

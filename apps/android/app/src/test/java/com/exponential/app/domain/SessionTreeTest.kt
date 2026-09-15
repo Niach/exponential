@@ -44,6 +44,30 @@ class SessionTreeTest {
         assertEquals(emptyList<String>(), SessionTree.descendantIds(rows, "z") { it.id })
     }
 
+    // EXP-897: the fold — a collapsed parent hides its whole subtree, itself
+    // excepted. Same test name ×4.
+    @Test
+    fun hidesRowsUnderACollapsedParent() {
+        val rows = nest(
+            listOf(
+                Row("p", null),
+                Row("c", "p", "2026-09-10T11:00:00Z"),
+                Row("g", "c", "2026-09-10T12:00:00Z"),
+                Row("z", null),
+            ),
+        )
+        assertEquals(listOf("p@0+", "c@1+", "g@2", "z@0"), shape(rows))
+        assertEquals(
+            listOf("p@0+", "z@0"),
+            shape(SessionTree.visibleRows(rows, setOf("p")) { it.id }),
+        )
+        assertEquals(
+            listOf("p@0+", "c@1+", "z@0"),
+            shape(SessionTree.visibleRows(rows, setOf("c")) { it.id }),
+        )
+        assertEquals(shape(rows), shape(SessionTree.visibleRows(rows, emptySet()) { it.id }))
+    }
+
     @Test
     fun breaksACycleWhereItFirstAppears() {
         assertEquals(

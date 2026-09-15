@@ -65,6 +65,32 @@ object SessionTree {
     fun nest(sessions: List<CodingSessionEntity>): List<Row<CodingSessionEntity>> =
         nest(sessions, { it.id }, { it.parentSessionId }, { it.startedAt })
 
+    /**
+     * EXP-897: the rows a FOLDED list shows — everything nested under a
+     * collapsed parent (at any depth) is dropped, the parent itself stays.
+     * The ×4 rule (web `visibleTreeRows`, iOS/desktop the same name), so a
+     * fold chevron means the same thing on every client.
+     */
+    fun <T> visibleRows(
+        rows: List<Row<T>>,
+        collapsed: Set<String>,
+        rowId: (T) -> String,
+    ): List<Row<T>> {
+        if (collapsed.isEmpty()) return rows
+        val out = ArrayList<Row<T>>(rows.size)
+        var hiddenBelow: Int? = null
+        for (row in rows) {
+            val cut = hiddenBelow
+            if (cut != null) {
+                if (row.depth > cut) continue
+                hiddenBelow = null
+            }
+            out.add(row)
+            if (rowId(row.session) in collapsed) hiddenBelow = row.depth
+        }
+        return out
+    }
+
     /** The ids of every row nested (at any depth) under [id]. */
     fun <T> descendantIds(rows: List<Row<T>>, id: String, rowId: (T) -> String): List<String> {
         val start = rows.indexOfFirst { rowId(it.session) == id }

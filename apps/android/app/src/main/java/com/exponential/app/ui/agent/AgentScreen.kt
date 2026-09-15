@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,7 +50,9 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.StackStart
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.components.GlassPill
@@ -57,6 +61,7 @@ import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
+import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
@@ -117,6 +122,8 @@ fun AgentScreen(
     val deviceRequestNote by viewModel.deviceRequestNote.collectAsStateWithLifecycle()
     val launch by viewModel.launch.collectAsStateWithLifecycle()
     val subject by viewModel.subject.collectAsStateWithLifecycle()
+    // EXP-897: non-empty while the blocked-start dialog is up.
+    val blockedPrompt by viewModel.blockedPrompt.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
@@ -340,6 +347,10 @@ fun AgentScreen(
     // history, and the composer is what the page is for. Hoisted here because
     // the list itself is a LazyListScope extension, not a composable.
     var pastExpanded by remember { mutableStateOf(false) }
+    // EXP-897: which parents have their CHILD runs folded away, per band —
+    // hoisted because the list is a LazyListScope extension, not a composable.
+    var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
+    var collapsedPast by remember { mutableStateOf(emptySet<String>()) }
     // …and with nothing running and nothing past, the composer column sits in
     // the MIDDLE of the page instead of hugging the top bar (web `justify-center`,
     // desktop `min_h_full`, iOS the same rule).
@@ -545,6 +556,15 @@ fun AgentScreen(
                 pastRuns = pastRuns,
                 pastExpanded = pastExpanded,
                 onTogglePast = { pastExpanded = !pastExpanded },
+                collapsedRunning = collapsedRunning,
+                onToggleRunning = { id ->
+                    collapsedRunning =
+                        if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
+                },
+                collapsedPast = collapsedPast,
+                onTogglePastRun = { id ->
+                    collapsedPast = if (id in collapsedPast) collapsedPast - id else collapsedPast + id
+                },
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
@@ -578,6 +598,18 @@ fun AgentScreen(
         )
     }
 
+    // EXP-897: the picked issue is still blocked — start it anyway, or stack
+    // its pull request on the blocker's. Same title, body and button words on
+    // all four clients (`StackStart`).
+    if (blockedPrompt.isNotEmpty()) {
+        BlockedStartDialog(
+            blockers = blockedPrompt,
+            onStacked = viewModel::submitStacked,
+            onStartAnyway = viewModel::submitAnyway,
+            onDismiss = viewModel::dismissBlockedPrompt,
+        )
+    }
+
 
 }
 
@@ -606,4 +638,56 @@ private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> U
             )
         }
     }
+}
+
+/**
+ * EXP-897: the blocked-issue start dialog — the launcher's third mode. The
+ * blockers are chips (the desktop shows the same identifiers in its alert
+ * body, iOS in mono text: an alert cannot host chips there), and the three
+ * answers are the shared words: `Stacked PR`, `Start anyway`, Cancel.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BlockedStartDialog(
+    blockers: List<IssueEntity>,
+    onStacked: () -> Unit,
+    onStartAnyway: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(StackStart.BLOCKED_START_TITLE) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(StackStart.BODY_PREFIX.trimEnd())
+                FlowRow(
+                    modifier = Modifier.testTag("blocked-start-blockers"),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    blockers.forEach { blocker ->
+                        IssueChip(
+                            identifier = blocker.identifier,
+                            title = blocker.title,
+                            status = null,
+                        )
+                    }
+                }
+                Text(StackStart.BODY_SUFFIX.removePrefix(".").trim())
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onStacked, modifier = Modifier.testTag("start-stacked")) {
+                Text(StackStart.STACKED_PR_LABEL)
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onStartAnyway, modifier = Modifier.testTag("start-anyway")) {
+                    Text(StackStart.START_ANYWAY_LABEL)
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
