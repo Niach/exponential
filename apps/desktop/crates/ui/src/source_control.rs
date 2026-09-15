@@ -65,7 +65,7 @@ use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 use crate::coding_flow::{self, CodingHub};
 use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, SquashLink, MAX_LANES};
 use crate::controls::{glass_input, WebControl as _};
-use crate::diff::{build_scm_diff, DiffView};
+use crate::diff::{build_scm_diff, DiffOptions, DiffView};
 use crate::icons::registry;
 use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
@@ -142,7 +142,9 @@ pub struct SourceControlView {
     /// The shared per-window repo resolver (§4.2) — the trunk repo comes from
     /// here instead of a per-screen `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
-    /// Right pane — the shared side-by-side renderer (`set_prepared`, §4.4).
+    /// Right pane — the shared UNIFIED diff renderer (`set_prepared`, §4.4;
+    /// EXP-895 at [`DiffOptions::source_control`]: one flat, always-open list,
+    /// because the file list beside it IS the navigation).
     diff: Entity<DiffView>,
 
     /// The active board this state belongs to (scope-change reset key) —
@@ -384,7 +386,7 @@ impl SourceControlView {
                 .background_executor()
                 .spawn(async move {
                     scm::working_diff(&clone, &path, false)
-                        .map(|file| build_scm_diff(&[file], &theme))
+                        .map(|file| build_scm_diff(&[file], &theme, DiffOptions::source_control()))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -415,7 +417,8 @@ impl SourceControlView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    scm::commit_diff(&clone, &hash).map(|files| build_scm_diff(&files, &theme))
+                    scm::commit_diff(&clone, &hash)
+                        .map(|files| build_scm_diff(&files, &theme, DiffOptions::source_control()))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -449,7 +452,8 @@ impl SourceControlView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    scm::working_tree_diff(&clone).map(|files| build_scm_diff(&files, &theme))
+                    scm::working_tree_diff(&clone)
+                        .map(|files| build_scm_diff(&files, &theme, DiffOptions::source_control()))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

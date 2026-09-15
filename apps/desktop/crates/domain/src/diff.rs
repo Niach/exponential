@@ -135,7 +135,7 @@ pub struct Diff {
 // ── Patterns ────────────────────────────────────────────────────────────────
 
 /// The one marker the steer relay appends to a cut patch (EXP-786); web
-/// `splitTruncatedDiff` and desktop `truncated_marker_count` spell it the
+/// `splitTruncatedDiff` and the desktop's edit card spell it the
 /// same way. Anchored to the END of the text: only a TRAILING marker counts.
 /// `[0-9]` rather than `\d`, which is Unicode-wide in Rust and ASCII-only in
 /// the JS twin.

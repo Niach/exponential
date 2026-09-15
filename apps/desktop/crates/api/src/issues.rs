@@ -14,7 +14,7 @@
 //!    `"unknown"` and the server's schema rejects them.
 //!
 //! 2. **The `issues.prFiles` query** (masterplan-v3 §7.8) — the data source
-//!    of the desktop side-by-side diff view.
+//!    of the desktop diff view.
 //!
 //! Wire shape verified against `apps/web/src/lib/trpc/issues.ts` (`prFiles`)
 //! and `apps/web/src/lib/integrations/github-pr.ts` (`PullFile`):

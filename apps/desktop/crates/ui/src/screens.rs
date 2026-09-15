@@ -1129,6 +1129,29 @@ pub struct ScreensPanel {
     _subscriptions: Vec<Subscription>,
 }
 
+/// DEV-ONLY (§11.4 headless verification, the `EXP_DEV_*` family): which FACE
+/// a run opens on. `EXP_DEV_RUN_FACE=diff` (also `changes`) is the Changes
+/// face; anything else, and the absence of the var, is the transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunFace {
+    Run,
+    Diff,
+}
+
+/// Pure over the env value, so the mapping is a unit test rather than a
+/// capture run.
+pub(crate) fn parse_run_face(value: Option<&str>) -> Option<RunFace> {
+    match value.map(str::trim) {
+        Some("diff") | Some("changes") => Some(RunFace::Diff),
+        Some("run") | Some("transcript") => Some(RunFace::Run),
+        _ => None,
+    }
+}
+
+fn dev_run_face() -> Option<RunFace> {
+    parse_run_face(std::env::var("EXP_DEV_RUN_FACE").ok().as_deref())
+}
+
 impl ScreensPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // Full-page issue detail (§4.2): one instance, re-pointed on
@@ -1484,11 +1507,18 @@ impl ScreensPanel {
                 // feed, so re-pointing one view at another row would hand the
                 // new session the old one's socket. Built lazily — a
                 // background tab has no view until it is activated.
+                let run_id = session_id.clone();
                 self.sessions.entry(session_id.clone()).or_insert_with(|| {
                     cx.new(|cx| {
                         crate::session_screen::SessionScreenView::new(session_id, window, cx)
                     })
                 });
+                // EXP-895 (dev): `EXP_DEV_RUN_FACE=diff` opens a run straight
+                // onto its Changes face, so the capture lane photographs the
+                // diff without synthetic input. An explicit request wins.
+                if dev_run_face() == Some(RunFace::Diff) {
+                    self.pending_diff.get_or_insert((run_id, true));
+                }
                 // EXP-877: the Diff pick that opened this face asked for the
                 // pane before the view existed ([`set_run_diff_open`]).
                 self.apply_pending_diff(cx);
@@ -3709,9 +3739,23 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        lead_reserve_px, neighbor_in_strip, partition_tabs, resolve_tab_origin, resume_swaps,
-        takes_over_tab, ChipLead,
+        lead_reserve_px, neighbor_in_strip, parse_run_face, partition_tabs, resolve_tab_origin,
+        resume_swaps, takes_over_tab, ChipLead, RunFace,
     };
+
+    /// EXP-895 (dev): `EXP_DEV_RUN_FACE=diff` opens a run on its Changes
+    /// face, so the capture lane photographs the diff without synthetic
+    /// input. Unset — and anything unrecognised — leaves the transcript up.
+    #[test]
+    fn the_dev_run_face_opens_the_diff() {
+        assert_eq!(parse_run_face(Some("diff")), Some(RunFace::Diff));
+        assert_eq!(parse_run_face(Some(" changes ")), Some(RunFace::Diff));
+        assert_eq!(parse_run_face(Some("run")), Some(RunFace::Run));
+        assert_eq!(parse_run_face(Some("transcript")), Some(RunFace::Run));
+        assert_eq!(parse_run_face(Some("")), None);
+        assert_eq!(parse_run_face(Some("nonsense")), None);
+        assert_eq!(parse_run_face(None), None);
+    }
     use super::{
         group_segments, group_to_expand, live_tab_plan, strip_order, tab_group, LivePlanOp,
         TabEntry, TabGroup, TabLiveView,

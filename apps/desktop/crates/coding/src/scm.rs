@@ -80,56 +80,27 @@ pub struct CommitInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Diffs (rendered by the shared diff.rs renderer via the R2.d adapter)
+// Diffs — the ONE model (EXP-895)
 // ---------------------------------------------------------------------------
 
-/// A single unified-diff line's role.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffLineKind {
-    Context,
-    Addition,
-    Deletion,
-}
+// The per-file diff model is `domain::diff`'s, hand-mirrored ×4 and byte-locked
+// by `packages/domain-contract/fixtures/diff/cases.json`. Nothing about a diff
+// is local to the desktop any more: this module only RUNS git and hands the
+// output to the shared parser, so a `git diff`, a steer wire patch and a GitHub
+// PullFile all land in the same [`DiffFile`].
+pub use domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind, DiffStatus};
 
-/// One line of a hunk with its old/new line numbers (`None` on the side the
-/// line does not belong to).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffLine {
-    pub kind: DiffLineKind,
-    pub old_line: Option<u32>,
-    pub new_line: Option<u32>,
-    /// Line content WITHOUT the leading `+`/`-`/` ` marker or trailing newline.
-    pub content: String,
-}
-
-/// One `@@ … @@` hunk of a file diff.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnifiedHunk {
-    pub old_start: u32,
-    pub old_lines: u32,
-    pub new_start: u32,
-    pub new_lines: u32,
-    /// The verbatim `@@ -a,b +c,d @@ …` header line.
-    pub header: String,
-    pub lines: Vec<DiffLine>,
-}
-
-/// A per-file diff — the canonical scm diff model. The R2.d adapter maps this
-/// onto whatever `diff.rs` renders (`api::issues::PullFile` today), so the PR
-/// diff and the SCM/commit diff share one renderer (v4 §4.4).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffFile {
-    /// Repo-relative path (new path for renames).
-    pub path: String,
-    /// Pre-rename path when `status == Renamed`.
-    pub previous_path: Option<String>,
-    pub status: FileStatus,
-    pub additions: u32,
-    pub deletions: u32,
-    /// Empty when `binary` (git emits no textual hunks).
-    pub hunks: Vec<UnifiedHunk>,
-    /// Binary or too-large: the renderer shows the "No textual diff" note.
-    pub binary: bool,
+/// Git's working-tree status vocabulary → the contract's [`DiffStatus`].
+/// `Untracked` is a wholly-new file, so it reads as `added`; git has no
+/// "copied" working-tree code, so nothing maps onto [`DiffStatus::Copied`]
+/// here (a `git diff` PATCH still can, via `copy to`).
+pub fn diff_status(status: FileStatus) -> DiffStatus {
+    match status {
+        FileStatus::Modified => DiffStatus::Modified,
+        FileStatus::Added | FileStatus::Untracked => DiffStatus::Added,
+        FileStatus::Deleted => DiffStatus::Removed,
+        FileStatus::Renamed => DiffStatus::Renamed,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +232,7 @@ pub fn working_diff(repo: &Path, path: &str, staged: bool) -> Result<DiffFile, G
         .unwrap_or_else(|| DiffFile {
             path: path.to_string(),
             previous_path: None,
-            status: FileStatus::Modified,
+            status: DiffStatus::Modified,
             additions: 0,
             deletions: 0,
             hunks: Vec::new(),
@@ -453,7 +424,7 @@ fn untracked_diff_file(repo: &Path, path: &str) -> DiffFile {
         return DiffFile {
             path: path.to_string(),
             previous_path: None,
-            status: FileStatus::Added,
+            status: DiffStatus::Added,
             additions: 0,
             deletions: 0,
             hunks: Vec::new(),
@@ -468,7 +439,7 @@ fn untracked_diff_file(repo: &Path, path: &str) -> DiffFile {
     let hunks = if count == 0 {
         Vec::new()
     } else {
-        vec![UnifiedHunk {
+        vec![DiffHunk {
             old_start: 0,
             old_lines: 0,
             new_start: 1,
@@ -477,11 +448,11 @@ fn untracked_diff_file(repo: &Path, path: &str) -> DiffFile {
             lines: lines
                 .iter()
                 .enumerate()
-                .map(|(ix, content)| DiffLine {
-                    kind: DiffLineKind::Addition,
-                    old_line: None,
-                    new_line: Some(ix as u32 + 1),
-                    content: (*content).to_string(),
+                .map(|(ix, text)| DiffLine {
+                    kind: DiffLineKind::Add,
+                    old_no: None,
+                    new_no: Some(ix as u32 + 1),
+                    text: (*text).to_string(),
                 })
                 .collect(),
         }]
@@ -489,7 +460,7 @@ fn untracked_diff_file(repo: &Path, path: &str) -> DiffFile {
     DiffFile {
         path: path.to_string(),
         previous_path: None,
-        status: FileStatus::Added,
+        status: DiffStatus::Added,
         additions: count,
         deletions: 0,
         hunks,
@@ -708,163 +679,12 @@ pub fn parse_log(raw: &str) -> Vec<CommitInfo> {
 }
 
 /// Parse a unified diff (`git diff`/`git show` body) into per-file
-/// [`DiffFile`]s. Any commit-header preamble (from `git show`) before the first
-/// `diff --git` is ignored; header lines (`new file mode`, `rename …`, `Binary
-/// files …`, `---`/`+++`) are only interpreted before a file's first `@@` hunk,
-/// so body content that happens to begin with `---` is never mistaken for a
-/// header.
+/// [`DiffFile`]s — the shared [`domain::diff::parse_diff`], nothing more. Any
+/// commit-header preamble (from `git show`) before the first `diff --git` is
+/// ignored, header lines are honoured only before a file's first `@@` hunk,
+/// and the parse rules are the contract's (see `crates/domain/src/diff.rs`).
 pub fn parse_unified_diff(raw: &str) -> Vec<DiffFile> {
-    let mut files: Vec<DiffFile> = Vec::new();
-    let mut cur: Option<DiffFile> = None;
-    let mut old_ln = 0u32;
-    let mut new_ln = 0u32;
-
-    for line in raw.split('\n') {
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            if let Some(done) = cur.take() {
-                files.push(done);
-            }
-            cur = Some(DiffFile {
-                path: parse_diff_git_new_path(rest),
-                previous_path: None,
-                status: FileStatus::Modified,
-                additions: 0,
-                deletions: 0,
-                hunks: Vec::new(),
-                binary: false,
-            });
-            continue;
-        }
-        let Some(file) = cur.as_mut() else {
-            continue; // preamble before the first file
-        };
-
-        // A hunk header can only be a line literally starting with "@@" — body
-        // lines are always prefixed (' '/'+'/'-'), so this is unambiguous.
-        if line.starts_with("@@") {
-            if let Some((os, ol, ns, nl)) = parse_hunk_header(line) {
-                old_ln = os;
-                new_ln = ns;
-                file.hunks.push(UnifiedHunk {
-                    old_start: os,
-                    old_lines: ol,
-                    new_start: ns,
-                    new_lines: nl,
-                    header: line.to_string(),
-                    lines: Vec::new(),
-                });
-            }
-            continue;
-        }
-
-        if file.hunks.is_empty() {
-            // File-header region (before any hunk).
-            if line.starts_with("new file mode") {
-                file.status = FileStatus::Added;
-            } else if line.starts_with("deleted file mode") {
-                file.status = FileStatus::Deleted;
-            } else if let Some(p) = line.strip_prefix("rename from ") {
-                file.previous_path = Some(p.to_string());
-                file.status = FileStatus::Renamed;
-            } else if let Some(p) = line.strip_prefix("rename to ") {
-                file.path = p.to_string();
-                file.status = FileStatus::Renamed;
-            } else if let Some(p) = line.strip_prefix("copy from ") {
-                file.previous_path = Some(p.to_string());
-            } else if let Some(p) = line.strip_prefix("copy to ") {
-                file.path = p.to_string();
-            } else if line.starts_with("Binary files ") || line.starts_with("GIT binary patch") {
-                file.binary = true;
-            } else if line == "--- /dev/null" {
-                file.status = FileStatus::Added;
-            } else if let Some(p) = line.strip_prefix("+++ ") {
-                if p == "/dev/null" {
-                    file.status = FileStatus::Deleted;
-                } else if let Some(np) = p.strip_prefix("b/") {
-                    if file.status != FileStatus::Renamed {
-                        file.path = np.to_string();
-                    }
-                }
-            }
-            continue;
-        }
-
-        // Hunk body region.
-        match line.chars().next() {
-            Some('+') => {
-                file.additions += 1;
-                if let Some(hunk) = file.hunks.last_mut() {
-                    hunk.lines.push(DiffLine {
-                        kind: DiffLineKind::Addition,
-                        old_line: None,
-                        new_line: Some(new_ln),
-                        content: line[1..].to_string(),
-                    });
-                }
-                new_ln += 1;
-            }
-            Some('-') => {
-                file.deletions += 1;
-                if let Some(hunk) = file.hunks.last_mut() {
-                    hunk.lines.push(DiffLine {
-                        kind: DiffLineKind::Deletion,
-                        old_line: Some(old_ln),
-                        new_line: None,
-                        content: line[1..].to_string(),
-                    });
-                }
-                old_ln += 1;
-            }
-            Some(' ') => {
-                if let Some(hunk) = file.hunks.last_mut() {
-                    hunk.lines.push(DiffLine {
-                        kind: DiffLineKind::Context,
-                        old_line: Some(old_ln),
-                        new_line: Some(new_ln),
-                        content: line[1..].to_string(),
-                    });
-                }
-                old_ln += 1;
-                new_ln += 1;
-            }
-            // "\ No newline at end of file" and blank separators: not lines.
-            _ => {}
-        }
-    }
-
-    if let Some(done) = cur.take() {
-        files.push(done);
-    }
-    files
-}
-
-/// Best-effort new path from a `diff --git a/<old> b/<new>` remainder (a
-/// fallback — the authoritative path comes from `+++`/`rename to`).
-fn parse_diff_git_new_path(rest: &str) -> String {
-    if let Some((_, b)) = rest.rsplit_once(" b/") {
-        return b.to_string();
-    }
-    rest.trim().to_string()
-}
-
-/// Parse an `@@ -old_start[,old_lines] +new_start[,new_lines] @@ …` header into
-/// its four numbers (a missing count defaults to 1).
-fn parse_hunk_header(line: &str) -> Option<(u32, u32, u32, u32)> {
-    let after = line.strip_prefix("@@ ")?;
-    let end = after.find(" @@")?;
-    let mut ranges = after[..end].split(' ');
-    let old = ranges.next()?.strip_prefix('-')?;
-    let new = ranges.next()?.strip_prefix('+')?;
-    let (os, ol) = parse_range(old);
-    let (ns, nl) = parse_range(new);
-    Some((os, ol, ns, nl))
-}
-
-fn parse_range(range: &str) -> (u32, u32) {
-    let mut parts = range.split(',');
-    let start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let count = parts.next().map(|c| c.parse().unwrap_or(1)).unwrap_or(1);
-    (start, count)
+    domain::diff::parse_diff(raw).files
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,9 +927,20 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
 
     // ---- parse_unified_diff ----
 
+    /// EXP-895: the parser is the CONTRACT's. Everything about how a patch
+    /// reads — line numbers, `--- ` inside a hunk body, added/deleted/renamed/
+    /// binary files, a `git show` preamble, multiple sections — is locked by
+    /// `packages/domain-contract/fixtures/diff/cases.json` and replayed by
+    /// `domain::diff`'s own tests on all four clients. This one asserts only
+    /// what is left here: that the wrapper delegates and hands back the files.
     #[test]
-    fn parse_unified_diff_modification_tracks_line_numbers() {
+    fn parse_unified_diff_delegates_to_the_domain_parser() {
         let raw = "\
+commit abc123
+Author: Danny <d@e.com>
+
+    subject line
+
 diff --git a/file.txt b/file.txt
 index 111..222 100644
 --- a/file.txt
@@ -1119,127 +950,6 @@ index 111..222 100644
 -b
 +B
  c
-";
-        let files = parse_unified_diff(raw);
-        assert_eq!(files.len(), 1);
-        let f = &files[0];
-        assert_eq!(f.path, "file.txt");
-        assert_eq!(f.status, FileStatus::Modified);
-        assert_eq!((f.additions, f.deletions), (1, 1));
-        assert!(!f.binary);
-        let hunk = &f.hunks[0];
-        assert_eq!((hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines), (1, 3, 1, 3));
-        // Context "a" is line 1/1; "-b" is old line 2; "+B" is new line 2.
-        assert_eq!(hunk.lines[0].kind, DiffLineKind::Context);
-        assert_eq!(hunk.lines[0].old_line, Some(1));
-        assert_eq!(hunk.lines[0].new_line, Some(1));
-        assert_eq!(hunk.lines[1].kind, DiffLineKind::Deletion);
-        assert_eq!(hunk.lines[1].old_line, Some(2));
-        assert_eq!(hunk.lines[1].new_line, None);
-        assert_eq!(hunk.lines[1].content, "b");
-        assert_eq!(hunk.lines[2].kind, DiffLineKind::Addition);
-        assert_eq!(hunk.lines[2].new_line, Some(2));
-        assert_eq!(hunk.lines[2].old_line, None);
-        assert_eq!(hunk.lines[2].content, "B");
-    }
-
-    #[test]
-    fn parse_unified_diff_body_line_starting_with_dashes_is_not_a_header() {
-        // A removed line whose content is "-- foo" arrives as "--- foo": it
-        // must be a Deletion, never mistaken for a `--- a/…` file header.
-        let raw = "\
-diff --git a/f b/f
---- a/f
-+++ b/f
-@@ -1,1 +1,1 @@
---- keep
-+kept
-";
-        let f = &parse_unified_diff(raw)[0];
-        assert_eq!(f.deletions, 1);
-        assert_eq!(f.additions, 1);
-        let hunk = &f.hunks[0];
-        assert_eq!(hunk.lines[0].kind, DiffLineKind::Deletion);
-        assert_eq!(hunk.lines[0].content, "-- keep");
-    }
-
-    #[test]
-    fn parse_unified_diff_added_and_deleted_files() {
-        let added = "\
-diff --git a/new.rs b/new.rs
-new file mode 100644
-index 000..111
---- /dev/null
-+++ b/new.rs
-@@ -0,0 +1,2 @@
-+line1
-+line2
-";
-        let f = &parse_unified_diff(added)[0];
-        assert_eq!(f.status, FileStatus::Added);
-        assert_eq!(f.path, "new.rs");
-        assert_eq!((f.additions, f.deletions), (2, 0));
-
-        let deleted = "\
-diff --git a/gone.rs b/gone.rs
-deleted file mode 100644
-index 111..000
---- a/gone.rs
-+++ /dev/null
-@@ -1,1 +0,0 @@
--bye
-";
-        let f = &parse_unified_diff(deleted)[0];
-        assert_eq!(f.status, FileStatus::Deleted);
-        assert_eq!(f.path, "gone.rs");
-        assert_eq!((f.additions, f.deletions), (0, 1));
-    }
-
-    #[test]
-    fn parse_unified_diff_rename_and_binary() {
-        let renamed = "\
-diff --git a/old.rs b/new.rs
-similarity index 90%
-rename from old.rs
-rename to new.rs
-index 111..222 100644
---- a/old.rs
-+++ b/new.rs
-@@ -1,1 +1,1 @@
--a
-+b
-";
-        let f = &parse_unified_diff(renamed)[0];
-        assert_eq!(f.status, FileStatus::Renamed);
-        assert_eq!(f.path, "new.rs");
-        assert_eq!(f.previous_path.as_deref(), Some("old.rs"));
-
-        let binary = "\
-diff --git a/img.png b/img.png
-index 111..222 100644
-Binary files a/img.png and b/img.png differ
-";
-        let f = &parse_unified_diff(binary)[0];
-        assert!(f.binary);
-        assert!(f.hunks.is_empty());
-        assert_eq!(f.path, "img.png");
-    }
-
-    #[test]
-    fn parse_unified_diff_multiple_files_and_show_preamble() {
-        // Emulate `git show`: commit header preamble before the first diff.
-        let raw = "\
-commit abc123
-Author: Danny <d@e.com>
-
-    subject line
-
-diff --git a/a.rs b/a.rs
---- a/a.rs
-+++ b/a.rs
-@@ -1,1 +1,1 @@
--x
-+y
 diff --git a/b.rs b/b.rs
 new file mode 100644
 --- /dev/null
@@ -1247,19 +957,24 @@ new file mode 100644
 @@ -0,0 +1,1 @@
 +new
 ";
+        assert_eq!(parse_unified_diff(raw), domain::diff::parse_diff(raw).files);
         let files = parse_unified_diff(raw);
         assert_eq!(files.len(), 2);
-        assert_eq!(files[0].path, "a.rs");
-        assert_eq!(files[0].status, FileStatus::Modified);
+        assert_eq!(files[0].path, "file.txt");
+        assert_eq!(files[0].status, DiffStatus::Modified);
+        assert_eq!((files[0].additions, files[0].deletions), (1, 1));
         assert_eq!(files[1].path, "b.rs");
-        assert_eq!(files[1].status, FileStatus::Added);
+        assert_eq!(files[1].status, DiffStatus::Added);
     }
 
+    /// EXP-895: git's working-tree vocabulary onto the contract's.
     #[test]
-    fn parse_hunk_header_defaults_missing_counts_to_one() {
-        assert_eq!(parse_hunk_header("@@ -5 +7 @@ fn main"), Some((5, 1, 7, 1)));
-        assert_eq!(parse_hunk_header("@@ -1,3 +1,4 @@"), Some((1, 3, 1, 4)));
-        assert_eq!(parse_hunk_header("not a hunk"), None);
+    fn diff_status_maps_git_status_onto_the_contract() {
+        assert_eq!(diff_status(FileStatus::Modified), DiffStatus::Modified);
+        assert_eq!(diff_status(FileStatus::Added), DiffStatus::Added);
+        assert_eq!(diff_status(FileStatus::Untracked), DiffStatus::Added);
+        assert_eq!(diff_status(FileStatus::Deleted), DiffStatus::Removed);
+        assert_eq!(diff_status(FileStatus::Renamed), DiffStatus::Renamed);
     }
 
     // ---- working_diff / commit_diff wrappers ----
@@ -1274,7 +989,7 @@ new file mode 100644
         write(r, "file.txt", "a\nB\nc\n");
 
         let unstaged = working_diff(r, "file.txt", false).unwrap();
-        assert_eq!(unstaged.status, FileStatus::Modified);
+        assert_eq!(unstaged.status, DiffStatus::Modified);
         assert_eq!((unstaged.additions, unstaged.deletions), (1, 1));
 
         // Nothing staged yet ⇒ empty (zero-hunk) diff on the cached side.
@@ -1298,7 +1013,7 @@ new file mode 100644
 
         let files = commit_diff(r, "HEAD").unwrap();
         let added = files.iter().find(|f| f.path == "added.txt").unwrap();
-        assert_eq!(added.status, FileStatus::Added);
+        assert_eq!(added.status, DiffStatus::Added);
         assert_eq!(added.additions, 2);
     }
 
@@ -1345,13 +1060,13 @@ new file mode 100644
         let tracked = files.iter().find(|f| f.path == "tracked.txt").unwrap();
         assert_eq!((tracked.additions, tracked.deletions), (1, 1));
         let staged = files.iter().find(|f| f.path == "staged.txt").unwrap();
-        assert_eq!(staged.status, FileStatus::Added);
+        assert_eq!(staged.status, DiffStatus::Added);
         let untracked = files.iter().find(|f| f.path == "untracked.txt").unwrap();
-        assert_eq!(untracked.status, FileStatus::Added);
+        assert_eq!(untracked.status, DiffStatus::Added);
         assert_eq!(untracked.additions, 2);
         assert!(!untracked.binary);
-        assert_eq!(untracked.hunks[0].lines[0].content, "u1");
-        assert_eq!(untracked.hunks[0].lines[0].new_line, Some(1));
+        assert_eq!(untracked.hunks[0].lines[0].text, "u1");
+        assert_eq!(untracked.hunks[0].lines[0].new_no, Some(1));
     }
 
     /// EXP-688: the branch diff is what the PR carries — committed work

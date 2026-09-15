@@ -761,10 +761,14 @@ impl SessionScreenView {
                 cx,
             );
             let header = self.ensure_header(&issue.id, window, cx);
+            // EXP-895: while the Changes face is up its BAR owns the merge
+            // control — the tray must not offer a second one.
+            let diff_open = self.diff_open(cx);
             // The header entity's rows are built through `entity.update` from
             // this render (the detail view's precedent) — they never call
             // back into this view synchronously.
             let (right, tray, extra) = header.update(cx, |header, cx| {
+                header.set_merge_suppressed(diff_open);
                 let right = header.right_cluster(&issue, toggle, cx);
                 let actions = header.issue_actions(&issue, action, cx);
                 (
@@ -800,7 +804,9 @@ impl SessionScreenView {
                 inner.device_label(cx),
             )
         };
-        if let Some(target) = merge_target {
+        // EXP-895: the Changes face's bar owns the merge control while it is
+        // up; the header offers it only on the Run face.
+        if let Some(target) = merge_target.filter(|_| !self.diff_open(cx)) {
             right.push(crate::work_header::merge_pill("session-merge", &target, true, cx));
         }
         let over = self.run_over(cx);

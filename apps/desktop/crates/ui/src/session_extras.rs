@@ -22,17 +22,19 @@
 //! the drain records `feed item → tool call` as the row lands, and the extras
 //! key off the FEED ITEM. Nothing tries to match on titles or text.
 //!
-//! Two deliberate departures from the dock's diff surface:
+//! EXP-895: the card no longer paints its own lines. It renders the SHARED
+//! rows ([`crate::diff::file_rows`] at [`crate::diff::DiffOptions::card`],
+//! painted by [`crate::diff::render_diff_row`]) — the same anatomy the
+//! Changes face shows, only compact and unhighlighted — so an edit reads the
+//! same inline as it does in the pane. What stays local is the hosting: a
+//! card is rows, never a [`crate::diff::DiffView`] entity with its own scroll
+//! and file list (one per edit in a long run is a lot of state), and it is
+//! COLLAPSED to its header until the row's Show more opens it.
 //!
-//! * an edit card renders its own hunk rather than hosting a
-//!   [`crate::diff::DiffView`]. A DiffView is an entity with its own scroll
-//!   and file list; one per edit in a long run is a lot of state for a
-//!   single-hunk card, and the run's FULL diff already has a DiffView in the
-//!   session screen's Changes rail.
-//! * the hunk is built by the shared [`steer::unified_diff`] (ACP hands over
-//!   `old_text`/`new_text`, the scm model speaks unified diffs) and read back
-//!   through `coding::scm::parse_unified_diff` — the exact bytes a remote
-//!   viewer gets, so the two cards cannot drift.
+//! The patch itself is built by the shared [`steer::unified_diff`] (ACP hands
+//! over `old_text`/`new_text`) and read back through the contract parser
+//! [`domain::diff::parse_diff`] — the exact bytes a remote viewer gets, so
+//! the local and the wire card cannot drift.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -46,7 +48,9 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
-use coding::scm::{DiffFile, DiffLine, DiffLineKind};
+use coding::scm::DiffFile;
+
+use crate::diff::{file_rows, render_diff_row, DiffOptions, RenderRow, RowShape};
 use steer::feed::FeedItemId;
 use steer::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 
@@ -288,31 +292,18 @@ impl OutputCard {
 // old_text/new_text → one cut patch → the card's DiffFile (pure)
 // ---------------------------------------------------------------------------
 
-/// EXP-786 — the marker line the publisher appends to a cut wire patch
-/// (`\ N more lines truncated`): unified-diff metadata, so a parser skips it
-/// and this reads the count back.
-fn truncated_marker_count(line: &str) -> Option<usize> {
-    line.strip_prefix("\\ ")?
-        .strip_suffix(" more lines truncated")?
-        .parse()
-        .ok()
-}
-
 /// Read ONE per-call patch (the shape [`unified_diff`] emits: `---`/`+++`
-/// headers and hunks, no `diff --git` line) into the scm model, plus the
-/// lines a `\ N more lines truncated` marker says were dropped. `None` when
-/// the patch names no file or holds no hunk.
-pub(crate) fn parse_tool_diff(patch: &str) -> Option<(DiffFile, usize)> {
-    let path = patch
-        .lines()
-        .find_map(|line| line.strip_prefix("+++ b/"))
-        .or_else(|| patch.lines().find_map(|line| line.strip_prefix("--- a/")))?;
-    let omitted = patch.lines().find_map(truncated_marker_count).unwrap_or(0);
-    // The scm parser opens a file on `diff --git` only — synthesise the
-    // header a git patch would carry.
-    let framed = format!("diff --git a/{path} b/{path}\n{patch}");
-    let file = coding::scm::parse_unified_diff(&framed).into_iter().next()?;
-    (!file.hunks.is_empty()).then_some((file, omitted))
+/// headers and hunks, no `diff --git` line) into the shared model, plus the
+/// lines the publisher's `\ N more lines truncated` marker (EXP-786) says
+/// were dropped. Both are the CONTRACT parser's job now
+/// ([`domain::diff::parse_diff`] opens a bare section and reads the marker
+/// back as `truncated_lines`); `None` when the patch names no file or holds
+/// no hunk.
+pub(crate) fn tool_diff_file(patch: &str) -> Option<(DiffFile, usize)> {
+    let diff = domain::diff::parse_diff(patch);
+    let omitted = diff.truncated_lines.unwrap_or(0) as usize;
+    let file = diff.files.into_iter().next()?;
+    (!file.path.is_empty() && !file.hunks.is_empty()).then_some((file, omitted))
 }
 
 /// The edit card for ONE local edit: the shared patch, cut to the contract
@@ -325,7 +316,7 @@ fn tool_edit_card(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Opti
         return None;
     }
     let (kept, omitted) = truncate_unified_diff(&patch, TOOL_DIFF_MAX_LINES, TOOL_DIFF_MAX_BYTES);
-    let (file, _) = parse_tool_diff(&kept)?;
+    let (file, _) = tool_diff_file(&kept)?;
     Some(EditCard {
         path,
         file,
@@ -377,10 +368,9 @@ pub(crate) fn render_extras(
     if let Some(output) = tool.output.as_ref() {
         column = column.child(render_output_card(output, item, expanded, on_kill, cx));
     }
-    let foldable = tool
-        .edits
-        .iter()
-        .any(|edit| hunk_rows(&edit.file) > DIFF_PREVIEW_ROWS)
+    // EXP-895: an edit card collapses to its HEADER, so any patch at all is
+    // worth a toggle (the output card still folds only when it overflows).
+    let foldable = tool.edits.iter().any(|edit| hunk_rows(&edit.file) > 0)
         || tool
             .output
             .as_ref()
@@ -427,6 +417,29 @@ fn hunk_rows(file: &DiffFile) -> usize {
     file.hunks.iter().map(|hunk| hunk.lines.len()).sum()
 }
 
+/// EXP-895 — ONE edit, rendered through the SHARED diff rows at
+/// [`DiffOptions::card`]: the file-card header (status letter, dimmed dir +
+/// basename, `+N −M`, chevron) over compact unified lines, exactly the
+/// anatomy the Changes face shows.
+///
+/// A card is COLLAPSED to its header until the tool row's "Show more" opens
+/// it — a transcript is prose with evidence hanging off it, not a diff
+/// viewer; the header click opens the pane at this edit, where the whole
+/// patch lives. Open, the body stops at [`DIFF_PREVIEW_ROWS`] and says how
+/// much it is holding back (the publisher's own cut, EXP-786, counted in the
+/// same caption).
+/// How many BODY rows an edit card shows (pure): none while it is collapsed
+/// — the card is its header — and at most [`DIFF_PREVIEW_ROWS`] while it is
+/// open, because a transcript is prose with evidence hanging off it and the
+/// pane is where a whole patch is read.
+fn card_body_rows(rows: usize, expanded: bool) -> usize {
+    if expanded {
+        rows.saturating_sub(1).min(DIFF_PREVIEW_ROWS)
+    } else {
+        0
+    }
+}
+
 fn render_edit_card(
     edit: &EditCard,
     id: (FeedItemId, usize),
@@ -434,104 +447,62 @@ fn render_edit_card(
     on_open: Option<OpenDiff>,
     cx: &App,
 ) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let mut body = v_flex()
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .child(
-            h_flex()
-                // EXP-862: the header IS the way into the diff pane, scoped
-                // to this edit — the card shows a preview of one patch, the
-                // pane shows the patch.
-                .id(("session-edit-card", id.0 as usize * 64 + id.1))
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_center()
-                .text_2xs()
-                .text_color(muted)
-                .when_some(on_open, |header, on_open| {
-                    header
-                        .cursor_pointer()
-                        .hover(|this| this.text_color(cx.theme().foreground))
-                        .on_click(move |event: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            on_open(event, window, cx);
-                        })
-                })
-                .child(Icon::new(registry::CODING_DIFF).xsmall())
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(SharedString::from(
-                            edit.path.to_string_lossy().to_string(),
-                        )),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(theme::tokens::GREEN.to_hsla())
-                        .child(SharedString::from(format!("+{}", edit.file.additions))),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(cx.theme().danger)
-                        .child(SharedString::from(format!("-{}", edit.file.deletions))),
-                )
-                // EXP-786: the contract cap cut the patch — say by how much,
-                // so the card never passes for the whole edit.
-                .when(edit.omitted > 0, |this| {
-                    this.child(
-                        div()
-                            .flex_shrink_0()
-                            .child(SharedString::from(omitted_caption(edit.omitted))),
-                    )
-                }),
-        );
-    let rows: Vec<&DiffLine> = edit
-        .file
-        .hunks
-        .iter()
-        .flat_map(|hunk| hunk.lines.iter())
-        .collect();
-    let shown = if expanded {
-        rows.len()
-    } else {
-        rows.len().min(DIFF_PREVIEW_ROWS)
+    let options = DiffOptions::card();
+    let rows = file_rows(&edit.file, &cx.theme().highlight_theme, &options);
+    let Some(header) = rows.first() else {
+        return div().into_any_element();
     };
-    let mut lines = v_flex().w_full().min_w_0();
-    for line in rows.iter().take(shown) {
-        let (marker, tint) = match line.kind {
-            DiffLineKind::Addition => ("+", Some(theme::tokens::GREEN.to_hsla())),
-            DiffLineKind::Deletion => ("-", Some(cx.theme().danger)),
-            DiffLineKind::Context => (" ", None),
+
+    // Collapsed: the header IS the whole card (one `glass_row_card`-shaped
+    // row). Open: header, body, and a trailing note for everything not shown.
+    let shown = card_body_rows(rows.len(), expanded);
+    let body: Vec<&RenderRow> = rows.iter().skip(1).take(shown).collect();
+    let hidden = if expanded {
+        rows.len().saturating_sub(1 + body.len()) + edit.omitted
+    } else {
+        0
+    };
+    let note = (hidden > 0).then(|| RenderRow::Note {
+        message: SharedString::from(omitted_caption(hidden)),
+    });
+    let tail = note.is_some();
+
+    let header_shape = if body.is_empty() && !tail {
+        RowShape::Only
+    } else {
+        RowShape::Top
+    };
+    // EXP-862: the header is the way INTO the diff pane, scoped to this edit
+    // — the card shows a preview of one patch, the pane shows the patch.
+    let mut card = v_flex().w_full().min_w_0().child(
+        div()
+            .id(("session-edit-card", id.0 as usize * 64 + id.1))
+            .w_full()
+            .min_w_0()
+            .when_some(on_open, |header, on_open| {
+                header
+                    .cursor_pointer()
+                    .hover(|this| this.bg(cx.theme().list_hover))
+                    .on_click(move |event: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        on_open(event, window, cx);
+                    })
+            })
+            .child(render_diff_row(header, header_shape, gpui::px(0.), &options, cx)),
+    );
+    let last = body.len().saturating_sub(1);
+    for (index, row) in body.iter().enumerate() {
+        let shape = if index == last && !tail {
+            RowShape::Bottom
+        } else {
+            RowShape::Middle
         };
-        lines = lines.child(
-            div()
-                .w_full()
-                .min_w_0()
-                .truncate()
-                .text_2xs()
-                .font_family(theme::terminal::FONT_FAMILY)
-                .when_some(tint, |this, tint| this.text_color(tint))
-                .when(tint.is_none(), |this| this.text_color(muted))
-                .child(SharedString::from(format!("{marker}{}", line.content))),
-        );
+        card = card.child(render_diff_row(row, shape, gpui::px(0.), &options, cx));
     }
-    body = body.child(lines);
-    crate::surface::glass_row_card()
-        .w_full()
-        .min_w_0()
-        .px_2()
-        .py_1p5()
-        .child(body)
-        .into_any_element()
+    if let Some(note) = note {
+        card = card.child(render_diff_row(&note, RowShape::Bottom, gpui::px(0.), &options, cx));
+    }
+    card.into_any_element()
 }
 
 fn render_output_card(
@@ -609,6 +580,45 @@ fn render_output_card(
     card.into_any_element()
 }
 
+/// EXP-895 — ONE parse per feed row, not one per repaint. A remote viewer's
+/// transcript re-renders on every frame of a live run, and a `tool` row's
+/// patch never changes once it has landed; the raw string is the cache key,
+/// so a row that is somehow rewritten still re-parses. Thread-local: the
+/// transcript is painted on the foreground only, and the cache dies with the
+/// window rather than outliving it in a global.
+fn wire_edit(item: FeedItemId, patch: &str) -> Option<std::rc::Rc<EditCard>> {
+    use std::hash::{Hash as _, Hasher as _};
+    thread_local! {
+        static WIRE_EDITS: std::cell::RefCell<HashMap<FeedItemId, (u64, Option<std::rc::Rc<EditCard>>)>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    patch.hash(&mut hasher);
+    let key = hasher.finish();
+    WIRE_EDITS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((held, card)) = cache.get(&item) {
+            if *held == key {
+                return card.clone();
+            }
+        }
+        let card = tool_diff_file(patch).map(|(file, omitted)| {
+            std::rc::Rc::new(EditCard {
+                path: PathBuf::from(file.path.clone()),
+                file,
+                omitted,
+            })
+        });
+        // The feed itself is capped (EXP-783), so this follows it: one entry
+        // per live row, evicted wholesale once a transcript grows past it.
+        if cache.len() > 512 {
+            cache.clear();
+        }
+        cache.insert(item, (key, card.clone()));
+        card
+    })
+}
+
 /// EXP-786 — a REMOTE row's per-call diff: the patch the publisher cut and
 /// put on the wire, rendered through the same edit card a local run gets.
 /// The cut is the publisher's (the trailing `\ N more lines truncated`
@@ -622,16 +632,11 @@ pub(crate) fn render_wire_diff(
     on_open: Option<OpenDiff>,
     cx: &App,
 ) -> AnyElement {
-    let Some((file, omitted)) = parse_tool_diff(diff) else {
+    let Some(edit) = wire_edit(item, diff) else {
         return div().into_any_element();
     };
     let muted = cx.theme().muted_foreground;
-    let edit = EditCard {
-        path: PathBuf::from(file.path.clone()),
-        file,
-        omitted,
-    };
-    let foldable = hunk_rows(&edit.file) > DIFF_PREVIEW_ROWS;
+    let foldable = hunk_rows(&edit.file) > 0;
     v_flex()
         .w_full()
         .min_w_0()
@@ -758,7 +763,7 @@ pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use coding::scm::FileStatus;
+    use domain::diff::{DiffLineKind, DiffStatus};
 
     /// The feed drops its oldest rows at `FEED_CAP`; the extras must follow,
     /// or a long run keeps every hunk it ever rendered. A tool call whose LAST
@@ -790,15 +795,15 @@ mod tests {
         assert_eq!(extras.by_tool_call.len(), 2);
     }
 
-    fn line(kind: DiffLineKind, content: &str) -> (DiffLineKind, String) {
-        (kind, content.to_string())
+    fn line(kind: DiffLineKind, text: &str) -> (DiffLineKind, String) {
+        (kind, text.to_string())
     }
 
     fn rows(file: &DiffFile) -> Vec<(DiffLineKind, String)> {
         file.hunks
             .iter()
             .flat_map(|hunk| hunk.lines.iter())
-            .map(|line| (line.kind, line.content.clone()))
+            .map(|line| (line.kind, line.text.clone()))
             .collect()
     }
 
@@ -812,15 +817,15 @@ mod tests {
     fn an_edit_diffs_only_the_block_that_changed() {
         let card = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
         assert_eq!(card.path, PathBuf::from("src/lib.rs"));
-        assert_eq!(card.file.status, FileStatus::Modified);
+        assert_eq!(card.file.status, DiffStatus::Modified);
         assert_eq!((card.file.additions, card.file.deletions), (1, 1));
         assert_eq!(card.omitted, 0);
         assert_eq!(
             rows(&card.file),
             vec![
                 line(DiffLineKind::Context, "a"),
-                line(DiffLineKind::Deletion, "b"),
-                line(DiffLineKind::Addition, "B"),
+                line(DiffLineKind::Del, "b"),
+                line(DiffLineKind::Add, "B"),
                 line(DiffLineKind::Context, "c"),
             ]
         );
@@ -835,13 +840,13 @@ mod tests {
     #[test]
     fn a_created_file_is_all_additions() {
         let card = card(None, "one\ntwo\n").expect("a new file");
-        assert_eq!(card.file.status, FileStatus::Added);
+        assert_eq!(card.file.status, DiffStatus::Added);
         assert_eq!((card.file.additions, card.file.deletions), (2, 0));
         assert_eq!(
             rows(&card.file),
             vec![
-                line(DiffLineKind::Addition, "one"),
-                line(DiffLineKind::Addition, "two"),
+                line(DiffLineKind::Add, "one"),
+                line(DiffLineKind::Add, "two"),
             ]
         );
     }
@@ -862,6 +867,30 @@ mod tests {
         assert!(!extras.has_extras(1));
     }
 
+    /// EXP-895: an edit card is COLLAPSED to its header — one file-card row,
+    /// the same one the Changes face draws — until the row's Show more opens
+    /// it, and even open it stops at the preview cap.
+    #[test]
+    fn an_edit_card_is_collapsed_to_its_header() {
+        let card = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
+        let rows = file_rows(
+            &card.file,
+            &gpui_component::highlighter::HighlightTheme::default_dark(),
+            &DiffOptions::card(),
+        );
+        assert!(
+            matches!(rows.first(), Some(RenderRow::FileHeader { .. })),
+            "the first row is the file card's header"
+        );
+        assert!(rows.len() > 1, "and the patch has a body under it");
+        assert_eq!(card_body_rows(rows.len(), false), 0);
+        assert_eq!(card_body_rows(rows.len(), true), rows.len() - 1);
+        // A long patch stops at the preview cap; the note says how much is
+        // held back.
+        assert_eq!(card_body_rows(500, true), DIFF_PREVIEW_ROWS);
+        assert_eq!(omitted_caption(3), "… 3 more lines");
+    }
+
     /// EXP-786: a local edit is cut to the SAME caps the wire applies, and
     /// the card knows how many lines it lost — a local viewer and a remote
     /// one show the same prefix of one edit.
@@ -871,11 +900,16 @@ mod tests {
             .map(|n| format!("line {n}\n"))
             .collect();
         let card = card(None, &new).expect("a big new file");
-        let shown = rows(&card.file).len();
-        assert!(shown < TOOL_DIFF_MAX_LINES * 2, "{shown} rows were kept");
-        // The patch is the headers + the hunk line + the kept rows; what was
-        // dropped is everything past the cap.
-        assert_eq!(shown + 3 + card.omitted, TOOL_DIFF_MAX_LINES * 2 + 3);
+        // Every line of a new file is an addition, so the kept ones are
+        // exactly what survived the cap — plus, on a CUT patch, the one
+        // empty context row the contract parser fills the declared hunk
+        // range with.
+        let kept = rows(&card.file)
+            .iter()
+            .filter(|(kind, _)| *kind == DiffLineKind::Add)
+            .count();
+        assert!(kept < TOOL_DIFF_MAX_LINES * 2, "{kept} rows were kept");
+        assert_eq!(kept + card.omitted, TOOL_DIFF_MAX_LINES * 2);
         assert!(card.omitted > 0);
         assert_eq!(omitted_caption(1), "… 1 more line");
         assert_eq!(omitted_caption(card.omitted), format!("… {} more lines", card.omitted));
@@ -888,20 +922,20 @@ mod tests {
     #[test]
     fn a_wire_patch_parses_with_its_truncation_marker() {
         let patch = "--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n\\ 7 more lines truncated\n";
-        let (file, omitted) = parse_tool_diff(patch).expect("a hunk");
+        let (file, omitted) = tool_diff_file(patch).expect("a hunk");
         assert_eq!(file.path, "src/x.rs");
         assert_eq!(omitted, 7);
         assert_eq!(
             rows(&file),
             vec![
                 line(DiffLineKind::Context, "a"),
-                line(DiffLineKind::Deletion, "b"),
-                line(DiffLineKind::Addition, "B"),
+                line(DiffLineKind::Del, "b"),
+                line(DiffLineKind::Add, "B"),
             ]
         );
         // No file, no card; a hunk-less patch is no card either.
-        assert!(parse_tool_diff("nothing here").is_none());
-        assert!(parse_tool_diff("--- a/x\n+++ b/x\n").is_none());
+        assert!(tool_diff_file("nothing here").is_none());
+        assert!(tool_diff_file("--- a/x\n+++ b/x\n").is_none());
     }
 
     /// The output card keeps the TAIL and folds partial chunks into lines —

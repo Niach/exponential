@@ -277,6 +277,14 @@ impl FeedSource {
     }
 }
 
+/// EXP-895 — the fallback files for a run that published no diff, and the
+/// `issue:has-pr` key they were fetched for (a re-point or a PR opening
+/// re-fetches; a repaint never does).
+struct PrChanges {
+    key: String,
+    files: Vec<coding::scm::DiffFile>,
+}
+
 /// EXP-862 — WHAT the diff pane is showing.
 ///
 /// The pane used to be one thing (the whole published branch diff) with a
@@ -391,6 +399,14 @@ pub(crate) struct SteerSessionView {
     diff_open: bool,
     diff_list_open: bool,
     diff_selected: usize,
+    /// EXP-895: the file list's `Filter files` field.
+    diff_filter: Entity<InputState>,
+    /// EXP-895 — the FALLBACK files (web `useReviewFiles`): a run that
+    /// published no diff of its own still has changes to show once it has
+    /// pushed, so the pane falls back to the issue's PR files
+    /// (`issues.prFiles`) or, with no PR yet, its branch against the repo
+    /// default (`repositories.branchDiff`). Fetched once per issue+PR key.
+    pr_changes: Option<PrChanges>,
     /// EXP-862: WHAT the pane shows — the whole branch, one turn's files or
     /// one edit.
     diff_scope: DiffScope,
@@ -525,7 +541,16 @@ impl SteerSessionView {
             mention
         });
 
+        // EXP-895: the Changes face's file filter. Its own state, so the
+        // list re-renders on every keystroke and nothing else does.
+        let diff_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files"));
+
         let mut subscriptions = Vec::new();
+        subscriptions.push(cx.subscribe(&diff_filter, |_, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
+        }));
         subscriptions.push(cx.subscribe_in(
             &input,
             window,
@@ -643,6 +668,8 @@ impl SteerSessionView {
             diff_open: false,
             diff_list_open: true,
             diff_selected: 0,
+            diff_filter,
+            pr_changes: None,
             diff_scope: DiffScope::Session,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             file_cards: HashMap::new(),
@@ -1297,6 +1324,11 @@ impl SteerSessionView {
             self.row = row;
             cx.notify();
         }
+        // EXP-895: the row is where the issue id comes from, so this is the
+        // first moment the FALLBACK files can be asked for — a run that
+        // never publishes a diff (an ended one, a remote host that is gone)
+        // has no feed event to hang the fetch off.
+        self.load_pr_changes(cx);
         self.sync_mention_source(cx);
     }
 
@@ -2401,6 +2433,93 @@ impl SteerSessionView {
         if self.diff_open && self.diff_scope == DiffScope::Session {
             self.rebuild_changes_diff(cx);
         }
+        // EXP-895: a published diff retires the fallback; its absence asks
+        // for one.
+        if self.changes.is_some() {
+            self.pr_changes = None;
+        } else {
+            self.load_pr_changes(cx);
+        }
+    }
+
+    /// EXP-895 — the FALLBACK fetch (web `useReviewFiles`, two tiers behind
+    /// one state): the issue's PR files when it has a PR, else its
+    /// `exp/<IDENTIFIER>` branch against the repo default (`null` when the
+    /// branch was never pushed). Only ever for a run that published NO diff
+    /// of its own — a live local run's worktree is the better answer — and
+    /// only once per issue+PR key, so a repaint never re-fetches.
+    fn load_pr_changes(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.changes.is_some() {
+            return;
+        }
+        let Some(row) = self.row.as_ref() else {
+            return;
+        };
+        let Some(issue_id) = row.issue_id.clone().filter(|id| !id.is_empty()) else {
+            return;
+        };
+        let has_pr = self
+            .issue_row(cx)
+            .and_then(|issue| issue.pr_number.clone())
+            .is_some();
+        let key = format!("{issue_id}:{has_pr}");
+        if self.pr_changes.as_ref().is_some_and(|held| held.key == key) {
+            return;
+        }
+        let Some(client) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        let client = std::sync::Arc::new(client);
+        self.pr_changes = Some(PrChanges {
+            key: key.clone(),
+            files: Vec::new(),
+        });
+        cx.spawn(async move |this, cx| {
+            let fetch_id = issue_id.clone();
+            let files = cx
+                .background_executor()
+                .spawn(async move {
+                    if has_pr {
+                        api::issues::pr_files(&client, &fetch_id).map(|pr| pr.files)
+                    } else {
+                        api::repositories::branch_diff(&client, &fetch_id)
+                            .map(|diff| diff.map(|diff| diff.files).unwrap_or_default())
+                    }
+                })
+                .await;
+            let Ok(files) = files else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                // A diff that landed while the fetch was in flight wins: the
+                // worktree is fresher than anything GitHub can say.
+                if this.changes.is_some() {
+                    return;
+                }
+                this.pr_changes = Some(PrChanges {
+                    key,
+                    files: crate::diff::files_from_pull(&files),
+                });
+                if this.diff_open && this.diff_scope == DiffScope::Session {
+                    this.rebuild_changes_diff(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The synced issue row this run is bound to, if any.
+    fn issue_row(&self, cx: &App) -> Option<domain::rows::Issue> {
+        let issue_id = self.row.as_ref()?.issue_id.clone()?;
+        Some(
+            sync::Store::try_global(cx)?
+                .collections()
+                .issues
+                .read(cx)
+                .get(&issue_id)?
+                .clone(),
+        )
     }
 
     /// EXP-862 — the files the pane is showing: the whole published diff in
@@ -2412,29 +2531,25 @@ impl SteerSessionView {
                 .changes
                 .as_ref()
                 .map(|state| state.files.clone())
+                // EXP-895: no published diff → what the branch pushed
+                // (`Self::load_pr_changes`), so the Changes face exists for a
+                // run whose host is gone.
+                .or_else(|| self.pr_changes.as_ref().map(|pr| pr.files.clone()))
                 .unwrap_or_default(),
             DiffScope::Tool { item } => self.item_diff_files(*item),
             DiffScope::Turn { anchor } => {
-                let mut files: Vec<coding::scm::DiffFile> = Vec::new();
-                for item in crate::session_rows::turn_items(
+                let files: Vec<coding::scm::DiffFile> = crate::session_rows::turn_items(
                     self.feed.items(),
                     *anchor,
                     &self.edit_memo,
-                ) {
-                    for file in self.item_diff_files(item) {
-                        // Two writes to one file inside a turn are ONE entry,
-                        // exactly as the turn's file card counts them.
-                        match files.iter_mut().find(|held| held.path == file.path) {
-                            Some(held) => {
-                                held.additions += file.additions;
-                                held.deletions += file.deletions;
-                                held.hunks.extend(file.hunks);
-                            }
-                            None => files.push(file),
-                        }
-                    }
-                }
-                files
+                )
+                .into_iter()
+                .flat_map(|item| self.item_diff_files(item))
+                .collect();
+                // EXP-895: two writes to one file inside a turn are ONE
+                // entry — the contract's fold, exactly as the turn's file
+                // card counts them.
+                domain::diff::merge_files_by_path(&files)
             }
         }
     }
@@ -2452,7 +2567,13 @@ impl SteerSessionView {
             .find(|row| row.id == item)
             .and_then(|row| match &row.kind {
                 FeedKind::Tool { diff: Some(diff), .. } => {
-                    crate::session_extras::parse_tool_diff(diff).map(|(file, _)| vec![file])
+                    // EXP-895: the contract parser, straight — a wire patch is
+                    // one bare section and its truncation marker.
+                    domain::diff::parse_diff(diff)
+                        .files
+                        .into_iter()
+                        .next()
+                        .map(|file| vec![file])
                 }
                 _ => None,
             })
@@ -2474,17 +2595,26 @@ impl SteerSessionView {
 
     fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
         let files = self.scope_files();
-        let prepared = crate::diff::build_scm_diff(&files, &cx.theme().highlight_theme);
+        let prepared = crate::diff::build_scm_diff(
+            &files,
+            &cx.theme().highlight_theme,
+            crate::diff::DiffOptions::pane(),
+        );
         self.changes_diff
             .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
     }
 
     /// `+N −M` over the whole published diff — the header's Diff pill.
-    /// `None` when this run published no diff at all (the pill is hidden).
+    /// EXP-895: with no published diff it counts the FALLBACK files (the
+    /// issue's PR, or its pushed branch), so the Diff face toggle appears for
+    /// a run whose host went away; `None` only when there is nothing at all.
     pub(crate) fn diff_totals(&self) -> Option<(u32, u32)> {
-        self.changes
-            .as_ref()
-            .map(|state| (state.additions, state.deletions))
+        if let Some(state) = self.changes.as_ref() {
+            return Some((state.additions, state.deletions));
+        }
+        let files = &self.pr_changes.as_ref()?.files;
+        let totals = domain::diff::totals(files);
+        (totals.files > 0).then_some((totals.additions, totals.deletions))
     }
 
     /// Whether the diff pane is up right now (the header's pill is a toggle).
@@ -2505,6 +2635,8 @@ impl SteerSessionView {
         if open {
             self.diff_scope = DiffScope::Session;
             self.diff_selected = 0;
+            // EXP-895: the face may be opening onto the FALLBACK files.
+            self.load_pr_changes(cx);
             self.rebuild_changes_diff(cx);
         }
         cx.notify();
@@ -2549,7 +2681,11 @@ impl SteerSessionView {
     /// §11 — the right-hand pane: the file list, the selected file's header
     /// and the shared [`crate::diff::DiffView`]. `None` while it is shut or
     /// while this run has published no diff.
-    fn render_diff_pane(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    fn render_diff_pane(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.diff_open {
             return None;
         }
@@ -2559,24 +2695,55 @@ impl SteerSessionView {
         }
         let files: Vec<crate::diff_pane::PaneFile> = scoped
             .iter()
-            .map(|file| crate::diff_pane::PaneFile {
-                path: SharedString::from(file.path.clone()),
-                additions: file.additions,
-                deletions: file.deletions,
-            })
+            .map(crate::diff_pane::PaneFile::new)
             .collect();
         let scope_label = self.scope_label(files.len());
+        // EXP-895: the bar OWNS the merge control while this face is up (the
+        // run header hides its own), and says what the branch and its PR are.
+        let merge = self
+            .merge_target(cx)
+            .map(crate::diff_pane::MergeSlot::Merge);
+        let issue = self.issue_row(cx);
+        let branch = self
+            .session_row()
+            .and_then(|row| row.branch.clone())
+            .or_else(|| issue.as_ref().and_then(|issue| issue.branch.clone()))
+            .filter(|branch| !branch.is_empty())
+            .map(SharedString::from);
+        let state = self
+            .session_row()
+            .and_then(|row| row.pr_state.clone())
+            .or_else(|| issue.as_ref().and_then(|issue| issue.pr_state.clone()))
+            .map(|state| crate::pr_diff::capitalize(&state))
+            .unwrap_or_else(|| SharedString::from("No Pull Request"));
+        let close = crate::controls::ghost_icon_button(
+            "session-diff-close",
+            gpui_component::Icon::new(crate::icons::registry::UI_CLOSE),
+            cx,
+        )
+        .tooltip("Close diff")
+        .on_click(cx.listener(move |this: &mut Self, _: &ClickEvent, _window, cx| {
+            cx.stop_propagation();
+            this.diff_open = false;
+            cx.notify();
+        }))
+        .into_any_element();
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
+                bar: crate::diff_pane::DiffBarSpec {
+                    totals: domain::diff::totals(&scoped),
+                    state: Some(state),
+                    branch,
+                    merge,
+                    trailing: vec![close],
+                },
                 files,
                 selected: self.diff_selected,
                 list_open: self.diff_list_open,
+                filter: Some(self.diff_filter.clone()),
                 scope_label,
+                caption: None,
                 diff: self.changes_diff.clone(),
-                on_close: Box::new(|this: &mut Self, cx| {
-                    this.diff_open = false;
-                    cx.notify();
-                }),
                 on_toggle_list: Box::new(|this: &mut Self, cx| {
                     this.diff_list_open = !this.diff_list_open;
                     cx.notify();
@@ -2588,6 +2755,7 @@ impl SteerSessionView {
                     this.select_diff_file(index, cx);
                 }),
             },
+            window,
             cx,
         ))
     }
@@ -4918,8 +5086,6 @@ impl SteerSessionView {
     ) -> Option<AnyElement> {
         let card = self.file_card_of(spec)?;
         let muted = cx.theme().muted_foreground;
-        let green = theme::tokens::GREEN.to_hsla();
-        let danger = cx.theme().danger;
         let anchor = card.anchor;
         let expanded = self.expanded_cards.contains(&anchor);
         let shown = if expanded {
@@ -4950,54 +5116,28 @@ impl SteerSessionView {
             );
         for (index, file) in card.files.iter().take(shown).enumerate() {
             let path = file.path.clone();
+            // EXP-895: the SHARED file row — the same `letter · name · dimmed
+            // dir · +N −M` the Changes face's file list draws.
+            let row = crate::diff_pane::PaneFile::from_parts(
+                &file.path,
+                file.status,
+                file.additions,
+                file.deletions,
+            );
             column = column.child(
-                h_flex()
-                    .id(("steer-file-card-row", anchor as usize * 64 + index))
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .cursor_pointer()
-                    .rounded(px(theme::tokens::radius::SM))
-                    .px_1()
-                    .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_2xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(muted)
-                            .child(SharedString::from(path.clone())),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_2xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(green)
-                            .child(SharedString::from(format!("+{}", file.additions))),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_2xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(danger)
-                            .child(SharedString::from(format!("-{}", file.deletions))),
-                    )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        // EXP-862: a file card is one TURN's work, so the
-                        // pane opens on that turn's files, scrolled to this
-                        // one; the chip goes back to the whole branch.
-                        this.open_diff_scoped(
-                            DiffScope::Turn { anchor },
-                            Some(&path),
-                            cx,
-                        );
-                    })),
+                crate::diff_pane::file_row(
+                    ("steer-file-card-row", anchor as usize * 64 + index),
+                    &row,
+                    false,
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    cx.stop_propagation();
+                    // EXP-862: a file card is one TURN's work, so the pane
+                    // opens on that turn's files, scrolled to this one; the
+                    // chip goes back to the whole branch.
+                    this.open_diff_scoped(DiffScope::Turn { anchor }, Some(&path), cx);
+                })),
             );
         }
         if rest > 0 || expanded {
@@ -6933,7 +7073,7 @@ impl Render for SteerSessionView {
         // Two things you read, not one thing you read while glancing at the
         // other — the split gave each half too little, and every reader had
         // to drag the edge before either was usable.
-        let pane = self.render_diff_pane(cx);
+        let pane = self.render_diff_pane(window, cx);
         let width_probe = self.view_width.clone();
         let conversation = pane.is_none().then(|| {
             v_flex()

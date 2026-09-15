@@ -70,7 +70,7 @@ pub enum Screen {
     SupportThread { thread_id: String },
     /// Read-only PR diff for an issue's linked PR (EXP-181 — the Reviews
     /// page's rows open this instead of the issue detail; data via
-    /// `issues.prFiles`, rendered by the shared side-by-side `DiffView`).
+    /// `issues.prFiles`, rendered by the shared unified `DiffView`).
     PrDiff { issue_id: String },
     /// The Devices page (EXP-686 — the web `t/$teamSlug/devices` page: the
     /// user's machines and nothing else). Tab-less full-page mode like

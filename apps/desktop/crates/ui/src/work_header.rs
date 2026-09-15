@@ -123,7 +123,9 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
                 Face::Run => item.child(run_face_label(spec.multiple_runs)),
                 Face::Diff => {
                     let (additions, deletions) = spec.diff.unwrap_or_default();
-                    item.child(diff_label(additions, deletions, cx))
+                    // EXP-895: the ONE counts renderer — the contract's
+                    // labels (`+N` / `−M`, U+2212) in the shared tints.
+                    item.child(crate::diff_pane::counts(additions, deletions, cx))
                 }
             })
             .when(!active, |item| {
@@ -132,25 +134,6 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
         control = control.child(item);
     }
     Some(control.into_any_element())
-}
-
-/// The diff item's `+N -M` (ASCII minus), mono, additions in the shared
-/// green and deletions in the danger tint — no glyph.
-fn diff_label(additions: u32, deletions: u32, cx: &App) -> AnyElement {
-    h_flex()
-        .gap_1()
-        .font_family(theme::terminal::FONT_FAMILY)
-        .child(
-            div()
-                .text_color(theme::tokens::GREEN.to_hsla())
-                .child(SharedString::from(format!("+{additions}"))),
-        )
-        .child(
-            div()
-                .text_color(cx.theme().danger)
-                .child(SharedString::from(format!("-{deletions}"))),
-        )
-        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +548,16 @@ pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-895: the Diff face item prints the CONTRACT's labels through the
+    /// ONE counts renderer ([`crate::diff_pane::counts`]) — `+N` and a U+2212
+    /// MINUS SIGN, never an ASCII hyphen, on every desktop surface.
+    #[test]
+    fn the_diff_label_uses_the_minus_sign() {
+        assert_eq!(domain::diff::additions_label(12), "+12");
+        assert_eq!(domain::diff::deletions_label(2), "\u{2212}2");
+        assert!(!domain::diff::deletions_label(2).contains('-'));
+    }
 
     fn session(id: &str, user: Option<&str>, status: &str) -> domain::rows::CodingSession {
         // No `updated_at`: a live status without a heartbeat stamp counts as

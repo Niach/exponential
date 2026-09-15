@@ -189,6 +189,12 @@ struct RemoveInput<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct BranchDiffInput<'a> {
+    issue_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ListBranchesInput<'a> {
     repository_id: &'a str,
 }
@@ -294,6 +300,20 @@ pub fn list_branches(trpc: &TrpcClient, repository_id: &str) -> Result<RepoBranc
         "repositories.listBranches",
         &ListBranchesInput { repository_id },
     )
+}
+
+/// `repositories.branchDiff` — query (member-gated). The issue's
+/// `exp/<IDENTIFIER>` branch compared against the repo's default branch, in
+/// the SAME shape `issues.prFiles` returns ([`crate::issues::PrFiles`]) — the
+/// middle tier of Changes visibility (EXP-895, web `useReviewFiles`): a run
+/// that published no diff and has no PR yet still shows what it pushed.
+/// `None` when the branch was never pushed (the server answers JSON `null`).
+/// Blocking — call from a background executor, never the foreground.
+pub fn branch_diff(
+    trpc: &TrpcClient,
+    issue_id: &str,
+) -> Result<Option<crate::issues::PrFiles>, ApiError> {
+    trpc.query_with_input("repositories.branchDiff", &BranchDiffInput { issue_id })
 }
 
 /// `repositories.setDefaultBranch` — mutation (owner-gated). Pins the branch
@@ -588,5 +608,33 @@ mod tests {
             }
             other => panic!("expected 412 Http error, got {other:?}"),
         }
+    }
+
+    /// EXP-895: the branch-diff tier decodes into the SAME `PrFiles` shape the
+    /// PR tier does, and a never-pushed branch is `null`, not an error.
+    #[test]
+    fn branch_diff_decodes_pull_files_and_a_null_branch() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repo":"acme/widgets","prNumber":null,"files":[
+                {"filename":"src/a.ts","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1,2 @@\n a\n+b"}
+            ]}}}"#,
+        );
+        let out = branch_diff(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000")
+            .unwrap()
+            .expect("a pushed branch answers files");
+        assert_eq!(out.repo.as_deref(), Some("acme/widgets"));
+        assert_eq!(out.pr_number, None);
+        assert_eq!(out.files[0].filename, "src/a.ts");
+
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/repositories.branchDiff?input="));
+        assert!(request.contains("%22issueId%22"));
+
+        let (base, _captured) = one_shot_server(200, r#"{"result":{"data":null}}"#);
+        assert_eq!(
+            branch_diff(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap(),
+            None
+        );
     }
 }
