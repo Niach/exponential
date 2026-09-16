@@ -11,9 +11,9 @@
 //! Three sources, one shape:
 //!
 //! * **claude** — the OAuth usage endpoint, read with the CLI's OWN
-//!   credential, straight from the store `claude` keeps it in. Ordinarily it
-//!   is borrowed for exactly one GET and dropped; ONLY with `claudeKeepAlive`
-//!   on (EXP-852, off by default) is it also REFRESHED in place, under the
+//!   credential, straight from the store `claude` keeps it in. It is
+//!   borrowed for exactly one GET and dropped, and — when its own expiry
+//!   comes due (EXP-852/EXP-909, no setting) — REFRESHED in place under the
 //!   CLI's own `.oauth_refresh.lock` ([`crate::claude_oauth`]), so the daemon
 //!   and the user's own CLI go on sharing one login. Either way it is never
 //!   logged, never copied off this machine, and never written to any store
@@ -532,8 +532,8 @@ impl fmt::Debug for ClaudeOauthCredential {
 impl ClaudeOauthCredential {
     /// Whether the token is past its own expiry.
     ///
-    /// EXP-881: an expired token is now ALWAYS given a rotation attempt
-    /// first, whatever `claudeKeepAlive` says — an expired credential makes
+    /// EXP-881: an expired token is ALWAYS given a rotation attempt first
+    /// (EXP-909: there is no setting) — an expired credential makes
     /// every usage read 401, and a 401 is read as `Needs re-login`. So
     /// reaching here means the rotation was tried on this beat and could NOT
     /// happen (a sibling process holds the machine-wide claim, the store
@@ -897,14 +897,15 @@ fn collect_inner(
                     .get_or_insert_with(|| logins_used_on_this_machine(data_dir));
                 used.contains(&cache_id)
             });
-        // EXP-852 — claude keep-alive. SAME eligibility rule as codex's (a
-        // login this machine RUNS: the device default, or one some recorded
-        // run used — never a parked account on a machine that is not its
-        // home) and the SAME machine-wide claim, but the cadence is the
-        // TOKEN'S OWN EXPIRY, not an interval: `claude_refresh_due` reads a
-        // cached `expiresAt`, so a healthy login costs nothing on a beat.
-        // Opt-in (`claudeKeepAlive`, OFF by default) until the strace gate
-        // has passed.
+        // EXP-852/EXP-909 — the claude refresh, ONE path: every login this
+        // machine monitors is rotated when its token is due — inside the
+        // margin before expiry or already past it (`claude_refresh_due`
+        // reads a cached `expiresAt`, so a healthy login costs nothing on a
+        // beat). No setting and no "this machine runs this login" rule: a
+        // usage read on an expired token 401s, a 401 paints `Needs re-login`
+        // on an account that is perfectly fine, and a PARKED account's
+        // numbers are shown like everybody's — so its token is kept good
+        // like everybody's. The SAME machine-wide claim as codex's below.
         //
         // Deliberately NOT riding the usage probe the way codex's does:
         // codex's is a flag on a request the poll already makes, claude's is a
@@ -914,38 +915,21 @@ fn collect_inner(
         // floors), longer than any sane margin. So it runs here, every beat,
         // before the live/poll match; on success the probe below rides the
         // NEW token and skips a second store read.
-        let scheduled_keep_alive = agent == CodingAgent::Claude
-            && settings.claude_keep_alive
-            && usage_cache::claude_refresh_due(&entry, now)
-            && (target.active || {
-                let used = used_logins.get_or_insert_with(|| logins_used_on_this_machine(data_dir));
-                used.contains(&cache_id)
-            });
-        // EXP-881 — the SECOND gate: a token that has ALREADY expired is
-        // refreshed whatever the setting says and whoever runs here. Not a
-        // keep-alive in the EXP-852 sense (nothing is being kept warm): every
-        // usage read on an expired token 401s, and a 401 paints `Needs
-        // re-login` on an account that is perfectly fine. Rotating it is the
-        // only way to learn which it is, so neither `claudeKeepAlive` nor
-        // "this machine runs this login" gates it — a PARKED account's
-        // numbers are shown too, and they are just as wrong.
-        let expired_refresh = agent == CodingAgent::Claude
-            && usage_cache::claude_token_expired(&entry, now)
-            && usage_cache::claude_refresh_due(&entry, now);
-        let claude_keep_alive = scheduled_keep_alive || expired_refresh;
+        let claude_refresh =
+            agent == CodingAgent::Claude && usage_cache::claude_refresh_due(&entry, now);
         // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
         // keep the two processes from spending two requests, but a refresh
         // also ROTATES the credential — the IDE and the daemon both
         // refreshing one profile would rotate it twice, the loser writing a
         // token the winner already replaced. The claim is held across the
         // work below and released when this iteration ends; a process that
-        // cannot take it probes WITHOUT the keep-alive.
-        let refresh_claim = (keep_alive || claude_keep_alive)
+        // cannot take it probes WITHOUT the refresh.
+        let refresh_claim = (keep_alive || claude_refresh)
             .then(|| usage_cache::claim_refresh(data_dir, &id, &target.profile, now))
             .flatten();
         let keep_alive = keep_alive && refresh_claim.is_some();
-        let claude_keep_alive = claude_keep_alive && refresh_claim.is_some();
-        let fresh_token = if claude_keep_alive {
+        let claude_refresh = claude_refresh && refresh_claim.is_some();
+        let fresh_token = if claude_refresh {
             let token = claude_keep_alive_step(target.dir.as_deref(), &mut entry, now);
             // EXP-881: a rotation on a login whose numbers are DIMMED takes
             // down the wall the failure put up — the next read is the one
@@ -3929,11 +3913,9 @@ mod tests {
     /// the ambient one's is a month out, deliberately: its config dir is this
     /// MACHINE's own `~/.claude`, and no test may go near it.
     ///
-    /// EXP-881: the `+60 s` expiry is now load-bearing TWICE — it is inside
-    /// the margin (so the scheduled keep-alive is due) and NOT yet expired (so
-    /// the unconditional expired-token refresh stays out of these tests). Move
-    /// it into the past and every "the keep-alive did not run" case below
-    /// starts refusing.
+    /// The `+60 s` expiry sits INSIDE the refresh margin, so every login the
+    /// fixture creates is due on its first beat; `expire_claude_login` moves
+    /// it into the past for the cases that need a dead token.
     #[cfg(unix)]
     fn claude_keep_alive_fixture(
         tag: &str,
@@ -4044,19 +4026,17 @@ mod tests {
         usage_cache::save(dir, &cache);
     }
 
-    /// EXP-852 — the keep-alive is OPT-IN: with `claudeKeepAlive` off (the
-    /// default) a login whose token sits well inside the refresh margin is not
-    /// touched at all, so a build that ships the setting off ships today's
-    /// behaviour byte for byte.
+    /// EXP-852/EXP-909 — ONE refresh path, no setting: a login whose token
+    /// sits inside the refresh margin is rotated on the beat, before its
+    /// numbers are read.
     #[cfg(unix)]
     #[test]
-    fn the_claude_keep_alive_is_off_by_default() {
+    fn a_login_inside_the_refresh_margin_is_rotated_on_the_beat() {
         let _lock = live_lock();
         live::reset();
         let now = 1_800_000_000;
-        let (dir, settings, work) = claude_keep_alive_fixture("keep-alive-off", now);
+        let (dir, settings, work) = claude_keep_alive_fixture("refresh-margin", now);
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
-        assert!(!settings.claude_keep_alive, "the default is OFF");
         assert!(
             usage_cache::claude_refresh_due(
                 usage_cache::load(&dir)
@@ -4064,12 +4044,12 @@ mod tests {
                     .unwrap(),
                 now
             ),
-            "…and this login would otherwise be due"
+            "the fixture's login is due"
         );
 
         collect_if_due(&dir, &settings, &claude_named_report(), now);
 
-        assert_never_kept_alive(&dir, &work.id);
+        assert_refresh_attempted(&dir, &work.id);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4079,12 +4059,11 @@ mod tests {
     /// rather than rotating a token the holder is already replacing.
     #[cfg(unix)]
     #[test]
-    fn a_held_refresh_claim_parks_the_claude_keep_alive() {
+    fn a_held_refresh_claim_parks_the_claude_refresh() {
         let _lock = live_lock();
         live::reset();
         let now = 1_800_000_000;
-        let (dir, mut settings, work) = claude_keep_alive_fixture("keep-alive-claim", now);
-        settings.claude_keep_alive = true;
+        let (dir, settings, work) = claude_keep_alive_fixture("keep-alive-claim", now);
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
         // The sibling process's claim, taken a moment ago (pid + when).
         std::fs::write(
@@ -4100,18 +4079,17 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A PARKED account — added and signed in here, but not the device default
-    /// and never used by a recorded run — is deliberately left to expire.
-    /// Keeping a credential warm is this machine asserting it needs the login,
-    /// and this machine does not.
+    /// EXP-909 — a PARKED login (added and signed in here, never the device
+    /// default, never run here) is refreshed like any other: its numbers are
+    /// shown on the Devices page like everybody's, and a token left to expire
+    /// would paint them `Needs re-login`.
     #[cfg(unix)]
     #[test]
-    fn a_parked_account_is_never_kept_alive() {
+    fn a_parked_login_is_refreshed_like_any_other() {
         let _lock = live_lock();
         live::reset();
         let now = 1_800_000_000;
-        let (dir, mut settings, work) = claude_keep_alive_fixture("keep-alive-parked", now);
-        settings.claude_keep_alive = true;
+        let (dir, settings, work) = claude_keep_alive_fixture("refresh-parked", now);
         // The ambient login stays the device default, so `work` is a login
         // this machine merely HOLDS…
         assert_eq!(
@@ -4123,66 +4101,34 @@ mod tests {
 
         collect_if_due(&dir, &settings, &claude_named_report(), now);
 
-        assert_never_kept_alive(&dir, &work.id);
+        assert_refresh_attempted(&dir, &work.id);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-881 — an EXPIRED token is refreshed whatever `claudeKeepAlive`
-    /// says. Keeping a live token warm is an opt-in convenience; rotating a
-    /// DEAD one is the only way to tell a working account from a broken one,
-    /// because every usage read on it 401s and a 401 is painted as
-    /// `Needs re-login`.
+    /// EXP-881 — an EXPIRED token is rotated before its numbers are read:
+    /// every usage read on it 401s and a 401 is painted as `Needs re-login`,
+    /// so the rotation is the only way to tell a working account from a
+    /// broken one.
     #[cfg(unix)]
     #[test]
-    fn an_expired_login_refreshes_even_with_the_keep_alive_off() {
+    fn an_expired_login_is_rotated_before_its_numbers_are_read() {
         let _lock = live_lock();
         live::reset();
         let now = 1_800_000_000;
-        let (dir, settings, work) = claude_keep_alive_fixture("expired-keep-alive-off", now);
+        let (dir, settings, work) = claude_keep_alive_fixture("expired-login", now);
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
-        assert!(!settings.claude_keep_alive, "the setting is OFF");
-        // Inside the margin but alive, the setting still decides…
-        collect_if_due(&dir, &settings, &claude_named_report(), now);
-        assert_never_kept_alive(&dir, &work.id);
-
-        // …and past the expiry it does not.
         expire_claude_login(&dir, &work.id, now);
+        assert!(usage_cache::claude_token_expired(
+            usage_cache::load(&dir)
+                .get(&usage_cache::entry_key("claude", &work.id))
+                .unwrap(),
+            now
+        ));
+
         collect_if_due(&dir, &settings, &claude_named_report(), now);
+
         assert_refresh_attempted(&dir, &work.id);
-
-        live::reset();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// EXP-881 — and the same for a PARKED login (added here, signed in here,
-    /// never the default and never run here). EXP-852 leaves a parked
-    /// account's live token to expire on purpose — but its numbers are shown
-    /// on the Accounts surface like everybody's, and an expired token makes
-    /// them read `Needs re-login`, so a dead one is still rotated.
-    #[cfg(unix)]
-    #[test]
-    fn an_expired_parked_login_still_refreshes_for_its_numbers() {
-        let _lock = live_lock();
-        live::reset();
-        let now = 1_800_000_000;
-        let (dir, mut settings, work) = claude_keep_alive_fixture("expired-parked", now);
-        settings.claude_keep_alive = true;
-        // The ambient login is the device default and no run ever named
-        // `work`: the EXP-852 gate refuses it …
-        assert_eq!(
-            crate::agent_profiles::active_profile(&dir, CodingAgent::Claude),
-            SYSTEM_PROFILE
-        );
-        assert!(crate::run_registry::all(&dir).is_empty());
-        collect_if_due(&dir, &settings, &claude_named_report(), now);
-        assert_never_kept_alive(&dir, &work.id);
-
-        // … until the token is actually dead.
-        expire_claude_login(&dir, &work.id, now);
-        collect_if_due(&dir, &settings, &claude_named_report(), now);
-        assert_refresh_attempted(&dir, &work.id);
-
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }

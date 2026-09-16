@@ -10,8 +10,6 @@
 //! | Tooling doctor | The shared [`super::doctor_section::DoctorPanel`]    |
 //! |                | (EXP-367 — moved here from Agents; also the wizard's |
 //! |                | tools step)                                          |
-//! | Claude sign-in | EXP-852 — the claude keep-alive switch               |
-//! |                | (`Settings::claude_keep_alive`), saved on click      |
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. This pane and the Agents pane
@@ -204,30 +202,6 @@ impl ToolsPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// EXP-852: flip the claude keep-alive (our own expiry-driven refresh of
-    /// this machine's claude OAuth logins, under the CLI's own
-    /// `.oauth_refresh.lock`). Written straight through the hub's ui-prefs
-    /// save — no doctor rerun, no launch-defaults push, and nothing for the
-    /// Save-changes button to draft.
-    ///
-    /// It lives HERE and not in [`super::agents`] on purpose: the Agents
-    /// pane's claude knobs are LAUNCH DEFAULTS, and launch defaults flow
-    /// through `device_settings.rs` / `remote_admin::DefaultsPatch` — i.e.
-    /// they are remotely settable off the devices row. A switch that decides
-    /// whether this machine touches a CREDENTIAL store must never be
-    /// reachable that way, so it stays a Tools (this-device, never-synced)
-    /// knob outside the defaults wire.
-    fn set_claude_keep_alive(&mut self, enabled: bool, cx: &mut gpui::Context<Self>) {
-        let hub = CodingHub::global(cx);
-        let mut settings = hub.read(cx).settings.clone();
-        if settings.claude_keep_alive == enabled {
-            return;
-        }
-        settings.claude_keep_alive = enabled;
-        CodingHub::save_ui_prefs(&hub, settings, cx);
-        cx.notify();
-    }
-
     /// EXP-862: one FIELD of the pane's group — the label inside the row, the
     /// value typed on its right (`surface::glass_input_row`), never a caption
     /// floating above a boxed field.
@@ -279,33 +253,6 @@ impl Render for ToolsPane {
             ),
         );
 
-        // EXP-852: the claude keep-alive — its own section BELOW the Save
-        // button, because it saves on click and is not part of the draft.
-        let keep_alive = CodingHub::global(cx).read(cx).settings.claude_keep_alive;
-        let sign_in = section(cx)
-            .child(crate::surface::glass_section_header(
-                "Claude sign-in",
-                None,
-                cx,
-            ))
-            .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_toggle_row(
-                    "Keep Claude signed in",
-                    Some(
-                        "Experimental. Keeps this machine's Claude logins from expiring by \
-                         renewing them in place, the way the Claude CLI does. Off by default."
-                            .into(),
-                    ),
-                    crate::controls::web_switch("claude-keep-alive")
-                        .checked(keep_alive)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.set_claude_keep_alive(*checked, cx);
-                        }))
-                        .into_any_element(),
-                    cx,
-                ),
-            ]));
-
         // EXP-367: local-only destructive hatch for testing fresh-install
         // flows (login, onboarding wizard, tools setup).
         let danger = danger_zone(
@@ -325,7 +272,6 @@ impl Render for ToolsPane {
             .gap_6()
             .child(card)
             .child(save_area)
-            .child(sign_in)
             .child(self.doctor.clone())
             .child(danger)
     }
@@ -349,11 +295,6 @@ mod tests {
         // Fields the AGENTS pane owns — they must not travel.
         source.default_agent = coding::CodingAgent::Codex;
         source.claude_model = "opus".to_string();
-        // EXP-852: this pane RENDERS the keep-alive switch but does not DRAFT
-        // it (it saves on click), so it must not travel through the overlay
-        // either — otherwise a stale Save-changes click would resurrect the
-        // baseline's value over a flip made meanwhile.
-        source.claude_keep_alive = true;
 
         let mut target = Settings::default();
         ToolsPane::overlay_owned(&mut target, &source);
@@ -365,9 +306,5 @@ mod tests {
         assert_eq!(target, expected);
         assert_eq!(target.default_agent, Settings::default().default_agent);
         assert_eq!(target.claude_model, Settings::default().claude_model);
-        assert!(
-            !target.claude_keep_alive,
-            "the keep-alive is not drafted here"
-        );
     }
 }

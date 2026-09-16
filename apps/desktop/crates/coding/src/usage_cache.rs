@@ -1128,8 +1128,8 @@ mod tests {
         // A zero/absent-looking stamp is "expired in 1970", i.e. due.
         assert!(claude_refresh_due(&expiring_at(0), now));
 
-        // EXP-881: all three are also EXPIRED, the stronger fact that makes
-        // the collector rotate whatever `claudeKeepAlive` says. An entry that
+        // EXP-881: all three are also EXPIRED, the stronger fact (the
+        // refresh has one expiry-driven path since EXP-909). An entry that
         // was never read is not expired — we have no evidence either way.
         assert!(claude_token_expired(&expiring_at(ms_after(now, -60)), now));
         assert!(claude_token_expired(&expiring_at(0), now));
