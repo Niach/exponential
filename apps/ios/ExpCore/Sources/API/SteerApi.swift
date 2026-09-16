@@ -706,6 +706,11 @@ struct StartSessionInput: Encodable {
     // forbids it only next to `resumeSessionId` (a recorded run keeps its
     // options), which this input never carries.
     let prompt: String?
+    // EXP-897: start a STACKED run — the branch is cut from the blocker's PR
+    // branch and the pull request is based on it. SINGLE-ISSUE only: the
+    // batch and action inputs deliberately have no such field, and the server
+    // refuses it beside `resumeSessionId`. Omitted when nil, never `false`.
+    let stack: Bool?
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -799,12 +804,15 @@ public final class SteerApi: Sendable {
     /// online device. Throws `SteerStartError.rejected` with the server's
     /// human-readable reason on PRECONDITION_FAILED (device offline, no repo
     /// linked, relay off) so the UI can surface it verbatim.
+    /// - Parameter stack: EXP-897 — cut this run's branch from the blocking
+    ///   issue's pull-request branch and base its PR on it (single-issue only).
     public func startSession(
         accountId: String,
         issueId: String,
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
-        prompt: String? = nil
+        prompt: String? = nil,
+        stack: Bool? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -820,7 +828,8 @@ public final class SteerApi: Sendable {
                     planMode: options.planMode,
                     resume: options.resume,
                     account: options.account,
-                    prompt: prompt
+                    prompt: prompt,
+                    stack: stack
                 )
             )
         } catch let TrpcError.httpError(status, body) {

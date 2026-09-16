@@ -45,6 +45,36 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(SessionTree.descendantIds(rows, of: "z", rowId: { $0.id }), [])
     }
 
+    // EXP-897: a folded list hides a collapsed parent's WHOLE subtree, however
+    // deep, and only a row with children can collapse.
+    func testHidesRowsUnderACollapsedParent() {
+        let rows = nest([
+            Row(id: "p", parent: nil),
+            Row(id: "child", parent: "p"),
+            Row(id: "grand", parent: "child"),
+            Row(id: "sibling", parent: nil),
+        ])
+        XCTAssertEqual(shape(rows), ["p@0+", "child@1+", "grand@2", "sibling@0"])
+        XCTAssertEqual(
+            visible(rows, ["p"]).map(\.session.id), ["p", "sibling"]
+        )
+        XCTAssertEqual(
+            visible(rows, ["child"]).map(\.session.id), ["p", "child", "sibling"]
+        )
+        // A leaf carries no fold, so naming it changes nothing.
+        XCTAssertEqual(
+            visible(rows, ["grand", "sibling"]).map(\.session.id),
+            ["p", "child", "grand", "sibling"]
+        )
+        XCTAssertEqual(visible(rows, []).map(\.session.id), ["p", "child", "grand", "sibling"])
+    }
+
+    private func visible(
+        _ rows: [SessionTree.Row<Row>], _ collapsed: Set<String>
+    ) -> [SessionTree.Row<Row>] {
+        SessionTree.visibleRows(rows, collapsed: collapsed, rowId: { $0.id })
+    }
+
     func testBreaksACycleWhereItFirstAppears() {
         XCTAssertEqual(
             shape(nest([Row(id: "a", parent: "b"), Row(id: "b", parent: "a"), Row(id: "self", parent: "self")])),

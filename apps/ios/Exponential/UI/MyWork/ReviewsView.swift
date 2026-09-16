@@ -28,6 +28,11 @@ struct ReviewsListContent: View {
     @Environment(\.pushRoute) private var pushRoute
     @State private var viewModel: ReviewsViewModel?
     @State private var mergeTarget: ReviewEntry?
+    /// EXP-897: the stack a "Merge the whole stack?" confirm is pending for —
+    /// always the LOWEST row, whose issue id the server walks the chain from.
+    @State private var stackMergeTarget: ReviewRow?
+    /// EXP-897 Part 4: the batch PR whose issues the overlay lists.
+    @State private var batchTarget: ReviewEntry?
     /// EXP-734: the agent run whose OWN pull request a merge confirm is
     /// pending for — its own alert, because the copy names no issues.
     @State private var runMergeTarget: RunReviewEntry?
@@ -103,6 +108,28 @@ struct ReviewsListContent: View {
             let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
             Text("Squash-merges PR \(pr) via the GitHub App. Any live coding session for it closes.")
         }
+        // EXP-897: merging a STACK is one call on the bottom row — the server
+        // resolves the top and merges every unmerged member below it.
+        .alert(
+            "Merge the whole stack?",
+            isPresented: Binding(
+                get: { stackMergeTarget != nil },
+                set: { if !$0 { stackMergeTarget = nil } }
+            ),
+            presenting: stackMergeTarget
+        ) { row in
+            Button("Merge") { mergeStack(row) }
+            Button("Cancel", role: .cancel) { stackMergeTarget = nil }
+        } message: { row in
+            Text("\(row.stackSize) pull requests, bottom-up.")
+        }
+        // EXP-897 Part 4: a batch row's issues are the overlay's content.
+        .sheet(item: $batchTarget) { entry in
+            PrGraphIssueSheet(title: "In this pull request", issues: entry.issues) { issueId in
+                batchTarget = nil
+                deps.deepLinkBus.navigateToIssue(issueId)
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -123,14 +150,14 @@ struct ReviewsListContent: View {
         List {
             ForEach(groups) { group in
                 Section {
-                    ForEach(group.entries) { entry in
-                        entryRow(entry)
+                    ForEach(group.rows) { row in
+                        entryRow(row)
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                     }
                 } header: {
-                    boardHeader(board: group.board, count: group.entries.count)
+                    boardHeader(board: group.board, count: group.rows.count)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
@@ -326,29 +353,96 @@ struct ReviewsListContent: View {
         }
     }
 
+    /// EXP-897: 14 pt per stack level, the ×4 measure.
+    private static let stackIndent: CGFloat = 14
+
     @ViewBuilder
-    private func entryRow(_ entry: ReviewEntry) -> some View {
+    private func entryRow(_ row: ReviewRow) -> some View {
+        let entry = row.entry
         // The caption + recovery button live OUTSIDE the NavigationLink: a
         // control inside the link's label has its tap swallowed by the link.
         VStack(alignment: .leading, spacing: 6) {
-            entryLink(entry)
+            entryLink(row)
+            stackCaption(row)
             if let failure = mergeErrors[entry.id] {
                 mergeErrorCaption(entry, failure: failure)
             }
         }
+        .padding(.leading, CGFloat(row.depth) * Self.stackIndent)
+    }
+
+    /// EXP-897: the row's stack line — what it is built ON, the "Merge stack"
+    /// pill on the LOWEST member, and (Part 4) a batch row's issue count,
+    /// which opens the overlay. All of it OUTSIDE the link, so every control
+    /// here actually receives its tap.
+    @ViewBuilder
+    private func stackCaption(_ row: ReviewRow) -> some View {
+        let entry = row.entry
+        if row.stackedOn != nil || row.isStackBottom || entry.isBatch {
+            HStack(spacing: 8) {
+                if let below = row.stackedOn {
+                    Text("on top of #\(below)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+                if row.isStackBottom {
+                    GlassPill("Merge stack", icon: AppIcons.prStack)
+                        .contentShape(Capsule())
+                        .onTapGesture { stackMergeTarget = row }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Merge the whole stack")
+                }
+                if entry.isBatch {
+                    GlassPill("\(entry.issues.count) issues", icon: AppIcons.prBatch)
+                        .contentShape(Capsule())
+                        .onTapGesture { batchTarget = entry }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Show the issues on this pull request")
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+
+    /// EXP-897: merging the whole stack — ONE call on the BOTTOM row, which
+    /// the server walks up from. Failures caption that row like any other.
+    private func mergeStack(_ row: ReviewRow) {
+        stackMergeTarget = nil
+        let issueId = row.entry.representative.id
+        let key = row.entry.id
+        mergeErrors[key] = nil
+        merging.insert(key)
+        Task {
+            do {
+                try await deps.issuesApi.mergePr(
+                    accountId: accountId, issueId: issueId, mergeStack: true
+                )
+            } catch {
+                mergeErrors[key] = MergeFailure(error: error)
+            }
+            merging.remove(key)
+        }
     }
 
     @ViewBuilder
-    private func entryLink(_ entry: ReviewEntry) -> some View {
+    private func entryLink(_ row: ReviewRow) -> some View {
+        let entry = row.entry
         // The Review detail (the diff + Merge/Close screen) is what a reviewer
         // wants first (EXP-168); the issue itself is one tap away in the menu.
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: entry.representative.id)) {
             HStack(alignment: .center, spacing: 10) {
                 // PR glyph — the in_review status icon, green, vertically
-                // centered like the Android row (EXP-248).
-                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
-                    .foregroundStyle(IssueStatus.inReview.color)
-                    .frame(width: 16)
+                // centered like the Android row (EXP-248). EXP-897 Part 4: a
+                // BATCH pull request wears the `pr-batch` glyph instead, so
+                // one row for several issues reads as one at a glance.
+                AppIcon(
+                    entry.isBatch ? AppIcons.prBatch : AppIcons.prOpen,
+                    size: AppIcon.Size.small
+                )
+                .foregroundStyle(IssueStatus.inReview.color)
+                .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 3) {
                     if entry.isBatch {
@@ -439,6 +533,13 @@ struct ReviewsListContent: View {
                 Label("Merge", appIcon: AppIcons.prMerged)
             }
             .tint(DesignTokens.Semantic.green)
+            // EXP-897: the lowest member of a stack merges the whole chain.
+            if row.isStackBottom {
+                Button { stackMergeTarget = row } label: {
+                    Label("Merge stack", appIcon: AppIcons.prStack)
+                }
+                .tint(DesignTokens.Semantic.green)
+            }
         }
         .contextMenu {
             Button {
@@ -450,6 +551,20 @@ struct ReviewsListContent: View {
                 mergeTarget = entry
             } label: {
                 Label("Merge PR", appIcon: AppIcons.prMerged)
+            }
+            if row.isStackBottom {
+                Button {
+                    stackMergeTarget = row
+                } label: {
+                    Label("Merge stack", appIcon: AppIcons.prStack)
+                }
+            }
+            if entry.isBatch {
+                Button {
+                    batchTarget = entry
+                } label: {
+                    Label("Show the issues", appIcon: AppIcons.prBatch)
+                }
             }
             if canFixConflicts(entry) {
                 Button {

@@ -230,6 +230,10 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let prNumber: Int?
     public let prState: String?
     public let branch: String?
+    /// EXP-897: the branch this issue's PR is BASED on. The stack edge —
+    /// `child.pr_base_branch == lower.branch` within one repository. NULL (or
+    /// the repo's default branch) = not stacked on anything of ours.
+    public let prBaseBranch: String?
     public let prMergedAt: String?
     public let createdAt: String
     public let updatedAt: String
@@ -255,6 +259,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         prNumber: Int?,
         prState: String?,
         branch: String?,
+        prBaseBranch: String? = nil,
         prMergedAt: String?,
         createdAt: String,
         updatedAt: String
@@ -279,6 +284,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.prNumber = prNumber
         self.prState = prState
         self.branch = branch
+        self.prBaseBranch = prBaseBranch
         self.prMergedAt = prMergedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -297,6 +303,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case prUrl = "pr_url"
         case prNumber = "pr_number"
         case prState = "pr_state"
+        case prBaseBranch = "pr_base_branch"
         case prMergedAt = "pr_merged_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -330,6 +337,7 @@ extension IssueEntity: Codable {
         prNumber = try container.decodeWireInt(forKey: .prNumber)
         prState = try container.decodeIfPresent(String.self, forKey: .prState)
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
+        prBaseBranch = try container.decodeIfPresent(String.self, forKey: .prBaseBranch)
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)

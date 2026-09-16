@@ -58,6 +58,11 @@ struct WorkScreen: View {
     @State private var sawLiveSession = false
     @State private var steerEnabled = false
     @State private var markedRead = false
+    /// EXP-897 Part 4: the stack / batch / run-tree the subject is entangled
+    /// with — ONE badge in the header, ONE overlay behind it, sections per
+    /// face.
+    @State private var prGraphModel: PrGraphModel?
+    @State private var prGraphOpen = false
 
     init(subject: WorkSubject) {
         self.subject = subject
@@ -215,6 +220,26 @@ struct WorkScreen: View {
         issue != nil
     }
 
+    // MARK: - The PR graph (EXP-897 Part 4)
+
+    private var teamId: String? {
+        issueVM?.board?.teamId ?? shownSession?.teamId
+    }
+
+    private var prGraph: PrGraph.Graph? {
+        prGraphModel?.graph(issue: issue, session: shownSession)
+    }
+
+    /// The header badge, when there IS a stack or a batch to name.
+    @ViewBuilder
+    private var prGraphBadge: some View {
+        if let graph = prGraph, let kind = PrGraph.badgeKind(graph) {
+            PrGraphBadge(kind: kind, positionLabel: graph.positionLabel) {
+                prGraphOpen = true
+            }
+        }
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -322,7 +347,12 @@ struct WorkScreen: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
+                    HStack(spacing: 6) {
+                        WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
+                        // EXP-897 Part 4: the ONE stack/batch badge, beside
+                        // the title on every face.
+                        prGraphBadge
+                    }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if face == .run {
@@ -428,6 +458,31 @@ struct WorkScreen: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This action cannot be undone.")
+            }
+            // EXP-897 Part 4: the badge's overlay — its sections follow the
+            // face underneath.
+            .background {
+                Color.clear
+                    .sheet(isPresented: $prGraphOpen) {
+                        if let graph = prGraph {
+                            PrGraphSheet(
+                                graph: graph,
+                                face: face,
+                                onOpenIssue: { id in
+                                    prGraphOpen = false
+                                    deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
+                                },
+                                onOpenRun: { id in
+                                    prGraphOpen = false
+                                    swapIn(id)
+                                },
+                                onMergeStack: { id in
+                                    prGraphOpen = false
+                                    mergeStack(issueId: id)
+                                }
+                            )
+                        }
+                    }
             }
             .alert("Resume this run?", isPresented: $showResumeConfirm) {
                 Button("Resume") { resumeRun() }
@@ -551,6 +606,10 @@ struct WorkScreen: View {
             // A session subject learns its issue off its row.
             .onChange(of: subjectModel?.issueId, initial: true) { _, _ in
                 ensureIssueViewModel()
+                ensurePrGraphModel()
+            }
+            .onChange(of: teamId) { _, _ in
+                ensurePrGraphModel()
             }
             // `shownSessionId` follows the coding target until a pick.
             .onChange(of: targetSessionId, initial: true) { _, id in
@@ -584,6 +643,19 @@ struct WorkScreen: View {
             }
     }
 
+    /// EXP-897: merging the whole stack from the overlay — one call on the
+    /// BOTTOM entry's issue; the server resolves the top and merges every
+    /// unmerged member below it.
+    private func mergeStack(issueId: String) {
+        let accountId = accountId
+        let issuesApi = deps.issuesApi
+        Task {
+            try? await issuesApi.mergePr(
+                accountId: accountId, issueId: issueId, mergeStack: true
+            )
+        }
+    }
+
     private func appear() {
         if subjectModel == nil {
             subjectModel = WorkSubjectModel(
@@ -599,6 +671,16 @@ struct WorkScreen: View {
         subjectModel?.start()
         ensureIssueViewModel()
         issueVM?.startObserving()
+        ensurePrGraphModel()
+    }
+
+    /// The graph's rows, re-armed on every appear like every other observation
+    /// here (the issue and the team may resolve after the first pass).
+    private func ensurePrGraphModel() {
+        if prGraphModel == nil {
+            prGraphModel = PrGraphModel(accountId: accountId, db: deps.db)
+        }
+        prGraphModel?.start(issueId: issueId, teamId: teamId)
     }
 
     private func disappear() {
@@ -606,6 +688,7 @@ struct WorkScreen: View {
         // first responder may outlive this screen (EXP-246).
         UIApplication.endEditing()
         subjectModel?.stop()
+        prGraphModel?.stop()
         startWatcher.stop()
         if let vm = issueVM {
             // Stop synchronously: deferring it behind the async saves

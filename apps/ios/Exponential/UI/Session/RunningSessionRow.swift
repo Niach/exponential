@@ -19,17 +19,45 @@ struct RunningSessionRow<Footer: View>: View {
     let state: CodingSessionDisplayState
     let device: SessionDevicePresentation
     let open: RunningSessionRowOpen
+    /// EXP-897: this row has child runs nested under it, so it carries the
+    /// fold chevron. Defaulted off — most rows are leaves.
+    var expandable: Bool = false
+    var expanded: Bool = true
+    var onToggle: (() -> Void)?
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            primary
-                .frame(minHeight: GlassTokens.controlSize)
+            HStack(alignment: .top, spacing: 6) {
+                foldControl
+                primary
+                    .frame(minHeight: GlassTokens.controlSize)
+            }
             footer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
+    }
+
+    /// EXP-897: the fold, in a PLAIN Button OUTSIDE the row's
+    /// NavigationLink/Button label — a control nested in a link's label has its
+    /// tap swallowed by the link (the Reviews rows' trap, the ×4 rule).
+    @ViewBuilder
+    private var foldControl: some View {
+        if expandable {
+            Button { onToggle?() } label: {
+                AppIcon(
+                    expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 12
+                )
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(width: 14, height: GlassTokens.controlSize)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Collapse child runs" : "Expand child runs")
+            .accessibilityIdentifier("session-fold")
+        }
     }
 
     @ViewBuilder
@@ -95,7 +123,10 @@ extension RunningSessionRow where Footer == EmptyView {
         title: String,
         state: CodingSessionDisplayState,
         device: SessionDevicePresentation,
-        open: RunningSessionRowOpen
+        open: RunningSessionRowOpen,
+        expandable: Bool = false,
+        expanded: Bool = true,
+        onToggle: (() -> Void)? = nil
     ) {
         self.init(
             session: session,
@@ -104,6 +135,9 @@ extension RunningSessionRow where Footer == EmptyView {
             state: state,
             device: device,
             open: open,
+            expandable: expandable,
+            expanded: expanded,
+            onToggle: onToggle,
             footer: { EmptyView() }
         )
     }

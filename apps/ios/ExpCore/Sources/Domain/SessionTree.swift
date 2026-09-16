@@ -68,6 +68,32 @@ public enum SessionTree {
         nest(sessions, id: { $0.id }, parent: { $0.parentSessionId }, startedAt: { $0.startedAt })
     }
 
+    /// EXP-897: the rows a FOLDED list draws — every row whose parent (at any
+    /// depth) is collapsed drops out. The ×4 rule (web `visibleTreeRows`,
+    /// desktop `sessions_section::drop_collapsed`, Android
+    /// `SessionTree.visibleRows`): only a row with children can collapse, and
+    /// collapsing hides its whole subtree, however deep.
+    public static func visibleRows<T>(
+        _ rows: [Row<T>], collapsed: Set<String>, rowId: (T) -> String
+    ) -> [Row<T>] {
+        var out: [Row<T>] = []
+        var hideBelow: Int?
+        for row in rows {
+            if let depth = hideBelow, row.depth > depth { continue }
+            hideBelow = nil
+            out.append(row)
+            if row.hasChildren, collapsed.contains(rowId(row.session)) { hideBelow = row.depth }
+        }
+        return out
+    }
+
+    /// The synced-row convenience.
+    public static func visibleRows(
+        _ rows: [Row<CodingSessionEntity>], collapsed: Set<String>
+    ) -> [Row<CodingSessionEntity>] {
+        visibleRows(rows, collapsed: collapsed, rowId: { $0.id })
+    }
+
     /// The ids of every row nested (at any depth) under `id`.
     public static func descendantIds<T>(_ rows: [Row<T>], of id: String, rowId: (T) -> String) -> [String] {
         guard let start = rows.firstIndex(where: { rowId($0.session) == id }) else { return [] }

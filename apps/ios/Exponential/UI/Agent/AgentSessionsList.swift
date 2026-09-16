@@ -23,6 +23,11 @@ struct AgentSessionsList: View {
     /// are history, and an unfolded list of them buried the live ones. The
     /// header expands inline; EXP-886 dropped its count ×4.
     @State private var pastExpanded = false
+    /// EXP-897: the runs folded shut in each band. A parent run's children are
+    /// nested under it (`SessionTree`), and its chevron hides the whole
+    /// subtree — the ×4 rule, in BOTH bands.
+    @State private var collapsedRunning: Set<String> = []
+    @State private var collapsedPast: Set<String> = []
 
     var body: some View {
         // EXP-818: the Running/Recent groups are filled BANDS over flat rows
@@ -35,18 +40,16 @@ struct AgentSessionsList: View {
                     noAgentsRow
                 } else {
                     // EXP-818: a run started by another run nests under its
-                    // parent, indented (`SessionTree`, the ×4 rule).
-                    ForEach(
-                        SessionTree.nest(
-                            vm.rows,
-                            id: { $0.session.id },
-                            parent: { $0.session.parentSessionId },
-                            startedAt: { $0.session.startedAt }
-                        ),
-                        id: \.session.id
-                    ) { entry in
-                        sessionRow(entry.session)
-                            .padding(.leading, CGFloat(entry.depth) * 16)
+                    // parent, indented (`SessionTree`, the ×4 rule). EXP-897:
+                    // every parent carries a fold, 14 pt per level.
+                    ForEach(runningRows, id: \.session.id) { entry in
+                        sessionRow(
+                            entry.session,
+                            expandable: entry.hasChildren,
+                            expanded: !collapsedRunning.contains(entry.session.session.id),
+                            onToggle: { toggle(&collapsedRunning, entry.session.session.id) }
+                        )
+                        .padding(.leading, CGFloat(entry.depth) * Self.indentPerLevel)
                     }
                 }
             }
@@ -86,13 +89,20 @@ struct AgentSessionsList: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("past-runs-band")
             if pastExpanded {
-                ForEach(vm.pastRows) { row in
+                // EXP-897: Recent nests too — a child run is history under its
+                // parent, not a stranger in the same list.
+                ForEach(pastRows, id: \.session.id) { entry in
+                    let row = entry.session
                     EndedRunRow(
                         title: PastRuns.title(row.session, issue: row.issue),
                         identifier: row.issue?.identifier,
                         byline: pastByline(row),
+                        expandable: entry.hasChildren,
+                        expanded: !collapsedPast.contains(row.session.id),
+                        onToggle: { toggle(&collapsedPast, row.session.id) },
                         onOpen: { sessionTarget = .init(sessionId: row.session.id) }
                     )
+                    .padding(.leading, CGFloat(entry.depth) * Self.indentPerLevel)
                     .accessibilityIdentifier("past-run-row")
                 }
             }
@@ -107,6 +117,46 @@ struct AgentSessionsList: View {
             device: row.device.displayLabel,
             relativeTime: relativeWireDate(PastRuns.endedAt(row.session))
         )
+    }
+
+    // MARK: - Nesting (EXP-818/EXP-897)
+
+    /// 14 pt per level, the ×4 measure (was 16 before the fold chevron took
+    /// its own 14 pt of leading).
+    private static let indentPerLevel: CGFloat = 14
+
+    private var runningRows: [SessionTree.Row<AgentsViewModel.Row>] {
+        SessionTree.visibleRows(
+            SessionTree.nest(
+                vm.rows,
+                id: { $0.session.id },
+                parent: { $0.session.parentSessionId },
+                startedAt: { $0.session.startedAt }
+            ),
+            collapsed: collapsedRunning,
+            rowId: { $0.session.id }
+        )
+    }
+
+    private var pastRows: [SessionTree.Row<AgentsViewModel.PastRow>] {
+        SessionTree.visibleRows(
+            SessionTree.nest(
+                vm.pastRows,
+                id: { $0.session.id },
+                parent: { $0.session.parentSessionId },
+                startedAt: { $0.session.startedAt }
+            ),
+            collapsed: collapsedPast,
+            rowId: { $0.session.id }
+        )
+    }
+
+    private func toggle(_ set: inout Set<String>, _ id: String) {
+        if set.contains(id) {
+            set.remove(id)
+        } else {
+            set.insert(id)
+        }
     }
 
     private var noAgentsRow: some View {
@@ -125,7 +175,12 @@ struct AgentSessionsList: View {
 
     // EXP-874: Android's row is the reference (`RunningSessionRow`).
     @ViewBuilder
-    private func sessionRow(_ row: AgentsViewModel.Row) -> some View {
+    private func sessionRow(
+        _ row: AgentsViewModel.Row,
+        expandable: Bool = false,
+        expanded: Bool = true,
+        onToggle: (() -> Void)? = nil
+    ) -> some View {
         // EXP-734: a run that opened its own issue-less PR carries the state
         // on its OWN row.
         let state = CodingSessionDisplayState.of(
@@ -138,7 +193,10 @@ struct AgentSessionsList: View {
             title: sessionRowTitle(issue: row.issue, session: row.session),
             state: state,
             device: row.device,
-            open: sessionRowOpen(row)
+            open: sessionRowOpen(row),
+            expandable: expandable,
+            expanded: expanded,
+            onToggle: onToggle
         )
         .accessibilityIdentifier("agent-session-row")
     }

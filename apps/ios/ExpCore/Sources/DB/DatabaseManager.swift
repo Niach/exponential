@@ -241,6 +241,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("pr_number", .integer)
                 t.column("pr_state", .text)
                 t.column("branch", .text)
+                // EXP-897: the stack edge — the branch this issue's PR is
+                // based on (`child.pr_base_branch == lower.branch`).
+                t.column("pr_base_branch", .text)
                 t.column("pr_merged_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
@@ -1563,6 +1566,34 @@ public final class DatabaseManager: @unchecked Sendable {
                 index: "issue_drafts_board_idx", on: "issue_drafts", columns: ["board_id"],
                 ifNotExists: true
             )
+        }
+
+        // v40 (EXP-897): the PR STACK edge — `issues.pr_base_branch`, the
+        // branch an issue's pull request is based on. Synced (it joined the
+        // issues shape's columns allowlist), so an older store gains it via a
+        // guarded additive ALTER and the issues offset resets, so already-synced
+        // rows re-arrive carrying it (the v25/v26 pattern; the shape key is
+        // 'issues', the proxy route name).
+        //
+        // The reset rides the ALTER rather than running unconditionally: the
+        // ONLY store that can already have the column is one whose v1 create
+        // declared it, i.e. a fresh install with nothing synced yet, and
+        // re-snapshotting every issue for it would be pure cost. The desktop's
+        // `heal_missing_columns` refetches on the same condition.
+        migrator.registerMigration("v40_issue_pr_base_branch") { db in
+            guard try db.tableExists("issues") else { return }
+            let existing = Set(try db.columns(in: "issues").map(\.name))
+            guard !existing.contains("pr_base_branch") else { return }
+            try db.alter(table: "issues") { t in
+                t.add(column: "pr_base_branch", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'issues'
+                    """)
+            }
         }
 
         return migrator

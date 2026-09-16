@@ -388,6 +388,40 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertFalse(bare.hasOpenPr)
     }
 
+    // EXP-897: the stack edge rides the issues shape — a row off the wire must
+    // round-trip `pr_base_branch` into the v40 column, and a pre-EXP-897
+    // snapshot that omits the key decodes as nil rather than throwing (which
+    // would brick the issues shape for every older client).
+    func testIssueInsertPersistsPrBaseBranch() async throws {
+        let json = """
+            {"id":"i-stack","board_id":"p1","number":"7","identifier":"EXP-7",
+             "title":"Stacked","description":null,"status":"in_review","priority":"none",
+             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
+             "sort_order":"1","completed_at":null,"duplicate_of_id":null,
+             "pr_url":"https://github.com/acme/repo/pull/12","pr_number":"12",
+             "pr_state":"open","branch":"exp/EXP-7","pr_base_branch":"exp/EXP-6",
+             "pr_merged_at":null,
+             "created_at":"2026-09-16T09:00:00Z","updated_at":"2026-09-16T09:00:00Z"}
+            """
+        let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(issue.prBaseBranch, "exp/EXP-6")
+        let message = ShapeMessage<IssueEntity>.insert(key: issueKey("i-stack"), value: issue)
+        try await applyBatch(messages: [message], name: "issues", table: "issues", pool: pool)
+        XCTAssertEqual(try fetchIssue("i-stack")?.prBaseBranch, "exp/EXP-6")
+
+        let older = """
+            {"id":"i-plain","board_id":"p1","number":"8","identifier":"EXP-8",
+             "title":"Plain","description":null,"status":"backlog","priority":"none",
+             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
+             "sort_order":"2","completed_at":null,"duplicate_of_id":null,
+             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
+             "pr_merged_at":null,
+             "created_at":"2026-09-16T09:00:00Z","updated_at":"2026-09-16T09:00:00Z"}
+            """
+        let bare = try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8))
+        XCTAssertNil(bare.prBaseBranch)
+    }
+
     // EXP-778: a pins row off the wire — `sort_order` arrives as Postgres
     // text like every numeric column, the two unused target columns as null.
     func testPinInsertDecodesWireSortOrderAndPersists() async throws {
