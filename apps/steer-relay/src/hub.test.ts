@@ -438,7 +438,9 @@ describe(`device presence + remote start`, () => {
       account: `work`,
     })
 
-    // A resume carries neither — the run registry pinned them at launch.
+    // A resume drops the servers (the run registry pinned them at launch)
+    // but KEEPS the account: EXP-849's mid-run switch is a resume naming
+    // another profile, and EXP-906 found the relay eating it.
     hub.startSession(
       `owner`,
       `dev-1`,
@@ -448,6 +450,20 @@ describe(`device presence + remote start`, () => {
     expect(desktop.lastFrame(`start_session`)).toEqual({
       t: `start_session`,
       resumeSessionId: `run-1`,
+      teamId: `team-1`,
+      account: `work`,
+    })
+
+    // Absent stays absent — a plain resume is byte-identical to before.
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { resumeSessionId: `run-2`, teamId: `team-1` },
+      { mcpServerIds: [`srv-1`] }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      resumeSessionId: `run-2`,
       teamId: `team-1`,
     })
   })

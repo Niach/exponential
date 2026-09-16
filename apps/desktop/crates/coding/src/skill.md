@@ -26,7 +26,7 @@ Do not file an issue for something you can finish inside your own PR.
 A second run can work in parallel on one of the user's own machines. Use it for independent sub-work, a follow-up you just filed that can proceed now, an issue that is not yours, or a job that needs a fresh context. Do not use it for changes inside your own issue, for tiny fixes, or for the issue you are already working on.
 
 1. `exponential_devices_list` and pick an ONLINE device whose `agents` includes the agent you want. Offline devices refuse; starts are never queued.
-2. `exponential_sessions_start` with exactly one subject: `issueId`, `issueIds` (one combined PR), or `actionId`. The child runs unattended in its own worktree and opens its own PR.
+2. `exponential_sessions_start` with exactly one subject: `issueId`, `issueIds` (one combined PR), or `actionId`; pass `account` (a profile id from `exponential_devices_list`) when the device's default profile is out of usage. The child runs unattended in its own worktree and opens its own PR.
 3. Its questions and its finish arrive here as `[Exponential child run ...]` user messages. Answer with `exponential_sessions_message`; `exponential_sessions_get` is only a fallback poll.
 4. Read the child's report before merging its PR. Merging first ends the run unreported.
 

@@ -786,6 +786,15 @@ impl CaptionSignal {
     }
 }
 
+/// EXP-906: the caption a RESUMED run wears until its first prompt. A resume
+/// re-enters the recorded run through `session/load` and spawns the agent
+/// process only on the next message (EXP-784), so the row is `running`,
+/// `agent_busy` false and the transcript idle — indistinguishable, on every
+/// client, from a run that hung. The engine sets this on the caption signal
+/// right after the load and clears it on the first turn start; every client
+/// already renders the column on a live row, so nothing else changes.
+pub const RESUMED_IDLE_CAPTION: &str = "Resumed, waiting for a message";
+
 /// EXP-850 §8: the synced `coding_sessions.agent_caption` column, written at
 /// most this often — a workflow's progress moves several times a second and
 /// the column is a session-list second line, not a telemetry stream.

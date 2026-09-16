@@ -1326,6 +1326,11 @@ impl SessionCtx {
             // goes with it, on the same edge the busy flag does.
             if idle {
                 self.caption_signal.set(None);
+            } else if self.caption_signal.get().as_deref() == Some(steer::RESUMED_IDLE_CAPTION) {
+                // EXP-906: the first prompt after a resume — the run is no
+                // longer waiting (a workflow card re-sets the caption later
+                // in the turn if there is one).
+                self.caption_signal.set(None);
             }
         }
     }
@@ -1750,6 +1755,13 @@ where
             // so a resumed run's inherited history would otherwise replay a
             // bar full of lines this engine never held.
             ctx.publish_queue();
+            // EXP-906: a resumed run with no start prompt spawns its agent
+            // only on the next message — say so on the synced row instead of
+            // reading as a hung run in every list.
+            if !ctx.replay && ctx.resume.is_some() && ctx.prompt.is_none() {
+                ctx.caption_signal
+                    .set(Some(steer::RESUMED_IDLE_CAPTION.to_string()));
+            }
 
             if ctx.replay {
                 // A transcript replay has nothing to steer: `session/load`

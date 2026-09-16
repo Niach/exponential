@@ -855,12 +855,16 @@ export class Hub {
             ...(subject.actionId ? { actionId: subject.actionId } : {}),
             ...(subject.actionName ? { actionName: subject.actionName } : {}),
             ...(subject.branch ? { branch: subject.branch } : {}),
-            // A resume carries no launch options — only the attribution and
-            // (EXP-679) the agent-started marker.
+            // A resume carries no launch options — only the attribution,
+            // (EXP-679) the agent-started marker and (EXP-849/EXP-906) the
+            // account: a resume naming another profile IS the mid-run
+            // account switch, and dropping it here made every remote switch
+            // a silent same-account resume.
             ...(options.startedBy ? { startedBy: options.startedBy } : {}),
             ...(options.startedReason
               ? { startedReason: options.startedReason }
               : {}),
+            ...(options.account ? { account: options.account } : {}),
           }
         : `issueId` in subject
           ? { t: `start_session`, issueId: subject.issueId, ...options }

@@ -296,6 +296,8 @@ describe(`codingSessions.start — issue path`, () => {
       boardId: `proj-1`,
       // EXP-679: an issue start is a person's unless an agent asked for it.
       startedReason: null,
+      // EXP-906: nor a parent — this start resumes nothing.
+      parentSessionId: null,
       userId: `actor`,
       // EXP-432: an unattributed start is host-less — the row is the
       // caller's own.
@@ -339,6 +341,8 @@ describe(`codingSessions.start — batch path`, () => {
       teamId: TEAM_ID,
       // EXP-679: a batch start is a person's unless an agent asked for it.
       startedReason: null,
+      // EXP-906: nor a parent — this start resumes nothing.
+      parentSessionId: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
@@ -434,6 +438,8 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       actionId: ACTION_ID,
       actionName: `Code review`,
       startedReason: null,
+      // EXP-906: nor a parent — this start resumes nothing.
+      parentSessionId: null,
       automationId: null,
       userId: `actor`,
       hostUserId: null,
@@ -1651,6 +1657,63 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(inserts[0]!.values).toMatchObject({ resumedFromId: null })
     // Only the action lookup ran.
     expect(selectWheres).toHaveLength(1)
+  })
+
+  // EXP-906: a resume is the SAME run under a new id — the 2026-09-15 stack
+  // lost every parent↔child link on the account switch because the new row
+  // carried neither the parent nor the agent-started marker.
+  it(`inherits the parent link and started reason from the resumed run`, async () => {
+    const PARENT = `66666666-6666-4666-8666-666666666666`
+    selectResults.push([
+      { id: RESUMED_FROM, parentSessionId: PARENT, startedReason: `agent` },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values).toMatchObject({
+      resumedFromId: RESUMED_FROM,
+      parentSessionId: PARENT,
+      startedReason: `agent`,
+    })
+    // The predecessor's children move onto the successor, so their next
+    // finish / question / usage-wall message reaches a live run.
+    const restamp = updates.find(
+      (update) => update.values.parentSessionId === SESSION_ID
+    )
+    expect(restamp).toBeDefined()
+    expect(whereShape(updateWheres[updates.indexOf(restamp!)])).toEqual([
+      `col:parent_session_id`,
+      RESUMED_FROM,
+    ])
+  })
+
+  it(`lets the frame's own started reason win over the inherited one`, async () => {
+    selectResults.push([
+      { id: RESUMED_FROM, parentSessionId: null, startedReason: null },
+    ])
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      resumedFromId: RESUMED_FROM,
+      startedReason: `agent`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      startedReason: `agent`,
+      parentSessionId: null,
+    })
+  })
+
+  it(`writes no parent and re-stamps nothing on a fresh start`, async () => {
+    await caller.start({ issueId: ISSUE_ID })
+
+    expect(inserts[0]!.values).toMatchObject({
+      parentSessionId: null,
+      startedReason: null,
+    })
+    expect(
+      updates.some((update) => `parentSessionId` in update.values)
+    ).toBe(false)
   })
 
   it(`stamps the branch on a batch and a builtin start`, async () => {

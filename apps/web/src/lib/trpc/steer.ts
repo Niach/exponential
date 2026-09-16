@@ -863,10 +863,20 @@ export const steerRouter = router({
             })
           }
         }
+        // EXP-906: a resumed agent-started run STAYS agent-started — the
+        // account switch and the plain resume both relaunch the same run
+        // under a new id, and a frame without the marker made the device
+        // write an ATTENDED row that never reported to its parent and never
+        // got its close-out tool. The server-side insert inherits the tree
+        // fields too (codingSessions.start); this keeps the device's own
+        // origin in step.
+        const inheritedAgentStart: { startedReason?: `agent` } =
+          session.startedReason === `agent` ? { startedReason: `agent` } : {}
         const result = await relayPostStart(config, {
           userId: ownerId,
           deviceId: input.deviceId,
           ...(shared ? { startedBy: userId } : {}),
+          ...inheritedAgentStart,
           ...agentStarted,
           resumeSessionId: session.id,
           teamId: session.teamId!,

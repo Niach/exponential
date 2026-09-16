@@ -746,6 +746,10 @@ export type ServerFrame =
        * device writes it as `coding_sessions.started_reason` so the relaunched
        * run is unattended. */
       startedReason?: `agent`
+      /** EXP-849/EXP-906: the profile to continue the run on — the ONE
+       * option a resume carries (naming another profile is the mid-run
+       * account switch). Pass-through. */
+      account?: string
     }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher
