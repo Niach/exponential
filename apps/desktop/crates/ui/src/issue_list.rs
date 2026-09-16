@@ -168,6 +168,24 @@ pub enum IssueQuery {
 }
 
 impl IssueQuery {
+    /// Run the query — the board pipeline behind this scope (EXP-915: shared
+    /// by the big list and the sidebar's `ListNav`, so both memoize the SAME
+    /// projection under [`queries::BoardDataKey`] + this scope). `None`
+    /// yields an empty, not-ready result (the syncing skeleton).
+    pub(crate) fn board_data(&self, cx: &App) -> BoardData {
+        match self {
+            IssueQuery::None => BoardData {
+                is_ready: false,
+                groups: Vec::new(),
+                labels_by_issue: HashMap::new(),
+            },
+            IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
+            IssueQuery::MyIssues { team_id, user_id } => {
+                queries::my_issues(cx, team_id, user_id)
+            }
+        }
+    }
+
     /// EXP-870: the LIST a row picked from this view opens beside — named
     /// explicitly, so the detail never depends on what history happens to
     /// hold (the default board list after launch used to hold nothing, and
@@ -222,38 +240,6 @@ enum ListRow {
     },
 }
 
-/// Every input the memoized [`BoardData`] derives from (REV-39). Revisions
-/// alone are not enough: an empty up-to-date batch flips a collection's
-/// readiness phase WITHOUT bumping its revision, so the combined `ready` bit
-/// rides along; `today` covers the local-midnight overdue boundary. A query
-/// change invalidates eagerly in [`IssueListView::set_query`].
-#[derive(PartialEq, Eq)]
-struct BoardDataKey {
-    issues: u64,
-    issue_labels: u64,
-    labels: u64,
-    boards: u64,
-    issue_statuses: u64,
-    ready: bool,
-    today: String,
-}
-
-fn board_data_key(cx: &App) -> BoardDataKey {
-    let collections = Store::global(cx).collections();
-    BoardDataKey {
-        issues: collections.issues.read(cx).revision(),
-        issue_labels: collections.issue_labels.read(cx).revision(),
-        labels: collections.labels.read(cx).revision(),
-        boards: collections.boards.read(cx).revision(),
-        issue_statuses: collections.issue_statuses.read(cx).revision(),
-        ready: collections.issues.read(cx).is_ready()
-            && collections.boards.read(cx).is_ready()
-            && collections.issue_labels.read(cx).is_ready()
-            && collections.labels.read(cx).is_ready(),
-        today: queries::today_local(),
-    }
-}
-
 pub struct IssueListView {
     query: IssueQuery,
     /// Collapsed status groups, keyed by resolved group key (web
@@ -306,10 +292,10 @@ pub struct IssueListView {
     /// `cx.notify` (selection toggles, group collapses, nav highlights,
     /// width flips, every Electric batch), and rebuilding the full
     /// clone+filter+group+sort pipeline each frame froze large boards —
-    /// recompute only when [`BoardDataKey`] says an input actually changed.
-    /// Shared with [`Self::bulk_bar`], which used to run one extra board
-    /// query per frame while a selection was alive.
-    data: Option<(BoardDataKey, Rc<BoardData>)>,
+    /// recompute only when [`queries::BoardDataKey`] says an input actually
+    /// changed. Shared with [`Self::bulk_bar`], which used to run one extra
+    /// board query per frame while a selection was alive.
+    data: queries::Memo<queries::BoardDataKey, BoardData>,
     scroll_handle: VirtualListScrollHandle,
     /// EXP-698 round 5: the empty-board branch scrolls (empty state +
     /// Getting-started cards), so it needs a handle of its own — the virtual
@@ -359,7 +345,7 @@ impl IssueListView {
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             team_statuses: Rc::new(Vec::new()),
-            data: None,
+            data: queries::Memo::default(),
             scroll_handle: VirtualListScrollHandle::new(),
             empty_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -376,7 +362,7 @@ impl IssueListView {
         self.collapsed.clear();
         self.selected.clear();
         self.select_anchor = None;
-        self.data = None;
+        self.data.clear();
         cx.notify();
     }
 
@@ -386,21 +372,9 @@ impl IssueListView {
         if self.query == IssueQuery::None {
             return None;
         }
-        let key = board_data_key(cx);
-        if let Some((cached_key, cached)) = &self.data {
-            if *cached_key == key {
-                return Some(cached.clone());
-            }
-        }
-        let data = Rc::new(match &self.query {
-            IssueQuery::None => return None,
-            IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
-            IssueQuery::MyIssues { team_id, user_id } => {
-                queries::my_issues(cx, team_id, user_id)
-            }
-        });
-        self.data = Some((key, data.clone()));
-        Some(data)
+        let key = queries::board_data_key(cx);
+        let query = &self.query;
+        Some(self.data.get_or_insert_with(key, || query.board_data(cx)))
     }
 
     fn toggle_group(&mut self, group_key: String, cx: &mut gpui::Context<Self>) {
@@ -631,11 +605,14 @@ impl IssueListView {
     /// `grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]` template).
     fn render_issue_row(
         &self,
-        issue: &Issue,
+        issue: &Rc<Issue>,
         labels: &[Label],
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
+        // EXP-915: an `Rc` clone — this used to copy the whole `Issue`
+        // (description included) into the menu closure per VISIBLE row per
+        // frame.
         let menu_issue = issue.clone();
         let menu_statuses = self.team_statuses.clone();
         let origin = self.query.list_origin();
@@ -1668,12 +1645,14 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
 /// picker (L27), never a direct status write.
 pub(crate) fn status_dropdown(
     issue: &Issue,
-    statuses: &[ResolvedStatus],
+    statuses: &Rc<Vec<ResolvedStatus>>,
     cx: &App,
 ) -> impl IntoElement {
     let resolved = resolve_in(issue, statuses);
     let current_key = resolved.group_key.clone();
-    let statuses = statuses.to_vec();
+    // EXP-915: the frame's shared vocabulary rides into the menu closure as
+    // a handle (it used to be `to_vec()`'d once per row per frame).
+    let statuses = statuses.clone();
     let issue_id = issue.id.clone();
 
     Button::new(row_id("status", &issue.id))
