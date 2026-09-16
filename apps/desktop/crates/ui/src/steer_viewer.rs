@@ -91,6 +91,7 @@ use theme::tokens::transcript;
 
 use crate::controls::WebText as _;
 use crate::icons::registry;
+use crate::screens::RunFace;
 use crate::slash_commands;
 use crate::composer_images::{self, PendingImages};
 use crate::native_dialog::{self, AlertSpec};
@@ -417,9 +418,11 @@ pub(crate) struct SteerSessionView {
     /// band to a PANE; EXP-877 made that pane a full page under the header.
     changes: Option<crate::changes_bar::ChangesSnapshot>,
     changes_diff: Entity<crate::diff::DiffView>,
-    /// EXP-850 §11: whether the diff pane is open, whether its file list is
-    /// unfolded, and which file its header names.
-    diff_open: bool,
+    /// EXP-879: which SUB-FACE of the run is up — the transcript, its
+    /// changes or its published results ([`RunFace`]). EXP-850 §11: whether
+    /// the diff pane's file list is unfolded, and which file its header
+    /// names.
+    run_face: RunFace,
     diff_list_open: bool,
     diff_selected: usize,
     /// EXP-895: the file list's `Filter files` field.
@@ -688,7 +691,7 @@ impl SteerSessionView {
                 // that then has to be opened).
                 crate::diff::DiffView::new(window, cx)
             }),
-            diff_open: false,
+            run_face: RunFace::Run,
             diff_list_open: true,
             diff_selected: 0,
             diff_filter,
@@ -2453,7 +2456,7 @@ impl SteerSessionView {
         // EXP-862: only the SESSION scope follows the published diff. A pane
         // scoped to one turn or one edit shows what that row did, and a new
         // push must not silently swap it for something else.
-        if self.diff_open && self.diff_scope == DiffScope::Session {
+        if self.run_face == RunFace::Diff && self.diff_scope == DiffScope::Session {
             self.rebuild_changes_diff(cx);
         }
         // EXP-895: a published diff retires the fallback; its absence asks
@@ -2523,7 +2526,7 @@ impl SteerSessionView {
                     key,
                     files: crate::diff::files_from_pull(&files),
                 });
-                if this.diff_open && this.diff_scope == DiffScope::Session {
+                if this.run_face == RunFace::Diff && this.diff_scope == DiffScope::Session {
                     this.rebuild_changes_diff(cx);
                 }
                 cx.notify();
@@ -2640,22 +2643,39 @@ impl SteerSessionView {
         (totals.files > 0).then_some((totals.additions, totals.deletions))
     }
 
-    /// Whether the diff pane is up right now (the header's pill is a toggle).
-    pub(crate) fn diff_open(&self) -> bool {
-        self.diff_open
+    /// EXP-879: the run's SUB-FACE on show — its transcript, its changes or
+    /// its published results.
+    pub(crate) fn run_face(&self) -> RunFace {
+        self.run_face
     }
 
-    /// EXP-877 — the diff is a FACE of the run (the work header's
-    /// `Issue | Run | +N -M` toggle switches to it), so the host SETS it.
-    /// Opening builds the rows — they are only worth rendering when visible —
-    /// and always returns the pane to the session scope (the toggle item is
-    /// the WHOLE BRANCH, EXP-862).
-    pub(crate) fn set_diff_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
-        if self.diff_open == open {
+    /// EXP-879 — the run's published results, parsed off the synced row (the
+    /// ONE reader, `domain::session_results`). The row is re-snapshotted on
+    /// every `coding_sessions` notify, so this follows a run that publishes
+    /// while it is being watched.
+    pub(crate) fn results_entries(&self) -> Vec<domain::session_results::SessionResultEntry> {
+        domain::session_results::parse_session_results(
+            self.row.as_ref().and_then(|row| row.results.as_ref()),
+        )
+    }
+
+    /// EXP-877/EXP-879 — Changes and Results are FACES of the run (the work
+    /// header's `Issue | Run | +N −M | Results` toggle switches between
+    /// them), so the host SETS the face. Opening the diff builds its rows —
+    /// they are only worth rendering when visible — and always returns the
+    /// pane to the session scope (the toggle item is the WHOLE BRANCH,
+    /// EXP-862). A Results face asked for on a run that has published
+    /// nothing falls back to the transcript rather than to a blank page.
+    pub(crate) fn set_run_face(&mut self, face: RunFace, cx: &mut gpui::Context<Self>) {
+        let face = match face {
+            RunFace::Results if self.results_entries().is_empty() => RunFace::Run,
+            face => face,
+        };
+        if self.run_face == face {
             return;
         }
-        self.diff_open = open;
-        if open {
+        self.run_face = face;
+        if face == RunFace::Diff {
             self.diff_scope = DiffScope::Session;
             self.diff_selected = 0;
             // EXP-895: the face may be opening onto the FALLBACK files.
@@ -2680,7 +2700,7 @@ impl SteerSessionView {
             self.diff_scope = previous;
             return;
         }
-        self.diff_open = true;
+        self.run_face = RunFace::Diff;
         self.diff_selected = 0;
         self.rebuild_changes_diff(cx);
         if let Some(index) = path.and_then(|path| {
@@ -2709,7 +2729,7 @@ impl SteerSessionView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        if !self.diff_open {
+        if self.run_face != RunFace::Diff {
             return None;
         }
         let scoped = self.scope_files();
@@ -2747,7 +2767,7 @@ impl SteerSessionView {
         .tooltip("Close diff")
         .on_click(cx.listener(move |this: &mut Self, _: &ClickEvent, _window, cx| {
             cx.stop_propagation();
-            this.diff_open = false;
+            this.run_face = RunFace::Run;
             cx.notify();
         }))
         .into_any_element();
@@ -2781,6 +2801,52 @@ impl SteerSessionView {
             window,
             cx,
         ))
+    }
+
+    /// EXP-879 §4 — the RESULTS face: the run's published pictures, grouped
+    /// by the topic the agent filed them under. `None` unless that face is up
+    /// with something to show — a run whose results were removed while it was
+    /// on show falls back to the transcript rather than to an empty page.
+    ///
+    /// No Stop/Resume and no merge bar here: the Run face owns the first and
+    /// Changes the second (EXP-879's face split, mirrored on all four
+    /// clients).
+    fn render_results_pane(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.run_face != RunFace::Results {
+            return None;
+        }
+        let groups = domain::session_results::group_session_results(&self.results_entries());
+        if groups.is_empty() {
+            return None;
+        }
+        Some(crate::session_results::render(
+            &groups,
+            self.results_row_width(window),
+            &self.images,
+            cx,
+        ))
+    }
+
+    /// The width the Results face's tiles row actually gets: the work column
+    /// ([`crate::work_header::WORK_COLUMN_W`], what
+    /// [`crate::issue_detail::centered_column`] caps the page at) narrowed by
+    /// a pane too small to hold it, minus the page's
+    /// own gutter on both sides. The measured pane width is the same
+    /// recorded-px probe the transcript's bubble cap reads; the first frame
+    /// has none, so it falls back to the window — never to a width wider than
+    /// the screen, which is the one that would clip.
+    fn results_row_width(&self, window: &Window) -> f32 {
+        let view = f32::from(self.view_width.get());
+        let pane = if view > 0. {
+            view
+        } else {
+            f32::from(window.viewport_size().width)
+        };
+        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::issue_detail::DETAIL_GUTTER
     }
 
     /// The Merge target this run offers, or `None` once it is over
@@ -7134,7 +7200,12 @@ impl Render for SteerSessionView {
         // Two things you read, not one thing you read while glancing at the
         // other — the split gave each half too little, and every reader had
         // to drag the edge before either was usable.
-        let pane = self.render_diff_pane(window, cx);
+        let pane = match self.render_diff_pane(window, cx) {
+            Some(pane) => Some(pane),
+            // EXP-879: the Results face is the run's OTHER full page — same
+            // slot, same rule (with one up the transcript is not rendered).
+            None => self.render_results_pane(window, cx),
+        };
         let width_probe = self.view_width.clone();
         let conversation = pane.is_none().then(|| {
             v_flex()

@@ -33,19 +33,32 @@ final class WorkFacesTests: XCTestCase {
         )
     }
 
-    func testListsTheAvailableFacesInIssueRunChangesOrder() {
+    func testListsTheAvailableFacesInIssueRunChangesResultsOrder() {
         XCTAssertEqual(
-            WorkFaces.availableFaces(hasIssue: true, hasRun: true, hasChanges: true),
-            [.issue, .run, .changes]
+            WorkFaces.availableFaces(
+                hasIssue: true, hasRun: true, hasChanges: true, hasResults: true
+            ),
+            [.issue, .run, .changes, .results]
         )
         XCTAssertEqual(
-            WorkFaces.availableFaces(hasIssue: false, hasRun: true, hasChanges: false),
+            WorkFaces.availableFaces(
+                hasIssue: false, hasRun: true, hasChanges: false, hasResults: false
+            ),
             [.run]
         )
         // Changes is independent of Run: an open PR with no run of mine.
         XCTAssertEqual(
-            WorkFaces.availableFaces(hasIssue: true, hasRun: false, hasChanges: true),
+            WorkFaces.availableFaces(
+                hasIssue: true, hasRun: false, hasChanges: true, hasResults: false
+            ),
             [.issue, .changes]
+        )
+        // EXP-879: Results is the RUN's, and always last.
+        XCTAssertEqual(
+            WorkFaces.availableFaces(
+                hasIssue: true, hasRun: true, hasChanges: false, hasResults: true
+            ),
+            [.issue, .run, .results]
         )
     }
 
@@ -54,6 +67,7 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(WorkFaces.faceLabel(.run), "Run")
         XCTAssertEqual(WorkFaces.faceLabel(.run, multipleRuns: true), "Runs")
         XCTAssertEqual(WorkFaces.faceLabel(.changes), "Changes")
+        XCTAssertEqual(WorkFaces.faceLabel(.results), "Results")
         XCTAssertEqual(WorkFaces.steerComposerPlaceholder, "Type / for commands")
         XCTAssertEqual(WorkFaces.planModeLabel, "Plan mode")
         XCTAssertEqual(WorkFaces.startCodingLabel, "Start coding")
@@ -203,6 +217,10 @@ final class WorkFacesTests: XCTestCase {
 
     func testFallsBackChangesToRunToIssue() {
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .changes, available: [.issue, .run]), .run)
+        // EXP-879: Results falls back the same way — both are the run's.
+        XCTAssertEqual(WorkFaces.fallbackFace(shown: .results, available: [.issue, .run]), .run)
+        XCTAssertEqual(WorkFaces.fallbackFace(shown: .results, available: [.issue]), .issue)
+        XCTAssertNil(WorkFaces.fallbackFace(shown: .results, available: []))
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .changes, available: [.issue]), .issue)
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .run, available: [.issue]), .issue)
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .run, available: [.issue, .run]), .run)

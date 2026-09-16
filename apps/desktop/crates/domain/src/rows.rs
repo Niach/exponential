@@ -615,6 +615,15 @@ pub struct CodingSession {
     /// as a JSON string).
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub blocked: Option<serde_json::Value>,
+    /// EXP-879 jsonb — the run's PUBLISHED RESULTS: a flat ORDERED list of
+    /// `{topic, label, attachmentId, width, height}` (camelCase INSIDE the
+    /// blob, unlike every column name), `None`/`[]` = nothing published.
+    /// Never read raw — [`crate::session_results::parse_session_results`] is
+    /// the ONE reader (tolerant, capped, drops malformed entries). Same
+    /// tolerant jsonb handling as `blocked` above: the wire may hand it over
+    /// as a JSON STRING.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub results: Option<serde_json::Value>,
     /// Action-run scoping (EXP-253/EXP-530): the `actions` row id plus its
     /// name SNAPSHOT (survives the action's deletion); `None` = issue/batch.
     #[serde(default)]

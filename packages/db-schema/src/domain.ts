@@ -397,6 +397,38 @@ export const codingSessionBlockedSchema = z.object({
   since: z.string().max(64).nullish(),
 })
 
+// EXP-879: the pictures a run published of its own work (coding_sessions
+// .results). A flat, ORDERED array; NULL or [] = none. Each entry names a
+// `topic` (one screen or flow, e.g. `chatui`) and a `label` (one picture in
+// it, e.g. `ios`/`android`/`web`); (topic, label) is the upsert key. The
+// bytes live in `session_attachments` (server-only), clients derive
+// `/api/attachments/{attachmentId}` — no stored URL. `width`/`height` are the
+// server-probed pixel dimensions (null when probing failed) so tiles size
+// before the image loads. The caps are LOAD-BEARING: the row re-ships WHOLE
+// through the coding-sessions shape on every heartbeat, so a big array
+// multiplies sync traffic by every live client. Escape hatch if they ever
+// pinch: a `session_results` table + its own shape.
+export const SESSION_RESULT_TEXT_MAX = 80
+export const SESSION_RESULTS_MAX = 60
+
+export interface CodingSessionResult {
+  topic: string
+  label: string
+  attachmentId: string
+  width: number | null
+  height: number | null
+}
+
+// Tolerant for the same reason codingSessionBlockedSchema is: a malformed
+// entry degrades (readers drop it) rather than 400 the whole write.
+export const codingSessionResultSchema = z.object({
+  topic: z.string().max(SESSION_RESULT_TEXT_MAX).nullish(),
+  label: z.string().max(SESSION_RESULT_TEXT_MAX).nullish(),
+  attachmentId: z.string().max(64).nullish(),
+  width: z.number().int().nullish(),
+  height: z.number().int().nullish(),
+})
+
 // Why a user is subscribed to an issue (issue_subscribers.source, pg enum).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
 // `widget_reporter` rows model an external feedback-widget reporter: null

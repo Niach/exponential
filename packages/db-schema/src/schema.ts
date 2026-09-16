@@ -26,6 +26,7 @@ import {
   actionInputsSchema,
   type AutomationTrigger,
   type CodingSessionBlocked,
+  type CodingSessionResult,
   codingSessionStatusSchema,
   commentBodyWithAttachmentsSchema,
   commentSourceValues,
@@ -898,6 +899,16 @@ export const codingSessions = pgTable(
     // matches DeviceUsageWindow.resetsAt). Written by the run's device and
     // cleared on the next assistant token.
     blocked: jsonb(`blocked`).$type<CodingSessionBlocked>(),
+    // EXP-879: the screenshots the run published of its own work — a flat
+    // ordered `{ topic, label, attachmentId, width, height }[]` (NULL/[] =
+    // none; every client's Results face renders only when non-empty). Bytes
+    // are `session_attachments` rows on this session; clients derive the URL.
+    // Written ONLY by the token-gated `/api/session-results/$token` upload
+    // (minted by MCP `exponential_sessions_results`) under `FOR UPDATE`, since
+    // this is a jsonb read-modify-write. Capped at SESSION_RESULTS_MAX entries
+    // of SESSION_RESULT_TEXT_MAX-char topic/label because the row re-ships
+    // whole on every heartbeat.
+    results: jsonb(`results`).$type<CodingSessionResult[]>(),
     // EXP-701: the device's pickup ack. The launching device creates this row
     // right before it spawns the agent, then its FIRST liveness heartbeat —
     // fired immediately after the spawn — stamps this (the server coalesces it

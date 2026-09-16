@@ -16,6 +16,12 @@
 // that still calls the tool on an attended run ends it rather than getting
 // some softer legacy behaviour.
 //
+// EXP-879: the fourth gate is sessionResults. Publishing a screenshot is an
+// act ON this run, so it needs the same owner-or-host header check — but
+// nothing beyond it: an attended run's pictures are exactly as useful as an
+// automation's. A caller with no run of its own (a human's MCP client) has
+// nothing to publish on, so the tool never registers for it.
+//
 // EXP-700: the third gate is askParent — only a run another run started
 // (`started_reason` = 'agent') can ask its starter a question, so the tool
 // registers for nobody else. It deliberately does NOT require the parent
@@ -37,6 +43,11 @@ export interface McpToolGates {
    * `exponential_sessions_ask_parent`. The parent linkage is NOT part of the
    * gate (it is stamped after the row exists); the handler checks it. */
   askParent: boolean
+  /** EXP-879: the caller runs INSIDE a coding session of its own (owner or
+   * host, any `started_reason`) — it may publish screenshots of its work with
+   * `exponential_sessions_results`. A human's MCP client has no run to publish
+   * on, so the tool stays out of its surface entirely. */
+  sessionResults: boolean
 }
 
 /** The worst-case surface — the default `registerExponentialTools` takes, so
@@ -46,6 +57,7 @@ export const ALL_MCP_TOOL_GATES: McpToolGates = {
   helpdesk: true,
   sessionsEnd: true,
   askParent: true,
+  sessionResults: true,
 }
 
 export async function resolveMcpToolGates(
@@ -55,7 +67,7 @@ export async function resolveMcpToolGates(
   // human's MCP client, which never gets the close-out tool).
   sessionId: string | null = null
 ): Promise<McpToolGates> {
-  const { sessionsEnd, askParent } = await resolveSessionGates(
+  const { sessionsEnd, askParent, sessionResults } = await resolveSessionGates(
     userId,
     sessionId
   )
@@ -65,24 +77,36 @@ export async function resolveMcpToolGates(
   const teamIds = access.full
     ? memberTeamIds
     : memberTeamIds.filter((id) => access.fullTeamIds.has(id))
-  if (teamIds.length === 0) return { helpdesk: false, sessionsEnd, askParent }
+  if (teamIds.length === 0) {
+    return { helpdesk: false, sessionsEnd, askParent, sessionResults }
+  }
   const rows = await db
     .select({ id: teams.id })
     .from(teams)
     .where(and(inArray(teams.id, teamIds), eq(teams.helpdeskEnabled, true)))
     .limit(1)
-  return { helpdesk: rows.length > 0, sessionsEnd, askParent }
+  return { helpdesk: rows.length > 0, sessionsEnd, askParent, sessionResults }
 }
 
-/** One indexed lookup for both session-header gates: the header's run must
- * exist and belong to the caller (owner or host — the same pair
+/** One indexed lookup for all three session-header gates: the header's run
+ * must exist and belong to the caller (owner or host — the same pair
  * `endSessionByAgent` accepts). `sessionsEnd` needs it started unattended;
- * `askParent` (EXP-700) needs it started by another run. */
+ * `askParent` (EXP-700) needs it started by another run; `sessionResults`
+ * (EXP-879) needs nothing more — any run of the caller's may publish
+ * screenshots of its own work, attended or not. */
 async function resolveSessionGates(
   userId: string,
   sessionId: string | null
-): Promise<{ sessionsEnd: boolean; askParent: boolean }> {
-  const closed = { sessionsEnd: false, askParent: false }
+): Promise<{
+  sessionsEnd: boolean
+  askParent: boolean
+  sessionResults: boolean
+}> {
+  const closed = {
+    sessionsEnd: false,
+    askParent: false,
+    sessionResults: false,
+  }
   if (!sessionId) return closed
   const [row] = await db
     .select({
@@ -98,5 +122,6 @@ async function resolveSessionGates(
   return {
     sessionsEnd: row.startedReason !== null,
     askParent: row.startedReason === `agent`,
+    sessionResults: true,
   }
 }

@@ -122,6 +122,7 @@ mod session;
 mod session_extras;
 mod session_bar;
 mod session_registry;
+mod session_results;
 mod session_rows;
 mod session_screen;
 mod settings;

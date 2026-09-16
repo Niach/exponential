@@ -26,9 +26,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.CHANGES_FACE_LABEL
 import com.exponential.app.domain.Diff
-import com.exponential.app.domain.ISSUE_FACE_LABEL
 import com.exponential.app.domain.RUN_FACE_LABEL
 import com.exponential.app.domain.START_CODING_LABEL
 import com.exponential.app.domain.SessionDotTone
@@ -36,6 +34,7 @@ import com.exponential.app.domain.SwitcherBadge
 import com.exponential.app.domain.SwitcherMode
 import com.exponential.app.domain.SwitcherTarget
 import com.exponential.app.domain.WorkFaceKind
+import com.exponential.app.domain.faceLabel
 import com.exponential.app.domain.isLiveRunStatus
 import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
@@ -254,6 +253,7 @@ private fun faceTag(face: WorkFaceKind): String = when (face) {
     WorkFaceKind.Issue -> "work-face-issue"
     WorkFaceKind.Run -> "work-face-run"
     WorkFaceKind.Changes -> "work-face-changes"
+    WorkFaceKind.Results -> "work-face-results"
 }
 
 /** The destination's glyph — what a single-target circle wears. */
@@ -262,17 +262,15 @@ private fun targetGlyph(target: SwitcherTarget): ImageVector = when (target) {
         WorkFaceKind.Issue -> ExpIcons.uiIssue
         WorkFaceKind.Run -> ExpIcons.navDevices
         WorkFaceKind.Changes -> ExpIcons.codingDiff
+        WorkFaceKind.Results -> ExpIcons.workResults
     }
     is SwitcherTarget.Run -> ExpIcons.navDevices
     SwitcherTarget.StartCoding -> ExpIcons.actionRun
 }
 
 private fun targetLabel(target: SwitcherTarget): String = when (target) {
-    is SwitcherTarget.Face -> when (target.face) {
-        WorkFaceKind.Issue -> ISSUE_FACE_LABEL
-        WorkFaceKind.Run -> RUN_FACE_LABEL
-        WorkFaceKind.Changes -> CHANGES_FACE_LABEL
-    }
+    // The face's OWN label, so Results never drifts from `faceLabel`.
+    is SwitcherTarget.Face -> faceLabel(target.face)
     is SwitcherTarget.Run -> RUN_FACE_LABEL
     SwitcherTarget.StartCoding -> START_CODING_LABEL
 }

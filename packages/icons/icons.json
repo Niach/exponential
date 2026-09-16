@@ -306,7 +306,8 @@
 
     "run-resume": "rotate-ccw",
     "run-switcher": "history",
-    "work-faces": "layers-2"
+    "work-faces": "layers-2",
+    "work-results": "images"
   },
   "custom": {
     "progress-1-4": [

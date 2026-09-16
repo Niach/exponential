@@ -18,8 +18,10 @@ import { IssueDetailView } from "@/components/issue-detail-view"
 import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
 import { selectIssueRuns } from "@/lib/past-runs"
 import { availableFaces, codingTarget, isSessionLive } from "@/lib/work-faces"
+import { parseSessionResults } from "@/lib/session-results"
 import {
   ISSUE_FACE_LABEL,
+  RESULTS_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
@@ -140,8 +142,15 @@ function IssueDetailPage() {
   const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
   const openComposer = useOpenComposer()
 
+  // EXP-879: the issue never holds the results itself — they belong to the
+  // RUN, so its Results segment opens the run's `?view=results`.
+  const runResults = useMemo(
+    () => parseSessionResults(runTarget?.results),
+    [runTarget?.results]
+  )
+
   const goRun = useCallback(
-    (sessionId: string, view?: `diff`) => {
+    (sessionId: string, view?: `diff` | `results`) => {
       void navigate({
         to: `/t/$teamSlug/sessions/$sessionId`,
         params: { teamSlug, sessionId },
@@ -218,6 +227,7 @@ function IssueDetailPage() {
       hasIssue: true,
       hasRun: Boolean(runTarget),
       hasChanges,
+      hasResults: runResults.length > 0,
     })
     const runLive = runTarget ? isSessionLive(runTarget, now) : false
     // The synced row is all the issue face knows: live → the running dot
@@ -243,6 +253,8 @@ function IssueDetailPage() {
           else if (next === `changes`) {
             if (diffStats.fileCount > 0 && runTarget) goRun(runTarget.id, `diff`)
             else goFace(`diff`)
+          } else if (next === `results` && runTarget) {
+            goRun(runTarget.id, `results`)
           }
         }}
         onOpenRun={(target) => goRun(target.id)}
@@ -301,6 +313,16 @@ function IssueDetailPage() {
                     face: `run` as const,
                     label: runFaceLabel(multipleRuns),
                     onSelect: () => goRun(runTarget.id),
+                  },
+                ]
+              : []),
+            // EXP-879: the run's published screenshots, last in the strip.
+            ...(runTarget && runResults.length > 0
+              ? [
+                  {
+                    face: `results` as const,
+                    label: RESULTS_FACE_LABEL,
+                    onSelect: () => goRun(runTarget.id, `results`),
                   },
                 ]
               : []),

@@ -23,6 +23,9 @@ export function mcpServerInstructions(gates: {
   sessionsEnd: boolean
   askParent: boolean
   reportBug: boolean
+  // EXP-879: the caller runs inside a session of its own, so it has a run to
+  // publish screenshots on. Same per-caller rule as the close-out paragraph.
+  sessionResults: boolean
 }): string {
   const paragraphs = [
     // EXP-707 (theme D): status changes are AUTOMATIC — PR open/merge apply
@@ -34,7 +37,7 @@ export function mcpServerInstructions(gates: {
   ]
   if (gates.reportBug) {
     paragraphs.push(
-      `When Exponential ITSELF misbehaves while you work — a tool result that contradicts its docs, a dropped remote start, a sync or UI glitch — file it right then with exponential_report_bug. That tool reports bugs in Exponential to its developers; it is never for issues in the user's own project.`
+      `When Exponential ITSELF misbehaves while you work — a tool result that contradicts its docs, a dropped remote start, a sync or UI glitch — file it right then with exponential_report_bug. It reports to Exponential's developers, never the user's own project.`
     )
   }
   if (gates.sessionsEnd) {
@@ -47,6 +50,13 @@ export function mcpServerInstructions(gates: {
           : ``)
     )
   }
+  // EXP-879: LAST, so it is the thing a truncating client keeps least — but
+  // present, because a run that is never asked for a picture never takes one.
+  if (gates.sessionResults) {
+    paragraphs.push(
+      `Screenshot what you changed: exponential_sessions_results hands back an upload link and a curl line, filed under a topic with one label per picture. Publish before you finish.`
+    )
+  }
   return paragraphs.join(`\n\n`)
 }
 
@@ -55,4 +65,5 @@ export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
   sessionsEnd: true,
   askParent: true,
   reportBug: true,
+  sessionResults: true,
 })

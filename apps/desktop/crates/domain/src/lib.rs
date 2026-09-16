@@ -24,6 +24,9 @@
 //!   `lib/pr-stack.ts`'s twin);
 //! * [`pr_graph`] — EXP-897 §4: stack + batch + session tree for ONE subject,
 //!   the model behind the work header's badge and its overlay;
+//! * [`session_results`] — EXP-879 `coding_sessions.results`: the tolerant
+//!   reader, the topic grouping and the equal-height tile geometry behind
+//!   the Results face (web `lib/session-results.ts`'s twin);
 //! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
 //!   every session list renders (web `lib/session-tree.ts` twin);
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
@@ -49,6 +52,7 @@ pub mod pr_graph;
 pub mod pr_stack;
 pub mod relations;
 pub mod rows;
+pub mod session_results;
 pub mod session_tree;
 pub mod statuses;
 

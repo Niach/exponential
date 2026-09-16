@@ -3,22 +3,27 @@ import type { SessionConfigState } from "@/lib/agent-feed"
 import { type SessionDotTone } from "@exp/ui"
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
-// session) with up to three FACES held as screen state, never as navigation:
-// `issue`, `run` and `changes`. The desktop's face toggle (EXP-877) becomes a
-// floating bottom-right circle that either switches straight to the one other
-// face or opens a menu above itself; Stop / Resume sit in the nav bar's
-// trailing slot only while the Run face shows. These are the PURE rules every
-// phone client mirrors byte for byte: iOS `ExpCore/Domain/WorkFaces.swift`,
-// Android `domain/WorkFaces.kt` — same names, same cases, same test names.
+// session) with up to four FACES held as screen state, never as navigation:
+// `issue`, `run`, `changes` and `results`. The desktop's face toggle (EXP-877)
+// becomes a floating bottom-right circle that either switches straight to the
+// one other face or opens a menu above itself; Stop / Resume sit in the nav
+// bar's trailing slot only while the Run face shows. These are the PURE rules
+// every phone client mirrors byte for byte: iOS
+// `ExpCore/Domain/WorkFaces.swift`, Android `domain/WorkFaces.kt` — same
+// names, same cases, same test names.
 
-/** The three faces. `changes` is the run's diff, else the issue's open PR. */
-export type WorkFaceKind = `issue` | `run` | `changes`
+/** The four faces. `changes` is the run's diff, else the issue's open PR;
+ *  `results` (EXP-879) is the run's published screenshots, mirrored by the
+ *  natives. */
+export type WorkFaceKind = `issue` | `run` | `changes` | `results`
 
 export const ISSUE_FACE_LABEL = `Issue`
 export const RUN_FACE_LABEL = `Run`
 /** EXP-886: the Run face's label with MORE THAN ONE own run on the issue. */
 export const RUNS_FACE_LABEL = `Runs`
 export const CHANGES_FACE_LABEL = `Changes`
+/** EXP-879: the run's published results. */
+export const RESULTS_FACE_LABEL = `Results`
 /** The switcher menu's extra row once the shown run ended for good. */
 export const START_CODING_LABEL = `Start coding`
 
@@ -36,20 +41,25 @@ export function faceLabel(face: WorkFaceKind, multipleRuns = false): string {
       return multipleRuns ? RUNS_FACE_LABEL : RUN_FACE_LABEL
     case `changes`:
       return CHANGES_FACE_LABEL
+    case `results`:
+      return RESULTS_FACE_LABEL
   }
 }
 
 /** The faces a subject can show, in their fixed order. Changes is independent
- *  of Run: an issue with an open PR and no run of mine still has its PR files. */
+ *  of Run: an issue with an open PR and no run of mine still has its PR files.
+ *  Results (EXP-879) comes last — what the run PUBLISHED, after what it did. */
 export function availableFaces(input: {
   hasIssue: boolean
   hasRun: boolean
   hasChanges: boolean
+  hasResults: boolean
 }): WorkFaceKind[] {
   const faces: WorkFaceKind[] = []
   if (input.hasIssue) faces.push(`issue`)
   if (input.hasRun) faces.push(`run`)
   if (input.hasChanges) faces.push(`changes`)
+  if (input.hasResults) faces.push(`results`)
   return faces
 }
 
@@ -192,14 +202,19 @@ export function switcherBadge(
 }
 
 /** Where a face lands when it vanishes under the reader (the diff cleared,
- *  the run row went): changes → run → issue. `null` = nothing left. */
+ *  the results list was empty, the run row went): changes → run → issue, and
+ *  results the same way (EXP-879). `null` = nothing left. */
 export function fallbackFace(
   shown: WorkFaceKind,
   available: readonly WorkFaceKind[]
 ): WorkFaceKind | null {
   if (available.includes(shown)) return shown
   const order: WorkFaceKind[] =
-    shown === `changes` ? [`run`, `issue`] : shown === `run` ? [`issue`] : []
+    shown === `changes` || shown === `results`
+      ? [`run`, `issue`]
+      : shown === `run`
+        ? [`issue`]
+        : []
   return order.find((face) => available.includes(face)) ?? available[0] ?? null
 }
 

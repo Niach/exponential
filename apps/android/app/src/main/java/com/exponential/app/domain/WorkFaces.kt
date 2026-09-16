@@ -3,8 +3,8 @@ package com.exponential.app.domain
 import com.exponential.app.data.db.CodingSessionEntity
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
-// session) with up to three FACES held as screen state, never as navigation:
-// Issue, Run and Changes. The desktop's face toggle (EXP-877) becomes a
+// session) with up to four FACES held as screen state, never as navigation:
+// Issue, Run, Changes and Results (EXP-879). The desktop's face toggle (EXP-877) becomes a
 // floating bottom-right circle that either switches straight to the one other
 // face or opens a menu above itself; Stop / Resume sit in the top bar's
 // trailing slot only while the Run face shows. These are the PURE rules every
@@ -12,14 +12,20 @@ import com.exponential.app.data.db.CodingSessionEntity
 // its tests), iOS `ExpCore/Domain/WorkFaces.swift` — same names, same cases,
 // same test names (`WorkFacesTest`).
 
-/** The three faces. [Changes] is the run's diff, else the issue's open PR. */
-enum class WorkFaceKind { Issue, Run, Changes }
+/**
+ * The four faces. [Changes] is the run's diff, else the issue's open PR;
+ * [Results] (EXP-879) is the shown run's published screenshots and, like
+ * Changes, is a SUB-FACE of Run — no run of mine, no results.
+ */
+enum class WorkFaceKind { Issue, Run, Changes, Results }
 
 const val ISSUE_FACE_LABEL = "Issue"
 const val RUN_FACE_LABEL = "Run"
 /** EXP-886: the Run face's label with MORE THAN ONE own run on the issue. */
 const val RUNS_FACE_LABEL = "Runs"
 const val CHANGES_FACE_LABEL = "Changes"
+/** EXP-879: the run's published screenshots. */
+const val RESULTS_FACE_LABEL = "Results"
 /** The switcher menu's extra row once the shown run ended for good. */
 const val START_CODING_LABEL = "Start coding"
 
@@ -33,15 +39,24 @@ fun faceLabel(face: WorkFaceKind, multipleRuns: Boolean = false): String = when 
     WorkFaceKind.Issue -> ISSUE_FACE_LABEL
     WorkFaceKind.Run -> if (multipleRuns) RUNS_FACE_LABEL else RUN_FACE_LABEL
     WorkFaceKind.Changes -> CHANGES_FACE_LABEL
+    WorkFaceKind.Results -> RESULTS_FACE_LABEL
 }
 
 /** The faces a subject can show, in their fixed order. Changes is independent
- *  of Run: an issue with an open PR and no run of mine still has its PR files. */
-fun availableFaces(hasIssue: Boolean, hasRun: Boolean, hasChanges: Boolean): List<WorkFaceKind> =
+ *  of Run: an issue with an open PR and no run of mine still has its PR files.
+ *  Results (EXP-879) comes LAST and is not: it is the shown run's own output,
+ *  so it only ever appears beside a Run face. */
+fun availableFaces(
+    hasIssue: Boolean,
+    hasRun: Boolean,
+    hasChanges: Boolean,
+    hasResults: Boolean,
+): List<WorkFaceKind> =
     buildList {
         if (hasIssue) add(WorkFaceKind.Issue)
         if (hasRun) add(WorkFaceKind.Run)
         if (hasChanges) add(WorkFaceKind.Changes)
+        if (hasResults) add(WorkFaceKind.Results)
     }
 
 private fun stamp(value: String): Long = WireTimestamps.parseEpochMs(value) ?: 0L
@@ -168,11 +183,13 @@ fun switcherBadge(
 }
 
 /** Where a face lands when it vanishes under the reader (the diff cleared,
- *  the run row went): changes → run → issue. `null` = nothing left. */
+ *  the run row went): changes → run → issue, and results → run → issue.
+ *  `null` = nothing left. */
 fun fallbackFace(shown: WorkFaceKind, available: List<WorkFaceKind>): WorkFaceKind? {
     if (shown in available) return shown
     val order = when (shown) {
         WorkFaceKind.Changes -> listOf(WorkFaceKind.Run, WorkFaceKind.Issue)
+        WorkFaceKind.Results -> listOf(WorkFaceKind.Run, WorkFaceKind.Issue)
         WorkFaceKind.Run -> listOf(WorkFaceKind.Issue)
         WorkFaceKind.Issue -> emptyList()
     }

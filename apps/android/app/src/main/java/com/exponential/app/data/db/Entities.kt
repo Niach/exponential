@@ -339,6 +339,15 @@ data class CodingSessionEntity(
     // walled run as healthy. Parsed for display by AgentUsagePresentation.
     @ColumnInfo(name = "blocked") @SerialName("blocked")
     @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
+    // EXP-879: the run's published RESULTS — the screenshots the agent filed
+    // with `exponential_sessions_results` while it worked, kept as the raw
+    // jsonb TEXT off the wire exactly like `blocked`. A FLAT, ORDERED array of
+    // `{topic, label, attachmentId, width, height}` capped at 60 server-side;
+    // NULL or `[]` = nothing published, which is why the Results face is a
+    // sub-face of Run rather than a permanent tab. Parsed for display by
+    // SessionResults.
+    @ColumnInfo(name = "results") @SerialName("results")
+    @Serializable(with = JsonAsStringSerializer::class) val results: String? = null,
     // Action run linkage (EXP-253): set on a session started from a team
     // action. action_id nulls if the action is later deleted (server FK SET
     // NULL) while action_name — a display snapshot — keeps labeling the run.

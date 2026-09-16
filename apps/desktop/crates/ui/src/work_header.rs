@@ -39,12 +39,15 @@ pub(crate) const WORK_COLUMN_W: f32 = 896.;
 // ---------------------------------------------------------------------------
 
 /// Which face of a top tab is up. `Diff` = the Run face with the viewer's
-/// full-page diff open.
+/// full-page diff open; `Results` (EXP-879) = the same slot holding the
+/// run's published pictures. Both are SUB-FACES of the run: no run of mine,
+/// neither exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Face {
     Issue,
     Run,
     Diff,
+    Results,
 }
 
 /// What the toggle offers: an `Issue` item for an issue-bound tab, a `Run`
@@ -55,6 +58,10 @@ pub(crate) struct FaceToggle {
     pub issue: bool,
     pub run: Option<String>,
     pub diff: Option<(u32, u32)>,
+    /// EXP-879: the run has published at least one picture, so the Results
+    /// item exists. Like `diff`, it needs `run` — a result without a run is
+    /// not a face.
+    pub results: bool,
     pub active: Face,
     /// EXP-886: the issue has MORE THAN ONE run of mine, so the Run item
     /// reads "Runs" ([`run_face_label`]). It still opens the tab's run; the
@@ -65,6 +72,9 @@ pub(crate) struct FaceToggle {
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
 pub(crate) const RUN_FACE_LABEL: &str = "Run";
 pub(crate) const RUNS_FACE_LABEL: &str = "Runs";
+/// EXP-879, byte-identical with the web `RESULTS_FACE_LABEL` and with the
+/// iOS/Android strings — the fourth face's ONE name on every client.
+pub(crate) const RESULTS_FACE_LABEL: &str = "Results";
 
 /// The Run item's label: the plural once the issue has several runs of mine.
 pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
@@ -78,7 +88,7 @@ pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
 impl FaceToggle {
     /// The items in web order, pure so the visibility rule can be pinned.
     pub(crate) fn items(&self) -> Vec<Face> {
-        let mut items = Vec::with_capacity(3);
+        let mut items = Vec::with_capacity(4);
         if self.issue {
             items.push(Face::Issue);
         }
@@ -86,6 +96,10 @@ impl FaceToggle {
             items.push(Face::Run);
             if self.diff.is_some() {
                 items.push(Face::Diff);
+            }
+            // EXP-879: Results comes LAST — issue, run, changes, results.
+            if self.results {
+                items.push(Face::Results);
             }
         }
         items
@@ -114,6 +128,7 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
                 Face::Issue => "tab-face-issue",
                 Face::Run => "tab-face-run",
                 Face::Diff => "tab-face-diff",
+                Face::Results => "tab-face-results",
             })
             .flex_none()
             .px_3()
@@ -127,6 +142,7 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
                     // labels (`+N` / `−M`, U+2212) in the shared tints.
                     item.child(crate::diff_pane::counts(additions, deletions, cx))
                 }
+                Face::Results => item.child(RESULTS_FACE_LABEL),
             })
             .when(!active, |item| {
                 item.on_click(move |_, window, cx| on_pick(face, window, cx))
@@ -232,6 +248,26 @@ pub(crate) fn coding_action(
         },
         _ => CodingAction::Start,
     }
+}
+
+/// EXP-879 — `run_id`'s published results off the synced `coding_sessions`
+/// row (the ONE reader, `domain::session_results`). Empty when the run has
+/// published nothing, when its row has not synced yet, or when there is no
+/// run at all — all three mean the same thing to the toggle: no Results
+/// face.
+pub(crate) fn run_results(
+    run_id: &str,
+    cx: &App,
+) -> Vec<domain::session_results::SessionResultEntry> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let sessions = store.collections().coding_sessions.read(cx);
+    sessions
+        .iter()
+        .find(|row| row.id == run_id)
+        .map(|row| domain::session_results::parse_session_results(row.results.as_ref()))
+        .unwrap_or_default()
 }
 
 /// [`coding_target`] over the synced rows, as its row. `None` when I have no
@@ -698,6 +734,7 @@ mod tests {
             issue,
             run: run.map(str::to_string),
             diff,
+            results: false,
             active,
             multiple_runs: false,
         };
@@ -712,6 +749,41 @@ mod tests {
         // A diff without a run is not a face.
         let orphan_diff = toggle(true, None, Some((3, 1)), Face::Issue);
         assert_eq!(orphan_diff.items(), vec![Face::Issue]);
+    }
+
+    /// EXP-879: Results is the FOURTH face, always last — issue, run,
+    /// changes, results — and, like the diff, a sub-face of the run: with no
+    /// run of mine it is not offered at all.
+    #[test]
+    fn the_results_face_comes_last_and_needs_a_run() {
+        let toggle = |issue: bool, run: Option<&str>, diff: Option<(u32, u32)>, results: bool| {
+            FaceToggle {
+                issue,
+                run: run.map(str::to_string),
+                diff,
+                results,
+                active: Face::Run,
+                multiple_runs: false,
+            }
+        };
+        assert_eq!(
+            toggle(true, Some("r"), Some((3, 1)), true).items(),
+            vec![Face::Issue, Face::Run, Face::Diff, Face::Results],
+        );
+        // No changes yet, results already published: the face still shows.
+        assert_eq!(
+            toggle(true, Some("r"), None, true).items(),
+            vec![Face::Issue, Face::Run, Face::Results],
+        );
+        // A result without a run is not a face.
+        assert_eq!(toggle(true, None, None, true).items(), vec![Face::Issue]);
+    }
+
+    /// EXP-879: the fourth face's label, byte-identical with the web and the
+    /// natives.
+    #[test]
+    fn the_results_face_label_is_results() {
+        assert_eq!(RESULTS_FACE_LABEL, "Results");
     }
 
     /// EXP-886: the Run item reads "Runs" once the issue has several runs of

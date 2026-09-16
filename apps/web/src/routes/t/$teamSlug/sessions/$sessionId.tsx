@@ -50,7 +50,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 // is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`). EXP-870: this
 // is the ONE run URL — an issue's run too, whose issue is the work tab's other
 // face. EXP-877: `?view=diff` is the run's third face, the full-column diff
-// under the same header (`work-header.tsx`). EXP-893: on a phone the faces
+// under the same header (`work-header.tsx`); EXP-879 `?view=results` is the
+// fourth, the screenshots the run published. EXP-893: on a phone the faces
 // are the Work screen's — `replace` navigations, so Back leaves the subject.
 //
 // EXP-312: a LIVE session is visible and steerable by its OWNER alone (the
@@ -58,7 +59,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 // renders an identity stub with the synced status badge and NO view mount —
 // mounting it would try to mint a ticket the server will refuse.
 
-type SessionSearch = { from?: string; view?: `diff` }
+type SessionSearch = { from?: string; view?: `diff` | `results` }
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   // EXP-818: `?from=` is WHERE this run was opened from (`lib/detail-origin.ts`
@@ -66,7 +67,12 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   // always landing on the Agent page. Absent = the Agent page's own list.
   validateSearch: (search: Record<string, unknown>): SessionSearch => ({
     from: typeof search.from === `string` && search.from ? search.from : undefined,
-    view: search.view === `diff` ? `diff` : undefined,
+    // EXP-879: `?view=results` is the fourth face; anything else normalises
+    // away to the run itself.
+    view:
+      search.view === `diff` || search.view === `results`
+        ? search.view
+        : undefined,
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -172,7 +178,7 @@ function SessionPage() {
       session={session}
       currentUserId={currentUserId}
       from={from}
-      face={view === `diff` ? `diff` : `run`}
+      face={view === `diff` || view === `results` ? view : `run`}
       onBack={goBack}
     />
   )
@@ -239,7 +245,7 @@ function OwnSessionPage({
         params: { teamSlug, sessionId: session.id },
         search: {
           ...(from ? { from } : {}),
-          ...(next === `diff` ? { view: `diff` as const } : {}),
+          ...(next === `diff` || next === `results` ? { view: next } : {}),
         },
         replace: true,
       })

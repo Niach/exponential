@@ -80,6 +80,8 @@ mod tests {
             "exponential_sessions_message",
             "exponential_sessions_end",
             "exponential_sessions_ask_parent",
+            // EXP-879: the run publishes pictures of its own work.
+            "exponential_sessions_results",
         ] {
             assert!(tools.contains(&name), "playbook never names {name}");
         }
