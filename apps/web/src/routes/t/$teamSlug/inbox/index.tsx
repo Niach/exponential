@@ -18,6 +18,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { trpc } from "@/lib/trpc-client"
+import { pageTitle } from "@/lib/page-title"
 
 // EXP-525: the tab segments carry the same registry glyphs the mobile My Work
 // segments and the desktop rail use.
@@ -45,6 +46,19 @@ type InboxSearch = {
 type InboxTab = `inbox` | `my-issues` | `drafts`
 
 export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
+  head: ({ match }) => ({
+    meta: [
+      {
+        title: pageTitle(
+          match.search.tab === `my-issues`
+            ? `My Issues`
+            : match.search.tab === `drafts`
+              ? `Drafts`
+              : `Inbox`
+        ),
+      },
+    ],
+  }),
   validateSearch: (search: Record<string, unknown>): InboxSearch => ({
     tab:
       search.tab === `my-issues` || search.tab === `drafts`

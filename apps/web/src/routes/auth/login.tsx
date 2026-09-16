@@ -15,6 +15,7 @@ import {
   OAuthProviderButtons,
   useOAuthSignIn,
 } from "@/components/oauth-provider-buttons"
+import { pageTitle } from "@/lib/page-title"
 
 // EXP-632: the server-fn RPC is the only thing standing between a visitor and
 // the login form, and it is also the call most exposed to a broken hop — a
@@ -49,6 +50,7 @@ const PASSKEY_SILENT_CODES = new Set([
 ])
 
 export const Route = createFileRoute(`/auth/login`)({
+  head: () => ({ meta: [{ title: pageTitle(`Sign in`) }] }),
   component: LoginPage,
   ssr: false,
   loader: () => loadAuthConfig(),

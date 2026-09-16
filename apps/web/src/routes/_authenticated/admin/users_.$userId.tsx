@@ -30,6 +30,7 @@ import {
   formatRelative,
   platformLabel,
 } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/_authenticated/admin/users_/$userId`)({
   loader: async ({ params }) => {
@@ -37,6 +38,14 @@ export const Route = createFileRoute(`/_authenticated/admin/users_/$userId`)({
       userId: params.userId,
     })
     return { detail }
+  },
+  head: ({ loaderData }) => {
+    const user = loaderData?.detail.user
+    return {
+      meta: [
+        { title: pageTitle(user?.name || user?.email, `Users`, `Admin`) },
+      ],
+    }
   },
   component: AdminUserDetail,
 })

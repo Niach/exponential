@@ -21,6 +21,7 @@ import {
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { githubConnectedDeepLink } from "@/lib/deep-link"
+import { pageTitle } from "@/lib/page-title"
 
 // The OAuth claim flow's account manager: the callback verified (via GitHub's
 // /user/installations) which App installations the user controls; when there
@@ -409,6 +410,7 @@ function GithubClaim() {
 
 export const Route = createFileRoute(`/_authenticated/integrations/github/claim`)(
   {
+    head: () => ({ meta: [{ title: pageTitle(`Connect GitHub`) }] }),
     validateSearch: (search: Record<string, unknown>): ClaimSearch => ({
       ticket: typeof search.ticket === `string` ? search.ticket : undefined,
       error: typeof search.error === `string` ? search.error : undefined,

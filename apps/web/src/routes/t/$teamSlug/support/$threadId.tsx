@@ -2,12 +2,14 @@ import { useCallback } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { SupportConversation } from "@/components/helpdesk/support-inbox"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { pageTitle } from "@/lib/page-title"
 
 // EXP-851: ONE helpdesk conversation, on its own route. The 3-pane inbox is
 // gone — the thread list lives in the sidebar's list nav (`?from=support`),
 // the conversation fills the content panel, and the ticket's details stay in
 // the lg+ rail / the sheet behind the header's info button.
 export const Route = createFileRoute(`/t/$teamSlug/support/$threadId`)({
+  head: () => ({ meta: [{ title: pageTitle(`Support`) }] }),
   // The origin the list handed this detail (`lib/detail-origin.ts`) — absent
   // on a shared link, which is exactly the "main menu stays" case.
   validateSearch: (search: Record<string, unknown>): { from?: string } => ({

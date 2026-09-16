@@ -1,8 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { EmailNotificationsCard } from "@/components/account/email-notifications-card"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/notifications`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Notifications`, `Settings`) }],
+  }),
   loader: async () => {
     const emailPrefs = await trpc.notifications.emailPrefs.query()
     return { emailPrefs }

@@ -4,6 +4,7 @@ import { TeamActionsPanel } from "@/components/team-actions-panel"
 import { useIsMobile } from "@exp/ui"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { pageTitle } from "@/lib/page-title"
 
 // The team Automations surface (EXP-686): its own sidebar entry and route on
 // a desktop viewport. Mobile has no room for a seventh tab — there Automations
@@ -16,6 +17,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 type AutomationsSearch = { editAutomation?: string }
 
 export const Route = createFileRoute(`/t/$teamSlug/automations`)({
+  head: () => ({ meta: [{ title: pageTitle(`Automations`) }] }),
   validateSearch: (search: Record<string, unknown>): AutomationsSearch => ({
     editAutomation:
       typeof search.editAutomation === `string` && search.editAutomation !== ``

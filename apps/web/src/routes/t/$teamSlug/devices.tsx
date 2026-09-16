@@ -8,6 +8,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { pageTitle } from "@/lib/page-title"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions and Automations are their own routes now): the caller's
@@ -21,6 +22,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 // DECISION one (which login to run on, and what it has spent).
 
 export const Route = createFileRoute(`/t/$teamSlug/devices`)({
+  head: () => ({ meta: [{ title: pageTitle(`Devices`) }] }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({

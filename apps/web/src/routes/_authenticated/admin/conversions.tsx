@@ -26,12 +26,16 @@ import {
   PlatformPills,
   StatCard,
 } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 type WindowDays = 7 | 30 | 90
 
 const WINDOWS: WindowDays[] = [7, 30, 90]
 
 export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Conversions`, `Admin`) }],
+  }),
   // `days` stays OPTIONAL in the search schema so plain links to
   // /admin/conversions (e.g. the admin nav) don't have to carry it.
   validateSearch: (

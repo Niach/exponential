@@ -3,8 +3,12 @@ import { trpc } from "@/lib/trpc-client"
 import { ApiKeysSection } from "@/components/account/api-keys-section"
 import { PasskeysSection } from "@/components/account/passkeys-section"
 import { getAuthConfig } from "@/lib/auth/config"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/security`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Security`, `Settings`) }],
+  }),
   loader: async () => {
     const [{ keys }, authConfig] = await Promise.all([
       trpc.users.listPersonalApiKeys.query(),

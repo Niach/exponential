@@ -6,8 +6,12 @@ import {
   SettingsSectionGuard,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/boards/$boardId`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Boards`, `Settings`) }],
+  }),
   component: SettingsBoard,
 })
 
@@ -19,6 +23,7 @@ function SettingsBoard() {
   const { team, permissions, resolved } = useSettingsPage(teamSlug)
   const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
   const board = boards.find((row) => row.id === boardId) ?? null
+  usePageTitle(board ? pageTitle(board.name, `Settings`) : undefined)
   const navigate = useNavigate()
 
   // A board id that resolves to nothing once the snapshot is in (a stale

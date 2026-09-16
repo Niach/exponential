@@ -37,6 +37,7 @@ import {
   formatRelative,
   formatStorageMb,
 } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(
   `/_authenticated/admin/teams_/$teamId`
@@ -47,6 +48,11 @@ export const Route = createFileRoute(
     })
     return { detail }
   },
+  head: ({ loaderData }) => ({
+    meta: [
+      { title: pageTitle(loaderData?.detail.team.name, `Teams`, `Admin`) },
+    ],
+  }),
   component: AdminTeamDetail,
 })
 

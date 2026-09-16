@@ -5,6 +5,7 @@ import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { AuthFormShell } from "@/components/auth-form-shell"
 import { Button, Checkbox, Label, Switch } from "@exp/ui"
+import { pageTitle } from "@/lib/page-title"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize
 // endpoint lands here (prompt=consent is forced server-side) with a
@@ -18,6 +19,7 @@ interface ConsentSearch {
 }
 
 export const Route = createFileRoute(`/auth/consent`)({
+  head: () => ({ meta: [{ title: pageTitle(`Authorize`) }] }),
   component: ConsentPage,
   ssr: false,
   validateSearch: (search: Record<string, unknown>): ConsentSearch => ({

@@ -4,8 +4,12 @@ import {
   SettingsSectionGuard,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/widget`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Feedback widget`, `Settings`) }],
+  }),
   component: SettingsWidget,
 })
 

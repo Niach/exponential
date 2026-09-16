@@ -1,8 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { TeamMcpServersSection } from "@/components/team/mcp-servers-section"
 import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/mcp-servers`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`MCP servers`, `Settings`) }],
+  }),
   component: SettingsMcpServers,
 })
 

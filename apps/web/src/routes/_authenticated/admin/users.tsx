@@ -23,6 +23,7 @@ import {
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { formatDate, formatRelative, PlatformPills } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 type AdminUser = Awaited<ReturnType<typeof trpc.admin.listUsers.query>>[number]
 
@@ -60,6 +61,9 @@ function compareUsers(a: AdminUser, b: AdminUser, key: SortKey): number {
 }
 
 export const Route = createFileRoute(`/_authenticated/admin/users`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Users`, `Admin`) }],
+  }),
   validateSearch: (
     search: Record<string, unknown>
   ): { sort?: SortKey; dir?: SortDir } => ({

@@ -2,8 +2,12 @@ import { createFileRoute } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { AccountOverview } from "@/components/account/account-overview"
 import { DeleteAccountSection } from "@/components/account/delete-account-section"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/account`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Account`, `Settings`) }],
+  }),
   loader: async () => {
     const timezone = await trpc.users.timezone.query()
     return { timezone: timezone.timezone }

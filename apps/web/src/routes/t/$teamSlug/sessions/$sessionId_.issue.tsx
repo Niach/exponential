@@ -3,6 +3,7 @@ import { useSessionRow } from "@/hooks/use-agents-data"
 import { issueCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { pageTitle } from "@/lib/page-title"
 
 // EXP-870: LEGACY REDIRECT. EXP-827 opened a run's linked issue on a path
 // nested under the run; EXP-870 made the issue and its run ONE work tab with
@@ -10,6 +11,7 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 // rides along. A run with no issue (or no run at all) lands back on the run's
 // own page. Nothing renders but a loading line while the collections sync.
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId_/issue`)({
+  head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (search: Record<string, unknown>): { from?: string } => ({
     from: typeof search.from === `string` && search.from ? search.from : undefined,
   }),

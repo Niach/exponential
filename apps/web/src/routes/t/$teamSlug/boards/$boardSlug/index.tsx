@@ -13,6 +13,7 @@ import { issueCollection } from "@/lib/collections"
 import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { StatusRowOption } from "@/lib/team-statuses"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry.
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -107,6 +108,7 @@ function BoardPage() {
     boardSlug,
     teamSlug,
   })
+  usePageTitle(board ? pageTitle(board.name) : undefined)
 
   const permissions = useTeamPermissions(team)
 

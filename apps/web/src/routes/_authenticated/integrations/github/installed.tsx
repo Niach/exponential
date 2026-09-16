@@ -10,6 +10,7 @@ import {
   CardTitle,
   IconDisc,
 } from "@exp/ui"
+import { pageTitle } from "@/lib/page-title"
 
 // Landing page after a GitHub App install launched from the in-app board/repo
 // dialog (state=dialog). Two very different arrivals share this page, and the
@@ -71,5 +72,6 @@ function GithubInstalled() {
 export const Route = createFileRoute(
   `/_authenticated/integrations/github/installed`
 )({
+  head: () => ({ meta: [{ title: pageTitle(`GitHub connected`) }] }),
   component: GithubInstalled,
 })

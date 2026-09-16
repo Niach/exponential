@@ -6,6 +6,7 @@ import { Button, Textarea, conceptIcon } from "@exp/ui"
 import { Composer, ComposerSubmit } from "@/components/composer"
 import { PoweredByFooter } from "@/components/team/powered-by-footer"
 import { relativeTime } from "@/components/comment-rows/format"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // The reporter's magic-link conversation page (EXP-128). No login — the
 // /support/<token> URL from the email IS the credential, so the page is
@@ -26,7 +27,10 @@ const SendIcon = conceptIcon(`ui-send`)
 export const Route = createFileRoute(`/support/$token`)({
   ssr: false,
   head: () => ({
-    meta: [{ name: `referrer`, content: `no-referrer` }],
+    meta: [
+      { title: pageTitle(`Support`) },
+      { name: `referrer`, content: `no-referrer` },
+    ],
   }),
   component: SupportConversationPage,
 })
@@ -75,6 +79,9 @@ function SupportConversationPage() {
 
 export function SupportConversationView({ token }: { token: string }) {
   const [state, setState] = useState<LoadState>({ kind: `loading` })
+  usePageTitle(
+    state.kind === `ready` ? pageTitle(state.thread.subject) : undefined
+  )
   const [draft, setDraft] = useState(``)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)

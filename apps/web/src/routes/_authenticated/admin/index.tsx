@@ -13,8 +13,12 @@ import {
   platformLabel,
   StatCard,
 } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/_authenticated/admin/`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Overview`, `Admin`) }],
+  }),
   loader: async () => {
     const [overview, platforms] = await Promise.all([
       trpc.admin.overview.query(),

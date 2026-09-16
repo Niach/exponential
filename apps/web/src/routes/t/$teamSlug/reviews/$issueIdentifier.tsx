@@ -44,6 +44,7 @@ import {
   MobileWorkBar,
 } from "@/components/mobile-work-bar"
 import { useSteerConfig } from "@/components/agent-session"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
@@ -58,6 +59,9 @@ import { useSteerConfig } from "@/components/agent-session"
 export const Route = createFileRoute(
   `/t/$teamSlug/reviews/$issueIdentifier`
 )({
+  head: ({ params }) => ({
+    meta: [{ title: pageTitle(params.issueIdentifier, `Reviews`) }],
+  }),
   // EXP-851: the list this review was opened from (`lib/detail-origin.ts`) —
   // the sidebar keeps the queue beside it; absent means the main menu stays.
   validateSearch: (search: Record<string, unknown>): { from?: string } => ({
@@ -110,6 +114,11 @@ function ReviewDetailPage() {
     [boardIds.join(`,`), issueIdentifier]
   )
   const issue = (issueRows?.[0] ?? null) as Issue | null
+  usePageTitle(
+    issue
+      ? pageTitle(`${issue.identifier} ${issue.title}`, `Reviews`)
+      : undefined
+  )
 
   // Every issue sharing this PR (a batch run links several) — newest first.
   const { data: linkedRows } = useLiveQuery(

@@ -1,8 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { TeamStatusesSection } from "@/components/team/statuses-section"
 import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/statuses`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Statuses`, `Settings`) }],
+  }),
   component: SettingsStatuses,
 })
 

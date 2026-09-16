@@ -4,8 +4,10 @@ import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { Button, Input, Label } from "@exp/ui"
 import { AuthFormShell } from "@/components/auth-form-shell"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/auth/forgot-password`)({
+  head: () => ({ meta: [{ title: pageTitle(`Reset your password`) }] }),
   component: ForgotPasswordPage,
   ssr: false,
 })

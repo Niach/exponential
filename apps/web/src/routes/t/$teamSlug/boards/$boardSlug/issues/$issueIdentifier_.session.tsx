@@ -6,6 +6,7 @@ import { issueSessionTarget } from "@/hooks/use-open-session"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useSession } from "@/hooks/use-session"
 import type { CodingSession, Issue } from "@/db/schema"
+import { pageTitle } from "@/lib/page-title"
 
 // EXP-870: LEGACY REDIRECT. EXP-851 put an issue's run on the issue's own URL;
 // EXP-870 made a run ONE URL (`/t/$teamSlug/sessions/$sessionId`) with the
@@ -17,6 +18,9 @@ import type { CodingSession, Issue } from "@/db/schema"
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier_/session`
 )({
+  head: ({ params }) => ({
+    meta: [{ title: pageTitle(params.issueIdentifier) }],
+  }),
   validateSearch: (
     search: Record<string, unknown>
   ): { from?: string; run?: string } => ({

@@ -4,10 +4,14 @@ import {
   SettingsSectionGuard,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(
   `/t/$teamSlug/settings/boards/archived`
 )({
+  head: () => ({
+    meta: [{ title: pageTitle(`Archived boards`, `Settings`) }],
+  }),
   component: SettingsArchivedBoards,
 })
 

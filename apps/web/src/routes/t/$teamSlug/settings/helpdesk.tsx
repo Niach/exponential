@@ -4,8 +4,12 @@ import {
   SettingsSectionGuard,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/helpdesk`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Helpdesk`, `Settings`) }],
+  }),
   component: SettingsHelpdesk,
 })
 
