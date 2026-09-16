@@ -593,6 +593,35 @@ pub fn parse_patch(path: &str, status: DiffStatus, patch: Option<&str>) -> DiffF
         .unwrap_or_else(hunkless)
 }
 
+/// One GitHub PullFile → one [`DiffFile`] (web `fromPullFile`, iOS + Android
+/// `Diff.fromPullFile`; the fixture's `pullFile` form). An empty
+/// `previous_filename` is no previous path. When the patch carries no hunks
+/// (absent, empty, or a pure rename) GitHub's own counts are kept, clamped to
+/// `0..=DIFF_LINE_MAX` — they are the only counts there are.
+pub fn from_pull_file(
+    filename: &str,
+    previous_filename: Option<&str>,
+    status: &str,
+    additions: i64,
+    deletions: i64,
+    patch: Option<&str>,
+) -> DiffFile {
+    let mut parsed = parse_patch(filename, DiffStatus::from_pull_file(status), patch);
+    if let Some(previous) = previous_filename.filter(|previous| !previous.is_empty()) {
+        parsed.previous_path = Some(previous.to_string());
+    }
+    if parsed.hunks.is_empty() {
+        parsed.additions = clamp_count(additions);
+        parsed.deletions = clamp_count(deletions);
+    }
+    parsed
+}
+
+/// A caller-supplied count → `0..=DIFF_LINE_MAX`.
+fn clamp_count(n: i64) -> u32 {
+    n.clamp(0, i64::from(DIFF_LINE_MAX)) as u32
+}
+
 // ── Derivations ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -754,7 +783,10 @@ mod tests {
     struct FixtureCase {
         name: String,
         form: String,
+        #[serde(default)]
         input: String,
+        #[serde(default)]
+        pull_file: Option<FixturePullFile>,
         #[serde(default)]
         path: Option<String>,
         #[serde(default)]
@@ -764,6 +796,19 @@ mod tests {
         expected_merged: Option<Vec<String>>,
         summary: String,
         unchanged: Vec<u32>,
+    }
+
+    /// GitHub's raw PullFile keys, snake_case as the API sends them.
+    #[derive(Deserialize)]
+    struct FixturePullFile {
+        filename: String,
+        #[serde(default)]
+        previous_filename: Option<String>,
+        status: String,
+        additions: i64,
+        deletions: i64,
+        #[serde(default)]
+        patch: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -782,9 +827,25 @@ mod tests {
         serde_json::from_str(SUMMARIES).expect("the summary fixture parses")
     }
 
-    /// `form: "hunks"` WITH a `path` is the GitHub PullFile shape (the path and
-    /// status arrive beside the patch); every other case auto-detects.
+    /// `form: "pullFile"` is a whole GitHub PullFile through [`from_pull_file`];
+    /// `form: "hunks"` WITH a `path` is its patch alone (the path and status
+    /// arrive beside it); every other case auto-detects.
     fn parse_case(entry: &FixtureCase) -> Diff {
+        if entry.form == "pullFile" {
+            if let Some(file) = &entry.pull_file {
+                return Diff {
+                    files: vec![from_pull_file(
+                        &file.filename,
+                        file.previous_filename.as_deref(),
+                        &file.status,
+                        file.additions,
+                        file.deletions,
+                        file.patch.as_deref(),
+                    )],
+                    truncated_lines: None,
+                };
+            }
+        }
         if entry.form == "hunks" {
             if let Some(path) = entry.path.as_deref() {
                 return Diff {
@@ -844,7 +905,7 @@ mod tests {
         let mut forms: Vec<&str> = cases.iter().map(|entry| entry.form.as_str()).collect();
         forms.sort_unstable();
         forms.dedup();
-        assert_eq!(forms, vec!["bare", "git", "hunks", "none"]);
+        assert_eq!(forms, vec!["bare", "git", "hunks", "none", "pullFile"]);
         // A `none` case is the empty parse; every other form yields files.
         for entry in &cases {
             let files = parse_case(entry).files;

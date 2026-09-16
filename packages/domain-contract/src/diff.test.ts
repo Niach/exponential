@@ -5,6 +5,9 @@
 // suites go red at once.
 //
 // How a case is parsed (the fixture's own contract):
+//   - `form: "pullFile"` → `fromPullFile(pullFile)`: GitHub's raw PullFile
+//     (`filename`, `previous_filename`, raw `status`, `additions`,
+//     `deletions`, `patch`), the ONE mapping every client's PR diff runs.
 //   - `form: "hunks"` WITH a `path` → `parsePatch(path, status, input)`
 //     (GitHub's PullFile shape: the path and status arrive beside the patch).
 //   - every other case, `form: "hunks"` WITHOUT a path included →
@@ -41,8 +44,9 @@ import {
 
 interface Case {
   name: string
-  form: `git` | `bare` | `hunks` | `none`
-  input: string
+  form: `git` | `bare` | `hunks` | `none` | `pullFile`
+  input?: string
+  pullFile?: Parameters<typeof fromPullFile>[0]
   path?: string
   status?: DiffStatus
   expected: string[]
@@ -60,12 +64,17 @@ const summaryFixture = summaries as unknown as {
 }[]
 
 function parseCase(entry: Case): Diff {
+  if (entry.form === `pullFile` && entry.pullFile) {
+    return { files: [fromPullFile(entry.pullFile)] }
+  }
   if (entry.form === `hunks` && entry.path !== undefined) {
     return {
-      files: [parsePatch(entry.path, entry.status ?? `modified`, entry.input)],
+      files: [
+        parsePatch(entry.path, entry.status ?? `modified`, entry.input ?? ``),
+      ],
     }
   }
-  return parseDiff(entry.input)
+  return parseDiff(entry.input ?? ``)
 }
 
 function unchangedRun(diff: Diff): number[] {
@@ -93,7 +102,13 @@ describe(`diff`, () => {
   test(`the fixture covers every input form`, () => {
     expect(fixture.length).toBeGreaterThanOrEqual(18)
     const forms = new Set(fixture.map((entry) => entry.form))
-    expect([...forms].sort()).toEqual([`bare`, `git`, `hunks`, `none`])
+    expect([...forms].sort()).toEqual([
+      `bare`,
+      `git`,
+      `hunks`,
+      `none`,
+      `pullFile`,
+    ])
     // A `none` case is the empty parse; every other form yields files.
     for (const entry of fixture) {
       const files = parseCase(entry).files

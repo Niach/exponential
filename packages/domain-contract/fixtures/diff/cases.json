@@ -469,6 +469,115 @@
     ]
   },
   {
+    "name": "pull file renamed with edits keeps previous_filename and the parser's counts win over GitHub's",
+    "form": "pullFile",
+    "pullFile": {
+      "filename": "apps/web/src/lib/diff-view.ts",
+      "previous_filename": "apps/web/src/lib/diff.ts",
+      "status": "renamed",
+      "additions": 9,
+      "deletions": 9,
+      "patch": "@@ -3,4 +3,4 @@ import type { DiffFile } from \"./model\"\n \n-export const DIFF_CONTEXT = 3\n+export const DIFF_CONTEXT_LINES = 3\n \n export function visible(file: DiffFile) {\n"
+    },
+    "expected": [
+      "file renamed apps/web/src/lib/diff-view.ts <- apps/web/src/lib/diff.ts +1 -1",
+      "hunk 3,4 3,4 |@@ -3,4 +3,4 @@ import type { DiffFile } from \"./model\"|",
+      "ctx 3 3 ||",
+      "del 4 - |export const DIFF_CONTEXT = 3|",
+      "add - 4 |export const DIFF_CONTEXT_LINES = 3|",
+      "ctx 5 5 ||",
+      "ctx 6 6 |export function visible(file: DiffFile) {|"
+    ],
+    "summary": "1 file +1 −1",
+    "unchanged": [
+      2
+    ]
+  },
+  {
+    "name": "pull file pure rename with no patch keeps previous_filename and zero counts",
+    "form": "pullFile",
+    "pullFile": {
+      "filename": "docs/licences/zlib.txt",
+      "previous_filename": "docs/zlib.txt",
+      "status": "renamed",
+      "additions": 0,
+      "deletions": 0
+    },
+    "expected": [
+      "file renamed docs/licences/zlib.txt <- docs/zlib.txt +0 -0"
+    ],
+    "summary": "1 file +0 −0",
+    "unchanged": []
+  },
+  {
+    "name": "pull file too large for a patch keeps GitHub's own counts",
+    "form": "pullFile",
+    "pullFile": {
+      "filename": "bun.lock",
+      "status": "modified",
+      "additions": 1200,
+      "deletions": 800,
+      "patch": null
+    },
+    "expected": [
+      "file modified bun.lock +1200 -800"
+    ],
+    "summary": "1 file +1200 −800",
+    "unchanged": []
+  },
+  {
+    "name": "pull file with an empty patch and GitHub's changed status reads as modified with its counts",
+    "form": "pullFile",
+    "pullFile": {
+      "filename": "apps/ios/Tuist/Package.resolved",
+      "status": "changed",
+      "additions": 4,
+      "deletions": 2,
+      "patch": ""
+    },
+    "expected": [
+      "file modified apps/ios/Tuist/Package.resolved +4 -2"
+    ],
+    "summary": "1 file +4 −2",
+    "unchanged": []
+  },
+  {
+    "name": "pull file with an empty previous_filename carries no previous path",
+    "form": "pullFile",
+    "pullFile": {
+      "filename": "README.md",
+      "previous_filename": "",
+      "status": "added",
+      "additions": 1,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1 @@\n+# Exponential\n"
+    },
+    "expected": [
+      "file added README.md +1 -0",
+      "hunk 0,0 1,1 |@@ -0,0 +1 @@|",
+      "add - 1 |# Exponential|"
+    ],
+    "summary": "1 file +1 −0",
+    "unchanged": [
+      0
+    ]
+  },
+  {
+    "name": "pull file counts clamp to zero and saturate at the line ceiling",
+    "form": "pullFile",
+    "pullFile": {
+      "filename": "assets/logo.png",
+      "status": "added",
+      "additions": -3,
+      "deletions": 5000000000
+    },
+    "expected": [
+      "file added assets/logo.png +0 -2147483647"
+    ],
+    "summary": "1 file +0 −2147483647",
+    "unchanged": []
+  },
+  {
     "name": "pure garbage yields no files",
     "form": "none",
     "input": "Reading package lists...\nBuilding dependency tree...\nnothing here is a diff\n",

@@ -45,18 +45,19 @@ import com.exponential.app.ui.theme.glassRow
 // same card.
 
 /**
- * GitHub's PullFile → the shared model (web `fromPullFile`, iOS
- * `PrFile.diffFile`). When the patch carries NO hunks — absent, empty, a pure
- * rename, or a diff too large for GitHub to send — GitHub's own
- * additions/deletions are kept, because they are the only counts there are;
- * with hunks, the parser's counts win, so the header can never disagree with
- * the rows under it.
+ * GitHub's PullFile → the shared model through [Diff.fromPullFile], the ONE
+ * mapping the contract fixture's `pullFile` cases lock ×4 (web `fromPullFile`,
+ * iOS `PrFile.diffFile`). With hunks the parser's counts win, so the header can
+ * never disagree with the rows under it; without, GitHub's own counts stand.
  */
-fun PullFile.toDiffFile(): Diff.File {
-    val file = Diff.parsePatch(filename, Diff.Status.fromPullFile(status), patch)
-    if (file.hunks.isNotEmpty()) return file
-    return file.copy(additions = maxOf(0, additions), deletions = maxOf(0, deletions))
-}
+fun PullFile.toDiffFile(): Diff.File = Diff.fromPullFile(
+    filename = filename,
+    previousFilename = previousFilename,
+    status = status,
+    additions = additions.toLong(),
+    deletions = deletions.toLong(),
+    patch = patch,
+)
 
 /** The one-letter status a file list leads with. */
 fun diffStatusLetter(status: Diff.Status): String = when (status) {

@@ -642,28 +642,21 @@ pub struct PreparedDiff {
     options: DiffOptions,
 }
 
-/// GitHub's [`PullFile`]s → the shared model: the status vocabulary through
-/// [`DiffStatus::from_pull_file`], the patch through
-/// [`domain::diff::parse_patch`] (which may never rename the file it is
-/// handed).
+/// GitHub's [`PullFile`]s → the shared model through
+/// [`domain::diff::from_pull_file`], the ONE mapping the contract fixture's
+/// `pullFile` cases lock ×4.
 pub fn files_from_pull(files: &[PullFile]) -> Vec<DiffFile> {
     files
         .iter()
         .map(|file| {
-            let mut parsed = domain::diff::parse_patch(
+            domain::diff::from_pull_file(
                 &file.filename,
-                DiffStatus::from_pull_file(&file.status),
+                file.previous_filename.as_deref(),
+                &file.status,
+                i64::from(file.additions),
+                i64::from(file.deletions),
                 file.patch.as_deref(),
-            );
-            parsed.previous_path = file.previous_filename.clone();
-            // GitHub's own counts are authoritative — its `patch` may be
-            // omitted or cut, and a card that says `+0 −0` over a 900-line
-            // file is worse than one with no rows.
-            if parsed.hunks.is_empty() {
-                parsed.additions = file.additions;
-                parsed.deletions = file.deletions;
-            }
-            parsed
+            )
         })
         .collect()
 }

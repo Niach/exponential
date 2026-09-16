@@ -471,6 +471,29 @@ object Diff {
         return parseSections(patch, seedPath = path, seedStatus = status).first()
     }
 
+    /**
+     * One GitHub PullFile → one [File] (web `fromPullFile`; the fixture's
+     * `pullFile` form). An empty [previousFilename] is no previous path. When
+     * the patch carries no hunks (absent, empty, or a pure rename) GitHub's own
+     * counts are kept, clamped to `0..LINE_MAX` — they are the only counts
+     * there are.
+     */
+    fun fromPullFile(
+        filename: String,
+        previousFilename: String?,
+        status: String,
+        additions: Long,
+        deletions: Long,
+        patch: String?,
+    ): File {
+        val file = parsePatch(filename, Status.fromPullFile(status), patch)
+            .let { if (previousFilename.isNullOrEmpty()) it else it.copy(previousPath = previousFilename) }
+        if (file.hunks.isNotEmpty()) return file
+        return file.copy(additions = clampCount(additions), deletions = clampCount(deletions))
+    }
+
+    private fun clampCount(n: Long): Int = n.coerceIn(0L, LINE_MAX.toLong()).toInt()
+
     // ── Derivations ─────────────────────────────────────────────────────────
 
     data class Totals(val files: Int, val additions: Int, val deletions: Int)

@@ -71,22 +71,16 @@ public enum DiffPresentation {
 }
 
 extension PrFile {
-    /// One GitHub PullFile → one `Diff.File` (web `fromPullFile`). When the
-    /// patch carries no hunks (absent, empty, or a pure rename) GitHub's OWN
-    /// additions/deletions are kept — they are the only counts there are.
+    /// One GitHub PullFile → one `Diff.File`, through the ONE mapping the
+    /// contract fixture's `pullFile` cases lock (`Diff.fromPullFile`).
     public var diffFile: Diff.File {
-        var file = Diff.parsePatch(
-            path: filename,
-            status: Diff.Status.fromPullFile(status),
+        Diff.fromPullFile(
+            filename: filename,
+            previousFilename: previousFilename,
+            status: status,
+            additions: additions,
+            deletions: deletions,
             patch: patch
         )
-        if let previousFilename, !previousFilename.isEmpty {
-            file.previousPath = previousFilename
-        }
-        if file.hunks.isEmpty {
-            file.additions = max(0, additions)
-            file.deletions = max(0, deletions)
-        }
-        return file
     }
 }
