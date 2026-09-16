@@ -314,6 +314,7 @@ struct AgentSessionView<Switcher: View>: View {
                         currentUserId: deps.auth.userId,
                         steerApi: deps.steerApi,
                         attachmentsApi: deps.attachmentsApi,
+                        issuesApi: deps.issuesApi,
                         db: deps.db
                     )
                 }
