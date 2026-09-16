@@ -1,4 +1,5 @@
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -25,6 +26,7 @@ import {
   relayPostKill,
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import { prUrlPattern } from "@/lib/integrations/pr-stack"
 import {
   findStackForPull,
   listOpenPullsByBase,
@@ -1121,17 +1123,35 @@ export async function notifyStackedChildrenOfFoundationChange(opts: {
   repoFullName: string
   headRef: string
   prNumber: number
+  /** The synchronized PR's html URL — only a PR we track is a foundation. */
+  prUrl: string
 }): Promise<{ notified: string[] }> {
-  if (!opts.headRef || !opts.repoFullName) return { notified: [] }
+  if (!opts.headRef || !opts.repoFullName || !opts.prUrl) {
+    return { notified: [] }
+  }
   const config = getSteerRelayConfig()
   if (!config) return { notified: [] }
+  // A child is an OPEN issue PR in the SAME repository and team whose base is
+  // the foundation's head, and the foundation itself must be an issue PR we
+  // track. Without the self-join and the repo pattern, a release PR whose head
+  // is the default branch (every plain PR records `pr_base_branch = master`) or
+  // a same-named branch in another team's repo would order every live run in
+  // sight to rebase — and a live run is steerable by its owner only (EXP-312).
+  const foundation = alias(issues, `foundation_issues`)
   const rows = await db
     .select({ id: codingSessions.id })
     .from(codingSessions)
     .innerJoin(issues, eq(issues.id, codingSessions.issueId))
+    .innerJoin(
+      foundation,
+      and(eq(foundation.prUrl, opts.prUrl), eq(foundation.teamId, issues.teamId))
+    )
     .where(
       and(
         eq(issues.prBaseBranch, opts.headRef),
+        eq(issues.prState, `open`),
+        ne(issues.prUrl, opts.prUrl),
+        like(issues.prUrl, prUrlPattern(opts.repoFullName)),
         inArray(codingSessions.status, [`running`, `in_review`])
       )
     )

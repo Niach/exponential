@@ -1269,6 +1269,18 @@ export const steerRouter = router({
       // open blocker left the frame stays byte-identical to a plain start.
       let stackFrame: SteerStartStack | undefined
       if (input.issueId && (input.stack || input.stackOn)) {
+        // The explicit pick becomes a `blocks` relation and its identifier,
+        // branch and PR ride the frame — so it must be an issue of THIS team,
+        // whose membership was asserted above, never a UUID from elsewhere.
+        if (input.stackOn) {
+          const lowerCtx = await getIssueTeamContext(input.stackOn.issueId)
+          if (lowerCtx.teamId !== teamId) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `The issue to stack on must be in the same team`,
+            })
+          }
+        }
         const { resolveStackChain } = await import(`@/lib/stack-plan`)
         let plan
         try {

@@ -111,8 +111,12 @@ import { createPullRequest } from "@/lib/integrations/github-pr"
 import {
   attachToStack,
   loadSessionStackContext,
+  loadStackRows,
+  membersAtOrBelow,
+  orderStack,
   prUrlPattern,
   resolveStackLower,
+  stackTopOpen,
   type StackLower,
 } from "@/lib/integrations/pr-stack"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
@@ -208,6 +212,30 @@ function buildCtx(user: McpUser, request: Request): Context {
       },
     },
   } as unknown as Context
+}
+
+/**
+ * EXP-897: `mergeStack` lands every open member at-or-below the chain's top,
+ * and those members may sit on boards an OAuth grant never named. The tRPC
+ * layer has no notion of MCP grants, so the confinement is enforced here, on
+ * the same chain the server will merge, before anything reaches GitHub.
+ */
+async function assertStackBoardsGranted(
+  access: McpAccess,
+  prUrl: string,
+  teamId: string
+): Promise<void> {
+  const repoFullName = repoFromPrUrl(prUrl)
+  if (!repoFullName) return
+  const rows = await loadStackRows(db, { teamId, repoFullName })
+  const chain = orderStack(rows, prUrl)
+  const top = stackTopOpen(chain)
+  const members = top ? membersAtOrBelow(chain, top.prUrl) : chain
+  for (const member of members) {
+    for (const issue of member.issues) {
+      if (issue.boardId) assertBoardGranted(access, issue.boardId, teamId)
+    }
+  }
 }
 
 function caller(user: McpUser, request: Request) {
@@ -2574,10 +2602,12 @@ export function registerExponentialTools(
           const id = await resolveIssueId(raw, user.id, access)
           if (!ids.includes(id)) ids.push(id)
         }
+        const teamIdByIssue = new Map<string, string>()
         for (const id of ids) {
           const issueCtx = await getIssueTeamContext(id)
           assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
           await resolveTeamAccess(user.id, issueCtx.teamId)
+          teamIdByIssue.set(id, issueCtx.teamId)
         }
 
         // One merge per distinct PR: issues sharing a batch prUrl collapse
@@ -2645,34 +2675,58 @@ export function registerExponentialTools(
           mergedVia?: string
         }[] = []
 
-        // EXP-897: ONE call lands the whole chain (the server walks up to its
-        // topmost open member and merges from there), so every requested issue
-        // shares that outcome instead of being merged again one by one.
+        // EXP-897: ONE call lands a whole chain (the server walks up to its
+        // topmost open member and merges from there). A later target whose PR
+        // that chain already carried reports that merge; a target on an
+        // UNRELATED PR gets its own stack merge — never a `merged: true` its
+        // PR did not earn.
         if (mergeStack) {
-          const entry = targets[0]!
-          try {
-            const stackResult = await trpcCaller.issues.mergePr({
-              issueId: entry.id,
-              mergeStack: true,
-              ...endSessionsInput,
-            })
-            for (const target of targets) {
+          const landed = new Map<string, string>() // prUrl → entry identifier
+          for (const target of targets) {
+            const prUrl = rowById.get(target.id)?.prUrl ?? null
+            const via = prUrl ? landed.get(prUrl) : undefined
+            if (via) {
               results.push({
                 issueId: target.id,
                 identifier: target.identifier,
                 merged: true,
-                mergedVia: entry.identifier,
+                mergedVia: via,
+              })
+              continue
+            }
+            try {
+              // The chain may reach boards this token was never granted:
+              // refuse before GitHub sees anything.
+              if (prUrl) {
+                await assertStackBoardsGranted(
+                  access,
+                  prUrl,
+                  teamIdByIssue.get(target.id)!
+                )
+              }
+              const stackResult = await trpcCaller.issues.mergePr({
+                issueId: target.id,
+                mergeStack: true,
+                ...endSessionsInput,
+              })
+              for (const url of stackResult.mergedPrUrls ?? []) {
+                landed.set(url, target.identifier)
+              }
+              if (prUrl) landed.set(prUrl, target.identifier)
+              results.push({
+                issueId: target.id,
+                identifier: target.identifier,
+                merged: true,
+                mergedVia: target.identifier,
                 ...(stackResult.note ? { note: stackResult.note } : {}),
               })
-            }
-          } catch (e) {
-            const error = e instanceof Error ? e.message : String(e)
-            for (const target of targets) {
+            } catch (e) {
+              const error = e instanceof Error ? e.message : String(e)
               results.push({
                 issueId: target.id,
                 identifier: target.identifier,
                 merged: false,
-                mergedVia: entry.identifier,
+                mergedVia: target.identifier,
                 error,
               })
             }

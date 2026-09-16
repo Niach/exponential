@@ -625,6 +625,34 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
     })
   })
 
+  it(`stops after the first member when GitHub reveals it merged the whole stack`, async () => {
+    // pr_stack_number is still null (the stack was built on github.com and the
+    // webhook has not caught up), so the candidate path runs — but the FIRST
+    // merge answers viaStack for both members. No second merge, no retarget.
+    h.selectQueue.push([entryRow])
+    h.selectQueue.push(stackRows(null))
+    h.selectQueue.push(cohortRows)
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `abc`,
+      viaStack: true,
+      stackNumber: 7,
+      stackMemberNumbers: [241, 242],
+    })
+
+    await expect(
+      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
+    ).resolves.toMatchObject({
+      merged: true,
+      mergedPrUrls: [PR_URL, UPPER_PR_URL],
+      note: `Merged GitHub stack #7: 2 pull request(s), bottom-up.`,
+    })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
+  })
+
   it(`is idempotent once every member is merged`, async () => {
     h.selectQueue.push([{ ...entryRow, prState: `merged` }])
     h.selectQueue.push(
@@ -633,7 +661,13 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
 
     await expect(
       caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).resolves.toEqual({ merged: true })
+    ).resolves.toEqual({
+      merged: true,
+      mergedPrUrls: [
+        `https://github.com/owner/repo/pull/241`,
+        `https://github.com/owner/repo/pull/242`,
+      ],
+    })
     expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
     expect(h.endMergedPrSessions).toHaveBeenCalledWith(
       [ISSUE_ID, UPPER_ISSUE],

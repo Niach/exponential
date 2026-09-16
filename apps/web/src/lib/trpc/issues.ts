@@ -316,7 +316,14 @@ async function finalizeIssueUpdateInTx(
 }
 
 /** EXP-897: `queued` = GitHub's merge queue took it; `note` explains either. */
-type MergePrResult = { merged: true; queued?: boolean; note?: string }
+type MergePrResult = {
+  merged: true
+  queued?: boolean
+  note?: string
+  /** EXP-897: the PR urls a stack merge landed (or queued), so a caller merging
+   * several issues can tell which of them this call actually covered. */
+  mergedPrUrls?: string[]
+}
 
 /**
  * EXP-897: land the ISSUE side of a stacked merge. Merging a stack member
@@ -464,7 +471,7 @@ async function mergeStackFromMember(opts: {
       chain.flatMap((entry) => entry.issues.map((issue) => issue.id)),
       opts.endSessions
     )
-    return { merged: true }
+    return { merged: true, mergedPrUrls: chain.map((entry) => entry.prUrl) }
   }
   const members = membersAtOrBelow(chain, top.prUrl).filter(
     (entry) => entry.prState === `open` && entry.prNumber != null
@@ -535,6 +542,7 @@ async function mergeStackFromMember(opts: {
       return {
         merged: true,
         queued: true,
+        mergedPrUrls: members.map((member) => member.prUrl),
         note: `GitHub queued the stack merge of PR #${top.prNumber}. The issues complete when it lands.`,
       }
     }
@@ -553,6 +561,7 @@ async function mergeStackFromMember(opts: {
     })
     return {
       merged: true,
+      mergedPrUrls: members.map((member) => member.prUrl),
       note: `Merged GitHub stack #${top.stackNumber}: ${members.length} pull request(s), bottom-up.`,
     }
   }
@@ -560,6 +569,7 @@ async function mergeStackFromMember(opts: {
   // ── Candidate stack: merge bottom-up, retargeting as we go ───────────────
   const stackBase = members[0]!.baseBranch
   const mergedNumbers: number[] = []
+  const mergedUrls: string[] = []
   for (const [index, member] of members.entries()) {
     if (index > 0 && stackBase && member.baseBranch !== stackBase) {
       try {
@@ -590,8 +600,9 @@ async function mergeStackFromMember(opts: {
         })
       }
     }
+    let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
     try {
-      await mergePullRequestSmart({
+      smart = await mergePullRequestSmart({
         repo: repoFullName,
         prNumber: member.prNumber!,
         token,
@@ -619,7 +630,34 @@ async function mergeStackFromMember(opts: {
         message: `Merged ${mergedNumbers.map((n) => `#${n}`).join(`, `)}, then PR #${member.prNumber} (${stackEntryLabel(member)}) failed: ${err instanceof Error ? err.message : String(err)}`,
       })
     }
+    // A stack GitHub built behind our back (`pr_stack_number` still null —
+    // the webhook has not caught up): this one merge landed EVERY member
+    // at-or-below it. Finish the cohort from GitHub's answer and stop, or the
+    // next iteration would merge PRs that are already in and report them as
+    // failures.
+    if (smart.viaStack && smart.stackMemberNumbers.length > 1) {
+      const landed = new Set(smart.stackMemberNumbers)
+      await completeStackCohort({
+        db,
+        teamId,
+        repoFullName,
+        memberNumbers: smart.stackMemberNumbers,
+        fallbackIssueId: opts.entryIssueId,
+        actorUserId: opts.actorUserId,
+        actorViaAgent: opts.actorViaAgent,
+        endSessions: opts.endSessions,
+      })
+      const covered = members.filter(
+        (entry) => entry.prNumber != null && landed.has(entry.prNumber)
+      )
+      return {
+        merged: true,
+        mergedPrUrls: [...mergedUrls, ...covered.map((entry) => entry.prUrl)],
+        note: `Merged GitHub stack${smart.stackNumber != null ? ` #${smart.stackNumber}` : ``}: ${smart.stackMemberNumbers.length} pull request(s), bottom-up.`,
+      }
+    }
     mergedNumbers.push(member.prNumber!)
+    mergedUrls.push(member.prUrl)
     for (const issue of member.issues) {
       await applyPrMergeState({
         issueId: issue.id,
@@ -637,6 +675,7 @@ async function mergeStackFromMember(opts: {
   }
   return {
     merged: true,
+    mergedPrUrls: mergedUrls,
     note: `Merged ${mergedNumbers.length} pull request(s) bottom-up: ${mergedNumbers.map((n) => `#${n}`).join(`, `)}.`,
   }
 }

@@ -178,6 +178,7 @@ describe(`resolveStackChain`, () => {
 
   it(`writes the missing blocks relation for an explicit stackOnIssueId, once`, async () => {
     h.selectQueue.push([issueRow(`EXP-12`)])
+    h.selectQueue.push([issueRow(`EXP-11`)]) // the pick, same team
     h.selectQueue.push([REPO])
     h.selectQueue.push([
       { issueId: `issue-EXP-11`, relatedIssueId: `issue-EXP-12` },
@@ -201,6 +202,19 @@ describe(`resolveStackChain`, () => {
         teamId: `ws-1`,
       })
     )
+  })
+
+  it(`refuses an explicit stackOnIssueId from another team before writing anything`, async () => {
+    h.selectQueue.push([issueRow(`EXP-12`)])
+    h.selectQueue.push([issueRow(`OTHER-1`, { teamId: `ws-2`, boardId: `board-9` })])
+
+    await expect(
+      resolveStackChain(db, `issue-EXP-12`, {
+        stackOnIssueId: `issue-OTHER-1`,
+        actorUserId: `actor`,
+      })
+    ).rejects.toThrow(`EXP-12 cannot stack on an issue in another team`)
+    expect(h.insertRelationInTx).not.toHaveBeenCalled()
   })
 
   it(`refuses a blocker on another repository`, async () => {

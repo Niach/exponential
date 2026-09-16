@@ -535,6 +535,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         repoFullName,
         headRef,
         prNumber: pr.number ?? 0,
+        prUrl: htmlUrl,
       })
       return jsonResponse(200, { ok: true })
     }

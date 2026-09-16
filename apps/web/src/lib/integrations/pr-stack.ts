@@ -37,6 +37,8 @@ export interface StackRow {
   prState: string | null
   prBaseBranch: string | null
   prStackNumber: number | null
+  /** EXP-897: the member's board — MCP grant confinement over a whole chain. */
+  boardId?: string | null
 }
 
 /** One PR in a chain — the issues sharing it ride along (batch PRs). */
@@ -202,6 +204,7 @@ export async function loadStackRows(
       prState: issues.prState,
       prBaseBranch: issues.prBaseBranch,
       prStackNumber: issues.prStackNumber,
+      boardId: issues.boardId,
     })
     .from(issues)
     .where(

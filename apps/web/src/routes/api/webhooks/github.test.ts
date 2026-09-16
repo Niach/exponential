@@ -1000,6 +1000,7 @@ describe(`github webhook — PR stacks (EXP-897)`, () => {
       repoFullName: `org/repo`,
       headRef: `exp/EXP-11`,
       prNumber: 7,
+      prUrl: HTML_URL,
     })
     // A synchronize never touches issue PR state.
     expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()

@@ -281,6 +281,23 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
     )
   })
 
+  it(`refuses a stackOn issue from another team`, async () => {
+    queueOwnDevice()
+    h.getIssueTeamContext.mockImplementation(async (id: string) => ({
+      issueId: id,
+      boardId: `proj-${id}`,
+      teamId: id === ISSUE_B ? `ws-2` : `ws-1`,
+    }))
+    await expect(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        stackOn: { issueId: ISSUE_B },
+      })
+    ).rejects.toThrow(`The issue to stack on must be in the same team`)
+    expect(h.resolveStackChain).not.toHaveBeenCalled()
+  })
+
   it(`omits the stack entirely when nothing blocks the issue`, async () => {
     queueOwnDevice()
     await caller.startSession({

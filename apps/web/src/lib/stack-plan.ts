@@ -209,6 +209,23 @@ export async function resolveStackChain(
     .limit(1)
   if (!target) throw new Error(`Issue not found`)
 
+  // The explicit pick is about to become a relation stamped with the target's
+  // team and to have its branch and PR handed to the caller: it must exist and
+  // belong to the same team, whatever layer resolved the id.
+  if (opts.stackOnIssueId && opts.stackOnIssueId !== issueId) {
+    const [lowerRow] = await db
+      .select(PLAN_ISSUE_COLUMNS)
+      .from(issues)
+      .where(eq(issues.id, opts.stackOnIssueId))
+      .limit(1)
+    if (!lowerRow) throw new Error(`The issue to stack on was not found`)
+    if (lowerRow.teamId !== target.teamId) {
+      throw new Error(
+        `${target.identifier} cannot stack on an issue in another team`
+      )
+    }
+  }
+
   const repo = await boardRepo(db, target.boardId)
   if (!repo) {
     throw new Error(`No repository linked to this board. Link one in team settings.`)

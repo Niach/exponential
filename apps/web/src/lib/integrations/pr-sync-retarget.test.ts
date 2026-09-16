@@ -322,6 +322,7 @@ describe(`notifyStackedChildrenOfFoundationChange (EXP-897)`, () => {
       repoFullName: `owner/repo`,
       headRef: `exp/EXP-10`,
       prNumber: 240,
+      prUrl: PARENT_PR_URL,
     })
 
     expect(result.notified).toEqual([`session-1`, `session-2`])
@@ -339,6 +340,7 @@ describe(`notifyStackedChildrenOfFoundationChange (EXP-897)`, () => {
       repoFullName: `owner/repo`,
       headRef: `exp/EXP-42`,
       prNumber: 240,
+      prUrl: PARENT_PR_URL,
     }
     await notifyStackedChildrenOfFoundationChange(args)
     h.awaitRows = [{ id: `session-dedupe` }]
@@ -353,6 +355,7 @@ describe(`notifyStackedChildrenOfFoundationChange (EXP-897)`, () => {
       repoFullName: `owner/repo`,
       headRef: `exp/EXP-10`,
       prNumber: 240,
+      prUrl: PARENT_PR_URL,
     })
     expect(h.relayPostInput).not.toHaveBeenCalled()
 
@@ -361,7 +364,21 @@ describe(`notifyStackedChildrenOfFoundationChange (EXP-897)`, () => {
       repoFullName: `owner/repo`,
       headRef: ``,
       prNumber: 240,
+      prUrl: PARENT_PR_URL,
     })
+    expect(h.relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`needs the synchronized PR itself: a PR nobody tracks is no foundation`, async () => {
+    h.getSteerRelayConfig.mockReturnValue(RELAY)
+    h.awaitRows = [{ id: `session-1` }]
+    const result = await notifyStackedChildrenOfFoundationChange({
+      repoFullName: `owner/repo`,
+      headRef: `master`,
+      prNumber: 240,
+      prUrl: ``,
+    })
+    expect(result.notified).toEqual([])
     expect(h.relayPostInput).not.toHaveBeenCalled()
   })
 

@@ -3833,6 +3833,10 @@ describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
     ]
     caller.issues.mergePr.mockResolvedValue({
       merged: true,
+      mergedPrUrls: [
+        `https://github.com/acme/app/pull/241`,
+        `https://github.com/acme/app/pull/242`,
+      ],
       note: `Merged GitHub stack #7: 2 pull request(s), bottom-up.`,
     })
 
@@ -3853,6 +3857,50 @@ describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
     expect(ok.results.every((row) => row.merged && row.mergedVia === `EXP-11`)).toBe(
       true
     )
+  })
+
+  it(`merges a target on an unrelated PR on its own and reports only what landed`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-11`,
+        prUrl: `https://github.com/acme/app/pull/241`,
+        branch: `exp/EXP-11`,
+        prBaseBranch: `master`,
+      },
+      {
+        id: PROJ,
+        identifier: `EXP-30`,
+        prUrl: `https://github.com/acme/app/pull/300`,
+        branch: `exp/EXP-30`,
+        prBaseBranch: `master`,
+      },
+    ]
+    caller.issues.mergePr
+      .mockResolvedValueOnce({
+        merged: true,
+        mergedPrUrls: [`https://github.com/acme/app/pull/241`],
+      })
+      .mockRejectedValueOnce(
+        new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `PR #300 is dirty on GitHub`,
+        })
+      )
+
+    const result = await tool(`exponential_pr_merge`)({
+      issueIds: [UUID, PROJ],
+      mergeStack: true,
+    })
+
+    expect(caller.issues.mergePr).toHaveBeenCalledTimes(2)
+    const ok = parseOk(result) as {
+      results: Array<{ issueId: string; merged: boolean; error?: string }>
+    }
+    expect(ok.results.find((row) => row.issueId === UUID)!.merged).toBe(true)
+    const other = ok.results.find((row) => row.issueId === PROJ)!
+    expect(other.merged).toBe(false)
+    expect(other.error).toContain(`dirty`)
   })
 
   it(`reports the stack failure once, for every requested issue`, async () => {
