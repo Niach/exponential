@@ -201,7 +201,10 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()
         flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
-        flow.expandDiffFiles()
+        // EXP-916: every file starts EXPANDED — wait for the first patch's
+        // "N unchanged lines" divider instead of tapping rows open (a tap
+        // would now fold them).
+        flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("5_review", popRects = true)
 

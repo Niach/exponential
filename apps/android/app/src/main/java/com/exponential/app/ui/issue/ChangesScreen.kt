@@ -539,20 +539,6 @@ private fun ChangesBottomBar(
                 }
             }
             if (canReview) {
-                ChangesBarCircle(onClick = onClosePr, enabled = !busy) {
-                    if (closing) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            // EXP-916: rejecting a PR is `prClosed`, the same
-                            // mark the state itself wears ×4.
-                            ExpIcons.prClosed,
-                            contentDescription = DomainContract.diffUiClosePr,
-                            modifier = Modifier.size(20.dp),
-                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    }
-                }
                 // EXP-706: the primary action is a WHITE pill — the one solid
                 // thing on the bar, so the review's outcome is unmistakable.
                 // No hairline: a white fill needs no edge against the dim
@@ -591,6 +577,22 @@ private fun ChangesBottomBar(
                         style = MaterialTheme.typography.titleSmall,
                         color = Color.Black,
                     )
+                }
+                // EXP-916: reject TRAILS the merge pill — files · Merge PR ·
+                // reject, the slot order iOS and the phone web wear.
+                ChangesBarCircle(onClick = onClosePr, enabled = !busy) {
+                    if (closing) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            // EXP-916: rejecting a PR is `prClosed`, the same
+                            // mark the state itself wears ×4.
+                            ExpIcons.prClosed,
+                            contentDescription = DomainContract.diffUiClosePr,
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        )
+                    }
                 }
             }
         }

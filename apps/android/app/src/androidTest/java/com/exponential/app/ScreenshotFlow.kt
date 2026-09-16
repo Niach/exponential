@@ -250,19 +250,6 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         submitLogin()
     }
 
-    /**
-     * Expands the diff's file sections so the review shot shows patches rather
-     * than a bare filename list. Every file starts collapsed; the rows never
-     * reorder, so index-addressing them is stable across the clicks.
-     */
-    fun expandDiffFiles() {
-        val rows = composeRule.onAllNodes(hasTestTag("changes-file-row"))
-        val count = minOf(rows.fetchSemanticsNodes().size, 5)
-        for (index in 0 until count) {
-            runCatching { rows[index].performClick() }
-        }
-    }
-
     /** Poll (without requiring Compose idleness) until [matcher] matches a node. */
     fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
         composeRule.waitUntil(timeoutMillis) {
