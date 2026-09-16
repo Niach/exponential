@@ -35,12 +35,13 @@
 //! menus render in the Root overlay, outside this element tree.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
-    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
-    WindowId,
+    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, ClickEvent, Entity,
+    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Pixels, Render,
+    ScrollHandle, ScrollStrategy, SharedString, Size, StatefulInteractiveElement as _, Styled,
+    Subscription, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -50,9 +51,13 @@ use gpui_component::{
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
+    v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
+    VirtualListScrollHandle,
 };
 use sync::Store;
+
+use domain::rows::Issue;
+use domain::statuses::ResolvedStatus;
 
 
 // EXP-282: `OpenSettings` is gone from this file — the rail gear navigates
@@ -69,7 +74,7 @@ use crate::issue_list::{
 };
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
-    GettingStartedTab, Navigation, Screen,
+    GettingStartedTab, Navigation, Screen, TabOrigin,
 };
 use crate::issue_header::parse_hex_color;
 use crate::queries;
@@ -535,6 +540,50 @@ const PIN_ROW_GROUP: &str = "rail-pin-row";
 /// EXP-863: the `ListNav` issue rows' hover group — reveals the leading
 /// bulk-select checkbox (the big list's `issue-row` group).
 const NAV_ROW_GROUP: &str = "list-nav-issue-row";
+
+/// EXP-915: the `ListNav` issue lists' row heights — the group band and the
+/// `rail_row_lead` row — plus the 2px the old `gap_0p5` column put between
+/// them, folded into each virtual-list item so the fixed sizes stay exact.
+const NAV_HEADER_HEIGHT: f32 = 24.;
+const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
+const NAV_ROW_GAP: f32 = 2.;
+
+/// One flattened `ListNav` virtual-list row (EXP-915) — the big list's
+/// `ListRow` at the column's density: the issue rides behind the memoized
+/// query's `Rc`, so rebuilding the vector per frame clones handles, never
+/// payloads.
+enum NavRow {
+    Header {
+        status: Box<ResolvedStatus>,
+        count: usize,
+        collapsed: bool,
+    },
+    Issue {
+        /// The issue's ordinal across the WHOLE list, folded groups included
+        /// — the row's element id, so folding a group never renumbers the
+        /// rows below it into each other's element state.
+        index: usize,
+        issue: Rc<Issue>,
+    },
+}
+
+impl NavRow {
+    /// The virtual-list item height: the row plus its trailing gap.
+    fn height(&self) -> Pixels {
+        px(match self {
+            NavRow::Header { .. } => NAV_HEADER_HEIGHT + NAV_ROW_GAP,
+            NavRow::Issue { .. } => NAV_ISSUE_ROW_HEIGHT + NAV_ROW_GAP,
+        })
+    }
+}
+
+/// The `ListNav` board query's memo key (EXP-915): the scope plus every
+/// collection input ([`queries::BoardDataKey`]).
+#[derive(PartialEq, Eq)]
+struct NavBoardKey {
+    query: IssueQuery,
+    base: queries::BoardDataKey,
+}
 
 /// EXP-282: one row of the EXPANDED rail — icon + label, left-aligned, glass
 /// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
@@ -1632,7 +1681,7 @@ impl Render for RailView {
         // issue row can account for.
         let has_reviews = active_team_id(&self.nav, cx)
             .map(|id| {
-                !queries::review_issues(cx, &id).is_empty()
+                queries::has_review_issues(cx, &id)
                     || !queries::review_runs(cx, &id).is_empty()
             })
             .unwrap_or(false);
@@ -2148,6 +2197,34 @@ pub struct ListPanel {
     /// universe). Empty while the column shows a list without issue rows.
     nav_issue_ids: Vec<String>,
     nav_visible_ids: Vec<String>,
+    /// EXP-915: the `ListNav` issue lists' memoized board query — the big
+    /// list's REV-39 cache. gpui re-renders this panel on every window
+    /// refresh (each scroll tick, each hover flip, every Electric batch);
+    /// before this the column re-ran the full clone+sort+group pipeline AND
+    /// rebuilt every row element per frame, which is what made scrolling a
+    /// long board's column stutter.
+    nav_data: queries::Memo<NavBoardKey, queries::BoardData>,
+    /// EXP-915: the scope team's resolved status vocabulary, re-derived only
+    /// when the team or the `issue_statuses` shape changes.
+    nav_statuses: queries::Memo<(Option<String>, u64), Vec<ResolvedStatus>>,
+    /// EXP-915: the flattened rows of the CURRENT render, read by the virtual
+    /// list's range closure afterwards (the big list's `rows`).
+    nav_rows: Rc<Vec<NavRow>>,
+    /// Per-render snapshots the row builders read instead of re-resolving
+    /// navigation once per row: the vocabulary, the open detail's issue and
+    /// the origin a row pins.
+    nav_row_statuses: Rc<Vec<ResolvedStatus>>,
+    nav_active_issue_id: Option<String>,
+    nav_row_origin: Option<TabOrigin>,
+    /// The issue lists' virtual-list scroll — reset to the top when the
+    /// column's origin (or the Inbox tab) changes, since both lists share it.
+    nav_list_scroll: VirtualListScrollHandle,
+    /// EXP-915: the other sidebar lists' memoized queries — the inbox
+    /// grouping, the Reviews queue and the Automations log's row facts.
+    inbox_data: queries::Memo<queries::InboxDataKey, queries::InboxData>,
+    reviews_data: queries::Memo<queries::ReviewGroupsKey, Vec<queries::ReviewGroup>>,
+    automation_facts:
+        queries::Memo<queries::AutomatedRunsKey, Vec<crate::run_rows::RunListFacts>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -2263,6 +2340,16 @@ impl ListPanel {
             nav_bulk_busy: false,
             nav_issue_ids: Vec::new(),
             nav_visible_ids: Vec::new(),
+            nav_data: queries::Memo::default(),
+            nav_statuses: queries::Memo::default(),
+            nav_rows: Rc::new(Vec::new()),
+            nav_row_statuses: Rc::new(Vec::new()),
+            nav_active_issue_id: None,
+            nav_row_origin: None,
+            nav_list_scroll: VirtualListScrollHandle::new(),
+            inbox_data: queries::Memo::default(),
+            reviews_data: queries::Memo::default(),
+            automation_facts: queries::Memo::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -2407,7 +2494,13 @@ impl ListPanel {
                 .into_any_element();
         }
 
-        let data = queries::inbox(cx);
+        // EXP-915: the grouping runs only when a collection it reads moved —
+        // it used to clone every notification on every repaint.
+        let data = {
+            let app: &App = cx;
+            self.inbox_data
+                .get_or_insert_with(queries::inbox_data_key(app), || queries::inbox(app))
+        };
         // "Mark all read" is the strip's trailing control (EXP-862: a
         // borderless 32px GHOST icon button — a quiet refresh-class glyph, not
         // a primary action), only while there is something to mark.
@@ -2892,6 +2985,7 @@ impl ListPanel {
         if self.mode == ListMode::Nav {
             if self.nav_inbox_tab != tab {
                 self.nav_inbox_tab = tab;
+                self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
                 cx.notify();
             }
             return;
@@ -3367,13 +3461,22 @@ impl ListPanel {
 
     /// EXP-863: the scope team's resolved status vocabulary, ONCE per render
     /// — every row's inline status menu and context menu read this snapshot
-    /// (the big list's `team_statuses`).
-    fn nav_team_statuses(&self, cx: &App) -> std::rc::Rc<Vec<domain::statuses::ResolvedStatus>> {
-        std::rc::Rc::new(
-            active_team_id(&self.nav, cx)
-                .map(|team_id| queries::team_status_options(cx, &team_id))
-                .unwrap_or_else(domain::statuses::default_resolved_statuses),
-        )
+    /// (the big list's `team_statuses`). EXP-915: memoized on the team and
+    /// the `issue_statuses` revision.
+    fn nav_team_statuses(&mut self, cx: &App) -> Rc<Vec<ResolvedStatus>> {
+        let team_id = active_team_id(&self.nav, cx);
+        let revision = Store::global(cx)
+            .collections()
+            .issue_statuses
+            .read(cx)
+            .revision();
+        let key = (team_id.clone(), revision);
+        self.nav_statuses.get_or_insert_with(key, || {
+            team_id
+                .as_deref()
+                .map(|team_id| queries::team_status_options(cx, team_id))
+                .unwrap_or_else(domain::statuses::default_resolved_statuses)
+        })
     }
 
     // -- ListNav bodies (EXP-851) --------------------------------------------
@@ -3416,15 +3519,12 @@ impl ListPanel {
         let Some(board_id) = board_id else {
             return self.list_note("No board selected.", cx);
         };
-        let data = queries::board_board(cx, &board_id);
-        if !data.is_ready {
-            return self.list_skeleton(cx);
-        }
-        let rows = self.nav_issue_rows(&data.groups, cx);
-        if rows.is_empty() {
-            return self.list_note("No issues yet.", cx);
-        }
-        self.nav_scroll("list-nav-board-scroll", rows, cx)
+        self.render_nav_issue_list(
+            IssueQuery::Board { board_id },
+            ("list-nav-board-scroll", "list-nav-board-rows"),
+            "No issues yet.",
+            cx,
+        )
     }
 
     /// The My Issues `ListNav` body — the same plain rows over the team-wide
@@ -3435,15 +3535,114 @@ impl ListPanel {
         else {
             return self.list_note("Nothing assigned.", cx);
         };
-        let data = queries::my_issues(cx, &team_id, &account.user_id);
+        self.render_nav_issue_list(
+            IssueQuery::MyIssues {
+                team_id,
+                user_id: account.user_id,
+            },
+            ("list-nav-mine-scroll", "list-nav-mine-rows"),
+            "Nothing assigned to you.",
+            cx,
+        )
+    }
+
+    /// EXP-915: the shared body of the two `ListNav` issue lists — the
+    /// memoized board query ([`Self::nav_data`], keyed by scope + every
+    /// collection input), flattened into [`NavRow`]s and drawn by a
+    /// `v_virtual_list` (the big list's element), so a scroll tick lays out
+    /// the visible rows only. It used to run the query and build EVERY row
+    /// per frame.
+    fn render_nav_issue_list(
+        &mut self,
+        query: IssueQuery,
+        (scroll_id, rows_id): (&'static str, &'static str),
+        empty_copy: &'static str,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let data = {
+            let app: &App = cx;
+            let key = NavBoardKey {
+                query: query.clone(),
+                base: queries::board_data_key(app),
+            };
+            self.nav_data
+                .get_or_insert_with(key, || query.board_data(app))
+        };
         if !data.is_ready {
             return self.list_skeleton(cx);
         }
-        let rows = self.nav_issue_rows(&data.groups, cx);
-        if rows.is_empty() {
-            return self.list_note("Nothing assigned to you.", cx);
+        self.nav_prepare_rows(&data.groups, cx);
+        if self.nav_rows.is_empty() {
+            return self.list_note(empty_copy, cx);
         }
-        self.nav_scroll("list-nav-mine-scroll", rows, cx)
+        let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(
+            self.nav_rows
+                .iter()
+                .map(|row| size(px(0.), row.height()))
+                .collect(),
+        );
+        div()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(
+                v_flex()
+                    .id(scroll_id)
+                    .relative()
+                    .size_full()
+                    .child(
+                        v_virtual_list(
+                            cx.entity().clone(),
+                            rows_id,
+                            sizes,
+                            |this, visible_range, window, cx| {
+                                visible_range
+                                    .map(|ix| this.nav_render_row(ix, window, cx))
+                                    .collect()
+                            },
+                        )
+                        .track_scroll(&self.nav_list_scroll),
+                    )
+                    .scrollbar(
+                        &self.nav_list_scroll,
+                        gpui_component::scroll::ScrollbarAxis::Vertical,
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// One virtual-list item of the `ListNav` issue lists (EXP-915): the row
+    /// at `ix` in the column's old `px_2` gutter, with its trailing gap.
+    fn nav_render_row(
+        &mut self,
+        ix: usize,
+        _window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let rows = self.nav_rows.clone();
+        let Some(row) = rows.get(ix) else {
+            return div().into_any_element();
+        };
+        let inner = match row {
+            NavRow::Header {
+                status,
+                count,
+                collapsed,
+            } => self.nav_group_header(status, *count, *collapsed, cx),
+            NavRow::Issue { index, issue } => {
+                let statuses = self.nav_row_statuses.clone();
+                let any_selected = !self.nav_selected.is_empty();
+                self.nav_issue_row(*index, issue, &statuses, any_selected, cx)
+            }
+        };
+        div()
+            .h(row.height())
+            .w_full()
+            .min_w_0()
+            .px_2()
+            .pb(px(NAV_ROW_GAP))
+            .child(inner)
+            .into_any_element()
     }
 
     /// EXP-862: the `ListNav`'s issue rows, grouped by STATUS exactly like the
@@ -3452,11 +3651,11 @@ impl ListPanel {
     /// to be an undifferentiated run of issues, which is the one thing the
     /// big list never was; web's `board-issue-list-pane.tsx` got the same
     /// header in this wave.
-    fn nav_issue_rows(
+    fn nav_prepare_rows(
         &mut self,
         groups: &[queries::BoardGroup],
         cx: &mut gpui::Context<Self>,
-    ) -> Vec<gpui::AnyElement> {
+    ) {
         // EXP-863: the selection's universe for this render — every listed
         // id (the bulk bar's, folded groups included) and the unfolded ones
         // (the Shift-range's); a selected id whose row left the data set
@@ -3474,10 +3673,15 @@ impl ListPanel {
             let present: HashSet<&str> = self.nav_issue_ids.iter().map(String::as_str).collect();
             self.nav_selected.retain(|id| present.contains(id.as_str()));
         }
-        let statuses = self.nav_team_statuses(cx);
-        let any_selected = !self.nav_selected.is_empty();
+        // EXP-915: the per-render snapshots the row builders read.
+        self.nav_row_statuses = self.nav_team_statuses(cx);
+        self.nav_active_issue_id = match resolved_screen(&self.nav, cx) {
+            Some(Screen::IssueDetail { issue_id }) => Some(issue_id),
+            _ => None,
+        };
+        self.nav_row_origin = self.row_origin(cx);
 
-        let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        let mut rows: Vec<NavRow> = Vec::new();
         // The row ids number the ISSUES, so folding a group never renumbers
         // the rows below it into each other's element state.
         let mut index = 0usize;
@@ -3487,17 +3691,24 @@ impl ListPanel {
                 continue;
             }
             let collapsed = self.nav_collapsed.contains(&group.status.group_key);
-            rows.push(self.nav_group_header(&group.status, group.issues.len(), collapsed, cx));
+            rows.push(NavRow::Header {
+                status: Box::new(group.status.clone()),
+                count: group.issues.len(),
+                collapsed,
+            });
             if collapsed {
                 index += group.issues.len();
                 continue;
             }
             for issue in &group.issues {
-                rows.push(self.nav_issue_row(index, issue, &statuses, any_selected, cx));
+                rows.push(NavRow::Issue {
+                    index,
+                    issue: issue.clone(),
+                });
                 index += 1;
             }
         }
-        rows
+        self.nav_rows = Rc::new(rows);
     }
 
     /// One `ListNav` status band — the big list's group header
@@ -3577,15 +3788,16 @@ impl ListPanel {
     fn nav_issue_row(
         &self,
         index: usize,
-        issue: &std::rc::Rc<domain::rows::Issue>,
-        statuses: &std::rc::Rc<Vec<domain::statuses::ResolvedStatus>>,
+        issue: &Rc<Issue>,
+        statuses: &Rc<Vec<ResolvedStatus>>,
         any_selected: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let screen = Screen::IssueDetail {
             issue_id: issue.id.clone(),
         };
-        let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
+        // EXP-915: off the render's snapshot, not a per-row navigation read.
+        let active = self.nav_active_issue_id.as_deref() == Some(issue.id.as_str());
         let selected = self.nav_selected.contains(&issue.id);
         let toggle_id = issue.id.clone();
         let lead = h_flex()
@@ -3628,7 +3840,7 @@ impl ListPanel {
         let click_id = issue.id.clone();
         let menu_issue = issue.clone();
         let menu_statuses = statuses.clone();
-        let menu_origin = self.row_origin(cx);
+        let menu_origin = self.nav_row_origin.clone();
         // A bulk-selected row wears the same active fill as the open one —
         // both mean "this row is where you are" (EXP-426).
         rail_row_lead(
@@ -3672,7 +3884,18 @@ impl ListPanel {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return self.list_note("No team selected.", cx);
         };
-        let groups = queries::review_groups(cx, &team_id);
+        // EXP-915: the queue is grouped only when issues/boards moved.
+        let groups = {
+            let app: &App = cx;
+            self.reviews_data
+                .get_or_insert_with(queries::review_groups_key(app, &team_id), || {
+                    queries::review_groups(app, &team_id)
+                })
+        };
+        let open_issue = match resolved_screen(&self.nav, cx) {
+            Some(Screen::PrDiff { issue_id }) => Some(issue_id),
+            _ => None,
+        };
         let rows: Vec<gpui::AnyElement> = groups
             .iter()
             .flat_map(|group| group.entries.iter())
@@ -3682,7 +3905,7 @@ impl ListPanel {
                 let screen = Screen::PrDiff {
                     issue_id: issue.id.clone(),
                 };
-                let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
+                let active = open_issue.as_deref() == Some(issue.id.as_str());
                 let lead = div()
                     .flex_shrink_0()
                     .text_xs()
@@ -3719,8 +3942,23 @@ impl ListPanel {
     /// the Automations page.
     fn render_automations_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let team_id = active_team_id(&self.nav, cx);
-        let runs = queries::automated_runs(cx, team_id.as_deref());
-        if runs.is_empty() {
+        let now_secs = chrono::Utc::now().timestamp();
+        // EXP-915: the log's rows are derived when a collection they read
+        // moves or the 5s clock ticks — never per repaint (every run row was
+        // cloned and re-captioned on each scrolled pixel).
+        let facts = {
+            let app: &App = cx;
+            let key = queries::automated_runs_key(app, team_id.as_deref(), now_secs);
+            self.automation_facts.get_or_insert_with(key, || {
+                queries::automated_runs(app, team_id.as_deref())
+                    .iter()
+                    .map(|session| {
+                        crate::run_rows::RunListFacts::derive(session, now_secs, app)
+                    })
+                    .collect()
+            })
+        };
+        if facts.is_empty() {
             return self.list_note("Nothing has fired yet.", cx);
         }
         let open_session = match resolved_screen(&self.nav, cx) {
@@ -3728,13 +3966,8 @@ impl ListPanel {
             _ => None,
         };
         let origin = self.row_origin(cx);
-        let now_secs = chrono::Utc::now().timestamp();
-        let facts: Vec<crate::run_rows::RunListFacts> = runs
-            .iter()
-            .map(|session| crate::run_rows::RunListFacts::derive(session, now_secs, cx))
-            .collect();
         let mut rows: Vec<gpui::AnyElement> = Vec::with_capacity(facts.len());
-        for (index, facts) in facts.into_iter().enumerate() {
+        for (index, facts) in facts.iter().cloned().enumerate() {
             let open_id = facts.session_id().to_string();
             let active = open_session.as_deref() == Some(open_id.as_str());
             let origin = origin.clone();
@@ -3853,6 +4086,9 @@ impl Render for ListPanel {
                         // list's (`set_query` clears it on a scope change).
                         self.nav_selected.clear();
                         self.nav_select_anchor = None;
+                        // EXP-915: a new list starts at its top (the two
+                        // issue lists share one virtual-list scroll).
+                        self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
                     }
                 }
                 // EXP-863: the issue bodies refill these; any other list

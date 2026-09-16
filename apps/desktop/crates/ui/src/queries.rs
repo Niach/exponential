@@ -138,6 +138,154 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
     }
 }
 
+// ---------------------------------------------------------------------------
+// Render-time memoization (REV-39, EXP-915)
+// ---------------------------------------------------------------------------
+
+/// A one-slot cache keyed by the inputs a derived query reads.
+///
+/// gpui re-runs every view's `render` on each window refresh — a scroll
+/// tick, a hover flip, every Electric batch — so a list that derives its rows
+/// IN `render` pays the whole clone+filter+sort pipeline per frame. A hit
+/// here is one key compare and an `Rc` clone. REV-39 gave the big issue list
+/// this cache; EXP-915 generalised it for the sidebar's lists, which had
+/// none and re-ran their queries on every scrolled pixel.
+pub(crate) struct Memo<K, V> {
+    slot: Option<(K, Rc<V>)>,
+}
+
+impl<K, V> Default for Memo<K, V> {
+    fn default() -> Self {
+        Self { slot: None }
+    }
+}
+
+impl<K: PartialEq, V> Memo<K, V> {
+    /// The cached value when `key` matches the last one, else `build()`,
+    /// re-keyed.
+    pub(crate) fn get_or_insert_with(&mut self, key: K, build: impl FnOnce() -> V) -> Rc<V> {
+        if let Some((cached_key, cached)) = &self.slot {
+            if *cached_key == key {
+                return cached.clone();
+            }
+        }
+        let value = Rc::new(build());
+        self.slot = Some((key, value.clone()));
+        value
+    }
+
+    /// Drop the slot — the next read rebuilds whatever the key says.
+    pub(crate) fn clear(&mut self) {
+        self.slot = None;
+    }
+}
+
+/// Every input a memoized [`BoardData`] derives from (REV-39). Revisions
+/// alone are not enough: an empty up-to-date batch flips a collection's
+/// readiness phase WITHOUT bumping its revision, so the combined `ready` bit
+/// rides along; `today` covers the local-midnight overdue boundary. The
+/// SCOPE (board / team + assignee) is the caller's half of the key.
+#[derive(PartialEq, Eq)]
+pub(crate) struct BoardDataKey {
+    issues: u64,
+    issue_labels: u64,
+    labels: u64,
+    boards: u64,
+    issue_statuses: u64,
+    ready: bool,
+    today: String,
+}
+
+pub(crate) fn board_data_key(cx: &App) -> BoardDataKey {
+    let collections = Store::global(cx).collections();
+    BoardDataKey {
+        issues: collections.issues.read(cx).revision(),
+        issue_labels: collections.issue_labels.read(cx).revision(),
+        labels: collections.labels.read(cx).revision(),
+        boards: collections.boards.read(cx).revision(),
+        issue_statuses: collections.issue_statuses.read(cx).revision(),
+        ready: collections.issues.read(cx).is_ready()
+            && collections.boards.read(cx).is_ready()
+            && collections.issue_labels.read(cx).is_ready()
+            && collections.labels.read(cx).is_ready(),
+        today: today_local(),
+    }
+}
+
+/// Every input [`inbox`] reads (EXP-915) — the same readiness caveat as
+/// [`BoardDataKey`].
+#[derive(PartialEq, Eq)]
+pub(crate) struct InboxDataKey {
+    notifications: u64,
+    issues: u64,
+    boards: u64,
+    teams: u64,
+    ready: bool,
+}
+
+pub(crate) fn inbox_data_key(cx: &App) -> InboxDataKey {
+    let collections = Store::global(cx).collections();
+    InboxDataKey {
+        notifications: collections.notifications.read(cx).revision(),
+        issues: collections.issues.read(cx).revision(),
+        boards: collections.boards.read(cx).revision(),
+        teams: collections.teams.read(cx).revision(),
+        ready: collections.notifications.read(cx).is_ready()
+            && collections.issues.read(cx).is_ready()
+            && collections.boards.read(cx).is_ready()
+            && collections.teams.read(cx).is_ready(),
+    }
+}
+
+/// Every input [`review_groups`] reads (EXP-915): the team plus the two
+/// collections it joins.
+#[derive(PartialEq, Eq)]
+pub(crate) struct ReviewGroupsKey {
+    team_id: String,
+    issues: u64,
+    boards: u64,
+}
+
+pub(crate) fn review_groups_key(cx: &App, team_id: &str) -> ReviewGroupsKey {
+    let collections = Store::global(cx).collections();
+    ReviewGroupsKey {
+        team_id: team_id.to_string(),
+        issues: collections.issues.read(cx).revision(),
+        boards: collections.boards.read(cx).revision(),
+    }
+}
+
+/// Every input the Automations log's rows derive from (EXP-915):
+/// [`automated_runs`] plus the collections `run_rows` joins for the facts,
+/// and the clock in 5-second steps — the rows carry relative times and a
+/// liveness that expires (the sessions sections' tick period), so a repaint
+/// re-derives them at most that often.
+#[derive(PartialEq, Eq)]
+pub(crate) struct AutomatedRunsKey {
+    team_id: Option<String>,
+    coding_sessions: u64,
+    devices: u64,
+    issues: u64,
+    actions: u64,
+    clock: i64,
+}
+
+pub(crate) fn automated_runs_key(
+    cx: &App,
+    team_id: Option<&str>,
+    now_secs: i64,
+) -> AutomatedRunsKey {
+    let collections = Store::global(cx).collections();
+    AutomatedRunsKey {
+        team_id: team_id.map(str::to_string),
+        coding_sessions: collections.coding_sessions.read(cx).revision(),
+        devices: collections.devices.read(cx).revision(),
+        issues: collections.issues.read(cx).revision(),
+        actions: collections.actions.read(cx).revision(),
+        clock: now_secs.div_euclid(5),
+    }
+}
+
 /// Today as `YYYY-MM-DD` for the overdue boundary. Device-LOCAL date — the
 /// EXP-38 boundary every client uses: web `formatDateForMutation(new Date())`,
 /// iOS `Calendar.current`, Android `LocalDate.now()`.
@@ -725,6 +873,19 @@ pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
         })
         .cloned()
         .collect()
+}
+
+/// [`review_issues`]`.is_empty()` without the clones — the rail's Reviews
+/// badge asks this once per frame (EXP-915).
+pub fn has_review_issues(cx: &App, team_id: &str) -> bool {
+    let collections = Store::global(cx).collections();
+    let boards = collections.boards.read(cx);
+    collections.issues.read(cx).iter().any(|issue| {
+        is_reviewable(issue)
+            && boards
+                .get(&issue.board_id)
+                .is_some_and(|board| board.team_id == team_id)
+    })
 }
 
 /// The per-issue Reviews predicate: an OPEN pull request. A batch PR entry
