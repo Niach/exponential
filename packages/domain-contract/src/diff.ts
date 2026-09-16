@@ -17,6 +17,13 @@
 // every platform can compare one array of strings instead of a whole object
 // graph.
 
+import contractJson from "../contract.json" with { type: "json" }
+
+/** The empty diff's summary — the contract's words. */
+const NO_CHANGES: string = (
+  contractJson as unknown as { diffUi: { noChanges: string } }
+).diffUi.noChanges
+
 // ── Model ───────────────────────────────────────────────────────────────────
 
 export interface DiffLine {
@@ -484,7 +491,9 @@ export function mergeFilesByPath(files: readonly DiffFile[]): DiffFile[] {
       continue
     }
     const target = out[seen]
-    target.hunks = [...target.hunks, ...file.hunks]
+    // The first clone above gave the target a private array — push into it
+    // (amortised O(1)) instead of copying the whole accumulation per merge.
+    target.hunks.push(...file.hunks)
     target.additions += file.additions
     target.deletions += file.deletions
     target.status = file.status
@@ -524,7 +533,7 @@ export function summaryLabel(
   additions: number,
   deletions: number
 ): string {
-  if (files === 0) return `No changes`
+  if (files === 0) return NO_CHANGES
   return `${files} ${files === 1 ? `file` : `files`} ${additionsLabel(
     additions
   )} ${deletionsLabel(deletions)}`

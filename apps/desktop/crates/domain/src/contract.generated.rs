@@ -24,6 +24,7 @@ pub const CODING_SESSION_ENDED_BY_VALUES: &[&str] = &["agent", "user", "client",
 pub const CODING_SESSION_BLOCKED_KINDS: &[&str] = &["rate_limit"];
 pub const CODING_SESSION_BLOCKED_WINDOWS: &[&str] = &["session", "weekly", "model"];
 pub const TOOL_KIND_VALUES: &[&str] = &["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "other"];
+pub const TOOL_KIND_EDIT_VALUES: &[&str] = &["edit", "delete", "move"];
 pub const SUBSCRIBER_SOURCE_VALUES: &[&str] = &["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"];
 pub const PIN_KIND_VALUES: &[&str] = &["issue", "session", "action"];
 pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"];

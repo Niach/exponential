@@ -75,7 +75,7 @@ interface Contract {
     lineChunk: number
     inlineDiffMaxHeight: number
   }
-  toolKind: Section
+  toolKind: Section & { editKinds: string[] }
   subscriberSource: Section
   pinKind: Section
   issueEventType: Section
@@ -358,6 +358,7 @@ ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.v
 ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${swiftStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${swiftStringArray("toolKindValues", contract.toolKind.values)}
+${swiftStringArray("toolKindEditValues", contract.toolKind.editKinds)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("pinKindValues", contract.pinKind.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -468,6 +469,7 @@ ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.
 ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${kotlinStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${kotlinStringArray("toolKindValues", contract.toolKind.values)}
+${kotlinStringArray("toolKindEditValues", contract.toolKind.editKinds)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("pinKindValues", contract.pinKind.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -580,6 +582,7 @@ ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.value
 ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${rustStrSlice("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${rustStrSlice("toolKindValues", contract.toolKind.values)}
+${rustStrSlice("toolKindEditValues", contract.toolKind.editKinds)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("pinKindValues", contract.pinKind.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}

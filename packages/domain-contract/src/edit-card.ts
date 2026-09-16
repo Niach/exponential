@@ -26,10 +26,15 @@
 //   `mergeFilesByPath` (a file touched twice = one row, counts summed, hunks
 //   concatenated); a pathless patch (bare hunks) borrows its call's `detail`;
 // - a member WITHOUT a patch still has a row on its `detail` — `pending`
-//   while the call runs, `failed` once it settled without one — unless a
-//   patch for that path already exists in the card;
-// - order: the ready rows in first-touch order, THEN the pending/failed
-//   stubs in first-touch order;
+//   while the call runs, `failed` when the call's own `failed` flag is set,
+//   `done` once it settled without either (a delete, a move, an edit that
+//   changed nothing: the wire carries no patch for those) — unless a patch
+//   for that path already exists in the card;
+// - order: the ready rows in first-touch order, THEN the stubs in
+//   first-touch order; a later settle may upgrade a stub (pending → done /
+//   failed) but never moves it;
+// - `truncatedLines` = the lines the publisher cut off the members' patches
+//   (EXP-786 markers), summed, so the card can say what it is not showing;
 // - `liveIndex` names the row of the card's LAST member when that member is
 //   the transcript's live tool row (`liveToolRowId`): the one row a client
 //   opens by itself, the diff inline. Everything else starts collapsed, and a
@@ -38,19 +43,20 @@
 import contractJson from "../contract.json" with { type: "json" }
 import { mergeFilesByPath, parseDiff, type DiffFile } from "./diff"
 
-const diffUi = (
-  contractJson as unknown as {
-    diffUi: {
-      editedFilesOne: string
-      editedFilesMany: string
-      moreFiles: string
-      cardPreviewFiles: number
-    }
+const json = contractJson as unknown as {
+  diffUi: {
+    editedFilesOne: string
+    editedFilesMany: string
+    moreFiles: string
+    cardPreviewFiles: number
   }
-).diffUi
+  toolKind: { editKinds: string[] }
+}
+const diffUi = json.diffUi
 
-/** The tool kinds whose calls form an edited-files card. */
-export const EDIT_CARD_KINDS: readonly string[] = [`edit`, `delete`, `move`]
+/** The tool kinds whose calls form an edited-files card — the contract's
+ *  `toolKind.editKinds`, generated ×4 so no mirror restates the list. */
+export const EDIT_CARD_KINDS: readonly string[] = json.toolKind.editKinds
 
 /** How many rows a card lists before it folds the rest behind "N more". */
 export const EDIT_CARD_PREVIEW: number = diffUi.cardPreviewFiles
@@ -100,12 +106,12 @@ export function editRunEnd<
   return end
 }
 
-export type EditRowState = `ready` | `pending` | `failed`
+export type EditRowState = `ready` | `pending` | `done` | `failed`
 
 export interface EditCardRow {
   path: string
   state: EditRowState
-  /** The merged patch for the path; null for a `pending`/`failed` row. */
+  /** The merged patch for the path; null for a `pending`/`done`/`failed` row. */
   file: DiffFile | null
 }
 
@@ -115,16 +121,8 @@ export interface EditCardView {
   rows: EditCardRow[]
   /** The row the client opens by itself, or null. */
   liveIndex: number | null
-}
-
-/** The path a member names: its patch's first file, else its `detail`. */
-function itemPath(item: EditCardFeedItem): string | null {
-  if (item.diff) {
-    const first = parseDiff(item.diff).files[0]
-    if (first?.path) return first.path
-  }
-  const detail = item.detail?.trim()
-  return detail ? detail : null
+  /** Lines the publisher cut off the members' patches, summed (0 = whole). */
+  truncatedLines: number
 }
 
 export function editCard(
@@ -133,26 +131,35 @@ export function editCard(
 ): EditCardView {
   const ready: DiffFile[] = []
   const stubs = new Map<string, EditRowState>()
+  let truncatedLines = 0
+  const last = items[items.length - 1]
+  // The path the LAST member names — its patch's first file, else its
+  // `detail` — recorded while its patch is parsed once, never re-parsed.
+  let lastPath: string | null = null
   for (const item of items) {
     if (item.diff) {
-      for (const file of parseDiff(item.diff).files) {
+      const parsed = parseDiff(item.diff)
+      truncatedLines += parsed.truncatedLines ?? 0
+      for (const file of parsed.files) {
         // A pathless section (hunks with no header) borrows the call's own
         // subject — the engine names the file in `detail`.
         const path = file.path || item.detail?.trim()
         if (!path) continue
+        if (item === last && lastPath === null) lastPath = path
         ready.push(file.path === path ? file : { ...file, path })
       }
+      if (item === last && lastPath === null) lastPath = item.detail?.trim() || null
       continue
     }
     const path = item.detail?.trim()
+    if (item === last) lastPath = path || null
     if (!path) continue
     const state: EditRowState =
-      item.settled === true ? `failed` : `pending`
-    // First touch wins the position; a later settle may still flip the
-    // state (a pending call that failed without a patch).
-    if (!stubs.has(path) || (state === `failed` && stubs.get(path) === `pending`)) {
-      stubs.set(path, state)
-    }
+      item.failed === true ? `failed` : item.settled === true ? `done` : `pending`
+    // First touch wins the position; a later settle upgrades a pending stub
+    // (pending → done / failed) and never demotes a settled one.
+    const held = stubs.get(path)
+    if (held === undefined || held === `pending`) stubs.set(path, state)
   }
   const merged = mergeFilesByPath(ready)
   const readyPaths = new Set(merged.map((file) => file.path))
@@ -162,14 +169,12 @@ export function editCard(
       .filter(([path]) => !readyPaths.has(path))
       .map(([path, state]) => ({ path, state, file: null })),
   ]
-  const last = items[items.length - 1]
   let liveIndex: number | null = null
-  if (last && liveItemId !== null && liveItemId === last.id) {
-    const path = itemPath(last)
-    const at = path === null ? -1 : rows.findIndex((row) => row.path === path)
+  if (last && liveItemId !== null && liveItemId === last.id && lastPath !== null) {
+    const at = rows.findIndex((row) => row.path === lastPath)
     liveIndex = at < 0 ? null : at
   }
-  return { title: editCardTitle(rows.length), rows, liveIndex }
+  return { title: editCardTitle(rows.length), rows, liveIndex, truncatedLines }
 }
 
 /** The card's title — `1 file edited` / `4 files edited`, ×4. */
@@ -187,8 +192,8 @@ export function editCardMoreLabel(count: number): string | null {
 
 /**
  * The byte-lock projection of a card: `title | path +a -d | path pending |
- * path failed | live=path`. Deliberately ASCII (`-d`, unlike
- * `deletionsLabel`), like `renderDiff`.
+ * path done | path failed | live=path | truncated=N`. Deliberately ASCII
+ * (`-d`, unlike `deletionsLabel`), like `renderDiff`.
  */
 export function renderEditCard(view: EditCardView): string {
   const parts = [view.title]
@@ -202,5 +207,6 @@ export function renderEditCard(view: EditCardView): string {
   if (view.liveIndex !== null && view.rows[view.liveIndex]) {
     parts.push(`live=${view.rows[view.liveIndex].path}`)
   }
+  if (view.truncatedLines > 0) parts.push(`truncated=${view.truncatedLines}`)
   return parts.join(` | `)
 }

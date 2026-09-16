@@ -238,7 +238,8 @@
       "switch_mode",
       "wait",
       "other"
-    ]
+    ],
+    "editKinds": ["edit", "delete", "move"]
   },
   "subscriberSource": {
     "values": [

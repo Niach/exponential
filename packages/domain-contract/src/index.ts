@@ -151,7 +151,11 @@ export interface DomainContract {
    * clients can bucket a call (an `edit` folds its diff, an `execute` is a
    * command) without parsing its name. Byte-equal to ACP's `ToolKind`.
    */
-  toolKind: { values: readonly string[] }
+  toolKind: {
+    values: readonly string[]
+    /** EXP-916: the subset whose calls form an edited-files card (edit, delete, move). */
+    editKinds: readonly string[]
+  }
   subscriberSource: { values: readonly string[] }
   /**
    * EXP-778: what a `pins` row points at — an issue, a coding session or an
