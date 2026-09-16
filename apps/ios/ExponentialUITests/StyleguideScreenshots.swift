@@ -366,26 +366,20 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agents", settle: 2)
 
-        // Back to the top: the next shots tap the machine row's play glyph.
-        let startCoding = app.buttons["Start coding"].firstMatch
-        var homeSwipes = 0
-        while !startCoding.isHittable && homeSwipes < 8 {
-            app.swipeDown()
-            homeSwipes += 1
-        }
-
         // ── sg_chat / sg_chat-issues / sg_chat-action: the Agent page ────────
-        // EXP-825: the ONE launcher. The machine row's play glyph pushes the
-        // Agent page with that machine preselected: an empty composer is a
-        // chat; the `#` tool checks issues (two chips, a batch); the ▶ tool
-        // picks an action (the Fix merge conflicts builtin, with its PR
-        // input). Nothing is ever submitted — a run would land on a real
-        // machine.
+        // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
+        // more (its one control is the settings gear), so the bar's Chat
+        // circle opens the Agent page on the default device: an empty
+        // composer is a chat; the `#` tool checks issues (two chips, a
+        // batch); the ▶ tool picks an action (the Fix merge conflicts
+        // builtin, with its PR input). Nothing is ever submitted — a run
+        // would land on a real machine.
+        let chatButton = app.buttons["chat-button"].firstMatch
         XCTAssertTrue(
-            startCoding.waitForExistence(timeout: 20),
-            "The machine row offers no start action — is the stub device online with an agent?"
+            chatButton.waitForExistence(timeout: 20),
+            "The bar offers no Chat circle — is the demo team's device online with an agent?"
         )
-        startCoding.tap()
+        chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
         XCTAssertTrue(composer.waitForExistence(timeout: 20), "Agent page did not open")
         // The submit label proves the composer resolved its subject (a chat).
@@ -431,19 +425,15 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
 
         // ── sg_machine-settings: the device settings sheet ───────────────────
-        // Own, registered machines only — the row menu is absent otherwise,
-        // which is why the relay stub is a prerequisite.
-        let machineMenu = app.buttons["machine-menu"].firstMatch
+        // EXP-909: a device row carries ONE control, the settings gear, and
+        // only on own registered machines — which is why the relay stub is a
+        // prerequisite. One tap, no menu hop.
+        let machineSettings = app.buttons["machine-settings"].firstMatch
         XCTAssertTrue(
-            machineMenu.waitForExistence(timeout: 20),
-            "No machine row menu — the stub device must be the demo user's OWN, registered machine"
+            machineSettings.waitForExistence(timeout: 20),
+            "No device settings gear — the stub device must be the demo user's OWN, registered machine"
         )
-        machineMenu.tap()
-        // EXP-862: the row menu's entry is "Device settings" with the settings
-        // gear — "Edit" and its pencil are gone on every client.
-        let settingsItem = app.buttons["Device settings"].firstMatch
-        XCTAssertTrue(settingsItem.waitForExistence(timeout: 15), "The machine menu never opened")
-        settingsItem.tap()
+        machineSettings.tap()
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
         XCTAssertTrue(deviceSheet.waitForExistence(timeout: 20), "Device settings sheet did not open")
         snapshot("sg_machine-settings", settle: 2)

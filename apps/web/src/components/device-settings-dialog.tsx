@@ -1,14 +1,18 @@
-// Device settings (EXP-481) — the per-device view the ⋯ menu's "Device
-// settings" entry opens. Name, the EXP-622 default-device toggle and
+// Device settings (EXP-481) — the per-device view the row's settings gear
+// opens. Name, the EXP-622 default-device toggle and
 // sharing are registry writes (work offline); agent defaults edit the SERVER-AUTHORITATIVE devices row (an
 // offline device converges on its next heartbeat), and the worktree list
 // manages the device's reported inventory through the durable command queue
 // (worktree_remove / worktree_prune — queued commands run when an offline
-// device returns). Owner-only: the menu only exists on "My devices" rows.
+// device returns). Owner-only: the gear only exists on "My devices" rows.
 //
 // EXP-862: NO accounts here. Signing in, picking the default login and
 // removing one all live on the account chips (the device row's and the
 // Accounts section's) — one surface for a device's logins, not two.
+//
+// EXP-909 follow-up: a device row carries ONE control, the gear — so Update
+// and Remove live HERE, as the last two sections, with the predicates and the
+// confirm copy they had on the row.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
@@ -33,6 +37,7 @@ import {
   GlassInputRow,
   GlassSectionHeader,
   GlassToggleRow,
+  Pill,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -43,7 +48,13 @@ import {
   agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import { deviceRowIsOnline, type SteerDevice } from "@/lib/steer-devices"
+import {
+  deviceCanUpdateNow,
+  deviceRowIsOnline,
+  deviceUpdateAvailable,
+  showDeviceUpdateButton,
+  type SteerDevice,
+} from "@/lib/steer-devices"
 import { AgentPicker } from "@/components/agent-picker"
 import {
   AgentOptionsFields,
@@ -55,6 +66,11 @@ const WarningIcon = conceptIcon(`ui-warning`)
 const PruneIcon = conceptIcon(`ui-clean`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
+const UpdateIcon = conceptIcon(`ui-update`)
+
+/** FEED-36: the tooltip on a queued Update button — the daemon's own rules
+ * for getting there (every session ends, or one sits idle for 2 hours). */
+export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
 
 // EXP-490 autosave cadence. Defaults debounce longer than the name: every
 // setLaunchDefaults call nudges the device over the relay, so coalescing a
@@ -80,11 +96,21 @@ export function DeviceSettingsDialog({
   device,
   open,
   onOpenChange,
+  latestVersions,
+  liveSessionCount = 0,
+  onChanged,
 }: {
   /** The row being edited (must be one of the caller's own machines). */
   device: SteerDevice | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** EXP-420: what the Update section compares the device's version against. */
+  latestVersions?: { desktop: string | null; cli: string | null } | null
+  /** FEED-36: the caller's live sessions on this device — the "Update now"
+   * confirmation counts them (the list owns the query, one for the page). */
+  liveSessionCount?: number
+  /** Refresh the caller's device list after an update request or a remove. */
+  onChanged?: () => void
 }) {
   const rowId = device?.rowId
   const deviceId = device?.deviceId
@@ -549,6 +575,63 @@ export function DeviceSettingsDialog({
         ? `untracked files`
         : null
 
+  // ── Update + Remove (EXP-909 follow-up) ──────────────────────────────────
+  // The controls the device row used to carry, predicates and confirm copy
+  // unchanged. `device` re-resolves from the live list on every render, so
+  // these read the same synced state the row did.
+  const [requestingUpdate, setRequestingUpdate] = useState(false)
+  const [updateNowOpen, setUpdateNowOpen] = useState(false)
+  const [removeOpen, setRemoveOpen] = useState(false)
+  const [deviceBusy, setDeviceBusy] = useState(false)
+
+  const latestVersion =
+    (kind === `server` ? latestVersions?.cli : latestVersions?.desktop) ?? null
+  const version = row?.version ?? device?.version ?? null
+  const outdated = deviceUpdateAvailable(version, latestVersion)
+  // FEED-36: a queued update parked behind live sessions says so, and a
+  // capable daemon offers to end them now.
+  const updateQueued = Boolean(device?.updateRequested && device?.updateBlocked)
+  const showUpdateButton =
+    (device ? showDeviceUpdateButton(device, latestVersion) : false) ||
+    requestingUpdate
+
+  const requestUpdate = async () => {
+    if (!deviceId || requestingUpdate) return
+    setRequestingUpdate(true)
+    try {
+      await trpc.devices.requestUpdate.mutate({ deviceId })
+      onChanged?.()
+    } finally {
+      setRequestingUpdate(false)
+    }
+  }
+
+  const updateNow = async () => {
+    if (!deviceId || deviceBusy) return
+    setDeviceBusy(true)
+    try {
+      await trpc.devices.requestUpdate.mutate({ deviceId, endSessions: true })
+      setUpdateNowOpen(false)
+      onChanged?.()
+    } finally {
+      setDeviceBusy(false)
+    }
+  }
+
+  const removeDevice = async () => {
+    if (!deviceId || deviceBusy) return
+    setDeviceBusy(true)
+    try {
+      await trpc.devices.remove.mutate({ deviceId })
+      setRemoveOpen(false)
+      onChanged?.()
+      // The row is gone — so is the thing this dialog edits.
+      onOpenChange(false)
+    } finally {
+      setDeviceBusy(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* EXP-686: no description — the machine's name is already the row you
@@ -847,6 +930,93 @@ export function DeviceSettingsDialog({
                 })
               )}
             </GlassGroup>
+
+            {/* ── Update (server devices only — desktop apps update
+                themselves, EXP-420/FEED-36) ─────────────────────────────── */}
+            {kind === `server` && (
+              <>
+                <GlassSectionHeader label="Update" />
+                <GlassGroup>
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-foreground">
+                        {version ? `v${version}` : `Version unknown`}
+                      </div>
+                      {outdated && (
+                        <div className="truncate text-xs text-amber-500">
+                          Update available: v{latestVersion}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {showUpdateButton && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={
+                            outdated ? `text-amber-500` : `text-muted-foreground`
+                          }
+                          disabled={device?.updateRequested || requestingUpdate}
+                          title={
+                            updateQueued
+                              ? QUEUED_UPDATE_TOOLTIP
+                              : `Ask the daemon to self-update (it restarts when idle)`
+                          }
+                          onClick={() => void requestUpdate()}
+                        >
+                          {updateQueued ? (
+                            // EXP-411: parked behind live sessions — say so
+                            // instead of spinning until the last one closes.
+                            <>
+                              <UpdateIcon />
+                              Queued
+                            </>
+                          ) : device?.updateRequested || requestingUpdate ? (
+                            <>
+                              <LoaderCircle className="animate-spin" />
+                              Updating…
+                            </>
+                          ) : (
+                            <>
+                              <UpdateIcon />
+                              Update
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      {updateQueued && device && deviceCanUpdateNow(device) && (
+                        <Pill
+                          mode="action"
+                          onClick={() => setUpdateNowOpen(true)}
+                          title={`End this device's live sessions and restart it on the new version now.`}
+                        >
+                          <UpdateIcon className="size-3" />
+                          Update now…
+                        </Pill>
+                      )}
+                    </div>
+                  </div>
+                </GlassGroup>
+                {updateQueued && (
+                  <p className="px-1 text-xs text-amber-500">
+                    {QUEUED_UPDATE_TOOLTIP}
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* ── Remove ───────────────────────────────────────────────── */}
+            <GlassSectionHeader label="Remove" />
+            <GlassGroup>
+              <Button
+                variant="ghost"
+                className="h-auto w-full justify-start rounded-none px-4 py-3 text-destructive hover:text-destructive"
+                onClick={() => setRemoveOpen(true)}
+              >
+                <RemoveIcon className="size-3.5" />
+                Remove device
+              </Button>
+            </GlassGroup>
           </div>
         </div>
 
@@ -881,6 +1051,75 @@ export function DeviceSettingsDialog({
                   }
                 }}
               >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* FEED-36: Update now — the daemon ends every live session on the
+            machine and restarts on the queued version; confirmed, since it
+            interrupts work (repo-backed runs resume from their session page). */}
+        <AlertDialog
+          open={updateNowOpen}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen && !deviceBusy) setUpdateNowOpen(false)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {`Update ${label || deviceId || `this device`} now?`}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {liveSessionCount > 0
+                  ? `Ends the ${liveSessionCount} live ${
+                      liveSessionCount === 1 ? `session` : `sessions`
+                    } on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
+                  : `Ends every live session on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deviceBusy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deviceBusy}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void updateNow()
+                }}
+              >
+                {deviceBusy && <LoaderCircle className="animate-spin" />}
+                Update now
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={removeOpen}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen && !deviceBusy) setRemoveOpen(false)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove device</AlertDialogTitle>
+              <AlertDialogDescription>
+                Remove “{label || deviceId}” from your devices? A device with
+                the daemon still running will re-register itself on its next
+                heartbeat.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deviceBusy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deviceBusy}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void removeDevice()
+                }}
+              >
+                {deviceBusy && <LoaderCircle className="animate-spin" />}
                 Remove
               </AlertDialogAction>
             </AlertDialogFooter>

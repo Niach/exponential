@@ -424,25 +424,31 @@ async function recipeOpenFirstThread(page: Page): Promise<void> {
 // --------------------------------------------------------------- machines
 
 /**
- * Open a device's Device settings dialog from the Devices page. The ⋯ menu
- * only renders for a REGISTERED device of the caller's own (my-machines.tsx),
- * so with no relay stub running there is no row and nothing to click.
+ * Open a device's Device settings dialog from the Devices page. The gear only
+ * renders for a REGISTERED device of the caller's own (my-machines.tsx), so
+ * with no relay stub running there is no row and nothing to click.
  *
- * The menu button's accessible name carries the device label, hence the prefix
+ * The gear's accessible name carries the device label, hence the prefix
  * match — it keeps the recipe working when the seed renames the device.
- * EXP-862: the entry is "Device settings" (it was "Edit").
+ * EXP-909 follow-up: the row's one control IS this gear (it was a ⋯ menu with
+ * a "Device settings" entry), and from `md` up it is `opacity-0` until its row
+ * is hovered — so hover the row first; below `md` it is force-visible.
  */
 async function recipeOpenMachineSettings(page: Page): Promise<void> {
-  const menu = page.getByRole(`button`, { name: /^Device menu for/ })
-  if (!(await appears(menu, 30_000))) {
+  const gear = page.getByRole(`button`, { name: /^Device settings for/ })
+  if (!(await appears(gear, 30_000))) {
     throw new Error(
-      `no device ⋯ menu under "My devices" — the row needs a REGISTERED ` +
-        `device of your own: run bun run screenshots:desktop (and set ` +
-        `STEER_RELAY_URL)`
+      `no device settings gear under "My devices" — the row needs a ` +
+        `REGISTERED device of your own: run bun run screenshots:desktop (and ` +
+        `set STEER_RELAY_URL)`
     )
   }
-  await menu.first().click()
-  await page.getByRole(`menuitem`, { name: `Device settings`, exact: true }).click()
+  await page
+    .locator(`[data-slot="list-row"]`)
+    .filter({ has: gear })
+    .first()
+    .hover()
+  await gear.first().click()
   await page.getByRole(`heading`, { name: `Device settings` }).waitFor({ timeout: 15_000 })
 }
 

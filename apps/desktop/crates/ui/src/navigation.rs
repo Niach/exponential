@@ -463,7 +463,8 @@ pub(crate) struct ChatSeed {
     pub(crate) issue_ids: Vec<String>,
     /// The action to pre-pick (a row id or a builtin literal).
     pub(crate) action_id: Option<String>,
-    /// The machine to preselect in the Device pick (a machines-row ▶).
+    /// The machine to preselect in the Device pick (the `?device=` deep
+    /// link — EXP-909 retired the machines row's ▶).
     pub(crate) device_id: Option<String>,
     /// The representative issue of an open PR — fills the fix-conflicts
     /// builtin's `pr` input.
@@ -497,14 +498,6 @@ impl ChatSeed {
         Self {
             action_id: Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
             pr_issue_id: Some(pr_issue_id.into()),
-            ..Default::default()
-        }
-    }
-
-    /// A seed naming only the machine (the machines list's ▶).
-    pub(crate) fn device(device_id: impl Into<String>) -> Self {
-        Self {
-            device_id: Some(device_id.into()),
             ..Default::default()
         }
     }
@@ -2244,7 +2237,6 @@ mod tests {
     fn chat_seed_constructors() {
         assert_eq!(ChatSeed::issues(vec!["i".into()]).issue_ids, vec!["i".to_string()]);
         assert_eq!(ChatSeed::action("act").action_id.as_deref(), Some("act"));
-        assert_eq!(ChatSeed::device("dev").device_id.as_deref(), Some("dev"));
         let fix = ChatSeed::fix_conflicts("issue-9");
         assert_eq!(fix.action_id.as_deref(), Some("builtin:fix-conflicts"));
         assert_eq!(fix.pr_issue_id.as_deref(), Some("issue-9"));

@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
@@ -43,12 +44,14 @@ import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.agent.AgentPickerPill
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
@@ -57,6 +60,8 @@ import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
@@ -68,7 +73,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // machine's per-agent launch defaults (SERVER-authoritative: editable while
 // the machine is OFFLINE, it converges on return), and the synced worktree
 // inventory with remove/prune commands (durable queue — an offline machine
-// runs them when it comes back).
+// runs them when it comes back). The EXP-909 follow-up added its last two
+// sections: Update (server daemons only) and Remove, which used to hang off
+// the device row's ⋯ menu — the row keeps ONE control now, the gear that
+// opens this sheet.
 //
 // EXP-490: settings sheet, not a form — there is no Cancel and no Save. Edits
 // AUTO-SAVE (debounced in the ViewModel, flushed on blur and on dismiss), and
@@ -84,6 +92,13 @@ fun DeviceSettingsSheet(
     device: SteerDevice,
     onDismiss: () -> Unit,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
+    /**
+     * The registry mutations Update and Remove ride (they were the row's, and
+     * moved in here with the rest of curating a machine). On the Devices tab
+     * this resolves to the SAME instance the list holds, so a request in
+     * flight disables both surfaces at once.
+     */
+    agentsViewModel: AgentsViewModel = hiltViewModel(),
 ) {
 
     LaunchedEffect(device.rowId) { viewModel.bind(device.rowId) }
@@ -98,6 +113,16 @@ fun DeviceSettingsSheet(
     val defaultError by viewModel.defaultError.collectAsStateWithLifecycle()
     val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
+    val latestVersions by agentsViewModel.latestVersions.collectAsStateWithLifecycle()
+    val deviceBusy by agentsViewModel.deviceBusy.collectAsStateWithLifecycle()
+
+    // A rename/remove/update on THIS machine is in flight: its controls stay
+    // put but disable until the change lands.
+    val deviceMutating = device.deviceId in deviceBusy
+    // A server runs the CLI, a desktop the IDE — each compares against its own
+    // channel's advertised latest.
+    val latestVersion = if (device.isServer) latestVersions.cli else latestVersions.desktop
+    val outdated = deviceUpdateAvailable(device.version, latestVersion)
 
     var label by remember { mutableStateOf(device.deviceLabel.ifBlank { device.deviceId }) }
     var nameFocused by remember { mutableStateOf(false) }
@@ -108,6 +133,9 @@ fun DeviceSettingsSheet(
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
     var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
+    // "Remove device" waiting on its confirm. The sheet needs no dismiss of
+    // its own afterwards: the caller re-resolves the live row, which is gone.
+    var confirmRemove by remember { mutableStateOf(false) }
 
     // Live reseeds. The name only re-seeds while the field is idle, the
     // defaults only while nothing of theirs is queued or in flight — otherwise
@@ -375,6 +403,99 @@ fun DeviceSettingsSheet(
                     }
                 }
             }
+
+            // ── Update (server daemons only) ─────────────────────────────
+            // Self-update is a SERVER capability: the desktop app updates
+            // itself through its own channel, so it has no control here. The
+            // row used to carry this; a device list is for curating machines,
+            // and curating one is what this sheet is.
+            if (device.isServer) {
+                Spacer(Modifier.height(8.dp))
+                SectionHeader("Update", modifier = Modifier.padding(horizontal = 16.dp))
+                OptionGroup {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                device.version?.let { "v$it" } ?: "Version unknown",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (outdated) {
+                                Text(
+                                    "Update available: v$latestVersion",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeedsInputAmber,
+                                )
+                            }
+                        }
+                        // EXP-420 (web `showDeviceUpdateButton`): a control only
+                        // where the ask can land — an online, registered server
+                        // with a newer version out, or one already updating.
+                        // Otherwise the version line alone is the whole answer.
+                        if (device.online &&
+                            device.registered &&
+                            (outdated || device.updateRequested)
+                        ) {
+                            when {
+                                // EXP-411: parked behind live sessions — say so
+                                // instead of spinning until the last one closes.
+                                device.updateQueued -> GlassPill(
+                                    "Queued",
+                                    icon = ExpIcons.uiUpdate,
+                                    size = PillSize.Sm,
+                                    enabled = false,
+                                )
+                                device.updateRequested -> GlassPill(
+                                    "Updating…",
+                                    size = PillSize.Sm,
+                                    enabled = false,
+                                    loading = true,
+                                )
+                                else -> GlassPill(
+                                    "Update",
+                                    icon = ExpIcons.uiUpdate,
+                                    size = PillSize.Sm,
+                                    tint = NeedsInputAmber,
+                                    enabled = !deviceMutating,
+                                    onClick = {
+                                        agentsViewModel.requestDeviceUpdate(device.deviceId)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (device.updateQueued) {
+                    // FEED-36, the pinned sentence ×4 (web QUEUED_UPDATE_TOOLTIP).
+                    Text(
+                        "Live sessions hold this update — the device restarts itself once " +
+                            "every session ends or sits idle for 2 hours.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeedsInputAmber,
+                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                    )
+                }
+            }
+
+            // ── Remove ───────────────────────────────────────────────────
+            Spacer(Modifier.height(8.dp))
+            SectionHeader("Remove", modifier = Modifier.padding(horizontal = 16.dp))
+            GlassPill(
+                "Remove device",
+                icon = ExpIcons.uiDelete,
+                onClick = { confirmRemove = true },
+                enabled = !deviceMutating,
+                contentColor = DesignTokens.Semantic.Red,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .testTag("remove-device-button"),
+            )
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -400,6 +521,33 @@ fun DeviceSettingsSheet(
             },
             dismissButton = {
                 TextButton(onClick = { removeTarget = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Removing drops the registry row only — say so, or an owner who removes a
+    // machine that is still running the daemon reads its return as a bug.
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Remove device") },
+            text = {
+                Text(
+                    "Remove “${device.deviceLabel.ifBlank { device.deviceId }}” from your " +
+                        "devices? A device with the daemon still running will re-register " +
+                        "itself on its next heartbeat.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        agentsViewModel.removeDevice(device.deviceId)
+                        confirmRemove = false
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
             },
         )
     }

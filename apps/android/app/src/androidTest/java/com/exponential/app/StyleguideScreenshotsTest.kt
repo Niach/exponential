@@ -352,14 +352,16 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_agents")
 
         // --- sg_chat / sg_chat-issues / sg_chat-action: the Agent page
-        // (EXP-825, the ONE launcher). The machine row's play glyph pushes it
-        // with that machine preselected: an empty composer is a chat; the `#`
-        // tool checks issues (two chips, a batch); the ▶ tool picks the
-        // builtin, which SWAPS the chips for one action chip. Nothing is ever
-        // submitted — a run would land on a real machine. Every step gates on
-        // the state it produced (a chip, a label), never on the page alone,
-        // so a swallowed tap fails the run instead of duplicating a shot.
-        composeRule.onAllNodes(hasContentDescription("Start coding")).onFirst().performClick()
+        // (EXP-825, the ONE launcher). The bottom bar's Chat circle pushes it
+        // on the default machine (the EXP-909 follow-up retired the device
+        // row's play glyph — a device list starts nothing): an empty composer
+        // is a chat; the `#` tool checks issues (two chips, a batch); the ▶
+        // tool picks the builtin, which SWAPS the chips for one action chip.
+        // Nothing is ever submitted — a run would land on a real machine.
+        // Every step gates on the state it produced (a chip, a label), never on
+        // the page alone, so a swallowed tap fails the run instead of
+        // duplicating a shot.
+        composeRule.onNode(hasTestTag("chat-button")).performClick()
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         // EXP-827: the submit is the round send glyph, so its contract label
         // ("Start chat") is its NAME — still the proof that the composer
@@ -400,12 +402,12 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- Machine settings: own, registered machines only — the row menu is
+        // --- Machine settings: own, registered machines only — the gear is
         // absent otherwise, which is why the relay stub is a prerequisite.
-        composeRule.onAllNodes(hasContentDescription("Device menu")).onFirst().performClick()
-        // EXP-862: the menu entry says what it opens ("Device settings"), and
-        // "Edit" is gone from this menu everywhere.
-        composeRule.onAllNodes(hasText("Device settings")).onFirst().performClick()
+        // EXP-909 follow-up: the gear IS the row's only control (the ⋯ menu
+        // and its "Device settings" entry are gone ×4), and Update and Remove
+        // are sections inside the sheet it opens.
+        composeRule.onAllNodes(hasTestTag("device-settings-button")).onFirst().performClick()
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")

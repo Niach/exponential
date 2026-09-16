@@ -1,6 +1,5 @@
 package com.exponential.app.ui.session
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,7 +45,6 @@ import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.AgentAccountsRows
-import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
@@ -79,9 +77,13 @@ import kotlinx.coroutines.delay
  * caller's registered devices (EXP-403: desktop IDEs and headless
  * `exponential` servers, online and offline) plus, since EXP-432, the
  * selected team's shared servers. EXP-825: machines ONLY (web parity,
- * EXP-818) — the Running / Past session lists moved to the Agent page, and a
- * machine's play glyph opens that page with the machine preselected instead
- * of a launcher sheet of its own.
+ * EXP-818) — the Running / Past session lists moved to the Agent page.
+ *
+ * EXP-909 (follow-up) left the rows ONE control: the settings gear. A device
+ * list is where machines are CURATED, not where runs are started — the Agent
+ * page composer's device picker is the single launcher — so the play glyph,
+ * the ⋯ row menu and the inline Update controls are gone, and Update and
+ * Remove moved into the settings sheet the gear opens.
  *
  * EXP-909 folded the accounts INTO the machines. The cross-device "Accounts"
  * section — logins merged by email, per-agent tabs, a chip per machine with
@@ -97,14 +99,11 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun AgentsScreen(
-    // EXP-825: every play button navigates to the composer with a seed.
-    onOpenAgent: (AgentComposerSeed) -> Unit,
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val latestVersions by viewModel.latestVersions.collectAsStateWithLifecycle()
-    val deviceBusy by viewModel.deviceBusy.collectAsStateWithLifecycle()
     // EXP-909: the logins each machine holds, keyed by device id. null until
     // the device list has landed, which is what makes a row say "Checking…"
     // rather than flashing "No login reported".
@@ -125,9 +124,9 @@ fun AgentsScreen(
         }
     }
 
-    // The machine row whose settings sheet (EXP-481) / Remove dialog is open.
+    // The machine row whose settings sheet (EXP-481) is open — the sheet owns
+    // Update and Remove now, confirm dialog included.
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
-    var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
     // EXP-862: the sign-in a chip (or the Add-account pill) asked for — the
     // machine runs its agent's OWN login flow and publishes the link back, so
     // the sheet is the ONE place that renders a login, wherever it started.
@@ -180,12 +179,8 @@ fun AgentsScreen(
                             MachineRow(
                                 device = device,
                                 latestVersions = latestVersions,
-                                busy = device.deviceId in deviceBusy,
                                 commandStates = accountCommandStates,
-                                onStart = { onOpenAgent(AgentComposerSeed(deviceId = device.deviceId)) },
-                                onEdit = { settingsTargetId = device.deviceId },
-                                onRemove = { removeTarget = device },
-                                onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
+                                onOpenSettings = { settingsTargetId = device.deviceId },
                                 logins = deviceLogins?.get(device.deviceId),
                                 onSetAccountDefault = { row -> viewModel.useAccountHere(device, row) },
                                 onRemoveAccount = { row -> removeTargetAccount = device to row },
@@ -204,21 +199,17 @@ fun AgentsScreen(
                             )
                         }
                     }
-                    // Teammates' machines: startable, but with no rename /
-                    // remove / update menu — they are not this user's to
-                    // curate (sharing itself is managed on the web).
+                    // Teammates' machines carry no control at all — neither the
+                    // registry row nor the share is this user's to curate
+                    // (sharing itself is managed on the web).
                     if (teamDevices.isNotEmpty()) {
                         item(key = "__team_machines_header__") { SectionHeader("Team devices") }
                         items(teamDevices, key = { "shared_${it.deviceId}" }) { device ->
                             MachineRow(
                                 device = device,
                                 latestVersions = latestVersions,
-                                busy = false,
                                 commandStates = accountCommandStates,
-                                onStart = { onOpenAgent(AgentComposerSeed(deviceId = device.deviceId)) },
-                                onEdit = {},
-                                onRemove = {},
-                                onUpdate = {},
+                                onOpenSettings = {},
                                 logins = deviceLogins?.get(device.deviceId),
                                 // A teammate's machine renders its logins
                                 // READ-ONLY: seeing that a shared server's
@@ -238,43 +229,17 @@ fun AgentsScreen(
 
     // EXP-481: the device-settings sheet, re-resolving the LIVE row on every
     // sync delta so saved edits reflect without reopening. Owner-only — the
-    // menu only exists on "mine" rows.
+    // gear only exists on "mine" rows.
     settingsTargetId?.let { targetId ->
-        // The row can vanish mid-edit (device removed elsewhere) — the sheet
-        // simply stops rendering; the stale id is harmless and replaced on
-        // the next Edit tap.
+        // The row can vanish mid-edit (device removed from the sheet itself,
+        // or elsewhere) — the sheet simply stops rendering; the stale id is
+        // harmless and replaced on the next gear tap.
         devices?.firstOrNull { it.deviceId == targetId && it.isMine }?.let { target ->
             DeviceSettingsSheet(
                 device = target,
                 onDismiss = { settingsTargetId = null },
             )
         }
-    }
-
-    // Removing drops the registry row only — say so, or an owner who removes a
-    // machine that is still running the daemon reads its return as a bug.
-    removeTarget?.let { device ->
-        AlertDialog(
-            onDismissRequest = { removeTarget = null },
-            title = { Text("Remove device") },
-            text = {
-                Text(
-                    "Remove “${device.displayLabel}” from your devices? A device with the " +
-                        "daemon still running will re-register itself on its next heartbeat.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.removeDevice(device.deviceId)
-                        removeTarget = null
-                    },
-                ) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = { removeTarget = null }) { Text("Cancel") }
-            },
-        )
     }
 
     // EXP-862: "Remove account" — the machine deletes ITS copy of the login.
@@ -411,35 +376,34 @@ private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { devic
 
 /**
  * One registered machine (EXP-403): kind glyph + label with a hair-small
- * version, a status line (green dot Online / "Last seen …" / Offline), the
- * "Start coding" pill for STARTABLE machines only, and the row menu — Rename
- * and Remove for registered rows, plus Update for an online server daemon. A
- * row that predates the registry (`registered == false`, live off relay
- * presence) has nothing to rename or remove, so it carries no menu.
+ * version, a status line (green dot Online / "Last seen …" / Offline), and —
+ * since the EXP-909 follow-up — exactly ONE trailing control, the settings
+ * gear, on the caller's own REGISTERED rows. A row that predates the registry
+ * (`registered == false`, live off relay presence) has nothing to configure,
+ * so it carries no control; neither does a teammate's shared machine. Update
+ * and Remove live inside the sheet the gear opens, and starting a run is the
+ * Agent page composer's job alone.
  *
  * EXP-409/EXP-836: an online machine with NO runnable agent can take no start,
- * so it reads like an offline row (dimmed glyph, no pill) with an amber reason
- * in place of "Online" — the signed-out agents when it named any, else
- * [LaunchDeviceRules.NO_RUNNABLE_AGENT]; a machine that CAN run something but
- * has signed-out agents left over just gets a quiet note.
+ * so it reads dimmed with an amber reason in place of "Online" — the signed-out
+ * agents when it named any, else [LaunchDeviceRules.NO_RUNNABLE_AGENT]; a
+ * machine that CAN run something but has signed-out agents left over just gets
+ * a quiet note.
  *
  * EXP-432: a TEAMMATE's shared server (`owner != null`) renders read-only —
- * "shared by <owner>" in place of the version chip and no row menu at all,
- * since neither the registry row nor the share is the caller's to change. Own
- * rows shared with a team carry a quiet "Shared" chip so the reason teammates
- * can start there is visible from the phone (the toggle stays web-only).
+ * "shared by <owner>" in place of the version chip, since neither the registry
+ * row nor the share is the caller's to change. Own rows shared with a team
+ * carry a quiet "Shared" chip so the reason teammates can start there is
+ * visible from the phone (the toggle stays web-only).
  */
 @Composable
 private fun MachineRow(
     device: SteerDevice,
     latestVersions: DeviceLatestVersions,
-    busy: Boolean,
     /** EXP-849: this machine's account commands in flight, keyed by chip. */
     commandStates: Map<String, DeviceCommandUiState>,
-    onStart: () -> Unit,
-    onEdit: () -> Unit,
-    onRemove: () -> Unit,
-    onUpdate: () -> Unit,
+    /** The gear: opens this machine's settings sheet (own registered rows). */
+    onOpenSettings: () -> Unit,
     /** EXP-909: the logins this machine holds — null while the list is still
      *  loading, which is what makes the row say "Checking…". */
     logins: List<AgentProfileUsageRow>?,
@@ -454,10 +418,9 @@ private fun MachineRow(
     onAddAccount: () -> Unit,
 ) {
     val online = device.online
-    // EXP-836: a start needs an online machine WITH a runnable agent. Gating on
-    // the signed-out case alone let a machine that reported no agents at all
-    // keep its play button, and the composer then dropped the pre-picked
-    // machine for the default one without a word.
+    // EXP-836: a machine that could take a start is an online one WITH a
+    // runnable agent. No control hangs off it any more — it only decides how
+    // present the row READS (full-emphasis glyph and label vs dimmed).
     val startable = LaunchDeviceRules.startable(device)
     // Online but unstartable for either reason: the row dims and its caption
     // carries the reason in place of "Online".
@@ -468,13 +431,13 @@ private fun MachineRow(
         device.version,
         if (device.isServer) latestVersions.cli else latestVersions.desktop,
     )
-    // EXP-849: the row is a COLUMN now — its machine line, then the account
-    // chips (the repair surface). The whole block keeps the one tap target.
+    // EXP-849: the row is a COLUMN — its machine line, then the account chips
+    // (the repair surface). The row itself is inert: it used to take a start,
+    // and a device list is not where runs begin.
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .flatRow()
-            .clickable(enabled = startable, onClick = onStart)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -609,75 +572,23 @@ private fun MachineRow(
                     )
                 }
             }
-            // EXP-615: an icon-only play button (one Run/Start affordance across
-            // the clients). Offline machines can't take a start (the relay refuses
-            // it), nor can ones with no runnable agent (EXP-409/EXP-836), so the
-            // affordance is simply absent — the status line above says why.
-            // EXP-694: on the shared glass circle (iOS `CircleIconButton` parity),
-            // not a bare primary-tinted glyph in an M3 touch box.
-            if (startable) {
-                CircleIconButton(
-                    ExpIcons.actionRun,
-                    contentDescription = "Start coding",
-                    onClick = onStart,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-            // Rename / Update / Remove all mutate the OWNER's registry row, so a
-            // teammate's shared machine carries no menu at all (EXP-432).
+            // The ONE control a device row carries (EXP-909 follow-up): the
+            // settings gear, ghost-drawn the way the retired "⋯" was. Name,
+            // sharing, launch defaults, worktrees, Update and Remove all live
+            // behind it, and every one of them mutates the OWNER's registry
+            // row — so a teammate's shared machine, and a row that predates the
+            // registry, carry nothing at all (EXP-432). On a phone it is always
+            // visible; there is no hover to reveal it.
             if (device.registered && device.isMine) {
-                var rowMenu by remember { mutableStateOf(false) }
-                Box {
-                    CircleIconButton(
-                        ExpIcons.uiMore,
-                        contentDescription = "Device menu",
-                        onClick = { rowMenu = true },
-                        // EXP-862: every "⋯" is a ghost rung — no circle, no
-                        // hairline (×4).
-                        borderless = true,
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                    GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
-                        // EXP-481: Rename and the share toggle live INSIDE the
-                        // device-settings sheet, so the menu opens that sheet
-                        // (EXP-862: "Device settings" and the gear ×4 — "Edit"
-                        // with a pencil never said what it edited).
-                        GlassMenuItem(
-                            text = { Text("Device settings") },
-                            leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
-                            enabled = !busy,
-                            onClick = {
-                                rowMenu = false
-                                onEdit()
-                            },
-                        )
-                        // Self-update is a server-daemon capability: the desktop
-                        // app updates itself through its own channel, and an
-                        // offline machine has nothing listening for the request.
-                        // EXP-420: offered only when a newer version really exists.
-                        if (device.isServer && online && outdated && !device.updateRequested) {
-                            GlassMenuItem(
-                                text = { Text("Update") },
-                                leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
-                                enabled = !busy,
-                                onClick = {
-                                    rowMenu = false
-                                    onUpdate()
-                                },
-                            )
-                        }
-                        GlassMenuItem(
-                            text = { Text("Remove") },
-                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                            enabled = !busy,
-                            destructive = true,
-                            onClick = {
-                                rowMenu = false
-                                onRemove()
-                            },
-                        )
-                    }
-                }
+                CircleIconButton(
+                    ExpIcons.navSettings,
+                    contentDescription = "Device settings",
+                    onClick = onOpenSettings,
+                    borderless = true,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .testTag("device-settings-button"),
+                )
             }
         }
         DeviceLoginRows(

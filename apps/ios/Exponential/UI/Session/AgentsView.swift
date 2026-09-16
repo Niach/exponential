@@ -6,14 +6,19 @@ import SwiftUI
 /// "My devices" — the caller's registered devices (EXP-403: desktops AND
 /// headless `exponential` daemon servers, online or not — since EXP-481 read
 /// from the synced `devices` shape, online-ness derived from last_seen_at
-/// freshness) with a per-device play glyph and a "…" menu (Device settings /
-/// self-update / remove) — then "Team devices" (EXP-432: teammates' servers
-/// shared with the active team, startable but never manageable here).
+/// freshness) — then "Team devices" (EXP-432: teammates' servers shared with
+/// the active team, readable but never manageable here).
+///
+/// EXP-909: a device row carries exactly ONE control ×4, the settings GEAR
+/// that opens `DeviceSettingsSheet`, and only on the caller's own registered
+/// rows. The play glyph is gone (starting a run is the Agent page composer's
+/// device picker, one launcher and one place to pick a machine) and so is the
+/// "…" menu: Update and Remove are the settings sheet's last two sections, so
+/// a row never has to explain which of three controls does what.
 ///
 /// EXP-825: machines ONLY (web parity, EXP-818). The Running/Recent sessions
-/// moved to the Agent page, which is also the ONE launcher: a device's play
-/// glyph pushes it with that device preselected, and the tab bar's Chat FAB
-/// pushes it with an empty seed. When the relay is off nothing here can be
+/// moved to the Agent page, which is also the ONE launcher; the tab bar's Chat
+/// FAB pushes it with an empty seed. When the relay is off nothing here can be
 /// started, so the tab says so instead of listing devices.
 ///
 /// EXP-909: every device row LISTS ITS OWN LOGINS beneath it (`DeviceLogins`)
@@ -26,24 +31,14 @@ import SwiftUI
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
     /// nil until the relay config resolves.
     @State private var steerEnabled: Bool?
-    /// EXP-420: the instance's advertised latest versions — gates the
-    /// server rows' Update action on an actually-newer CLI build. The one
-    /// remaining tRPC read here (instance config, not a shape column):
-    /// fetched once per account instead of polled.
-    @State private var latestVersions: LatestVersions?
-    // Machine row actions (EXP-403/EXP-481): the settings-sheet target (Edit
-    // — rename/sharing/defaults/worktrees live there now), the remove alert
-    // target, the optimistic "Updating…" ids (the flag itself lands via
-    // sync), and the shared failure caption.
+    /// EXP-909: the row's ONE action — the settings sheet it opens (name,
+    /// default device, sharing, launch defaults, worktrees, and now update +
+    /// remove, which used to be row-level handlers here).
     @State private var settingsTarget: DeviceSettingsTarget?
-    @State private var removeTarget: SteerDevice?
-    @State private var updatingIds: Set<String> = []
-    @State private var deviceError: String?
     /// EXP-862: the sign-in a chip (or the Accounts section) asked for, and
     /// the removal a chip is confirming.
     @State private var loginTarget: AgentLoginTarget?
@@ -82,7 +77,6 @@ struct AgentsView: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
-            await refreshLatestVersions()
         }
         .onAppear {
             if viewModel == nil {
@@ -127,15 +121,6 @@ struct AgentsView: View {
     /// composes them after the own rows.
     private var teamDevices: [SteerDevice] {
         devices?.filter { !$0.isMine } ?? []
-    }
-
-    /// EXP-481: the machines themselves stream off the devices shape — the
-    /// only network read left is the latest-version hint (instance config),
-    /// once per account.
-    private func refreshLatestVersions() async {
-        guard steerEnabled == true else { return }
-        let result = try? await deps.devicesApi.latestVersions(accountId: accountId)
-        latestVersions = result ?? latestVersions
     }
 
     /// Web parity: without the relay there is nothing to start on, and the
@@ -186,24 +171,17 @@ struct AgentsView: View {
                         ForEach(teamDevices) { deviceRow(vm, $0) }
                     }
                 }
-
-                if let deviceError {
-                    Text(deviceError)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
             .padding()
         }
         // Clearance for the floating tab bar (EXP-36) — on the SCROLLER
         // itself, so its content inset is the one that grows.
         .tabBarBottomInset()
-        // EXP-481: "Device settings" opens the sheet (name, default device,
-        // sharing, launch defaults, worktrees) — the row menu's rename alert
-        // retired into it. EXP-490: it takes the view model and the device id,
-        // not a snapshot — the sheet renders the live row and auto-saves.
+        // EXP-481: the gear opens the sheet (name, default device, sharing,
+        // launch defaults, worktrees) — the row menu's rename alert retired
+        // into it, and EXP-909 its update and remove actions too. EXP-490: it
+        // takes the view model and the device id, not a snapshot — the sheet
+        // renders the live row and auto-saves.
         .sheet(item: $settingsTarget) { target in
             if let viewModel {
                 DeviceSettingsSheet(
@@ -212,21 +190,6 @@ struct AgentsView: View {
                     teams: teamState.teams
                 )
             }
-        }
-        // The machine alert hangs off the ScrollView's own node — one
-        // presentation per node, or SwiftUI starts dropping them.
-        .alert(
-            "Remove device",
-            isPresented: Binding(
-                get: { removeTarget != nil },
-                set: { if !$0 { removeTarget = nil } }
-            ),
-            presenting: removeTarget
-        ) { device in
-            Button("Cancel", role: .cancel) { removeTarget = nil }
-            Button("Remove", role: .destructive) { remove(device) }
-        } message: { device in
-            Text("Remove “\(deviceName(device))” from your devices? A device with the daemon still running will re-register itself on its next heartbeat.")
         }
         // One presentation per node is the rule, so the login sheet and the
         // account confirm hang off a zero-size node of their own.
@@ -270,12 +233,13 @@ struct AgentsView: View {
         )
     }
 
-    /// One machine: kind glyph, label + version, live/last-seen state, the
-    /// launcher for online ones, and an overflow menu. The menu is an explicit
-    /// trailing control rather than a long-press context menu (EXP-331: the
-    /// same reason the label rows grew one) and it only appears on registered
-    /// rows — a desktop build predating the registry shows up from relay
-    /// presence alone and has nothing to rename or remove.
+    /// One machine: kind glyph, label + version, live/last-seen state, its
+    /// logins — and, on the caller's own registered rows, the settings gear.
+    /// EXP-909: that gear is the row's ONLY control. It is an explicit trailing
+    /// button rather than a long-press context menu (EXP-331: the same reason
+    /// the label rows grew one), and it skips unregistered rows — a desktop
+    /// build predating the registry shows up from relay presence alone and has
+    /// nothing to rename, update or remove.
     private func deviceRow(_ vm: AgentsViewModel, _ device: SteerDevice) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -326,32 +290,20 @@ struct AgentsView: View {
 
                 Spacer(minLength: 0)
 
-                // Offline machines keep their row (rename/remove still apply) but
-                // offer no launcher — a start would be rejected server-side. Same
-                // for a machine with nothing runnable (EXP-409: every installed
-                // agent signed out); its status line carries the reason.
-                if device.isOnline, device.hasRunnableAgent {
-                    // EXP-615: the play glyph, not a "Start coding" pill — the
-                    // same affordance web and desktop wear on their machine rows.
-                    // EXP-825: it pushes the Agent page with THIS machine picked.
-                    CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Start coding") {
-                        pushRoute(.agent(
-                            accountId: accountId,
-                            seed: AgentComposerSeed(deviceId: device.deviceId)
-                        ))
-                    }
-                }
-
-                // EXP-432: rename / remove / update are OWN-machine actions —
-                // a teammate's shared server is startable but not manageable.
+                // EXP-909: the settings gear, and nothing else. Starting a run
+                // is the Agent page composer's device picker (the ONE launcher),
+                // so no play glyph; rename / defaults / update / remove all live
+                // one tap away in the sheet. EXP-432: own machines only — a
+                // teammate's shared server is startable from the composer but
+                // never manageable here, so its row carries no control at all.
                 if device.isMine, device.isRegistered {
-                    GlassMenu {
-                        deviceMenu(device)
-                    } label: {
-                        GhostIconLabel(AppIcons.uiMore)
+                    GhostIconButton(
+                        AppIcons.navSettings,
+                        accessibilityLabel: "Device settings"
+                    ) {
+                        settingsTarget = DeviceSettingsTarget(id: device.deviceId)
                     }
-                    .accessibilityLabel("Device menu")
-                    .accessibilityIdentifier("machine-menu")
+                    .accessibilityIdentifier("machine-settings")
                 }
             }
             // EXP-849/EXP-862/EXP-909: the machine's logins, with the repairs
@@ -422,38 +374,15 @@ struct AgentsView: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
-    /// Row actions for a registered machine (EXP-481: Edit opens the device
-    /// settings sheet — name, sharing, agent defaults, worktrees). Self-update
-    /// is a daemon-server affordance only (the desktop app updates itself),
-    /// and it needs the machine online to pick the request up.
-    @ViewBuilder
-    private func deviceMenu(_ device: SteerDevice) -> some View {
-        // EXP-862: "Device settings" + the settings gear ×4 — "Edit" with a
-        // pencil promised an inline rename, not the sheet it opens.
-        GlassMenuItem("Device settings", icon: AppIcons.navSettings) {
-            settingsTarget = DeviceSettingsTarget(id: device.deviceId)
-        }
-        // EXP-420: offered only when a newer CLI version really exists.
-        if device.isServer, device.isOnline, !isUpdating(device),
-            device.updateAvailable(latest: latestVersions?.cli)
-        {
-            GlassMenuItem("Update", icon: AppIcons.uiUpdate) {
-                requestUpdate(device)
-            }
-        }
-        GlassMenuItem("Remove", icon: AppIcons.uiDelete, destructive: true) {
-            removeTarget = device
-        }
-    }
-
     private func deviceName(_ device: SteerDevice) -> String {
         device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
     }
 
-    /// The pending flag rides the server row until the daemon re-registers;
-    /// the local set covers the gap until the next poll returns it.
+    /// The pending flag rides the server row until the daemon re-registers
+    /// (EXP-909: the optimistic gap is the settings sheet's business now — the
+    /// list only ever renders what sync says).
     private func isUpdating(_ device: SteerDevice) -> Bool {
-        device.updateRequested == true || updatingIds.contains(device.deviceId)
+        device.updateRequested == true
     }
 
     /// EXP-411: the pending update is parked behind live coding sessions on
@@ -497,40 +426,6 @@ struct AgentsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
-    }
-
-    // MARK: - Machine actions
-
-    /// EXP-481: outcomes land via sync (the devices shape), so the handlers
-    /// only report failures — no poll refresh to force.
-    private func remove(_ device: SteerDevice) {
-        removeTarget = nil
-        deviceError = nil
-        Task {
-            do {
-                try await deps.devicesApi.remove(accountId: accountId, deviceId: device.deviceId)
-            } catch {
-                deviceError = error.userFacingMessage
-            }
-        }
-    }
-
-    /// Ask a daemon server to self-update. The row keeps its "Updating…"
-    /// state until the daemon re-registers (which clears the flag
-    /// server-side), which sync delivers.
-    private func requestUpdate(_ device: SteerDevice) {
-        deviceError = nil
-        updatingIds.insert(device.deviceId)
-        Task {
-            do {
-                try await deps.devicesApi.requestUpdate(
-                    accountId: accountId, deviceId: device.deviceId
-                )
-            } catch {
-                deviceError = error.userFacingMessage
-            }
-            updatingIds.remove(device.deviceId)
-        }
     }
 
     private func relativeDate(_ s: String) -> String {
