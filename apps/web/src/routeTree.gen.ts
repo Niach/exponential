@@ -73,6 +73,7 @@ import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAutomationsRouteImport } from './routes/api/shapes/automations'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
+import { Route as ApiSessionResultsTokenRouteImport } from './routes/api/session-results/$token'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
@@ -449,6 +450,11 @@ const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
   path: '/api/shapes/actions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSessionResultsTokenRoute = ApiSessionResultsTokenRouteImport.update({
+  id: '/api/session-results/$token',
+  path: '/api/session-results/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMcpOauthClientDotjsonRoute =
   ApiMcpOauthClientDotjsonRouteImport.update({
     id: '/api/mcp-oauth/client.json',
@@ -775,6 +781,7 @@ export interface FileRoutesByFullPath {
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
+  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/automations': typeof ApiShapesAutomationsRoute
@@ -887,6 +894,7 @@ export interface FileRoutesByTo {
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
+  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/automations': typeof ApiShapesAutomationsRoute
@@ -1004,6 +1012,7 @@ export interface FileRoutesById {
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
+  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/automations': typeof ApiShapesAutomationsRoute
@@ -1121,6 +1130,7 @@ export interface FileRouteTypes {
     | '/api/email/unsubscribe'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
+    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/automations'
@@ -1233,6 +1243,7 @@ export interface FileRouteTypes {
     | '/api/email/unsubscribe'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
+    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/automations'
@@ -1349,6 +1360,7 @@ export interface FileRouteTypes {
     | '/api/email/unsubscribe'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
+    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/automations'
@@ -1457,6 +1469,7 @@ export interface RootRouteChildren {
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
+  ApiSessionResultsTokenRoute: typeof ApiSessionResultsTokenRoute
   ApiShapesActionsRoute: typeof ApiShapesActionsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesAutomationsRoute: typeof ApiShapesAutomationsRoute
@@ -1943,6 +1956,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/actions'
       fullPath: '/api/shapes/actions'
       preLoaderRoute: typeof ApiShapesActionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/session-results/$token': {
+      id: '/api/session-results/$token'
+      path: '/api/session-results/$token'
+      fullPath: '/api/session-results/$token'
+      preLoaderRoute: typeof ApiSessionResultsTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mcp-oauth/client.json': {
@@ -2478,6 +2498,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
+  ApiSessionResultsTokenRoute: ApiSessionResultsTokenRoute,
   ApiShapesActionsRoute: ApiShapesActionsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesAutomationsRoute: ApiShapesAutomationsRoute,

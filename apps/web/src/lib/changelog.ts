@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-session-results`,
+    date: `2026-09-16`,
+    title: `Results, right on the run`,
+    summary: `A coding run can now publish screenshots of what it built, grouped by topic and labelled per platform, as a Results face beside Issue, Run and Changes on every client.`,
+    body: `- **A fourth face**: when a run has published pictures, the header toggle gains Results next to Issue, Run and Changes, on the web, the desktop app, iOS and Android.
+- **Grouped by topic**: pictures sit under the topic the agent filed them in, one row of equal-height tiles with a label under each, so an iOS, Android and web shot of the same screen read side by side. Tap one to see it full size.
+- **The agent publishes them**: a run asks Exponential for an upload link, uploads the screenshot with one command, and can replace or remove a picture later. The playbook every run gets now asks for a screenshot of UI work before it finishes.`,
+  },
+  {
     id: `2026-09-stacked-pull-requests`,
     date: `2026-09-16`,
     title: `Stacked pull requests`,

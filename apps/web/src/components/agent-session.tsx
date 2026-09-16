@@ -153,11 +153,14 @@ import {
 } from "@/components/run-action-pills"
 import {
   ISSUE_FACE_LABEL,
+  RESULTS_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
   type WorkFace,
   type WorkFaceItem,
 } from "@/components/team/work-face-toggle"
+import { SessionResultsView } from "@/components/session-results-view"
+import { parseSessionResults } from "@/lib/session-results"
 import {
   RUN_TITLE_CLASS,
   WORK_COLUMN_CLASS,
@@ -910,10 +913,18 @@ export function AgentSessionView({
     return byRow
   }, [fileCards, rows, feed, windowStart])
 
+  /** EXP-879: the screenshots this run published (`coding_sessions.results`,
+   *  a synced jsonb blob). Empty = no Results face. */
+  const results = useMemo(
+    () => parseSessionResults(session.results),
+    [session.results]
+  )
+
   /** EXP-877: the faces this work tab offers — `Issue` when the run links
-   *  one, `Run` always (this IS the run), the diff once the run has changes.
-   *  Under two faces the toggle renders nothing. Selecting the diff from
-   *  here drops a turn scope the reader left behind (EXP-862). */
+   *  one, `Run` always (this IS the run), the diff once the run has changes,
+   *  and `Results` once it published screenshots (EXP-879). Under two faces
+   *  the toggle renders nothing. Selecting the diff from here drops a turn
+   *  scope the reader left behind (EXP-862). */
   const faceItems: WorkFaceItem[] = [
     ...(onIssueFace
       ? [{ face: `issue` as const, label: ISSUE_FACE_LABEL, onSelect: onIssueFace }]
@@ -940,6 +951,15 @@ export function AgentSessionView({
           },
         ]
       : []),
+    ...(results.length > 0
+      ? [
+          {
+            face: `results` as const,
+            label: RESULTS_FACE_LABEL,
+            onSelect: () => onFace(`results`),
+          },
+        ]
+      : []),
   ]
   /** EXP-893: what the Changes face draws — the run's live diff (scoped or
    *  whole), else the issue's PR files the route fetched for a phone. */
@@ -947,6 +967,9 @@ export function AgentSessionView({
   /** EXP-877: the diff face stands only while there is something to draw —
    *  with no files it falls back to the run face. */
   const showDiffFace = face === `diff` && changesFiles.length > 0
+  /** EXP-879: the results face stands only while the run published something
+   *  — a stale `?view=results` falls back to the run face, like the diff. */
+  const showResultsFace = face === `results` && results.length > 0
   /** EXP-893: the subject HAS changes — a live diff, PR files, or an open PR
    *  whose files are one fetch away. The phone's Changes face exists then. */
   const hasChanges =
@@ -1022,7 +1045,7 @@ export function AgentSessionView({
     paused,
     stale: staleMinutes !== null,
   })
-  const showingRun = !showDiffFace
+  const showingRun = !showDiffFace && !showResultsFace
 
   /** EXP-893: the phone's face switcher — the bottom-right circle. Faces:
    *  Issue when the run links one, Run (this IS the run), Changes once there
@@ -1034,8 +1057,9 @@ export function AgentSessionView({
         hasIssue: Boolean(onIssueFace),
         hasRun: true,
         hasChanges,
+        hasResults: results.length > 0,
       })}
-      face={showDiffFace ? `changes` : `run`}
+      face={showDiffFace ? `changes` : showResultsFace ? `results` : `run`}
       runs={issueRuns}
       viewedRunId={session.id}
       diffStats={diffFiles.length > 0 ? diffStats : null}
@@ -1048,7 +1072,9 @@ export function AgentSessionView({
           return
         }
         if (next === `changes`) setDiffTurn(null)
-        onFace(next === `changes` ? `diff` : `run`)
+        onFace(
+          next === `changes` ? `diff` : next === `results` ? `results` : `run`
+        )
       }}
       onOpenRun={onOpenRun}
       onStart={onStart}
@@ -1058,8 +1084,11 @@ export function AgentSessionView({
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
    *  composer capsule (expanding into the composer), the switcher. Run over:
    *  the switcher alone. Changes: GitHub, Merge PR while mergeable, the
-   *  switcher. */
-  const mobileBar = !isMobile ? null : showDiffFace ? (
+   *  switcher. EXP-879 Results: the switcher ALONE — only the Run face owns
+   *  Stop / Resume, only Changes the merge bar. */
+  const mobileBar = !isMobile ? null : showResultsFace ? (
+    <MobileWorkBar trailing={mobileSwitcher} />
+  ) : showDiffFace ? (
     <MobileWorkBar
       /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides the
          issue header's action slot (an issue-less run keeps the circle). */
@@ -1198,7 +1227,7 @@ export function AgentSessionView({
                   act on it. */}
               {graphBadge}
               <WorkFaceToggle
-                face={showDiffFace ? face : `run`}
+                face={showDiffFace || showResultsFace ? face : `run`}
                 items={faceItems}
               />
               {/* EXP-886: the switcher between the issue's runs, right after
@@ -1219,7 +1248,21 @@ export function AgentSessionView({
 
       {banner}
 
-      {showDiffFace ? (
+      {showResultsFace ? (
+        /* EXP-879: the results FACE — the run's published screenshots in the
+           same 896 column under the same header, in place of the
+           transcript. */
+        <div
+          className={cn(
+            `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
+            isMobile && MOBILE_WORK_BAR_CLEARANCE
+          )}
+        >
+          <div className={cn(WORK_COLUMN_CLASS)}>
+            <SessionResultsView results={results} />
+          </div>
+        </div>
+      ) : showDiffFace ? (
         /* EXP-877: the diff FACE — the run's changes in the same 896 column
            under the same header, in place of the transcript. */
         <div

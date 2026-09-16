@@ -153,6 +153,7 @@ it(`registers exponential_sessions_end only behind its gate`, () => {
     helpdesk: true,
     sessionsEnd: false,
     askParent: false,
+    sessionResults: true,
   })
   expect(person.some((def) => def.name === `exponential_sessions_end`)).toBe(
     false
@@ -171,6 +172,7 @@ it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
     helpdesk: true,
     sessionsEnd: true,
     askParent: false,
+    sessionResults: true,
   })
   expect(
     automation.some((def) => def.name === `exponential_sessions_ask_parent`)
@@ -179,6 +181,35 @@ it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
   // answers its children with it.
   expect(
     automation.some((def) => def.name === `exponential_sessions_message`)
+  ).toBe(true)
+})
+
+// EXP-879: publishing pictures needs a run to publish them ON — a human's
+// MCP client (no session header) never sees the tool.
+it(`registers exponential_sessions_results only behind its gate`, () => {
+  expect(
+    serializeToolDefs().some(
+      (def) => def.name === `exponential_sessions_results`
+    )
+  ).toBe(true)
+  const headerless = serializeToolDefs({
+    helpdesk: true,
+    sessionsEnd: false,
+    askParent: false,
+    sessionResults: false,
+  })
+  expect(
+    headerless.some((def) => def.name === `exponential_sessions_results`)
+  ).toBe(false)
+  // It does NOT ride the close-out's gate: an attended run publishes too.
+  const attended = serializeToolDefs({
+    helpdesk: true,
+    sessionsEnd: false,
+    askParent: false,
+    sessionResults: true,
+  })
+  expect(
+    attended.some((def) => def.name === `exponential_sessions_results`)
   ).toBe(true)
 })
 
@@ -228,6 +259,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     sessionsEnd: false,
     askParent: false,
     reportBug: true,
+    sessionResults: true,
   })
   expect(person).not.toContain(`exponential_sessions_end`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end`)
@@ -239,6 +271,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     sessionsEnd: true,
     askParent: false,
     reportBug: true,
+    sessionResults: true,
   })
   expect(automation).not.toContain(`exponential_sessions_ask_parent`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_ask_parent`)
@@ -248,9 +281,19 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     sessionsEnd: true,
     askParent: true,
     reportBug: false,
+    sessionResults: true,
   })
   expect(selfHosted).not.toContain(`exponential_report_bug`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_report_bug`)
+  // EXP-879: the screenshot ask follows its own gate, and lands LAST.
+  const noRun = mcpServerInstructions({
+    sessionsEnd: false,
+    askParent: false,
+    reportBug: true,
+    sessionResults: false,
+  })
+  expect(noRun).not.toContain(`exponential_sessions_results`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_results`)
 })
 
 /** The repo root, walked up from the vitest cwd (apps/web). */

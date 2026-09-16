@@ -118,8 +118,19 @@ struct WorkScreen: View {
         (hasRun && runChrome.hasDiff) || issueHasChanges
     }
 
+    /// EXP-879: the shown run's PUBLISHED results, off its synced row. Like
+    /// the run's own diff this is a sub-face of Run — no run of mine, no
+    /// results — so it reads `shownSession`, never the issue.
+    private var sessionResults: [SessionResultEntry] {
+        parseSessionResults(shownSession?.results)
+    }
+
+    private var hasResults: Bool { !sessionResults.isEmpty }
+
     private var availableFaces: [WorkFaceKind] {
-        WorkFaces.availableFaces(hasIssue: hasIssue, hasRun: hasRun, hasChanges: hasChanges)
+        WorkFaces.availableFaces(
+            hasIssue: hasIssue, hasRun: hasRun, hasChanges: hasChanges, hasResults: hasResults
+        )
     }
 
     private var runIds: [String] {
@@ -261,6 +272,10 @@ struct WorkScreen: View {
     private var faceBody: some View {
         if face == .issue {
             issueFace
+        } else if face == .results {
+            // EXP-879: BEFORE the session-view branch — a run with a live diff
+            // would otherwise swallow its own Results face.
+            resultsFace
         } else if let shownSession, face == .run || runChrome.hasDiff {
             sessionView(shownSession, face: face)
         } else if face == .changes {
@@ -294,6 +309,18 @@ struct WorkScreen: View {
     private var changesFace: some View {
         if let issueId, issueHasChanges {
             PrChangesFace(issueId: issueId, reviewMode: false) { switcherView }
+        } else {
+            ProgressView().tint(.white)
+        }
+    }
+
+    /// EXP-879: the shown run's published screenshots — one scrolling page,
+    /// a band per topic, and the face switcher as its whole bottom bar (no
+    /// Stop / Resume, no merge: those belong to Run and Changes).
+    @ViewBuilder
+    private var resultsFace: some View {
+        if hasResults {
+            SessionResultsFace(groups: groupSessionResults(sessionResults)) { switcherView }
         } else {
             ProgressView().tint(.white)
         }

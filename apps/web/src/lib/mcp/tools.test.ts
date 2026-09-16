@@ -87,13 +87,29 @@ const h = vi.hoisted(() => {
 
   // EXP-637: pr_merge stamps the header session's merged_own_pr spare outside
   // any transaction, right before the merge.
+  // EXP-879: sessions_results writes the run's results column, so the values
+  // an update SETS are captured too.
+  const updateSet = vi.fn()
   const dbUpdate = vi.fn(
     (): {
       set: (values: Record<string, unknown>) => {
         where: (cond?: unknown) => Promise<unknown>
       }
-    } => ({ set: () => ({ where: async () => undefined }) })
+    } => ({
+      set: (values: Record<string, unknown>) => {
+        updateSet(values)
+        return { where: async () => undefined }
+      },
+    })
   )
+  // EXP-879: the removal path deletes session_attachments rows and reads back
+  // their storage keys so the objects can go too.
+  const deleteReturning: { current: Array<{ storageKey: string }> } = {
+    current: [],
+  }
+  const dbDelete = vi.fn(() => ({
+    where: () => ({ returning: async () => deleteReturning.current }),
+  }))
 
   // EXP-897: the recursive session-tree walks (loadSessionChain /
   // loadSessionDepths / loadSubtreeSessionIds) go through raw SQL.
@@ -102,6 +118,7 @@ const h = vi.hoisted(() => {
     select: vi.fn(() => queryBuilder),
     insert: vi.fn(() => ({ values: insertValues })),
     update: dbUpdate,
+    delete: dbDelete,
     transaction: vi.fn(),
     execute: vi.fn(async () => ({ rows: executeRows.current })),
   }
@@ -142,6 +159,9 @@ const h = vi.hoisted(() => {
     executeRows,
     state,
     insertValues,
+    updateSet,
+    deleteReturning,
+    dbDelete,
     db,
     membership,
     uploadObject,
@@ -158,6 +178,8 @@ const {
   executeRows,
   state,
   insertValues,
+  updateSet,
+  deleteReturning,
   db,
   membership,
   uploadObject,
@@ -269,6 +291,7 @@ import { insertRelationInTx } from "@/lib/issue-relations"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
+import { verifySessionResultToken } from "@/lib/storage/session-result-token"
 import {
   builtinCreateAction,
   builtinFixConflictsAction,
@@ -1859,7 +1882,7 @@ const SESSION = `66666666-6666-4666-8666-666666666666`
 describe(`exponential_sessions_end`, () => {
   // EXP-679: the tool only registers for an unattended run, so these cases
   // hand in the gate the route would have resolved for one.
-  const UNATTENDED = { helpdesk: true, sessionsEnd: true, askParent: false }
+  const UNATTENDED = { helpdesk: true, sessionsEnd: true, askParent: false, sessionResults: true }
 
   it(`refuses outside a launched session, naming the missing header`, async () => {
     const result = await collectTools(USER, null, UNATTENDED).get(
@@ -1938,6 +1961,7 @@ describe(`exponential_sessions_end`, () => {
       helpdesk: true,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: true,
     })
     expect(tools.has(`exponential_sessions_end`)).toBe(false)
   })
@@ -1957,7 +1981,7 @@ describe(`exponential_sessions_end`, () => {
 // ── EXP-700: the child's ask rail ────────────────────────────────────────────
 describe(`exponential_sessions_ask_parent`, () => {
   const PARENT = `77777777-7777-4777-8777-777777777777`
-  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true }
+  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true, sessionResults: true }
   const RELAY = { url: `https://relay.test`, secret: `s` }
 
   // The row loadChildParentContext's one select serves: the child, its issue
@@ -1979,6 +2003,7 @@ describe(`exponential_sessions_ask_parent`, () => {
       helpdesk: true,
       sessionsEnd: true,
       askParent: false,
+      sessionResults: true,
     })
     expect(tools.has(`exponential_sessions_ask_parent`)).toBe(false)
   })
@@ -2060,6 +2085,211 @@ describe(`exponential_sessions_ask_parent`, () => {
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`exponential_sessions_end`)
     expect(relayPostInput).not.toHaveBeenCalled()
+  })
+})
+
+// ── EXP-879: the run publishes pictures of its own work ──────────────────────
+describe(`exponential_sessions_results`, () => {
+  // Any run of the caller's gets the tool — attended included, unlike the
+  // close-out.
+  const OWN_RUN = {
+    helpdesk: true,
+    sessionsEnd: false,
+    askParent: false,
+    sessionResults: true,
+  }
+  const picture = (topic: string, label: string, attachmentId: string) => ({
+    topic,
+    label,
+    attachmentId,
+    width: 1600,
+    height: 900,
+  })
+  const runRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    userId: `user-1`,
+    hostUserId: null,
+    status: `running`,
+    results: null,
+    ...over,
+  })
+
+  beforeEach(() => {
+    // Real tokens are minted here (the signature IS the upload route's
+    // credential); an earlier describe's unstubAllEnvs drops the file-level
+    // secret, so re-stub it. The upload URL's origin falls back to the
+    // request's when the app has no configured base URL.
+    vi.stubEnv(`BETTER_AUTH_SECRET`, `mcp-tools-test-secret`)
+    vi.stubEnv(`BETTER_AUTH_URL`, ``)
+    deleteReturning.current = []
+  })
+
+  it(`is not registered without its gate`, () => {
+    expect(
+      collectTools(USER, SESSION, {
+        helpdesk: true,
+        sessionsEnd: true,
+        askParent: true,
+        sessionResults: false,
+      }).has(`exponential_sessions_results`)
+    ).toBe(false)
+  })
+
+  it(`refuses outside a launched session, naming the missing header`, async () => {
+    const result = await collectTools(USER, null, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, label: `web` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
+  })
+
+  it(`refuses a run that is neither owned nor hosted by the caller`, async () => {
+    dbRows.current = [runRow({ userId: `user-2`, hostUserId: `user-3` })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, label: `web` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not your run`)
+  })
+
+  it(`requires a label to publish a picture`, async () => {
+    dbRows.current = [runRow()]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`label is required`)
+  })
+
+  // The status gate lives HERE, not on the upload route: a token minted while
+  // the run was live stays good for its ten minutes.
+  it(`refuses to mint a link for an ended run`, async () => {
+    dbRows.current = [runRow({ status: `ended` })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, label: `web` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`ended`)
+  })
+
+  it(`mints a scoped upload link with a ready curl line and the run's list`, async () => {
+    dbRows.current = [
+      runRow({ results: [picture(`nav`, `web`, `att-1`)] }),
+    ]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, label: `ios` })
+    const payload = parseOk(result) as {
+      uploadUrl: string
+      curl: string
+      expiresAt: string
+      topic: string
+      label: string
+      results: unknown
+    }
+    expect(payload.uploadUrl.startsWith(`https://x.test/api/session-results/`)).toBe(
+      true
+    )
+    expect(payload.curl).toBe(
+      `curl -sS -F file=@screenshot.png "${payload.uploadUrl}"`
+    )
+    expect(Date.parse(payload.expiresAt)).toBeGreaterThan(Date.now())
+    // The token carries the whole scope — it can write that picture and no
+    // other.
+    const token = payload.uploadUrl.split(`/`).pop()!
+    expect(verifySessionResultToken(token)).toMatchObject({
+      s: SESSION,
+      t: `chatui`,
+      l: `ios`,
+      u: `user-1`,
+    })
+    // Every response carries what the run has published so far.
+    expect(payload.results).toEqual([{ topic: `nav`, label: `web` }])
+    expect(h.db.update).not.toHaveBeenCalled()
+  })
+
+  it(`removes one label, reclaiming its row and its object`, async () => {
+    dbRows.current = [
+      runRow({
+        results: [
+          picture(`chatui`, `web`, `att-1`),
+          picture(`chatui`, `ios`, `att-2`),
+        ],
+      }),
+    ]
+    deleteReturning.current = [{ storageKey: `sessions/att-2.png` }]
+
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, label: `ios`, remove: true })
+
+    expect(parseOk(result)).toEqual({
+      removed: 1,
+      topic: `chatui`,
+      label: `ios`,
+      results: [{ topic: `chatui`, label: `web` }],
+    })
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        results: [expect.objectContaining({ attachmentId: `att-1` })],
+      })
+    )
+    expect(h.deleteObject).toHaveBeenCalledWith(`sessions/att-2.png`)
+  })
+
+  it(`removes a whole topic when no label is given`, async () => {
+    dbRows.current = [
+      runRow({
+        results: [
+          picture(`chatui`, `web`, `att-1`),
+          picture(`chatui`, `ios`, `att-2`),
+          picture(`nav`, `web`, `att-3`),
+        ],
+      }),
+    ]
+    deleteReturning.current = [
+      { storageKey: `sessions/att-1.png` },
+      { storageKey: `sessions/att-2.png` },
+    ]
+
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, remove: true })
+
+    expect(parseOk(result)).toMatchObject({
+      removed: 2,
+      results: [{ topic: `nav`, label: `web` }],
+    })
+    expect(h.deleteObject).toHaveBeenCalledTimes(2)
+  })
+
+  it(`removes nothing for an unknown topic, and touches no storage`, async () => {
+    dbRows.current = [runRow({ results: [picture(`nav`, `web`, `att-1`)] })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, remove: true })
+    expect(parseOk(result)).toMatchObject({ removed: 0 })
+    expect(h.db.update).not.toHaveBeenCalled()
+    expect(h.deleteObject).not.toHaveBeenCalled()
+  })
+
+  // The cap is refused BEFORE the agent goes off and takes a screenshot; the
+  // upload route re-checks it under the row lock.
+  it(`refuses a new picture once the run sits at the cap`, async () => {
+    const full = Array.from({ length: 60 }, (_, index) =>
+      picture(`t`, `l${index}`, `att-${index}`)
+    )
+    dbRows.current = [runRow({ results: full })]
+    const refused = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `chatui`, label: `web` })
+    expect(refused.isError).toBe(true)
+    expect(refused.content[0].text).toContain(`60`)
+    // Replacing one of the 60 is still allowed — the list does not grow.
+    const replaced = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `t`, label: `l7` })
+    expect(replaced.isError).toBeFalsy()
   })
 })
 
@@ -3525,6 +3755,7 @@ describe(`exponential_helpdesk_* gating`, () => {
       helpdesk: false,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: true,
     })
     for (const name of [...off.keys()]) {
       expect(name.startsWith(`exponential_helpdesk_`)).toBe(false)
@@ -3980,7 +4211,7 @@ describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
 })
 
 describe(`exponential_sessions_ask_parent — escalation (EXP-897)`, () => {
-  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true }
+  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true, sessionResults: true }
   const RELAY = { url: `https://relay.test`, secret: `s` }
   const PARENT = `77777777-7777-4777-8777-777777777777`
   const ROOT = `55555555-5555-4555-8555-555555555555`

@@ -41,6 +41,8 @@ import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
 const IssueIcon = conceptIcon(`ui-issue`)
 const RunIcon = conceptIcon(`nav-devices`)
 const ChangesIcon = conceptIcon(`coding-diff`)
+/** EXP-879: the run's published screenshots. */
+const ResultsIcon = conceptIcon(`work-results`)
 const StartIcon = conceptIcon(`action-run`)
 const FacesIcon = conceptIcon(`work-faces`)
 const CloseIcon = conceptIcon(`ui-close`)
@@ -49,6 +51,7 @@ const FACE_ICON: Record<WorkFaceKind, typeof IssueIcon> = {
   issue: IssueIcon,
   run: RunIcon,
   changes: ChangesIcon,
+  results: ResultsIcon,
 }
 
 export interface MobileFaceSwitcherProps {

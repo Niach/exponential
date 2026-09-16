@@ -84,7 +84,8 @@ struct PrGraphSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 switch face {
                 case .issue: issueSections
-                case .run: runSection
+                // EXP-879: Results is the RUN's face — same section.
+                case .run, .results: runSection
                 case .changes: changesSection
                 }
             }
@@ -97,7 +98,7 @@ struct PrGraphSheet: View {
     private var title: String {
         switch face {
         case .issue: "Related work"
-        case .run: "Runs"
+        case .run, .results: "Runs"
         case .changes: "Pull requests"
         }
     }

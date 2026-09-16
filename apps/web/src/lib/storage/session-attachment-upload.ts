@@ -132,12 +132,30 @@ export async function handleTeamSessionAttachmentUpload({
   })
 }
 
-/** The shared tail: validate the part, store the object, insert the row. */
-async function storeSessionImage(
+/**
+ * EXP-879: the half of the upload that has no database in it — validate the
+ * multipart part, check the team's storage budget, probe the pixels and put
+ * the object. Split out of `storeSessionImage` because the session-results
+ * route (`/api/session-results/$token`) has to run the DB half inside its own
+ * `FOR UPDATE` transaction on the coding_sessions row; the two routes that
+ * just insert a row keep using `storeSessionImage`, whose wire contract is
+ * unchanged.
+ */
+export interface PreparedSessionImage {
+  attachmentId: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  storageKey: string
+  url: string
+  width: number | null
+  height: number | null
+}
+
+export async function prepareSessionImage(
   request: Request,
-  uploaderId: string,
   scope: { teamId: string; sessionId: string | null }
-) {
+): Promise<PreparedSessionImage> {
   const formData = await request.formData()
   const file = formData.get(`file`)
 
@@ -200,40 +218,82 @@ async function storeSessionImage(
     key: storageKey,
   })
 
-  try {
-    await db.insert(sessionAttachments).values({
-      id: attachmentId,
-      teamId: scope.teamId,
-      sessionId: scope.sessionId,
-      uploaderId,
-      filename,
-      contentType,
-      sizeBytes: file.size,
-      storageKey,
-      url,
-      width: dimensions?.width ?? null,
-      height: dimensions?.height ?? null,
-    })
-  } catch (error) {
-    try {
-      await deleteObject(storageKey)
-    } catch (deleteError) {
-      console.error(
-        `Failed to rollback uploaded session attachment object`,
-        deleteError
-      )
-    }
-
-    throw error
-  }
-
-  return Response.json({
-    id: attachmentId,
-    url,
+  return {
+    attachmentId,
     filename,
     contentType,
     sizeBytes: file.size,
+    storageKey,
+    url,
     width: dimensions?.width ?? null,
     height: dimensions?.height ?? null,
+  }
+}
+
+/** The `session_attachments` insert values for a prepared upload. */
+export function sessionAttachmentValues(
+  prepared: PreparedSessionImage,
+  scope: { teamId: string; sessionId: string | null },
+  uploaderId: string
+) {
+  return {
+    id: prepared.attachmentId,
+    teamId: scope.teamId,
+    sessionId: scope.sessionId,
+    uploaderId,
+    filename: prepared.filename,
+    contentType: prepared.contentType,
+    sizeBytes: prepared.sizeBytes,
+    storageKey: prepared.storageKey,
+    url: prepared.url,
+    width: prepared.width,
+    height: prepared.height,
+  }
+}
+
+/** Best-effort object reclaim when the row never landed. Never throws — the
+ *  caller is already on its way out with the real error. */
+export async function rollbackSessionImage(storageKey: string) {
+  try {
+    await deleteObject(storageKey)
+  } catch (deleteError) {
+    console.error(
+      `Failed to rollback uploaded session attachment object`,
+      deleteError
+    )
+  }
+}
+
+/** The wire contract both `/files` routes answer with — byte-identical since
+ *  EXP-702, so clients keep reading `id`/`url`/`width`/`height`. */
+export function sessionImageResponse(prepared: PreparedSessionImage) {
+  return Response.json({
+    id: prepared.attachmentId,
+    url: prepared.url,
+    filename: prepared.filename,
+    contentType: prepared.contentType,
+    sizeBytes: prepared.sizeBytes,
+    width: prepared.width,
+    height: prepared.height,
   })
+}
+
+/** The shared tail: validate the part, store the object, insert the row. */
+async function storeSessionImage(
+  request: Request,
+  uploaderId: string,
+  scope: { teamId: string; sessionId: string | null }
+) {
+  const prepared = await prepareSessionImage(request, scope)
+
+  try {
+    await db
+      .insert(sessionAttachments)
+      .values(sessionAttachmentValues(prepared, scope, uploaderId))
+  } catch (error) {
+    await rollbackSessionImage(prepared.storageKey)
+    throw error
+  }
+
+  return sessionImageResponse(prepared)
 }

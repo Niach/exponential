@@ -141,7 +141,9 @@ fun PrGraphSheet(
                 }
             }
 
-            WorkFaceKind.Run -> {
+            // EXP-879: Results is a SUB-FACE of Run, so its overlay is the
+            // run family too — there is no results-shaped graph.
+            WorkFaceKind.Run, WorkFaceKind.Results -> {
                 SectionHeader("Runs")
                 if (graph.tree.isEmpty()) {
                     EmptyNote("No runs on this work yet.")

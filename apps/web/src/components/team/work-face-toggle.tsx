@@ -7,12 +7,14 @@ import type { WorkTabFace } from "@/lib/work-tabs"
 // top row) — the same segmented pill as the list nav's Inbox / My Issues
 // strip. EXP-877: the faces are `Issue` (issue-bound), `Run` (a run exists)
 // and the diff (`@exp/ui` `DiffCounts` — `+N −M`, once the run has changes; the
-// label lives there since EXP-895, with the rest of the diff vocabulary); an
-// unavailable face is HIDDEN, never disabled, and the control itself is absent
-// under two faces.
+// label lives there since EXP-895, with the rest of the diff vocabulary);
+// EXP-879 adds `results`, the run's published screenshots, last in the strip.
+// An unavailable face is HIDDEN, never disabled, and the control itself is
+// absent under two faces.
 
-/** The three faces a work tab can show. `diff` is the run's changes. */
-export type WorkFace = WorkTabFace | `diff`
+/** The four faces a work tab can show. `diff` is the run's changes,
+ *  `results` its published screenshots (EXP-879). */
+export type WorkFace = WorkTabFace | `diff` | `results`
 
 export interface WorkFaceItem {
   face: WorkFace
@@ -27,6 +29,9 @@ export const RUN_FACE_LABEL = `Run`
  *  mine (`selectIssueRuns`). The segment still opens the tab's run; the
  *  plural says the session view has a switcher between them. */
 export const RUNS_FACE_LABEL = `Runs`
+/** EXP-879: the run's published screenshots. The segment is a word like
+ *  `Issue` and `Run` — the diff segment's counts are the exception. */
+export const RESULTS_FACE_LABEL = `Results`
 
 export function runFaceLabel(multipleRuns: boolean): string {
   return multipleRuns ? RUNS_FACE_LABEL : RUN_FACE_LABEL
