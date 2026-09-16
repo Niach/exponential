@@ -17,11 +17,17 @@ import {
 } from "@/lib/session-device"
 import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
 import {
+  pastRunIdentifier,
   pastRunTitle,
   selectIssueRuns,
   selectPastRuns,
   PAST_RUN_CAP,
 } from "@/lib/past-runs"
+import {
+  BATCH_BRANCH_PREFIX,
+  batchRunIssues,
+  isBatchRun,
+} from "@/lib/batch-run"
 
 /** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
  * through its issue; a batch run through the representative issue of its ONE
@@ -82,6 +88,9 @@ export interface AgentSessionRow {
   session: CodingSession
   /** May be undefined while the issue row is still syncing. */
   issue: Issue | undefined
+  /** EXP-876: a BATCH row's covered issues, in naming order — empty on every
+   * other subject, and on a batch whose issues are not knowable yet. */
+  batchIssues: Issue[]
   board: Board | undefined
   /** May be undefined while the user row is still syncing — render via displayUserName. */
   user: User | undefined
@@ -96,6 +105,72 @@ export interface AgentSessionRow {
   /** EXP-550: running/needs-input on an OFFLINE machine — the agent is
    * parked and resumes when the device returns; render grey, never live. */
   paused: boolean
+}
+
+/**
+ * EXP-876: the issues every BATCH row in `sessions` may name itself after.
+ * Two sources, two live queries: the ids the rows stored at start, and — for
+ * rows that predate the column or came from a client too old to send it — the
+ * issues sharing the branch `pr_open` stamped on both sides (EXP-545). Both
+ * keyed on a SORTED dep string, the idiom the rest of this file uses, so an
+ * unchanged id set never churns the query.
+ *
+ * Returns the per-row resolver, so each list hands its rows only their own
+ * covered issues instead of the whole pool.
+ */
+function useBatchIssues(
+  sessions: readonly CodingSession[]
+): (session: CodingSession) => Issue[] {
+  const batches = useMemo(() => sessions.filter(isBatchRun), [sessions])
+  const coveredIds = useMemo(() => {
+    const ids = [
+      ...new Set(batches.flatMap((session) => session.batchIssueIds ?? [])),
+    ]
+    ids.sort()
+    return ids
+  }, [batches])
+  const branches = useMemo(() => {
+    const names = [
+      ...new Set(
+        batches
+          .map((session) => session.branch)
+          .filter(
+            (branch): branch is string =>
+              Boolean(branch) && branch!.startsWith(BATCH_BRANCH_PREFIX)
+          )
+      ),
+    ]
+    names.sort()
+    return names
+  }, [batches])
+
+  const { data: coveredRows } = useLiveQuery(
+    (query) =>
+      coveredIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, coveredIds))
+        : undefined,
+    [coveredIds.join(`,`)]
+  )
+  const { data: branchRows } = useLiveQuery(
+    (query) =>
+      branches.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.branch, branches))
+        : undefined,
+    [branches.join(`,`)]
+  )
+
+  return useMemo(() => {
+    const pool = [
+      ...((coveredRows ?? []) as Issue[]),
+      ...((branchRows ?? []) as Issue[]),
+    ]
+    if (pool.length === 0) return () => []
+    return (session: CodingSession) => batchRunIssues(session, pool)
+  }, [coveredRows, branchRows])
 }
 
 // Team Agents page + dock data: the caller's OWN live coding sessions in the
@@ -198,6 +273,8 @@ export function useAgentsData(
   const boards = useTeamBoards(teamId)
   const { userMap } = useTeamUsers(teamId)
   const now = useNow(30_000)
+  // EXP-876: what names a batch row.
+  const resolveBatchIssues = useBatchIssues(sessions)
 
   return useMemo(() => {
     const issueMap = new Map(
@@ -262,6 +339,7 @@ export function useAgentsData(
       return {
         session,
         issue,
+        batchIssues: resolveBatchIssues(session),
         board: issue ? boardMap.get(issue.boardId) : undefined,
         user: userMap.get(session.userId),
         mergeTarget: resolveMergeTarget(session, issue),
@@ -298,6 +376,7 @@ export function useAgentsData(
     sessions,
     issueRows,
     openPrIssueRows,
+    resolveBatchIssues,
     boards,
     userMap,
     devices,
@@ -371,6 +450,11 @@ export function useSessionRow(
     [needsIssueJoin, session?.issueId]
   )
 
+  // EXP-876: what names a batch row — a run opened past its live listing is
+  // exactly where "Batch run" used to be all the header had to say.
+  const ownSessions = useMemo(() => (session ? [session] : []), [session])
+  const resolveBatchIssues = useBatchIssues(ownSessions)
+
   const row = useMemo<AgentSessionRow | null>(() => {
     if (!session) return null
     const existing = runningById.get(session.id)
@@ -382,6 +466,7 @@ export function useSessionRow(
     return {
       session,
       issue,
+      batchIssues: resolveBatchIssues(session),
       board,
       user: undefined,
       // EXP-734: an issue-less run held open past its live listing still
@@ -397,7 +482,7 @@ export function useSessionRow(
       device: { label: session.deviceLabel, online: null },
       paused: false,
     }
-  }, [session, runningById, issueRows, boards])
+  }, [session, runningById, issueRows, resolveBatchIssues, boards])
 
   return {
     row,
@@ -416,13 +501,16 @@ export interface PastRunRow {
   /** May be undefined while the issue row is still syncing (or for a
    * batch/action/chat run, which links none). */
   issue: Issue | undefined
+  /** EXP-876: a BATCH row's covered issues, in naming order. */
+  batchIssues: Issue[]
   board: Board | undefined
   /** EXP-549: the host machine as the synced devices row knows it. */
   device: SessionDevice
   /** EXP-637: that machine is online and advertises `resume-run`. */
   canResume: boolean
   title: string
-  /** The issue's identifier, for the row's mono lead-in. */
+  /** The issue's identifier — or a batch's `EXP-874 +2` — for the row's mono
+   * lead-in. */
   identifier: string | null
 }
 
@@ -558,6 +646,8 @@ function usePastRunRows(
 
   const boards = useTeamBoards(teamId)
   const now = useNow(30_000)
+  // EXP-876: what names a batch row.
+  const resolveBatchIssues = useBatchIssues(past)
 
   return useMemo(() => {
     const issueMap = new Map(
@@ -578,16 +668,19 @@ function usePastRunRows(
     )
     const rows: PastRunRow[] = past.map((session) => {
       const issue = session.issueId ? issueMap.get(session.issueId) : undefined
+      // EXP-876: a batch row names itself after the issues it covered.
+      const batchIssues = resolveBatchIssues(session)
       return {
         session,
         issue,
+        batchIssues,
         board: issue ? boardMap.get(issue.boardId) : undefined,
         device: resolveSessionDevice(session, devices, now),
         canResume: Boolean(
           session.deviceId && resumableDeviceIds.has(session.deviceId)
         ),
-        title: pastRunTitle(session, issue),
-        identifier: issue?.identifier ?? null,
+        title: pastRunTitle(session, issue, batchIssues),
+        identifier: pastRunIdentifier(session, issue, batchIssues),
       }
     })
     return {
@@ -596,7 +689,17 @@ function usePastRunRows(
       // never deliver a snapshot — ready-empty, not loading forever.
       isLoading: !isReady && Boolean(teamId && currentUserId),
     }
-  }, [past, issueRows, boards, devices, now, isReady, teamId, currentUserId])
+  }, [
+    past,
+    issueRows,
+    resolveBatchIssues,
+    boards,
+    devices,
+    now,
+    isReady,
+    teamId,
+    currentUserId,
+  ])
 }
 
 // ── Arbitrary session rows (EXP-874) ─────────────────────────────────────────
@@ -605,14 +708,21 @@ function usePastRunRows(
  * render off — an `AgentSessionRow` minus the user join. */
 export type SessionListRow = Pick<
   AgentSessionRow,
-  `session` | `issue` | `board` | `device` | `paused` | `mergeTarget`
+  | `session`
+  | `issue`
+  | `batchIssues`
+  | `board`
+  | `device`
+  | `paused`
+  | `mergeTarget`
 >
 
 /**
  * EXP-874: joins an ARBITRARY set of session rows (the Automations lists'
  * automated runs — not the caller's own person-started ones `useAgentsData`
  * serves) into row shape: the issue + board, the live device label and
- * online-ness, and the Merge target (the issue, else the run's own chore PR).
+ * online-ness, and the Merge target (the issue, else the run's own chore PR),
+ * plus the issues a batch row names itself after (EXP-876).
  * A batch run's representative-issue lookup is `useAgentsData`'s alone.
  */
 export function useSessionListRows(
@@ -645,6 +755,8 @@ export function useSessionListRows(
   )
   const boards = useTeamBoards(teamId)
   const now = useNow(30_000)
+  // EXP-876: what names a batch row.
+  const resolveBatchIssues = useBatchIssues(sessions)
 
   return useMemo(() => {
     const devices = (deviceRows ?? []) as Device[]
@@ -658,6 +770,7 @@ export function useSessionListRows(
       return {
         session,
         issue,
+        batchIssues: resolveBatchIssues(session),
         board: issue ? boardMap.get(issue.boardId) : undefined,
         device,
         paused:
@@ -673,5 +786,5 @@ export function useSessionListRows(
             : undefined,
       } satisfies SessionListRow
     })
-  }, [sessions, issueRows, deviceRows, boards, now])
+  }, [sessions, issueRows, deviceRows, resolveBatchIssues, boards, now])
 }

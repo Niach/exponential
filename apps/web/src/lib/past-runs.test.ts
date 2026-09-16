@@ -4,6 +4,7 @@ import {
   LIVE_RUN_LABEL,
   pastRunByline,
   pastRunEndedAt,
+  pastRunIdentifier,
   pastRunTitle,
   selectIssueRuns,
   selectPastRuns,
@@ -26,6 +27,7 @@ type PastRun = Pick<
   | `teamId`
   | `issueId`
   | `actionName`
+  | `batchIssueIds`
   | `branch`
   | `agent`
   | `endedBy`
@@ -44,6 +46,7 @@ function run(over: Partial<PastRun> = {}): PastRun {
     teamId: `team-1`,
     issueId: null,
     actionName: null,
+    batchIssueIds: null,
     branch: null,
     agent: `claude`,
     endedBy: `agent`,
@@ -233,6 +236,42 @@ describe(`pastRunTitle`, () => {
     ).toBe(`Batch run`)
     expect(pastRunTitle(run({ actionName: `  ` }), undefined)).toBe(`Batch run`)
     expect(pastRunTitle(run(), undefined)).toBe(`Batch run`)
+  })
+
+  // EXP-876: a batch names itself after the issues it covered, so two of them
+  // in one list are told apart. Mirrored ×4.
+  it(`a batch row names itself after its issues`, () => {
+    const covered = [
+      {
+        id: `i-1`,
+        identifier: `EXP-874`,
+        title: `Session list fixes`,
+        branch: `exp/batch-1a2b3c4d`,
+        createdAt: at(`2026-09-01T10:00:00Z`),
+      },
+      {
+        id: `i-2`,
+        identifier: `EXP-876`,
+        title: `Batch run names`,
+        branch: `exp/batch-1a2b3c4d`,
+        createdAt: at(`2026-09-02T10:00:00Z`),
+      },
+    ]
+    const batch = run({ batchIssueIds: [`i-1`, `i-2`] })
+    expect(pastRunTitle(batch, undefined, covered)).toBe(`Session list fixes`)
+    expect(pastRunIdentifier(batch, undefined, covered)).toBe(`EXP-874 +1`)
+    // One issue is a batch of one — no `+0` suffix.
+    expect(
+      pastRunIdentifier(run({ batchIssueIds: [`i-2`] }), undefined, covered)
+    ).toBe(`EXP-876`)
+    // Nothing covered and nothing stored: the generic label, as before.
+    expect(pastRunIdentifier(run(), undefined, covered)).toBe(null)
+    expect(pastRunTitle(run(), undefined, covered)).toBe(`Batch run`)
+    // An issue run keeps ITS identifier; an action run has none.
+    expect(
+      pastRunIdentifier(run({ issueId: `i-1` }), { identifier: `EXP-874` })
+    ).toBe(`EXP-874`)
+    expect(pastRunIdentifier(run({ actionName: `Chat` }), undefined)).toBe(null)
   })
 })
 

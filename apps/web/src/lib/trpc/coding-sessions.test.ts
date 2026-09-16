@@ -117,7 +117,13 @@ const fakeDb = {
     from: () => ({
       where: (cond: unknown) => {
         selectWheres.push(cond)
-        return { limit: async () => selectResults.shift() ?? [] }
+        // Awaited WITHOUT `.limit()` by the unbounded reads (EXP-876's batch
+        // issue scoping), so the builder is a thenable as well.
+        return {
+          limit: async () => selectResults.shift() ?? [],
+          then: (resolve: (value: unknown) => unknown) =>
+            Promise.resolve(selectResults.shift() ?? []).then(resolve),
+        }
       },
     }),
   }),
@@ -350,6 +356,8 @@ describe(`codingSessions.start — batch path`, () => {
       agent: null,
       agentAccount: null,
       branch: null,
+      // EXP-876: nothing to name this batch by — the start sent no issues.
+      batchIssueIds: null,
       resumedFromId: null,
       status: `running`,
     })
@@ -382,6 +390,60 @@ describe(`codingSessions.start — batch path`, () => {
 
     expect(inserts[0]!.values.deviceId).toBeNull()
     expect(inserts[0]!.values.deviceLabel).toBeNull()
+  })
+
+  // EXP-876: the issues the run covers are what NAMES the row on every
+  // client — "Batch run" named every batch this team ever ran alike.
+  it(`records the covered issues, in the order they were sent`, async () => {
+    const other = `55555555-5555-4555-8555-555555555555`
+    selectResults.push([{ id: other }, { id: ISSUE_ID }])
+
+    await caller.start({ teamId: TEAM_ID, batchIssueIds: [ISSUE_ID, other] })
+
+    // The SENT order, not the row order the lookup came back in.
+    expect(inserts[0]!.values.batchIssueIds).toEqual([ISSUE_ID, other])
+    // Scoped to the run's own team, so a row can never advertise an issue
+    // its viewers may not read.
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:id`,
+      ISSUE_ID,
+      other,
+      `col:team_id`,
+      TEAM_ID,
+    ])
+  })
+
+  it(`drops an issue outside the team instead of failing the start`, async () => {
+    const foreign = `66666666-6666-4666-8666-666666666666`
+    selectResults.push([{ id: ISSUE_ID }])
+
+    await caller.start({ teamId: TEAM_ID, batchIssueIds: [foreign, ISSUE_ID] })
+
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values.batchIssueIds).toEqual([ISSUE_ID])
+  })
+
+  it(`stores NULL when nothing survives the scoping`, async () => {
+    selectResults.push([])
+
+    await caller.start({ teamId: TEAM_ID, batchIssueIds: [ISSUE_ID] })
+
+    // NULL, not `[]`: the row then names itself off its branch instead.
+    expect(inserts[0]!.values.batchIssueIds).toBeNull()
+  })
+
+  it(`refuses covered issues on a non-batch subject`, async () => {
+    for (const subject of [
+      { issueId: ISSUE_ID },
+      { actionId: ACTION_ID, teamId: TEAM_ID },
+    ]) {
+      const error = await rejectionOf(
+        caller.start({ ...subject, batchIssueIds: [ISSUE_ID] })
+      )
+      expect(error).toBeInstanceOf(TRPCError)
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
+    expect(inserts).toHaveLength(0)
   })
 })
 

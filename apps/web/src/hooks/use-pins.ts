@@ -140,11 +140,16 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
     [sessionIds.join(`,`)]
   )
   // The pinned issues PLUS the pinned sessions' issues, so a session row can
-  // name its identifier (the Sessions group's rule).
+  // name its identifier (the Sessions group's rule) — and, for a pinned BATCH,
+  // the issues it covers (EXP-876), which is all that tells it apart from
+  // every other batch. Only the ids the row STORED: a pinned batch old enough
+  // to have none keeps the generic label rather than earning this hook a
+  // second query.
   const issueIds = useMemo(() => {
     const ids = new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))
     for (const session of (sessions ?? []) as CodingSession[]) {
       if (session.issueId) ids.add(session.issueId)
+      for (const id of session.batchIssueIds ?? []) ids.add(id)
     }
     return [...ids].sort()
   }, [pins, sessions])
@@ -203,7 +208,11 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
         const issue = session.issueId
           ? (issuesById.get(session.issueId) ?? null)
           : null
-        const identity = sessionIdentity({ session, issue: issue ?? undefined })
+        const identity = sessionIdentity({
+          session,
+          issue: issue ?? undefined,
+          batchIssues: [...issuesById.values()],
+        })
         return [
           {
             pin,
@@ -211,10 +220,7 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
             session,
             issue,
             identifier: identity.identifier,
-            title: identity.identifier
-              ? identity.subject
-              : (session.actionName ??
-                (session.issueId ? identity.subject : `Batch run`)),
+            title: identity.subject,
           },
         ]
       }

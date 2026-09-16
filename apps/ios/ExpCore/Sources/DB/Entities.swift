@@ -410,6 +410,12 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // `{topic, label, attachmentId, width, height}`. nil / `[]` = nothing to
     // show, and the Results face is absent. Parsed by `parseSessionResults`.
     public let results: String?
+    // EXP-876: the issues a BATCH run covers, in the order the composer
+    // listed them — the raw jsonb TEXT off the wire like `results`, and the
+    // only thing that can NAME such a row (every batch used to read "Batch
+    // run"). nil / `[]` on every other subject and on batch rows started by
+    // a client too old to send it. Parsed by `BatchRun.issueIds`.
+    public let batchIssueIds: String?
     // Action run linkage (EXP-253): set on a session started from a team
     // action. `actionId` nulls if the action is later deleted (server FK SET
     // NULL) while `actionName` — a display snapshot — keeps labeling the run.
@@ -469,6 +475,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         agentCaption: String? = nil,
         blocked: String? = nil,
         results: String? = nil,
+        batchIssueIds: String? = nil,
         actionId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
@@ -499,6 +506,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.agentCaption = agentCaption
         self.blocked = blocked
         self.results = results
+        self.batchIssueIds = batchIssueIds
         self.actionId = actionId
         self.actionName = actionName
         self.startedReason = startedReason
@@ -528,6 +536,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case agentCaption = "agent_caption"
         case blocked
         case results
+        case batchIssueIds = "batch_issue_ids"
         case actionId = "action_id"
         case actionName = "action_name"
         case startedReason = "started_reason"
@@ -577,6 +586,8 @@ extension CodingSessionEntity: Codable {
         // EXP-879: jsonb, same treatment as `blocked` — raw text off the wire,
         // a native array from fixtures; pre-EXP-879 snapshots omit the key.
         results = c.decodeWireJsonString(forKey: .results)
+        // EXP-876: jsonb, same treatment — pre-EXP-876 snapshots omit the key.
+        batchIssueIds = c.decodeWireJsonString(forKey: .batchIssueIds)
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)

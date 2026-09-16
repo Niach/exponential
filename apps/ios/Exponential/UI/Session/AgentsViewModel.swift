@@ -15,6 +15,9 @@ final class AgentsViewModel {
     struct Row: Identifiable {
         let session: CodingSessionEntity
         let issue: IssueEntity?
+        /// EXP-876: a BATCH row's covered issues, in naming order — empty on
+        /// every other subject, and on a batch whose issues are unknown.
+        let batchIssues: [IssueEntity]
         /// EXP-549/550: the host machine as it presents right now — the LIVE
         /// devices row's label (a rename never rewrites the session's
         /// snapshot) plus whether that machine stopped heartbeating, which
@@ -31,6 +34,8 @@ final class AgentsViewModel {
     struct PastRow: Identifiable {
         let session: CodingSessionEntity
         let issue: IssueEntity?
+        /// EXP-876: a BATCH row's covered issues, in naming order.
+        let batchIssues: [IssueEntity]
         /// The host machine as it presents right now (the live devices row's
         /// label, not the session's start-time snapshot).
         let device: SessionDevicePresentation
@@ -668,6 +673,7 @@ final class AgentsViewModel {
             PastRow(
                 session: session,
                 issue: session.issueId.flatMap { issuesById[$0] },
+                batchIssues: BatchRun.issues(session, issues: issues),
                 device: SessionDevicePresentation.resolve(
                     session: session, devices: deviceRows, now: now, devicesFresh: fresh
                 ),
@@ -744,6 +750,8 @@ final class AgentsViewModel {
                 return Row(
                     session: session,
                     issue: issue,
+                    // EXP-876: what names a batch row.
+                    batchIssues: BatchRun.issues(session, issues: issues),
                     device: SessionDevicePresentation.resolve(
                         session: session, devices: deviceRows, now: now, devicesFresh: fresh
                     )

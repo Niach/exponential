@@ -573,8 +573,10 @@ export const batchCodingScriptFor = (issues: Issue[]): FeedRow[] => [
   },
 ]
 
-/* A batch session has no issue to name it: every client titles it "Batch
-   run" (navigation::screen_title, web session-identity.ts). */
+/* The demo's batch run, titled generically. The PRODUCT names a batch after
+   the issues it covers since EXP-876 (`EXP-874 +2`, web `lib/batch-run.ts`);
+   this scripted tour has no covered set to name one from, so it keeps the
+   fallback every client still shows for a batch whose issues are unknown. */
 export const BATCH_RUN_TITLE = `Batch run`
 
 /* ─── Runs beside the scripted one (EXP-870/874/877) ───

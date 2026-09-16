@@ -30,6 +30,7 @@ import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.DeviceAccountChip
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
@@ -77,6 +78,9 @@ import kotlinx.coroutines.launch
 data class AgentRow(
     val session: CodingSessionEntity,
     val issue: IssueEntity?,
+    // EXP-876: a BATCH row's covered issues, in naming order — what titles it
+    // (`EXP-874 +2`). Empty on every other subject.
+    val batchIssues: List<IssueEntity> = emptyList(),
     // EXP-549/550: the host machine resolved against its LIVE devices row —
     // the CURRENT label (not the start-time snapshot) plus whether the machine
     // dropped offline, which renders the row as paused rather than live.
@@ -99,6 +103,8 @@ data class AgentRow(
 data class PastRunRow(
     val session: CodingSessionEntity,
     val issue: IssueEntity?,
+    // EXP-876: a BATCH row's covered issues, in naming order.
+    val batchIssues: List<IssueEntity> = emptyList(),
     val device: SessionDevicePresentation = SessionDevicePresentation.Unknown,
     // Where a Resume would go, or null when the run can't be resumed right
     // now (its machine is gone, offline, or too old to know how).
@@ -569,6 +575,8 @@ fun agentRows(
         AgentRow(
             session = session,
             issue = issue,
+            // EXP-876: what names a batch row.
+            batchIssues = batchRunIssues(session, issues),
             device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
             batchPrIssue = batchPrIssue,
             // EXP-734: an action or chat run can carry a PR of its OWN (one
@@ -686,6 +694,7 @@ fun pastRunRows(
             PastRunRow(
                 session = session,
                 issue = session.issueId?.let(issuesById::get),
+                batchIssues = batchRunIssues(session, issues),
                 device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
                 resume = resumeTargetFor(session, steerDevices, currentUserId),
             )

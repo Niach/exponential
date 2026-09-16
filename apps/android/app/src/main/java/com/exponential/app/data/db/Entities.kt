@@ -348,6 +348,13 @@ data class CodingSessionEntity(
     // SessionResults.
     @ColumnInfo(name = "results") @SerialName("results")
     @Serializable(with = JsonAsStringSerializer::class) val results: String? = null,
+    // EXP-876: the issues a BATCH run covers, in the order the composer listed
+    // them — the raw jsonb TEXT off the wire like `results`, and the only
+    // thing that can NAME such a row (every batch used to read "Batch run").
+    // NULL / `[]` on every other subject and on batch rows started by a client
+    // too old to send it. Parsed for display by `batchRunIssueIds`.
+    @ColumnInfo(name = "batch_issue_ids") @SerialName("batch_issue_ids")
+    @Serializable(with = JsonAsStringSerializer::class) val batchIssueIds: String? = null,
     // Action run linkage (EXP-253): set on a session started from a team
     // action. action_id nulls if the action is later deleted (server FK SET
     // NULL) while action_name — a display snapshot — keeps labeling the run.

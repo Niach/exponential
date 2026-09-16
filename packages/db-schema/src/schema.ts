@@ -909,6 +909,16 @@ export const codingSessions = pgTable(
     // of SESSION_RESULT_TEXT_MAX-char topic/label because the row re-ships
     // whole on every heartbeat.
     results: jsonb(`results`).$type<CodingSessionResult[]>(),
+    // EXP-876: the issues a BATCH run covers, in the order the composer
+    // listed them — the only thing that can NAME such a row ("Batch run"
+    // named every one of them alike). Written once by `codingSessions.start`
+    // from the launching device's `issueIds`, never updated: it is the run's
+    // subject, not its outcome, and an issue later removed from the PR was
+    // still what this run set out to do. NULL/[] on every other subject, and
+    // on batch rows started by a client too old to send it — those still name
+    // themselves off the issues sharing the branch `pr_open` stamped
+    // (EXP-545). Capped at 30 entries, the batch cap every start form holds.
+    batchIssueIds: jsonb(`batch_issue_ids`).$type<string[]>(),
     // EXP-701: the device's pickup ack. The launching device creates this row
     // right before it spawns the agent, then its FIRST liveness heartbeat —
     // fired immediately after the spawn — stamps this (the server coalesces it

@@ -402,7 +402,9 @@ fn run_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
                     .get(issue_id)
                     .cloned()
             });
-            let title = crate::run_rows::run_title(session, issue.as_ref());
+            // EXP-876: a batch run in the tree names its issues, not "Batch run".
+            let batch_issues = crate::run_rows::batch_run_issues(session, cx);
+            let title = crate::run_rows::run_title(session, issue.as_ref(), &batch_issues);
             row_shell(
                 SharedString::from(format!("pr-graph-run-{session_id}")),
                 row.depth,

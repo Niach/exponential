@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "batch_issue_ids" jsonb;

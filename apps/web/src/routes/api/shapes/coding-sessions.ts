@@ -34,7 +34,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // caption — the second line of every session list row, which otherwise only
 // says a run is live and never what it is doing), and `results` for
 // EXP-879 (the screenshots a run published of its own work, the Results
-// face ×4 — a flat capped jsonb array, bytes in session_attachments) — each a
+// face ×4 — a flat capped jsonb array, bytes in session_attachments), and
+// `batch_issue_ids` for EXP-876 (the issues a batch run covers — without it
+// every batch row on every client is titled "Batch run" and no two can be
+// told apart) — each a
 // ONE-TIME shape-identity rotation (benign: small table, full resync; land in
 // one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
@@ -70,6 +73,7 @@ const CODING_SESSION_COLUMNS = [
   `agent_caption`,
   `blocked`,
   `results`,
+  `batch_issue_ids`,
   `started_at`,
   `ended_at`,
   `created_at`,

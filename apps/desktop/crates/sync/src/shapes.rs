@@ -402,6 +402,11 @@ pub const SHAPES: [ShapeSpec; 22] = [
             // removes a face every other client still shows. Heals onto
             // existing store tables like the rest.
             "results",
+            // EXP-876: the issues a BATCH run covers — the only thing that
+            // tells two batch rows apart (without it every one of them is
+            // titled "Batch run" here while the other clients name them).
+            // Heals onto existing store tables like the rest.
+            "batch_issue_ids",
             // EXP-545/EXP-698: the head branch `pr_open` stamped on the row.
             // It is what ties a BATCH run (no issue linkage at all) to its
             // OWN pull request, which is how the steer viewer's Merge pill
@@ -820,6 +825,14 @@ mod tests {
     fn coding_sessions_syncs_the_results() {
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"results"));
+    }
+
+    /// EXP-876: what NAMES a batch row. Dropping it leaves this client
+    /// calling every batch "Batch run" while the others name their issues.
+    #[test]
+    fn coding_sessions_syncs_the_batch_issue_ids() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"batch_issue_ids"));
     }
 
     #[test]

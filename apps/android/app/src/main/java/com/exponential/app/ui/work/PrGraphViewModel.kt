@@ -12,6 +12,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
+import com.exponential.app.domain.batchRunIssues
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -64,6 +65,22 @@ class PrGraphViewModel @Inject constructor(
             relations = relations,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null, emptyList()))
+
+    /**
+     * EXP-876: the issues the SHOWN run covers when it is a BATCH — what names
+     * an issue-less run in the Work screen's header, where "Batch run" told
+     * two batches apart no better than it did in the list. Empty for every
+     * other subject. Rides this model because it already observes every synced
+     * issue for the graph.
+     */
+    val batchIssues: StateFlow<List<IssueEntity>> = combine(
+        subject,
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
+    ) { current, issues, sessions ->
+        val session = current.sessionId?.let { id -> sessions.firstOrNull { it.id == id } }
+        session?.let { batchRunIssues(it, issues) } ?: emptyList()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _merging = MutableStateFlow(false)
     val merging: StateFlow<Boolean> = _merging

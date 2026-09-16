@@ -223,7 +223,12 @@ struct WorkScreen: View {
         if let identifier = issue?.identifier, !identifier.isEmpty { return identifier }
         if issueId != nil { return "" }
         guard let shownSession else { return "" }
-        return sessionRowTitle(issue: nil, session: shownSession)
+        // EXP-876: a batch names itself after the issues it covers.
+        return sessionRowTitle(
+            issue: nil,
+            session: shownSession,
+            batchIssues: subjectModel?.batchIssues ?? []
+        )
     }
 
     /// The `…` menu belongs to issue subjects.

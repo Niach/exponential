@@ -107,7 +107,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v38_drop_coding_session_summary",
              "v39_issue_drafts",
              "v40_issue_pr_base_branch",
-             "v41_coding_session_results"]
+             "v41_coding_session_results",
+             "v42_coding_session_batch_issue_ids"]
         )
     }
 
@@ -141,7 +142,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v38_drop_coding_session_summary",
              "v39_issue_drafts",
              "v40_issue_pr_base_branch",
-             "v41_coding_session_results"]
+             "v41_coding_session_results",
+             "v42_coding_session_batch_issue_ids"]
         )
     }
 
@@ -203,7 +205,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v38_drop_coding_session_summary",
              "v39_issue_drafts",
              "v40_issue_pr_base_branch",
-             "v41_coding_session_results"]
+             "v41_coding_session_results",
+             "v42_coding_session_batch_issue_ids"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -285,7 +288,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v38_drop_coding_session_summary",
              "v39_issue_drafts",
              "v40_issue_pr_base_branch",
-             "v41_coding_session_results"]
+             "v41_coding_session_results",
+             "v42_coding_session_batch_issue_ids"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1562,6 +1566,47 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try migrator.migrate(pool))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "results" }
+        }
+        XCTAssertNotNil(added)
+        XCTAssertFalse(added?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'coding-sessions'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v42 (EXP-876 batch run names): a store created before
+    // `coding_sessions.batch_issue_ids` existed must gain it (nullable text)
+    // and get the coding-sessions offset reset, so already-synced batch rows
+    // re-arrive carrying the issues that NAME them.
+    func testCodingSessionBatchIssueIdsColumnAddedToExistingStore() throws {
+        let pool = try makePool("coding-session-batch-issue-ids")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v41_coding_session_results")
+        try pool.write { db in
+            if try db.columns(in: "coding_sessions")
+                .contains(where: { $0.name == "batch_issue_ids" })
+            {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: "batch_issue_ids") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("batch_issue_ids"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let added = try pool.read { db in
+            try db.columns(in: "coding_sessions").first { $0.name == "batch_issue_ids" }
         }
         XCTAssertNotNil(added)
         XCTAssertFalse(added?.isNotNull ?? true)

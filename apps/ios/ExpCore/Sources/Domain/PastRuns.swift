@@ -98,18 +98,37 @@ public enum PastRuns {
     /// What the row is called: the issue's title, else — while that issue row
     /// has not synced yet — "Issue syncing…", else the run's action-name
     /// snapshot (which outlives the action, and is how a chat run reads
-    /// "Chat", EXP-615), else "Batch run". Byte-identical ×4 with web
+    /// "Chat", EXP-615), else the batch's own name (EXP-876: its first covered
+    /// issue's title, else "Batch run"). Byte-identical ×4 with web
     /// `pastRunTitle`, Android `pastRunTitle` and desktop `session_title`, so
     /// the same ended run is named the same everywhere. Locked by
     /// `a row titles itself from whatever it has`.
-    public static func title(_ session: CodingSessionEntity, issue: IssueEntity?) -> String {
+    public static func title(
+        _ session: CodingSessionEntity,
+        issue: IssueEntity?,
+        batchIssues: [IssueEntity] = []
+    ) -> String {
         if let issue {
             let title = issue.title.trimmingCharacters(in: .whitespacesAndNewlines)
             return title.isEmpty ? "Untitled issue" : title
         }
         if session.issueId != nil { return "Issue syncing…" }
         let action = (session.actionName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return action.isEmpty ? "Batch run" : action
+        if !action.isEmpty { return action }
+        return BatchRun.name(session, issues: batchIssues).subject
+    }
+
+    /// EXP-876: the row's mono lead-in — the issue's identifier, a batch's
+    /// `EXP-874 +2`, else none. The twin of `title`, ×4 lockstep (web
+    /// `pastRunIdentifier`).
+    public static func identifier(
+        _ session: CodingSessionEntity,
+        issue: IssueEntity?,
+        batchIssues: [IssueEntity] = []
+    ) -> String? {
+        if let issue { return issue.identifier }
+        if session.issueId != nil || session.actionName != nil { return nil }
+        return BatchRun.name(session, issues: batchIssues).identifier
     }
 
     /// The row's caption: `<device> · <rel time>`, with an empty segment

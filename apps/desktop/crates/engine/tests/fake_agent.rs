@@ -612,6 +612,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             started_reason: None,
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: None,
         },
         action_id: None,

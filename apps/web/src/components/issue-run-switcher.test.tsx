@@ -26,6 +26,7 @@ function row(over: Partial<CodingSession> & { id: string }): PastRunRow {
   return {
     session,
     issue: undefined,
+    batchIssues: [],
     board: undefined,
     device: { label: `macbook`, online: true },
     canResume: false,
