@@ -247,8 +247,31 @@ export interface SteerStartRepo {
  * prompt with zero lookups. Or (EXP-637) a resume of an ended run. Exactly
  * one form.
  */
+/**
+ * EXP-897: one member of a stacked start's chain, as the launcher needs it —
+ * enough to cut the branch (`branch` + `prState` decide whether the foundation
+ * is a real base yet) and to name the issue in the run's prompt.
+ */
+export interface SteerStartStackIssue {
+  issueId: string
+  identifier: string
+  branch: string | null
+  prState: string | null
+}
+
+/**
+ * The stack a single-issue start is built on. `chain` is BOTTOM first and
+ * EXCLUDES the started issue; `lower` is `chain.at(-1)` — the foundation
+ * directly below, whose open PR branch the run's branch is cut from.
+ * ABSENT on an unstacked start, which keeps that frame byte-identical.
+ */
+export interface SteerStartStack {
+  lower: SteerStartStackIssue | null
+  chain: SteerStartStackIssue[]
+}
+
 export type SteerStartSubject =
-  | { issueId: string; prompt?: string }
+  | { issueId: string; prompt?: string; stack?: SteerStartStack }
   | { issueIds: string[]; teamId: string; repo: SteerStartRepo; prompt?: string }
   | {
       actionId: string

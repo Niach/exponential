@@ -18,6 +18,8 @@ import {
   applyPrReopenedState,
   applySessionPrState,
   findIssueIdByBranch,
+  notifyStackedChildrenOfFoundationChange,
+  refreshPrStackState,
 } from "@/lib/integrations/pr-sync"
 import {
   takePrMergeClaim,
@@ -359,7 +361,10 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         number?: number
         merged?: boolean
         merged_at?: string | null
+        draft?: boolean
         head?: { ref?: string }
+        // EXP-897: the stack edge GitHub reports on every delivery.
+        base?: { ref?: string }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
         // author, `merged_by` whoever pressed Merge; both are the App bot for
         // anything our own server did, which is exactly why they complement
@@ -369,6 +374,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       }
       repository?: { full_name?: string }
       sender?: GithubActorRef
+      // EXP-897: `edited` names what changed — a base change is a stack move.
+      changes?: { base?: { from?: { ref?: string } } }
     }
 
     const pr = payload.pull_request
@@ -499,6 +506,36 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             : { actorUserId: null }),
         })
       }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // EXP-897: the stack edge moved — `edited` with a base change, or GitHub's
+    // own stack actions. Re-read both columns from the payload + the stack API
+    // so nesting, "Merge stack" and the merge routing stay true even when the
+    // stack was built on github.com.
+    if (
+      (payload.action === `edited` && payload.changes?.base) ||
+      payload.action === `stacked` ||
+      payload.action === `unstacked`
+    ) {
+      await refreshPrStackState({
+        prUrl: htmlUrl,
+        ...(repoFullName ? { repoFullName } : {}),
+        ...(pr.number != null ? { prNumber: pr.number } : {}),
+        baseRef: pr.base?.ref ?? null,
+      })
+      return jsonResponse(200, { ok: true })
+    }
+
+    // EXP-897: new commits on a PR that other runs are stacked ON. Their
+    // branches now trail the foundation, and only the agents inside those runs
+    // can rebase — so push the fact into their live sessions.
+    if (payload.action === `synchronize` && repoFullName && headRef) {
+      await notifyStackedChildrenOfFoundationChange({
+        repoFullName,
+        headRef,
+        prNumber: pr.number ?? 0,
+      })
       return jsonResponse(200, { ok: true })
     }
 

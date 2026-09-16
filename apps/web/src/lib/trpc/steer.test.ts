@@ -95,6 +95,8 @@ const h = vi.hoisted(() => {
     assertTeamMember: vi.fn(),
     getIssueTeamContext: vi.fn(),
     resolveBoardRepository: vi.fn(),
+    // EXP-897: the stacked start's chain resolver (dynamically imported).
+    resolveStackChain: vi.fn(),
     dbQueue,
     db: { select: () => makeChain() },
   }
@@ -117,6 +119,9 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
     defaultBranch: string
     defaultBranchOverride: string | null
   }) => repo.defaultBranchOverride ?? repo.defaultBranch,
+}))
+vi.mock(`@/lib/stack-plan`, () => ({
+  resolveStackChain: h.resolveStackChain,
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
@@ -203,7 +208,136 @@ beforeEach(() => {
     defaultBranch: `main`,
     installationId: 42,
   })
+  h.resolveStackChain.mockReset()
+  h.resolveStackChain.mockResolvedValue({
+    chain: [],
+    lower: null,
+    repositoryId: `repo-1`,
+    repoFullName: `acme/api`,
+    base: `main`,
+  })
   h.dbQueue.length = 0
+})
+
+// EXP-897: the third start mode. The chain rides the frame fat (the launcher
+// cuts the branch and writes the prompt without a lookup) and is ABSENT
+// whenever there is nothing to stack on — that keeps a plain start's frame
+// byte-identical to the pre-EXP-897 one.
+describe(`steer.startSession — stacked starts (EXP-897)`, () => {
+  const LOWER = {
+    issueId: ISSUE_B,
+    identifier: `EXP-11`,
+    title: `Lower`,
+    status: `in_review`,
+    branch: `exp/EXP-11`,
+    prUrl: `https://github.com/acme/api/pull/241`,
+    prNumber: 241,
+    prState: `open`,
+  }
+
+  it(`carries the chain bottom-up, excluding the started issue`, async () => {
+    h.resolveStackChain.mockResolvedValue({
+      chain: [LOWER],
+      lower: LOWER,
+      repositoryId: `repo-1`,
+      repoFullName: `acme/api`,
+      base: `exp/EXP-11`,
+    })
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      stack: true,
+    })
+    expect(lastStartBody().stack).toEqual({
+      lower: {
+        issueId: ISSUE_B,
+        identifier: `EXP-11`,
+        branch: `exp/EXP-11`,
+        prState: `open`,
+      },
+      chain: [
+        {
+          issueId: ISSUE_B,
+          identifier: `EXP-11`,
+          branch: `exp/EXP-11`,
+          prState: `open`,
+        },
+      ],
+    })
+  })
+
+  it(`passes an explicit stackOn through to the resolver`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      stackOn: { issueId: ISSUE_B },
+    })
+    expect(h.resolveStackChain).toHaveBeenCalledWith(
+      expect.anything(),
+      ISSUE_A,
+      expect.objectContaining({ stackOnIssueId: ISSUE_B, actorUserId: `actor` })
+    )
+  })
+
+  it(`omits the stack entirely when nothing blocks the issue`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      stack: true,
+    })
+    expect(`stack` in lastStartBody()).toBe(false)
+  })
+
+  it(`never resolves a stack on an unstacked start`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(h.resolveStackChain).not.toHaveBeenCalled()
+    expect(`stack` in lastStartBody()).toBe(false)
+  })
+
+  it(`refuses stacking a BATCH start`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        issueIds: [ISSUE_A, ISSUE_B],
+        deviceId: `dev-1`,
+        stack: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses stacking a RESUME`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: uuid(9),
+        deviceId: `dev-1`,
+        stack: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`surfaces a blocking cycle as PRECONDITION_FAILED, before waking the device`, async () => {
+    h.resolveStackChain.mockRejectedValue(
+      new Error(`Blocking cycle: A → B → A. Fix the relations before stacking.`)
+    )
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        stack: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`Blocking cycle`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
 })
 
 describe(`steer.startSession — subject XOR`, () => {

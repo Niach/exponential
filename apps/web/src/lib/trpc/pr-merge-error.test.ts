@@ -1,9 +1,36 @@
 import { describe, expect, it } from "vitest"
 import { GitHubMergeError } from "@/lib/integrations/github-pr"
-import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
+import {
+  isNotMergeable,
+  isStackedPrRefusal,
+  prMergeFailureError,
+} from "@/lib/trpc/pr-merge-error"
 
 // EXP-533: the whole mapping table. The error CODE is the contract every
 // client gates its "Fix conflicts" recovery run on, so each row is pinned.
+
+// FEED-43: GitHub's stacked-PR refusal is a ROUTING signal (merge-async, or
+// "the stack owns this base"), never a user-facing failure.
+describe(`isStackedPrRefusal`, () => {
+  const refusal = `Merging stacked PRs via this endpoint is not supported. Use the asynchronous merge endpoint instead.`
+
+  it(`matches the 405 merge refusal and the 422 base refusal`, () => {
+    expect(isStackedPrRefusal(new GitHubMergeError(405, refusal))).toBe(true)
+    expect(
+      isStackedPrRefusal(
+        new GitHubMergeError(422, `Cannot change the base of a stacked PR`)
+      )
+    ).toBe(true)
+  })
+
+  it(`ignores every other refusal, status and error type`, () => {
+    expect(
+      isStackedPrRefusal(new GitHubMergeError(405, `Pull Request is not mergeable`))
+    ).toBe(false)
+    expect(isStackedPrRefusal(new GitHubMergeError(409, refusal))).toBe(false)
+    expect(isStackedPrRefusal(new Error(refusal))).toBe(false)
+  })
+})
 
 describe(`isNotMergeable`, () => {
   it(`matches only GitHub's 405 "not mergeable"`, () => {

@@ -39,6 +39,7 @@ import {
   relayPostKill,
   relayPostStart,
   type SteerStartRepo,
+  type SteerStartStack,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
 import {
@@ -337,6 +338,13 @@ export const steerRouter = router({
           // the device's run registry already holds the agent, options and
           // cwd, so naming any of them here would just contradict it.
           resumeSessionId: z.string().uuid().optional(),
+          // EXP-897: build this run on top of the issues that block it — the
+          // launcher cuts the branch from the foundation's PR branch and the
+          // prompt carries the whole procedure. `stack` derives the chain from
+          // the `blocks` relations; `stackOn` names the foundation explicitly
+          // (and writes the missing relation). Single-issue starts only.
+          stack: z.boolean().optional(),
+          stackOn: z.object({ issueId: z.string().uuid() }).optional(),
           // EXP-679: the live run asking for this start (MCP
           // `exponential_sessions_start` passes its own session id). Its only
           // wire effect is `startedReason: 'agent'` on the relay frame — the
@@ -378,6 +386,9 @@ export const steerRouter = router({
                 `planMode`,
                 `mcpServerIds`,
                 `prompt`,
+                // EXP-897: a resumed run keeps the base it was cut from.
+                `stack`,
+                `stackOn`,
               ] as const
             ).filter((key) => value[key] !== undefined)
             for (const key of conflicting) {
@@ -435,6 +446,16 @@ export const steerRouter = router({
               code: z.ZodIssueCode.custom,
               path: [`resume`],
               message: `resume applies to single-issue starts only`,
+            })
+          }
+          // EXP-897: a stack is a chain of single-issue runs. A batch already
+          // IS one branch for several issues, and an action run has no issue
+          // to stack.
+          if ((value.stack || value.stackOn) && !value.issueId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [value.stackOn ? `stackOn` : `stack`],
+              message: `stacking applies to single-issue starts only`,
             })
           }
           // Per-agent vocabulary (EXP-201): model/effort must come from the
@@ -1240,6 +1261,49 @@ export const steerRouter = router({
         mcpServerIds,
         account: input.account,
       }
+
+      // EXP-897: the stacked start. The chain is resolved HERE — the one place
+      // a blocking cycle, a blocker on another repository or an explicit
+      // `stackOn` pick is decided — and rides the frame fat, so the launcher
+      // cuts the branch and writes the prompt without a single lookup. With no
+      // open blocker left the frame stays byte-identical to a plain start.
+      let stackFrame: SteerStartStack | undefined
+      if (input.issueId && (input.stack || input.stackOn)) {
+        const { resolveStackChain } = await import(`@/lib/stack-plan`)
+        let plan
+        try {
+          plan = await resolveStackChain(db, input.issueId, {
+            ...(input.stackOn ? { stackOnIssueId: input.stackOn.issueId } : {}),
+            actorUserId: userId,
+          })
+        } catch (err) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message:
+              err instanceof Error
+                ? err.message
+                : `Could not resolve the stack for this issue`,
+          })
+        }
+        if (plan.chain.length > 0) {
+          const toFrameIssue = (link: {
+            issueId: string
+            identifier: string
+            branch: string | null
+            prState: string | null
+          }) => ({
+            issueId: link.issueId,
+            identifier: link.identifier,
+            branch: link.branch,
+            prState: link.prState,
+          })
+          stackFrame = {
+            lower: plan.lower ? toFrameIssue(plan.lower) : null,
+            chain: plan.chain.map(toFrameIssue),
+          }
+        }
+      }
+
       const result = input.issueId
         ? await relayPostStart(config, {
             userId: ownerId,
@@ -1248,6 +1312,7 @@ export const steerRouter = router({
             ...agentStarted,
             issueId: input.issueId,
             ...(prompt ? { prompt } : {}),
+            ...(stackFrame ? { stack: stackFrame } : {}),
             ...options,
           })
         : await relayPostStart(config, {
