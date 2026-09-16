@@ -212,6 +212,134 @@ function AdminUserDetail() {
         </CardContent>
       </Card>
 
+      {/* EXP-835: how far this user got through the GitHub connect flow. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">GitHub</CardTitle>
+          <CardDescription className="text-xs">
+            {detail.github.connected ? `Connected` : `Not connected`}
+            {` · `}
+            {detail.github.sharedRepos.length}{` `}
+            {detail.github.sharedRepos.length === 1 ? `repo` : `repos`} shared
+            {` · `}
+            {detail.codingSessionCount}{` `}
+            {detail.codingSessionCount === 1 ? `coding session` : `coding sessions`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-xs">
+          {!detail.github.connected ? (
+            <p className="text-sm text-muted-foreground">
+              Never completed the GitHub connect flow.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground">Accounts</span>
+                {detail.github.identities.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    — (connected before identities were recorded)
+                  </span>
+                ) : (
+                  detail.github.identities.map((i) => (
+                    <Pill key={i.githubLogin} title={`verified ${formatDateTime(i.verifiedAt)}`}>
+                      {i.githubLogin}
+                    </Pill>
+                  ))
+                )}
+                <span aria-hidden>·</span>
+                <span className="text-muted-foreground">
+                  {detail.github.repoGrantCount} repo{` `}
+                  {detail.github.repoGrantCount === 1 ? `grant` : `grants`}
+                </span>
+              </div>
+              {detail.github.installations.length > 0 && (
+                <div className="rounded-md border">
+                  <div className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 font-medium text-muted-foreground">
+                    <div>Installation</div>
+                    <div>Team</div>
+                    <div>Claimed</div>
+                  </div>
+                  {detail.github.installations.map((inst) => (
+                    <div
+                      key={inst.id}
+                      className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 last:border-b-0"
+                    >
+                      <div className="truncate font-medium">
+                        {inst.accountLogin ?? `—`}
+                        {inst.accountType && (
+                          <span className="font-normal text-muted-foreground">
+                            {` `}({inst.accountType})
+                          </span>
+                        )}
+                        {inst.suspendedAt && (
+                          <span className="font-normal text-destructive">
+                            {` `}suspended
+                          </span>
+                        )}
+                      </div>
+                      <Link
+                        to="/admin/teams/$teamId"
+                        params={{ teamId: inst.teamId }}
+                        className="truncate hover:underline"
+                      >
+                        {inst.teamName}
+                      </Link>
+                      <div
+                        className="text-muted-foreground"
+                        title={formatDateTime(inst.createdAt)}
+                      >
+                        {formatDate(inst.createdAt)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {detail.github.sharedRepos.length > 0 && (
+            <div className="rounded-md border">
+              <div className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 font-medium text-muted-foreground">
+                <div>Repository</div>
+                <div>Team</div>
+                <div>Connected</div>
+              </div>
+              {detail.github.sharedRepos.map((repo) => (
+                <div
+                  key={repo.id}
+                  className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 last:border-b-0"
+                >
+                  <div className="truncate font-medium">
+                    {repo.fullName}
+                    {repo.archivedAt ? (
+                      <span className="font-normal text-muted-foreground">
+                        {` `}archived
+                      </span>
+                    ) : repo.inaccessibleAt ? (
+                      <span className="font-normal text-destructive">
+                        {` `}inaccessible
+                      </span>
+                    ) : null}
+                  </div>
+                  <Link
+                    to="/admin/teams/$teamId"
+                    params={{ teamId: repo.teamId }}
+                    className="truncate hover:underline"
+                  >
+                    {repo.teamName}
+                  </Link>
+                  <div
+                    className="text-muted-foreground"
+                    title={formatDateTime(repo.createdAt)}
+                  >
+                    {formatDate(repo.createdAt)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* EXP-759: which clients this user runs, and their registered machines. */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
