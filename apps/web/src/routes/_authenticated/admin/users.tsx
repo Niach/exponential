@@ -78,7 +78,7 @@ export const Route = createFileRoute(`/_authenticated/admin/users`)({
   component: AdminUsers,
 })
 
-const GRID = `md:grid-cols-[minmax(0,1fr)_120px_130px_60px_95px_100px_60px_40px]`
+const GRID = `md:grid-cols-[minmax(0,1fr)_120px_130px_100px_60px_95px_100px_60px_40px]`
 
 function SortHeader({
   label,
@@ -111,6 +111,27 @@ function SortHeader({
       {label}
       {active && <Arrow className="h-3 w-3" />}
     </Link>
+  )
+}
+
+// EXP-835: did the user get through the GitHub connect flow? The login when
+// the identity was verified (EXP-617+), else a plain "connected" for older
+// claims; the repo count is the repos their connection put into a team.
+function GithubStatus({ user }: { user: AdminUser }) {
+  if (!user.githubConnected) {
+    return <span className="text-xs text-muted-foreground">not connected</span>
+  }
+  const repos = `${user.sharedRepoCount} ${user.sharedRepoCount === 1 ? `repo` : `repos`}`
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-0.5"
+      title={`GitHub connected · ${repos} shared`}
+    >
+      <Pill className="max-w-full truncate whitespace-nowrap">
+        {user.githubLogins[0] ?? `connected`}
+      </Pill>
+      <span className="text-[11px] text-muted-foreground">{repos}</span>
+    </div>
   )
 }
 
@@ -180,7 +201,7 @@ function AdminUsers() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-bold">Users</h1>
         <p className="text-sm text-muted-foreground">
@@ -217,6 +238,7 @@ function AdminUsers() {
           </div>
           <div>Providers</div>
           <div>Platforms</div>
+          <div>GitHub</div>
           <div>
             <SortHeader
               label="Teams"
@@ -332,6 +354,8 @@ function AdminUsers() {
                     <PlatformPills platforms={user.platforms} />
                   </>
                 )}
+                <span aria-hidden>·</span>
+                <GithubStatus user={user} />
               </div>
               {/* Desktop columns */}
               <div className="hidden md:flex flex-wrap gap-1">
@@ -347,6 +371,9 @@ function AdminUsers() {
               </div>
               <div className="hidden md:block">
                 <PlatformPills platforms={user.platforms} />
+              </div>
+              <div className="hidden md:block">
+                <GithubStatus user={user} />
               </div>
               <div className="hidden md:block text-sm tabular-nums">
                 {user.teamCount}

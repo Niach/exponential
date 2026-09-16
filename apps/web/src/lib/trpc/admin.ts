@@ -1,6 +1,18 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  getTableName,
+  ilike,
+  inArray,
+  isNotNull,
+  lt,
+  or,
+  sql,
+  type Column,
+} from "drizzle-orm"
 import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts, sessions } from "@/db/auth-schema"
 import {
@@ -15,6 +27,12 @@ import {
   creem_subscriptions,
   devices,
   userClientPlatforms,
+  codingSessions,
+  githubInstallations,
+  githubInstallationLinks,
+  githubInstallationRepoGrants,
+  githubUserIdentities,
+  repositories,
 } from "@/db/schema"
 import { suppressSesDestination } from "@/lib/email"
 import { escapeLikePattern } from "@/lib/like-pattern"
@@ -91,6 +109,24 @@ export const EMAIL_DELIVERY_STATUSES = [
   `complained`,
 ] as const
 
+// EXP-835: "has this user connected GitHub?" Three independent traces of the
+// connect flow, any one counts: the verified identity (written by the OAuth
+// callback since EXP-617, never backfilled), an installation claim they
+// completed, or repo grants their user-scoped token captured (pre-617 users).
+// Always table-qualified: Drizzle renders bare `"id"` in single-table
+// selects, which a correlated subquery would bind to its OWN table.
+function qcol(column: Column) {
+  return sql`${sql.identifier(getTableName(column.table))}.${sql.identifier(column.name)}`
+}
+
+function githubConnectedSql(userId: Column) {
+  return sql<boolean>`(
+    exists (select 1 from ${githubUserIdentities} where ${qcol(githubUserIdentities.userId)} = ${qcol(userId)})
+    or exists (select 1 from ${githubInstallationLinks} where ${qcol(githubInstallationLinks.createdByUserId)} = ${qcol(userId)})
+    or exists (select 1 from ${githubInstallationRepoGrants} where ${qcol(githubInstallationRepoGrants.grantedByUserId)} = ${qcol(userId)})
+  )`
+}
+
 export const adminRouter = router({
   listUsers: adminProcedure.query(async ({ ctx }) => {
     // EXP-759: one grouped 1:0..1 subquery per user for the client-platform
@@ -116,6 +152,10 @@ export const adminRouter = router({
         lastActiveAt: sql<
           Date | null
         >`greatest(max(${sessions.updatedAt})::timestamptz, ${ucp.lastSeenAt})`,
+        // EXP-835: correlated per-user subqueries — no extra join fan-out.
+        githubConnected: githubConnectedSql(users.id),
+        githubLogins: sql<string[]>`coalesce((select array_agg(${qcol(githubUserIdentities.githubLogin)} order by ${qcol(githubUserIdentities.verifiedAt)}) from ${githubUserIdentities} where ${qcol(githubUserIdentities.userId)} = ${qcol(users.id)}), '{}')`,
+        sharedRepoCount: sql<number>`(select count(*) from ${repositories} where ${qcol(repositories.sharedByUserId)} = ${qcol(users.id)})::int`,
       })
       .from(users)
       .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
@@ -646,6 +686,11 @@ export const adminRouter = router({
         [issueCountRow],
         platformRows,
         deviceRows,
+        githubIdentityRows,
+        githubInstallRows,
+        sharedRepoRows,
+        [githubGrantRow],
+        [codingSessionRow],
       ] =
         await Promise.all([
           ctx.db
@@ -726,6 +771,55 @@ export const adminRouter = router({
             .from(devices)
             .where(eq(devices.userId, input.userId))
             .orderBy(desc(devices.lastSeenAt)),
+          // EXP-835: the GitHub connect flow's traces for this user.
+          ctx.db
+            .select({
+              githubLogin: githubUserIdentities.githubLogin,
+              verifiedAt: githubUserIdentities.verifiedAt,
+            })
+            .from(githubUserIdentities)
+            .where(eq(githubUserIdentities.userId, input.userId))
+            .orderBy(githubUserIdentities.verifiedAt),
+          ctx.db
+            .select({
+              id: githubInstallationLinks.id,
+              createdAt: githubInstallationLinks.createdAt,
+              accountLogin: githubInstallations.accountLogin,
+              accountType: githubInstallations.accountType,
+              suspendedAt: githubInstallations.suspendedAt,
+              teamId: teams.id,
+              teamName: teams.name,
+            })
+            .from(githubInstallationLinks)
+            .innerJoin(
+              githubInstallations,
+              eq(githubInstallations.id, githubInstallationLinks.githubInstallationId)
+            )
+            .innerJoin(teams, eq(teams.id, githubInstallationLinks.teamId))
+            .where(eq(githubInstallationLinks.createdByUserId, input.userId))
+            .orderBy(desc(githubInstallationLinks.createdAt)),
+          ctx.db
+            .select({
+              id: repositories.id,
+              fullName: repositories.fullName,
+              createdAt: repositories.createdAt,
+              inaccessibleAt: repositories.inaccessibleAt,
+              archivedAt: repositories.archivedAt,
+              teamId: teams.id,
+              teamName: teams.name,
+            })
+            .from(repositories)
+            .innerJoin(teams, eq(teams.id, repositories.teamId))
+            .where(eq(repositories.sharedByUserId, input.userId))
+            .orderBy(desc(repositories.createdAt)),
+          ctx.db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(githubInstallationRepoGrants)
+            .where(eq(githubInstallationRepoGrants.grantedByUserId, input.userId)),
+          ctx.db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(codingSessions)
+            .where(eq(codingSessions.userId, input.userId)),
         ])
 
       // One grouped subscription query for all of the user's teams —
@@ -781,6 +875,17 @@ export const adminRouter = router({
         createdIssuesCount: issueCountRow?.count ?? 0,
         platforms: platformRows,
         devices: deviceRows,
+        github: {
+          connected:
+            githubIdentityRows.length > 0 ||
+            githubInstallRows.length > 0 ||
+            (githubGrantRow?.count ?? 0) > 0,
+          identities: githubIdentityRows,
+          installations: githubInstallRows,
+          sharedRepos: sharedRepoRows,
+          repoGrantCount: githubGrantRow?.count ?? 0,
+        },
+        codingSessionCount: codingSessionRow?.count ?? 0,
       }
     }),
 
@@ -818,6 +923,7 @@ export const adminRouter = router({
       subRows,
       signupRows,
       wsCreatedRows,
+      [activation],
     ] = await Promise.all([
       ctx.db.select({ count: sql<number>`count(*)::int` }).from(users),
       ctx.db.select({ count: sql<number>`count(*)::int` }).from(teams),
@@ -852,6 +958,19 @@ export const adminRouter = router({
         .where(sql`${teams.createdAt} >= now() - interval '30 days'`)
         .groupBy(wsDay)
         .orderBy(wsDay),
+      // EXP-835: how far users get towards a coding session. Each step counts
+      // users who reached it on their own — not strictly nested (a teammate's
+      // GitHub connect lets a member code without connecting themselves).
+      ctx.db
+        .select({
+          users: sql<number>`count(*)::int`,
+          inTeam: sql<number>`count(*) filter (where exists (select 1 from ${teamMembers} where ${qcol(teamMembers.userId)} = ${qcol(users.id)}))::int`,
+          githubConnected: sql<number>`count(*) filter (where ${githubConnectedSql(users.id)})::int`,
+          teamHasRepo: sql<number>`count(*) filter (where exists (select 1 from ${teamMembers} join ${repositories} on ${qcol(repositories.teamId)} = ${qcol(teamMembers.teamId)} where ${qcol(teamMembers.userId)} = ${qcol(users.id)}))::int`,
+          hasDevice: sql<number>`count(*) filter (where exists (select 1 from ${devices} where ${qcol(devices.userId)} = ${qcol(users.id)}))::int`,
+          startedSession: sql<number>`count(*) filter (where exists (select 1 from ${codingSessions} where ${qcol(codingSessions.userId)} = ${qcol(users.id)}))::int`,
+        })
+        .from(users),
     ])
 
     // Naive monthly revenue in EUR: Team monthly €15/seat/mo, Team yearly
@@ -884,6 +1003,7 @@ export const adminRouter = router({
       },
       signupsByDay: signupRows,
       teamsByDay: wsCreatedRows,
+      activation,
     }
   }),
 

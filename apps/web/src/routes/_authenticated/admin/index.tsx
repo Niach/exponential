@@ -36,6 +36,15 @@ function AdminOverview() {
   const signupTotal = overview.signupsByDay.reduce((s, r) => s + r.count, 0)
   const wsTotal = overview.teamsByDay.reduce((s, r) => s + r.count, 0)
   const platformMax = Math.max(1, ...platforms.byPlatform.map((p) => p.users))
+  const { activation } = overview
+  const activationSteps = [
+    { label: `Signed up`, users: activation.users },
+    { label: `Joined a team`, users: activation.inTeam },
+    { label: `Connected GitHub`, users: activation.githubConnected },
+    { label: `Team has a repository`, users: activation.teamHasRepo },
+    { label: `Registered a device`, users: activation.hasDevice },
+    { label: `Started a coding session`, users: activation.startedSession },
+  ]
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
@@ -93,6 +102,40 @@ function AdminOverview() {
           </CardContent>
         </Card>
       </div>
+
+      {/* EXP-835: where users stop on the way to their first coding run. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Activation</CardTitle>
+          <CardDescription className="text-xs">
+            Users who reached each step themselves, as a share of all users.
+            Steps are not strictly nested: a teammate’s GitHub connection lets
+            a member code without connecting.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {activationSteps.map((step) => (
+              <div key={step.label} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span>{step.label}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {step.users} ({pct(step.users, activation.users)})
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary"
+                    style={{
+                      width: `${(step.users / Math.max(1, activation.users)) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* EXP-759: who uses which client. */}
       <div className="grid gap-3 md:grid-cols-2">
