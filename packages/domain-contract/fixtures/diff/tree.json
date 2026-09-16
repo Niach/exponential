@@ -2,18 +2,45 @@
   {
     "name": "root files sort by name",
     "files": [
-      { "path": "b.ts", "additions": 1, "deletions": 0 },
-      { "path": "a.ts", "additions": 2, "deletions": 1 }
+      {
+        "path": "b.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "a.ts",
+        "additions": 2,
+        "deletions": 1
+      }
     ],
-    "expected": ["a.ts +2 -1", "b.ts +1 -0"]
+    "expected": [
+      "a.ts +2 -1",
+      "b.ts +1 -0"
+    ]
   },
   {
     "name": "nested dirs, a lone child chain compacts, dirs before files",
     "files": [
-      { "path": "apps/web/src/b.ts", "additions": 1, "deletions": 0 },
-      { "path": "README.md", "additions": 3, "deletions": 3 },
-      { "path": "apps/desktop/x.rs", "additions": 5, "deletions": 2 },
-      { "path": "apps/web/src/a.ts", "additions": 2, "deletions": 1 }
+      {
+        "path": "apps/web/src/b.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "README.md",
+        "additions": 3,
+        "deletions": 3
+      },
+      {
+        "path": "apps/desktop/x.rs",
+        "additions": 5,
+        "deletions": 2
+      },
+      {
+        "path": "apps/web/src/a.ts",
+        "additions": 2,
+        "deletions": 1
+      }
     ],
     "expected": [
       "apps +8 -3 (3)",
@@ -28,58 +55,164 @@
   {
     "name": "names sort case-insensitively",
     "files": [
-      { "path": "Zeta.ts", "additions": 1, "deletions": 0 },
-      { "path": "alpha.ts", "additions": 1, "deletions": 0 },
-      { "path": "Beta.ts", "additions": 1, "deletions": 0 }
+      {
+        "path": "Zeta.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "alpha.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "Beta.ts",
+        "additions": 1,
+        "deletions": 0
+      }
     ],
-    "expected": ["alpha.ts +1 -0", "Beta.ts +1 -0", "Zeta.ts +1 -0"]
+    "expected": [
+      "alpha.ts +1 -0",
+      "Beta.ts +1 -0",
+      "Zeta.ts +1 -0"
+    ]
   },
   {
     "name": "a case-only tie falls back to the raw name",
     "files": [
-      { "path": "a.ts", "additions": 1, "deletions": 0 },
-      { "path": "A.ts", "additions": 1, "deletions": 0 }
+      {
+        "path": "a.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "A.ts",
+        "additions": 1,
+        "deletions": 0
+      }
     ],
-    "expected": ["A.ts +1 -0", "a.ts +1 -0"]
+    "expected": [
+      "A.ts +1 -0",
+      "a.ts +1 -0"
+    ]
+  },
+  {
+    "name": "names outside the BMP sort by UTF-16 code unit, never by code point or byte",
+    "files": [
+      {
+        "path": "docs/～notes.md",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "docs/🚀launch.md",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "expected": [
+      "docs +3 -0 (2)",
+      "  🚀launch.md +2 -0",
+      "  ～notes.md +1 -0"
+    ]
   },
   {
     "name": "dirs before files at every level",
     "files": [
-      { "path": "src/z.ts", "additions": 1, "deletions": 0 },
-      { "path": "src/lib/a.ts", "additions": 4, "deletions": 1 }
+      {
+        "path": "src/z.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "src/lib/a.ts",
+        "additions": 4,
+        "deletions": 1
+      }
     ],
-    "expected": ["src +5 -1 (2)", "  lib +4 -1 (1)", "    a.ts +4 -1", "  z.ts +1 -0"]
+    "expected": [
+      "src +5 -1 (2)",
+      "  lib +4 -1 (1)",
+      "    a.ts +4 -1",
+      "  z.ts +1 -0"
+    ]
   },
   {
     "name": "compaction stops at a dir that holds a file",
     "files": [
-      { "path": "a/b/c/x.ts", "additions": 1, "deletions": 0 },
-      { "path": "a/b/y.ts", "additions": 1, "deletions": 1 }
+      {
+        "path": "a/b/c/x.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "a/b/y.ts",
+        "additions": 1,
+        "deletions": 1
+      }
     ],
-    "expected": ["a/b +2 -1 (2)", "  c +1 -0 (1)", "    x.ts +1 -0", "  y.ts +1 -1"]
+    "expected": [
+      "a/b +2 -1 (2)",
+      "  c +1 -0 (1)",
+      "    x.ts +1 -0",
+      "  y.ts +1 -1"
+    ]
   },
   {
     "name": "a query flattens to matching files in input order, case-insensitively",
     "files": [
-      { "path": "a/b/c.ts", "additions": 1, "deletions": 0 },
-      { "path": "e.ts", "additions": 1, "deletions": 0 },
-      { "path": "a/d.ts", "additions": 2, "deletions": 0 }
+      {
+        "path": "a/b/c.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "e.ts",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "path": "a/d.ts",
+        "additions": 2,
+        "deletions": 0
+      }
     ],
     "query": "A/",
-    "expected": ["a/b/c.ts +1 -0", "a/d.ts +2 -0"]
+    "expected": [
+      "a/b/c.ts +1 -0",
+      "a/d.ts +2 -0"
+    ]
   },
   {
     "name": "a blank query is no query",
     "files": [
-      { "path": "a/d.ts", "additions": 2, "deletions": 0 },
-      { "path": "e.ts", "additions": 1, "deletions": 0 }
+      {
+        "path": "a/d.ts",
+        "additions": 2,
+        "deletions": 0
+      },
+      {
+        "path": "e.ts",
+        "additions": 1,
+        "deletions": 0
+      }
     ],
     "query": "   ",
-    "expected": ["a +2 -0 (1)", "  d.ts +2 -0", "e.ts +1 -0"]
+    "expected": [
+      "a +2 -0 (1)",
+      "  d.ts +2 -0",
+      "e.ts +1 -0"
+    ]
   },
   {
     "name": "a query that matches nothing is an empty list",
-    "files": [{ "path": "a/d.ts", "additions": 2, "deletions": 0 }],
+    "files": [
+      {
+        "path": "a/d.ts",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
     "query": "zzz",
     "expected": []
   },
