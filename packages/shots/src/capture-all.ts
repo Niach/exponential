@@ -574,12 +574,49 @@ async function captureWeb(
     label: `[web]`,
     timeoutMs: 30 * 60_000,
   })
+  // EXP-913: capture:views records every view and keeps going, rewriting
+  // `capture-views.json` after each one — so the verdict is per FORM FACTOR (a
+  // web-mobile failure no longer fails web) and names the failed views, and a
+  // run killed by the timeout still reports what it finished.
+  const recorded = readCaptureViewsResults()
+  const anyRecordedFailure = recorded?.some((row) => row.error !== undefined) ?? false
   for (const platform of formFactors) {
+    const failed = recorded
+      ?.filter((row) => row.formFactor === platform && row.error !== undefined)
+      .map((row) => row.viewId)
+    const killed = result.code === 124 ? `capture:views timed out` : undefined
+    if (!recorded || (result.code !== 0 && !killed && !anyRecordedFailure)) {
+      // No per-view record, or an exit the record does not explain (a crash
+      // before or between views): fall back to the exit code.
+      outcomes.push({
+        platform,
+        ok: result.code === 0,
+        detail: result.code === 0 ? undefined : `capture:views exited ${result.code}`,
+      })
+      continue
+    }
+    const problems = [
+      ...(failed && failed.length > 0 ? [`${failed.length} view(s) failed: ${failed.join(`, `)}`] : []),
+      ...(killed ? [killed] : []),
+    ]
     outcomes.push({
       platform,
-      ok: result.code === 0,
-      detail: result.code === 0 ? undefined : `capture:views exited ${result.code}`,
+      ok: problems.length === 0,
+      detail: problems.length === 0 ? undefined : problems.join(` · `),
     })
+  }
+}
+
+/** `capture-views.json` (apps/web/scripts/capture-views.ts), or undefined. */
+function readCaptureViewsResults():
+  | { formFactor: string; viewId: string; error?: string }[]
+  | undefined {
+  const path = join(rawDir(), `capture-views.json`)
+  if (!existsSync(path)) return undefined
+  try {
+    return JSON.parse(readFileSync(path, `utf8`))
+  } catch {
+    return undefined
   }
 }
 

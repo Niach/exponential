@@ -10,13 +10,12 @@
  *
  * Idempotent: re-running tears down the demo team AND the demo users,
  * then rebuilds everything, so relative dates ("due in 2 days", "3h ago")
- * always look fresh. Recreating the users (not just the team) matters:
- * it rotates the user id and with it the identity of the user-scoped
- * Electric shapes (notifications). The vite dev bridge strips the
- * electric-handle/electric-offset response headers from the shape proxies,
- * so clients in local dev can never follow a shape log past its snapshot —
- * a reused shape would serve the previous seed generation forever. Fresh
- * ids on every entity ⇒ fresh shapes ⇒ fresh snapshots.
+ * always look fresh. The USER ids and the coding-session ids are pinned
+ * (EXP-913): an avatar's hue hashes its user id, so fresh ids re-rolled every
+ * avatar per seed. Reused user-scoped shapes are fine since the capture stack
+ * serves the built app, whose shape responses carry the cursor headers
+ * (capture-all.ts `assertShapesSyncable`), so clients follow the delete +
+ * re-insert like any other change.
  *
  * Seeding is only half of it: three of the eight shots (Start-coding dialog,
  * live steering, the "Coding now" row) need a steer relay with a desktop online
@@ -30,9 +29,10 @@
  *   bun run seed:screenshots
  *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
-import { eq, inArray, sql } from "drizzle-orm"
+import { eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  accounts,
   actions,
   apikeys,
   attachments,
@@ -65,9 +65,12 @@ import {
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
 import { generateWidgetKey } from "@/lib/widget/key"
+import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
+import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
 import {
   DEMO_API_KEYS,
+  DEMO_ATTACHMENT_DATES,
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
   DEMO_DEVICE_LABEL,
@@ -80,14 +83,18 @@ import {
   DEMO_DUE_DATES,
   DEMO_SERVER_VERSION,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
-  DEMO_STEERED_SESSION_ID,
+  DEMO_SESSION_IDS,
+  DEMO_TIMEZONE,
+  DEMO_USER_ID,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
   NEWCOMER_PASSWORD,
+  NEWCOMER_USER_ID,
   STARTER_EMAIL,
   STARTER_NAME,
   STARTER_PASSWORD,
+  STARTER_USER_ID,
   STARTER_TEAM_NAME,
   STARTER_TEAM_SLUG,
   SUPPORT_REPORTER_THREAD_TITLE,
@@ -150,59 +157,68 @@ const ATTACHMENT_IDS = {
   sysdiagnose: crypto.randomUUID(),
 }
 
-async function ensureDemoUser(): Promise<string> {
-  await auth.api.signUpEmail({
-    body: { name: DEMO_NAME, email: DEMO_EMAIL, password: DEMO_PASSWORD },
+/**
+ * A password identity under a PINNED user id (EXP-913). `signUpEmail` mints its
+ * own id, so the seed writes the two rows it would have — the user and its
+ * `credential` account — itself, hashing through Better Auth's own context so
+ * sign-in verifies exactly as for a signed-up account. Also independent of
+ * AUTH_SIGNUP_ENABLED, which only gates the public endpoint.
+ */
+async function createPasswordUser(spec: {
+  id: string
+  name: string
+  email: string
+  password: string
+  onboardingCompletedAt: Date | null
+}): Promise<string> {
+  const context = await auth.$context
+  const createdAt = daysAgo(60)
+  await db.insert(users).values({
+    id: spec.id,
+    name: spec.name,
+    email: spec.email,
+    emailVerified: true,
+    onboardingCompletedAt: spec.onboardingCompletedAt,
+    timezone: DEMO_TIMEZONE,
+    createdAt,
+    updatedAt: createdAt,
   })
-  const [row] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, DEMO_EMAIL))
-    .limit(1)
-  if (!row) throw new Error(`demo user missing after signUpEmail`)
+  await db.insert(accounts).values({
+    id: `${spec.id}-credential`,
+    accountId: spec.id,
+    providerId: `credential`,
+    userId: spec.id,
+    password: await context.password.hash(spec.password),
+    createdAt,
+    updatedAt: createdAt,
+  })
+  return spec.id
+}
+
+async function ensureDemoUser(): Promise<string> {
   // Verified + onboarded so the apps go straight to the main UI.
-  await db
-    .update(users)
-    .set({ emailVerified: true, onboardingCompletedAt: daysAgo(30) })
-    .where(eq(users.id, row.id))
-  return row.id
+  return createPasswordUser({
+    id: DEMO_USER_ID,
+    name: DEMO_NAME,
+    email: DEMO_EMAIL,
+    password: DEMO_PASSWORD,
+    onboardingCompletedAt: daysAgo(30),
+  })
 }
 
 /**
  * The team-less second identity (EXP-566). Verified so the app lets it in, but
  * `onboardingCompletedAt` stays NULL and it joins nothing — that is precisely
  * what makes `/onboarding` and `/invite/$token` render instead of redirecting.
- *
- * `signUpEmail` gives every new user a personal team on some instances; this
- * strips whatever it created so the account really does own nothing.
  */
 async function ensureNewcomerUser(): Promise<string> {
-  await auth.api.signUpEmail({
-    body: {
-      name: NEWCOMER_NAME,
-      email: NEWCOMER_EMAIL,
-      password: NEWCOMER_PASSWORD,
-    },
+  return createPasswordUser({
+    id: NEWCOMER_USER_ID,
+    name: NEWCOMER_NAME,
+    email: NEWCOMER_EMAIL,
+    password: NEWCOMER_PASSWORD,
+    onboardingCompletedAt: null,
   })
-  const [row] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, NEWCOMER_EMAIL))
-    .limit(1)
-  if (!row) throw new Error(`newcomer user missing after signUpEmail`)
-  await db
-    .update(users)
-    .set({ emailVerified: true, onboardingCompletedAt: null })
-    .where(eq(users.id, row.id))
-  const owned = await db
-    .select({ teamId: teamMembers.teamId })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, row.id))
-  for (const { teamId } of owned) {
-    await db.delete(boards).where(eq(boards.teamId, teamId))
-    await db.delete(teams).where(eq(teams.id, teamId))
-  }
-  return row.id
 }
 
 /**
@@ -213,42 +229,22 @@ async function ensureNewcomerUser(): Promise<string> {
  * devices (the prune script clears what a desktop launch registers).
  */
 async function ensureStarterUser(): Promise<string> {
-  await auth.api.signUpEmail({
-    body: {
-      name: STARTER_NAME,
-      email: STARTER_EMAIL,
-      password: STARTER_PASSWORD,
-    },
+  const id = await createPasswordUser({
+    id: STARTER_USER_ID,
+    name: STARTER_NAME,
+    email: STARTER_EMAIL,
+    password: STARTER_PASSWORD,
+    onboardingCompletedAt: null,
   })
-  const [row] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, STARTER_EMAIL))
-    .limit(1)
-  if (!row) throw new Error(`starter user missing after signUpEmail`)
-  await db
-    .update(users)
-    .set({ emailVerified: true, onboardingCompletedAt: null })
-    .where(eq(users.id, row.id))
-  // Whatever signUpEmail created, plus a stale seed's team: the slug is
-  // unique, so the leftover must go before the fresh insert.
-  const owned = await db
-    .select({ teamId: teamMembers.teamId })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, row.id))
-  for (const { teamId } of owned) {
-    await db.delete(boards).where(eq(boards.teamId, teamId))
-    await db.delete(teams).where(eq(teams.id, teamId))
-  }
-  await db.delete(teams).where(eq(teams.slug, STARTER_TEAM_SLUG))
+  // teardown already dropped a stale seed's team by its unique slug.
   const [team] = await db
     .insert(teams)
     .values({ name: STARTER_TEAM_NAME, slug: STARTER_TEAM_SLUG })
     .returning({ id: teams.id })
   await db
     .insert(teamMembers)
-    .values({ teamId: team!.id, userId: row.id, role: `owner` })
-  return row.id
+    .values({ teamId: team!.id, userId: id, role: `owner` })
+  return id
 }
 
 async function ensureTeammates(): Promise<Record<string, string>> {
@@ -319,8 +315,8 @@ async function teardown() {
     await db.delete(teams).where(eq(teams.id, ws.id))
   }
 
-  // Recreate the demo users each run (fresh ids ⇒ fresh user-scoped shapes —
-  // see the header). Drop teams where a demo user is the sole member
+  // Recreate the demo users each run (under their pinned ids — see the
+  // header). Drop teams where a demo user is the sole member
   // first (their auto-created personal teams would otherwise pile up).
   // The starter's team goes by slug too: the sole-member rule below misses a
   // member-less leftover, and the unique slug would then collide on reseed.
@@ -334,7 +330,12 @@ async function teardown() {
   const demoUsers = await db
     .select({ id: users.id })
     .from(users)
-    .where(inArray(users.email, emails))
+    .where(
+      or(
+        inArray(users.email, emails),
+        inArray(users.id, [DEMO_USER_ID, NEWCOMER_USER_ID, STARTER_USER_ID])
+      )
+    )
   const ids = demoUsers.map((u) => u.id)
   if (ids.length === 0) return
   const orphaned = await db
@@ -916,7 +917,7 @@ async function main() {
     sizeBytes: number
     width?: number
     height?: number
-    createdDaysAgo: number
+    createdAt: Date
   }> = [
     {
       id: ATTACHMENT_IDS.cacheHitRate,
@@ -927,7 +928,7 @@ async function main() {
       sizeBytes: 412_907,
       width: 1600,
       height: 900,
-      createdDaysAgo: 14,
+      createdAt: DEMO_ATTACHMENT_DATES.cacheHitRate,
     },
     {
       id: ATTACHMENT_IDS.contrastSweep,
@@ -938,7 +939,7 @@ async function main() {
       sizeBytes: 268_441,
       width: 2560,
       height: 1440,
-      createdDaysAgo: 9,
+      createdAt: DEMO_ATTACHMENT_DATES.contrastSweep,
     },
     {
       id: ATTACHMENT_IDS.voiceoverLabels,
@@ -950,7 +951,7 @@ async function main() {
       sizeBytes: 184_320,
       width: 1290,
       height: 2796,
-      createdDaysAgo: 4,
+      createdAt: DEMO_ATTACHMENT_DATES.voiceoverLabels,
     },
     // The deliberate orphan: an image no body embeds and no comment links.
     // Older than the sweep's 24h grace window, so pressing the button really
@@ -964,7 +965,7 @@ async function main() {
       sizeBytes: 96_244,
       width: 1170,
       height: 2532,
-      createdDaysAgo: 3,
+      createdAt: DEMO_ATTACHMENT_DATES.cacheSketch,
     },
     // Non-image rows are never sweep candidates — they live in the issue's
     // Files list, which is not a markdown reference.
@@ -975,7 +976,7 @@ async function main() {
       filename: `accessibility-audit-q3.pdf`,
       contentType: `application/pdf`,
       sizeBytes: 1_248_576,
-      createdDaysAgo: 10,
+      createdAt: DEMO_ATTACHMENT_DATES.auditPdf,
     },
     {
       id: ATTACHMENT_IDS.sysdiagnose,
@@ -984,7 +985,7 @@ async function main() {
       filename: `sysdiagnose-heic-upload.zip`,
       contentType: `application/zip`,
       sizeBytes: 3_874_112,
-      createdDaysAgo: 6,
+      createdAt: DEMO_ATTACHMENT_DATES.sysdiagnose,
     },
   ]
   await db.insert(attachments).values(
@@ -1007,7 +1008,7 @@ async function main() {
       url: buildAttachmentUrl(spec.id),
       width: spec.width,
       height: spec.height,
-      createdAt: daysAgo(spec.createdDaysAgo),
+      createdAt: spec.createdAt,
     }))
   )
 
@@ -1100,45 +1101,20 @@ async function main() {
   // is what puts the usage strip on the steering shot and the Usage sheet on
   // mobile. Mira's row stays bare: her machine never registers.
   //
-  // EXP-740: the showcase run carries a PINNED id — a session has its own
-  // route now, so the capturer has to be able to name it before the seed runs
-  // (screenshot-demo.ts `DEMO_STEERED_SESSION_ID`).
-  const reviewIssue = inserted[13]
+  // EXP-740/913: every session carries a PINNED id — a session has its own
+  // route, and a reseed must be byte-stable. The three LIVE rows (APP-5,
+  // APP-4, APP-14) are one re-assertable spec in lib/demo-live-sessions.ts,
+  // because the staleness sweep reaps them mid-wave and screenshots:desktop
+  // puts them back.
+  const live = await assertDemoLiveSessions(now)
+  if (live !== 3) throw new Error(`expected 3 live demo sessions, wrote ${live}`)
   await db.insert(codingSessions).values([
-    {
-      id: DEMO_STEERED_SESSION_ID,
-      issueId: showcase.id,
-      teamId: ws.id,
-      userId: demoId,
-      deviceId: DEMO_DEVICE_ID,
-      deviceLabel: DEMO_DEVICE_LABEL,
-      agent: `claude`,
-      status: `running`,
-      startedAt: hoursAgo(1),
-    },
-    {
-      issueId: inserted[3].id,
-      teamId: ws.id,
-      userId: mira,
-      deviceLabel: `Mira's Mac mini`,
-      status: `running`,
-      startedAt: new Date(now - 20 * 60_000),
-    },
-    {
-      issueId: reviewIssue.id,
-      teamId: ws.id,
-      userId: demoId,
-      deviceId: DEMO_DEVICE_ID,
-      deviceLabel: DEMO_DEVICE_LABEL,
-      agent: `codex`,
-      status: `in_review`,
-      startedAt: hoursAgo(3),
-    },
     // EXP-739: one FINISHED chat, so the `chat` view photographs its start
     // card over a "Past chats" list instead of an empty page. Issue-less and
     // action-less with the reserved `Chat` name snapshot IS what makes a row
     // a chat run (lib/session-identity.ts, ×4).
     {
+      id: DEMO_SESSION_IDS.pastChat,
       teamId: ws.id,
       userId: demoId,
       actionId: null,
@@ -1148,6 +1124,7 @@ async function main() {
       agent: `claude`,
       status: `ended`,
       endedBy: `user`,
+      createdAt: hoursAgo(27),
       // No `summary`: only an UNATTENDED run reports one through
       // `exponential_sessions_end` (EXP-673), and this is a person's chat.
       startedAt: hoursAgo(27),
@@ -1249,6 +1226,7 @@ async function main() {
   // so the rows carry none.
   await db.insert(codingSessions).values([
     {
+      id: DEMO_SESSION_IDS.nightlyTriageRun,
       teamId: ws.id,
       userId: demoId,
       actionId: action[`Nightly test triage`].id,
@@ -1259,10 +1237,14 @@ async function main() {
       deviceLabel: DEMO_DEVICE_LABEL,
       status: `ended`,
       endedBy: `agent`,
+      // EXP-913: web's "Last run" reads createdAt, the natives startedAt.
+      createdAt: hoursAgo(9),
       startedAt: hoursAgo(9),
-      endedAt: hoursAgo(8),
+      // The re-clock anchor (lib/demo-reclock.ts): its offset IS the constant.
+      endedAt: hoursAgo(DEMO_CLOCK_ANCHOR.endedHoursAgo),
     },
     {
+      id: DEMO_SESSION_IDS.updateDepsRun,
       teamId: ws.id,
       userId: demoId,
       actionId: action[`Update dependencies`].id,
@@ -1273,6 +1255,7 @@ async function main() {
       deviceLabel: DEMO_DEVICE_LABEL,
       status: `ended`,
       endedBy: `agent`,
+      createdAt: hoursAgo(33),
       startedAt: hoursAgo(33),
       endedAt: hoursAgo(32),
     },

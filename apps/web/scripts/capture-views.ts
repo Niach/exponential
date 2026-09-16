@@ -20,11 +20,17 @@
  *
  * Writes <out>/<form-factor>/<view-id>.png, defaulting to <repo-root>/.shots-raw
  * (NOT committed — EXP-348 keeps screenshots out of git).
+ *
+ * A failed view never stops the lane (EXP-913): it is recorded, the identity's
+ * browser context is recycled so a wedged page cannot fail every view after
+ * it, and the run goes on. Per-view results land in <out>/capture-views.json
+ * as they happen, so the orchestrator can tell the two form factors apart and
+ * a killed run still says what it got.
  */
 import { chromium, type BrowserContext, type Page } from "@playwright/test"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { statSync } from "node:fs"
+import { mkdirSync, statSync, writeFileSync } from "node:fs"
 import {
   captureFor,
   viewsFor,
@@ -207,6 +213,36 @@ function parseArgs(argv: string[]): Args {
   }
 }
 
+/**
+ * The most one view may take, recipe + anchor + settle + shutter. The slowest
+ * legitimate view (a live GitHub diff) needs about a minute; without a cap one
+ * wedged view could eat the orchestrator's whole lane budget.
+ */
+const VIEW_DEADLINE_MS = 4 * 60_000
+
+/**
+ * Machine-readable results, rewritten after every view (see the header). The
+ * orchestrator reads it by this name (packages/shots capture-all.ts).
+ */
+const RESULTS_FILE = `capture-views.json`
+
+async function withDeadline<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms / 1000}s`)), ms)
+  })
+  try {
+    return await Promise.race([work, deadline])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function writeResults(out: string, results: Result[]): void {
+  mkdirSync(out, { recursive: true })
+  writeFileSync(resolve(out, RESULTS_FILE), `${JSON.stringify(results, null, 2)}\n`)
+}
+
 interface Result {
   formFactor: FormFactor
   viewId: string
@@ -312,6 +348,24 @@ async function resolveReporterPresenceBaseline(): Promise<
   }
 }
 
+/**
+ * The re-clock of the seeded "X ago" labels (EXP-913, `lib/demo-reclock.ts`).
+ * Dynamic for the same reason as the baselines above; a host without a
+ * database simply photographs whatever age the rows have reached.
+ */
+async function resolveReclock(): Promise<(() => Promise<unknown>) | undefined> {
+  try {
+    const { reclockDemoRows } = await import(`./lib/demo-reclock`)
+    await reclockDemoRows()
+    return () => reclockDemoRows()
+  } catch (err) {
+    console.warn(
+      `  not re-clocking the seeded labels: ${err instanceof Error ? err.message : String(err)}`
+    )
+    return undefined
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const ctx = recipeContext(args.baseUrl)
@@ -335,9 +389,12 @@ async function main() {
   // whatever the first few captures already cleared.
   const notificationBaseline = await resolveNotificationBaseline()
   const reporterPresenceBaseline = await resolveReporterPresenceBaseline()
+  const reclock = await resolveReclock()
 
   const browser = await chromium.launch()
   const results: Result[] = []
+  // Never leave a previous run's verdicts behind for the orchestrator to read.
+  writeResults(args.out, results)
 
   try {
     for (const formFactor of args.formFactors) {
@@ -368,13 +425,6 @@ async function main() {
           const outPath = resolve(args.out, formFactor, `${view.id}.png`)
           const identity = identityFor(capture)
 
-          // Every view starts from the same unread badge (EXP-666). Restoring
-          // BEFORE navigating leaves the whole anchor + settle window for
-          // Electric to deliver it, so the badge is stable by the time the
-          // shutter opens.
-          await notificationBaseline?.restore()
-          await reporterPresenceBaseline?.restore()
-
           const unresolved = unresolvedDbPlaceholders(capture.route, db)
           if (unresolved.length > 0) {
             // Skipped, not failed: without the token the route 404s and the shot
@@ -387,29 +437,42 @@ async function main() {
             continue
           }
 
-          let page: Page
+          let page: Page | undefined
           let throwaway: BrowserContext | null = null
-          if (identity === `anonymous`) {
-            throwaway = await launchContext(browser, geometry)
-            page = await throwaway.newPage()
-          } else {
-            // One long-lived context per identity: signing in is the slowest
-            // step in the lane, and the two never share cookies.
-            let session = sessions.get(identity)
-            if (!session) {
-              const credentials = CREDENTIALS[identity]
-              const context = await launchContext(browser, geometry)
-              const signedIn = await context.newPage()
-              console.log(`  signing in as ${credentials.email}`)
-              await login(signedIn, args.baseUrl, credentials, credentials.landing)
-              session = { context, page: signedIn }
-              sessions.set(identity, session)
-            }
-            page = session.page
-          }
-
           try {
-            await captureView(page, capture, ctx, outPath, db)
+            // Every view starts from the same unread badge (EXP-666). Restoring
+            // BEFORE navigating leaves the whole anchor + settle window for
+            // Electric to deliver it, so the badge is stable by the time the
+            // shutter opens. EXP-913: and at the seeded age of every "X ago".
+            await reclock?.()
+            await notificationBaseline?.restore()
+            await reporterPresenceBaseline?.restore()
+
+            if (identity === `anonymous`) {
+              throwaway = await launchContext(browser, geometry)
+              page = await throwaway.newPage()
+            } else {
+              // One long-lived context per identity: signing in is the slowest
+              // step in the lane, and the two never share cookies.
+              let session = sessions.get(identity)
+              if (!session) {
+                const credentials = CREDENTIALS[identity]
+                const context = await launchContext(browser, geometry)
+                // In the map BEFORE signing in, so a failed sign-in is recycled
+                // like any other failure below.
+                session = { context, page: await context.newPage() }
+                sessions.set(identity, session)
+                console.log(`  signing in as ${credentials.email}`)
+                await login(session.page, args.baseUrl, credentials, credentials.landing)
+              }
+              page = session.page
+            }
+
+            await withDeadline(
+              captureView(page, capture, ctx, outPath, db),
+              VIEW_DEADLINE_MS,
+              view.id
+            )
             results.push({ formFactor, viewId: view.id, bytes: fileSize(outPath) })
             console.log(`  ok    ${view.id}`)
           } catch (err) {
@@ -417,15 +480,28 @@ async function main() {
             results.push({ formFactor, viewId: view.id, error: message })
             console.error(`  FAIL  ${view.id} — ${message}`)
             // Best-effort evidence of what was actually on screen.
-            await shot(page, resolve(args.out, formFactor, `_failed-${view.id}.png`)).catch(
-              () => {}
-            )
+            if (page) {
+              await withDeadline(
+                shot(page, resolve(args.out, formFactor, `_failed-${view.id}.png`)),
+                30_000,
+                `failure shot`
+              ).catch(() => {})
+            }
+            // Recycle the identity's context: a page left mid-recipe, crashed
+            // or still running a timed-out wait would otherwise fail every
+            // later view that shares it. The next view signs in afresh.
+            const session = identity === `anonymous` ? undefined : sessions.get(identity)
+            if (session) {
+              sessions.delete(identity as Exclude<WebIdentity, `anonymous`>)
+              await session.context.close().catch(() => {})
+            }
           } finally {
-            if (throwaway) await throwaway.close()
+            if (throwaway) await throwaway.close().catch(() => {})
+            writeResults(args.out, results)
           }
         }
       } finally {
-        for (const session of sessions.values()) await session.context.close()
+        for (const session of sessions.values()) await session.context.close().catch(() => {})
       }
     }
   } finally {

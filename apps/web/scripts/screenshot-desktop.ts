@@ -33,7 +33,7 @@
  *
  * Runs until Ctrl-C. Keep it running for the whole fastlane capture.
  */
-import { and, eq, ne } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -48,12 +48,15 @@ import {
   type SteerRelayConfig,
   type SteerTicketSeed,
 } from "@/lib/steer"
+import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
+import { reclockDemoRows } from "./lib/demo-reclock"
 import {
   DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
   DEMO_DEVICE_VERSION,
   DEMO_EMAIL,
   DEMO_FEED_QUESTION,
+  DEMO_STEERED_SESSION_ID,
   demoAgentReport,
 } from "./screenshot-demo"
 
@@ -87,6 +90,10 @@ const RECONNECT_MS = 2_000
 // keeps its row warm while it runs; so does this one. 30s like the real
 // desktop: the same tick refreshes the `devices` row, and that one has to
 // stay inside the 90s online window with room for jitter (EXP-481).
+// EXP-913: "warm" means re-ASSERTED, not just touched — the server's staleness
+// sweep may already have deleted a row (Mira's was never heartbeated, and a
+// rerun boots long after the last stub died), so every tick upserts the seeded
+// live rows back (lib/demo-live-sessions.ts).
 const HEARTBEAT_MS = 30_000
 
 // The scripted session: a plausible mid-run agent transcript for the showcase
@@ -318,12 +325,16 @@ async function resolveTarget() {
     throw new Error(`demo user ${DEMO_EMAIL} not found — run seed:screenshots first`)
   }
   // The seeded showcase session: the demo user's own RUNNING one, which is the
-  // only session the apps let them watch (EXP-312, owner-only).
+  // only session the apps let them watch (EXP-312, owner-only). Re-asserted
+  // first (EXP-913): the staleness sweep deletes seeded live rows once no stub
+  // has heartbeated them for 2h, which is exactly the gap before a rerun.
+  await assertDemoLiveSessions()
   const [session] = await db
     .select({ id: codingSessions.id, teamId: codingSessions.teamId })
     .from(codingSessions)
     .where(
       and(
+        eq(codingSessions.id, DEMO_STEERED_SESSION_ID),
         eq(codingSessions.userId, demo.id),
         eq(codingSessions.status, `running`)
       )
@@ -536,6 +547,7 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
       .catch((err) => console.error(`[device heartbeat]`, err))
   }
   await touchDevice()
+  await reclockDemoRows().catch((err) => console.error(`[reclock]`, err))
 
   // EXP-812: the team's MCP servers are seeded rows, but their READINESS is
   // per device and reported by the machine itself — so the settings pane's
@@ -548,16 +560,10 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
 
   const heartbeat = setInterval(() => {
     void touchDevice()
-    void db
-      .update(codingSessions)
-      .set({ updatedAt: new Date() })
-      .where(
-        and(
-          eq(codingSessions.userId, userId),
-          ne(codingSessions.status, `ended`)
-        )
-      )
-      .catch((err) => console.error(`[heartbeat]`, err))
+    void assertDemoLiveSessions().catch((err) => console.error(`[heartbeat]`, err))
+    // EXP-913: keep the seeded "X ago" labels at their seeded age while the
+    // lanes run (lib/demo-reclock.ts).
+    void reclockDemoRows().catch((err) => console.error(`[reclock]`, err))
   }, HEARTBEAT_MS)
 
   const shutdown = () => {
