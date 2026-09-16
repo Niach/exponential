@@ -524,6 +524,16 @@ export function IssueDetailView({
       origin={origin}
       handlers={handlers}
       dot={mobileWork?.dot ?? null}
+      graphBadge={
+        /* EXP-897: the same pill the md+ header wears, opening the same
+           overlay as a sheet. */
+        <PrGraphBadge
+          teamId={issue.teamId}
+          teamSlug={teamSlug}
+          face="issue"
+          issue={issue}
+        />
+      }
     />
   )
 

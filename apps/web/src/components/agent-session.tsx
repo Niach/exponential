@@ -1158,15 +1158,19 @@ export function AgentSessionView({
             }
             onBack={onBack}
             menu={
-              showingRun && (canKill || (sessionEnded && canResumeAny)) ? (
-                <div className="flex shrink-0 items-center">
-                  {canKill ? (
+              /* The cluster keeps the back button's width whether or not it
+                 holds anything, so the title stays optically centred. */
+              <div className="flex min-w-9 shrink-0 items-center justify-end gap-1">
+                {/* EXP-897: an issue-less run — a BATCH run above all — says
+                    what it is part of here, the same pill, the same sheet. */}
+                {graphBadge}
+                {showingRun &&
+                  (canKill ? (
                     <StopRunPill onStop={requestKill} />
-                  ) : (
+                  ) : sessionEnded && canResumeAny ? (
                     <ResumeRunPill session={session} />
-                  )}
-                </div>
-              ) : undefined
+                  ) : null)}
+              </div>
             }
           />
         )

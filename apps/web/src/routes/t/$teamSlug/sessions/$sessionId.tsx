@@ -340,6 +340,17 @@ function OwnSessionPage({
             origin={from}
             handlers={handlers}
             dot={dot}
+            graphBadge={
+              /* EXP-897: the same pill the md+ header wears — the face
+                 showing decides which section its sheet opens on. */
+              <PrGraphBadge
+                teamId={team.id}
+                teamSlug={teamSlug}
+                face={showingRun ? `run` : `changes`}
+                issue={issue}
+                session={session}
+              />
+            }
             action={
               showingRun ? (
                 <IssueCodingAction
