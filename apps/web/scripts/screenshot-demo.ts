@@ -84,6 +84,32 @@ export const STARTER_NAME = `Sam Okafor`
 export const STARTER_TEAM_NAME = `Bluebird Labs`
 export const STARTER_TEAM_SLUG = `bluebird-labs`
 
+/**
+ * The three Better Auth identities' user ids, pinned (EXP-913).
+ *
+ * Every avatar paints its fallback hue from an FNV hash of the user id
+ * (`@exp/ui` avatar-color.ts), so a seed that let Better Auth mint fresh ids
+ * re-rolled the demo, newcomer and starter colors on every run and rewrote
+ * ~40 native shots per refresh for nothing. The seed writes the user and its
+ * credential account directly under these ids instead (the teammates were
+ * already pinned: `demo-mira` & co). Changing one re-shoots every view that
+ * shows that avatar.
+ */
+export const DEMO_USER_ID = `screenshot-demo-alex`
+export const NEWCOMER_USER_ID = `screenshot-demo-newcomer`
+export const STARTER_USER_ID = `screenshot-demo-starter`
+
+/**
+ * The clock the seeded identities' `users.timezone` is pinned to (EXP-913).
+ *
+ * The column is claimed ONCE by whichever client signs in first (`onlyIfUnset`,
+ * _authenticated.tsx), so `settings-account` printed the web lane's browser
+ * zone on one run and another lane's host zone on the next. Pinned to the
+ * capture browser's own `timezoneId` (scripts/lib/capture-web.ts), so the
+ * picker's option list and its selected value agree on every lane.
+ */
+export const DEMO_TIMEZONE = `Europe/Berlin`
+
 /** The unconsumed invite the `invite-accept` view is captured on. */
 export const DEMO_INVITE_TOKEN = `screenshots-demo-invite`
 
@@ -168,6 +194,23 @@ export const DEMO_DUE_DATES = {
 export const DEMO_PINNED_PAST_DATES = {
   /** `settings-boards` → "Archived Mar 2, 2026" on the Design System card. */
   boardArchived: new Date(`2026-03-02T09:00:00Z`),
+} as const
+
+/**
+ * The seeded attachments' upload instants (EXP-913), for the same reason: the
+ * `settings-storage` view prints each row's date absolutely (web
+ * `storage-section.tsx`, desktop `settings/storage.rs`), so `daysAgo(n)` moved
+ * every row by a day per calendar day. Same newest-first order the relative
+ * offsets had; all far past the orphan sweep's 24h grace, which the
+ * deliberately orphaned `cacheSketch` relies on.
+ */
+export const DEMO_ATTACHMENT_DATES = {
+  cacheHitRate: new Date(`2026-02-16T09:00:00Z`),
+  auditPdf: new Date(`2026-02-20T09:00:00Z`),
+  contrastSweep: new Date(`2026-02-21T09:00:00Z`),
+  sysdiagnose: new Date(`2026-02-24T09:00:00Z`),
+  voiceoverLabels: new Date(`2026-02-26T09:00:00Z`),
+  cacheSketch: new Date(`2026-02-27T09:00:00Z`),
 } as const
 
 /**
@@ -266,6 +309,23 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
  * capture-addressable id here; changing it re-shoots the view.
  */
 export const DEMO_STEERED_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
+
+/**
+ * The other seeded `coding_sessions` ids (EXP-913), pinned like the showcase
+ * run's so a reseed is byte-stable and `lib/demo-live-sessions.ts` can
+ * re-assert the LIVE ones by id before a lane photographs them.
+ */
+export const DEMO_SESSION_IDS = {
+  /** Mira's running row on APP-4. */
+  miraRunning: `3d8e5b1a-2c47-4f0e-8b6d-91a4c2e7f305`,
+  /** The demo user's in_review codex row on APP-14. */
+  reviewCodex: `5a2f9c3e-7b18-4d6a-a0e4-6c3b8d1f2a97`,
+  /** The finished chat the `chat` view lists (EXP-739). */
+  pastChat: `8b4d1e6f-3a92-4c5b-9f07-2e8a6d4c1b53`,
+  /** The two finished automated runs (EXP-663). */
+  nightlyTriageRun: `1f6a3c8d-5e24-4b9a-8d13-7c0e2f5a9b46`,
+  updateDepsRun: `9e3b7d2a-4c61-4f8e-b5a2-3d9f1c6e8a04`,
+} as const
 
 /**
  * The helpdesk thread the `support-reporter` view is captured on.

@@ -17,6 +17,10 @@
  *
  * The browser lane must ALSO restore once at its end: `support-reporter` is
  * web-only, and the desktop and native lanes run after it.
+ *
+ * EXP-913: the stamp is kept as an offset from the thread's `created_at`, not
+ * as an instant. `lib/demo-reclock.ts` shifts both forward as the run ages, and
+ * restoring an absolute instant would undo that shift for this one column.
  */
 import { eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -26,8 +30,12 @@ import { TEAM_SLUG } from "../screenshot-demo"
 /** One thread's reporter-presence stamp, as the seed left it. */
 export interface ReporterPresenceState {
   id: string
-  lastReporterSeenAt: Date | null
+  /** `last_reporter_seen_at - created_at` in ms; null = never seen. */
+  seenOffsetMs: number | null
 }
+
+const seenOffset = (row: { createdAt: Date; lastReporterSeenAt: Date | null }) =>
+  row.lastReporterSeenAt ? row.lastReporterSeenAt.getTime() - row.createdAt.getTime() : null
 
 /**
  * The demo team's reporter-presence stamps right now. Empty (not an error)
@@ -41,13 +49,15 @@ export async function snapshotReporterPresence(): Promise<ReporterPresenceState[
     .where(eq(teams.slug, TEAM_SLUG))
     .limit(1)
   if (!team) return []
-  return db
+  const rows = await db
     .select({
       id: supportThreads.id,
+      createdAt: supportThreads.createdAt,
       lastReporterSeenAt: supportThreads.lastReporterSeenAt,
     })
     .from(supportThreads)
     .where(eq(supportThreads.teamId, team.id))
+  return rows.map((row) => ({ id: row.id, seenOffsetMs: seenOffset(row) }))
 }
 
 /**
@@ -64,6 +74,7 @@ export async function restoreReporterPresence(
       await db
         .select({
           id: supportThreads.id,
+          createdAt: supportThreads.createdAt,
           lastReporterSeenAt: supportThreads.lastReporterSeenAt,
         })
         .from(supportThreads)
@@ -73,15 +84,20 @@ export async function restoreReporterPresence(
             snapshot.map((row) => row.id)
           )
         )
-    ).map((row) => [row.id, row.lastReporterSeenAt?.getTime() ?? null])
+    ).map((row) => [row.id, row])
   )
   for (const row of snapshot) {
-    const now = current.get(row.id)
-    if (now === undefined) continue
-    if (now === (row.lastReporterSeenAt?.getTime() ?? null)) continue
+    const thread = current.get(row.id)
+    if (!thread) continue
+    if (seenOffset(thread) === row.seenOffsetMs) continue
     await db
       .update(supportThreads)
-      .set({ lastReporterSeenAt: row.lastReporterSeenAt })
+      .set({
+        lastReporterSeenAt:
+          row.seenOffsetMs === null
+            ? null
+            : new Date(thread.createdAt.getTime() + row.seenOffsetMs),
+      })
       .where(eq(supportThreads.id, row.id))
   }
 }

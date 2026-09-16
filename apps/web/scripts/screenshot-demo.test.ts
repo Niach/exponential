@@ -10,6 +10,7 @@ import {
   COUNTDOWN_PAD_SECONDS,
   DEMO_AGENT_STATUS,
   DEMO_API_KEYS,
+  DEMO_ATTACHMENT_DATES,
   demoAgentReport,
   DEMO_DUE_DATES,
   DEMO_PENDING_INVITE_EXPIRY,
@@ -145,6 +146,7 @@ describe(`pinned demo due dates (EXP-669)`, () => {
 describe(`pinned past dates the settings views print absolutely`, () => {
   const pinned = [
     ...Object.entries(DEMO_PINNED_PAST_DATES),
+    ...Object.entries(DEMO_ATTACHMENT_DATES),
     ...DEMO_API_KEYS.map((key) => [`apiKey:${key.name}`, key.createdAt] as const),
   ]
 
