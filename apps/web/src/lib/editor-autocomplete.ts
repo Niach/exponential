@@ -2,6 +2,8 @@ import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import type { EditorState } from "@tiptap/pm/state"
 import { matchEmojiToken } from "@/lib/emoji"
+import { ISSUE_REF_AT_CARET } from "@/lib/issue-refs"
+import { MENTION_AT_CARET } from "@/lib/mention-refs"
 
 // Caret-anchored `@mention` / `#issueRef` / `:emoji` autocomplete for the
 // TipTap editor.
@@ -38,12 +40,6 @@ export interface EditorAutocompleteOptions {
    *  event (menu navigation). */
   onKeyDown: (event: KeyboardEvent) => boolean
 }
-
-// Same token shapes as the comment composer (mention-textarea.tsx): the
-// trigger must follow start-of-text or whitespace, and the query stops at the
-// caret so it never swallows trailing text.
-const MENTION_AT_CARET = /(?:^|\s)@([a-zA-Z0-9._%+-]*)$/
-const ISSUE_REF_AT_CARET = /(?:^|\s)#([a-zA-Z0-9-]*)$/
 
 export function findAutocompleteAtCaret(
   state: EditorState

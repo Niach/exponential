@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react"
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset"
+import { FAB_CHROME_CLASS } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-893: the phone's ONE floating bottom bar — `[left circle] [centre
@@ -12,7 +13,7 @@ import { cn } from "@/lib/utils"
 // that must not re-run on every expand.
 
 /** The 52px glass circle every slot of the bar is made of. */
-export const MOBILE_WORK_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl`
+export const MOBILE_WORK_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full ${FAB_CHROME_CLASS} text-muted-foreground`
 
 /** The capsule between the circles: the same chrome stretched. */
 export const MOBILE_WORK_CAPSULE_CLASS = cn(

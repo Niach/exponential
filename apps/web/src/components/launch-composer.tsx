@@ -12,7 +12,7 @@ import { ActionPicker } from "@/components/launch-dialog/action-picker"
 import { IssuePicker } from "@/components/launch-dialog/issue-picker"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
 import { SubjectChips } from "@/components/launch-dialog/subject-chips"
-import { Pill, conceptIcon } from "@exp/ui"
+import { AttachmentThumb, Pill, conceptIcon } from "@exp/ui"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
@@ -38,7 +38,6 @@ const ActionRunIcon = conceptIcon(`action-run`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiSubmitIcon = conceptIcon(`ui-submit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-const UiCloseIcon = conceptIcon(`ui-close`)
 
 /** EXP-827: a suggestion carrying a `#` placeholder lands the caret right
  *  behind that `#` (wherever it sits), so the issue-ref menu opens at once;
@@ -169,22 +168,13 @@ export function LaunchComposer({
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
                 {images.map((image) => (
-                  <div key={image.url} className="relative">
-                    <img
-                      src={image.url}
-                      alt=""
-                      className="size-16 rounded-md border border-glass-stroke-card object-cover"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Remove image"
-                      disabled={busy}
-                      onClick={() => model.removeImage(image.url)}
-                      className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <UiCloseIcon className="size-3" />
-                    </button>
-                  </div>
+                  <AttachmentThumb
+                    key={image.url}
+                    src={image.url}
+                    removeLabel="Remove image"
+                    onRemove={() => model.removeImage(image.url)}
+                    disabled={busy}
+                  />
                 ))}
               </div>
             )}

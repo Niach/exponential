@@ -7,8 +7,8 @@ import {
   type ReactNode,
 } from "react"
 import { toast } from "sonner"
-import { X } from "lucide-react"
 import {
+  AttachmentThumb,
   conceptIcon,
   Button,
   Dialog,
@@ -304,22 +304,13 @@ export function SteerComposer({
           pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
               {pendingImages.map((image) => (
-                <div key={image.url} className="relative">
-                  <img
-                    src={image.url}
-                    alt=""
-                    className="size-16 rounded-md border border-glass-stroke-card object-cover"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove image"
-                    disabled={sending}
-                    onClick={() => removeImage(image.url)}
-                    className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
+                <AttachmentThumb
+                  key={image.url}
+                  src={image.url}
+                  removeLabel="Remove image"
+                  onRemove={() => removeImage(image.url)}
+                  disabled={sending}
+                />
               ))}
             </div>
           )

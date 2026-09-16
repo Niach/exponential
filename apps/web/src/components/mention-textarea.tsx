@@ -19,12 +19,9 @@ import {
   useEmojiData,
   type EmojiRecord,
 } from "@/lib/emoji"
+import { ISSUE_REF_AT_CARET } from "@/lib/issue-refs"
+import { MENTION_AT_CARET } from "@/lib/mention-refs"
 
-// Matches an in-progress mention `@query` at the caret (after start-of-text or
-// whitespace). The query stops at whitespace so it won't swallow the rest.
-const MENTION_AT_CARET = /(?:^|\s)@([a-zA-Z0-9._%+-]*)$/
-// Same shape for an in-progress issue reference `#query` at the caret.
-const ISSUE_REF_AT_CARET = /(?:^|\s)#([a-zA-Z0-9-]*)$/
 // `:shortcode` (EXP-551) lives in lib/emoji.ts (`matchEmojiToken`) — shared
 // with the TipTap editor's detector.
 

@@ -13,7 +13,7 @@ import {
   GitPullRequest,
   MonitorUp,
 } from "lucide-react"
-import { conceptIcon, Pill, GlassRow, LiveDot } from "@exp/ui"
+import { conceptIcon, FAB_CHROME_CLASS, Pill, GlassRow, LiveDot } from "@exp/ui"
 import type { CodingSession, Issue, Board } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -38,7 +38,7 @@ const StackIcon = conceptIcon(`pr-stack`)
 
 // EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
 // owns the bar itself; the coding circle's gating lives here).
-const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 shadow-lg shadow-black/40 backdrop-blur-xl`
+const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full ${FAB_CHROME_CLASS}`
 
 // EXP-616: the coding / PR rows are glass CARDS now, not full-bleed
 // `border-t` divider rows. Both exported pieces mount as independent siblings

@@ -36,6 +36,7 @@ import {
   SheetTitle,
   conceptIcon,
   DiffCounts,
+  FAB_CHROME_CLASS,
   FileDiffList,
   GlassCard,
   useIsMobile,
@@ -1139,7 +1140,7 @@ export function AgentSessionView({
       }
       expanded={
         composerVisible && composerOpen ? (
-          <div className="rounded-2xl border border-glass-stroke-card bg-popover/85 p-1.5 shadow-lg shadow-black/40 backdrop-blur-xl">
+          <div className={cn(`rounded-2xl p-1.5`, FAB_CHROME_CLASS)}>
             <SteerComposer
               store={store}
               live={live && connected}
