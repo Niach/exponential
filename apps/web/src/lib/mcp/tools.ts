@@ -147,6 +147,7 @@ import {
   formatParentAnswer,
   formatStarterMessage,
   loadChildParentContext,
+  resolveLiveParentSessionId,
   loadSessionChain,
   loadSessionDepths,
   loadSubtreeSessionIds,
@@ -2966,17 +2967,19 @@ export function registerExponentialTools(
               1
           }
           // `root` already resolved a LIVE target above — only the direct ask
-          // depends on the immediate parent still being alive.
-          if (
-            targetSessionId === child.parentSessionId &&
-            (!child.parentStatus ||
-              !(PARENT_LIVE_STATUSES as readonly string[]).includes(
-                child.parentStatus
-              ))
-          ) {
-            return err(
-              new Error(`Your starter's session has ended. ${fallback}`)
+          // depends on the immediate parent still being alive. EXP-906: a
+          // parent that resumed (account switch) under a new id is still
+          // listening there — its live successor takes the question.
+          if (targetSessionId === child.parentSessionId) {
+            const live = await resolveLiveParentSessionId(db, child).catch(
+              () => null
             )
+            if (!live) {
+              return err(
+                new Error(`Your starter's session has ended. ${fallback}`)
+              )
+            }
+            targetSessionId = live
           }
           const config = getSteerRelayConfig()
           if (!config) {
@@ -3296,7 +3299,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run). prompt = free text for the run (REQUIRED for builtin:chat / builtin:create-action, extra instructions otherwise). stackOnIssueId stacks it on that issue's PR. The run gets its own worktree and PR; track it with exponential_sessions_get (sessionId null = never reported; ackedAt null for minutes = launch died). Started from inside a run, the child is unattended: its question, finish or usage wall (wait it out) lands here as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging its PR (a merge first ends it unreported).`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. One subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from the device's agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId stacks it on that issue's PR. Track it with exponential_sessions_get. Started from inside a run, the child is unattended: its question, finish or usage wall (wait it out) lands here as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -3314,6 +3317,11 @@ export function registerExponentialTools(
         prompt: z.string().max(MAX_START_PROMPT).optional(),
         // EXP-897: build the new run on top of this issue's open PR.
         stackOnIssueId: z.string().min(1).optional(),
+        // EXP-906: the agent account profile on the target device — the
+        // same field steer.startSession takes. Without it an orchestrator
+        // whose default profile is walled had to route around this tool
+        // (and lose the parent link) to launch on another account.
+        account: z.string().min(1).max(64).optional(),
       }),
     },
     async (input) => {

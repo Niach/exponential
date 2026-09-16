@@ -16,13 +16,18 @@
 //!
 //! Three rules the file inherits from the in-memory journal:
 //!
-//! - The three latest-wins kinds (`config_state`, `usage`, `diff`) are
-//!   APPENDED like anything else (an append-only file cannot rewrite a slot);
+//! - The small latest-wins kinds (`config_state`, `usage`, …) are APPENDED
+//!   like anything else (an append-only file cannot rewrite a slot);
 //!   [`read_journal`] folds them back into one slot each, replayed at the end
-//!   in the relay's own `LATEST_REPLAY_ORDER`.
-//! - A file stops growing at [`JOURNAL_FILE_CAP`] (one log line, then
-//!   silence): a runaway run must never fill the disk, and the head of a
-//!   transcript is the part worth keeping.
+//!   in the relay's own `LATEST_REPLAY_ORDER`. EXP-906: the `diff` slot is
+//!   the exception — a worktree snapshot is up to 512 KiB and a run emits
+//!   dozens, so appending every one filled the cap in ~32 snapshots and
+//!   froze the rest of the transcript. It lives in a SIDECAR
+//!   (`<sessionId>.diff.json`, overwritten in place, never appended); the
+//!   `.jsonl` keeps a marker line so the wire sequence stays the line index.
+//! - A file stops growing at [`JOURNAL_FILE_CAP`] (one visible notice on the
+//!   run, then silence): a runaway run must never fill the disk, and the head
+//!   of a transcript is the part worth keeping.
 //! - Files are kept FOREVER by default (EXP-886). The per-device "Keep
 //!   session history" setting (`coding::session_retention`) is the only
 //!   thing that removes them: [`prune_session_history`] applies it at
@@ -48,6 +53,16 @@ use crate::{dial, DialError};
 /// journal's own budget is 4 MiB) and small enough that a thousand of them
 /// cannot surprise a laptop.
 pub const JOURNAL_FILE_CAP: u64 = 16 * 1024 * 1024;
+
+/// EXP-906: the row the publisher puts on the wire (and in its in-memory
+/// journal) the moment the file stops recording — a person reading the run
+/// must learn it from the run, not from a log line on the device.
+pub const JOURNAL_CAP_NOTICE: &str = "[Exponential] Session history stopped recording on this device: the journal reached its size cap. The run continues, but a viewer who joins later sees the transcript only up to here.";
+
+/// EXP-906: the line a sidecar'd `diff` leaves in the `.jsonl` — it holds the
+/// diff's place in the line count (= the wire sequence) and parses as nothing
+/// on every build, so a reader skips it like any unknown kind.
+const DIFF_REF_LINE: &str = "{\"kind\":\"diff_ref\"}\n";
 
 /// `bye` outcome that tells the relay this publisher was a history replay,
 /// not a live session ending — it answers the parked viewers with
@@ -99,11 +114,28 @@ pub fn journal_path(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
     Some(journal_dir(data_dir).join(format!("{session_id}.jsonl")))
 }
 
+/// EXP-906: `{data_dir}/journal/{session_id}.diff.json` — the latest worktree
+/// diff of that session, `{"seq": <line index>, "event": <diff event>}`,
+/// overwritten whole on every snapshot. Same id hygiene as [`journal_path`].
+pub fn diff_sidecar_path(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
+    journal_path(data_dir, session_id)?;
+    Some(journal_dir(data_dir).join(format!("{session_id}.diff.json")))
+}
+
+/// The one on-disk shape of the sidecar.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DiffSidecar {
+    seq: u64,
+    event: ActivityEvent,
+}
+
 /// The append-only writer the live publisher feeds. Every event is flushed on
 /// the spot: a run that is killed (or a machine that loses power) still has
 /// everything it published on disk.
 pub struct JournalWriter {
     path: PathBuf,
+    /// EXP-906: where the latest `diff` goes instead of the file.
+    sidecar: PathBuf,
     file: BufWriter<File>,
     /// Bytes on disk, including whatever a resumed run's file already held.
     written: u64,
@@ -116,6 +148,9 @@ pub struct JournalWriter {
     workflow_writes: Vec<(String, std::time::Instant)>,
     /// Past the cap (or after a write error): every further append is a no-op.
     stopped: bool,
+    /// EXP-906: set once, the moment the cap stops the file — the publisher
+    /// takes it and puts [`JOURNAL_CAP_NOTICE`] on the wire.
+    cap_notice: bool,
 }
 
 impl JournalWriter {
@@ -124,6 +159,7 @@ impl JournalWriter {
     /// and never gates publishing.
     pub fn open(data_dir: &Path, session_id: &str) -> Option<Self> {
         let path = journal_path(data_dir, session_id)?;
+        let sidecar = diff_sidecar_path(data_dir, session_id)?;
         let dir = path.parent()?.to_path_buf();
         if let Err(err) = fs::create_dir_all(&dir) {
             log::warn!("steer history: cannot create {}: {err}", dir.display());
@@ -143,11 +179,13 @@ impl JournalWriter {
         let lines = if written == 0 { 0 } else { count_lines(&path) };
         Some(Self {
             path,
+            sidecar,
             file: BufWriter::new(file),
             written,
             lines,
             workflow_writes: Vec::new(),
             stopped: false,
+            cap_notice: false,
         })
     }
 
@@ -160,6 +198,14 @@ impl JournalWriter {
     /// [`JournalWriter::append`] with the clock passed in — the throttle's
     /// seam, so its rule is testable without sleeping ten seconds.
     fn append_at(&mut self, event: &ActivityEvent, now: std::time::Instant) {
+        // EXP-906: the diff slot is bounded on its own (one snapshot, ≤512
+        // KiB) and keeps updating even after the file stopped — the Changes
+        // face of a late viewer reads the NEWEST patch, not the one from
+        // the minute the cap hit.
+        let is_diff = matches!(event, ActivityEvent::Diff { .. });
+        if is_diff {
+            self.write_diff_sidecar(event);
+        }
         if self.stopped {
             return;
         }
@@ -172,12 +218,18 @@ impl JournalWriter {
                 self.path.display()
             );
             self.stopped = true;
+            self.cap_notice = true;
             return;
         }
-        let Ok(mut line) = serde_json::to_string(event) else {
-            return;
+        let line = if is_diff {
+            DIFF_REF_LINE.to_string()
+        } else {
+            let Ok(mut line) = serde_json::to_string(event) else {
+                return;
+            };
+            line.push('\n');
+            line
         };
-        line.push('\n');
         if let Err(err) = self
             .file
             .write_all(line.as_bytes())
@@ -192,6 +244,31 @@ impl JournalWriter {
         }
         self.written += line.len() as u64;
         self.lines += 1;
+    }
+
+    /// EXP-906: overwrite the sidecar with this snapshot, atomically (write
+    /// beside, then rename) so a reader never sees half a patch. `seq` is
+    /// the line the marker takes in the file — the wire sequence the live
+    /// publisher numbered the event with.
+    fn write_diff_sidecar(&self, event: &ActivityEvent) {
+        let record = DiffSidecar {
+            seq: self.lines,
+            event: event.clone(),
+        };
+        let Ok(json) = serde_json::to_vec(&record) else {
+            return;
+        };
+        let tmp = self.sidecar.with_extension("json.tmp");
+        if let Err(err) = fs::write(&tmp, json).and_then(|()| fs::rename(&tmp, &self.sidecar)) {
+            log::warn!("steer history: diff sidecar {} failed: {err}", self.sidecar.display());
+            let _ = fs::remove_file(&tmp);
+        }
+    }
+
+    /// EXP-906: `true` exactly once, on the append that hit the cap — the
+    /// publisher's cue to put [`JOURNAL_CAP_NOTICE`] on the wire.
+    pub fn take_cap_notice(&mut self) -> bool {
+        std::mem::take(&mut self.cap_notice)
     }
 
     /// EXP-850 §3: whether this `workflow` frame is due. Anything else is
@@ -339,11 +416,25 @@ pub fn read_journal_seq(
             None => events.push((seq, event)),
         }
     }
+    // EXP-906: the sidecar holds the newest diff of every run written since;
+    // an older file that still carries in-line diffs folded them above.
+    if let Some(sidecar) = read_diff_sidecar(data_dir, session_id) {
+        slots[SLOT_COUNT - 1] = Some(sidecar);
+    }
     let mut slots = slots.into_iter();
     events.extend(slots.by_ref().take(SLOTS_BEFORE_WORKFLOWS).flatten());
     events.extend(workflows.into_iter().map(|(_, seq, event)| (seq, event)));
     events.extend(slots.flatten());
     Some(events)
+}
+
+/// EXP-906: the sidecar's diff with the sequence it was numbered with, or
+/// `None` when there is no (readable) sidecar.
+fn read_diff_sidecar(data_dir: &Path, session_id: &str) -> Option<(u64, ActivityEvent)> {
+    let path = diff_sidecar_path(data_dir, session_id)?;
+    let bytes = fs::read(path).ok()?;
+    let record: DiffSidecar = serde_json::from_slice(&bytes).ok()?;
+    matches!(record.event, ActivityEvent::Diff { .. }).then_some((record.seq, record.event))
 }
 
 /// EXP-785: a `tool` row needs its call `id` and `tool_kind` on the wire —
@@ -457,6 +548,10 @@ pub fn remove_journal(data_dir: &Path, session_id: &str) -> bool {
     let Some(path) = journal_path(data_dir, session_id) else {
         return false;
     };
+    // EXP-906: the diff sidecar goes with its journal, quietly.
+    if let Some(sidecar) = diff_sidecar_path(data_dir, session_id) {
+        let _ = fs::remove_file(sidecar);
+    }
     match fs::remove_file(&path) {
         Ok(()) => true,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
@@ -481,7 +576,10 @@ pub fn prune_journals(data_dir: &Path, max_age: Option<Duration>) -> usize {
     let mut removed = 0;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+        // EXP-906: a journal and its diff sidecar age together.
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name.ends_with(".jsonl") || name.ends_with(".diff.json")) {
             continue;
         }
         let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
@@ -1100,6 +1198,134 @@ mod tests {
             before,
             "nothing more is recorded past the cap"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-906: the post-mortem's failure — 31 worktree snapshots of ~540 KiB
+    /// each took a 16.9 MB journal to its cap at 21:10 while the agent worked
+    /// on until 22:25, and every late viewer replayed a frozen run. The diff
+    /// slot now lives in an overwritten sidecar: forty full-size snapshots
+    /// leave the file small, the narration after them is recorded, and the
+    /// replay carries exactly the NEWEST diff.
+    #[test]
+    fn forty_full_size_diffs_never_fill_the_file_and_the_narration_survives() {
+        let dir = temp_dir("diff-sidecar");
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        let big = "+".repeat(crate::activity::DIFF_MAX);
+        for i in 0..40 {
+            writer.append(&ActivityEvent::narration(&format!("step {i}")));
+            writer.append(&ActivityEvent::diff(format!("{i}:{big}")));
+        }
+        writer.append(&ActivityEvent::narration("still recording"));
+        let bytes = writer.bytes();
+        assert_eq!(writer.lines(), 81, "every diff still holds one line");
+        drop(writer);
+
+        assert!(
+            bytes < 64 * 1024,
+            "the file holds prose and markers only, not {bytes} bytes"
+        );
+        let sidecar = diff_sidecar_path(&dir, "sess-1").unwrap();
+        assert!(sidecar.is_file(), "the newest diff sits in the sidecar");
+
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        let rows: Vec<&ActivityEvent> = events.iter().map(|(_, event)| event).collect();
+        assert_eq!(rows.len(), 42, "41 narration rows + ONE diff");
+        assert_eq!(rows[40], &ActivityEvent::narration("still recording"));
+        let (seq, last) = events.last().unwrap();
+        assert!(
+            matches!(last, ActivityEvent::Diff { diff, .. } if diff.starts_with("39:")),
+            "the replay carries the newest snapshot"
+        );
+        // The marker of the 40th diff is line 79 (0-based): 40 narrations +
+        // 39 earlier markers before it.
+        assert_eq!(*seq, 79);
+        // A transcript page never carries the diff.
+        let page = read_journal_page(&dir, "sess-1", u64::MAX, 100).unwrap();
+        assert!(page.iter().all(|(_, event)| !matches!(event, ActivityEvent::Diff { .. })));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-906: the sidecar keeps updating after the file stopped — the
+    /// Changes face of a late viewer must read the run's LAST patch, not the
+    /// one from the minute the cap hit.
+    #[test]
+    fn the_sidecar_outlives_the_cap_and_the_cap_is_reported_once() {
+        let dir = temp_dir("cap-notice");
+        let path = journal_path(&dir, "sess-1").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, vec![b'\n'; JOURNAL_FILE_CAP as usize + 1]).unwrap();
+
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        assert!(!writer.take_cap_notice(), "nothing to report before an append");
+        writer.append(&ActivityEvent::narration("dropped"));
+        assert!(writer.take_cap_notice(), "the append that hit the cap reports it");
+        assert!(!writer.take_cap_notice(), "…exactly once");
+        writer.append(&ActivityEvent::diff("after the cap"));
+        assert!(!writer.take_cap_notice());
+        drop(writer);
+
+        let events = read_journal(&dir, "sess-1").unwrap();
+        assert_eq!(events, vec![ActivityEvent::diff("after the cap")]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A journal written before EXP-906 carries its diffs IN the file and has
+    /// no sidecar; it still folds to the newest one. A sidecar, when present,
+    /// wins over any in-line diff.
+    #[test]
+    fn legacy_in_line_diffs_still_fold_and_a_sidecar_wins() {
+        let dir = temp_dir("legacy-diff");
+        let path = journal_path(&dir, "sess-1").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut legacy = String::new();
+        for event in [
+            ActivityEvent::narration("old"),
+            ActivityEvent::diff("first"),
+            ActivityEvent::diff("second"),
+        ] {
+            legacy.push_str(&serde_json::to_string(&event).unwrap());
+            legacy.push('\n');
+        }
+        fs::write(&path, legacy).unwrap();
+
+        let events = read_journal(&dir, "sess-1").unwrap();
+        assert_eq!(
+            events,
+            vec![ActivityEvent::narration("old"), ActivityEvent::diff("second")]
+        );
+
+        // The same run, resumed on this build: the sidecar takes over.
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        writer.append(&ActivityEvent::diff("third"));
+        drop(writer);
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1], (3, ActivityEvent::diff("third")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-906: the sidecar is removed and pruned with its journal.
+    #[test]
+    fn remove_and_prune_take_the_sidecar_along() {
+        let dir = temp_dir("sidecar-lifecycle");
+        let mut writer = JournalWriter::open(&dir, "sess-1").unwrap();
+        writer.append(&ActivityEvent::diff("x"));
+        drop(writer);
+        let sidecar = diff_sidecar_path(&dir, "sess-1").unwrap();
+        assert!(sidecar.is_file());
+        assert!(remove_journal(&dir, "sess-1"));
+        assert!(!sidecar.exists(), "removed with the journal");
+
+        let mut writer = JournalWriter::open(&dir, "sess-2").unwrap();
+        writer.append(&ActivityEvent::diff("y"));
+        drop(writer);
+        let sidecar = diff_sidecar_path(&dir, "sess-2").unwrap();
+        let old = SystemTime::now() - Duration::from_secs(48 * 3600);
+        filetime_set(&journal_path(&dir, "sess-2").unwrap(), old);
+        filetime_set(&sidecar, old);
+        assert_eq!(prune_journals(&dir, Some(Duration::from_secs(3600))), 2);
+        assert!(!sidecar.exists(), "pruned with the journal");
         let _ = fs::remove_dir_all(&dir);
     }
 

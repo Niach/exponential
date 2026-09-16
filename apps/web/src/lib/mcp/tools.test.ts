@@ -3336,6 +3336,26 @@ describe(`exponential_sessions_start`, () => {
     )
   })
 
+  // EXP-906: the profile rides the start like every other option — an
+  // orchestrator whose default profile is walled no longer has to route
+  // around this tool (and lose the parent link) to launch elsewhere.
+  it(`passes the account profile through to the steer start`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [{ ...startedRow }]
+
+    await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueId: UUID,
+      account: `dennis`,
+    })
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: `dennis`,
+        parentSessionId: RUN,
+      })
+    )
+  })
+
   it(`hands back sessionId null when the device never reports the run`, async () => {
     caller.steer.startSession.mockResolvedValue({ ok: true })
     dbRows.current = []

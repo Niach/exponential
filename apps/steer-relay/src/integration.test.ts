@@ -726,6 +726,29 @@ describe(`steer relay end-to-end`, () => {
       branch: `exp/refresh-screenshots-1a2b3c4d`,
     })
 
+    // EXP-906: the account switch rides a resume end to end.
+    const runSwitch = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        resumeSessionId: `sess-77`,
+        teamId: `team-1`,
+        account: `work`,
+      }),
+    })
+    expect(runSwitch.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      resumeSessionId: `sess-77`,
+      teamId: `team-1`,
+      account: `work`,
+    })
+
     // teamId is required (the relay routes without a DB read), and a present
     // hint key that doesn't parse is 400 like every other pinned shape.
     const resumeNoTeam = await fetch(`${base}/start`, {

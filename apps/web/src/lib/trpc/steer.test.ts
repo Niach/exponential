@@ -1649,6 +1649,36 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
     })
   })
 
+  // EXP-906: the account switch / a plain resume relaunches an agent-started
+  // child under a new id with NO parentSessionId in hand (the desktop's wall
+  // banner, the web's Resume) — the row's own marker keeps it unattended.
+  it(`keeps the agent-started marker on a resume of an agent-started run`, async () => {
+    h.dbQueue.push([
+      {
+        id: uuid(7),
+        userId: `actor`,
+        hostUserId: null,
+        teamId: `ws-1`,
+        status: `ended`,
+        deviceId: `dev-1`,
+        issueId: null,
+        actionId: null,
+        actionName: `Refresh screenshots`,
+        branch: null,
+        startedReason: `agent`,
+        parentSessionId: PARENT,
+      },
+    ])
+    queueOwnDevice({ caps: [`resume-run`, `agent-start`] })
+
+    await caller.startSession({ resumeSessionId: uuid(7), deviceId: `dev-1` })
+
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: uuid(7),
+      startedReason: `agent`,
+    })
+  })
+
   it(`refuses a parent that is not the caller's own live session`, async () => {
     for (const over of [
       { userId: `someone-else`, hostUserId: null },

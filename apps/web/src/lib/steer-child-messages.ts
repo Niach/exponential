@@ -157,6 +157,50 @@ export async function loadChildParentContext(
   return row ?? null
 }
 
+/**
+ * EXP-906: the LIVE run a child's messages go to. The immediate parent when
+ * it is still live; otherwise the newest live run in the parent's RESUME
+ * succession (`resumed_from_id` walked forward): an account switch or a
+ * resume relaunches the parent under a new id, and `codingSessions.start`
+ * re-stamps the children onto it — but a child that ends inside that window,
+ * or one whose re-stamp failed, still points at the ended predecessor. Null
+ * = nobody is listening (no parent, or every run in the succession ended).
+ */
+export async function resolveLiveParentSessionId(
+  db: Context[`db`],
+  child: Pick<ChildParentContext, `parentSessionId` | `parentStatus`>,
+  maxDepth = MAX_SESSION_CHAIN_DEPTH
+): Promise<string | null> {
+  if (!child.parentSessionId) return null
+  if (
+    child.parentStatus &&
+    (PARENT_LIVE_STATUSES as readonly string[]).includes(child.parentStatus)
+  ) {
+    return child.parentSessionId
+  }
+  const result = await db.execute(sql`
+    with recursive succession as (
+      select cs.id, cs.status, 0 as hops
+      from coding_sessions cs
+      where cs.id = ${child.parentSessionId}::uuid
+      union all
+      select s.id, s.status, succession.hops + 1
+      from coding_sessions s
+      join succession on s.resumed_from_id = succession.id
+      where succession.hops < ${maxDepth}
+    )
+    select id from succession
+    where status in (${sql.join(
+      PARENT_LIVE_STATUSES.map((status) => sql`${status}`),
+      sql`, `
+    )})
+    order by hops desc
+    limit 1
+  `)
+  const row = (result.rows ?? [])[0]
+  return row ? ((row.id as string | null) ?? null) : null
+}
+
 /** One row of a run's ancestry, `depth` counted from the run itself (0). */
 export interface SessionChainRow {
   id: string
@@ -325,19 +369,16 @@ export async function notifyParentOfChildEnd(
     if (!child || child.startedReason !== `agent` || !child.parentSessionId) {
       return { delivered: false }
     }
-    if (
-      !child.parentStatus ||
-      !(PARENT_LIVE_STATUSES as readonly string[]).includes(child.parentStatus)
-    ) {
-      return { delivered: false }
-    }
+    // EXP-906: the parent may have resumed under a new id since.
+    const target = await resolveLiveParentSessionId(db, child)
+    if (!target) return { delivered: false }
     const config = getSteerRelayConfig()
     if (!config) return { delivered: false }
     const message =
       end.summary !== null
         ? formatChildFinished(child, end.summary)
         : formatChildEndedSilently(child, end.endedBy)
-    return await relayPostInput(config, child.parentSessionId, message)
+    return await relayPostInput(config, target, message)
   } catch {
     return { delivered: false }
   }
@@ -364,17 +405,14 @@ export async function notifyParentOfChildBlocked(
     if (!child || child.startedReason !== `agent` || !child.parentSessionId) {
       return { delivered: false }
     }
-    if (
-      !child.parentStatus ||
-      !(PARENT_LIVE_STATUSES as readonly string[]).includes(child.parentStatus)
-    ) {
-      return { delivered: false }
-    }
+    // EXP-906: the parent may have resumed under a new id since.
+    const target = await resolveLiveParentSessionId(db, child)
+    if (!target) return { delivered: false }
     const config = getSteerRelayConfig()
     if (!config) return { delivered: false }
     return await relayPostInput(
       config,
-      child.parentSessionId,
+      target,
       formatChildRateLimited(child, blocked)
     )
   } catch {

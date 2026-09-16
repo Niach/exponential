@@ -101,7 +101,7 @@ pub use activity::{
     TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,
     CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX, CONFIG_MODES_MAX,
     CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
-    STOP_GRACE, TRUNCATION_MARKER, CAPTION_WRITE_INTERVAL,
+    STOP_GRACE, TRUNCATION_MARKER, CAPTION_WRITE_INTERVAL, RESUMED_IDLE_CAPTION,
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_row_specs,
@@ -135,7 +135,7 @@ pub use history::{
     prune_session_history,
     publish_history, read_journal, read_journal_page, read_journal_seq, remove_journal,
     serve_history_page, serve_history_request, HistoryInFlight, JournalWriter,
-    HISTORY_PAGE_MAX, JOURNAL_FILE_CAP,
+    HISTORY_PAGE_MAX, JOURNAL_FILE_CAP, JOURNAL_CAP_NOTICE,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};

@@ -139,17 +139,71 @@ async function resolveSessionDevice(
 // first and degrade to NULL when the row no longer exists; scope is
 // deliberately not checked (the link is provenance, and the row is only ever
 // read back as the caller's own history).
-async function resolveResumedFromId(
+//
+// EXP-906: the predecessor's place in its session TREE rides along. A resume
+// (desktop Resume, `steer.startSession({resumeSessionId})`, the account
+// switch) is the SAME run under a new id, so the new row inherits
+// `parent_session_id` and `started_reason` — otherwise every switch silently
+// orphaned an agent-started child (no child-end / blocked message ever
+// reached the parent, no close-out tool registered) and a parent that
+// switched got an id its children did not point at.
+interface ResumedFrom {
+  id: string
+  parentSessionId: string | null
+  startedReason: string | null
+}
+
+async function resolveResumedFrom(
   db: Context[`db`],
   resumedFromId: string | undefined
-): Promise<string | null> {
+): Promise<ResumedFrom | null> {
   if (!resumedFromId) return null
   const [row] = await db
-    .select({ id: codingSessions.id })
+    .select({
+      id: codingSessions.id,
+      parentSessionId: codingSessions.parentSessionId,
+      startedReason: codingSessions.startedReason,
+    })
     .from(codingSessions)
     .where(eq(codingSessions.id, resumedFromId))
     .limit(1)
-  return row?.id ?? null
+  if (!row) return null
+  return {
+    id: row.id,
+    parentSessionId: row.parentSessionId ?? null,
+    startedReason: row.startedReason ?? null,
+  }
+}
+
+/** EXP-906: the tree fields every insert below writes — the frame's own
+ * `startedReason` first, then whatever the predecessor carried. */
+function inheritedTree(
+  startedReason: string | undefined,
+  predecessor: ResumedFrom | null
+): { startedReason: string | null; parentSessionId: string | null } {
+  return {
+    startedReason: startedReason ?? predecessor?.startedReason ?? null,
+    parentSessionId: predecessor?.parentSessionId ?? null,
+  }
+}
+
+/** EXP-906: the predecessor's children now belong to the successor — the
+ * live run their next child-end / question / usage-wall message must reach.
+ * Best-effort: the row is already inserted, and a failed re-stamp only
+ * leaves the children on the ended predecessor, which is where they were. */
+async function restampChildren(
+  db: Context[`db`],
+  predecessorId: string,
+  successorId: string
+): Promise<void> {
+  try {
+    await db
+      .update(codingSessions)
+      .set({ parentSessionId: successorId })
+      .where(eq(codingSessions.parentSessionId, predecessorId))
+  } catch {
+    // ignored — history only, never worth failing the start
+  }
 }
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
@@ -488,11 +542,11 @@ export const codingSessionsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // A vanished predecessor (swept while the user was away) must never
-      // turn Resume into a 500 — see resolveResumedFromId.
-      const resumedFromId = await resolveResumedFromId(
-        ctx.db,
-        input.resumedFromId
-      )
+      // turn Resume into a 500 — see resolveResumedFrom.
+      const predecessor = await resolveResumedFrom(ctx.db, input.resumedFromId)
+      const resumedFromId = predecessor?.id ?? null
+      // EXP-906: the run keeps its place in the session tree across a resume.
+      const tree = inheritedTree(input.startedReason, predecessor)
 
       if (input.actionId && isBuiltinActionId(input.actionId)) {
         await assertTeamMember(ctx.session.user.id, input.teamId!)
@@ -518,7 +572,7 @@ export const codingSessionsRouter = router({
             actionName: builtinActionName(input.actionId),
             // EXP-679: only `agent` reaches a builtin (the refine keeps
             // schedule/event on real action rows).
-            startedReason: input.startedReason ?? null,
+            ...tree,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
@@ -530,6 +584,7 @@ export const codingSessionsRouter = router({
           })
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+        if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
 
         return { session }
       }
@@ -573,7 +628,7 @@ export const codingSessionsRouter = router({
             teamId: action.teamId,
             actionId: action.id,
             actionName: action.name,
-            startedReason: input.startedReason ?? null,
+            ...tree,
             automationId: input.automationId
               ? await resolveAutomationId(ctx.db, input.automationId, action.id)
               : null,
@@ -588,6 +643,7 @@ export const codingSessionsRouter = router({
           })
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+        if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
 
         return { session }
       }
@@ -617,7 +673,7 @@ export const codingSessionsRouter = router({
             boardId: issueCtx.boardId,
             // EXP-679: an issue run can be agent-started (only `agent`
             // reaches here — schedule/event need a real action row).
-            startedReason: input.startedReason ?? null,
+            ...tree,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
@@ -628,6 +684,7 @@ export const codingSessionsRouter = router({
           })
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+        if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
 
         return { session }
       }
@@ -654,7 +711,7 @@ export const codingSessionsRouter = router({
           teamId: input.teamId!,
           // EXP-679: a batch run can be agent-started (only `agent` reaches
           // here — schedule/event need a real action row).
-          startedReason: input.startedReason ?? null,
+          ...tree,
           userId: attribution.userId,
           hostUserId: attribution.hostUserId,
           ...device,
@@ -666,6 +723,7 @@ export const codingSessionsRouter = router({
         })
         .returning()
       await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+      if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
 
       return { session }
     }),

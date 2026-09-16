@@ -595,6 +595,10 @@ struct Recorder {
     /// count, so a resumed run keeps counting where its predecessor stopped
     /// and a viewer's `history_page` asks line up with what it already holds.
     next_seq: u64,
+    /// EXP-906: the cap notice the last `push` minted, until the loop sends
+    /// it. Already in the memory journal (so a reconnect replays it); the
+    /// file is stopped by definition, so it is never on disk.
+    notice: Option<(u64, ActivityEvent)>,
 }
 
 impl Recorder {
@@ -604,11 +608,27 @@ impl Recorder {
     fn push(&mut self, event: ActivityEvent) -> u64 {
         let seq = self.next_seq;
         self.next_seq += 1;
+        let mut capped = false;
         if let Some(file) = self.file.as_mut() {
             file.append(&event);
+            capped = file.take_cap_notice();
         }
         self.journal.push_seq(seq, event);
+        if capped {
+            // EXP-906: the moment the file stops, the run says so — one row
+            // every viewer sees, instead of a device log line nobody reads.
+            let notice_seq = self.next_seq;
+            self.next_seq += 1;
+            let notice = ActivityEvent::narration(crate::history::JOURNAL_CAP_NOTICE);
+            self.journal.push_seq(notice_seq, notice.clone());
+            self.notice = Some((notice_seq, notice));
+        }
         seq
+    }
+
+    /// EXP-906: the notice `push` minted, once.
+    fn take_notice(&mut self) -> Option<(u64, ActivityEvent)> {
+        self.notice.take()
     }
 }
 
@@ -654,6 +674,7 @@ async fn run_publisher_loop(
         journal: ActivityJournal::new(),
         file,
         next_seq,
+        notice: None,
     };
     let mut backoff = Backoff::publisher();
     // §8.7: one immediate re-mint is allowed after a fresh-ticket 401; a
@@ -1005,6 +1026,13 @@ async fn pump_connection(
                         if !send_activity(ws, seq, event).await {
                             return LoopEnd::Dropped;
                         }
+                        // EXP-906: the "history stopped recording" row rides
+                        // right behind the event that hit the cap.
+                        if let Some((seq, notice)) = recorder.take_notice() {
+                            if !send_activity(ws, seq, notice).await {
+                                return LoopEnd::Dropped;
+                            }
+                        }
                     }
                     PublisherCmd::Shutdown { outcome } => {
                         let bye = ClientFrame::Bye { outcome: outcome.as_deref() }.to_json();
@@ -1256,6 +1284,9 @@ async fn sleep_or_shutdown(
                 Ok(PublisherCmd::Activity(mut event)) => {
                     prepare_for_journal(&mut event, embeds);
                     recorder.push(event);
+                    // Offline: the memory journal holds the notice and the
+                    // reconnect's replay carries it.
+                    let _ = recorder.take_notice();
                 }
             }
         }
@@ -1266,6 +1297,47 @@ async fn sleep_or_shutdown(
 mod tests {
     use super::*;
     use crate::frames::QuestionOption;
+
+    /// EXP-906: the append that stops the file mints ONE notice row, numbered
+    /// right behind the event, held in the memory journal for the reconnect
+    /// replay and handed to the loop once.
+    #[test]
+    fn the_recorder_mints_one_cap_notice_when_the_file_stops() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "exp-publisher-cap-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = crate::history::journal_path(&data_dir, "sess-cap").unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, vec![b'\n'; crate::history::JOURNAL_FILE_CAP as usize + 1])
+            .unwrap();
+        let file = JournalWriter::open(&data_dir, "sess-cap").unwrap();
+        let next_seq = file.lines();
+        let mut recorder = Recorder {
+            journal: ActivityJournal::new(),
+            file: Some(file),
+            next_seq,
+            notice: None,
+        };
+
+        let seq = recorder.push(ActivityEvent::narration("over the cap"));
+        let (notice_seq, notice) = recorder.take_notice().expect("a notice");
+        assert_eq!(notice_seq, seq + 1);
+        assert_eq!(
+            notice,
+            ActivityEvent::narration(crate::history::JOURNAL_CAP_NOTICE)
+        );
+        assert!(recorder.take_notice().is_none(), "handed out once");
+        recorder.push(ActivityEvent::narration("later"));
+        assert!(recorder.take_notice().is_none(), "never minted twice");
+        let replay: Vec<u64> = recorder.journal.replay_seq().map(|(seq, _)| seq).collect();
+        assert_eq!(replay, vec![seq, notice_seq, seq + 2]);
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
     use std::sync::Mutex;
 
     // ── Control path (§8.4): never dropped, never reordered ────────────────
