@@ -11,10 +11,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 //     SAME transaction as the insert — so one txId covers the whole move;
 //   * the draft lookup is user-scoped and a MISSING row is tolerated: the
 //     client mints the id when the dialog opens, so a plain create that never
-//     uploaded anything legitimately names a draft that was never written.
+//     uploaded anything legitimately names a draft that was never written;
+//   * the draft's team must be the target board's team (the reparent moves
+//     attachments, and their quota, so it must never cross a team), and the
+//     reparent writes team_id explicitly;
+//   * image ownership is only ever proven through the caller's OWN draft row:
+//     an unowned draft id never admits an attachment, even one that really
+//     hangs off that draft.
 
 const h = vi.hoisted(() => ({
-  draftRows: [] as { id: string }[],
+  draftRows: [] as { id: string; teamId: string }[],
   ownedAttachmentIds: [] as string[],
   hasMarkdownImages: vi.fn((_text: string) => false),
   canonicalize: vi.fn((text: string) => text),
@@ -174,7 +180,7 @@ describe(`issues.create with a draft (EXP-878)`, () => {
     insertedIssues.length = 0
     attachmentUpdates.length = 0
     deletedTables.length = 0
-    h.draftRows = [{ id: DRAFT_ID }]
+    h.draftRows = [{ id: DRAFT_ID, teamId: `ws-1` }]
     h.ownedAttachmentIds = []
     h.hasMarkdownImages.mockReset()
     h.hasMarkdownImages.mockReturnValue(false)
@@ -198,8 +204,9 @@ describe(`issues.create with a draft (EXP-878)`, () => {
     )
     // ALL draft-owned rows move — files as well as inline images — and
     // writing board_id lets the populate trigger derive the board mirrors.
+    // team_id is written explicitly as well, never left at the draft's.
     expect(attachmentUpdates).toEqual([
-      { issueId: ISSUE_ID, boardId: BOARD_ID, draftId: null },
+      { issueId: ISSUE_ID, boardId: BOARD_ID, teamId: `ws-1`, draftId: null },
     ])
     expect(deletedTables).toEqual([issueDrafts])
     // One transaction, so one txId covers insert + reparent + draft delete.
@@ -216,6 +223,43 @@ describe(`issues.create with a draft (EXP-878)`, () => {
       caller.create({
         boardId: BOARD_ID,
         title: `Stolen`,
+        description: `![shot](/api/attachments/${ATT_ID})`,
+        draftId: DRAFT_ID,
+      })
+    ).rejects.toThrow(/Images can only be added after the issue is created/i)
+    expect(insertedIssues).toEqual([])
+  })
+
+  // The draft is the caller's, but it was opened on a board of ANOTHER team:
+  // adopting it here would move its attachments across the team boundary.
+  it(`refuses a draft that belongs to a different team than the board`, async () => {
+    h.draftRows = [{ id: DRAFT_ID, teamId: `ws-2` }]
+    h.ownedAttachmentIds = [ATT_ID]
+
+    await expect(
+      caller.create({
+        boardId: BOARD_ID,
+        title: `Cross-team`,
+        description: `![shot](/api/attachments/${ATT_ID})`,
+        draftId: DRAFT_ID,
+      })
+    ).rejects.toThrow(/draft belongs to a different team/i)
+    expect(insertedIssues).toEqual([])
+    expect(attachmentUpdates).toEqual([])
+    expect(deletedTables).toEqual([])
+  })
+
+  // The ownership probe is keyed on draft_id alone, so it must not run for a
+  // draft the caller does not own: here the attachment row DOES hang off the
+  // named draft (somebody else's), and the create still refuses it.
+  it(`refuses an image hanging off a draft the caller does not own`, async () => {
+    h.draftRows = []
+    h.ownedAttachmentIds = [ATT_ID]
+
+    await expect(
+      caller.create({
+        boardId: BOARD_ID,
+        title: `Guessed draft id`,
         description: `![shot](/api/attachments/${ATT_ID})`,
         draftId: DRAFT_ID,
       })

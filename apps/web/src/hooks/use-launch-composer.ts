@@ -41,6 +41,7 @@ import {
 import { buildSteerImageMessage, MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import {
   deviceAgentLaunchDefaults,
+  deviceCanStackStart,
   deviceHasRunnableAgent,
   deviceIsOnline,
   resumeWorktree,
@@ -169,8 +170,15 @@ export interface LaunchComposerModel {
   closeBlockedStart: () => void
   /** Start a PLAIN run, blockers and all. */
   startAnyway: () => Promise<void>
-  /** Start ON TOP of the lowest blocker's pull request (`stack: true`). */
+  /** Start ON TOP of the lowest blocker's pull request (`stack: true`). A
+   * no-op while `canStack` is false: the choice is hidden, never downgraded
+   * to a plain start. */
   startStacked: () => Promise<void>
+  /** The picked machine advertises `stacked-start`; an older build would
+   * run the issue UNSTACKED, so the dialog hides "Stacked PR" for it. A
+   * local desktop start never reads this (its own launcher resolves the
+   * chain via `codingSessions.stackPlan`). */
+  canStack: boolean
 
   launch: LaunchOptions
   /** Online machines with a runnable agent. */
@@ -614,6 +622,11 @@ export function useLaunchComposer({
   useEffect(() => {
     setBlockedOpen(false)
   }, [soleIssueId])
+  // The remote machine must READ the `stack` payload: a build below the
+  // `stacked-start` cap would run unstacked while the server had already
+  // written the `blocks` relation. The server refuses it too; the dialog
+  // just never offers it.
+  const canStack = device ? deviceCanStackStart(device) : false
 
   // ── Gate ──────────────────────────────────────────────────────────────────
 
@@ -647,9 +660,11 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  /** The actual start. `stack` only ever reaches a single-issue subject. */
+  /** The actual start. `stack` only ever reaches a single-issue subject on
+   * a machine that reads it (`canStack`). */
   const start = async (opts: { stack?: boolean } = {}) => {
     if (blocked || !device) return
+    if (opts.stack && !canStack) return
     setBlockedOpen(false)
     setSending(true)
     try {
@@ -765,6 +780,7 @@ export function useLaunchComposer({
     closeBlockedStart: () => setBlockedOpen(false),
     startAnyway: () => start(),
     startStacked: () => start({ stack: true }),
+    canStack,
     launch,
     candidateDevices,
     deviceRequestNote,

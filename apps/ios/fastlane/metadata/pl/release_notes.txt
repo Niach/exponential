@@ -1,17 +1,18 @@
-- Wiadomości w kolejce: wiadomość wysłana, gdy agent jeszcze pracuje, czeka na pasku Queued nad polem pisania, a po usunięciu jej tekst wraca do wersji roboczej
-- Stop, który dociera: Stop w trwającej sesji naprawdę przerywa bieżącą turę, zamiast ginąć po drodze, i odrzuca to, co czeka w kolejce za nią
-- Spokojniejsze przyciski: wypełnione kółko zostaje tylko przy jednej akcji, dla której dany ekran istnieje; usuwanie, zamykanie, odświeżanie, strzałki i menu ... są teraz zwykłymi znakami
-- Listy wyboru pokazują, co wybierają: wybór agenta nosi znak Claude Code albo Codex na przycisku i obok każdej nazwy, a menu urządzeń zaczyna się ikoną laptopa lub serwera
+- Jeden ekran Work: issue, jego przebieg, zmiany i wyniki są teraz stronami jednego ekranu, przełączasz je paskiem na dole, a Stop albo Resume siedzi w prawym górnym rogu
+- Jeden widok diffa: każdy diff czyta się tak samo, z numerami wierszy, ukrytymi niezmienionymi wierszami, które możesz rozwinąć, i nazwanymi plikami po zmianie nazwy lub binarnymi zamiast pustki
+- Ułożone pull requesty: uruchom issue na tym, które je blokuje, scal cały łańcuch przez Merge stack, odczytaj plakietkę stacka albo batcha na pracy i odpowiedz na pytanie, które wyśle ci zagnieżdżony przebieg
+- Wyniki przebiegu: przebieg, który publikuje zrzuty ekranu, dostaje stronę Results, pogrupowaną tematami, po jednym kafelku na platformę, a dotknięcie pokazuje cały obraz
+- Przebiegi batch z nazwą: przebieg obejmujący kilka issues czyta teraz EXP-874 +2 obok tytułu pierwszego issue zamiast „Batch run”
+- Wiadomości docierają od razu: wiadomość napisana, gdy agent pracuje, trafia do niego natychmiast i widnieje jako wysłana, dopóki jej nie przeczyta, a Stop oddaje tekst do pola pisania
+- GitHub uporządkowany: połączenie GitHuba, dodanie repozytorium i ustawienie repozytorium boardu działają tu tak jak na komputerze, a błędy widać tam, gdzie jesteś
+- Wiadomości w kolejce: wiadomość czekająca na agenta widnieje na pasku nad polem pisania, a Stop w trwającej sesji naprawdę przerywa bieżącą turę, zamiast ginąć po drodze
+- Spokojniejsze przyciski i czytelniejsze listy wyboru: wypełnione kółko zostaje tylko przy głównej akcji ekranu, a wybór agenta nosi znak Claude Code albo Codex, podczas gdy menu urządzeń zaczyna się ikoną laptopa lub serwera
 - Strona Agent trzyma twoje uruchomienia: minione uruchomienia składają się za licznikiem, który możesz otworzyć, a gdy nic nie działa, pole pisania stoi na środku strony
-- Loguj się tam, gdzie jest konto: ustawienia urządzenia trzymają nazwę, udostępnianie i domyślne ustawienia agenta, a logowanie, wybór aktywnego konta i jego usunięcie są teraz na plakietkach konta
-- Dodanie konta: Add account jest w nagłówku Accounts i loguje nowe konto na urządzeniu, a plus przy koncie loguje to samo konto na kolejnym urządzeniu
+- Loguj się tam, gdzie jest konto: logowanie, wybór aktywnego konta i jego usunięcie są teraz na plakietkach konta, a Add account w nagłówku Accounts loguje nowe konto na urządzeniu
 - Filtry issues zniknęły: przycisk filtra i jego pigułki opuściły board i skrzynkę, wyszukiwanie pokrywa to, do czego służyły, a grupowanie i pasy statusów zostają
 - Kontynuuj e-mailem albo kluczem dostępu: zaloguj się sześciocyfrowym kodem wysłanym na pocztę albo przez Face ID czy Touch ID; wszystkie opcje są na jednej liście, a nieznany adres po prostu staje się nowym kontem
 - Wskaźnik pracy kończy się razem z agentem: śledzi teraz prawdziwą turę agenta zamiast połączenia, pokazuje, co robi, wraz z czasem i tokenami, a Stop jest w nagłówku sesji
-- Karty narzędzi Exponential: gdy agent wywoła Exponential, historia pokazuje prosty podpis w rodzaju „Creating issue” albo „Opened pull request”, a po zakończeniu podgląd wyniku
-- Podagenci z nazwą: żeton podagenta niesie zadanie, które dostał, jego wiersze streszczają użyte narzędzia, a żeton Plan tylko do odczytu widnieje, dopóki przebieg wciąż planuje
+- Karty w historii: wywołanie Exponential pokazuje prosty podpis w rodzaju „Creating issue” z podglądem wyniku, żeton podagenta niesie zadanie, które dostał, a żeton Plan tylko do odczytu widnieje, dopóki przebieg planuje
 - Karta workflow: przebieg z wieloma agentami wygląda jak jedna karta z fazami i agentami pod spodem, a wiersz sesji dostaje drugą linijkę z tym, nad czym właśnie trwa praca
-- Konta, które mówią prawdę: stan konta agenta pochodzi z prawdziwego pomiaru zużycia, więc martwe logowanie pokazuje „Needs re-login” zamiast „Signed in”
-- Devices to strona napraw: każda maszyna wypisuje konta agentów, które trzyma, a znacznik proponuje właściwą naprawę, ponowne logowanie do wygasłego albo użycie tego konta tutaj przy takim, którego maszyna nie używa
-- Zmiana konta w trakcie przebiegu: przebieg Claude, który trafi na limit, może iść dalej na innym koncie z arkusza zużycia albo z komunikatu o limicie, jako nowy przebieg powiązany z poprzednim
-- Powrót tam, skąd przyszedłeś: wyjście z sesji odsyła cię z powrotem do issue, boardu albo skrzynki, z której ją otworzyłeś, a przebieg uruchomiony przez inny przebieg jest zagnieżdżony pod nim
+- Konta i naprawy: stan konta agenta pochodzi z prawdziwego pomiaru zużycia, więc martwe logowanie pokazuje „Needs re-login”, a Devices wypisuje konta każdej maszyny z właściwą naprawą na znaczniku
+- Zmiana konta w trakcie przebiegu i powrót tam, skąd przyszedłeś: przebieg Claude na limicie może iść dalej na innym koncie, a wyjście z sesji odsyła cię z powrotem do issue albo boardu, z którego ją otworzyłeś

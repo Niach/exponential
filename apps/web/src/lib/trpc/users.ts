@@ -226,7 +226,9 @@ export const usersRouter = router({
   // are NOT deleted — issues.creator_id is ON DELETE SET NULL, so they survive
   // with a null creator (they may be shared team data) — and neither are the
   // attachments they uploaded (uploader_id is `set null` too, REV2-36: those
-  // blobs are embedded in surviving descriptions/comments). Additionally
+  // blobs are embedded in surviving descriptions/comments). Their issue
+  // DRAFTS do cascade (EXP-878), and the draft attachments' blobs are
+  // reclaimed with them (lib/account-deletion.ts). Additionally
   // removes teams where the caller is the ONLY member (their personal team +
   // solo teams) so no orphaned data survives — the privacy policy promises
   // deletion of "all associated data".
@@ -296,10 +298,11 @@ export const usersRouter = router({
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the account half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
-      // Blobs stranded by the SOLO-TEAM deletes above (their attachment rows
-      // cascaded away, the S3 objects did not). Attachments this user merely
-      // uploaded into a SURVIVING team are not here: `uploader_id` is `set
-      // null`, so those rows (and their blobs) outlive the account.
+      // Blobs stranded by the SOLO-TEAM deletes above plus the user's DRAFT
+      // attachments in every team (EXP-878; their rows cascaded away, the S3
+      // objects did not). Attachments this user merely uploaded into a
+      // SURVIVING issue are not here: `uploader_id` is `set null`, so those
+      // rows (and their blobs) outlive the account.
       await deleteStorageObjects(storageKeys)
       // Revoke the provider grants: the Apple pairing (so a re-signup delivers
       // the name again) plus every other provider's stored token.

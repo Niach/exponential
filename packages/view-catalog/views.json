@@ -1177,12 +1177,12 @@
       "id": "review-diff",
       "group": "reviews",
       "title": "Review diff",
-      "blurb": "A PR's real diff, side by side, with the first file expanded. APP-14 fetches a genuine patch from GitHub.",
+      "blurb": "A PR's real diff in the one unified diff view: the file column beside the file cards, the first file expanded. APP-14 fetches a genuine patch from GitHub.",
       "order": 2,
       "web": {
         "route": "/t/$teamSlug/reviews/APP-14",
         "anchor": {
-          "text": "@Composable",
+          "text": "Unable to load topic",
           "timeoutMs": 60000
         },
         "recipe": "expandFirstDiffFile",
@@ -1204,7 +1204,7 @@
         }
       },
       "notes": {
-        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout.",
+        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-895: every file card starts collapsed and the first one is strings.xml, so the anchor is a line of ITS patch (the added feature_topic_api_error string); the phone has no file column (the list is a sheet off the work bar), so the recipe expands the card from its own header on both form factors.",
         "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands."
       }
     },

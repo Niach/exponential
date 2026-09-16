@@ -15,10 +15,9 @@ export type BoardRow = {
 }
 
 export const IDENTITY = {
-  workspace: "Exponential",
-  project: "Exponential",
+  board: "Exponential",
   team: "Acme", // the rail header names the ACTIVE team (EXP-723)
-  projectColor: "#a1a1aa",
+  boardColor: "#a1a1aa",
   prefix: "EXP",
   repo: "niach/exponential",
   defaultBranch: "main",

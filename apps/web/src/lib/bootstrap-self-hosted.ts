@@ -2,7 +2,10 @@ import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, boards, codingSessions } from "@/db/schema"
 import type { PullState } from "@/lib/integrations/github-pr"
-import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
+import {
+  fetchPullState,
+  resolveRepoToken,
+} from "@/lib/integrations/github-pr"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import {
   applyPrClosedState,
@@ -65,6 +68,11 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         prNumber: issues.prNumber,
         prState: issues.prState,
         teamId: boards.teamId,
+        // EXP-897 (FEED-43 R1): a stack member's base moves on GitHub when
+        // the PR below it lands; a polling instance never gets the `edited`
+        // webhook, so the pass re-reads the base of every open member.
+        prBaseBranch: issues.prBaseBranch,
+        prStackNumber: issues.prStackNumber,
       })
       .from(issues)
       .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -102,6 +110,24 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
           })
           state = await fetchPullState(repo, row.prNumber, token)
           pullStates.set(row.prUrl, state)
+        }
+        // EXP-897 (FEED-43 R1): a still-open STACK MEMBER (a recorded edge or
+        // stack number) has its base mirrored from the SAME read: GitHub
+        // retargets it when the PR below lands, and the `edited` webhook that
+        // mirrors that never reaches a polling instance. Written raw, like
+        // the webhook leg. An unstacked PR is never touched.
+        if (
+          state.state === `open` &&
+          !state.merged &&
+          (row.prBaseBranch !== null || row.prStackNumber !== null)
+        ) {
+          const baseRef = state.baseRef
+          if (baseRef && baseRef !== row.prBaseBranch) {
+            await db
+              .update(issues)
+              .set({ prBaseBranch: baseRef })
+              .where(eq(issues.prUrl, row.prUrl))
+          }
         }
         switch (decidePrPollAction(row.prState, state)) {
           case `merge`:

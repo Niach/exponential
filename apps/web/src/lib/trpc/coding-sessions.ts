@@ -132,13 +132,11 @@ async function resolveSessionDevice(
 }
 
 // EXP-637's resume link, hardened (EXP-639). `resumed_from_id` is a real FK
-// and history ONLY — never authorization — but the run it names may be gone:
+// (grants nothing by itself) but the run it names may be gone:
 // the 2h idle sweep (lib/coding-session-sweep.ts) DELETES stale running rows,
 // so a desktop run-registry record easily outlives its session and the insert
 // would fail with a raw 23503 (a 500 on the user's Resume click). Resolve it
-// first and degrade to NULL when the row no longer exists; scope is
-// deliberately not checked (the link is provenance, and the row is only ever
-// read back as the caller's own history).
+// first and degrade to NULL when the row no longer exists.
 //
 // EXP-906: the predecessor's place in its session TREE rides along. A resume
 // (desktop Resume, `steer.startSession({resumeSessionId})`, the account
@@ -147,6 +145,15 @@ async function resolveSessionDevice(
 // orphaned an agent-started child (no child-end / blocked message ever
 // reached the parent, no close-out tool registered) and a parent that
 // switched got an id its children did not point at.
+//
+// That inheritance made the link a WRITE, so it is ownership-gated: only the
+// run's owner or its shared-device host (the same pair `endSessionByAgent`
+// and `sessions_results` accept) may resume it. Without the gate any member
+// could name a foreign live parent, adopt its place in another team's tree
+// and have `restampChildren` route that team's children onto their own row.
+// Every legitimate resume path resumes the caller's own run, and the device
+// owner is always the `start` caller (a shared-device requester's run carries
+// the host in `host_user_id`).
 interface ResumedFrom {
   id: string
   parentSessionId: string | null
@@ -155,12 +162,15 @@ interface ResumedFrom {
 
 async function resolveResumedFrom(
   db: Context[`db`],
+  callerId: string,
   resumedFromId: string | undefined
 ): Promise<ResumedFrom | null> {
   if (!resumedFromId) return null
   const [row] = await db
     .select({
       id: codingSessions.id,
+      userId: codingSessions.userId,
+      hostUserId: codingSessions.hostUserId,
       parentSessionId: codingSessions.parentSessionId,
       startedReason: codingSessions.startedReason,
     })
@@ -168,6 +178,12 @@ async function resolveResumedFrom(
     .where(eq(codingSessions.id, resumedFromId))
     .limit(1)
   if (!row) return null
+  if (row.userId !== callerId && row.hostUserId !== callerId) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `You can only resume your own run`,
+    })
+  }
   return {
     id: row.id,
     parentSessionId: row.parentSessionId ?? null,
@@ -189,18 +205,27 @@ function inheritedTree(
 
 /** EXP-906: the predecessor's children now belong to the successor — the
  * live run their next child-end / question / usage-wall message must reach.
+ * Confined to the successor's team: a child is always started inside its
+ * parent's team, so the predicate changes nothing for a legitimate resume
+ * and guarantees a row never adopts another team's children.
  * Best-effort: the row is already inserted, and a failed re-stamp only
  * leaves the children on the ended predecessor, which is where they were. */
 async function restampChildren(
   db: Context[`db`],
   predecessorId: string,
-  successorId: string
+  successorId: string,
+  successorTeamId: string
 ): Promise<void> {
   try {
     await db
       .update(codingSessions)
       .set({ parentSessionId: successorId })
-      .where(eq(codingSessions.parentSessionId, predecessorId))
+      .where(
+        and(
+          eq(codingSessions.parentSessionId, predecessorId),
+          eq(codingSessions.teamId, successorTeamId)
+        )
+      )
   } catch {
     // ignored — history only, never worth failing the start
   }
@@ -586,7 +611,11 @@ export const codingSessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // A vanished predecessor (swept while the user was away) must never
       // turn Resume into a 500 — see resolveResumedFrom.
-      const predecessor = await resolveResumedFrom(ctx.db, input.resumedFromId)
+      const predecessor = await resolveResumedFrom(
+        ctx.db,
+        ctx.session.user.id,
+        input.resumedFromId
+      )
       const resumedFromId = predecessor?.id ?? null
       // EXP-906: the run keeps its place in the session tree across a resume.
       const tree = inheritedTree(input.startedReason, predecessor)
@@ -627,7 +656,9 @@ export const codingSessionsRouter = router({
           })
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
-        if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
+        if (predecessor) {
+          await restampChildren(ctx.db, predecessor.id, session!.id, input.teamId!)
+        }
 
         return { session }
       }
@@ -686,7 +717,9 @@ export const codingSessionsRouter = router({
           })
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
-        if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
+        if (predecessor) {
+          await restampChildren(ctx.db, predecessor.id, session!.id, action.teamId)
+        }
 
         return { session }
       }
@@ -727,7 +760,9 @@ export const codingSessionsRouter = router({
           })
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
-        if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
+        if (predecessor) {
+          await restampChildren(ctx.db, predecessor.id, session!.id, issueCtx.teamId)
+        }
 
         return { session }
       }
@@ -776,7 +811,9 @@ export const codingSessionsRouter = router({
         })
         .returning()
       await bindStartAttachments(ctx.db, session!, input.attachmentIds)
-      if (predecessor) await restampChildren(ctx.db, predecessor.id, session!.id)
+      if (predecessor) {
+        await restampChildren(ctx.db, predecessor.id, session!.id, input.teamId!)
+      }
 
       return { session }
     }),

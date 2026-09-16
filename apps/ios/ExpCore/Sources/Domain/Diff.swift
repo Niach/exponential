@@ -259,10 +259,12 @@ public enum Diff {
 
     /// `Number(digits)` then the TS `clamp`: a run of ASCII digits, saturated at
     /// `lineMax`. Parsed as `Double` deliberately — it is exact for everything
-    /// at or below the ceiling, and an absurdly long run overflows to infinity
-    /// (→ 0) exactly as `Number()` does, so no path can trap or wrap.
+    /// at or below the ceiling, and an absurdly long run overflows to infinity,
+    /// which is by definition past the ceiling (never zero), so no path can
+    /// trap or wrap.
     private static func clampDigits(_ digits: String) -> Int {
-        clamp(Double(digits) ?? 0)
+        guard let n = Double(digits), n.isFinite else { return lineMax }
+        return clamp(n)
     }
 
     private static func clamp(_ n: Double) -> Int {
@@ -291,12 +293,14 @@ public enum Diff {
 
     // ── Header parsing ──────────────────────────────────────────────────────
 
-    /// A `---`/`+++`/`diff --git` payload → a display path: cut at the first TAB
+    /// A `---`/`+++`/`diff --git` payload → a display path: drop ONE trailing
+    /// `\r` (a CRLF-framed patch, split on `\n` alone), cut at the first TAB
     /// (GNU diff's timestamp column), then unwrap surrounding double quotes (git
     /// quotes a path carrying control or non-ASCII bytes). The `a/`/`b/` prefix
     /// is stripped by `stripAb` — only where git actually writes one.
     private static func cutPath(_ raw: String) -> String {
         var scalars = Array(raw.unicodeScalars)
+        if scalars.last == "\r" { scalars.removeLast() }
         if let tab = scalars.firstIndex(of: "\t") { scalars = Array(scalars[..<tab]) }
         if scalars.count >= 2, scalars.first == "\"", scalars.last == "\"" {
             scalars = Array(scalars[1..<(scalars.count - 1)])
@@ -455,7 +459,8 @@ public enum Diff {
         var oldNo = 0
         var newNo = 0
 
-        for raw in splitLines(text) {
+        let lines = splitLines(text)
+        for (i, raw) in lines.enumerated() {
             // 1. `diff --git` starts the next file unconditionally — even
             //    mid-hunk, where a truncated patch can leave us.
             if seed == nil, starts(raw, "diff --git ") {
@@ -513,7 +518,16 @@ public enum Diff {
             // 4. The hunk body, bounded by the header's counts. Past them the
             //    hunk is over, whatever the next line looks like — that is what
             //    lets a bare steer diff start its next file on a plain `--- a/…`.
-            if let index = hunkIndex, let file = cur, remOld > 0 || remNew > 0 {
+            //    Inside them a `--- ` line with a `+++ ` line right behind it
+            //    (one-line lookahead) is STILL the next bare section's opener,
+            //    not a deletion of `-- …`: a header whose counts overshoot its
+            //    body must not swallow the file after it. A `---` body line
+            //    followed by anything else stays a deletion.
+            let bareOpener = seed == nil
+                && starts(raw, "--- ")
+                && i + 1 < lines.count
+                && starts(lines[i + 1], "+++ ")
+            if let index = hunkIndex, let file = cur, remOld > 0 || remNew > 0, !bareOpener {
                 let sign = raw.unicodeScalars.first
                 if sign == "+" {
                     file.additions += 1
@@ -579,11 +593,11 @@ public enum Diff {
                     remNew = 0
                 }
                 guard let file = cur else { continue }
-                let payload = scalarCount(raw) > 4 ? dropFirst(raw, 4) : ""
+                let payload = cutPath(scalarCount(raw) > 4 ? dropFirst(raw, 4) : "")
                 if payload == "/dev/null" {
                     file.status = .added
                 } else if !payload.isEmpty {
-                    file.setPath(stripAb(cutPath(payload)), rankOld)
+                    file.setPath(stripAb(payload), rankOld)
                 }
                 continue
             }
@@ -592,11 +606,11 @@ public enum Diff {
             // past it these words are just content that lost its sign.
             if !file.hunks.isEmpty { continue }
             if starts(raw, "+++ ") {
-                let payload = dropFirst(raw, 4)
+                let payload = cutPath(dropFirst(raw, 4))
                 if payload == "/dev/null" {
                     file.status = .removed
                 } else if !payload.isEmpty {
-                    file.setPath(stripAb(cutPath(payload)), rankNew)
+                    file.setPath(stripAb(payload), rankNew)
                 }
             } else if starts(raw, "new file mode") {
                 file.status = .added

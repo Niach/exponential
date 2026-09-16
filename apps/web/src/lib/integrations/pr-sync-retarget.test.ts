@@ -50,18 +50,20 @@ vi.mock(`@/db/connection`, () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     then: (res: any, rej: any) => Promise.resolve(h.awaitRows).then(res, rej),
   })
-  return {
-    db: {
-      select: () => chain,
-      update: () => ({
-        set: (values: Record<string, unknown>) => ({
-          where: async () => {
-            h.updates.push(values)
-          },
-        }),
+  const db: Record<string, unknown> = {
+    select: () => chain,
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          h.updates.push(values)
+        },
       }),
-    },
+    }),
   }
+  // FEED-43 R1: the open/closed flip writers run in a transaction whose `tx`
+  // is the same recorder.
+  db.transaction = (fn: (tx: unknown) => Promise<unknown>) => fn(db)
+  return { db }
 })
 vi.mock(`@/lib/integrations/github-pr`, () => ({
   findStackForPull: h.findStackForPull,
@@ -85,6 +87,8 @@ vi.mock(`@/lib/steer`, () => ({
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: vi.fn() }))
 
 import {
+  applyPrClosedState,
+  applyPrReopenedState,
   foundationChangeMessage,
   notifyStackedChildrenOfFoundationChange,
   refreshPrStackState,
@@ -429,5 +433,31 @@ describe(`refreshPrStackState (EXP-897)`, () => {
       baseRef: `master`,
     })
     expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+  })
+})
+
+// FEED-43 R1: a PR that is closed (or merged) is in no stack any more. The
+// edge and the stack identity go with it, so the server's stack walk and the
+// clients' nesting never hang a chain on a dead member; the reopen leg writes
+// the base GitHub reports back.
+describe(`applyPrClosedState / applyPrReopenedState clear and restore the stack edge (EXP-897)`, () => {
+  it(`close clears pr_base_branch and pr_stack_number with the flip`, async () => {
+    await applyPrClosedState({ issueId: `issue-2`, prUrl: PARENT_PR_URL })
+    expect(h.updates).toEqual([
+      { prState: `closed`, prBaseBranch: null, prStackNumber: null },
+    ])
+  })
+
+  it(`reopen restores the base it was handed, and leaves it cleared otherwise`, async () => {
+    await applyPrReopenedState({
+      issueId: `issue-2`,
+      prUrl: PARENT_PR_URL,
+      baseBranch: `exp/EXP-1`,
+    })
+    await applyPrReopenedState({ issueId: `issue-2`, prUrl: PARENT_PR_URL })
+    expect(h.updates).toEqual([
+      { prState: `open`, prBaseBranch: `exp/EXP-1` },
+      { prState: `open` },
+    ])
   })
 })

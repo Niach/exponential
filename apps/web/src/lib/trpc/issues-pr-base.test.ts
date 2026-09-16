@@ -146,6 +146,10 @@ import {
   GitHubAsyncMergePending,
   GitHubMergeError,
 } from "@/lib/integrations/github-pr"
+import {
+  _clearPrActorClaims,
+  takePrMergeClaim,
+} from "@/lib/integrations/pr-actor-claims"
 
 const ISSUE_ID = `22222222-2222-4222-8222-222222222222`
 const PR_URL = `https://github.com/owner/repo/pull/241`
@@ -687,7 +691,7 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
     })
   })
 
-  it(`reports an enqueued merge as queued and completes nothing yet`, async () => {
+  it(`reports an enqueued merge as queued, NOT merged, and completes nothing yet`, async () => {
     h.selectQueue.push([entryRow])
     h.mergePullRequestSmart.mockResolvedValueOnce({
       merged: true,
@@ -698,11 +702,66 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
       stackMemberNumbers: [241],
     })
 
+    // FEED-43 R1: the queue may still reject it, so an agent reading
+    // `merged: true` would end its run on a merge that never landed.
     await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
-      merged: true,
+      merged: false,
       queued: true,
     })
     expect(h.applyPrMergeState).not.toHaveBeenCalled()
+  })
+
+  // FEED-43 R1: merging a stack member lands every member below it in the
+  // same GitHub transaction, and each of their `closed` webhooks looks for
+  // its OWN claim; the single-PR path used to claim only the clicked PR.
+  it(`claims every member of a known stack before the merge`, async () => {
+    _clearPrActorClaims()
+    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
+    h.selectQueue.push([]) // completeStackCohort's member rows
+    h.findStackForPull.mockResolvedValueOnce({
+      number: 7,
+      members: [{ number: 240 }, { number: 241 }, { number: 242 }],
+    } as never)
+    h.mergePullRequestSmart.mockImplementationOnce(async () => {
+      // The claims are in place BEFORE GitHub is asked to merge.
+      expect(takePrMergeClaim(`owner/repo`, 240)).toMatchObject({
+        userId: `actor`,
+      })
+      // 242 sits ABOVE the merged member: it does not land, so no claim.
+      expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+      return {
+        merged: true,
+        queued: false,
+        sha: `abc`,
+        viaStack: true,
+        stackNumber: 7,
+        stackMemberNumbers: [240, 241],
+      }
+    })
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
+      merged: true,
+    })
+    expect(h.findStackForPull).toHaveBeenCalledWith(`owner/repo`, 241, `tok`)
+    expect(takePrMergeClaim(`owner/repo`, 241)).toMatchObject({ userId: `actor` })
+  })
+
+  it(`releases every member claim when the merge fails`, async () => {
+    _clearPrActorClaims()
+    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
+    h.findStackForPull.mockResolvedValueOnce({
+      number: 7,
+      members: [{ number: 240 }, { number: 241 }],
+    } as never)
+    h.mergePullRequestSmart.mockRejectedValueOnce(
+      new GitHubMergeError(405, `Squash merges are not allowed on this repository`)
+    )
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+    })
+    expect(takePrMergeClaim(`owner/repo`, 240)).toBeNull()
+    expect(takePrMergeClaim(`owner/repo`, 241)).toBeNull()
   })
 })
 

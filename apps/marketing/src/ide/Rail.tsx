@@ -9,7 +9,7 @@
    tooltips, everything that needs a label to mean anything dropped. The
    Sessions section is gone (EXP-870): runs live in top tabs. ─── */
 import type { ReactNode } from "react"
-import { INBOX_ITEMS, PROJECT, REVIEWS } from "./data"
+import { INBOX_ITEMS, DEMO_BOARD, REVIEWS } from "./data"
 import { isLive, useIde, type Tool } from "./state"
 import {
   IcAlert,
@@ -41,7 +41,7 @@ import {
 export type RailBoard = { name: string; color: string; Icon: IdeIcon }
 
 export const BOARDS: RailBoard[] = [
-  { name: PROJECT.name, color: `#6366f1`, Icon: IcCode },
+  { name: DEMO_BOARD.name, color: `#6366f1`, Icon: IcCode },
   /* Same companions as webui/data.ts WEB_PROJECTS — one team across the demos. */
   { name: `Mobile Apps`, color: `#f97316`, Icon: IcKanban },
   { name: `Feedback`, color: `#22c55e`, Icon: IcMegaphone },

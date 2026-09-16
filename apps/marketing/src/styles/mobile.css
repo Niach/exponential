@@ -167,7 +167,7 @@ button.mob-backbtn {
 }
 
 /* ── The board nav bar: centered board-name combobox + ONE trailing
-   capsule holding filter + settings (the app has no filter-chip strip) ── */
+   capsule holding search + settings (no filter since EXP-862) ── */
 .mob-nav {
   position: relative;
   display: flex;

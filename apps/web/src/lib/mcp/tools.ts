@@ -2444,7 +2444,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off — 'endSessions' overrides that setting for this call (false keeps them running) — and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. 'mergeStack' merges the whole stack the PR sits in, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
@@ -2679,10 +2679,20 @@ export function registerExponentialTools(
           issueId: string
           identifier: string
           merged: boolean
+          // FEED-43 R1: GitHub's merge queue holds it; `merged` is false
+          // until it lands (the queue may still reject it).
+          queued?: boolean
           error?: string
           note?: string
           mergedVia?: string
         }[] = []
+        // A queued merge is the run's own success in flight: the spare it
+        // stamped stays, or the landing merge would end the run after all.
+        const ownMergeEarned = () =>
+          results.some(
+            (result) =>
+              (result.merged || result.queued) && ownTargetIds.has(result.issueId)
+          )
 
         // EXP-897: ONE call lands a whole chain (the server walks up to its
         // topmost open member and merges from there). A later target whose PR
@@ -2690,16 +2700,19 @@ export function registerExponentialTools(
         // UNRELATED PR gets its own stack merge — never a `merged: true` its
         // PR did not earn.
         if (mergeStack) {
-          const landed = new Map<string, string>() // prUrl → entry identifier
+          // prUrl → the entry identifier whose stack merge covered it, and
+          // whether that merge landed or is still in GitHub's queue.
+          const landed = new Map<string, { via: string; queued: boolean }>()
           for (const target of targets) {
             const prUrl = rowById.get(target.id)?.prUrl ?? null
-            const via = prUrl ? landed.get(prUrl) : undefined
-            if (via) {
+            const covered = prUrl ? landed.get(prUrl) : undefined
+            if (covered) {
               results.push({
                 issueId: target.id,
                 identifier: target.identifier,
-                merged: true,
-                mergedVia: via,
+                merged: !covered.queued,
+                ...(covered.queued ? { queued: true } : {}),
+                mergedVia: covered.via,
               })
               continue
             }
@@ -2718,14 +2731,23 @@ export function registerExponentialTools(
                 mergeStack: true,
                 ...endSessionsInput,
               })
+              // FEED-43 R1: an enqueued stack is NOT merged; every issue it
+              // covers reports `queued`, never a `merged: true` the queue may
+              // still take back.
+              const queued = stackResult.queued === true
+              const cover = { via: target.identifier, queued }
               for (const url of stackResult.mergedPrUrls ?? []) {
-                landed.set(url, target.identifier)
+                landed.set(url, cover)
               }
-              if (prUrl) landed.set(prUrl, target.identifier)
+              for (const url of stackResult.queuedPrUrls ?? []) {
+                landed.set(url, cover)
+              }
+              if (prUrl) landed.set(prUrl, cover)
               results.push({
                 issueId: target.id,
                 identifier: target.identifier,
-                merged: true,
+                merged: !queued,
+                ...(queued ? { queued: true } : {}),
                 mergedVia: target.identifier,
                 ...(stackResult.note ? { note: stackResult.note } : {}),
               })
@@ -2740,12 +2762,7 @@ export function registerExponentialTools(
               })
             }
           }
-          if (
-            ownTargetIds.size > 0 &&
-            !results.some(
-              (result) => result.merged && ownTargetIds.has(result.issueId)
-            )
-          ) {
+          if (ownTargetIds.size > 0 && !ownMergeEarned()) {
             await revertMergedOwnPr()
           }
           return ok({ results })
@@ -2753,21 +2770,27 @@ export function registerExponentialTools(
 
         for (const target of targets) {
           try {
-            await trpcCaller.issues.mergePr({
+            const outcome = await trpcCaller.issues.mergePr({
               issueId: target.id,
               ...endSessionsInput,
             })
+            // FEED-43 R1: an enqueued merge has not landed; say so instead of
+            // a `merged: true` the queue may still take back.
+            const queued = outcome.queued === true
             results.push({
               issueId: target.id,
               identifier: target.identifier,
-              merged: true,
+              merged: !queued,
+              ...(queued ? { queued: true } : {}),
               // EXP-897: merging a stack member lands every unmerged PR below
               // it too — say so, or the caller re-merges what is already in.
-              ...(rowById.get(target.id)?.prBaseBranch
-                ? {
-                    note: `Merging a stacked PR also merged every unmerged PR below it.`,
-                  }
-                : {}),
+              ...(outcome.note
+                ? { note: outcome.note }
+                : !queued && rowById.get(target.id)?.prBaseBranch
+                  ? {
+                      note: `Merging a stacked PR also merged every unmerged PR below it.`,
+                    }
+                  : {}),
             })
           } catch (e) {
             results.push({
@@ -2778,14 +2801,9 @@ export function registerExponentialTools(
             })
           }
         }
-        // Only a merge that actually landed earns the spare — an unmergeable
-        // PR leaves the row exactly as this call found it.
-        if (
-          ownTargetIds.size > 0 &&
-          !results.some(
-            (result) => result.merged && ownTargetIds.has(result.issueId)
-          )
-        ) {
+        // Only a merge that actually landed (or is queued to) earns the spare;
+        // an unmergeable PR leaves the row exactly as this call found it.
+        if (ownTargetIds.size > 0 && !ownMergeEarned()) {
           await revertMergedOwnPr()
         }
         return ok({ results })
@@ -3068,29 +3086,53 @@ export function registerExponentialTools(
           // Removal works at ANY status: a run that already ended still owns
           // its pictures, and a wrong one has to be retractable.
           if (remove) {
-            const { results, removedAttachmentIds } = removeSessionResults(
-              row.results,
-              { topic, label: label ?? null }
-            )
+            // The column is a jsonb read-modify-write, so it runs under the
+            // same `FOR UPDATE` row lock the upload route takes: the read
+            // above only settled ownership, and an upload racing this remove
+            // would otherwise have one of them overwrite the other's array.
+            const outcome = await db.transaction(async (tx) => {
+              const [locked] = await tx
+                .select({ results: codingSessions.results })
+                .from(codingSessions)
+                .where(eq(codingSessions.id, sessionId))
+                .limit(1)
+                .for(`update`)
+              if (!locked) throw new Error(`Session not found`)
+              const { results, removedAttachmentIds } = removeSessionResults(
+                locked.results,
+                { topic, label: label ?? null }
+              )
+              if (removedAttachmentIds.length === 0) {
+                return {
+                  results: locked.results,
+                  removedAttachmentIds,
+                  gone: [] as Array<{ storageKey: string | null }>,
+                }
+              }
+              // The column first: it is what every client renders, so a
+              // picture is off the wire before its bytes go. Rows and objects
+              // follow.
+              await tx
+                .update(codingSessions)
+                .set({ results, updatedAt: new Date() })
+                .where(eq(codingSessions.id, sessionId))
+              const gone = await tx
+                .delete(sessionAttachments)
+                .where(inArray(sessionAttachments.id, removedAttachmentIds))
+                .returning({ storageKey: sessionAttachments.storageKey })
+              return { results, removedAttachmentIds, gone: gone ?? [] }
+            })
+            const { results, removedAttachmentIds, gone } = outcome
             if (removedAttachmentIds.length === 0) {
               return ok({
                 removed: 0,
                 topic,
                 label: label ?? null,
-                results: resultsSummary(row.results),
+                results: resultsSummary(results),
               })
             }
-            // The column first: it is what every client renders, so a picture
-            // is off the wire before its bytes go. Rows and objects follow.
-            await db
-              .update(codingSessions)
-              .set({ results, updatedAt: new Date() })
-              .where(eq(codingSessions.id, sessionId))
-            const gone = await db
-              .delete(sessionAttachments)
-              .where(inArray(sessionAttachments.id, removedAttachmentIds))
-              .returning({ storageKey: sessionAttachments.storageKey })
-            for (const attachment of gone ?? []) {
+            // Only once the swap is durable: the removed pictures' bytes go.
+            for (const attachment of gone) {
               if (!attachment?.storageKey) continue
               try {
                 await deleteObject(attachment.storageKey)

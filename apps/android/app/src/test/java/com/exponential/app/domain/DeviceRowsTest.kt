@@ -219,6 +219,21 @@ class DeviceRowsTest {
     }
 
     @Test
+    fun `the stacked-start cap is read off the machine's caps`() {
+        // EXP-897: a build without it has no `stack` field in its start
+        // decoder and would run unstacked under a UI that claims a stack.
+        val stacker = entity { copy(caps = """["resume-run","stacked-start"]""") }
+            .toSteerDevice(nowMs, "me")
+        assertTrue(stacker.canStackStart)
+
+        assertFalse(
+            entity { copy(caps = """["resume-run","start-prompt"]""") }
+                .toSteerDevice(nowMs, "me").canStackStart,
+        )
+        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canStackStart)
+    }
+
+    @Test
     fun `acp_agents maps through and an absent one means nothing can start`() {
         // EXP-773: an agent the machine runs but does NOT drive through the
         // engine cannot start there at all; nothing is filtered on it, the

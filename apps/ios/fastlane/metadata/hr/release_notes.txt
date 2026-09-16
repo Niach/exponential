@@ -1,17 +1,18 @@
-- Poruke u redu čekanja: poruka poslana dok agent još radi čeka u traci Queued iznad polja za pisanje, a kad je ukloniš, tekst se vraća u skicu
-- Stop koji stigne: u sesiji uživo Stop sada doista prekida potez koji traje umjesto da se izgubi putem i odbacuje ono što čeka iza njega
-- Tiši gumbi: puni kružić zadržava samo ona jedna radnja zbog koje zaslon postoji; uklanjanje, zatvaranje, osvježavanje, strelice i izbornici ... sada su obični znakovi
-- Izbornici pokazuju što biraju: izbor agenta nosi znak Claude Codea ili Codexa na gumbu i uz svako ime, a izbornici uređaja počinju ikonom prijenosnika ili poslužitelja
+- Jedan zaslon Work: issue, njegovo izvođenje, promjene i rezultati sada su lica jednog zaslona, biraš ih trakom pri dnu, a Stop ili Resume stoji gore desno
+- Jedan prikaz diffa: svaki diff izgleda isto, s brojevima redaka, skrivenim nepromijenjenim recima koje možeš otvoriti i imenovanim preimenovanim ili binarnim datotekama umjesto praznine
+- Složeni pull requestovi: pokreni issue povrh onoga koji ga blokira, spoji cijeli lanac pomoću Merge stack, pročitaj oznaku stacka ili batcha na radu i odgovori na pitanje koje ti pošalje ugniježđeno izvođenje
+- Rezultati izvođenja: izvođenje koje objavi snimke zaslona dobiva lice Results, grupirano po temi, jedna pločica po platformi, a dodirom vidiš cijelu sliku
+- Batch izvođenja s imenom: izvođenje preko više issuea sada piše EXP-874 +2 uz naslov prvog issuea umjesto „Batch run“
+- Poruke koje odmah stignu: poruka napisana dok agent radi stiže mu odmah i stoji kao poslana dok je ne pročita, a Stop vraća tekst u polje za pisanje
+- GitHub posložen: povezivanje GitHuba, dodavanje repozitorija i postavljanje repozitorija boarda ovdje rade kao na računalu, a pogreške se vide ondje gdje jesi
+- Poruke u redu čekanja: poruka koja čeka agenta vidi se u traci iznad polja za pisanje, a Stop u sesiji uživo doista prekida potez koji traje umjesto da se izgubi putem
+- Tiši gumbi i jasniji izbornici: puni kružić zadržava samo glavna radnja zaslona, a izbor agenta nosi znak Claude Codea ili Codexa, dok izbornici uređaja počinju ikonom prijenosnika ili poslužitelja
 - Stranica Agent drži tvoja izvođenja: prošla se izvođenja sklapaju iza broja koji možeš otvoriti, a kad ništa ne radi, polje za pisanje stoji na sredini stranice
-- Prijavi se ondje gdje je račun: postavke uređaja zadržavaju ime, dijeljenje i zadane vrijednosti agenta, dok su prijava, izbor aktivnog računa i uklanjanje sada na oznakama računa
-- Dodavanje računa: Add account stoji u zaglavlju Accounts i prijavljuje novi račun na uređaju, a plus uz račun prijavljuje isti račun na drugom uređaju
+- Prijavi se ondje gdje je račun: prijava, izbor aktivnog računa i uklanjanje sada su na oznakama računa, a Add account u zaglavlju Accounts prijavljuje novi račun na uređaju
 - Filtri issuea su nestali: gumb filtra i njegove pilule napustili su board i pristiglo, pretraga pokriva ono za što su služili, a grupiranje i trake statusa ostaju
 - Nastavi e-poštom ili pristupnim ključem: prijavi se šesteroznamenkastim kodom koji stigne e-poštom ili putem Face ID-a odnosno Touch ID-a; sve mogućnosti stoje u jednom popisu, a nepoznata adresa jednostavno postaje novi račun
 - Oznaka rada prestaje kad prestane agent: sada prati stvarni potez agenta umjesto veze, pokazuje što radi zajedno s vremenom i tokenima, a Stop je u zaglavlju sesije
-- Kartice Exponentialovih alata: kad agent pozove Exponential, povijest prikazuje jednostavan opis poput „Creating issue“ ili „Opened pull request“, a nakon dovršetka i pretpregled rezultata
-- Podagenti s imenom: oznaka podagenta nosi zadatak koji je dobio, njegovi redci sažimaju upotrijebljene alate, a oznaka Plan samo za čitanje stoji dok izvođenje još planira
+- Kartice u povijesti: poziv Exponentiala prikazuje jednostavan opis poput „Creating issue“ s pretpregledom rezultata, oznaka podagenta nosi zadatak koji je dobio, a oznaka Plan samo za čitanje stoji dok izvođenje još planira
 - Kartica workflowa: izvođenje s više agenata prikazuje se kao jedna kartica s fazama i agentima ispod, a redak sesije dobiva drugi redak s onim na čemu se upravo radi
-- Računi koji govore istinu: stanje agentskog računa dolazi iz stvarnog mjerenja potrošnje, pa mrtva prijava piše „Needs re-login“ umjesto „Signed in“
-- Devices je stranica za popravke: svaki stroj popisuje agentske prijave koje drži, a oznaka nudi pravi popravak, ponovnu prijavu za isteklu ili upotrebu tog računa ovdje za onaj koji stroj ne koristi
-- Promjena računa usred izvođenja: Claude izvođenje koje udari u ograničenje može nastaviti na drugom računu iz prikaza potrošnje ili iz poruke o ograničenju, kao novo izvođenje povezano sa starim
-- Natrag odakle si došao: izlazak iz sesije vraća te na issue, board ili pristiglu poštu odakle si je otvorio, a izvođenje koje je pokrenulo drugo izvođenje stoji ugniježđeno ispod njega
+- Računi i popravci: stanje agentskog računa dolazi iz stvarnog mjerenja potrošnje, pa mrtva prijava piše „Needs re-login“, a Devices popisuje prijave svakog stroja s pravim popravkom na oznaci
+- Promjena računa usred izvođenja i povratak odakle si došao: Claude izvođenje na ograničenju može nastaviti na drugom računu, a izlazak iz sesije vraća te na issue ili board odakle si je otvorio

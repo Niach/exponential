@@ -167,6 +167,11 @@ export interface PullState {
   // ONLY attribution source — without it every polled merge fans out
   // anonymously and reaches the person who merged it. Null on an open PR.
   mergedBy: GithubActorRef | null
+  // EXP-897: the PR's live base branch, out of the same response. The
+  // GITHUB_POLLING poller mirrors it into `issues.pr_base_branch` for stack
+  // members (GitHub retargets them when the PR below lands) without a second
+  // read. Null when GitHub omits it.
+  baseRef: string | null
 }
 
 // Fetch a PR's open/closed/merged state (server-side merge detection).
@@ -187,11 +192,13 @@ export async function fetchPullState(
     state: string
     merged: boolean
     merged_by?: GithubActorRef | null
+    base?: { ref?: string }
   }
   return {
     state: data.state === `closed` ? `closed` : `open`,
     merged: Boolean(data.merged),
     mergedBy: data.merged_by ?? null,
+    baseRef: data.base?.ref || null,
   }
 }
 

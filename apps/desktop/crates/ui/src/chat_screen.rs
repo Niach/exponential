@@ -1349,7 +1349,14 @@ impl ChatScreenView {
         // subject; the answer rides `stack_choice` into the second pass.
         if self.stack_choice.is_none() {
             if let Some((identifier, blockers)) = self.open_blockers(cx) {
-                self.prompt_blocked_start(message, identifier, blockers, window, cx);
+                // A remote machine below the `stacked-start` build has no
+                // `stack` field in its decoder: it would run UNSTACKED while
+                // the server had already recorded a stack. Offer it the plain
+                // start only; this IDE resolves the chain itself.
+                let can_stack = self
+                    .remote_device()
+                    .map_or(true, |device| device.can_stack_start);
+                self.prompt_blocked_start(message, identifier, blockers, can_stack, window, cx);
                 return;
             }
         }
@@ -1594,12 +1601,15 @@ impl ChatScreenView {
 
     /// EXP-897 — the blocked-issue alert: Cancel / Start anyway / Stacked PR.
     /// Either answer records the choice and re-enters [`Self::start`] with
-    /// the same composed message, so the two paths stay one code path.
+    /// the same composed message, so the two paths stay one code path. With
+    /// `can_stack` false (a remote machine without `stacked-start`) the
+    /// alert is Cancel / Start anyway: the stack is not on offer.
     fn prompt_blocked_start(
         &mut self,
         message: String,
         identifier: String,
         blockers: Vec<domain::rows::Issue>,
+        can_stack: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -1621,11 +1631,18 @@ impl ChatScreenView {
                 "the lowest one's branch".to_string(),
             )
         };
-        let description = format!(
-            "{identifier} is blocked by {blocked_by}. A stacked PR cuts your branch from \
+        let description = if can_stack {
+            format!(
+                "{identifier} is blocked by {blocked_by}. A stacked PR cuts your branch from \
 {cut_from} and bases your pull request on it, so your diff shows only your own work, and the \
 run builds #{first} first if nobody has."
-        );
+            )
+        } else {
+            format!(
+                "{identifier} is blocked by {blocked_by}. That machine runs an older Exponential \
+app that cannot start a stacked PR. Update it, or start anyway."
+            )
+        };
         let entity = cx.entity().downgrade();
         let opener = window.window_handle();
         let resume = {
@@ -1642,19 +1659,31 @@ run builds #{first} first if nobody has."
         };
         let anyway = resume.clone();
         let stacked_message = message.clone();
-        let spec = crate::native_dialog::AlertSpec::new(
-            "Start coding on a blocked issue?",
-            description,
-            chat_launch::stack_label(),
-        )
-        .secondary(chat_launch::start_anyway_label(), move |_, cx| {
-            anyway(StackChoice::Plain, message.clone(), cx);
-            true
-        })
-        .on_ok(move |_, cx| {
-            resume(StackChoice::Stacked, stacked_message.clone(), cx);
-            true
-        });
+        let spec = if can_stack {
+            crate::native_dialog::AlertSpec::new(
+                "Start coding on a blocked issue?",
+                description,
+                chat_launch::stack_label(),
+            )
+            .secondary(chat_launch::start_anyway_label(), move |_, cx| {
+                anyway(StackChoice::Plain, message.clone(), cx);
+                true
+            })
+            .on_ok(move |_, cx| {
+                resume(StackChoice::Stacked, stacked_message.clone(), cx);
+                true
+            })
+        } else {
+            crate::native_dialog::AlertSpec::new(
+                "Start coding on a blocked issue?",
+                description,
+                chat_launch::start_anyway_label(),
+            )
+            .on_ok(move |_, cx| {
+                anyway(StackChoice::Plain, message.clone(), cx);
+                true
+            })
+        };
         crate::native_dialog::open_alert(window, cx, spec);
     }
 

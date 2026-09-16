@@ -78,6 +78,8 @@ const device: SteerDevice = {
   deviceId: `dev-1`,
   deviceLabel: `buildbox`,
   agents: [`claude`],
+  // EXP-897: reads the start frame's `stack` payload.
+  caps: [`stacked-start`],
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
@@ -667,6 +669,34 @@ describe(`useLaunchComposer blocked start`, () => {
       undefined,
       { stack: true }
     )
+  })
+
+  // A machine below the `stacked-start` build has no `stack` field in its
+  // decoder: the dialog still asks (Cancel / Start anyway) but never offers
+  // the stack, and the model refuses to send one rather than downgrade it.
+  it(`hides the stack for a device without the stacked-start cap`, async () => {
+    const oldDevice: SteerDevice = { ...device, caps: [`resume-run`] }
+    const { result, remote } = mount(null, makeRemote({ devices: [oldDevice] }))
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.canStack).toBe(false)
+    await act(() => result.current.submit())
+    expect(result.current.blockedOpen).toBe(true)
+    await act(() => result.current.startStacked())
+    expect(remote.startIssues).not.toHaveBeenCalled()
+    await act(() => result.current.startAnyway())
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      oldDevice,
+      expect.anything(),
+      [`i1`],
+      undefined,
+      undefined
+    )
+  })
+
+  it(`offers the stack on a device that advertises the cap`, () => {
+    const { result } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.canStack).toBe(true)
   })
 
   it(`never asks for a batch, a done blocker or another subject`, async () => {

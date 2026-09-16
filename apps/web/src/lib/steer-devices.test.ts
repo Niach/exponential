@@ -9,6 +9,7 @@ import {
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
   deviceCanRemoveAccount,
+  deviceCanStackStart,
   deviceCanSwitchAccount,
   deviceCanUpdateNow,
   deviceDefaultAgent,
@@ -520,6 +521,20 @@ describe(`deviceCanSwitchAccount`, () => {
     ).toBe(false)
     expect(deviceCanSwitchAccount({ caps: [] })).toBe(false)
     expect(deviceCanSwitchAccount({ caps: undefined as never })).toBe(false)
+  })
+})
+
+// EXP-897: a build without `stacked-start` has no `stack` field in its start
+// decoder and would run UNSTACKED under a UI that claims a stack, so the
+// blocked-start dialog hides "Stacked PR" for it.
+describe(`deviceCanStackStart`, () => {
+  it(`is true only when the machine advertises stacked-start`, () => {
+    expect(deviceCanStackStart({ caps: [`stacked-start`] })).toBe(true)
+    expect(
+      deviceCanStackStart({ caps: [`resume-run`, `start-prompt`] })
+    ).toBe(false)
+    expect(deviceCanStackStart({ caps: [] })).toBe(false)
+    expect(deviceCanStackStart({ caps: undefined as never })).toBe(false)
   })
 })
 

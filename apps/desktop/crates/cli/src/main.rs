@@ -65,7 +65,7 @@ Commands:
   status                                  Account + daemon + tooling summary
   doctor                                  Check git and the agent CLIs
   code <ISSUE> [options]                  Start a coding session for an issue
-  run <action> [--input k=v ...]          Run a team action (or a builtin)
+  run <action> [options]                  Run a team action (or a builtin)
   mcp list|login|set-secret|status        Team MCP servers + this machine's credentials
   daemon [--foreground] [--label <name>]  Run the remote-start daemon
   daemon install|uninstall|status         Manage the systemd/launchd service
@@ -75,10 +75,14 @@ Commands:
 
 Options for code/run:
   --agent claude|codex      --model <m>   --effort <e>
-  --plan
+  --plan                    --detach      (headless; steer it from the web)
+Options for run:
+  --team <team-id>          --input k=v   (repeatable; the action's pick inputs)
+  --prompt <text>           (additional instructions; the whole request for
+                             create-action)
 Environment:
-  EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → API keys, or a session
-  token — non-interactive login), EXP_LOG=debug
+  EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → Security, or a session
+  token; non-interactive login), EXP_LOG=debug
 ";
 
 fn maybe_prompt_auto_update() {

@@ -44,7 +44,7 @@ function NotificationList() {
                 interactive
                   ? () => {
                       markInboxRead(n.id)
-                      setNav(`project`)
+                      setNav(`board`)
                       openIssue(n.issueId)
                     }
                   : undefined

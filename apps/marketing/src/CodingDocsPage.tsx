@@ -368,9 +368,10 @@ export function CodingDocsPage() {
               can&apos;t be closed. Once the run ends it becomes an ordinary
               tab you close yourself. The same runs are listed on the{` `}
               <strong>Agent</strong> page, <strong>Running</strong> then{` `}
-              <strong>Past</strong>, and a running row carries{` `}
-              <strong>Merge</strong> and <strong>Open issue</strong> buttons.
-              On a phone the Agent page is where you open them. Live sessions
+              <strong>Past</strong>. A row carries no buttons: it opens the
+              run, and merging lives on the run&apos;s{` `}
+              <strong>Changes</strong> face. On a phone the Agent page is
+              where you open them. Live sessions
               are yours alone — teammates see the status badge on the issue,
               never the transcript.
             </p>
@@ -391,12 +392,14 @@ export function CodingDocsPage() {
               <li>
                 Agent <strong>slash commands</strong>, from a{` `}
                 <code>/</code> typeahead filtered to what the session&apos;s
-                agent supports. There are exactly two:{` `}
-                <code>/compact</code> (&ldquo;Compact the conversation
+                agent supports. Two are Exponential&apos;s own, on every
+                agent: <code>/compact</code> (&ldquo;Compact the conversation
                 context&rdquo;, optionally with instructions) and{` `}
                 <code>/clear</code> (&ldquo;Start a fresh conversation
-                (context is discarded)&rdquo;, behind a confirm — the worktree
-                files are kept). While the agent folds its context the view
+                (context is discarded)&rdquo;, behind a confirm; the worktree
+                files are kept). The rest of the list is whatever the
+                agent itself advertises for the run, so it differs between
+                Claude and Codex. While the agent folds its context the view
                 shows a <strong>Compacting context…</strong> strip, and a{` `}
                 <strong>Context compacted</strong> marker stays in the
                 transcript.
@@ -517,10 +520,10 @@ export function CodingDocsPage() {
                 <a href="/docs/actions/">action</a> or chat run, with no issue
                 attached, get their own <strong>Agent runs</strong> group in
                 Reviews, with the action name, branch and PR number, and count
-                toward the Reviews badge. The run itself shows{` `}
-                <strong>Merge</strong> too: in its header, on its running row
-                in the Agent lists, and on the phone&apos;s{` `}
-                <strong>Changes</strong> bar.
+                toward the Reviews badge. The run itself merges too, from
+                the <strong>Merge</strong> button on its{` `}
+                <strong>Changes</strong> face; the rows in the Agent lists
+                only open the run.
               </li>
             </ul>
             <p>

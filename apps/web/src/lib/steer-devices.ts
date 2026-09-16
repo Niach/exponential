@@ -247,6 +247,17 @@ export function deviceSupportsMcp(device: Pick<SteerDevice, `caps`>): boolean {
   return (device.caps ?? []).includes(`mcp`)
 }
 
+/** EXP-897: the machine reads a start frame's `stack` payload and cuts the
+ * branch from the lower PR's. An older build would run UNSTACKED while the
+ * server had already written the `blocks` relation and the UI claimed a
+ * stack, so the blocked-start dialog hides "Stacked PR" for it (the server
+ * refuses `stack`/`stackOn` on its behalf either way). */
+export function deviceCanStackStart(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`stacked-start`)
+}
+
 /** FEED-36: the daemon runs `update_now` — ends every live session on the
  * machine and restarts on the queued self-update. Without the cap the row
  * would sit pending forever, so the machine list hides "Update now". */

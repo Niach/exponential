@@ -1,17 +1,18 @@
-- Zprávy ve frontě: zpráva odeslaná, když agent ještě pracuje, čeká v liště Queued nad polem pro psaní, a když ji odebereš, text se vrátí do rozepsaného konceptu
-- Stop, který dorazí: Stop v běžící relaci teď skutečně přeruší probíhající tah, místo aby se cestou ztratil, a zahodí, co čeká ve frontě za ním
-- Tišší tlačítka: plný kroužek si nechá jen ta jedna akce, kvůli které obrazovka je; odebrat, zavřít, obnovit, šipky i nabídky ... jsou teď prosté ikonky
-- Výběry ukazují, co vybírají: výběr agenta nese značku Claude Code nebo Codex na tlačítku i vedle každého jména a nabídky zařízení začínají ikonou notebooku či serveru
+- Jedna obrazovka Work: issue, jeho běh, změny i výsledky jsou teď tváře jedné obrazovky, přepínáš je lištou dole a Stop či Resume sedí vpravo nahoře
+- Jeden pohled na diff: každý diff vypadá stejně, s čísly řádků, se skrytými nezměněnými řádky, které si můžeš rozbalit, a s pojmenovanými přejmenovanými i binárními soubory místo prázdna
+- Naskládané pull requesty: issue můžeš spustit nad tím, které ho blokuje, celý řetěz spojit přes Merge stack, na práci vidíš odznak stacku nebo batche a odpovíš na dotaz, který ti pošle vnořený běh
+- Výsledky z běhu: běh, který nahraje snímky obrazovky, dostane tvář Results seskupenou podle témat, jednu dlaždici na platformu, a klepnutím ji uvidíš celou
+- Batch běhy podle jména: běh přes několik issues teď čte EXP-874 +2 vedle názvu prvního issue místo „Batch run“
+- Zprávy dorazí hned: zpráva napsaná, když agent pracuje, jde k němu okamžitě a svítí jako odeslaná, dokud ji nepřečte, a Stop vrátí text zpátky do pole pro psaní
+- GitHub srovnaný: připojení GitHubu, přidání repozitáře i nastavení repozitáře boardu se tu chovají stejně jako na desktopu a chyby se ukážou tam, kde právě jsi
+- Zprávy ve frontě: zpráva, která čeká na agenta, je vidět v liště nad polem pro psaní, a Stop v běžící relaci skutečně přeruší probíhající tah, místo aby se cestou ztratil
+- Tišší tlačítka a jasnější výběry: plný kroužek si nechá jen hlavní akce obrazovky a výběr agenta nese značku Claude Code nebo Codex, zatímco nabídky zařízení začínají ikonou notebooku či serveru
 - Stránka Agent drží tvoje běhy: minulé běhy se složí za počet, který můžeš otevřít, a když nic neběží, sedí pole pro psaní uprostřed stránky
-- Přihlašuj se tam, kde je účet: v nastavení zařízení zůstává název, sdílení a výchozí hodnoty agenta, zatímco přihlášení, volba aktivního účtu a jeho odebrání jsou teď na odznacích účtu
-- Přidání účtu: Add account sedí v záhlaví Accounts a přihlásí nový účet na zařízení, a plus u účtu přihlásí tentýž účet na dalším zařízení
+- Přihlašuj se tam, kde je účet: přihlášení, volba aktivního účtu i jeho odebrání jsou teď na odznacích účtu a Add account v záhlaví Accounts přihlásí nový účet na zařízení
 - Filtry issues jsou pryč: tlačítko filtru a jeho štítky zmizely z boardu i z doručených, hledání pokryje, k čemu sloužily, a seskupení i pásy stavů zůstávají
 - Pokračovat e-mailem nebo přístupovým klíčem: přihlas se šestimístným kódem, který ti přijde e-mailem, nebo přes Face ID či Touch ID; všechny možnosti jsou v jednom seznamu a neznámý e-mail se prostě stane novým účtem
 - Ukazatel práce skončí, když skončí agent: sleduje teď skutečný tah agenta místo spojení, ukazuje, co právě dělá, i s časem a tokeny, a Stop je v záhlaví relace
-- Karty nástrojů Exponential: když agent zavolá Exponential, historie ukáže prostý popisek jako „Creating issue“ nebo „Opened pull request“ a po dokončení náhled výsledku
-- Podagenti se jménem: štítek podagenta nese úkol, který dostal, jeho řádky shrnují použité nástroje a štítek Plan jen pro čtení svítí, dokud běh ještě plánuje
+- Karty v historii: volání Exponential se ukáže jako prostý popisek typu „Creating issue“ s náhledem výsledku, štítek podagenta nese úkol, který dostal, a štítek Plan jen pro čtení svítí, dokud běh ještě plánuje
 - Karta workflow: běh s více agenty se zobrazí jako jedna karta s fázemi a agenty pod nimi a řádek relace dostane druhý řádek s tím, na čem se právě pracuje
-- Účty, které říkají pravdu: stav účtu agenta pochází ze skutečného měření spotřeby, takže mrtvé přihlášení hlásí „Needs re-login“ místo „Signed in“
-- Devices je stránka oprav: každý stroj vypisuje přihlášení agentů, která drží, a štítek nabídne tu správnou opravu, nové přihlášení u vypršelého nebo použití účtu právě tady u toho, který stroj nepoužívá
-- Změna účtu uprostřed běhu: běh Claude, který narazí na limit, může pokračovat pod jiným účtem z přehledu spotřeby nebo z hlášky o limitu, jako nový běh navázaný na ten původní
-- Zpátky tam, odkud jsi přišel: odchod z relace tě vrátí na issue, board nebo do doručené pošty, odkud jsi ji otevřel, a běh spuštěný jiným během je vnořený pod ním
+- Účty a opravy: stav účtu agenta pochází ze skutečného měření spotřeby, takže mrtvé přihlášení hlásí „Needs re-login“, a Devices vypisuje u každého stroje jeho přihlášení se správnou opravou na štítku
+- Změna účtu uprostřed běhu a návrat tam, odkud jsi přišel: běh Claude, který narazí na limit, může pokračovat pod jiným účtem, a odchod z relace tě vrátí na issue nebo board, odkud jsi ji otevřel

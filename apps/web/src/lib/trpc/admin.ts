@@ -293,10 +293,12 @@ export const adminRouter = router({
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the user half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
-      // Blobs stranded by the SOLO-TEAM deletes above (their attachment rows
-      // cascaded away, the S3 objects did not). Attachments this user merely
-      // uploaded into a SURVIVING team are not here: `uploader_id` is `set
-      // null`, so those rows (and their blobs) outlive the account.
+      // Blobs stranded by the deletes above, collected by the shared helper:
+      // every attachment of the SOLO teams it destroyed, plus this user's
+      // ISSUE-DRAFT uploads in EVERY team (EXP-878; the draft rows cascade
+      // with the user). Attachments this user merely uploaded into a
+      // SURVIVING team's issues are not here (REV2-36): `uploader_id` is
+      // `set null`, so those rows (and their blobs) outlive the account.
       await deleteStorageObjects(storageKeys)
       // Revoke the deleted user's provider grants (best-effort).
       await revokeOAuthTokensBestEffort(oauthTokens)

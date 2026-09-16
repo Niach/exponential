@@ -179,15 +179,17 @@ object Diff {
     private fun step(n: Int): Int = if (n >= LINE_MAX) LINE_MAX else n + 1
 
     /**
-     * A `---`/`+++`/`diff --git` payload → a display path: cut at the first
+     * A `---`/`+++`/`diff --git` payload → a display path: drop ONE trailing
+     * `\r` (a CRLF-framed patch, split on `\n` alone), cut at the first
      * TAB (GNU diff's timestamp column), then unwrap surrounding double
      * quotes (git quotes a path carrying control or non-ASCII bytes). The
      * `a/`/`b/` prefix is stripped by [stripAb] — only where git actually
      * writes one.
      */
     private fun cutPath(raw: String): String {
-        val tab = raw.indexOf('\t')
-        var s = if (tab >= 0) raw.substring(0, tab) else raw
+        val line = raw.removeSuffix("\r")
+        val tab = line.indexOf('\t')
+        var s = if (tab >= 0) line.substring(0, tab) else line
         if (s.length >= 2 && s.startsWith("\"") && s.endsWith("\"")) s = s.substring(1, s.length - 1)
         return s
     }
@@ -259,7 +261,8 @@ object Diff {
             }
         }
 
-        for (raw in text.split("\n")) {
+        val lines = text.split("\n")
+        for ((i, raw) in lines.withIndex()) {
             // 1. `diff --git` starts the next file unconditionally — even
             //    mid-hunk, where a truncated patch can leave us.
             if (!seeded && raw.startsWith("diff --git ")) {
@@ -311,8 +314,16 @@ object Diff {
             // 4. The hunk body, bounded by the header's counts. Past them the
             //    hunk is over, whatever the next line looks like — that is
             //    what lets a bare steer diff start its next file on a plain
-            //    `--- a/…`.
-            if (open != null && (remOld > 0 || remNew > 0)) {
+            //    `--- a/…`. Inside them a `--- ` line with a `+++ ` line
+            //    right behind it (one-line lookahead) is STILL the next bare
+            //    section's opener, not a deletion of `-- …`: a header whose
+            //    counts overshoot its body must not swallow the file after
+            //    it. A `---` body line followed by anything else stays a
+            //    deletion.
+            val bareOpener = !seeded &&
+                raw.startsWith("--- ") &&
+                lines.getOrNull(i + 1)?.startsWith("+++ ") == true
+            if (open != null && (remOld > 0 || remNew > 0) && !bareOpener) {
                 // An open hunk always belongs to a file: rule 2 opens one.
                 val file = cur!!
                 val sign = raw.firstOrNull()
@@ -379,9 +390,9 @@ object Diff {
                     remNew = 0
                     Building().also { cur = it }
                 }
-                val payload = if (raw.length > 4) raw.substring(4) else ""
+                val payload = cutPath(if (raw.length > 4) raw.substring(4) else "")
                 if (payload == "/dev/null") file.status = Status.ADDED
-                else if (payload.isNotEmpty()) setPath(file, stripAb(cutPath(payload)), RANK_OLD)
+                else if (payload.isNotEmpty()) setPath(file, stripAb(payload), RANK_OLD)
                 continue
             }
             val file = cur ?: continue
@@ -390,9 +401,9 @@ object Diff {
             if (file.hunks.isNotEmpty()) continue
             when {
                 raw.startsWith("+++ ") -> {
-                    val payload = raw.substring(4)
+                    val payload = cutPath(raw.substring(4))
                     if (payload == "/dev/null") file.status = Status.REMOVED
-                    else if (payload.isNotEmpty()) setPath(file, stripAb(cutPath(payload)), RANK_NEW)
+                    else if (payload.isNotEmpty()) setPath(file, stripAb(payload), RANK_NEW)
                 }
                 raw.startsWith("new file mode") -> file.status = Status.ADDED
                 raw.startsWith("deleted file mode") -> file.status = Status.REMOVED

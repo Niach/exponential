@@ -192,7 +192,8 @@ describe(`classifyTeamsForUserDeletion`, () => {
 // The select queue must be seeded in the order the helper queries:
 //   1. memberships          2. team names (ONLY when stranded)
 //   3. the user's email     4. attachment keys (ONLY when a solo team dies)
-//   5. issues with the address   6. comments with the address
+//   5. the user's draft attachment keys (EXP-878, always)
+//   6. issues with the address   7. comments with the address
 const SOLO = `ws-solo`
 const SHARED = `ws-shared`
 const EMAIL = `ada@example.com`
@@ -232,6 +233,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — billing (REV2-55)`, () => {
     selectQueue.push([{ storageKey: `attachments/a.png` }])
     selectQueue.push([])
     selectQueue.push([])
+    selectQueue.push([])
     returningQueue.push([{ id: SOLO }])
 
     const result = await guardAndCleanupTeamsForUserDeletion(
@@ -254,6 +256,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — billing (REV2-55)`, () => {
     seedBaseline({
       memberships: [m(SHARED, USER, `owner`), m(SHARED, `user-2`, `owner`)],
     })
+    selectQueue.push([])
     selectQueue.push([])
     selectQueue.push([])
 
@@ -283,14 +286,16 @@ describe(`guardAndCleanupTeamsForUserDeletion — billing (REV2-55)`, () => {
 describe(`guardAndCleanupTeamsForUserDeletion — storage (REV2-36)`, () => {
   it(`reclaims only the dying teams' blobs, never the ones the user uploaded elsewhere`, async () => {
     seedBaseline({ memberships: [m(SOLO, USER, `owner`)] })
-    // The single attachments query is team-scoped; an uploader-scoped arm
-    // would have needed its own batch here (uploader_id is `set null` now, so
-    // those rows and blobs survive with the surviving issue that embeds them).
+    // The team-scoped attachments query; there is no uploader-scoped arm
+    // (uploader_id is `set null` now, so those rows and blobs survive with
+    // the surviving issue that embeds them). The draft arm (EXP-878) is the
+    // empty batch right after it.
     selectQueue.push([
       { storageKey: `a.png` },
       { storageKey: `a.png` },
       { storageKey: `b.png` },
     ])
+    selectQueue.push([])
     selectQueue.push([])
     selectQueue.push([])
     returningQueue.push([{ id: SOLO }])
@@ -310,6 +315,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — storage (REV2-36)`, () => {
     })
     selectQueue.push([])
     selectQueue.push([])
+    selectQueue.push([])
 
     const result = await guardAndCleanupTeamsForUserDeletion(
       fakeTx,
@@ -319,6 +325,65 @@ describe(`guardAndCleanupTeamsForUserDeletion — storage (REV2-36)`, () => {
 
     expect(result.storageKeys).toEqual([])
   })
+
+  // EXP-878: `issue_drafts.user_id` cascades on the users-row delete and
+  // `attachments.draft_id` cascades with the draft, so a draft's files vanish
+  // from EVERY team the user belonged to, surviving ones included. The rows
+  // are gone either way; the blobs must go with them.
+  it(`reclaims the blobs of the user's drafts in surviving teams too (EXP-878)`, async () => {
+    seedBaseline({
+      memberships: [m(SHARED, USER, `owner`), m(SHARED, `user-2`, `owner`)],
+    })
+    // No solo team, so no team-keys batch: the draft batch comes first.
+    selectQueue.push([
+      { storageKey: `drafts/d-1/clip.mp4`, posterStorageKey: `drafts/d-1/clip.mp4.poster` },
+      { storageKey: `drafts/d-1/shot.png`, posterStorageKey: null },
+    ])
+    selectQueue.push([])
+    selectQueue.push([])
+
+    const result = await guardAndCleanupTeamsForUserDeletion(
+      fakeTx,
+      USER,
+      `self`
+    )
+
+    expect(result.deletedTeamIds).toEqual([])
+    // EXP-824: a clip's poster frame is its own object and dies with it.
+    expect(result.storageKeys).toEqual([
+      `drafts/d-1/clip.mp4`,
+      `drafts/d-1/clip.mp4.poster`,
+      `drafts/d-1/shot.png`,
+    ])
+    expect(deletes).not.toContain(attachments)
+  })
+
+  it(`unions the draft keys with the dying teams' keys, deduped (EXP-878)`, async () => {
+    seedBaseline({ memberships: [m(SOLO, USER, `owner`)] })
+    // A draft in the dying solo team shows up in BOTH arms: the team query
+    // by team_id and the draft query by user. One key, one S3 delete.
+    selectQueue.push([{ storageKey: `a.png` }, { storageKey: `drafts/d-1/x.png` }])
+    selectQueue.push([
+      { storageKey: `drafts/d-1/x.png`, posterStorageKey: null },
+      { storageKey: `drafts/d-2/y.png`, posterStorageKey: null },
+    ])
+    selectQueue.push([])
+    selectQueue.push([])
+    returningQueue.push([{ id: SOLO }])
+
+    const result = await guardAndCleanupTeamsForUserDeletion(
+      fakeTx,
+      USER,
+      `admin`
+    )
+
+    expect(result.deletedTeamIds).toEqual([SOLO])
+    expect(result.storageKeys).toEqual([
+      `a.png`,
+      `drafts/d-1/x.png`,
+      `drafts/d-2/y.png`,
+    ])
+  })
 })
 
 describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
@@ -326,6 +391,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
     seedBaseline({
       memberships: [m(SHARED, USER, `owner`), m(SHARED, `user-2`, `owner`)],
     })
+    selectQueue.push([])
     selectQueue.push([
       { id: `issue-1`, description: `cc @${EMAIL} please review` },
     ])
@@ -348,6 +414,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
     })
     // An ILIKE prefilter can match a row whose only occurrence is a bare
     // address (no `@` prefix) or a longer address that merely ends with ours.
+    selectQueue.push([])
     selectQueue.push([
       { id: `issue-1`, description: `mail ${EMAIL} directly` },
       { id: `issue-2`, description: `ping @other@example.com` },
@@ -382,6 +449,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — email residue (REV2-75)`, () =
     })
     selectQueue.push([])
     selectQueue.push([])
+    selectQueue.push([])
 
     await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
 
@@ -396,6 +464,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — email residue (REV2-75)`, () =
   it(`runs the residue cleanup on the admin path too`, async () => {
     seedBaseline({ memberships: [m(SOLO, USER, `owner`)] })
     selectQueue.push([{ storageKey: `a.png` }])
+    selectQueue.push([])
     selectQueue.push([])
     selectQueue.push([])
     returningQueue.push([{ id: SOLO }])
@@ -445,6 +514,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
     seedBaseline({ memberships: surviving })
     selectQueue.push([])
     selectQueue.push([])
+    selectQueue.push([])
     updateReturningQueue.push([{ id: `sess-requested` }])
 
     const result = await guardAndCleanupTeamsForUserDeletion(
@@ -478,6 +548,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
     seedBaseline({ memberships: surviving })
     selectQueue.push([])
     selectQueue.push([])
+    selectQueue.push([])
     updateReturningQueue.push([])
     updateReturningQueue.push([{ id: `sess-hosted` }])
 
@@ -506,6 +577,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
     seedBaseline({ memberships: surviving })
     selectQueue.push([])
     selectQueue.push([])
+    selectQueue.push([])
     updateReturningQueue.push([{ id: `sess-a` }])
     updateReturningQueue.push([{ id: `sess-b` }])
 
@@ -514,6 +586,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
 
     updates.length = 0
     seedBaseline({ memberships: surviving })
+    selectQueue.push([])
     selectQueue.push([])
     selectQueue.push([])
 

@@ -638,6 +638,21 @@ export const steerRouter = router({
         })
       }
 
+      // EXP-897: a device below the `stacked-start` build has no `stack`
+      // field in its decoder: it would run UNSTACKED, silently, while the
+      // server had already written the `blocks` relation and the UI claimed
+      // a stack. Refuse BEFORE `resolveStackChain` writes anything.
+      const requireStackedStartCap = (
+        device: TargetDevice,
+        stacked: boolean
+      ) => {
+        if (!stacked || device.caps.includes(`stacked-start`)) return
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `That machine runs an older Exponential app that cannot start a stacked PR. Update it, or start anyway.`,
+        })
+      }
+
       // EXP-792: every picked MCP server must be a row of the subject's team.
       // Duplicates collapse; the count check refuses a foreign or vanished
       // id without naming which (the caller's own picker rendered the list).
@@ -1260,6 +1275,7 @@ export const steerRouter = router({
       }
       requireUsageHeadroom(device, agent, input.account, input.model)
       requireStartPromptCap(device, prompt)
+      requireStackedStartCap(device, Boolean(input.stack || input.stackOn))
 
       const options = {
         agent: input.agent,

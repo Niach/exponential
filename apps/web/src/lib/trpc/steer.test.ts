@@ -243,7 +243,7 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
       repoFullName: `acme/api`,
       base: `exp/EXP-11`,
     })
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`stacked-start`] })
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -268,7 +268,7 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
   })
 
   it(`passes an explicit stackOn through to the resolver`, async () => {
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`stacked-start`] })
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -282,7 +282,7 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
   })
 
   it(`refuses a stackOn issue from another team`, async () => {
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`stacked-start`] })
     h.getIssueTeamContext.mockImplementation(async (id: string) => ({
       issueId: id,
       boardId: `proj-${id}`,
@@ -299,7 +299,7 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
   })
 
   it(`omits the stack entirely when nothing blocks the issue`, async () => {
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`stacked-start`] })
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -309,7 +309,7 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
   })
 
   it(`never resolves a stack on an unstacked start`, async () => {
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`stacked-start`] })
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
     expect(h.resolveStackChain).not.toHaveBeenCalled()
     expect(`stack` in lastStartBody()).toBe(false)
@@ -343,7 +343,7 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
     h.resolveStackChain.mockRejectedValue(
       new Error(`Blocking cycle: A → B → A. Fix the relations before stacking.`)
     )
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`stacked-start`] })
     const error = await rejectionOf(
       caller.startSession({
         issueId: ISSUE_A,
@@ -354,6 +354,48 @@ describe(`steer.startSession — stacked starts (EXP-897)`, () => {
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toContain(`Blocking cycle`)
     expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // A device below the `stacked-start` build has no `stack` field in its
+  // decoder: it would run UNSTACKED while the server had already written the
+  // `blocks` relation. Refused BEFORE the chain resolver runs, so nothing is
+  // written and the machine never wakes.
+  it(`refuses a stacked start to a device without the stacked-start cap, before resolving the chain`, async () => {
+    queueOwnDevice({ caps: [`start-prompt`, `resume-run`] })
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        stack: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(
+      `older Exponential app that cannot start a stacked PR`
+    )
+    expect(h.resolveStackChain).not.toHaveBeenCalled()
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses an explicit stackOn to a device without the cap the same way`, async () => {
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        stackOn: { issueId: ISSUE_B },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect(h.resolveStackChain).not.toHaveBeenCalled()
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`never asks for the cap on a plain start`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    expect(`stack` in lastStartBody()).toBe(false)
   })
 })
 

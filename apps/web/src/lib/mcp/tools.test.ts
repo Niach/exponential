@@ -2122,6 +2122,26 @@ describe(`exponential_sessions_results`, () => {
     vi.stubEnv(`BETTER_AUTH_SECRET`, `mcp-tools-test-secret`)
     vi.stubEnv(`BETTER_AUTH_URL`, ``)
     deleteReturning.current = []
+    // The remove path re-reads the row under `FOR UPDATE` inside a
+    // transaction (the same lock the upload route takes) and writes through
+    // the tx handle; the locked read answers with the same run row, and the
+    // tx's update/delete are the db's own mocks so the assertions below see
+    // them.
+    h.db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const txSelect: Record<string, unknown> = {}
+      for (const method of [`from`, `where`, `limit`, `for`]) {
+        txSelect[method] = () => txSelect
+      }
+      ;(txSelect as { then: unknown }).then = (
+        resolve: (v: unknown) => unknown,
+        reject: (e: unknown) => unknown
+      ) => Promise.resolve(dbRows.current).then(resolve, reject)
+      return fn({
+        select: () => txSelect,
+        update: h.db.update,
+        delete: h.db.delete,
+      })
+    })
   })
 
   it(`is not registered without its gate`, () => {
@@ -2826,6 +2846,53 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
       mergedOwnPr: true,
       status: `running`,
     })
+  })
+
+  // FEED-43 R1: a queued merge reports `merged: false, queued: true`; the
+  // spare stays, since the landing merge is still the run's own.
+  it(`reports an enqueued own-PR merge as queued and keeps the spare`, async () => {
+    const updates = captureUpdates()
+    caller.issues.mergePr.mockResolvedValue({
+      merged: false,
+      queued: true,
+      note: `GitHub queued the merge of PR #9. Nothing is merged yet; the issue completes when the merge lands.`,
+    })
+    const restore = stageSelects([
+      [runRow({ issueId: UUID })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-1`,
+          prUrl: `https://github.com/acme/app/pull/9`,
+          branch: `exp/MET-1`,
+          prBaseBranch: `exp/MET-0`,
+        },
+      ],
+    ])
+
+    try {
+      const result = await collectTools(USER, SESSION).get(
+        `exponential_pr_merge`
+      )!({ issueId: UUID })
+      const ok = parseOk(result) as {
+        results: Array<{ merged: boolean; queued?: boolean; note?: string }>
+      }
+      expect(ok.results).toEqual([
+        {
+          issueId: UUID,
+          identifier: `MET-1`,
+          merged: false,
+          queued: true,
+          note: `GitHub queued the merge of PR #9. Nothing is merged yet; the issue completes when the merge lands.`,
+        },
+      ])
+    } finally {
+      restore()
+    }
+
+    // The stamp, and NO revert.
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toMatchObject({ mergedOwnPr: true })
   })
 
   it(`stamps when a BATCH run merges the PR on its own branch`, async () => {
@@ -4108,6 +4175,63 @@ describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
     expect(ok.results.every((row) => row.merged && row.mergedVia === `EXP-11`)).toBe(
       true
     )
+  })
+
+  // FEED-43 R1: an ENQUEUED stack merge has not landed and the queue may
+  // still reject it; reporting `merged: true` made agents end their run or
+  // skip a retry. Every issue the queued stack covers says `queued` instead.
+  it(`reports an enqueued stack as queued, never merged, for every issue it covers`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-11`,
+        prUrl: `https://github.com/acme/app/pull/241`,
+        branch: `exp/EXP-11`,
+        prBaseBranch: `master`,
+      },
+      {
+        id: PROJ,
+        identifier: `EXP-12`,
+        prUrl: `https://github.com/acme/app/pull/242`,
+        branch: `exp/EXP-12`,
+        prBaseBranch: `exp/EXP-11`,
+      },
+    ]
+    caller.issues.mergePr.mockResolvedValue({
+      merged: false,
+      queued: true,
+      mergedPrUrls: [],
+      queuedPrUrls: [
+        `https://github.com/acme/app/pull/241`,
+        `https://github.com/acme/app/pull/242`,
+      ],
+      note: `GitHub queued the stack merge of PR #242. Nothing is merged yet; the issues complete when it lands.`,
+    })
+
+    const result = await tool(`exponential_pr_merge`)({
+      issueIds: [UUID, PROJ],
+      mergeStack: true,
+    })
+
+    expect(caller.issues.mergePr).toHaveBeenCalledTimes(1)
+    const ok = parseOk(result) as {
+      results: Array<{
+        merged: boolean
+        queued?: boolean
+        mergedVia: string
+        error?: string
+      }>
+    }
+    expect(ok.results).toHaveLength(2)
+    expect(
+      ok.results.every(
+        (row) =>
+          row.merged === false &&
+          row.queued === true &&
+          row.mergedVia === `EXP-11` &&
+          row.error === undefined
+      )
+    ).toBe(true)
   })
 
   it(`merges a target on an unrelated PR on its own and reports only what landed`, async () => {

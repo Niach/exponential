@@ -8,8 +8,13 @@ let mockRows: Array<{
   prNumber: number | null
   prState: string | null
   teamId: string
+  // EXP-897: the stack columns the pass re-reads the base for.
+  prBaseBranch: string | null
+  prStackNumber: number | null
 }> = []
 let capturedWhere: unknown = null
+// EXP-897: the `pr_base_branch` rewrites the pass issued.
+let baseWrites: Array<Record<string, unknown>> = []
 // EXP-734: the second lane polls the chore PRs on coding_sessions rows
 // (a join-less select) — the stub answers it from mockSessionRows.
 let mockSessionRows: Array<{
@@ -33,6 +38,13 @@ vi.mock(`@/db/connection`, () => ({
         where: (clause: unknown) => {
           capturedSessionWhere = clause
           return Promise.resolve(mockSessionRows)
+        },
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          baseWrites.push(values)
         },
       }),
     }),
@@ -72,8 +84,15 @@ function row(overrides: Partial<(typeof mockRows)[number]> = {}) {
     prNumber: 7,
     prState: `open` as string | null,
     teamId: `t1`,
+    prBaseBranch: null as string | null,
+    prStackNumber: null as number | null,
     ...overrides,
   }
+}
+
+// An open PR as the poller's one read reports it; `baseRef` = its live base.
+function openOnGitHub(baseRef: string | null = null) {
+  return { state: `open` as const, merged: false, mergedBy: null, baseRef }
 }
 
 // Flatten a drizzle SQL tree down to its bound parameter values.
@@ -145,6 +164,7 @@ describe(`runPrPollPass`, () => {
     mockSessionRows = []
     capturedWhere = null
     capturedSessionWhere = null
+    baseWrites = []
   })
 
   // EXP-734: the chore PR of an action/chat run lives on its session row.
@@ -157,6 +177,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: true,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass(now)
     const params = sqlParams(capturedSessionWhere)
@@ -176,6 +197,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: false,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass(now)
     expect(applySessionPrState).toHaveBeenCalledWith({
@@ -201,6 +223,7 @@ describe(`runPrPollPass`, () => {
       state: `open`,
       merged: false,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass()
     expect(applyPrReopenedState).toHaveBeenCalledWith({
@@ -217,6 +240,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: true,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass()
     expect(applyPrMergeState).toHaveBeenCalledWith(
@@ -231,6 +255,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: false,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass()
     expect(applyPrClosedState).toHaveBeenCalledWith({
@@ -245,11 +270,63 @@ describe(`runPrPollPass`, () => {
       state: `open`,
       merged: false,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass()
     expect(applyPrMergeState).not.toHaveBeenCalled()
     expect(applyPrClosedState).not.toHaveBeenCalled()
     expect(applyPrReopenedState).not.toHaveBeenCalled()
+    // An unstacked PR gets no base write.
+    expect(baseWrites).toEqual([])
+  })
+
+  // EXP-897 (FEED-43 R1): the `edited` webhook that mirrors GitHub's retarget
+  // of a stack member never reaches a polling instance, so the pass takes the
+  // base of every open member off its ONE state read and writes it back when
+  // it moved.
+  it(`rewrites a stack member's base when GitHub moved it, once per PR`, async () => {
+    mockRows = [
+      row({ issueId: `i1`, prBaseBranch: `exp/EXP-1`, prStackNumber: 3 }),
+      // A batch sibling on the same PR shares the read.
+      row({ issueId: `i2`, prBaseBranch: `exp/EXP-1`, prStackNumber: 3 }),
+    ]
+    vi.mocked(fetchPullState).mockResolvedValue(openOnGitHub(`master`))
+    await runPrPollPass()
+    // The base rides the state read: no second GitHub call per PR.
+    expect(fetchPullState).toHaveBeenCalledTimes(1)
+    expect(fetchPullState).toHaveBeenCalledWith(`acme/app`, 7, `tok`)
+    expect(baseWrites.map((write) => write.prBaseBranch)).toEqual([
+      `master`,
+      `master`,
+    ])
+    expect(applyPrMergeState).not.toHaveBeenCalled()
+  })
+
+  it(`leaves a stack member's base alone while GitHub still agrees, and skips closed PRs`, async () => {
+    mockRows = [
+      row({ issueId: `i1`, prBaseBranch: `exp/EXP-1` }),
+      row({
+        issueId: `i2`,
+        prUrl: `https://github.com/acme/app/pull/8`,
+        prNumber: 8,
+        prBaseBranch: `exp/EXP-1`,
+      }),
+    ]
+    vi.mocked(fetchPullState)
+      .mockResolvedValueOnce(openOnGitHub(`exp/EXP-1`))
+      .mockResolvedValueOnce({
+        state: `closed`,
+        merged: false,
+        mergedBy: null,
+        // A closed PR's base is never mirrored, whatever it says.
+        baseRef: `master`,
+      })
+    await runPrPollPass()
+    expect(baseWrites).toEqual([])
+    expect(applyPrClosedState).toHaveBeenCalledWith({
+      issueId: `i2`,
+      prUrl: `https://github.com/acme/app/pull/8`,
+    })
   })
 
   it(`fetches a batch PR's state once and applies it to every linked issue`, async () => {
@@ -258,6 +335,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: true,
       mergedBy: null,
+    baseRef: null,
     })
     await runPrPollPass()
     expect(fetchPullState).toHaveBeenCalledTimes(1)
@@ -271,7 +349,12 @@ describe(`runPrPollPass`, () => {
     ]
     vi.mocked(fetchPullState)
       .mockRejectedValueOnce(new Error(`boom`))
-      .mockResolvedValueOnce({ state: `closed`, merged: true, mergedBy: null })
+      .mockResolvedValueOnce({
+        state: `closed`,
+        merged: true,
+        mergedBy: null,
+        baseRef: null,
+      })
     const spy = vi.spyOn(console, `error`).mockImplementation(() => {})
     await runPrPollPass()
     expect(applyPrMergeState).toHaveBeenCalledTimes(1)

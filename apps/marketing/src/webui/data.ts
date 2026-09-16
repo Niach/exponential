@@ -1,7 +1,7 @@
 /* ─── Web-app demo fixtures — ONLY what the web chrome adds ───
    Issues, inbox items, reviews and issue bodies come from the single fixture
    universe in ../ide/data (dogfood: Exponential building Exponential). */
-import { PROJECT, type Issue, type IssueStatus } from "../ide/data"
+import { DEMO_BOARD, type Issue, type IssueStatus } from "../ide/data"
 
 /* The issue the collab scene's widget report files onto the board
    (EXP-602) — mirrors Mara's support thread below: a fresh widget report,
@@ -28,7 +28,7 @@ export type DemoProject = {
 /* The dogfood board carries a repository, so it draws the `ui-repository`
    glyph like every repo-backed board in the app. */
 export const WEB_PROJECTS: DemoProject[] = [
-  { name: PROJECT.name, slug: `exponential`, color: `#6366f1`, icon: `code` },
+  { name: DEMO_BOARD.name, slug: `exponential`, color: `#6366f1`, icon: `code` },
   { name: `Mobile Apps`, slug: `mobile-apps`, color: `#f97316`, icon: `kanban` },
   { name: `Feedback`, slug: `feedback`, color: `#22c55e`, icon: `megaphone` },
 ]

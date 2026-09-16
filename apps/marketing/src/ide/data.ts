@@ -19,7 +19,7 @@ export type Issue = {
 
 export const DS: Assignee = { initials: `DS`, name: `Danny Strähhuber` }
 
-export const PROJECT = { name: `Exponential`, color: `#a1a1aa` }
+export const DEMO_BOARD = { name: `Exponential`, color: `#a1a1aa` }
 
 export const ISSUES: Issue[] = [
   {
@@ -201,7 +201,7 @@ export const REVIEWS: Review[] = [
 ]
 
 /* ─── Issue detail bodies (rendered GFM, statically) ───
-   `ref` renders a same-workspace #issue pill, `mention` an @member pill —
+   `ref` renders a same-team #issue pill, `mention` an @member pill;
    both are plain text in the markdown source, pills only at render time. */
 
 export type Inline = { t: string; code?: boolean; ref?: boolean; mention?: boolean }
@@ -298,7 +298,7 @@ export type Commit = { subject: string; meta: string }
 
 export const COMMITS: Commit[] = [
   { subject: `feat(desktop): JetBrains-style IDE shell`, meta: `niach · 3 hours ago` },
-  { subject: `fix(ios): show compose button only inside a project`, meta: `niach · 5 hours ago` },
+  { subject: `fix(ios): show compose button only inside a board`, meta: `niach · 5 hours ago` },
   { subject: `fix(mobile): Android issue-open crash`, meta: `niach · 9 hours ago` },
   { subject: `feat!: masterplan v5 — per-seat billing`, meta: `niach · 11 hours ago` },
 ]

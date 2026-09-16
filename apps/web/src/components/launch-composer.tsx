@@ -307,6 +307,7 @@ export function LaunchComposer({
         open={model.blockedOpen}
         blockers={model.blockedStart}
         busy={busy}
+        canStack={model.canStack}
         onOpenChange={(next) => {
           if (!next) model.closeBlockedStart()
         }}

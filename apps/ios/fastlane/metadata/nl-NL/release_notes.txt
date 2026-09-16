@@ -1,17 +1,18 @@
-- Berichten in de wachtrij: stuur je iets terwijl de agent nog werkt, dan wacht het in een Queued-balk boven het invoerveld, en verwijder je het, dan komt de tekst terug in je concept
-- Stop die aankomt: Stop in een lopende sessie onderbreekt nu echt de lopende beurt in plaats van onderweg te verdwijnen, en gooit weg wat er nog in de wachtrij staat
-- Rustigere knoppen: alleen de ene actie waar een scherm voor is houdt een gevulde cirkel; verwijderen, sluiten, verversen, de pijltjes en de ...-menu's zijn nu gewone tekens
-- Kiezers die tonen wat ze kiezen: de agentkiezer draagt het merk van Claude Code of Codex op de knop en naast elke naam, en apparaatmenu's beginnen met een laptop- of servericoon
+- Eén Work-scherm: een issue, zijn run, de wijzigingen en de resultaten zijn kanten van hetzelfde scherm, je wisselt ertussen met de balk onderin, en Stop of Resume staat rechtsboven
+- Eén diff-weergave: elke diff leest hetzelfde, met regelnummers, verborgen ongewijzigde regels die je kunt openen, en hernoemde of binaire bestanden met naam in plaats van leeg
+- Gestapelde pull requests: start een issue boven op de issue die hem blokkeert, voeg de hele keten samen met Merge stack, lees het stack- of batch-merk op het werk, en beantwoord de vraag die een geneste run je stuurt
+- Resultaten van een run: een run die schermafbeeldingen publiceert krijgt een Results-kant, gegroepeerd per onderwerp, één tegel per platform, en een tik toont het hele beeld
+- Batch-runs met een naam: een run over meerdere issues leest nu EXP-874 +2 naast de titel van de eerste issue in plaats van „Batch run”
+- Berichten die meteen aankomen: een bericht dat je tikt terwijl de agent werkt, bereikt hem direct en staat als verzonden tot het gelezen is, en Stop geeft de tekst terug aan je invoerveld
+- GitHub op orde: GitHub koppelen, een repository toevoegen en de repository van een board instellen werken hier net als op de computer, en fouten verschijnen waar je bent
+- Berichten in de wachtrij: een bericht dat op de agent wacht staat in een balk boven het invoerveld, en Stop in een lopende sessie onderbreekt nu echt de lopende beurt in plaats van onderweg te verdwijnen
+- Rustigere knoppen en duidelijkere kiezers: alleen de hoofdactie van een scherm houdt een gevulde cirkel, en de agentkiezer draagt het merk van Claude Code of Codex, terwijl apparaatmenu's beginnen met een laptop- of servericoon
 - De Agent-pagina houdt je runs vast: eerdere runs vouwen achter een teller die je kunt openen, en draait er niets, dan staat het invoerveld midden op de pagina
-- Inloggen waar het account is: apparaatinstellingen houden naam, delen en agent-standaarden, terwijl inloggen, het actieve account kiezen en verwijderen nu op de account-chips zitten
-- Een account toevoegen: Add account staat in de Accounts-kop om een nieuw account op een apparaat in te loggen, en een plus bij een account logt datzelfde op een ander apparaat in
+- Inloggen waar het account is: inloggen, het actieve account kiezen en verwijderen zitten nu op de account-chips, en Add account in de Accounts-kop logt een nieuw account op een apparaat in
 - Issue-filters zijn weg: de filterknop en zijn pillen zijn uit het board en de inbox verdwenen, zoeken dekt waar ze voor waren, en groeperen en de statusbanden blijven
 - Doorgaan met e-mail of met een passkey: log in met een 6-cijferige code die je gemaild krijgt, of met Face ID of Touch ID; alle opties staan in één lijst, en een onbekend e-mailadres wordt gewoon een nieuw account
 - De werk-indicator stopt wanneer de agent stopt: hij volgt nu de echte beurt van de agent in plaats van de verbinding, toont wat hij doet met de duur en de tokens, en Stop staat in de kop van de sessie
-- Kaarten voor Exponential-tools: roept de agent Exponential aan, dan toont het verloop een eenvoudig bijschrift als „Creating issue” of „Opened pull request”, en daarna een voorproefje van het resultaat
-- Subagenten met een naam: de chip van een subagent draagt de taak die hij kreeg, zijn regels vatten de gebruikte tools samen, en een alleen-lezen Plan-chip verschijnt zolang de run nog plant
+- Kaarten in het verloop: een aanroep van Exponential toont een eenvoudig bijschrift als „Creating issue” met een voorproefje van het resultaat, de chip van een subagent draagt de taak die hij kreeg, en een alleen-lezen Plan-chip verschijnt zolang de run plant
 - Workflow-kaart: een run met meerdere agenten verschijnt als één kaart met zijn fasen en de agenten eronder, en een sessieregel krijgt een tweede regel met waar de run nu aan werkt
-- Accounts die de waarheid vertellen: de gezondheid van een agent-account komt uit een echte verbruiksmeting, dus een dode login leest „Needs re-login” in plaats van „Signed in”
-- Devices is de reparatiepagina: elke machine toont de agent-logins die hij heeft, en een chip biedt de juiste reparatie, opnieuw inloggen bij een verlopen login of dit account hier gebruiken bij een account dat de machine niet gebruikt
-- Wisselen van account tijdens een run: een Claude-run die zijn limiet raakt, kan vanuit het verbruiksscherm of de limietmelding verder op een ander account, als nieuwe run die aan de oude gekoppeld is
-- Terug waar je vandaan kwam: een sessie verlaten brengt je terug naar de issue, het board of de inbox waar je hem opende, en een run die door een andere run is gestart, staat eronder genest
+- Accounts en reparatie: de gezondheid van een agent-account komt uit een echte verbruiksmeting, dus een dode login leest „Needs re-login”, en Devices toont per machine de logins met de juiste reparatie op een chip
+- Wisselen van account tijdens een run, en terug waar je vandaan kwam: een Claude-run op zijn limiet kan verder op een ander account, en een sessie verlaten brengt je terug naar de issue of het board waar je hem opende

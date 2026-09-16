@@ -36,8 +36,8 @@ const ORIGIN = `http://localhost:5173/api/trpc/attachments.delete`
 interface AttachmentRow {
   id: string
   teamId?: string
-  issueId?: string
-  boardId?: string
+  issueId?: string | null
+  boardId?: string | null
   commentId?: string | null
   draftId?: string | null
   uploaderId?: string | null
@@ -413,6 +413,7 @@ describe(`attachments.listForTeam`, () => {
 
     expect(h.assertTeamOwner).toHaveBeenCalledWith(`actor`, TEAM)
     expect(result.totalBytes).toBe(300)
+    expect(result.draftBytes).toBe(0)
     expect(
       result.attachments.map((row) => ({
         id: row.id,
@@ -432,14 +433,36 @@ describe(`attachments.listForTeam`, () => {
     )
   })
 
-  it(`flags draft-owned rows as referenced (EXP-878)`, async () => {
-    state.attachmentRows = [imageRow({ id: ATT_A, draftId: `draft-1` })]
-    state.issueRows = []
+  // EXP-878: a draft-owned row has no issue or board. Every deployed desktop
+  // decodes `issueId`/`boardId` as non-null strings and fails the WHOLE
+  // response on one null row, so drafts stay out of the list; their bytes
+  // still belong to the team's usage, and `draftBytes` names the omitted part.
+  it(`omits draft-owned rows from the list but keeps their bytes in the totals (EXP-878)`, async () => {
+    state.attachmentRows = [
+      imageRow({ id: ATT_A, sizeBytes: 100 }),
+      imageRow({
+        id: ATT_B,
+        sizeBytes: 250,
+        issueId: null,
+        boardId: null,
+        draftId: `draft-1`,
+        storageKey: `drafts/draft-1/${ATT_B}-shot.png`,
+      }),
+    ]
+    state.issueRows = [
+      { id: `issue-1`, description: `![a](/api/attachments/${ATT_A})` },
+    ]
     state.commentRows = []
 
     const result = await caller.listForTeam({ teamId: TEAM })
 
-    expect(result.attachments[0].referenced).toBe(true)
+    expect(result.attachments.map((row) => row.id)).toEqual([ATT_A])
+    for (const row of result.attachments) {
+      expect(row.issueId).toEqual(expect.any(String))
+      expect(row.boardId).toEqual(expect.any(String))
+    }
+    expect(result.totalBytes).toBe(350)
+    expect(result.draftBytes).toBe(250)
   })
 
   it(`flags comment-linked rows as referenced (EXP-554)`, async () => {

@@ -30,7 +30,7 @@
   --g-stroke-section: rgba(255, 255, 255, 0.078);
   --g-stroke-card: rgba(255, 255, 255, 0.102);
   --g-stroke-active: rgba(255, 255, 255, 0.14);
-  /* cx.theme().popover — the OPAQUE floor under the terminal dock. */
+  /* cx.theme().popover: the OPAQUE floor under the bottom terminal tab bar. */
   --g-popover: #252525;
   --g-border: rgba(255, 255, 255, 0.102);
   --ide-fg: #fafafa;
@@ -617,29 +617,8 @@
   align-items: center;
 }
 
-/* filter_bar.rs: px_4 py_2, 44px min-height, trigger right-aligned. */
-.ide-filterbar {
-  flex: none;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 7px 13px;
-}
-.ide-filterbtn {
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5.25px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-size: var(--f-sm);
-  color: var(--ide-muted);
-}
-.ide-filterbtn:hover {
-  background: var(--g-fill-row);
-}
-
+/* board.rs: no control row above the list since EXP-862 removed issue
+   filtering; the list owns the whole panel. */
 .ide-board-list {
   flex: 1;
   min-height: 0;

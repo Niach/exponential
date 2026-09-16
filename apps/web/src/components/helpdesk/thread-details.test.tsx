@@ -91,6 +91,9 @@ describe(`the ticket's linked issue`, () => {
     )
     const chip = screen.getByTestId(`support-linked-issue`)
     expect(chip.className).toContain(`issue-chip`)
+    // The rail's row is the chip's: the shared 18rem cap is lifted so a long
+    // escalated title truncates at the rail's edge, not two thirds in.
+    expect(chip.className).toContain(`max-w-none`)
     expect(chip.textContent).toContain(`SUP-4`)
     expect(chip.textContent).toContain(`Widget submits twice on Safari`)
 

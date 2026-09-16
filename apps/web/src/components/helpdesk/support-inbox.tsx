@@ -792,6 +792,9 @@ export function ThreadDetails({
             <IssueChip
               issue={issue}
               testId="support-linked-issue"
+              // The chip owns the rail's whole row: no 18rem cap on the title
+              // here, a long escalated title truncates at the rail's edge.
+              className="max-w-none"
               link={(props) => (
                 <Link
                   to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"

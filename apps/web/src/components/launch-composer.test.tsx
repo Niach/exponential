@@ -120,6 +120,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     closeBlockedStart: vi.fn(),
     startAnyway: vi.fn().mockResolvedValue(undefined),
     startStacked: vi.fn().mockResolvedValue(undefined),
+    canStack: true,
     launch: fakeLaunch(),
     candidateDevices: [device],
     deviceRequestNote: null,
@@ -320,6 +321,31 @@ describe(`LaunchComposer blocked start`, () => {
     expect(startAnyway).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByText(STACKED_PR_LABEL))
     expect(startStacked).toHaveBeenCalledTimes(1)
+  })
+
+  // The picked machine is below the `stacked-start` build: Cancel and Start
+  // anyway stay, the stack is not on offer.
+  it(`hides Stacked PR when the device lacks the stacked-start cap`, () => {
+    const startAnyway = vi.fn().mockResolvedValue(undefined)
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          subject: { kind: `issues`, ids: [`i1`] },
+          checkedIssues: [issue(`i1`, `APP-1`)],
+          blockedStart: [issue(`i2`, `APP-2`)],
+          blockedOpen: true,
+          canStack: false,
+          startAnyway,
+          blocked: false,
+        })}
+        users={[]}
+      />
+    )
+    expect(screen.getByText(BLOCKED_START_TITLE)).toBeTruthy()
+    expect(screen.queryByText(STACKED_PR_LABEL)).toBeNull()
+    expect(screen.getByText(`Cancel`)).toBeTruthy()
+    fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
+    expect(startAnyway).toHaveBeenCalledTimes(1)
   })
 
   it(`stays shut while nothing blocks the subject`, () => {

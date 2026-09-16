@@ -1511,6 +1511,11 @@ impl SteerSessionView {
                 // EXP-783: the replay names the span it covers, so pages the
                 // reader had already scrolled back to load are kept rather
                 // than swapped away.
+                // A swap re-mints row ids over ranges the memo may still
+                // hold, so its length-keyed entries are stale from here on.
+                if self.feed.is_staging() {
+                    self.edit_memo.clear();
+                }
                 self.feed.apply_synced_from(first_seq);
                 self.history_truncated = truncated;
                 self.sync_changes(cx);
@@ -1537,6 +1542,8 @@ impl SteerSessionView {
                 // EXP-656: a keepalive is also an end-of-replay signal for a
                 // markerless republish — the beat means the burst is over.
                 if self.feed.is_staging() {
+                    // Re-minted ids: see the `Synced` arm above.
+                    self.edit_memo.clear();
                     self.feed.force_swap();
                     self.sync_changes(cx);
                 }
@@ -1783,6 +1790,8 @@ impl SteerSessionView {
                 if this.staging_last_event.elapsed() >= REPLAY_QUIET || capped {
                     let was_compacting = this.feed.compacting().is_some();
                     let pulse = feed_pulse(&this.feed);
+                    // Re-minted ids: see the `ViewerEvent::Synced` arm.
+                    this.edit_memo.clear();
                     this.feed.force_swap();
                     this.refresh_derived();
                     this.note_feed_moved(pulse);

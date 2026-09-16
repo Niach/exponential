@@ -47,10 +47,13 @@
 //!   `{grant_type, refresh_token, client_id, scope}` where `client_id` and
 //!   `scope` come from the stored credential when it carries them.
 //! * **Write-back is a compare-and-swap on the refresh token**: re-read the
-//!   store under (3) and write only if the stored `refreshToken` is
-//!   absent/empty or is still the one we POSTed. Otherwise a sibling already
-//!   landed a newer pair and we ADOPT it ([`WriteOutcome::AdoptedSibling`])
-//!   rather than overwrite a live credential with our older one. The rotated
+//!   store under (3) and write only if it still holds a `claudeAiOauth`
+//!   object whose `refreshToken` is absent/empty or still the one we POSTed.
+//!   Otherwise a sibling already landed a newer pair and we ADOPT it
+//!   ([`WriteOutcome::AdoptedSibling`]) rather than overwrite a live
+//!   credential with our older one; and a store that VANISHED in between (a
+//!   `claude logout` during the POST) stays gone ([`WriteOutcome::StoreGone`])
+//!   rather than being recreated around a pair that would undo it. The rotated
 //!   fields are laid OVER the previous `claudeAiOauth` object, so
 //!   `subscriptionType`, `rateLimitTier`, `clientId` and every other key we do
 //!   not understand survive, as do all other top-level keys of the document.
@@ -271,44 +274,69 @@ pub fn claude_config_root(config_dir: Option<&Path>) -> Option<PathBuf> {
     resolve_root(config_dir).map(|root| root.path)
 }
 
-/// The resolved root plus whether it is the PLAIN `~/.claude` default — which
-/// is what decides the keychain service suffix.
+/// The resolved root plus whether the CLI names its keychain item by the
+/// PLAIN service (`default_location`) or the `-<hash>` suffixed one.
 struct ResolvedRoot {
     path: PathBuf,
+    /// The CLI's `aP()`: `true` only when NO config-dir variable selected the
+    /// root. Decided by the variable's PRESENCE, not by where it points: a
+    /// `CLAUDE_CONFIG_DIR=$HOME/.claude` is the default directory under the
+    /// SUFFIXED service, and we must look where the CLI wrote.
     default_location: bool,
 }
 
 fn resolve_root(config_dir: Option<&Path>) -> Option<ResolvedRoot> {
-    let default = dirs::home_dir().map(|home| home.join(".claude"));
-    let path = match config_dir {
-        Some(dir) => dir.to_path_buf(),
-        None => ambient_root(default.clone())?,
-    };
-    // Path equality rather than "did an env var set it": a `CLAUDE_CONFIG_DIR`
-    // pointed at the default location is the default install, and the CLI
-    // names its keychain item after the PATH.
-    let default_location = default.as_deref() == Some(path.as_path());
-    Some(ResolvedRoot {
-        path,
-        default_location,
-    })
+    resolve_root_from(
+        config_dir,
+        dirs::home_dir().map(|home| home.join(".claude")),
+        std::env::var("CLAUDE_SECURESTORAGE_CONFIG_DIR").ok().as_deref(),
+        std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref(),
+    )
 }
 
-/// `fS()` for the ambient login.
-fn ambient_root(default: Option<PathBuf>) -> Option<PathBuf> {
+/// The pure half of [`resolve_root`]: `fS()` for the path, `aP()` for the
+/// suffix. `default` = `~/.claude`; the two variables as this process sees
+/// them (`None` = unset).
+fn resolve_root_from(
+    config_dir: Option<&Path>,
+    default: Option<PathBuf>,
+    securestorage_dir: Option<&str>,
+    config_dir_var: Option<&str>,
+) -> Option<ResolvedRoot> {
+    // A profile dir is one our launcher exports as `CLAUDE_CONFIG_DIR`, so the
+    // CLI running under it hashes it, wherever it is.
+    if let Some(dir) = config_dir {
+        return Some(ResolvedRoot {
+            path: dir.to_path_buf(),
+            default_location: false,
+        });
+    }
     // SET, even to "", wins over CLAUDE_CONFIG_DIR — an empty value means the
-    // secure-storage root is the default one, not "keep looking".
-    if let Ok(raw) = std::env::var("CLAUDE_SECURESTORAGE_CONFIG_DIR") {
+    // secure-storage root is the default one (plain service), not "keep
+    // looking".
+    if let Some(raw) = securestorage_dir {
         let trimmed = raw.trim();
         return if trimmed.is_empty() {
-            default
+            default.map(|path| ResolvedRoot {
+                path,
+                default_location: true,
+            })
         } else {
-            Some(PathBuf::from(trimmed))
+            Some(ResolvedRoot {
+                path: PathBuf::from(trimmed),
+                default_location: false,
+            })
         };
     }
-    match std::env::var("CLAUDE_CONFIG_DIR") {
-        Ok(raw) if !raw.trim().is_empty() => Some(PathBuf::from(raw.trim())),
-        _ => default,
+    match config_dir_var.map(str::trim) {
+        Some(raw) if !raw.is_empty() => Some(ResolvedRoot {
+            path: PathBuf::from(raw),
+            default_location: false,
+        }),
+        _ => default.map(|path| ResolvedRoot {
+            path,
+            default_location: true,
+        }),
     }
 }
 
@@ -411,8 +439,10 @@ fn read_file(path: &Path) -> DocRead {
 // ---------------------------------------------------------------------------
 
 /// The keychain service for a config root: the CLI's default service, plus
-/// `-<first 8 hex of sha256(path)>` when the root is NOT the plain `~/.claude`
-/// default (an account profile, or a `CLAUDE_CONFIG_DIR` pointed elsewhere).
+/// `-<first 8 hex of sha256(path)>` whenever a config-dir variable selected
+/// the root (an account profile, or an ambient `CLAUDE_CONFIG_DIR` /
+/// `CLAUDE_SECURESTORAGE_CONFIG_DIR` that is set and non-empty, EVEN when it
+/// names the default directory).
 #[cfg(target_os = "macos")]
 pub fn keychain_service(config_dir: Option<&Path>) -> String {
     match resolve_root(config_dir) {
@@ -882,15 +912,18 @@ pub fn merge_oauth(previous: Option<&Value>, rotated: &RotatedToken) -> Value {
 ///
 /// The comparison is on the REFRESH token, not the access token: the refresh
 /// token is what a rotation consumes, so "the stored refresh token is still
-/// the one I POSTed" is exactly "nobody has rotated since I read".
+/// the one I POSTed" is exactly "nobody has rotated since I read". A document
+/// with NO `claudeAiOauth` object is a signed-out store, not a blank one: the
+/// CLI's own CAS refuses it (`L.claudeAiOauth!==void 0&&...!==null`), and so
+/// do we, or a `claude logout` that landed mid-refresh would be undone.
 pub fn cas_document(
     document: &Value,
     posted_refresh_token: &str,
     merged_oauth: Value,
 ) -> Option<Value> {
-    let stored = document
-        .get("claudeAiOauth")
-        .and_then(|oauth| oauth.get("refreshToken"))
+    let oauth = document.get("claudeAiOauth")?.as_object()?;
+    let stored = oauth
+        .get("refreshToken")
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or("");
@@ -913,6 +946,10 @@ pub enum WriteOutcome {
     /// A sibling rotated first; its newer credential stands and ours is
     /// dropped.
     AdoptedSibling,
+    /// The store (or its `claudeAiOauth` branch) was gone by the time we came
+    /// to write: a `claude logout` landed between the re-read and the CAS.
+    /// Nothing is written; recreating the item would undo the logout.
+    StoreGone,
     /// The keychain refused CLEANLY, so the rotated credential went to
     /// `<root>/.credentials.json` (the CLI's own `plaintext_fallback_used`).
     SavedToFallbackFile,
@@ -995,7 +1032,7 @@ fn with_storage_lock<T>(
 
 /// The CAS write-back, under `.storage-write.lock`: re-read, compare the
 /// stored refresh token against the one we POSTed, write only if it is ours
-/// (or gone).
+/// (or blank). A store that vanished is left vanished.
 pub fn write_back_locked(
     store: &ClaudeCredentialStore,
     posted_refresh_token: &str,
@@ -1017,9 +1054,13 @@ fn cas_write(
         let current = match read_source(&store.source) {
             DocRead::Found(document) => document,
             // The store vanished under us (a `claude logout`, a wiped
-            // profile). There is no rotation to lose the race against, so our
-            // pair becomes the whole document.
-            DocRead::Missing => Value::Object(Map::new()),
+            // profile). The grant is spent, but writing our pair into an item
+            // the user just deleted would sign them back in; `read_keychain`'s
+            // own rule is never to write to a service with no item.
+            DocRead::Missing => {
+                log::warn!("claude_oauth: the credential store vanished mid-refresh; not recreating it");
+                return Ok(WriteOutcome::StoreGone);
+            }
             DocRead::Denied => {
                 last_error = Some(StoreError::Failed(
                     "the credential store refused a read".to_string(),
@@ -1576,6 +1617,61 @@ mod tests {
         let next = cas_document(&doc, "rt-1", serde_json::json!({ "refreshToken": "rt-2" }))
             .expect("a blank stored token is nobody's rotation");
         assert_eq!(next["claudeAiOauth"]["refreshToken"], "rt-2");
+        // An object with no `refreshToken` key at all is the same allowance.
+        let doc = serde_json::json!({ "claudeAiOauth": { "accessToken": "at-1" } });
+        assert!(cas_document(&doc, "rt-1", serde_json::json!({})).is_some());
+    }
+
+    /// A document whose `claudeAiOauth` branch is gone is a SIGNED-OUT store
+    /// (`claude logout` deletes exactly that branch), not a blank one: the
+    /// CAS refuses it, as the CLI's does, so a logout that landed during our
+    /// POST is not undone by the write-back.
+    #[test]
+    fn cas_refuses_a_document_with_no_oauth_object() {
+        let rotated = serde_json::json!({ "refreshToken": "rt-2" });
+        for doc in [
+            serde_json::json!({}),
+            serde_json::json!({ "mcpOAuth": { "srv": {} } }),
+            serde_json::json!({ "claudeAiOauth": null }),
+            serde_json::json!({ "claudeAiOauth": "not an object" }),
+        ] {
+            assert!(
+                cas_document(&doc, "rt-1", rotated.clone()).is_none(),
+                "a signed-out store is never rewritten: {doc}"
+            );
+        }
+    }
+
+    /// The end-to-end half: the store answered the re-read, the POST rotated
+    /// the pair, and by the time the storage lock is held the file is gone. The
+    /// write-back reports [`WriteOutcome::StoreGone`], creates nothing, and
+    /// releases the lock.
+    #[test]
+    fn a_vanished_store_is_not_rewritten() {
+        let dir = temp_dir("claude-oauth-vanished");
+        let document = document("at-1", "rt-1", NOW_MS + 60_000);
+        let path = seed(&dir, &document);
+        let store = ClaudeCredentialStore {
+            source: CredentialSource::File(path.clone()),
+            config_root: dir.0.clone(),
+            document,
+        };
+        // The logout, between our re-read and our write.
+        std::fs::remove_file(&path).unwrap();
+
+        let merged = serde_json::json!({
+            "accessToken": "at-2",
+            "refreshToken": "rt-2",
+            "expiresAt": NOW_MS + 3_600_000,
+        });
+        let outcome = write_back_locked(&store, "rt-1", merged).unwrap();
+
+        assert_eq!(outcome, WriteOutcome::StoreGone);
+        assert!(!path.exists(), "the logout stands: nothing was recreated");
+        assert!(
+            !dir.0.join(STORAGE_WRITE_LOCK_NAME).exists(),
+            "the storage-write lock is released"
+        );
     }
 
     #[test]
@@ -1633,6 +1729,56 @@ mod tests {
             claude_config_root(Some(Path::new("/tmp/exp-profile-abc"))),
             Some(PathBuf::from("/tmp/exp-profile-abc"))
         );
+    }
+
+    /// The CLI's `aP()` picks the keychain service by the PRESENCE of the
+    /// selecting variable, not by where it points: `CLAUDE_CONFIG_DIR` set to
+    /// the default directory is that same directory under the SUFFIXED
+    /// service, an empty `CLAUDE_SECURESTORAGE_CONFIG_DIR` is the plain
+    /// default even beside a set `CLAUDE_CONFIG_DIR`, and a profile dir (which
+    /// our launcher exports) is always hashed. Pure: no environment, no
+    /// keychain.
+    #[test]
+    fn a_config_dir_variable_at_the_default_path_selects_the_suffixed_service() {
+        let default = PathBuf::from("/tmp/exp-claude-home/.claude");
+        let default_str = default.to_str().unwrap();
+        let resolve = |config_dir: Option<&Path>, secure: Option<&str>, var: Option<&str>| {
+            resolve_root_from(config_dir, Some(default.clone()), secure, var).unwrap()
+        };
+
+        let plain = resolve(None, None, None);
+        assert_eq!(plain.path, default);
+        assert!(plain.default_location, "nothing set: the plain service");
+
+        let by_var = resolve(None, None, Some(default_str));
+        assert_eq!(by_var.path, default, "the same directory");
+        assert!(!by_var.default_location, "...under the suffixed service");
+
+        let by_secure = resolve(None, Some(default_str), None);
+        assert_eq!(by_secure.path, default);
+        assert!(!by_secure.default_location);
+
+        let empty_secure = resolve(None, Some(""), Some("/tmp/exp-elsewhere"));
+        assert_eq!(empty_secure.path, default, "an empty override wins and means the default");
+        assert!(empty_secure.default_location);
+
+        let blank_var = resolve(None, None, Some("  "));
+        assert_eq!(blank_var.path, default);
+        assert!(blank_var.default_location, "set-but-blank is not set");
+
+        let profile = resolve(Some(&default), None, None);
+        assert!(!profile.default_location, "a profile dir is exported, so hashed");
+
+        #[cfg(target_os = "macos")]
+        {
+            let digest = Sha256::digest(default_str.as_bytes());
+            let suffixed = format!("Claude Code-credentials-{}", &format!("{digest:x}")[..8]);
+            assert_eq!(keychain_service_for(&plain), "Claude Code-credentials");
+            assert_eq!(keychain_service_for(&by_var), suffixed);
+            assert_eq!(keychain_service_for(&by_secure), suffixed);
+            assert_eq!(keychain_service_for(&empty_secure), "Claude Code-credentials");
+            assert_eq!(keychain_service_for(&profile), suffixed);
+        }
     }
 
     #[test]

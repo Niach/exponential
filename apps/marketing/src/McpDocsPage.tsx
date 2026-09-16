@@ -45,7 +45,7 @@ const TOOL_GROUPS: {
   {
     heading: `Issues`,
     tools: [
-      { name: `exponential_issues_list`, desc: `List and filter issues: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), comment activity, created/updated ranges, title search — each with an exclude twin — plus sort (a "-" prefix descends).` },
+      { name: `exponential_issues_list`, desc: `List issues, open work only unless includeClosed (or a status filter) says otherwise: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), comment activity, created/updated ranges, title search, each with an exclude twin, plus sort (a "-" prefix descends). Up to 1000 per page.` },
       { name: `exponential_issues_get`, desc: `Get one issue with labels, relations and recent comments, by UUID or identifier ("EXP-42").` },
       { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
@@ -101,6 +101,7 @@ const TOOL_GROUPS: {
       { name: `exponential_issues_unsubscribe`, desc: `Unsubscribe (and suppress auto-resubscribe).` },
       { name: `exponential_notifications_list`, desc: `List your notifications, newest first.` },
       { name: `exponential_notifications_mark_read`, desc: `Mark one notification read, or all of them.` },
+      { name: `exponential_notifications_send`, desc: `Send a notification (inbox row + push) to members of a team, or to yourself; recipients are member user ids or emails. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.` },
     ],
   },
   {
@@ -349,7 +350,8 @@ npx mcp-remote ${LINKS.app.mcp}
               What a connected client can do, grouped by area. Every call is
               confined to the OAuth grant&apos;s scope (or the API key&apos;s
               membership). Every list tool paginates (50 by default, 200 at
-              most), and issue parameters take an identifier
+              most, 1000 for <code>issues_list</code>), and issue parameters
+              take an identifier
               (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
             <DocsCallout kind="note" title="Some tools only exist in context">

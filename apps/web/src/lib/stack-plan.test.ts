@@ -178,19 +178,25 @@ describe(`resolveStackChain`, () => {
 
   it(`writes the missing blocks relation for an explicit stackOnIssueId, once`, async () => {
     h.selectQueue.push([issueRow(`EXP-12`)])
-    h.selectQueue.push([issueRow(`EXP-11`)]) // the pick, same team
-    h.selectQueue.push([REPO])
     h.selectQueue.push([
-      { issueId: `issue-EXP-11`, relatedIssueId: `issue-EXP-12` },
-    ])
-    h.selectQueue.push([issueRow(`EXP-11`)])
-    h.selectQueue.push([])
+      issueRow(`EXP-11`, {
+        prUrl: `https://github.com/owner/repo/pull/241`,
+        prNumber: 241,
+        prState: `open`,
+      }),
+    ]) // the pick, same team
     h.selectQueue.push([REPO])
+    // The pick rides the walk as an in-memory edge: the relation table holds
+    // nothing yet, and the pick's row is never re-read.
+    h.selectQueue.push([]) // blockers of [EXP-12, EXP-11]
+    h.selectQueue.push([REPO]) // EXP-11's board repo
 
-    await resolveStackChain(db, `issue-EXP-12`, {
+    const plan = await resolveStackChain(db, `issue-EXP-12`, {
       stackOnIssueId: `issue-EXP-11`,
       actorUserId: `actor`,
     })
+    expect(plan.chain.map((link) => link.identifier)).toEqual([`EXP-11`])
+    expect(plan.base).toBe(`exp/EXP-11`)
     expect(h.insertRelationInTx).toHaveBeenCalledTimes(1)
     expect(h.insertRelationInTx).toHaveBeenCalledWith(
       expect.anything(),
@@ -202,6 +208,44 @@ describe(`resolveStackChain`, () => {
         teamId: `ws-1`,
       })
     )
+  })
+
+  it(`refuses a stackOnIssueId that would close a blocking cycle, writing nothing`, async () => {
+    // EXP-12 already blocks EXP-11; picking EXP-11 as the foundation of
+    // EXP-12 would make each block the other. The candidate edge is judged
+    // in memory, so the graph never receives it.
+    h.selectQueue.push([issueRow(`EXP-12`)])
+    h.selectQueue.push([issueRow(`EXP-11`)]) // the pick
+    h.selectQueue.push([REPO])
+    h.selectQueue.push([
+      { issueId: `issue-EXP-12`, relatedIssueId: `issue-EXP-11` },
+    ]) // blockers of [EXP-12, EXP-11]
+
+    await expect(
+      resolveStackChain(db, `issue-EXP-12`, {
+        stackOnIssueId: `issue-EXP-11`,
+        actorUserId: `actor`,
+      })
+    ).rejects.toThrow(StackCycleError)
+    expect(h.insertRelationInTx).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a stackOnIssueId on another repository, writing nothing`, async () => {
+    h.selectQueue.push([issueRow(`EXP-12`)])
+    h.selectQueue.push([issueRow(`EXP-11`, { boardId: `board-2` })]) // the pick
+    h.selectQueue.push([REPO])
+    h.selectQueue.push([]) // blockers of [EXP-12, EXP-11]
+    h.selectQueue.push([{ ...REPO, repositoryId: `repo-2`, fullName: `o/other` }])
+
+    await expect(
+      resolveStackChain(db, `issue-EXP-12`, {
+        stackOnIssueId: `issue-EXP-11`,
+        actorUserId: `actor`,
+      })
+    ).rejects.toThrow(
+      /^EXP-12 is blocked by EXP-11, which is on another repository/
+    )
+    expect(h.insertRelationInTx).not.toHaveBeenCalled()
   })
 
   it(`refuses an explicit stackOnIssueId from another team before writing anything`, async () => {

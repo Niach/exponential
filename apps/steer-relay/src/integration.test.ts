@@ -544,6 +544,100 @@ describe(`steer relay end-to-end`, () => {
     pub.close()
   })
 
+  test(`a stacked start carries its stack to the device; an unstacked one has no key (EXP-897)`, async () => {
+    const desktop = await connect(
+      ticket({ role: `control`, sub: `owner-7`, deviceLabel: `Stack Box` })
+    )
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-7` }))
+
+    const lower = {
+      issueId: `issue-11`,
+      identifier: `EXP-11`,
+      branch: `exp/EXP-11`,
+      prState: `open`,
+    }
+    const foundation = {
+      issueId: `issue-10`,
+      identifier: `EXP-10`,
+      branch: null,
+      prState: null,
+    }
+    const stack = { lower, chain: [foundation, lower] }
+    const stacked = await startWhenOnline({
+      userId: `owner-7`,
+      deviceId: `dev-7`,
+      issueId: `issue-12`,
+      agent: `claude`,
+      stack,
+    })
+    expect(stacked.ok).toBe(true)
+    // Verbatim pass-through, `stack` the last key.
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-12`,
+      agent: `claude`,
+      stack,
+    })
+
+    const post = (body: Record<string, unknown>) =>
+      fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({ userId: `owner-7`, deviceId: `dev-7`, ...body }),
+      })
+
+    // No stack: the frame is byte-identical to the pre-EXP-897 wire.
+    const plain = await post({ issueId: `issue-13` })
+    expect(plain.ok).toBe(true)
+    const plainFrame = await desktopIn.nextJson()
+    expect(plainFrame).toEqual({ t: `start_session`, issueId: `issue-13` })
+    expect(plainFrame).not.toHaveProperty(`stack`)
+
+    // A present but malformed stack is a 400, never a silently unstacked run.
+    expect(
+      (await post({ issueId: `issue-14`, stack: { chain: [] } })).status
+    ).toBe(400)
+    expect(
+      (await post({ issueId: `issue-14`, stack: { lower, chain: `nope` } }))
+        .status
+    ).toBe(400)
+    expect(
+      (
+        await post({
+          issueId: `issue-14`,
+          stack: { lower: { ...lower, extra: 1 }, chain: [lower] },
+        })
+      ).status
+    ).toBe(400)
+    // Single-issue starts only: a batch or a resume never carries one.
+    expect(
+      (
+        await post({
+          issueIds: [`issue-1`, `issue-2`],
+          teamId: `t-1`,
+          repo: { repositoryId: `r-1`, fullName: `o/r`, defaultBranch: `master` },
+          stack,
+        })
+      ).status
+    ).toBe(400)
+    expect(
+      (
+        await post({
+          resumeSessionId: `sess-9`,
+          teamId: `t-1`,
+          issueId: `issue-12`,
+          stack,
+        })
+      ).status
+    ).toBe(400)
+
+    desktop.close()
+  })
+
   test(`remote start routes through the control socket`, async () => {
     const desktop = await connect(
       // A pre-EXP-710 ticket, legacy `deviceLabel` claim and all: verification

@@ -151,7 +151,12 @@ struct AgentPageView: View {
             ),
             presenting: composer?.blockedPrompt
         ) { _ in
-            Button(StackStart.stackedPrLabel) { composer?.startStacked() }
+            // EXP-897: only a machine that reads the `stack` payload is
+            // offered one (`stacked-start`); an older build keeps Cancel and
+            // Start anyway.
+            if composer?.canStackStart == true {
+                Button(StackStart.stackedPrLabel) { composer?.startStacked() }
+            }
             Button(StackStart.startAnywayLabel) { composer?.startAnyway() }
             Button("Cancel", role: .cancel) { composer?.blockedPrompt = nil }
         } message: { prompt in

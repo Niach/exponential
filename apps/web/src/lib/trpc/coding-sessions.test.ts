@@ -1677,7 +1677,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
   it(`stamps the branch on an action start`, async () => {
     // 1 = the resume-link lookup (the predecessor still exists), 2 = the
     // action row.
-    selectResults.push([{ id: RESUMED_FROM }])
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor` }])
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
 
     await caller.start({
@@ -1707,7 +1707,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     })
 
     expect(inserts[0]!.values).toMatchObject({ resumedFromId: null })
-    // Scoped by id ONLY — the link is history, never authorization.
+    // Looked up by id alone; the owner-or-host gate runs on the row itself.
     expect(whereShape(selectWheres[0])).toEqual([`col:id`, RESUMED_FROM])
   })
 
@@ -1727,7 +1727,12 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
   it(`inherits the parent link and started reason from the resumed run`, async () => {
     const PARENT = `66666666-6666-4666-8666-666666666666`
     selectResults.push([
-      { id: RESUMED_FROM, parentSessionId: PARENT, startedReason: `agent` },
+      {
+        id: RESUMED_FROM,
+        userId: `actor`,
+        parentSessionId: PARENT,
+        startedReason: `agent`,
+      },
     ])
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
@@ -1738,7 +1743,8 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       startedReason: `agent`,
     })
     // The predecessor's children move onto the successor, so their next
-    // finish / question / usage-wall message reaches a live run.
+    // finish / question / usage-wall message reaches a live run. Confined
+    // to the successor's team: another team's children stay where they are.
     const restamp = updates.find(
       (update) => update.values.parentSessionId === SESSION_ID
     )
@@ -1746,12 +1752,87 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(whereShape(updateWheres[updates.indexOf(restamp!)])).toEqual([
       `col:parent_session_id`,
       RESUMED_FROM,
+      `col:team_id`,
+      `ws-issue`,
+    ])
+  })
+
+  // The inheritance turned the link into a write, so it is owner-gated: a
+  // member of team A naming a live team-B parent would otherwise adopt its
+  // place in B's tree and pull B's children onto their own row.
+  it(`refuses a predecessor the caller neither owns nor hosts`, async () => {
+    const PARENT = `66666666-6666-4666-8666-666666666666`
+    selectResults.push([
+      {
+        id: RESUMED_FROM,
+        userId: `someone-else`,
+        hostUserId: null,
+        parentSessionId: PARENT,
+        startedReason: `agent`,
+      },
+    ])
+
+    const error = await rejectionOf(
+      caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    // Refused before any row lands and before any child is re-stamped.
+    expect(inserts).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`lets the shared-device host resume a run it hosts for a teammate`, async () => {
+    const PARENT = `66666666-6666-4666-8666-666666666666`
+    selectResults.push([
+      {
+        id: RESUMED_FROM,
+        userId: `requester`,
+        hostUserId: `actor`,
+        parentSessionId: PARENT,
+        startedReason: `agent`,
+      },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values).toMatchObject({
+      resumedFromId: RESUMED_FROM,
+      parentSessionId: PARENT,
+      startedReason: `agent`,
+    })
+    expect(
+      updates.some((update) => update.values.parentSessionId === SESSION_ID)
+    ).toBe(true)
+  })
+
+  it(`re-stamps children inside the successor's team only, on every subject`, async () => {
+    // Batch subject: the successor's team is the one the frame names.
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor` }])
+
+    await caller.start({ teamId: TEAM_ID, resumedFromId: RESUMED_FROM })
+
+    const restamp = updates.find(
+      (update) => update.values.parentSessionId === SESSION_ID
+    )
+    expect(restamp).toBeDefined()
+    expect(whereShape(updateWheres[updates.indexOf(restamp!)])).toEqual([
+      `col:parent_session_id`,
+      RESUMED_FROM,
+      `col:team_id`,
+      TEAM_ID,
     ])
   })
 
   it(`lets the frame's own started reason win over the inherited one`, async () => {
     selectResults.push([
-      { id: RESUMED_FROM, parentSessionId: null, startedReason: null },
+      {
+        id: RESUMED_FROM,
+        userId: `actor`,
+        parentSessionId: null,
+        startedReason: null,
+      },
     ])
 
     await caller.start({

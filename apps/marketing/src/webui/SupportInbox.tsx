@@ -384,7 +384,7 @@ export function WebSupportInbox() {
           onOpenIssue={
             issue
               ? () => {
-                  setNav(`project`)
+                  setNav(`board`)
                   openIssue(issue.id)
                 }
               : undefined

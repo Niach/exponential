@@ -52,7 +52,7 @@ pub fn run(args: &[String]) -> CommandResult {
     if take_flag(&mut args, "--password") {
         bail!(
             "--password was removed. Use the device-code login, or set EXP_TOKEN to a \
-             personal API key (Settings → API keys in the web app) and rerun \
+             personal API key (Settings → Security in the web app) and rerun \
              `exponential login`."
         );
     }
@@ -78,7 +78,7 @@ pub fn run(args: &[String]) -> CommandResult {
     let auth_client = AuthClient::new();
 
     // Pre-provisioned installs: EXP_TOKEN skips authentication entirely.
-    // The value is an API key (`expu_…`, minted under Settings → API keys)
+    // The value is an API key (`expu_…`, minted under Settings → Security)
     // or a raw session token — the server resolves both to a session, and
     // everything downstream rides the same Bearer path.
     if let LoginMode::Token(token) = login_mode(std::env::var("EXP_TOKEN").ok().as_deref(), true) {
@@ -96,7 +96,7 @@ pub fn run(args: &[String]) -> CommandResult {
         LoginMode::Device => device_login(&auth_client, &instance),
         LoginMode::Unsupported => bail!(
             "This server offers no device-code login. Update the server, or set EXP_TOKEN \
-             to a personal API key (Settings → API keys in the web app) and rerun \
+             to a personal API key (Settings → Security in the web app) and rerun \
              `exponential login`."
         ),
     }

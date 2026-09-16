@@ -1690,6 +1690,12 @@ pub(crate) struct LaunchDevice {
     pub(crate) is_own: bool,
     /// EXP-622: the caller's default machine (never a teammate's flag).
     pub(crate) is_default: bool,
+    /// EXP-897: the machine reads a start frame's `stack` payload
+    /// (`coding::doctor::STACKED_START_CAP`). An older build would run the
+    /// issue UNSTACKED while the server had already recorded a stack, so the
+    /// blocked-issue alert hides "Stacked PR" for it. Always true for this
+    /// IDE (the local launcher resolves the chain itself).
+    pub(crate) can_stack_start: bool,
 }
 
 /// The picker line for a candidate machine — web `launch-options-pane`
@@ -1790,6 +1796,10 @@ pub(crate) fn remote_launch_devices<'a>(
                 is_own: false,
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
                 is_default: owned && row.is_default.unwrap_or(false),
+                can_stack_start: row
+                    .cap_ids()
+                    .iter()
+                    .any(|cap| cap == coding::doctor::STACKED_START_CAP),
                 device_id,
             })
         })
@@ -1976,6 +1986,7 @@ pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
             .as_ref()
             .and_then(|row| row.is_default)
             .unwrap_or(false),
+        can_stack_start: true,
         device_id: own_device_id.clone(),
     };
     let me = active_account(cx).map(|account| account.user_id).unwrap_or_default();
@@ -2891,6 +2902,28 @@ mod tests {
         assert!(devices[2].acp_agents.is_empty());
     }
 
+    /// EXP-897: a remote candidate's "Stacked PR" offer follows its
+    /// `stacked-start` cap; a NULL or capless row (a desktop/CLI below the
+    /// cap's build) is offered the plain start only.
+    #[test]
+    fn remote_launch_devices_read_the_stacked_start_cap() {
+        let mut stacker = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude"], -30);
+        stacker.caps = Some(json!(["acp", coding::doctor::STACKED_START_CAP]));
+        let mut older = launch_device_row("r-2", "dev-2", "Beta", "me", &["claude"], -30);
+        older.caps = Some(json!(["acp", "start-prompt"]));
+        let silent = launch_device_row("r-3", "dev-3", "Gamma", "me", &["claude"], -30);
+        let rows = vec![stacker, older, silent];
+        let owner = |_: &str| None;
+        let devices = remote_launch_devices(rows.iter(), NOW_MS, "me", "dev-own", &owner);
+
+        assert_eq!(devices[0].device_id, "dev-1");
+        assert!(devices[0].can_stack_start);
+        assert_eq!(devices[1].device_id, "dev-2");
+        assert!(!devices[1].can_stack_start);
+        assert_eq!(devices[2].device_id, "dev-3");
+        assert!(!devices[2].can_stack_start);
+    }
+
     #[test]
     fn remote_candidate_defaults_come_from_the_advertised_launch_defaults() {
         let mut row = launch_device_row("r-1", "dev-1", "Buildbox", "me", &["codex"], -30);
@@ -2977,6 +3010,7 @@ mod tests {
             defaults: coding::Settings::default(),
             is_own,
             is_default,
+            can_stack_start: true,
         }
     }
 

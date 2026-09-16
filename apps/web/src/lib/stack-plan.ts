@@ -212,6 +212,7 @@ export async function resolveStackChain(
   // The explicit pick is about to become a relation stamped with the target's
   // team and to have its branch and PR handed to the caller: it must exist and
   // belong to the same team, whatever layer resolved the id.
+  let pick: PlanIssueRow | null = null
   if (opts.stackOnIssueId && opts.stackOnIssueId !== issueId) {
     const [lowerRow] = await db
       .select(PLAN_ISSUE_COLUMNS)
@@ -224,6 +225,7 @@ export async function resolveStackChain(
         `${target.identifier} cannot stack on an issue in another team`
       )
     }
+    pick = lowerRow
   }
 
   const repo = await boardRepo(db, target.boardId)
@@ -231,28 +233,22 @@ export async function resolveStackChain(
     throw new Error(`No repository linked to this board. Link one in team settings.`)
   }
 
-  // The explicit pick becomes a real relation — idempotently (a repeated
-  // start, or a pick that only restates what the relations already say, writes
-  // nothing).
-  if (opts.stackOnIssueId && opts.stackOnIssueId !== issueId) {
-    const canonical = canonicalizeRelation(
-      opts.stackOnIssueId,
-      issueId,
-      `blocks`
-    )
-    await insertRelationInTx(db as never, {
-      ...canonical,
-      source: `user`,
-      teamId: target.teamId,
-      actorUserId: opts.actorUserId ?? null,
-    })
-  }
-
   // Walk the `blocks` graph upward from the target, level by level — a team's
   // full relation table is never loaded, only the edges reaching the frontier.
+  //
+  // The explicit pick joins the walk as an IN-MEMORY candidate edge (the pick
+  // blocks the target) so the cycle check and the repository check below
+  // judge the graph AS IT WOULD BE; the relation itself is written only once
+  // both pass (FEED-43 R1: writing it first left a refused plan's cycle behind
+  // in the graph, and every later plain start tripped over it).
   const edges: BlockerEdge[] = []
   const rowsById = new Map<string, PlanIssueRow>([[target.id, target]])
   let frontier = [target.id]
+  if (pick) {
+    edges.push({ issueId: pick.id, relatedIssueId: target.id })
+    rowsById.set(pick.id, pick)
+    frontier.push(pick.id)
+  }
   const expanded = new Set<string>()
   // Guard against a pathological graph: a stack of 20 is already absurd.
   for (let depth = 0; depth < 20 && frontier.length > 0; depth += 1) {
@@ -304,6 +300,19 @@ export async function resolveStackChain(
       )
     }
     chain.push(toLink(row))
+  }
+
+  // The explicit pick becomes a real relation only now, past every refusal,
+  // and idempotently (a repeated start, or a pick that only restates what the
+  // relations already say, writes nothing).
+  if (pick) {
+    const canonical = canonicalizeRelation(pick.id, issueId, `blocks`)
+    await insertRelationInTx(db as never, {
+      ...canonical,
+      source: `user`,
+      teamId: target.teamId,
+      actorUserId: opts.actorUserId ?? null,
+    })
   }
 
   const lower = chain.length > 0 ? chain[chain.length - 1]! : null

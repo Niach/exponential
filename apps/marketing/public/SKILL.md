@@ -63,10 +63,13 @@ Around 75 tools, all named `exponential_<family>_<verb>`:
   repository (`boards_set_repository`).
 - **issues**: list and filter (boards, `statusId`/`statusCategory`,
   priority, assignee, labels any/all/unlabeled, comment activity,
-  created/updated ranges, title search — each with an `exclude*` twin —
+  created/updated ranges, title search, each with an `exclude*` twin,
   plus `sort`, where a `-` prefix descends), get by UUID or identifier
   ("ABC-12"), create, update, delete, update_status, subscribe,
-  unsubscribe. Every list tool paginates: 50 by default, 200 at most.
+  unsubscribe. `issues_list` returns OPEN work unless `includeClosed` (or
+  a status filter) asks for the completed, cancelled and duplicate ones.
+  Every list tool paginates: 50 by default, 200 at most (1000 for
+  `issues_list`).
 - **statuses**: `statuses_list` returns a team's issue statuses (builtin
   and custom); pass a row's id as `statusId` to `issues_update` to set a
   custom status precisely. `statuses_create` / `_update` / `_delete`
@@ -145,9 +148,10 @@ user's membership.
   `exponential_pr_open` with `issueIds` + `head`. PR open moves linked
   issues to the team's configured PR-open status (default In Review);
   merging moves them to the PR-merge status (default Done).
-- **Actions** are reusable markdown prompts (up to 10 typed inputs:
-  `text`, `textarea`, `repo`, `board`, `pr`, `icon`) that members run as
-  local agent sessions from the desktop app, the web, or the CLI. An
+- **Actions** are reusable markdown prompts (up to 10 typed pick inputs:
+  `repo`, `board`, `pr`, `icon`; free text goes in the run's prompt, the
+  composer's "Additional instructions") that members run as local agent
+  sessions from the desktop app, the web, or the CLI. An
   **automation** is a separate row binding one action to one device and a
   schedule-or-event trigger; the bound machine starts the run itself, so
   nothing fires while it is off.

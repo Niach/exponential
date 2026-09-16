@@ -92,21 +92,33 @@ export function orderStack(
 ): StackEntry[] {
   const entries = toStackEntries(rows)
   const byUrl = new Map(entries.map((entry) => [entry.prUrl, entry]))
-  // Only a non-empty branch identifies an entry — an empty/missing one would
-  // otherwise make every base-less PR look like everyone's foundation.
-  const byBranch = new Map<string, StackEntry>()
-  for (const entry of entries) {
-    if (entry.branch) byBranch.set(entry.branch, entry)
-  }
   const start = byUrl.get(fromPrUrl)
   if (!start) return []
+
+  // Both walks PREFER an open PR (FEED-43 R1): a closed-without-merge PR keeps
+  // its rows until its edge is cleared, and an old PR on a re-cut branch keeps
+  // the branch name, so "first match" could hang the chain on a dead member
+  // while the live one on the same edge stayed out of "Merge stack". A closed
+  // entry still stands in when nothing open does: the merged foundation of an
+  // open member is part of its chain.
+  const preferOpen = (candidates: StackEntry[]): StackEntry | undefined =>
+    candidates.find((entry) => entry.prState === `open`) ?? candidates[0]
 
   const seen = new Set<string>([start.prUrl])
   const below: StackEntry[] = []
   let cursor = start
   for (;;) {
-    const lower = cursor.baseBranch ? byBranch.get(cursor.baseBranch) : undefined
-    if (!lower || seen.has(lower.prUrl)) break
+    // Only a non-empty branch identifies an entry: an empty/missing one
+    // would otherwise make every base-less PR look like everyone's foundation.
+    const base = cursor.baseBranch
+    const lower = base
+      ? preferOpen(
+          entries.filter(
+            (entry) => entry.branch === base && !seen.has(entry.prUrl)
+          )
+        )
+      : undefined
+    if (!lower) break
     seen.add(lower.prUrl)
     below.unshift(lower)
     cursor = lower
@@ -115,10 +127,12 @@ export function orderStack(
   const above: StackEntry[] = []
   cursor = start
   for (;;) {
-    const upper = cursor.branch
-      ? entries.find(
-          (entry) =>
-            entry.baseBranch === cursor.branch && !seen.has(entry.prUrl)
+    const branch = cursor.branch
+    const upper = branch
+      ? preferOpen(
+          entries.filter(
+            (entry) => entry.baseBranch === branch && !seen.has(entry.prUrl)
+          )
         )
       : undefined
     if (!upper) break

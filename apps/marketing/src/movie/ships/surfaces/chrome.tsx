@@ -635,7 +635,7 @@ export const CompactRail: React.FC<CompactRailProps> = ({
   dotColor = C.green,
   agentCount = 0,
   teamName = IDENTITY.team,
-  boardName = IDENTITY.project,
+  boardName = IDENTITY.board,
   boardGlyph = "code",
   boards,
   userInitial = IDENTITY.initials,

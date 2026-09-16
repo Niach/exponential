@@ -375,16 +375,29 @@ async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
  * per file, and a click there expands the card AND scrolls to it). The card's
  * own header is the fallback for a single-file diff, which draws no column.
  */
+/**
+ * Expand the FIRST file of the review's diff (EXP-895: the ONE diff view; the
+ * review page renders every file card collapsed, `defaultCollapsed`). The md+
+ * file column's rows jump-open a file, but the phone has no column (its list is
+ * a sheet off the work bar), so the recipe opens the first card from its OWN
+ * header, which both form factors draw. The card is a Radix collapsible: its
+ * trigger carries `data-state`, so an already-open card is left alone.
+ *
+ * The strict post-state is a rendered `@@ … @@` hunk row inside that card; the
+ * manifest's anchor is a line of the seeded PR's first-file patch.
+ */
 async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
-  const navRow = page.locator(`[data-testid^="diff-nav-row-"]`).first()
-  if (await appears(navRow, 60_000)) {
-    await navRow.click()
-  } else {
-    const header = page.getByText(`TopicScreen.kt`)
-    await header.first().waitFor({ timeout: 30_000 })
-    await header.first().click()
+  const card = page.locator(`[data-testid="file-diff-card"]`).first()
+  const trigger = card.locator(`button[data-state]`).first()
+  // The diff is fetched live from GitHub, the slowest load in the catalog.
+  await trigger.waitFor({ timeout: 60_000 })
+  if ((await trigger.getAttribute(`data-state`)) !== `open`) {
+    await trigger.click()
   }
-  await page.getByText(`@Composable`).first().waitFor({ timeout: 30_000 })
+  await card
+    .locator(`[data-diff-row="hunk"]`)
+    .first()
+    .waitFor({ timeout: 30_000 })
 }
 
 // ---------------------------------------------------------------- support

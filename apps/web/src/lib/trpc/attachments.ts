@@ -152,16 +152,23 @@ export const attachmentsRouter = router({
     }),
 
   /**
-   * Owner-only storage manager feed: every attachment row of the team with a
-   * `referenced` flag (does any issue description / comment body still embed
-   * it?) and the team's total attachment bytes.
+   * Owner-only storage manager feed: every ISSUE-owned attachment row of the
+   * team with a `referenced` flag (does any issue description / comment body
+   * still embed it?) and the team's total attachment bytes.
+   *
+   * EXP-878: draft-owned rows (`issue_id`/`board_id` NULL) are NOT listed.
+   * Every deployed desktop decodes `issueId`/`boardId` as non-null strings
+   * and rejects the WHOLE response on one null, and a draft's files are
+   * private to its author anyway (`issueDrafts.listAttachments`). Their bytes
+   * still count: `totalBytes` covers the team's every row so the usage
+   * number stays honest, and `draftBytes` names the part the list omits.
    */
   listForTeam: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
 
-      const rows = await ctx.db
+      const allRows = await ctx.db
         .select({
           id: attachments.id,
           issueId: attachments.issueId,
@@ -180,11 +187,25 @@ export const attachmentsRouter = router({
         .where(eq(attachments.teamId, input.teamId))
         .orderBy(desc(attachments.createdAt))
 
+      // Partitioned here rather than in SQL so ONE query feeds both the list
+      // and the honest total; the type guard is what keeps the row contract
+      // (non-null `issueId`/`boardId`) visible to the callers' types.
+      const rows = allRows.filter(
+        (row): row is typeof row & { issueId: string; boardId: string } =>
+          row.issueId !== null && row.boardId !== null
+      )
+
       const referencedIds = await collectTeamReferencedAttachmentIdsInTx(
         ctx.db,
         input.teamId,
         ctx.request.url
       )
+
+      const totalBytes = allRows.reduce(
+        (total, row) => total + row.sizeBytes,
+        0
+      )
+      const listedBytes = rows.reduce((total, row) => total + row.sizeBytes, 0)
 
       return {
         attachments: rows.map((row) => ({
@@ -196,7 +217,8 @@ export const attachmentsRouter = router({
           isAudio: isAudioContentType(row.contentType),
           referenced: referencedIds.has(row.id),
         })),
-        totalBytes: rows.reduce((total, row) => total + row.sizeBytes, 0),
+        totalBytes,
+        draftBytes: totalBytes - listedBytes,
       }
     }),
 

@@ -424,6 +424,11 @@ export async function applyPrOpenedState(opts: {
   // app user. Notification-only — it never touches the PR linkage or the
   // status automation, whose actor stays the in-app one.
   githubActorUserId?: string | null
+  // EXP-897 (FEED-43 R1): the PR's base branch as GitHub reports it
+  // (`pull_request.base.ref`), the synced stack edge every client nests on.
+  // Written on every link, null included: a NEW PR on an issue whose earlier
+  // PR was stacked must never inherit that PR's edge.
+  baseBranch?: string | null
 }): Promise<void> {
   const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -454,6 +459,10 @@ export async function applyPrOpenedState(opts: {
         prNumber: opts.prNumber,
         prState: `open`,
         branch: opts.branch,
+        prBaseBranch: opts.baseBranch ?? null,
+        // GitHub's stack identity is only ever learned from the `stacked`
+        // webhook or a stack read; a fresh link starts without one.
+        prStackNumber: null,
       })
       .where(and(eq(issues.id, opts.issueId), isNull(issues.prUrl)))
       .returning({ id: issues.id })
@@ -588,6 +597,13 @@ export async function applyPrMergeState(opts: {
         .set({
           prState: `merged`,
           prMergedAt: opts.mergedAt ?? new Date(),
+          // EXP-897 (FEED-43 R1): a landed PR is in no stack any more; the
+          // edge would otherwise outlive it and hang the next PR on this
+          // issue (or the server's stack walk) on a dead foundation. Read
+          // into `current` above BEFORE this write, so the post-commit heal
+          // still knows whether a real stack owned the retarget.
+          prBaseBranch: null,
+          prStackNumber: null,
           ...backfill,
         })
         .where(
@@ -1008,7 +1024,13 @@ export async function applyPrClosedState(opts: {
   issueId: string
   prUrl?: string
 }): Promise<void> {
-  await applyPrStateFlip(opts.issueId, opts.prUrl, `closed`)
+  // EXP-897 (FEED-43 R1): a closed PR is in no stack; its edge and stack
+  // identity go with it, or the server's stack walk keeps hanging the chain
+  // on a dead member.
+  await applyPrStateFlip(opts.issueId, opts.prUrl, `closed`, {
+    prBaseBranch: null,
+    prStackNumber: null,
+  })
 }
 
 // PR reopened on GitHub after a close-without-merge (webhook `reopened`):
@@ -1017,14 +1039,26 @@ export async function applyPrClosedState(opts: {
 export async function applyPrReopenedState(opts: {
   issueId: string
   prUrl?: string
+  // EXP-897 (FEED-43 R1): the reopened PR's base as GitHub reports it (the
+  // close cleared the edge). Omitted = unknown, the edge stays cleared.
+  baseBranch?: string | null
 }): Promise<void> {
-  await applyPrStateFlip(opts.issueId, opts.prUrl, `open`)
+  await applyPrStateFlip(
+    opts.issueId,
+    opts.prUrl,
+    `open`,
+    opts.baseBranch !== undefined ? { prBaseBranch: opts.baseBranch } : {}
+  )
 }
 
 async function applyPrStateFlip(
   issueId: string,
   prUrl: string | undefined,
-  to: `closed` | `open`
+  to: `closed` | `open`,
+  extra: {
+    prBaseBranch?: string | null
+    prStackNumber?: number | null
+  } = {}
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -1038,7 +1072,7 @@ async function applyPrStateFlip(
     const from = to === `closed` ? `open` : `closed`
     await tx
       .update(issues)
-      .set({ prState: to })
+      .set({ prState: to, ...extra })
       .where(
         and(
           eq(issues.id, issueId),

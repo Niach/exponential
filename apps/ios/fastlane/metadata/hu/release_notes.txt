@@ -1,17 +1,18 @@
-- Sorban álló üzenetek: az ügynök munkája közben küldött üzenet a szerkesztőmező fölötti Queued sávban vár, és ha eltávolítod, a szöveg visszakerül a piszkozatba
-- A Stop célba ér: egy élő munkamenetben a Stop most tényleg megszakítja a futó kört, ahelyett hogy útközben elveszne, és eldobja azt, ami mögötte sorban áll
-- Csendesebb gombok: kitöltött kört csak az az egy művelet kap, amiért a képernyő van; az eltávolítás, a bezárás, a frissítés, a nyilak és a ... menük mostantól egyszerű jelek
-- A választók megmutatják, mit választanak: az ügynökválasztó a Claude Code vagy a Codex jelét viseli a gombon és minden név mellett, az eszközmenük pedig laptop- vagy szerverikonnal kezdenek
+- Egyetlen Work képernyő: egy issue, a futása, a változások és az eredmények ugyanannak a képernyőnek az arcai, az alsó sávval válthatsz köztük, a Stop vagy a Resume pedig jobbra fent ül
+- Egyetlen diffnézet: minden diff ugyanúgy olvasható, sorszámokkal, kinyitható változatlan sorokkal, az átnevezett és bináris fájlok pedig névvel szerepelnek üresen mutatás helyett
+- Egymásra épülő pull requestek: indíts egy issue-t arra, ami blokkolja, fűzd össze az egész láncot a Merge stackkel, olvasd le a munkán a stack- vagy batch-jelvényt, és válaszolj a kérdésre, amit egy beágyazott futás küld
+- Egy futás eredményei: a képernyőképeket közzétevő futás Results arcot kap, téma szerint csoportosítva, platformonként egy csempével, és egy koppintás megmutatja a teljes képet
+- Batch futások néven: a több issue-t lefedő futás mostantól EXP-874 +2 feliratot mutat az első issue címe mellett a „Batch run” helyett
+- Az üzenetek azonnal célba érnek: az ügynök munkája közben írt üzenet rögtön eljut hozzá, és elküldöttként áll, amíg el nem olvassa, a Stop pedig visszaadja a szöveget a szerkesztőmezőbe
+- A GitHub rendbe téve: a GitHub összekapcsolása, a tároló hozzáadása és a board tárolójának beállítása itt úgy működik, mint az asztali gépen, a hibák pedig ott jelennek meg, ahol vagy
+- Sorban álló üzenetek: az ügynökre váró üzenet a szerkesztőmező fölötti sávban látszik, az élő munkamenetben a Stop pedig tényleg megszakítja a futó kört, ahelyett hogy útközben elveszne
+- Csendesebb gombok és világosabb választók: kitöltött kört csak a képernyő fő művelete kap, az ügynökválasztó a Claude Code vagy a Codex jelét viseli, az eszközmenük pedig laptop- vagy szerverikonnal kezdenek
 - Az Agent oldal tartja a futásaidat: a korábbi futások egy szám mögé hajtódnak össze, amit kinyithatsz, és ha semmi sem fut, a szerkesztőmező az oldal közepén ül
-- Ott jelentkezz be, ahol a fiók van: az eszközbeállításokban marad a név, a megosztás és az ügynök alapértékei, a bejelentkezés, az aktív fiók választása és az eltávolítás pedig a fiókcímkékre került
-- Fiók hozzáadása: az Add account az Accounts fejlécében ül, és új fiókot léptet be egy eszközön, a fióknál lévő plusz pedig ugyanazt lépteti be egy másik eszközön
+- Ott jelentkezz be, ahol a fiók van: a bejelentkezés, az aktív fiók választása és az eltávolítás a fiókcímkékre került, az Accounts fejlécében lévő Add account pedig új fiókot léptet be egy eszközön
 - Az issue-szűrők eltűntek: a szűrőgomb és a pirulái elhagyták a boardot és a beérkezetteket, a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
 - Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen listában van, és egy ismeretlen e-mail-cím egyszerűen új fiók lesz
 - A munkajelzés akkor ér véget, amikor az ügynök: mostantól az ügynök valódi körét követi a kapcsolat helyett, mutatja, mit csinál, idővel és tokenekkel, a Stop pedig a munkamenet fejlécében van
-- Exponential eszközkártyák: amikor az ügynök az Exponentialt hívja, az előzmény egyszerű feliratot mutat, például „Creating issue” vagy „Opened pull request”, majd a végén az eredmény előnézetét
-- Alügynökök névvel: az alügynök címkéje a kapott feladatot viseli, sorai összefoglalják a használt eszközöket, és egy csak olvasható Plan címke látszik, amíg a futás még tervez
+- Kártyák az előzményben: az Exponential hívása egyszerű feliratot mutat, például „Creating issue”, az eredmény előnézetével, az alügynök címkéje a kapott feladatot viseli, és egy csak olvasható Plan címke látszik, amíg a futás tervez
 - Workflow-kártya: a több ügynökös futás egyetlen kártyaként jelenik meg a szakaszaival és alattuk az ügynökökkel, a munkamenet sora pedig második sort kap arról, min dolgozik éppen
-- Fiókok, amelyek igazat mondanak: az ügynökfiók állapota valódi használatmérésből jön, így egy halott bejelentkezés „Needs re-login” feliratot mutat a „Signed in” helyett
-- A Devices a javítás oldala: minden gép felsorolja a nála lévő ügynökfiókokat, és egy címke a megfelelő javítást kínálja, újbóli bejelentkezést a lejárthoz, vagy ennek a fióknak a használatát itt ahhoz, amelyiket a gép nem használja
-- Fiókváltás futás közben: a korlátjába ütköző Claude-futás másik fiókkal folytatható a használati lapról vagy a korlátüzenetből, új futásként, amely a régihez kapcsolódik
-- Vissza oda, ahonnan jöttél: a munkamenetből kilépve visszakerülsz arra az issue-ra, boardra vagy postaládába, ahonnan megnyitottad, és a másik futás által indított futás alatta beágyazva jelenik meg
+- Fiókok és javítás: az ügynökfiók állapota valódi használatmérésből jön, így egy halott bejelentkezés „Needs re-login” feliratot mutat, a Devices pedig gépenként felsorolja a fiókokat a megfelelő javítással egy címkén
+- Fiókváltás futás közben, és vissza oda, ahonnan jöttél: a korlátjába ütköző Claude-futás másik fiókkal folytatható, a munkamenetből kilépve pedig visszakerülsz arra az issue-ra vagy boardra, ahonnan megnyitottad
