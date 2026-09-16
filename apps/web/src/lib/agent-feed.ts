@@ -840,39 +840,68 @@ export function groupFeedRows<
       rows.push(row)
       continue
     }
-    // EXP-916: consecutive edit calls are the edited-files CARD, never a
-    // "N tool calls" run — the rule is the contract's, read off `kind`,
-    // `toolKind` and `workflowId` alone, so the card exists before any patch
-    // lands and a late `tool_update` can never re-split it.
-    if (isEditCall(item)) {
-      const end = editRunEnd(feed, i)
-      rows.push({ kind: `edits`, id: item.id, items: feed.slice(i, end + 1) })
-      i = end
-      continue
-    }
-    // EXP-850 §3: the `Workflow` call renders as its own CARD, so it never
-    // disappears inside a collapsed "N tool calls" run — neither as the run's
-    // opener nor as a member of one.
-    if (item.kind !== `tool` || item.workflowId !== undefined) {
-      rows.push({ kind: `single`, item })
-      continue
-    }
-    let end = i
-    while (
-      end + 1 < feed.length &&
-      feed[end + 1].kind === `tool` &&
-      feed[end + 1].subagentId === undefined &&
-      feed[end + 1].workflowId === undefined &&
-      // EXP-916: an edit BREAKS a command run and never joins it.
-      !isEditCall(feed[end + 1])
-    )
-      end++
-    if (end === i) rows.push({ kind: `single`, item })
-    else
-      rows.push({ kind: `toolRun`, id: item.id, items: feed.slice(i, end + 1) })
-    i = end
+    const scan = scanToolRuns(feed, i)
+    rows.push(scan.row)
+    i = scan.end
   }
   return hoistPendingCards(rows)
+}
+
+/** EXP-916: the ONE edit-run / command-run scan, shared by the main transcript
+ *  and by a lane's own projection (`groupLaneRows`) — the two used to carry a
+ *  copy each and the copies drifted apart.
+ *
+ *  Reads the row at `i` and returns the render row it opens plus the index it
+ *  consumed through:
+ *
+ *  - consecutive EDIT calls are the edited-files CARD, never a "N tool calls"
+ *    run — the rule is the contract's, read off `kind`, `toolKind` and
+ *    `workflowId` alone, so the card exists before any patch lands and a late
+ *    `tool_update` can never re-split it;
+ *  - a `Workflow` call (EXP-850 §3) renders as its own CARD, so it never
+ *    disappears inside a collapsed run — neither as the run's opener nor as a
+ *    member of one;
+ *  - everything else that is a plain `tool` opens a run of ≥2 consecutive
+ *    calls of the SAME lane. The lane is the opener's own `subagentId`, which
+ *    is `undefined` in the main feed (subagent-scoped items were routed into
+ *    their subagent row long before this point) and the subagent's id inside a
+ *    lane — so a run never reaches across lanes on either side. */
+function scanToolRuns<
+  T extends {
+    id: number
+    kind: string
+    toolKind?: string
+    subagentId?: string
+    workflowId?: string
+  },
+>(feed: readonly T[], i: number): { row: FeedRow<T>; end: number } {
+  const item = feed[i]
+  if (isEditCall(item)) {
+    const end = editRunEnd(feed, i)
+    return {
+      row: { kind: `edits`, id: item.id, items: feed.slice(i, end + 1) },
+      end,
+    }
+  }
+  if (item.kind !== `tool` || item.workflowId !== undefined) {
+    return { row: { kind: `single`, item }, end: i }
+  }
+  const lane = item.subagentId
+  let end = i
+  while (
+    end + 1 < feed.length &&
+    feed[end + 1].kind === `tool` &&
+    feed[end + 1].subagentId === lane &&
+    feed[end + 1].workflowId === undefined &&
+    // EXP-916: an edit BREAKS a command run and never joins it.
+    !isEditCall(feed[end + 1])
+  )
+    end++
+  if (end === i) return { row: { kind: `single`, item }, end }
+  return {
+    row: { kind: `toolRun`, id: item.id, items: feed.slice(i, end + 1) },
+    end,
+  }
 }
 
 /** EXP-916: the same projection over ONE lane's items — a subagent's fold and
@@ -890,29 +919,9 @@ export function groupLaneRows<
 >(items: readonly T[]): FeedRow<T>[] {
   const rows: FeedRow<T>[] = []
   for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    if (isEditCall(item)) {
-      const end = editRunEnd(items, i)
-      rows.push({ kind: `edits`, id: item.id, items: items.slice(i, end + 1) })
-      i = end
-      continue
-    }
-    if (item.kind !== `tool` || item.workflowId !== undefined) {
-      rows.push({ kind: `single`, item })
-      continue
-    }
-    let end = i
-    while (
-      end + 1 < items.length &&
-      items[end + 1].kind === `tool` &&
-      items[end + 1].workflowId === undefined &&
-      !isEditCall(items[end + 1])
-    )
-      end++
-    if (end === i) rows.push({ kind: `single`, item })
-    else
-      rows.push({ kind: `toolRun`, id: item.id, items: items.slice(i, end + 1) })
-    i = end
+    const scan = scanToolRuns(items, i)
+    rows.push(scan.row)
+    i = scan.end
   }
   return rows
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { contract } from "@exp/domain-contract"
 import {
   unchangedBetween,
@@ -36,6 +36,17 @@ import { conceptIcon } from "./icons.generated"
 // it CAPS and expands, so a 20k-line file never hard-freezes the tab.
 
 const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
+
+/** EXP-916: how far ahead of the viewport an OPEN card builds its rows. Every
+ *  card of a review starts open, and a 60-file review would otherwise commit
+ *  tens of thousands of nodes at once; a generous margin keeps the mount
+ *  invisible to a reader who scrolls at human speed. */
+const MOUNT_ROOT_MARGIN = `1200px`
+
+/** The rendered height of one diff line, in px (`text-[0.6875rem]` at
+ *  `leading-relaxed`) — what an unmounted body reserves per line, so the page
+ *  height, the scrollbar and a `scrollIntoView` target stay put. */
+const ESTIMATED_LINE_HEIGHT = 18
 
 /** A file with more hunk lines than this starts collapsed. */
 const COLLAPSE_THRESHOLD = contract.diffUi.collapseThresholdLines
@@ -120,9 +131,10 @@ const GRID_CLASS: Record<DiffDensity, string> = {
 
 const GUTTER_CLASS = `select-none pr-2 text-right tabular-nums text-diff-gutter-fg`
 
-/** EXP-916: a card without its patch yet. `pending` = the call is still
- *  running, `failed` = it settled without one. Both are header-only. */
-export type FileDiffCardState = `ready` | `pending` | `failed`
+/** EXP-916: a card without a patch. `pending` = the call is still running,
+ *  `done` = it settled carrying none (a delete, a move, an edit that changed
+ *  nothing), `failed` = the call itself failed. All three are header-only. */
+export type FileDiffCardState = `ready` | `pending` | `done` | `failed`
 
 export function FileDiffCard({
   file,
@@ -133,6 +145,7 @@ export function FileDiffCard({
   isMobile = false,
   state = `ready`,
   flush = false,
+  eager = false,
   className,
 }: {
   file: DiffFile
@@ -144,12 +157,17 @@ export function FileDiffCard({
   density?: DiffDensity
   /** Threaded in, never read here — see `DiffPath`. */
   isMobile?: boolean
-  /** EXP-916: `pending`/`failed` draw the header ALONE — no counts, no body,
-   *  and for `failed` a rose tint plus a trailing `failed`. */
+  /** EXP-916: everything but `ready` draws the header ALONE — no counts, no
+   *  body; `failed` adds a rose tint plus a trailing `failed`, `done` is a
+   *  plain settled row (no chevron either — nothing will ever open). */
   state?: FileDiffCardState
   /** EXP-916: drop the outer glass border and radius — the card is a row of a
    *  parent surface that divides its children itself (`EditedFilesCard`). */
   flush?: boolean
+  /** Build the body as soon as the card OPENS, skipping the near-viewport
+   *  wait — for the handful of short cards a transcript's edited-files card
+   *  stacks, where the observer is pure overhead. */
+  eager?: boolean
   className?: string
 }) {
   const ready = state === `ready`
@@ -159,6 +177,27 @@ export function FileDiffCard({
     if (open === undefined) setOwnOpen(next)
     onOpenChange?.(next)
   }
+
+  // The body is built only once the card is NEAR the viewport (and stays
+  // built afterwards). jsdom — and any environment without the observer —
+  // mounts immediately, so nothing that renders headlessly ever waits.
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const [near, setNear] = useState(
+    () => eager || typeof IntersectionObserver === `undefined`
+  )
+  useEffect(() => {
+    if (near) return
+    const node = rootRef.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true)
+      },
+      { rootMargin: MOUNT_ROOT_MARGIN }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [near])
 
   const rows = useMemo(() => buildRows(file.hunks), [file.hunks])
   const lineTotal = useMemo(() => diffLineCount(file), [file])
@@ -172,7 +211,7 @@ export function FileDiffCard({
 
   // Rows are built only while expanded — a collapsed large file costs nothing.
   const body = useMemo(() => {
-    if (!isOpen || rows.length === 0) return null
+    if (!isOpen || !near || rows.length === 0) return null
     let shown = 0
     const out: ReactNode[] = []
     for (const row of rows) {
@@ -259,7 +298,7 @@ export function FileDiffCard({
       )
     }
     return out
-  }, [isOpen, rows, visibleCount, lang, doHighlight, density])
+  }, [isOpen, near, rows, visibleCount, lang, doHighlight, density])
 
   const hiddenCount = Math.max(0, lineTotal - visibleCount)
 
@@ -267,6 +306,7 @@ export function FileDiffCard({
     // overflow-clip (not hidden) keeps the rounded corners without creating a
     // scroll container, so the sticky header can stick to the page's scrollport.
     <Collapsible
+      ref={rootRef}
       open={isOpen}
       onOpenChange={setOpen}
       disabled={!ready}
@@ -318,10 +358,10 @@ export function FileDiffCard({
           )}
           {/* EXP-706: the disclosure chevron trails the row (native parity) —
               pointing down when collapsed, flipped when open. EXP-916: a
-              `pending` card keeps it, muted and inert; a `failed` one drops
-              it — there is nothing behind either, but a running call still
-              reads as a row that is about to open. */}
-          {state !== `failed` && (
+              `pending` card keeps it, muted and inert — a running call reads
+              as a row that is about to open. A `done` or `failed` one drops
+              it: nothing is ever going to open behind them. */}
+          {(state === `ready` || state === `pending`) && (
             <ChevronDownGlyph
               className={cn(
                 `size-3.5 shrink-0 transition-transform duration-fast`,
@@ -339,9 +379,21 @@ export function FileDiffCard({
         {file.hunks.length > 0 ? (
           <>
             <div className="diff-code overflow-x-auto font-mono text-[0.6875rem] leading-relaxed">
-              <div className="w-max min-w-full py-0.5">{body}</div>
+              {near ? (
+                <div className="w-max min-w-full py-0.5">{body}</div>
+              ) : (
+                /* The body it is about to build, reserved: same height, no
+                   nodes. */
+                <div
+                  data-testid="file-diff-placeholder"
+                  style={{
+                    minHeight:
+                      Math.min(lineTotal, visibleCount) * ESTIMATED_LINE_HEIGHT,
+                  }}
+                />
+              )}
             </div>
-            {hiddenCount > 0 && (
+            {near && hiddenCount > 0 && (
               <Button
                 variant="ghost"
                 size="xs"

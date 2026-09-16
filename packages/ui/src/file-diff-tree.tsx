@@ -32,14 +32,12 @@ export function FileDiffTree({
   files,
   selected,
   onSelect,
-  filterable = true,
   className,
 }: {
   files: readonly DiffFile[]
   /** The path the caller is showing — highlighted in the list. */
   selected?: string | null
   onSelect: (path: string) => void
-  filterable?: boolean
   className?: string
 }) {
   const [filter, setFilter] = useState(``)
@@ -131,18 +129,16 @@ export function FileDiffTree({
       <div className="flex items-center gap-2 rounded-t-md border-b border-glass-stroke bg-glass-section px-3 py-1.5 text-xs">
         <span className="min-w-0 truncate font-medium">{summary}</span>
       </div>
-      {filterable && (
-        <div className="border-b border-glass-stroke p-1.5">
-          <Input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder={DIFF_FILTER_PLACEHOLDER}
-            aria-label={DIFF_FILTER_PLACEHOLDER}
-            className="h-7 text-xs"
-            data-testid="diff-nav-filter"
-          />
-        </div>
-      )}
+      <div className="border-b border-glass-stroke p-1.5">
+        <Input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder={DIFF_FILTER_PLACEHOLDER}
+          aria-label={DIFF_FILTER_PLACEHOLDER}
+          className="h-7 text-xs"
+          data-testid="diff-nav-filter"
+        />
+      </div>
       <div className="max-h-[60vh] overflow-y-auto py-1">{rows}</div>
     </div>
   )

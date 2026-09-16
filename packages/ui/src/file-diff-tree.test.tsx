@@ -4,8 +4,8 @@ import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
 import { DIFF_FILTER_PLACEHOLDER, FileDiffTree } from "./file-diff-tree"
 
 // EXP-916: the file column is a TREE now. The ported `file-diff-nav` cases (the
-// summary header, a pick reporting the whole path, the filter, `filterable`,
-// the selection highlight, the empty label) plus the tree's own: folders fold,
+// summary header, a pick reporting the whole path, the filter, the selection
+// highlight, the empty label) plus the tree's own: folders fold,
 // a lone-child chain compacts, a query flattens.
 
 /** The parsed counts are the patch's own — `fromPullFile` only falls back to
@@ -92,9 +92,9 @@ describe(`FileDiffTree`, () => {
     expect(screen.getByTestId(`diff-nav-row-apps/web/src/beta.tsx`)).toBeTruthy()
   })
 
-  it(`filterable=false drops the field entirely`, () => {
-    render(<FileDiffTree files={FILES} onSelect={vi.fn()} filterable={false} />)
-    expect(screen.queryByTestId(`diff-nav-filter`)).toBeNull()
+  it(`always carries its filter field`, () => {
+    render(<FileDiffTree files={FILES} onSelect={vi.fn()} />)
+    expect(screen.getByTestId(`diff-nav-filter`)).toBeTruthy()
   })
 
   it(`highlights the selected row`, () => {

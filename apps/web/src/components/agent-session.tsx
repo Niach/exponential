@@ -24,7 +24,7 @@ import {
   MobileWorkBar,
   MobileWorkCapsule,
 } from "@/components/mobile-work-bar"
-import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
+import { MergeCapsule } from "@/components/issue-changes-face"
 import { PrGithubButton } from "@/components/pr-github-button"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
 import { ChangesView } from "@/components/changes-view"
@@ -1051,7 +1051,7 @@ export function AgentSessionView({
             onSelect={setDiffFile}
           />
         ) : prUrl ? (
-          <GithubCircle prUrl={prUrl} />
+          <PrGithubButton prUrl={prUrl} variant="circle" />
         ) : undefined
       }
       capsule={
@@ -1370,7 +1370,6 @@ export function AgentSessionView({
                     if (row.kind === `edits`) {
                       return wrap(
                         <EditsCardRow
-                          rowId={row.id}
                           items={
                             row.items as Extract<FeedItem, { kind: `tool` }>[]
                           }
@@ -1442,6 +1441,18 @@ export function AgentSessionView({
                               agentEvents={workflowAgentEvents.get(workflow.id)}
                               duplicates={workflowDuplicates.get(workflow.id)}
                               className={TRANSCRIPT_TOOL_TEXT}
+                            />
+                          )
+                        }
+                        // EXP-916: such a call may still CARRY a patch (an
+                        // edit tagged with a workflow). The card is the only
+                        // place a patch renders now, so a one-member card
+                        // draws it rather than a row that drops it.
+                        if (item.diff) {
+                          return wrap(
+                            <EditsCardRow
+                              items={[item]}
+                              liveRowId={liveRowId ?? null}
                             />
                           )
                         }
@@ -1997,47 +2008,67 @@ function NestedAgentEvents({ items }: { items: FeedItem[] }) {
   return <LaneRows items={items} />
 }
 
-/** EXP-916: ONE lane's items — a subagent's fold, a workflow agent's rows —
- *  through the same projection the main transcript runs (`groupLaneRows`), so
- *  an edit run reads as the card it is everywhere else. */
-function LaneRows({ items }: { items: FeedItem[] }) {
+/** EXP-916: ONE lane's items — a subagent's fold, a workflow agent's rows, a
+ *  subagent's own conversation TAB — through the same projection the main
+ *  transcript runs (`groupLaneRows`), so an edit run reads as the card it is
+ *  everywhere else. The ONE row switch a lane has: a tab used to carry a copy
+ *  of it.
+ *
+ *  `gaps` is the only difference between the two readings. A conversation tab
+ *  IS a transcript, so its rows take the gap ladder (EXP-787); folded inside a
+ *  card the lane keeps the tighter uniform rhythm, with its tool rows flush
+ *  against each other. */
+function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }) {
   const rows = useMemo(() => groupLaneRows(items), [items])
   return (
     <>
-      {rows.map((row) => {
+      {rows.map((row, index) => {
+        const gap = gaps
+          ? transcriptGapClass(
+              index === 0 ? null : rowClass(rows[index - 1]),
+              rowClass(row)
+            )
+          : null
         if (row.kind === `edits`) {
           return (
-            <div key={row.id} className="py-0.5">
-              <EditsCardRow
-                rowId={row.id}
-                items={row.items as ToolItem[]}
-                liveRowId={null}
-              />
+            <div key={row.id} className={gap ?? `py-0.5`}>
+              <EditsCardRow items={row.items as ToolItem[]} liveRowId={null} />
             </div>
           )
         }
         if (row.kind === `toolRun`) {
-          return (
-            <Fragment key={row.id}>
-              {(row.items as ToolItem[]).map((tool) => (
-                <ToolRow key={tool.id} item={tool} />
-              ))}
-            </Fragment>
+          const tools = (row.items as ToolItem[]).map((tool) => (
+            <ToolRow key={tool.id} item={tool} />
+          ))
+          return gap === null ? (
+            <Fragment key={row.id}>{tools}</Fragment>
+          ) : (
+            <div key={row.id} className={gap}>
+              {tools}
+            </div>
           )
         }
         if (row.kind === `subagent` || row.kind === `ask`) return null
         const item = row.item
-        if (item.kind === `tool`) return <ToolRow key={item.id} item={item} />
+        if (item.kind === `tool`) {
+          return gap === null ? (
+            <ToolRow key={item.id} item={item} />
+          ) : (
+            <div key={item.id} className={gap}>
+              <ToolRow item={item} />
+            </div>
+          )
+        }
         if (item.kind === `narration`) {
           return (
-            <div key={item.id} className="py-0.5">
+            <div key={item.id} className={gap ?? `py-0.5`}>
               <NarrationBubble text={item.text} />
             </div>
           )
         }
         if (item.kind === `user_message`) {
           return (
-            <div key={item.id} className="py-0.5">
+            <div key={item.id} className={gap ?? `py-0.5`}>
               <UserMessageBubble text={item.text} />
             </div>
           )
@@ -3339,22 +3370,17 @@ function AgentConversation({
   summary?: SubagentSummary
   items: FeedItem[]
 }) {
-  // EXP-916: a subagent tab is a transcript too — the SAME projection, so its
-  // consecutive edits read as the one card they do everywhere else.
-  const rows = useMemo(
+  // A tab shows the agent's STREAM: its tool calls and the prose and user
+  // turns the mapper stamped with its id. Its lifecycle edges and everything
+  // else are the summary's business, and dropping them here keeps two calls
+  // either side of one from reading as two runs.
+  const stream = useMemo(
     () =>
-      groupLaneRows(
-        items.filter(
-          (
-            item
-          ): item is Extract<
-            FeedItem,
-            { kind: `tool` | `narration` | `user_message` }
-          > =>
-            item.kind === `tool` ||
-            item.kind === `narration` ||
-            item.kind === `user_message`
-        )
+      items.filter(
+        (item) =>
+          item.kind === `tool` ||
+          item.kind === `narration` ||
+          item.kind === `user_message`
       ),
     [items]
   )
@@ -3387,52 +3413,14 @@ function AgentConversation({
           )}
         </div>
       )}
-      {rows.length === 0 ? (
+      {stream.length === 0 ? (
         <div className="py-1 pl-0.5 text-xs text-muted-foreground">
           Nothing from this agent yet.
         </div>
       ) : (
-        rows.map((row, index) => {
-          // EXP-787: a subagent's conversation is a transcript too — same gap
-          // ladder, and its tool rows keep their tighter inner padding.
-          const gap = transcriptGapClass(
-            index === 0 ? null : rowClass(rows[index - 1]),
-            rowClass(row)
-          )
-          if (row.kind === `edits`) {
-            return (
-              <div key={row.id} className={gap}>
-                <EditsCardRow
-                  rowId={row.id}
-                  items={row.items as ToolItem[]}
-                  liveRowId={null}
-                />
-              </div>
-            )
-          }
-          if (row.kind === `toolRun`) {
-            return (
-              <div key={row.id} className={gap}>
-                {(row.items as ToolItem[]).map((tool) => (
-                  <ToolRow key={tool.id} item={tool} />
-                ))}
-              </div>
-            )
-          }
-          if (row.kind !== `single`) return null
-          const item = row.item
-          return (
-            <div key={item.id} className={gap}>
-              {item.kind === `narration` ? (
-                <NarrationBubble text={item.text} />
-              ) : item.kind === `user_message` ? (
-                <UserMessageBubble text={item.text} />
-              ) : (
-                <ToolRow item={item as ToolItem} />
-              )}
-            </div>
-          )
-        })
+        /* EXP-787: a subagent's conversation is a transcript too — same rows,
+           same gap ladder. */
+        <LaneRows items={stream} gaps />
       )}
     </>
   )
@@ -3738,54 +3726,43 @@ function ExpToolResult({
   return null
 }
 
+/** The open set of a card nobody has touched and that has no live row — one
+ *  shared empty set, so `openPaths` keeps a stable identity. */
+const NO_OPEN_PATHS: ReadonlySet<string> = new Set<string>()
+
 /** EXP-916 — the transcript's edited-files CARD: one row per path, the same
  *  `FileDiffCard` every Changes surface draws, folded until the reader opens
  *  one. The projection is the contract's (`editCard`), memoised per CARD —
- *  never once over the whole feed — and keyed on what can actually change it:
- *  the row, its last member and the total size of its patches (a `tool_update`
- *  that lands a patch grows exactly that).
+ *  never once over the whole feed — on `items`, the row's own slice out of the
+ *  memoised feed projection: a new array exactly when the projection changed,
+ *  which is every way a patch can land or grow (a same-LENGTH rewrite
+ *  included).
  *
- *  Open state: while the card's last member is the LIVE tool row, that row is
- *  open by itself so the reader watches the edit land; the moment the card
- *  settles (its `liveIndex` goes null) the whole card collapses, unless the
- *  reader has touched it. */
+ *  Open state is ONE nullable set. `null` = follow the live row: while the
+ *  card's last member is the LIVE tool row that row is open by itself, so the
+ *  reader watches the edit land, and the card folds itself the moment it
+ *  settles. A tap replaces it with the reader's own set — seeded from what is
+ *  effectively open, so the live row can be collapsed like any other — and
+ *  that set survives the settle, because their opens are theirs. */
 function EditsCardRow({
-  rowId,
   items,
   liveRowId,
 }: {
-  rowId: number
   items: ToolItem[]
   liveRowId: number | null
 }) {
-  const last = items[items.length - 1]
-  const diffBytes = items.reduce((n, item) => n + (item.diff?.length ?? 0), 0)
-  const view = useMemo(
-    () => editCard(items, liveRowId),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rowId, last?.id, diffBytes, liveRowId]
-  )
+  const view = useMemo(() => editCard(items, liveRowId), [items, liveRowId])
   const livePath =
     view.liveIndex === null ? null : (view.rows[view.liveIndex]?.path ?? null)
-  const [touched, setTouched] = useState(false)
-  const [open, setOpen] = useState<Set<string>>(() => new Set())
-  // The live row settled: the card folds itself back up, and the reader's own
-  // toggles start again from nothing.
-  useEffect(() => {
-    if (livePath !== null) return
-    setTouched(false)
-    setOpen(new Set())
-  }, [livePath])
-  const openPaths = useMemo(() => {
-    if (touched || livePath === null) return open
-    return new Set([livePath])
-  }, [touched, livePath, open])
+  const [open, setOpen] = useState<Set<string> | null>(null)
+  const openPaths = useMemo(
+    () => open ?? (livePath === null ? NO_OPEN_PATHS : new Set([livePath])),
+    [open, livePath]
+  )
   const toggle = useCallback(
     (path: string) => {
-      setTouched(true)
       setOpen((prev) => {
-        const base = prev.size === 0 && livePath !== null ? new Set([livePath]) : prev
-        const next = new Set(base)
+        const next = new Set(prev ?? (livePath === null ? [] : [livePath]))
         if (next.has(path)) next.delete(path)
         else next.add(path)
         return next

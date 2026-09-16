@@ -10,6 +10,7 @@ import {
 
 import { cn } from "./cn"
 import { FileDiffCard } from "./file-diff-card"
+import { truncatedLinesNote } from "./file-diff-list"
 import { GLASS_SURFACE } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 
@@ -25,9 +26,11 @@ import { conceptIcon } from "./icons.generated"
 
 const CodingDiffIcon = conceptIcon(`coding-diff`)
 
-/** The open row's scroll box — `max-h-72` IS `contract.diffUi.inlineDiffMaxHeight`
- *  (288px), the same bound the natives and the desktop give an inline patch. */
-const BODY_SCROLL_CLASS = `max-h-72 overflow-auto overscroll-contain`
+/** The open row's scroll box. The BOUND is the contract's
+ *  `diffUi.inlineDiffMaxHeight`, read here rather than spelled as a tailwind
+ *  step, so web, the natives and the desktop cap an inline patch at the same
+ *  number. */
+const BODY_SCROLL_CLASS = `overflow-auto overscroll-contain`
 
 /** A `pending`/`failed` row has no patch — the card still draws its header, so
  *  it needs a file-shaped stand-in with nothing in it. */
@@ -83,9 +86,17 @@ export function EditedFilesCard({
               // own box): one 2000-line patch must never push the rest of the
               // transcript off screen.
               className={cn(`min-w-0`, open && BODY_SCROLL_CLASS)}
+              style={
+                open
+                  ? { maxHeight: contract.diffUi.inlineDiffMaxHeight }
+                  : undefined
+              }
             >
               <FileDiffCard
                 flush
+                /* A card row holds a handful of lines and the card itself is
+                   already in the transcript's flow — no observer needed. */
+                eager
                 density="compact"
                 state={row.state}
                 open={open}
@@ -96,6 +107,17 @@ export function EditedFilesCard({
           )
         })}
       </div>
+      {view.truncatedLines > 0 && (
+        /* EXP-786: what the PUBLISHER cut off the members' patches — the same
+           note a file list carries, so a card never silently shows a short
+           diff. */
+        <p
+          className="border-t border-glass-stroke px-3 py-1 text-[0.6875rem] text-muted-foreground/70"
+          data-testid="edited-files-truncation-note"
+        >
+          {truncatedLinesNote(view.truncatedLines)}
+        </p>
+      )}
       {more !== null && !liveBeyondPreview && (
         <button
           type="button"

@@ -5,9 +5,8 @@ import {
   PILL_PRIMARY_PAINT,
   type SessionDotTone,
 } from "@exp/ui"
-import { contract } from "@exp/domain-contract"
 import { cn } from "@/lib/utils"
-import { PrGithubButton as GithubGhostButton } from "@/components/pr-github-button"
+import { PrGithubButton } from "@/components/pr-github-button"
 import { useReviewFiles } from "@/hooks/use-review-files"
 import { useSteerConfig } from "@/components/agent-session"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
@@ -16,7 +15,6 @@ import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CAPSULE_CLASS,
-  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
 } from "@/components/mobile-work-bar"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
@@ -33,32 +31,7 @@ import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 // open, the face switcher on the right. A run's live diff draws the same face
 // inside the session view.
 
-const GithubIcon = conceptIcon(`ui-github`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-
-/** The GitHub control of a Changes surface — the PR page in a new tab. The
- *  phone wears it in the HEADER's action slot; the work bar's leading slot is
- *  the file sheet's (EXP-895). EXP-916: ONE component, shared with the md+
- *  work header, and its words are the contract's. */
-export { GithubGhostButton }
-
-/** The GitHub circle of a phone work bar — kept for the surfaces that still put
- *  it in a bar slot (the run's Changes face has no issue header to hang it on
- *  when the run is issue-less). */
-export function GithubCircle({ prUrl }: { prUrl: string }) {
-  return (
-    <button
-      type="button"
-      aria-label={contract.diffUi.openOnGithub}
-      title={contract.diffUi.openOnGithub}
-      data-testid="changes-github-circle"
-      onClick={() => window.open(prUrl, `_blank`, `noopener,noreferrer`)}
-      className={MOBILE_WORK_CIRCLE_CLASS}
-    >
-      <GithubIcon className="size-5" />
-    </button>
-  )
-}
 
 /** The Changes face's Merge PR capsule: the 52px work capsule painted with
  *  `Pill`'s own `primary` accent (which has to come LAST — the capsule brings
@@ -126,7 +99,7 @@ export function IssueChangesFace({
         origin={origin}
         handlers={handlers}
         action={
-          issue.prUrl ? <GithubGhostButton prUrl={issue.prUrl} /> : undefined
+          issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined
         }
         graphBadge={
           /* EXP-897: the Changes face's own overlay — the PR stack bottom-up,

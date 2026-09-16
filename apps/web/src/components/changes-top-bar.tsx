@@ -4,6 +4,7 @@ import { contract } from "@exp/domain-contract"
 import { summaryLabel, totals, type DiffFile } from "@exp/domain-contract/diff"
 import { cn } from "@/lib/utils"
 import type { SessionMergeTargetProps } from "@/hooks/use-agents-data"
+import { PrGithubButton } from "@/components/pr-github-button"
 import { SessionMergePill } from "@/components/session-merge-button"
 
 // EXP-916: the REVIEWS header, and only Reviews. A run's Changes face lost its
@@ -17,7 +18,6 @@ import { SessionMergePill } from "@/components/session-merge-button"
 // with, so the page says its size once and says it the same way ×4. Every
 // action label is the contract's.
 
-const GithubIcon = conceptIcon(`ui-github`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const PrClosedIcon = conceptIcon(`pr-closed`)
 
@@ -103,19 +103,7 @@ export function ChangesTopBar({
         {merge && (
           <SessionMergePill {...merge} label={contract.diffUi.mergePr} />
         )}
-        {prUrl && (
-          <Button
-            variant="glass"
-            size="icon-sm"
-            className="rounded-full"
-            aria-label={contract.diffUi.openOnGithub}
-            title={contract.diffUi.openOnGithub}
-            data-testid="changes-github-link"
-            onClick={() => window.open(prUrl, `_blank`, `noopener,noreferrer`)}
-          >
-            <GithubIcon className="size-4" />
-          </Button>
-        )}
+        {prUrl && <PrGithubButton prUrl={prUrl} variant="glass" />}
         {trailing}
       </div>
     </div>

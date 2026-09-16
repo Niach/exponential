@@ -104,16 +104,3 @@ export function DiffPath({
     </span>
   )
 }
-
-/** The directory of a path, with its trailing slash dropped — the trailing
- *  dimmed crumb a file LIST row carries after the basename. */
-export function diffPathDir(path: string): string {
-  const slash = path.lastIndexOf(`/`)
-  return slash >= 0 ? path.slice(0, slash) : ``
-}
-
-/** The basename of a path — the file list's primary label. */
-export function diffPathBase(path: string): string {
-  const slash = path.lastIndexOf(`/`)
-  return path.slice(slash + 1)
-}
