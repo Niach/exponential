@@ -470,7 +470,8 @@ enum PollDecision {
     /// (`exponential_sessions_end`) — the child is still mid-turn writing
     /// the close-out that call was about, so the kill waits for the turn to
     /// finish (bounded by [`STOP_GRACE`]). Every other `ended_by` (a user
-    /// kill, a merge, the sweep) means "now", exactly as before.
+    /// kill, a merge, a withdrawn share) means "now", exactly as before —
+    /// except `stale` (EXP-888), which is no kill at all.
     Kill { graceful: bool },
     /// A live owned row — keep polling.
     Continue,
@@ -523,7 +524,11 @@ fn kill_poll_decision(row: &api::coding_sessions::CodingSession, own_user: &str)
     if !owned {
         return PollDecision::StopWatching;
     }
-    if row.status.as_deref() == Some("ended") {
+    // EXP-888: the staleness sweep's end is not a kill — this daemon is
+    // polling, so the run is alive; its next heartbeat revives the row.
+    if row.status.as_deref() == Some("ended")
+        && row.ended_by.as_deref() != Some(domain::contract::CODING_SESSION_ENDED_BY_STALE)
+    {
         PollDecision::Kill {
             graceful: row.ended_by.as_deref()
                 == Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT),
@@ -627,10 +632,12 @@ mod tests {
                 "{ended_by_value} must kill immediately"
             );
         }
+        // EXP-888: the sweep's end keeps the watch polling, never kills.
+        assert_eq!(kill_poll_decision(&ended_by("stale"), "me"), PollDecision::Continue);
         // Every contract value is covered above.
         assert_eq!(
             domain::contract::CODING_SESSION_ENDED_BY_VALUES.len(),
-            5,
+            6,
             "a new endedBy value needs a decision here"
         );
     }

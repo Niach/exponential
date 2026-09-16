@@ -46,7 +46,7 @@ pub use collections::{
     ShapeRow, SharedState, Store,
 };
 pub use health::{AccountHealth, SyncHealth, ERROR_STALENESS_WINDOW, FAILURE_STREAK_GRACE};
-pub use kill_watch::{session_row_fires_kill, session_row_is_ended};
+pub use kill_watch::{session_row_fires_kill, session_row_is_ended, session_row_is_stale_end};
 #[cfg(feature = "gpui")]
 pub use kill_watch::{KillWatch, OnSessionEnded};
 pub use manager::{spawn_wake_watchdog, AccountSyncConfig, SyncManager};

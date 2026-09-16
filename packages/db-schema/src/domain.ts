@@ -344,14 +344,17 @@ export const startedReasonValues = [`schedule`, `event`, `agent`] as const
 // EXP-637). `agent` = the run closed itself via `exponential_sessions_end`
 // (the only path that also writes `summary`); `user` =
 // steer.killSession; `client` = codingSessions.end (agent exit, tab close,
-// app quit); `merge` = a PR merge path; `system` = the stale sweep or account
-// deletion. NULL on rows ended by pre-EXP-637 servers.
+// app quit); `merge` = a PR merge path; `system` = account deletion or a
+// withdrawn share; `stale` (EXP-888) = the staleness sweep, the ONE end that
+// never kills (devices ignore it, a heartbeat revives it). NULL on rows ended
+// by pre-EXP-637 servers.
 export const codingSessionEndedByValues = [
   `agent`,
   `user`,
   `client`,
   `merge`,
   `system`,
+  `stale`,
 ] as const
 
 // Cap on the agent-written close-out (coding_sessions.summary). A paragraph,

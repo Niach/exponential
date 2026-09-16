@@ -23,7 +23,7 @@ public enum DomainContract {
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "in_review", "ended"]
-    public static let codingSessionEndedByValues: [String] = ["agent", "user", "client", "merge", "system"]
+    public static let codingSessionEndedByValues: [String] = ["agent", "user", "client", "merge", "system", "stale"]
     public static let codingSessionBlockedKinds: [String] = ["rate_limit"]
     public static let codingSessionBlockedWindows: [String] = ["session", "weekly", "model"]
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "other"]
@@ -127,6 +127,7 @@ public enum DomainContract {
     public static let codingSessionEndedByClient: String = "client"
     public static let codingSessionEndedByMerge: String = "merge"
     public static let codingSessionEndedBySystem: String = "system"
+    public static let codingSessionEndedByStale: String = "stale"
     public static let subscriberSourceCreator: String = "creator"
     public static let subscriberSourceAssignee: String = "assignee"
     public static let subscriberSourceCommenter: String = "commenter"
