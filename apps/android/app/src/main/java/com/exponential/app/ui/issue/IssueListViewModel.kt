@@ -41,6 +41,7 @@ import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.domain.sortIssuesForCategory
 import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.markdownImageUrls
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.markdownEmbedUrls
@@ -272,16 +273,25 @@ class IssueListViewModel @Inject constructor(
                 // The create screen's editor renders display chips from this
                 // same handler, so the status glyph is precomputed here too
                 // (EXP-423) — detail-VM parity.
-                .map {
-                    IssueRefTarget(
-                        it.id,
-                        it.identifier,
-                        it.title,
-                        IssueStatusResolver.resolve(it, statuses),
-                    )
-                }
+                .map { issueRefTarget(it, statuses) }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-892: the create screen's `#` menu server half — `issues.search`
+     * over the target board's team. Failures degrade to local-only.
+     */
+    suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
+        val accountId = auth.activeAccountId.value ?: return emptyList()
+        val teamId = _board.value?.teamId ?: return emptyList()
+        return try {
+            issuesApi.search(accountId, teamId, query).map(::issueRefTarget)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     // The heavy group/sort pipeline. Recomputes only when one of its
     // *meaningful* data inputs changes (board, issues, labels, joins or

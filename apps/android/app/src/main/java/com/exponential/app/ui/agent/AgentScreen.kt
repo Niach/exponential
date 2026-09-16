@@ -31,6 +31,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,6 +40,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
@@ -67,10 +73,12 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
 import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
 import com.exponential.app.ui.markdown.IssueRefHandler
-import com.exponential.app.ui.markdown.MENTION_CANDIDATE_LIMIT
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
+import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
+import com.exponential.app.ui.markdown.pickAutocompleteAt
+import com.exponential.app.ui.markdown.rememberIssueRefCandidates
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
@@ -178,6 +186,9 @@ fun AgentScreen(
                     repositoryId = null,
                     status = null,
                     priority = null,
+                    description = it.description,
+                    createdAt = it.createdAt,
+                    updatedAt = it.updatedAt,
                 )
             }
         }
@@ -280,7 +291,10 @@ fun AgentScreen(
     }
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
     val issueRefHandler = remember(issueRefCandidates) {
-        IssueRefHandler(issueRefCandidates) { target -> currentOnOpenIssue(target.issueId) }
+        IssueRefHandler(
+            issueRefCandidates,
+            searchServer = viewModel::searchIssueRefs,
+        ) { target -> currentOnOpenIssue(target.issueId) }
     }
     val triggers = autocompleteTriggersAt(
         beforeCaret = composerField.text.take(composerField.selection.start),
@@ -288,9 +302,9 @@ fun AgentScreen(
         refsEnabled = issueRefCandidates.isNotEmpty(),
     )
     val mentionCandidates = mentionCandidatesFor(mentionMembers, triggers.mentionQuery)
-    val refCandidates = triggers.issueRefQuery
-        ?.let { issueRefHandler.search(it, limit = MENTION_CANDIDATE_LIMIT) }
-        ?: emptyList()
+    // EXP-892: ranked by the shared engine, with the server's full-text hits
+    // (comment bodies included) spliced in behind them once typing settles.
+    val refCandidates = rememberIssueRefCandidates(issueRefHandler, triggers.issueRefQuery)
     val emojiMatch = triggers.emoji
     val emojiData = rememberEmojiData(enabled = emojiMatch != null)
     val emojiPrefs = rememberEmojiPrefs()
@@ -317,6 +331,26 @@ fun AgentScreen(
     }
     val menuOpen = composerArmed &&
         (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty() || emojiCandidates.isNotEmpty())
+    // EXP-892: the highlighted row — the TOP one while typing, moved by a
+    // hardware ↑/↓ and picked by Enter/Tab, exactly like the `/` command menu.
+    val candidateCount =
+        autocompleteCandidateCount(mentionCandidates, refCandidates, emojiCandidates)
+    var menuSelected by remember { mutableIntStateOf(0) }
+    LaunchedEffect(mentionCandidates, refCandidates, emojiCandidates) { menuSelected = 0 }
+    fun pickSelectedToken() {
+        pickAutocompleteAt(
+            index = menuSelected.coerceIn(0, (candidateCount - 1).coerceAtLeast(0)),
+            mentionCandidates = mentionCandidates,
+            refCandidates = refCandidates,
+            emojiCandidates = emojiCandidates,
+            onPickMention = { commitToken(composerField.withMention(it)) },
+            onPickIssueRef = { commitToken(composerField.withIssueRef(it)) },
+            onPickEmoji = { record ->
+                commitToken(composerField.withEmoji(record, trailingSpace = true))
+                emojiPrefs.pushRecent(record.unicode)
+            },
+        )
+    }
     // Back dismisses the menu, and only the menu.
     BackHandler(enabled = menuOpen) { composerArmed = false }
 
@@ -445,7 +479,36 @@ fun AgentScreen(
                                 composerField = next
                                 viewModel.setDraft(next.text)
                             },
-                            fieldModifier = Modifier,
+                            // EXP-892: while the `#`/`@`/`:` menu is up it
+                            // owns ↑/↓/Enter/Tab/Escape — and only then.
+                            fieldModifier = Modifier.onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) {
+                                    return@onPreviewKeyEvent false
+                                }
+                                if (!menuOpen || candidateCount == 0) {
+                                    return@onPreviewKeyEvent false
+                                }
+                                when (event.key) {
+                                    Key.DirectionUp -> {
+                                        menuSelected =
+                                            (menuSelected - 1 + candidateCount) % candidateCount
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        menuSelected = (menuSelected + 1) % candidateCount
+                                        true
+                                    }
+                                    Key.Enter, Key.NumPadEnter, Key.Tab -> {
+                                        pickSelectedToken()
+                                        true
+                                    }
+                                    Key.Escape -> {
+                                        composerArmed = false
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
                             // The field's prompt per subject — a chat asks for
                             // the message, a picked action shows its own
                             // composer hint (EXP-825), anything else what is
@@ -483,6 +546,7 @@ fun AgentScreen(
                                 mentionCandidates = mentionCandidates,
                                 refCandidates = refCandidates,
                                 emojiCandidates = emojiCandidates,
+                                selectedIndex = menuSelected,
                                 onPickMention = { commitToken(composerField.withMention(it)) },
                                 onPickIssueRef = { commitToken(composerField.withIssueRef(it)) },
                                 onPickEmoji = { record ->

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.runtime.Composable
+import com.exponential.app.data.api.SearchIssueHit
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.ui.components.GlassSheet
 
@@ -15,6 +16,7 @@ fun DuplicatePickerSheet(
     candidates: List<IssueEntity>,
     onPick: (IssueEntity) -> Unit,
     onDismiss: () -> Unit,
+    searchServer: (suspend (String) -> List<SearchIssueHit>)? = null,
 ) {
     GlassSheet(title = "Duplicate of…", onDismiss = onDismiss) {
         IssueCandidateList(
@@ -23,6 +25,7 @@ fun DuplicatePickerSheet(
                 onPick(it)
                 onDismiss()
             },
+            searchServer = searchServer,
         )
     }
 }

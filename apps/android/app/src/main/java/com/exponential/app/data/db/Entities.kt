@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.exponential.app.domain.IssueSearch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
@@ -68,12 +69,12 @@ data class BoardEntity(
 )
 @Serializable
 data class IssueEntity(
-    @PrimaryKey val id: String,
+    @PrimaryKey override val id: String,
     @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String,
     val number: Int,
-    val identifier: String,
-    val title: String,
-    @Serializable(with = JsonAsStringSerializer::class) val description: String? = null,
+    override val identifier: String,
+    override val title: String,
+    @Serializable(with = JsonAsStringSerializer::class) override val description: String? = null,
     // The dual-written builtin ANCHOR (EXP-314): still one of the 7 enum wire
     // values on every row, so enum-only writers and old clients keep working.
     val status: String,
@@ -100,9 +101,11 @@ data class IssueEntity(
     // is not synced.
     @ColumnInfo(name = "pr_base_branch") @SerialName("pr_base_branch") @JsonNames("prBaseBranch") val prBaseBranch: String? = null,
     @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
-)
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") override val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") override val updatedAt: String,
+    // EXP-892: the ONE issue-search engine ranks these rows directly (Search
+    // tab, the pickers) — the interface is pure projection, nothing is stored.
+) : IssueSearch.Row
 
 @Entity(
     tableName = "labels",

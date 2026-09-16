@@ -421,6 +421,58 @@ final class EditorTextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onPasteImage: ((UIImage) -> Void)?
     var onIssueRefTap: ((String) -> Void)?
+
+    /// EXP-892 — what a hardware key does to the OPEN `@`/`#`/`:` candidate
+    /// menu. The text view keeps first responder while the menu shows (that is
+    /// the whole point of the menu's Button rows), so ↑/↓/Return/Tab/Escape
+    /// arrive here, not at the SwiftUI list.
+    enum AutocompleteKey { case up, down, commit, dismiss }
+
+    /// Answers true when the key was consumed by the menu. nil (or false) leaves
+    /// the key to the text view's own behaviour.
+    var onAutocompleteKey: ((AutocompleteKey) -> Bool)?
+    /// Whether a candidate menu is open right now. The key commands below are
+    /// only ADVERTISED while it is, so Return keeps inserting a newline and Tab
+    /// keeps its meaning everywhere else.
+    var hasOpenAutocomplete: (() -> Bool)?
+
+    // `wantsPriorityOverSystemBehavior` is what makes the arrows and Return
+    // land here instead of moving the caret / splitting the block: without it
+    // UITextView's own key handling wins.
+    override var keyCommands: [UIKeyCommand]? {
+        guard hasOpenAutocomplete?() == true else { return nil }
+        let commands = [
+            UIKeyCommand(
+                input: UIKeyCommand.inputUpArrow, modifierFlags: [],
+                action: #selector(autocompleteMoveUp(_:))),
+            UIKeyCommand(
+                input: UIKeyCommand.inputDownArrow, modifierFlags: [],
+                action: #selector(autocompleteMoveDown(_:))),
+            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(autocompleteCommit(_:))),
+            UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(autocompleteCommit(_:))),
+            UIKeyCommand(
+                input: UIKeyCommand.inputEscape, modifierFlags: [],
+                action: #selector(autocompleteDismiss(_:))),
+        ]
+        for command in commands { command.wantsPriorityOverSystemBehavior = true }
+        return commands
+    }
+
+    @objc private func autocompleteMoveUp(_ sender: UIKeyCommand) {
+        _ = onAutocompleteKey?(.up)
+    }
+
+    @objc private func autocompleteMoveDown(_ sender: UIKeyCommand) {
+        _ = onAutocompleteKey?(.down)
+    }
+
+    @objc private func autocompleteCommit(_ sender: UIKeyCommand) {
+        _ = onAutocompleteKey?(.commit)
+    }
+
+    @objc private func autocompleteDismiss(_ sender: UIKeyCommand) {
+        _ = onAutocompleteKey?(.dismiss)
+    }
     /// Display-only rendering: issue-ref taps still navigate, but checkbox
     /// glyph taps must not mutate the (never-persisted) text.
     var isReadOnlyRendering = false
@@ -642,6 +694,7 @@ struct BlockTextEditor: UIViewRepresentable {
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
         tv.onIssueRefTap = onIssueRefTap
+        wireAutocompleteKeys(tv)
 
         coord.beginProgrammaticChange()
         tv.attributedText = content
@@ -723,6 +776,7 @@ struct BlockTextEditor: UIViewRepresentable {
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
         tv.onIssueRefTap = onIssueRefTap
+        wireAutocompleteKeys(tv)
 
         // Apply EXTERNAL content changes only (structural edits / remote apply),
         // identified by a bumped revision. The user's own keystrokes never bump
@@ -757,6 +811,31 @@ struct BlockTextEditor: UIViewRepresentable {
         }
         if !isReadOnly, tv.isFirstResponder {
             toolbar?.textView = tv
+        }
+    }
+
+    /// EXP-892 — with a hardware keyboard attached, ↑/↓ move the open candidate
+    /// menu's selection and Return/Tab commit it, the same contract the web and
+    /// desktop menus keep. The text view stays first responder while the menu
+    /// shows, so the keys arrive HERE; the closures answer false when no menu
+    /// is open and the key falls through to normal editing.
+    private func wireAutocompleteKeys(_ tv: EditorTextView) {
+        tv.hasOpenAutocomplete = { [weak model] in model?.showsAutocompleteMenu ?? false }
+        tv.onAutocompleteKey = { [weak model] key in
+            guard let model, model.showsAutocompleteMenu else { return false }
+            switch key {
+            case .up:
+                model.moveAutocompleteSelection(by: -1)
+                return true
+            case .down:
+                model.moveAutocompleteSelection(by: 1)
+                return true
+            case .commit:
+                return model.applySelectedAutocomplete()
+            case .dismiss:
+                model.dismissAutocomplete()
+                return true
+            }
         }
     }
 

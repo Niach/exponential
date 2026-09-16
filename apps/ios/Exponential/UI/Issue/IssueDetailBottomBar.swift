@@ -52,6 +52,9 @@ struct IssueDetailBottomBar<Switcher: View>: View {
     @Environment(\.motion) private var motion
 
     @State private var composerEditor = IssueEditorModel()
+    /// EXP-892 — the `#` menu's server half, kept across re-renders so its
+    /// debounce survives a keystroke.
+    @State private var issueRefAugmentor: IssueRefAugmentor?
     @State private var expanded = false
     @State private var submitting = false
     @State private var composerHasText = false
@@ -366,7 +369,16 @@ struct IssueDetailBottomBar<Switcher: View>: View {
         composerEditor.issueRefResolver = { resolveIssueRef($0) }
         composerEditor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
         composerEditor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
-        composerEditor.issueRefSearch = { searchIssueRefs($0) }
+        // EXP-892: locally ranked rows now, the server's full-text hits
+        // (comment bodies included) spliced in behind them a beat later.
+        let augmentor = issueRefAugmentor ?? IssueRefAugmentor(
+            scope: .issue(id: issue.id),
+            db: deps.db,
+            accountId: accountId,
+            issuesApi: deps.issuesApi
+        )
+        issueRefAugmentor = augmentor
+        augmentor.attach(to: composerEditor)
         // EXP-824: a pasted `[clip.mp4](/api/attachments/{id})` renders as a
         // player in the composer too.
         composerEditor.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
@@ -439,9 +451,6 @@ struct IssueDetailBottomBar<Switcher: View>: View {
             identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
-    private func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
-        IssueRefLookup.search(query, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
-    }
 
     /// EXP-554: a photo pick becomes a PENDING attachment, not an inline
     /// `![](…)` in the body. Normalization (HEIC→JPEG) and the 10 MB cap are the

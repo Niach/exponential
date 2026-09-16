@@ -349,7 +349,13 @@ fun CreateIssueScreen(
     // non-navigable and a tap on a chip falls through to the caret (EXP-423).
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val issueRefHandler = remember(issueRefCandidates) {
-        IssueRefHandler(issueRefCandidates, canOpen = false) { }
+        IssueRefHandler(
+            issueRefCandidates,
+            canOpen = false,
+            // EXP-892: the `#` menu's server half — the list ViewModel owns
+            // the board's team, so the create screen gets it for free.
+            searchServer = viewModel::searchIssueRefs,
+        ) { }
     }
 
     CompositionLocalProvider(LocalIssueRefs provides issueRefHandler) {

@@ -197,10 +197,10 @@ final class IssueDetailViewModel {
             self?.resolveIssueRefStatus(identifier)
         }
         // Typing `#` offers same-team issues; selecting one inserts the
-        // plain `#IDENTIFIER` interchange token.
-        editor.issueRefSearch = { [weak self] query in
-            self?.searchIssueRefs(query) ?? []
-        }
+        // plain `#IDENTIFIER` interchange token. EXP-892: the locally ranked
+        // rows render instantly, and a debounced `issues.search` splices the
+        // server's full-text hits (comment bodies included) in behind them.
+        issueRefAugmentor.attach(to: editor)
         // EXP-824: `[clip.mp4](/api/attachments/{id})` blocks resolve against
         // the issue's synced rows (render-only, like the ref resolvers).
         editor.attachmentResolver = { [weak self] attachmentId in
@@ -229,10 +229,23 @@ final class IssueDetailViewModel {
         IssueRefChipCache.statusInfo(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)
     }
 
-    /// Issues offered by the description editor's #-autocomplete
-    /// (team-scoped; identifier + title substring match).
-    func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
-        IssueRefLookup.search(query, scope: .issue(id: issueId), db: db, accountId: accountId)
+    /// Issues offered by the description editor's #-autocomplete: the shared
+    /// `IssueSearch` ranking over the synced rows, plus a debounced server
+    /// `issues.search` behind it (EXP-892).
+    @ObservationIgnored private lazy var issueRefAugmentor = IssueRefAugmentor(
+        scope: .issue(id: issueId),
+        db: db,
+        accountId: accountId,
+        issuesApi: issuesApi
+    )
+
+    /// Relevance-ordered `issues.search` hits for the duplicate/relation
+    /// pickers, so a query that only matches a COMMENT still finds its issue.
+    /// Errors (offline, non-member) just mean no augmentation.
+    func searchIssueHits(_ query: String) async -> [SearchIssueHit] {
+        guard let teamId = board?.teamId else { return [] }
+        return (try? await issuesApi.search(accountId: accountId, teamId: teamId, query: query))
+            ?? []
     }
 
     func startObserving() {

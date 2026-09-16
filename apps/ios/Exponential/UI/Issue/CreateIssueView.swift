@@ -107,6 +107,9 @@ struct CreateIssueView: View {
 
     @State private var title = ""
     @State private var editor = IssueEditorModel()
+    /// EXP-892 — the `#` menu's server half, kept across re-renders so its
+    /// debounce survives a keystroke.
+    @State private var issueRefAugmentor: IssueRefAugmentor?
     /// Files picked from the editor's attach menu — already uploaded against
     /// the draft (EXP-878).
     @State private var draftAttachments: [DraftAttachment] = []
@@ -993,9 +996,16 @@ struct CreateIssueView: View {
             IssueRefChipCache.statusInfo(
                 identifier, scope: .board(id: boardId), db: deps.db, accountId: accountId)
         }
-        editor.issueRefSearch = { query in
-            IssueRefLookup.search(query, scope: .board(id: boardId), db: deps.db, accountId: accountId)
-        }
+        // EXP-892: the locally ranked rows render instantly; a debounced
+        // `issues.search` splices the server's full-text hits in behind them.
+        let augmentor = issueRefAugmentor ?? IssueRefAugmentor(
+            scope: .board(id: boardId),
+            db: deps.db,
+            accountId: accountId,
+            issuesApi: deps.issuesApi
+        )
+        issueRefAugmentor = augmentor
+        augmentor.attach(to: editor)
     }
 
     private var instanceBaseURL: URL? {

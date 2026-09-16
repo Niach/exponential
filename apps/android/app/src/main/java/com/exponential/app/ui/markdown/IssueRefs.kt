@@ -2,6 +2,10 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
+import com.exponential.app.data.api.SearchIssueHit
+import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.IssueSearch
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 
 // Inline `#IDENTIFIER` issue references (masterplan §5e) — the Android
@@ -18,8 +22,8 @@ import com.exponential.app.domain.ResolvedIssueStatus
 @Immutable
 data class IssueRefTarget(
     val issueId: String,
-    val identifier: String,
-    val title: String = "",
+    override val identifier: String,
+    override val title: String = "",
     /**
      * The issue's resolved status (EXP-314) — the chip paints its pie-clock
      * glyph over the token's `#` (EXP-423). Null (a screen that only powers the
@@ -27,7 +31,19 @@ data class IssueRefTarget(
      * glyph and keeps the `#` visible.
      */
     val resolvedStatus: ResolvedIssueStatus? = null,
-)
+    /**
+     * EXP-892: the ranking fields of the shared [IssueSearch] engine. Filled
+     * wherever a handler is built from Room issues (issue detail, the create
+     * screen, the agent + steer composers); a target synthesized from a
+     * server hit carries what the hit knew and ranks as the oldest row.
+     */
+    override val description: String? = null,
+    override val createdAt: String? = null,
+    override val updatedAt: String? = null,
+) : IssueSearch.Row {
+    /** [IssueSearch.Row]'s id — this type has called it [issueId] since §5e. */
+    override val id: String get() = issueId
+}
 
 /**
  * Team-scoped resolver + tap navigation + autocomplete search for
@@ -46,6 +62,13 @@ class IssueRefHandler(
      * (EXP-423).
      */
     val canOpen: Boolean = true,
+    /**
+     * EXP-892: the server-side full-text search (`issues.search` — title,
+     * description AND comment bodies, stemmed) behind the locally ranked
+     * rows. Null on a host that cannot be asynchronous; the menu is then
+     * local-only, which is exactly what it always was.
+     */
+    val searchServer: (suspend (String) -> List<IssueRefTarget>)? = null,
     val onOpen: (IssueRefTarget) -> Unit,
 ) {
     /** Uppercased identifier → target (last wins on duplicates, like the web Map). */
@@ -56,26 +79,69 @@ class IssueRefHandler(
     fun resolve(identifier: String): IssueRefTarget? = targets[identifier.uppercase()]
 
     /**
-     * Identifier/title substring search for the editor's `#` autocomplete;
-     * empty query = most recent. Mirrors web IssueRefProvider.search.
+     * The editor's `#` autocomplete, ranked by the ONE shared engine
+     * (EXP-892): identifier before title before description, empty query =
+     * most recently created. Web IssueRefProvider.search parity.
      */
-    fun search(query: String, limit: Int = 8): List<IssueRefTarget> {
-        val q = query.trim().lowercase()
-        val out = ArrayList<IssueRefTarget>(limit)
-        for (candidate in candidates) {
-            if (
-                q.isNotEmpty() &&
-                !candidate.identifier.lowercase().contains(q) &&
-                !candidate.title.lowercase().contains(q)
-            ) {
-                continue
-            }
-            out.add(candidate)
-            if (out.size >= limit) break
+    fun search(query: String, limit: Int = ISSUE_REF_MENU_LIMIT): List<IssueRefTarget> =
+        IssueSearch.rank(candidates, query, limit = limit)
+
+    /**
+     * [search] with the server's full-text [hits] spliced in behind it: a hit
+     * the local pool already holds renders as its LIVE synced row, an unsynced
+     * one from the fields the hit itself carried.
+     */
+    fun searchWith(
+        query: String,
+        hits: List<IssueRefTarget>,
+        limit: Int = ISSUE_REF_MENU_LIMIT,
+    ): List<IssueRefTarget> {
+        val local = search(query, limit)
+        if (hits.isEmpty()) return local
+        val byId = candidates.associateBy { it.issueId }
+        return IssueSearch.mergeServerHits(local, hits, limit = limit) { hit ->
+            byId[hit.issueId] ?: hit
         }
-        return out
     }
 }
+
+/** Rows the `#` menu shows at most — the one cap all four clients share. */
+const val ISSUE_REF_MENU_LIMIT = 8
+
+/**
+ * A synced Room issue as an autocomplete target: the chip's status glyph is
+ * precomputed here (EXP-423) and the EXP-892 ranking fields ride along, so
+ * every ViewModel builds the vocabulary the same way.
+ */
+fun issueRefTarget(issue: IssueEntity, statuses: List<ResolvedIssueStatus>): IssueRefTarget =
+    IssueRefTarget(
+        issueId = issue.id,
+        identifier = issue.identifier,
+        title = issue.title,
+        resolvedStatus = IssueStatusResolver.resolve(issue, statuses),
+        description = issue.description,
+        createdAt = issue.createdAt,
+        updatedAt = issue.updatedAt,
+    )
+
+/**
+ * A server full-text hit as a target — an issue this device has not synced
+ * (or not yet). It carries only the anchor enum, so the glyph resolves against
+ * the CONSTRUCTED builtins: a custom status row of a team we have not synced
+ * is not knowable, and the builtins render the same either way. No timestamps,
+ * so it ranks as the oldest row — which is moot, the merge preserves the
+ * server's relevance order behind the local rows.
+ */
+fun issueRefTarget(hit: SearchIssueHit): IssueRefTarget = IssueRefTarget(
+    issueId = hit.id,
+    identifier = hit.identifier,
+    title = hit.title,
+    resolvedStatus = IssueStatusResolver.resolve(
+        statusId = null,
+        anchor = hit.status,
+        team = IssueStatusResolver.builtinDefaults,
+    ),
+)
 
 /**
  * Provided by screens that can resolve + navigate (issue detail covers the

@@ -1837,13 +1837,15 @@ impl MarkdownEditor {
 
         let items = completion.items.clone();
         let selected = completion.selected;
-        let (popover, popover_foreground, border, accent) = {
+        let (popover, popover_foreground, border, selected_bg) = {
             let theme = cx.theme();
             (
                 theme.popover,
                 theme.popover_foreground,
                 theme.border,
-                theme.accent,
+                // EXP-892: ONE clearly visible highlight — the list's active
+                // fill, the same one every other issue list selects with.
+                theme.list_active,
             )
         };
         let rows: Vec<gpui::AnyElement> = items
@@ -1857,9 +1859,22 @@ impl MarkdownEditor {
                     .px_2()
                     .py_1()
                     .rounded(px(4.))
-                    .when(is_selected, |el| el.bg(accent))
-                    .hover(move |el| el.bg(accent))
+                    // EXP-892: the selected row is the ONLY tinted one, and
+                    // hovering MOVES the selection onto the row under the
+                    // pointer instead of painting a second highlight.
+                    .when(is_selected, |el| el.bg(selected_bg))
                     .cursor_pointer()
+                    .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                        if !*hovered {
+                            return;
+                        }
+                        if let Some(completion) = this.completion.as_mut() {
+                            if completion.selected != index {
+                                completion.selected = index;
+                                cx.notify();
+                            }
+                        }
+                    }))
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _, window, cx| {

@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.api.SearchIssueHit
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.RelationPick
 import com.exponential.app.domain.relationPicks
@@ -35,6 +36,7 @@ fun RelationPickerSheet(
     candidates: List<IssueEntity>,
     onPick: (RelationPick, IssueEntity) -> Unit,
     onDismiss: () -> Unit,
+    searchServer: (suspend (String) -> List<SearchIssueHit>)? = null,
 ) {
     var stage by remember { mutableStateOf<RelationPick?>(null) }
     val pick = stage
@@ -65,6 +67,7 @@ fun RelationPickerSheet(
                     onPick(pick, issue)
                     onDismiss()
                 },
+                searchServer = searchServer,
             )
         }
     }

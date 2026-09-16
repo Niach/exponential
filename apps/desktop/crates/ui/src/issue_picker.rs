@@ -5,15 +5,21 @@
 //! `duplicate`/PR-merged rows hidden, pre-seeded ids exempt and force-checked),
 //! the per-run cap and the row anatomy (EXP-768: selection glyph · priority ·
 //! identifier · status · title) are unchanged.
+//!
+//! EXP-892: searching runs through the ONE engine (`domain::issue_search`),
+//! and the popover carries the uniform list keyboard contract — the top row
+//! is selected while typing, ↑/↓ move the selection, hovering a row MOVES it
+//! (one highlight, never a second hover tint) and Enter TOGGLES the selected
+//! row with the popover staying open.
 
 use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    WeakEntity, Window,
+    div, px, AnyElement, App, ClickEvent, Entity, Focusable as _, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, WeakEntity, Window,
 };
 use gpui_component::button::Button;
 use gpui_component::input::InputState;
@@ -57,6 +63,11 @@ pub(crate) struct IssueRow {
     /// shown muted next to the title. Only pre-seeded rows can carry one
     /// (the pool hides closed rows) — it flags a re-run. `None` = plain row.
     pub(crate) state_hint: Option<&'static str>,
+    /// EXP-892: the search engine's recency keys (`domain::issue_search`
+    /// ranks and tie-breaks on them, and lists the newest work for an empty
+    /// query).
+    pub(crate) created_at: Option<String>,
+    pub(crate) updated_at: Option<String>,
 }
 
 /// Whether an issue is closed for the pool's purposes (EXP-119). EXP-314:
@@ -129,6 +140,8 @@ pub(crate) fn snapshot_rows(cx: &App, team_id: &str, preselected: &HashSet<Strin
             identifier: issue.identifier.clone(),
             title: issue.title.clone(),
             description: issue.description.clone(),
+            created_at: issue.created_at.clone(),
+            updated_at: issue.updated_at.clone(),
             status: issue.status,
             priority: issue.priority,
             resolved: if in_team {
@@ -140,32 +153,44 @@ pub(crate) fn snapshot_rows(cx: &App, team_id: &str, preselected: &HashSet<Strin
         .collect()
 }
 
-/// The list order for `query`: checked rows pinned first, then the
-/// unchecked matches capped at [`MAX_UNCHECKED_ROWS`]. Returns
-/// `(row indices, hidden count, no-matches)`.
+/// The list order for `query`: checked rows pinned first (in pool order),
+/// then the unchecked matches RANKED by the ONE issue-search engine
+/// (EXP-892, `domain::issue_search` — identifier over title over description,
+/// ties by recency, an empty query listing the newest work) and capped at
+/// [`MAX_UNCHECKED_ROWS`]. Returns `(row indices, hidden count, no-matches)`.
 pub(crate) fn visible_rows(
     rows: &[IssueRow],
     checked: &HashSet<String>,
     query: &str,
 ) -> (Vec<usize>, usize, bool) {
-    let query = query.trim().to_lowercase();
     let mut checked_ixs: Vec<usize> = Vec::new();
-    let mut match_ixs: Vec<usize> = Vec::new();
     for (ix, row) in rows.iter().enumerate() {
         if checked.contains(&row.issue_id) {
             checked_ixs.push(ix);
-        } else if query.is_empty()
-            || row.identifier.to_lowercase().contains(&query)
-            || row.title.to_lowercase().contains(&query)
-        {
-            match_ixs.push(ix);
         }
     }
+    // The checked rows are pinned, so they leave the ranked pool entirely.
+    let views: Vec<domain::issue_search::SearchRow<'_>> = rows.iter().map(engine_row).collect();
+    let mut match_ixs =
+        domain::issue_search::rank(&views, query, usize::MAX, checked);
     let hidden = match_ixs.len().saturating_sub(MAX_UNCHECKED_ROWS);
-    let no_matches = !query.is_empty() && match_ixs.is_empty() && !rows.is_empty();
+    let no_matches =
+        !domain::issue_search::tokens(query).is_empty() && match_ixs.is_empty() && !rows.is_empty();
     match_ixs.truncate(MAX_UNCHECKED_ROWS);
     checked_ixs.extend(match_ixs);
     (checked_ixs, hidden, no_matches)
+}
+
+/// The engine's borrowed view of a checklist row.
+fn engine_row(row: &IssueRow) -> domain::issue_search::SearchRow<'_> {
+    domain::issue_search::SearchRow {
+        id: &row.issue_id,
+        identifier: &row.identifier,
+        title: &row.title,
+        description: row.description.as_deref(),
+        created_at: row.created_at.as_deref(),
+        updated_at: row.updated_at.as_deref(),
+    }
 }
 
 /// The search row heading the picker (EXP-768): the search glyph leading, a
@@ -200,19 +225,23 @@ pub(crate) fn list_note(text: impl Into<SharedString>, cx: &App) -> gpui::Div {
 
 /// One checklist row (EXP-768, the mobile anatomy on every client):
 /// selection glyph · priority · identifier · status · title (+ state hint or
-/// `note`). The whole row toggles through `toggle`.
-fn issue_row<V: Render>(
+/// `note`). The whole row toggles; hovering it MOVES the keyboard selection
+/// onto it (EXP-892 — one highlight, so what Enter would pick is always the
+/// row under the pointer).
+fn issue_row<V: IssuePickerHost>(
     row: &IssueRow,
     is_checked: bool,
+    is_selected: bool,
+    position: usize,
     note: Option<SharedString>,
     view: &WeakEntity<V>,
-    toggle: fn(&mut V, String, bool, &mut Window, &mut gpui::Context<V>),
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let toggle_id = row.issue_id.clone();
     let priority = get_issue_priority_config(row.priority);
+    let hover_view = view.clone();
     let view = view.clone();
     crate::surface::glass_row_divider(
         h_flex()
@@ -223,8 +252,25 @@ fn issue_row<V: Render>(
             .px_4()
             .py_2()
             .cursor_pointer()
-            .when(is_checked, |this| this.bg(theme.list_active))
-            .hover(|this| this.bg(theme.list_hover))
+            // ONE highlight: the selected row. Hover moves the selection
+            // instead of painting a second tint.
+            .when(is_selected, |this| this.bg(theme.list_active))
+            .when(is_checked && !is_selected, |this| {
+                this.bg(theme.list_active.opacity(0.4))
+            })
+            .on_hover(move |hovered, _window, cx| {
+                if !*hovered {
+                    return;
+                }
+                if let Some(view) = hover_view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        if this.picker_selected() != position {
+                            this.set_picker_selected(position);
+                            cx.notify();
+                        }
+                    });
+                }
+            })
             // The popover's content closure runs on `&mut App`, so the row
             // reaches the host view through its weak handle (the MCP
             // picker's pattern).
@@ -232,7 +278,8 @@ fn issue_row<V: Render>(
                 if let Some(view) = view.upgrade() {
                     let toggle_id = toggle_id.clone();
                     view.update(cx, |this, cx| {
-                        toggle(this, toggle_id, !is_checked, window, cx);
+                        this.set_picker_selected(position);
+                        this.toggle_picked_issue(toggle_id, !is_checked, window, cx);
                     });
                 }
             }),
@@ -281,11 +328,29 @@ fn issue_row<V: Render>(
     .into_any_element()
 }
 
+/// The host view behind the picker popover (EXP-892): it owns the checked
+/// set AND the keyboard selection, because the popover's content closure runs
+/// on a bare `&mut App` and can only reach state through the host's handle.
+pub(crate) trait IssuePickerHost: Render + Sized {
+    /// The selected POSITION in the currently visible list (not a row index).
+    fn picker_selected(&self) -> usize;
+    fn set_picker_selected(&mut self, position: usize);
+    /// Check/uncheck one row; the popover stays open.
+    fn toggle_picked_issue(
+        &mut self,
+        issue_id: String,
+        on: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    );
+}
+
 /// The picker POPOVER hung off `trigger` (the composer's `#` tool): the
-/// search row, then the checklist — checked rows first, matches capped.
-/// `note_for` supplies a row's transient probe note (resolving / excluded).
-#[allow(clippy::too_many_arguments)] // one popover, one place
-pub(crate) fn issue_picker_popover<V: Render>(
+/// search row, then the checklist — checked rows first, ranked matches
+/// capped. `notes` supplies a row's transient probe note (resolving /
+/// excluded). Keyboard (EXP-892): ↑/↓ move, Enter toggles, the top row starts
+/// selected.
+pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
     trigger: Button,
     // EXP-868: shared, not copied — the composer renders on every window
     // redraw, and a per-render copy of the whole pool was measurable.
@@ -293,23 +358,45 @@ pub(crate) fn issue_picker_popover<V: Render>(
     checked: &HashSet<String>,
     search: &Entity<InputState>,
     notes: Vec<(String, SharedString)>,
-    toggle: fn(&mut V, String, bool, &mut Window, &mut gpui::Context<V>),
     cx: &mut gpui::Context<V>,
 ) -> Popover {
     let checked = checked.clone();
     let search = search.clone();
     let view = cx.entity().downgrade();
+    let search_for_open = search.clone();
+    let view_for_open = view.clone();
     Popover::new("chat-issue-picker")
         .p_1()
         .trigger(trigger)
+        .on_open_change(move |open, window, cx| {
+            // Fresh search + selection per open, and the field takes focus so
+            // ↑/↓/Enter land on the list (the label picker's recipe).
+            search_for_open.update(cx, |input, cx| input.set_value("", window, cx));
+            if let Some(view) = view_for_open.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.set_picker_selected(0);
+                    cx.notify();
+                });
+            }
+            if *open {
+                search_for_open.read(cx).focus_handle(cx).focus(window, cx);
+            }
+        })
         .content(move |_, window, cx| {
             let query = search.read(cx).value().to_string();
             let (visible, hidden, no_matches) = visible_rows(&rows, &checked, &query);
+            // The host's selection is clamped to what is on screen, so a
+            // narrowing query always leaves a real row selected.
+            let selected = view
+                .upgrade()
+                .map(|view| view.read(cx).picker_selected())
+                .unwrap_or(0)
+                .min(visible.len().saturating_sub(1));
             let mut list = v_flex().w_full();
             if rows.is_empty() {
                 list = list.child(list_note("No open issues in this team.", cx));
             }
-            for ix in visible {
+            for (position, ix) in visible.iter().copied().enumerate() {
                 let row = &rows[ix];
                 let note = notes
                     .iter()
@@ -318,9 +405,10 @@ pub(crate) fn issue_picker_popover<V: Render>(
                 list = list.child(issue_row(
                     row,
                     checked.contains(&row.issue_id),
+                    position == selected,
+                    position,
                     note,
                     &view,
-                    toggle,
                     cx,
                 ));
             }
@@ -333,9 +421,35 @@ pub(crate) fn issue_picker_popover<V: Render>(
                     cx,
                 ));
             }
+            let count = visible.len();
+            let picked: Option<(String, bool)> = visible
+                .get(selected)
+                .map(|ix| (rows[*ix].issue_id.clone(), checked.contains(&rows[*ix].issue_id)));
             v_flex()
                 .w(px(480.))
                 .max_w_full()
+                // ↑/↓/Enter arrive as the search field's own actions — a
+                // single-line input no-ops them, so the popover CAPTURES them
+                // for the list (the `MentionInput` pattern).
+                .capture_action(move_selection_listener::<V, gpui_component::input::MoveUp>(
+                    &view, -1, count,
+                ))
+                .capture_action(move_selection_listener::<V, gpui_component::input::MoveDown>(
+                    &view, 1, count,
+                ))
+                .capture_action({
+                    let view = view.clone();
+                    move |_: &gpui_component::input::Enter, window, cx: &mut App| {
+                        let Some((issue_id, was_checked)) = picked.clone() else {
+                            return;
+                        };
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                this.toggle_picked_issue(issue_id, !was_checked, window, cx);
+                            });
+                        }
+                    }
+                })
                 .child(search_row(&search, window, cx))
                 .child(
                     div()
@@ -347,17 +461,49 @@ pub(crate) fn issue_picker_popover<V: Render>(
         })
 }
 
+/// One ↑/↓ handler: move the host's selection by `delta`, clamped to the
+/// `count` rows on screen.
+fn move_selection_listener<V: IssuePickerHost, A: gpui::Action>(
+    view: &WeakEntity<V>,
+    delta: isize,
+    count: usize,
+) -> impl Fn(&A, &mut Window, &mut App) + 'static {
+    let view = view.clone();
+    move |_, _window, cx| {
+        if count == 0 {
+            return;
+        }
+        if let Some(view) = view.upgrade() {
+            view.update(cx, |this, cx| {
+                let next = this
+                    .picker_selected()
+                    .min(count - 1)
+                    .saturating_add_signed(delta)
+                    .min(count - 1);
+                this.set_picker_selected(next);
+                cx.notify();
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn row(id: &str, identifier: &str, title: &str) -> IssueRow {
+        dated(id, identifier, title, None)
+    }
+
+    fn dated(id: &str, identifier: &str, title: &str, created_at: Option<&str>) -> IssueRow {
         IssueRow {
             issue_id: id.to_string(),
             board_id: "b".to_string(),
             identifier: identifier.to_string(),
             title: title.to_string(),
             description: None,
+            created_at: created_at.map(str::to_string),
+            updated_at: None,
             status: IssueStatus::Backlog,
             priority: IssuePriority::None,
             resolved: domain::statuses::constructed_default(IssueStatus::Backlog),
@@ -379,8 +525,8 @@ mod tests {
         assert_eq!(state_hint(IssueStatus::InReview, Some("open")), None);
     }
 
-    /// Checked rows pin first whatever the query; matches search identifier
-    /// and title case-insensitively and cap at [`MAX_UNCHECKED_ROWS`].
+    /// Checked rows pin first whatever the query; the rest is the shared
+    /// engine's ranking, capped at [`MAX_UNCHECKED_ROWS`].
     #[test]
     fn visible_rows_pin_checked_first_and_cap_matches() {
         let mut rows: Vec<IssueRow> = (0..60)
@@ -393,6 +539,9 @@ mod tests {
         assert_eq!(visible.len(), 1 + MAX_UNCHECKED_ROWS);
         assert_eq!(hidden, 60 - MAX_UNCHECKED_ROWS);
         assert!(!no_matches);
+        // Undated rows tie on recency, so the identifier number orders them:
+        // EXP-999 first, then EXP-59 down.
+        assert_eq!(visible[1], 60, "the highest identifier number leads");
 
         let (visible, hidden, no_matches) = visible_rows(&rows, &checked, "FLICKER");
         assert_eq!(visible, vec![5, 60]);
@@ -402,5 +551,24 @@ mod tests {
         let (visible, _, no_matches) = visible_rows(&rows, &checked, "nothing here");
         assert_eq!(visible, vec![5]);
         assert!(no_matches);
+    }
+
+    /// EXP-892: the picker ranks through `domain::issue_search` — an exact
+    /// identifier beats a title hit, and an empty query lists the newest
+    /// created work first.
+    #[test]
+    fn visible_rows_rank_through_the_shared_engine() {
+        let rows = vec![
+            dated("a", "EXP-870", "Login flicker", Some("2026-03-01T00:00:00Z")),
+            dated("b", "EXP-87", "Unrelated", Some("2026-01-01T00:00:00Z")),
+            dated("c", "EXP-12", "Login timeout", Some("2026-02-01T00:00:00Z")),
+        ];
+        let none = HashSet::new();
+        // `#87` — exact number, then the number prefix; the title rows drop.
+        assert_eq!(visible_rows(&rows, &none, "#87").0, vec![1, 0]);
+        // Newest created first for an empty query.
+        assert_eq!(visible_rows(&rows, &none, "").0, vec![0, 2, 1]);
+        // Descriptions and titles are AND-matched across tokens.
+        assert_eq!(visible_rows(&rows, &none, "login time").0, vec![2]);
     }
 }

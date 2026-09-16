@@ -49,11 +49,22 @@ public struct IssueRefCandidate: Identifiable, Sendable, Equatable {
     /// lead with the same status glyph the web/Android rows show. Nil renders
     /// the row without a glyph (tests, hosts without a status read).
     public let status: ResolvedIssueStatus?
+    /// EXP-892: the issue's ROW id, when the host knows it. The shared
+    /// `IssueSearch.mergeServerHits` dedupes local rows against the server's
+    /// full-text hits by row id, so a candidate built without one falls back to
+    /// its (team-unique) identifier as the merge key.
+    public let issueId: String?
     public var id: String { identifier }
-    public init(identifier: String, title: String, status: ResolvedIssueStatus? = nil) {
+    public init(
+        identifier: String,
+        title: String,
+        status: ResolvedIssueStatus? = nil,
+        issueId: String? = nil
+    ) {
         self.identifier = identifier
         self.title = title
         self.status = status
+        self.issueId = issueId
     }
 }
 
@@ -165,6 +176,18 @@ public final class IssueEditorModel {
     /// scoped, matching identifier + title substrings — empty query = most
     /// recent). nil disables the #-autocomplete.
     public var issueRefSearch: ((String) -> [IssueRefCandidate])?
+
+    /// EXP-892 — fired whenever the open `#` menu's query CHANGES (including
+    /// the empty "recent work" query), so a host that can go async debounces a
+    /// server `issues.search` on it and hands the merged list back through
+    /// `offerIssueRefCandidates`. nil = local-only, which is the state of every
+    /// host without an API at hand.
+    public var onIssueRefQuery: ((String) -> Void)?
+
+    /// The query the open `#` menu is currently showing candidates for — what
+    /// an in-flight server augmentation validates itself against. nil = no
+    /// `#` token is being typed.
+    public private(set) var activeIssueRefQuery: String?
 
     /// EXP-551 — emoji search backing the `:shortcode` typeahead (set by the
     /// host from `EmojiCatalog`). nil disables it, which is also the state
@@ -809,6 +832,11 @@ public final class IssueEditorModel {
         // LAST on purpose: the closed-colon auto-commit below mutates `blocks`,
         // so the other two must have read the pre-commit content already.
         recomputeEmoji(blockId: sel.blockId, beforeCaret: before, armed: armed)
+        // EXP-892: a fresh candidate list always opens on its TOP row — the
+        // selection contract every client shares. Arrow keys never reach here:
+        // the key handler swallows them while a menu is open, so the caret (and
+        // with it this recompute) stays put.
+        autocompleteSelection = 0
     }
 
     private func recomputeMention(blockId: UUID, beforeCaret before: String, armed: Bool) {
@@ -841,6 +869,25 @@ public final class IssueEditorModel {
         }
         activeIssueRef = (blockId, match.hashOffset, match.query.count)
         issueRefCandidates = issueRefSearch(match.query)
+        // EXP-892: only a CHANGED query re-arms the host's debounced server
+        // augmentation — a caret move that lands back on the same token must
+        // not fire another round trip.
+        guard activeIssueRefQuery != match.query else { return }
+        activeIssueRefQuery = match.query
+        onIssueRefQuery?(match.query)
+    }
+
+    /// EXP-892 — replace the open `#` menu's rows with the host's merged list
+    /// (locally ranked rows first, then the server's full-text hits), but only
+    /// while the menu is still showing `query`: a response that outlived its
+    /// keystroke is dropped, never rendered under a newer token.
+    public func offerIssueRefCandidates(_ candidates: [IssueRefCandidate], for query: String) {
+        guard activeIssueRef != nil, activeIssueRefQuery == query, !candidates.isEmpty else {
+            return
+        }
+        guard candidates != issueRefCandidates else { return }
+        issueRefCandidates = candidates
+        autocompleteSelection = min(autocompleteSelection, candidates.count - 1)
     }
 
     /// EXP-551 — `:shortcode` typeahead. Mirrors the mention/issue-ref
@@ -882,7 +929,62 @@ public final class IssueEditorModel {
 
     private func clearIssueRef() {
         activeIssueRef = nil
+        activeIssueRefQuery = nil
         if !issueRefCandidates.isEmpty { issueRefCandidates = [] }
+    }
+
+    // MARK: - Autocomplete selection (EXP-892)
+
+    /// The row the menu paints as ACTIVE and Return/Tab commits. Always valid
+    /// for the list currently offered (reset on every recompute, clamped on a
+    /// server merge), so the TOP row is selected the moment a menu opens — the
+    /// selection contract every client shares.
+    public private(set) var autocompleteSelection = 0
+
+    /// How many rows the open menu offers. It shows exactly ONE list:
+    /// mentions, else issue refs, else emoji.
+    public var autocompleteCandidateCount: Int {
+        if !mentionCandidates.isEmpty { return mentionCandidates.count }
+        if !issueRefCandidates.isEmpty { return issueRefCandidates.count }
+        return emojiCandidates.count
+    }
+
+    /// Move the selection by `delta` rows, clamped to the offered list. No
+    /// wraparound — neither does the web menu.
+    public func moveAutocompleteSelection(by delta: Int) {
+        let count = autocompleteCandidateCount
+        guard count > 0 else { return }
+        autocompleteSelection = max(0, min(count - 1, autocompleteSelection + delta))
+    }
+
+    /// Commit the selected row. False when no menu is open or the selection is
+    /// stale, so a key handler can fall through to the text view's own
+    /// Return/Tab instead of swallowing it.
+    @discardableResult
+    public func applySelectedAutocomplete() -> Bool {
+        guard showsAutocompleteMenu else { return false }
+        let index = autocompleteSelection
+        if !mentionCandidates.isEmpty {
+            guard index < mentionCandidates.count else { return false }
+            applyMention(mentionCandidates[index])
+            return true
+        }
+        if !issueRefCandidates.isEmpty {
+            guard index < issueRefCandidates.count else { return false }
+            applyIssueRef(issueRefCandidates[index])
+            return true
+        }
+        guard index < emojiCandidates.count else { return false }
+        applyEmoji(emojiCandidates[index])
+        return true
+    }
+
+    /// Close the open menu without committing anything (Escape).
+    public func dismissAutocomplete() {
+        clearMention()
+        clearIssueRef()
+        clearEmoji()
+        autocompleteSelection = 0
     }
 
     /// Replace the active `@query` token with the canonical `@email ` form and put

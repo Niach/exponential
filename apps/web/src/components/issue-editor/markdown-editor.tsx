@@ -35,7 +35,13 @@ import {
   EditorAutocompleteExtension,
   type EditorAutocompleteActive,
 } from "@/lib/editor-autocomplete"
-import { useIssueRefs } from "@/components/issue-ref-provider"
+import {
+  useIssueRefs,
+  type ResolvedIssueRef,
+} from "@/components/issue-ref-provider"
+import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
+
+const NO_ISSUE_ROWS: ResolvedIssueRef[] = []
 import { useMentions } from "@/components/mention-provider"
 import {
   EmojiCandidateRow,
@@ -593,10 +599,17 @@ export const MarkdownEditor = forwardRef<
       autocomplete?.kind === `mention` && mentions
         ? mentions.search(autocomplete.query)
         : []
-    const issueCandidates =
-      autocomplete?.kind === `issueRef` && issueRefs
-        ? issueRefs.search(autocomplete.query, { limit: 6 })
-        : []
+    // EXP-892: the shared engine — local ranking now, the server's full-text
+    // hits spliced in behind once they answer.
+    const issueMenuOpen = autocomplete?.kind === `issueRef` && issueRefs !== null
+    const { results: issueCandidates } = useIssueSearchResults({
+      teamId: issueRefs?.teamId,
+      query: issueMenuOpen ? autocomplete.query : ``,
+      rows: issueMenuOpen ? issueRefs.rows : NO_ISSUE_ROWS,
+      limit: 6,
+      resolveHit: (hit) => issueRefs?.fromHit(hit) ?? null,
+      server: issueMenuOpen,
+    })
     // EXP-551: `:shortcode` candidates from the lazily loaded emoji dataset
     // (the chunk starts loading the first time a `:xx` token appears).
     const emojiData = useEmojiData(autocomplete?.kind === `emoji`)

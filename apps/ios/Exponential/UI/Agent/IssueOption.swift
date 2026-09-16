@@ -16,6 +16,24 @@ struct IssueOption: Identifiable, Sendable, Equatable {
     // silently render every row as Backlog/no-priority.
     let status: String?
     let priority: String?
+    /// EXP-892: the picker's search runs the shared `IssueSearch` engine, which
+    /// reads the description and both wire timestamps. Carried on the option so
+    /// the sheet never has to go back to the store to rank a keystroke.
+    let description: String?
+    let createdAt: String?
+    let updatedAt: String?
+
+    /// The searchable projection the shared engine ranks.
+    var searchRow: IssueSearch.Row {
+        IssueSearch.Row(
+            id: id,
+            identifier: identifier ?? "",
+            title: title,
+            description: description,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
 
     /// The ×4 eligibility rule: a repo-backed board, a non-terminal status
     /// (custom statuses anchor to one of the enum values, EXP-314) and no
@@ -57,7 +75,10 @@ struct IssueOption: Identifiable, Sendable, Equatable {
                     title: row.title,
                     repositoryId: repoByBoard[row.boardId],
                     status: row.status,
-                    priority: row.priority
+                    priority: row.priority,
+                    description: row.description,
+                    createdAt: row.createdAt,
+                    updatedAt: row.updatedAt
                 )
             }
     }

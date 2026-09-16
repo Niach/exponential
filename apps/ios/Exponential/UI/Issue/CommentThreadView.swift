@@ -69,6 +69,9 @@ struct CommentThreadView: View {
     /// `comment_id` and ordered (created_at, id) like every other timeline list.
     @State private var attachmentsByComment: [String: [AttachmentEntity]] = [:]
     @State private var editingCommentId: String?
+    /// EXP-892 — the `#` menu's server half, one per view so a comment
+    /// edit's debounce survives its keystrokes.
+    @State private var issueRefAugmentor: IssueRefAugmentor?
     // Opened event runs, keyed by the run's first event id (survives sync
     // re-emits — see collapseTimeline).
     @State private var expandedRuns: Set<String> = []
@@ -319,7 +322,16 @@ struct CommentThreadView: View {
                 editor.issueRefResolver = { resolveIssueRef($0) }
                 editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
                 editor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
-                editor.issueRefSearch = { searchIssueRefs($0) }
+                // EXP-892: locally ranked rows now, the server's full-text
+                // hits spliced in behind them a beat later.
+                let augmentor = issueRefAugmentor ?? IssueRefAugmentor(
+                    scope: .issue(id: issue.id),
+                    db: deps.db,
+                    accountId: accountId,
+                    issuesApi: deps.issuesApi
+                )
+                issueRefAugmentor = augmentor
+                augmentor.attach(to: editor)
                 // EXP-824: media blocks in the edited body keep their player.
                 editor.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
                 editor.load(
@@ -395,12 +407,6 @@ struct CommentThreadView: View {
     private func resolveIssueRefStatus(_ identifier: String) -> IssueRefStatusInfo? {
         IssueRefChipCache.statusInfo(
             identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
-    }
-
-    /// Issues offered by the comment editors' #-autocomplete (team-scoped;
-    /// identifier + title substring match).
-    private func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
-        IssueRefLookup.search(query, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
     private func startObserving() {

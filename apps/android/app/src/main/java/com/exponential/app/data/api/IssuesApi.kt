@@ -1,6 +1,7 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.IssueSearch
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
@@ -124,13 +125,15 @@ data class SearchIssuesInput(
 /** One relevance-ordered hit from the server-side full-text `issues.search`. */
 @Serializable
 data class SearchIssueHit(
-    val id: String,
+    override val id: String,
     val identifier: String,
     val title: String,
     @SerialName("boardId") val boardId: String,
     val status: String,
     val priority: String,
-)
+    // EXP-892: `IssueSearch.mergeServerHits` dedupes hits against the locally
+    // ranked rows by id — that is the whole of what it needs from a hit.
+) : IssueSearch.Hit
 
 @Singleton
 class IssuesApi @Inject constructor(private val trpc: TrpcClient) {

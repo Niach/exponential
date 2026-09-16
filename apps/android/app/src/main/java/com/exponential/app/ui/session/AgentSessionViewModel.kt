@@ -49,6 +49,7 @@ import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
@@ -353,18 +354,27 @@ class AgentSessionViewModel @AssistedInject constructor(
                     issues
                         .filter { it.boardId in teamBoardIds }
                         .sortedByDescending { it.createdAt }
-                        .map {
-                            IssueRefTarget(
-                                it.id,
-                                it.identifier,
-                                it.title,
-                                IssueStatusResolver.resolve(it, statuses),
-                            )
-                        }
+                        .map { issueRefTarget(it, statuses) }
                 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-892: the steer composer's `#` menu server half — `issues.search`
+     * over the RUN's team. Failures degrade to local-only.
+     */
+    suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
+        val accountId = auth.activeAccountId.value ?: return emptyList()
+        val teamId = session.value?.teamId ?: return emptyList()
+        return try {
+            issuesApi.search(accountId, teamId, query).map(::issueRefTarget)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     /**
      * EXP-802/EXP-805 — the run team's members, the steer composer's `@`

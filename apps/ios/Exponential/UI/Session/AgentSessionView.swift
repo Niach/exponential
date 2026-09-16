@@ -1548,6 +1548,7 @@ struct AgentSessionView<Switcher: View>: View {
                 mentions: model.draftEditor.mentionCandidates,
                 issueRefs: model.draftEditor.issueRefCandidates,
                 emoji: model.draftEditor.emojiCandidates,
+                selection: model.draftEditor.autocompleteSelection,
                 onPickMention: { model.draftEditor.applyMention($0) },
                 onPickIssueRef: { model.draftEditor.applyIssueRef($0) },
                 onPickEmoji: { model.draftEditor.applyEmoji($0) }

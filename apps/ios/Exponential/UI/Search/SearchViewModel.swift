@@ -3,11 +3,11 @@ import Foundation
 import GRDB
 
 /// Backs the Search tab: observes every issue + board of the active account
-/// (local GRDB — no server round trip) and matches queries client-side over
-/// identifier + title, mirroring the Android `SearchScreen`. The instant local
-/// substring filter stays the fast path; a debounced server `issues.search`
-/// (full-text over title + description + comments) augments it with issues the
-/// local filter missed.
+/// (local GRDB — no server round trip) and ranks queries client-side with the
+/// shared `IssueSearch` engine (EXP-892 — the ONE algorithm web, iOS, Android
+/// and desktop run). The instant local ranking stays the fast path; a debounced
+/// server `issues.search` (full-text over title + description + comments)
+/// augments it with issues the local ranking missed.
 @MainActor @Observable
 final class SearchViewModel {
     struct ResultGroup: Identifiable {
@@ -15,6 +15,9 @@ final class SearchViewModel {
         let issues: [IssueEntity]
         var id: String { board.id }
     }
+
+    /// How many ranked issues the tab renders at once, local + server hits.
+    private static let resultLimit = 50
 
     var issues: [IssueEntity] = []
     var boards: [BoardEntity] = []
@@ -132,49 +135,51 @@ final class SearchViewModel {
         }
     }
 
-    /// Substring match over identifier + title, newest activity first, capped
-    /// at 50, grouped under board headers (groups ordered by their newest
-    /// matching issue). Server full-text hits the local filter missed are
-    /// appended after the local matches (deduped by id, relevance order):
-    /// a hit whose id is in the local store renders the local row, otherwise
-    /// a slim row built from the returned fields.
+    /// EXP-892: the shared `IssueSearch` engine ranks the synced rows (the ONE
+    /// algorithm every client runs — identifier before title before
+    /// description, recency breaking ties), capped at `resultLimit` and grouped
+    /// under board headers, groups ordered by their first appearance in the
+    /// ranked list. Server full-text hits the local ranking missed are appended
+    /// after the local matches (deduped by id, relevance order): a hit whose id
+    /// is in the local store renders the local row, otherwise a slim row built
+    /// from the returned fields.
     func results(for query: String) -> [ResultGroup] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
-        let matches = issues
-            .filter {
-                $0.title.localizedCaseInsensitiveContains(trimmed)
-                    || ($0.identifier ?? "").localizedCaseInsensitiveContains(trimmed)
-            }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .prefix(50)
+        let local = IssueSearch.rank(
+            issues,
+            query: trimmed,
+            limit: Self.resultLimit,
+            projection: \.searchRow
+        )
+        // Augment with server hits — only while they belong to the query being
+        // rendered, so a stale response never pollutes a newer keystroke.
+        let ranked: [IssueEntity]
+        if serverHitsQuery == trimmed, !serverHits.isEmpty {
+            let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            ranked = IssueSearch.mergeServerHits(
+                local: local,
+                hits: serverHits,
+                limit: Self.resultLimit,
+                localId: \.id,
+                hitId: \.id,
+                // The Search tab spans the account, so an unsynced hit still
+                // renders — from its own returned fields.
+                resolve: { hit in issuesById[hit.id] ?? Self.placeholderEntity(from: hit) }
+            )
+        } else {
+            ranked = local
+        }
 
         var order: [String] = []
         var byBoard: [String: [IssueEntity]] = [:]
-        var seenIds = Set<String>()
-        for issue in matches {
-            seenIds.insert(issue.id)
+        for issue in ranked {
             if byBoard[issue.boardId] == nil {
                 order.append(issue.boardId)
                 byBoard[issue.boardId] = []
             }
             byBoard[issue.boardId]?.append(issue)
-        }
-
-        // Augment with server hits — only while they belong to the query being
-        // rendered, so a stale response never pollutes a newer keystroke.
-        if serverHitsQuery == trimmed, !serverHits.isEmpty {
-            let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            for hit in serverHits where !seenIds.contains(hit.id) {
-                seenIds.insert(hit.id)
-                let issue = issuesById[hit.id] ?? Self.placeholderEntity(from: hit)
-                if byBoard[issue.boardId] == nil {
-                    order.append(issue.boardId)
-                    byBoard[issue.boardId] = []
-                }
-                byBoard[issue.boardId]?.append(issue)
-            }
         }
 
         let boardsById = Dictionary(boards.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })

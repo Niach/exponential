@@ -7,6 +7,7 @@ import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.SearchIssueHit
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.CreateRelationInput
 import com.exponential.app.data.api.NotificationsApi
@@ -49,6 +50,7 @@ import com.exponential.app.ui.session.PastRunRow
 import com.exponential.app.ui.session.issueRunRows
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.steer.onlineStartTargets
@@ -590,16 +592,32 @@ class IssueDetailViewModel @AssistedInject constructor(
                 // same way the web provider does it: a status rename/recolor or
                 // a reordered started clock produces a new candidate list, hence
                 // a new handler, hence a repaint.
-                .map {
-                    IssueRefTarget(
-                        it.id,
-                        it.identifier,
-                        it.title,
-                        IssueStatusResolver.resolve(it, statuses),
-                    )
-                }
+                .map { issueRefTarget(it, statuses) }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-892: the `#` menu's and the issue pickers' server half —
+     * `issues.search` over this issue's team (title + description + COMMENT
+     * bodies, stemmed). Failures return nothing: the locally ranked rows are
+     * already up, and typing never waits on the network.
+     */
+    suspend fun searchIssueRefs(query: String): List<IssueRefTarget> =
+        searchTeamIssues(query).map(::issueRefTarget)
+
+    /** [searchIssueRefs]'s raw hits — the duplicate/relation pickers resolve
+     *  them against their own (narrower) candidate pool. */
+    suspend fun searchTeamIssues(query: String): List<SearchIssueHit> {
+        val accountId = auth.activeAccountId.value ?: return emptyList()
+        val teamId = _board.value?.teamId ?: return emptyList()
+        return try {
+            issuesApi.search(accountId, teamId, query)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     /** Atomically set duplicateOfId + status='duplicate'. */
     fun markDuplicate(canonicalId: String) {

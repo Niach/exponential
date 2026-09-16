@@ -1,0 +1,141 @@
+[
+  {
+    "name": "empty query lists newest created first, identifier number breaks ties",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Oldest", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z" },
+      { "id": "b", "identifier": "EXP-3", "title": "Same day as 2", "createdAt": "2026-02-01T00:00:00Z", "updatedAt": "2026-02-01T00:00:00Z" },
+      { "id": "c", "identifier": "EXP-2", "title": "Same day as 3", "createdAt": "2026-02-01T00:00:00Z", "updatedAt": "2026-02-01T00:00:00Z" },
+      { "id": "d", "identifier": "EXP-10", "title": "Newest", "createdAt": "2026-03-01T00:00:00Z", "updatedAt": "2026-03-01T00:00:00Z" }
+    ],
+    "query": "   ",
+    "expected": ["d", "b", "c", "a"]
+  },
+  {
+    "name": "a leading hash is stripped and digits rank exact, then number prefix, then substring",
+    "rows": [
+      { "id": "e187", "identifier": "EXP-187", "title": "Contains 87 in the middle", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "e887", "identifier": "EXP-887", "title": "Contains 87 at the end", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z" },
+      { "id": "e870", "identifier": "EXP-870", "title": "Number prefix", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" },
+      { "id": "e78", "identifier": "EXP-78", "title": "Nothing here", "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-01-04T00:00:00Z" },
+      { "id": "e87", "identifier": "EXP-87", "title": "Exact number", "createdAt": "2026-01-05T00:00:00Z", "updatedAt": "2026-01-05T00:00:00Z" }
+    ],
+    "query": "#87",
+    "expected": ["e87", "e870", "e887", "e187"]
+  },
+  {
+    "name": "an identifier prefix outranks an identifier substring",
+    "rows": [
+      { "id": "x", "identifier": "EXP-12", "title": "Prefix", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "y", "identifier": "EXP-1", "title": "Exact", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "z", "identifier": "REXP-14", "title": "Substring", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "exp-1",
+    "expected": ["y", "x", "z"]
+  },
+  {
+    "name": "a title word prefix outranks a title substring, both case-insensitive",
+    "rows": [
+      { "id": "p", "identifier": "EXP-1", "title": "Compress logs", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z" },
+      { "id": "q", "identifier": "EXP-2", "title": "Session RESULTS", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "r", "identifier": "EXP-3", "title": "Unrelated", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "RES",
+    "expected": ["q", "p"]
+  },
+  {
+    "name": "every token must match somewhere (and semantics), scores add up",
+    "rows": [
+      { "id": "s1", "identifier": "EXP-1", "title": "Session results", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "s2", "identifier": "EXP-2", "title": "Session list", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "s3", "identifier": "EXP-3", "title": "Results page", "description": "Shows every session's screenshots", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "session res",
+    "expected": ["s1", "s3"]
+  },
+  {
+    "name": "descriptions are searched, below identifier and title hits",
+    "rows": [
+      { "id": "d1", "identifier": "EXP-1", "title": "Postgres search", "description": "Uses a tsvector index", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z" },
+      { "id": "d2", "identifier": "EXP-2", "title": "tsvector expression drift", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "d3", "identifier": "EXP-3", "title": "Nothing", "description": "the idx_issues_fts tsvector must stay byte-identical", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" },
+      { "id": "d4", "identifier": "EXP-4", "title": "Nothing either", "description": null, "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-01-04T00:00:00Z" }
+    ],
+    "query": "tsvector",
+    "expected": ["d2", "d1", "d3"]
+  },
+  {
+    "name": "equal scores order by most recently updated",
+    "rows": [
+      { "id": "u1", "identifier": "EXP-1", "title": "Login flicker", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "u2", "identifier": "EXP-2", "title": "Login timeout", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z" },
+      { "id": "u3", "identifier": "EXP-3", "title": "Login redirect", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-03-01T00:00:00Z" }
+    ],
+    "query": "login",
+    "expected": ["u2", "u3", "u1"]
+  },
+  {
+    "name": "no match yields nothing",
+    "rows": [
+      { "id": "n1", "identifier": "EXP-1", "title": "Fix login flow", "description": "details", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
+    ],
+    "query": "zzz",
+    "expected": []
+  },
+  {
+    "name": "excluded ids never appear and the limit caps the list",
+    "rows": [
+      { "id": "l1", "identifier": "EXP-1", "title": "Login a", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "l2", "identifier": "EXP-2", "title": "Login b", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "l3", "identifier": "EXP-3", "title": "Login c", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" },
+      { "id": "l4", "identifier": "EXP-4", "title": "Login d", "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-01-04T00:00:00Z" }
+    ],
+    "query": "login",
+    "exclude": ["l4"],
+    "limit": 2,
+    "expected": ["l3", "l2"]
+  },
+  {
+    "name": "a hash inside the query is stripped per token",
+    "rows": [
+      { "id": "h1", "identifier": "EXP-87", "title": "Fix the thing", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "h2", "identifier": "EXP-88", "title": "Fix another thing", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" }
+    ],
+    "query": "fix #87",
+    "expected": ["h1"]
+  },
+  {
+    "name": "server hits append after local matches, deduped, unsynced rendered from the hit",
+    "rows": [
+      { "id": "m1", "identifier": "EXP-1", "title": "Login flicker", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "m2", "identifier": "EXP-2", "title": "Only a comment mentions it", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "m3", "identifier": "EXP-3", "title": "Excluded comment hit", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "login",
+    "exclude": ["m3"],
+    "serverHits": [
+      { "id": "m2", "identifier": "EXP-2", "title": "Only a comment mentions it" },
+      { "id": "m1", "identifier": "EXP-1", "title": "Login flicker" },
+      { "id": "m3", "identifier": "EXP-3", "title": "Excluded comment hit" },
+      { "id": "m9", "identifier": "EXP-9", "title": "Not synced yet" }
+    ],
+    "allowUnsynced": true,
+    "expected": ["m1", "m2", "m9"]
+  },
+  {
+    "name": "server hits outside the local pool are dropped when unsynced rows cannot render, limit spans both",
+    "rows": [
+      { "id": "k1", "identifier": "EXP-1", "title": "Login flicker", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "k2", "identifier": "EXP-2", "title": "Comment hit", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "k3", "identifier": "EXP-3", "title": "Second comment hit", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "login",
+    "serverHits": [
+      { "id": "k9", "identifier": "EXP-9", "title": "Not synced" },
+      { "id": "k2", "identifier": "EXP-2", "title": "Comment hit" },
+      { "id": "k3", "identifier": "EXP-3", "title": "Second comment hit" }
+    ],
+    "allowUnsynced": false,
+    "limit": 2,
+    "expected": ["k1", "k2"]
+  }
+]
