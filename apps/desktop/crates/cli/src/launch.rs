@@ -135,12 +135,15 @@ pub fn issue_seed(issue: &FetchedIssue) -> IssueSeed {
 /// `--resume` flag yet).
 /// `prompt` (EXP-825): the composer's free text, the prompt's
 /// additional-instructions section.
+/// `stack` (EXP-897): the server-resolved chain this run's branch is cut
+/// into; `None` is an ordinary start.
 pub fn issue_launch_request(
     issue: &FetchedIssue,
     options: LaunchOptions,
     origin: LaunchOrigin,
     resume_prompt: bool,
     prompt: Option<String>,
+    stack: Option<coding::StackLaunch>,
 ) -> LaunchRequest {
     LaunchRequest {
         issue_id: issue.id.clone(),
@@ -153,6 +156,7 @@ pub fn issue_launch_request(
         options,
         resume_prompt,
         prompt,
+        stack,
     }
 }
 

@@ -193,6 +193,80 @@ pub fn prompt_attachment_ids(prompt: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// EXP-897 — ONE issue of the stack a stacked start builds on, as the server
+/// resolved it (`codingSessions.stackPlan` / the relay's `start_session`
+/// frame). `branch` and `pr_state` are the issue's recorded PR facts, so the
+/// launcher can tell a foundation that EXISTS on origin from one that still
+/// has to be built.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StackIssue {
+    pub issue_id: String,
+    pub identifier: String,
+    /// The issue's PR head branch (`exp/<IDENT>`), when one is recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// `issues.pr_state` — only `open` means "this branch is on origin and
+    /// is the base to cut from".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_state: Option<String>,
+}
+
+impl StackIssue {
+    /// The branch of this issue's OPEN pull request — the only state that
+    /// makes it a usable base. A merged/closed PR's branch may be deleted on
+    /// origin, and a PR-less issue has nothing to cut from.
+    pub fn open_branch(&self) -> Option<&str> {
+        if self.pr_state.as_deref() != Some("open") {
+            return None;
+        }
+        self.branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+    }
+}
+
+/// EXP-897 — the stack a single-issue start is cut into: the chain BELOW this
+/// run (bottom first, this issue excluded) and the `lower` it sits directly
+/// on top of. Absent = an ordinary start (every prompt and every base ref
+/// stays byte-identical).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StackLaunch {
+    /// The issue directly below this run — the foundation. `None` only on a
+    /// degenerate plan (nothing left to stack on), which the launcher treats
+    /// exactly like no stack at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lower: Option<StackIssue>,
+    /// The whole chain below this run, bottom first (the `lower` is its LAST
+    /// member).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain: Vec<StackIssue>,
+}
+
+impl From<coding_sessions::StackPlanLink> for StackIssue {
+    fn from(link: coding_sessions::StackPlanLink) -> Self {
+        StackIssue {
+            issue_id: link.issue_id,
+            identifier: link.identifier,
+            branch: link.branch,
+            pr_state: link.pr_state,
+        }
+    }
+}
+
+/// EXP-897: the `codingSessions.stackPlan` answer as a launch plan — the ONE
+/// place the server's shape crosses into the launcher's.
+impl From<coding_sessions::StackPlan> for StackLaunch {
+    fn from(plan: coding_sessions::StackPlan) -> Self {
+        StackLaunch {
+            lower: plan.lower.map(StackIssue::from),
+            chain: plan.chain.into_iter().map(StackIssue::from).collect(),
+        }
+    }
+}
+
 /// §7.1's single-issue launch input.
 #[derive(Clone, Debug)]
 pub struct LaunchRequest {
@@ -234,6 +308,14 @@ pub struct LaunchRequest {
     /// name the pre-session uploads the session row binds via
     /// `attachmentIds`. `None`/blank leaves every prompt byte-identical.
     pub prompt: Option<String>,
+    /// EXP-897: START STACKED — cut this issue's branch from the issue below
+    /// it instead of the board base, and tell the agent how the stack works
+    /// (`prompt::stack_section`). Resolved server-side
+    /// (`codingSessions.stackPlan` locally, the `start_session` frame
+    /// remotely), never here: the server is the only place a blocking CYCLE
+    /// is refused. LAST field — `None` is an ordinary start and leaves every
+    /// byte of it unchanged.
+    pub stack: Option<StackLaunch>,
 }
 
 /// Which program an action run executes (EXP-257/EXP-259). `Team` is a
@@ -422,6 +504,25 @@ pub trait WorktreeProvider: Send + Sync {
         url: &TokenUrl,
         expires_at: Option<&str>,
     ) -> Result<PathBuf, GitError>;
+
+    /// EXP-897 — make `origin/<branch>` exist locally, WITHOUT creating a
+    /// worktree: the stacked-start probe ("is the foundation's branch really
+    /// on origin?") and the stacked resume's base heal. `Err` means the ref
+    /// could not be fetched, which is exactly the signal to fall back to the
+    /// board's own base branch.
+    ///
+    /// DEFAULTED to `Ok(())` so a provider that only ever hands back a fixed
+    /// path (the test fakes) needs no implementation at all.
+    fn fetch_branch(
+        &self,
+        _repos_root: &Path,
+        _full_name: &str,
+        _branch: &str,
+        _url: &TokenUrl,
+        _expires_at: Option<&str>,
+    ) -> Result<(), GitError> {
+        Ok(())
+    }
 }
 
 /// The real git path: `ensure_clone` → [`git_credentials::ensure`] (bare
@@ -453,6 +554,64 @@ impl WorktreeProvider for GitWorktrees {
         // `.git/info/exclude`.
         let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
         Ok(worktree)
+    }
+
+    /// EXP-897: the same clone + ambient-auth preamble as [`Self::prepare`],
+    /// then the ONE fetch. No worktree is created — the caller is only asking
+    /// whether `origin/<branch>` can be resolved here.
+    fn fetch_branch(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        branch: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+    ) -> Result<(), GitError> {
+        let clone = ensure_clone(repos_root, full_name, url)?;
+        git_credentials::ensure(&clone, url, expires_at)?;
+        fetch_base(&clone, branch, url)
+    }
+}
+
+/// EXP-897 — what a stacked start cuts its branch from: the foundation's OWN
+/// branch when it has an open pull request AND that branch really resolves on
+/// origin, else the board's base branch.
+///
+/// It NEVER fails. A stack is a convenience, not a contract: a foundation
+/// whose branch was deleted, a hostile branch name, or an origin that cannot
+/// be reached all degrade to the ordinary base, and the prompt still tells
+/// the agent to rebase onto the foundation once it exists.
+fn stack_base_branch(
+    stack: Option<&StackLaunch>,
+    deps: &CodingDeps,
+    repos_root: &Path,
+    url: &TokenUrl,
+    expires_at: Option<&str>,
+    default_branch: &str,
+) -> String {
+    let Some(lower_branch) = stack
+        .and_then(|stack| stack.lower.as_ref())
+        .and_then(StackIssue::open_branch)
+    else {
+        return default_branch.to_string();
+    };
+    // A branch name off the wire reaches git argv here: the same gate every
+    // other branch argument takes (`-…` is an option, not a ref).
+    if crate::git_worktree::validate_branch_arg(lower_branch, "stack base").is_err() {
+        log::warn!("stacked start: refusing base branch {lower_branch:?} — using {default_branch}");
+        return default_branch.to_string();
+    }
+    match deps
+        .worktrees
+        .fetch_branch(repos_root, url.full_name(), lower_branch, url, expires_at)
+    {
+        Ok(()) => lower_branch.to_string(),
+        Err(err) => {
+            log::info!(
+                "stacked start: origin/{lower_branch} did not fetch ({err}) — cutting from {default_branch}"
+            );
+            default_branch.to_string()
+        }
     }
 }
 
@@ -1295,10 +1454,27 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // EXP-478: gate BEFORE the worktree exists — from here until the UI
     // registers the session, the auto-prune must not run on this clone.
     let launch_hold = crate::launch_gate::hold(&clone);
+    // EXP-897 — the STACK base. A stacked single-issue start cuts its branch
+    // from the foundation's open PR branch instead of the board base, so the
+    // run's diff (and its PR, once `stackOnIssueId` bases it there) carries
+    // only its own work. Everything else resolves to the board base, which
+    // keeps every unstacked launch byte-identical.
+    let stack = match req {
+        PrepareRequest::Issue(issue_req) => issue_req.stack.as_ref(),
+        _ => None,
+    };
+    let base_branch = stack_base_branch(
+        stack,
+        deps,
+        &repos_root,
+        &url,
+        minted.expires_at.as_deref(),
+        &minted.default_branch,
+    );
     let worktree = deps.worktrees.prepare(
         &repos_root,
         url.full_name(),
-        &minted.default_branch,
+        &base_branch,
         &branch,
         &url,
         minted.expires_at.as_deref(),
@@ -1338,7 +1514,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             render_resume_prompt(
                 &issue_req.issue_identifier,
                 title,
-                &minted.default_branch,
+                &base_branch,
                 run_reason.is_some(),
                 issue_req.prompt.as_deref(),
             )
@@ -1350,12 +1526,24 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
                 None => (issue_req.issue_identifier.as_str(), None),
             };
+            // EXP-897: the `## Stacked work` section — the whole procedure
+            // (build the foundation, verify it, rebase, `stackOnIssueId`,
+            // escalate up). Absent on every unstacked start.
+            let stack_args = stack.map(|stack| crate::prompt::StackPromptArgs {
+                chain: &stack.chain,
+                lower: stack.lower.as_ref(),
+                base_branch: &base_branch,
+                default_branch: &minted.default_branch,
+                device_id: deps.device_id.as_deref().unwrap_or_default(),
+                branch: &branch,
+            });
             render_prompt(
                 &issue_req.issue_identifier,
                 title,
                 description,
                 run_reason.is_some(),
                 issue_req.prompt.as_deref(),
+                stack_args.as_ref(),
             )
         }
         PrepareRequest::Batch(batch_req) => render_batch_prompt(&BatchPromptArgs {
@@ -1588,7 +1776,10 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             repository_id: Some(repository_id.clone()),
             board_id: board_id.clone(),
             branch: Some(branch.clone()),
-            base_branch: Some(minted.default_branch.clone()),
+            // EXP-897: the STACK base when this run was stacked — a resume
+            // must re-enter the worktree cut from the foundation, not from
+            // the board's own branch.
+            base_branch: Some(base_branch.clone()),
             claude_session_id: None,
             codex_originator: codex_originator.clone(),
             inputs: Vec::new(),
@@ -1610,7 +1801,14 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
+            // EXP-897: plus the stack, so the resume knows its base is a
+            // foundation branch rather than the board's own.
+            extra: {
+                let mut extra =
+                    launch_extra(&options.mcp_server_ids, options.account.as_deref());
+                extra.extend(crate::run_registry::stack_extra(stack));
+                extra
+            },
         },
     );
 
@@ -1695,7 +1893,9 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         // Issue/batch worktrees are the prune's business, not the run
         // cleanup's — they survive their session by design.
         base_branch: None,
-        base_ref: Some(format!("origin/{}", minted.default_branch)),
+        // EXP-897: on a stacked run this is the FOUNDATION's branch, so the
+        // Changes view shows this issue's own work and not the whole stack.
+        base_ref: Some(format!("origin/{base_branch}")),
         run_cleanup: None,
         spawn,
         tab_title,
@@ -2639,6 +2839,32 @@ fn prepare_resume_run(
             default_branch = minted.default_branch.clone();
         }
         launch_hold = Some(crate::launch_gate::hold(clone));
+        // EXP-897: a STACKED run's recorded base is the foundation's branch,
+        // not the board's. A reclaimed worktree has to be cut from it again —
+        // so make sure it still resolves on origin, and degrade to the board
+        // base when the foundation merged and its branch went with it (the
+        // work is in the base by then, which is exactly what the reclaimed
+        // note tells the agent).
+        if workspace_reclaimed && record.stack().is_some() && !default_branch.is_empty() {
+            let fetched = crate::git_worktree::validate_branch_arg(&default_branch, "stack base")
+                .and_then(|()| {
+                    deps.worktrees.fetch_branch(
+                        &deps.settings.repos_root_path(),
+                        url.full_name(),
+                        &default_branch,
+                        &url,
+                        minted.expires_at.as_deref(),
+                    )
+                });
+            if let Err(err) = fetched {
+                log::info!(
+                    "resume {}: stacked base origin/{default_branch} is gone ({err}) — cutting from {}",
+                    record.session_id,
+                    minted.default_branch
+                );
+                default_branch = minted.default_branch.clone();
+            }
+        }
         match &record.branch {
             Some(branch) => {
                 crate::git_worktree::validate_branch_arg(branch, "resume run")?;
@@ -3421,6 +3647,7 @@ mod tests {
             },
             resume_prompt: false,
             prompt: None,
+            stack: None,
         }
     }
 
@@ -5659,7 +5886,7 @@ mod tests {
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
         assert_eq!(
             seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false, None)
+            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false, None, None)
         );
         assert_eq!(prepared.acp.options.model, "fable");
         assert!(prepared.acp.options.plan_mode, "the issue default");
@@ -5693,6 +5920,286 @@ mod tests {
             .spawn
             .env
             .contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
+    }
+
+    // ---- EXP-897: stacked starts ----
+
+    fn stack_of(lower_branch: Option<&str>) -> StackLaunch {
+        let lower = StackIssue {
+            issue_id: "issue-11".to_string(),
+            identifier: "EXP-11".to_string(),
+            branch: lower_branch.map(str::to_string),
+            pr_state: lower_branch.map(|_| "open".to_string()),
+        };
+        StackLaunch {
+            lower: Some(lower.clone()),
+            chain: vec![lower],
+        }
+    }
+
+    fn stack_server(dir: &Path) -> (String, Arc<crate::test_support::FakeStackWorktrees>) {
+        let worktree = dir.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        (
+            base,
+            Arc::new(crate::test_support::FakeStackWorktrees::new(worktree, &[])),
+        )
+    }
+
+    /// The whole point: a foundation with an OPEN pull request is fetched,
+    /// the worktree is cut from ITS branch, the diff base follows, and the
+    /// prompt carries the procedure.
+    #[test]
+    fn prepare_issue_stacked_cuts_from_the_foundation_branch() {
+        let dir = temp_dir("stack-cut");
+        let (base, worktrees) = stack_server(&dir.0);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut req = request("EXP-12");
+        req.stack = Some(stack_of(Some("exp/EXP-11")));
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // The probe ran on the foundation's branch …
+        assert_eq!(
+            worktrees.fetched.lock().unwrap().as_slice(),
+            &["exp/EXP-11".to_string()]
+        );
+        // … the worktree was cut from it, on this issue's own branch …
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("exp/EXP-11"));
+        assert_eq!(prepared.branch, "exp/EXP-12");
+        // … and the Changes view measures from there, not from `main`.
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/exp/EXP-11"));
+        let prompt = seed_prompt(&prepared);
+        assert!(prompt.contains("## Stacked work"), "{prompt}");
+        assert!(
+            prompt.contains("cut from `origin/exp/EXP-11`"),
+            "{prompt}"
+        );
+    }
+
+    /// A foundation with NO open pull request has no branch to cut from: the
+    /// run starts off the board base, and the prompt tells it to build the
+    /// foundation first.
+    #[test]
+    fn prepare_issue_stacked_falls_back_when_the_foundation_has_no_pr() {
+        let dir = temp_dir("stack-no-pr");
+        let (base, worktrees) = stack_server(&dir.0);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut req = request("EXP-12");
+        req.stack = Some(stack_of(None));
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // Nothing to fetch: there is no branch yet.
+        assert!(worktrees.fetched.lock().unwrap().is_empty());
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
+        let prompt = seed_prompt(&prepared);
+        assert!(
+            prompt.contains("Build the foundation first if it does not exist."),
+            "{prompt}"
+        );
+    }
+
+    /// A foundation whose branch is NOT on origin (deleted after a merge, or
+    /// never pushed) must not wedge the launch: the base degrades.
+    #[test]
+    fn prepare_issue_stacked_falls_back_when_the_branch_is_not_on_origin() {
+        let dir = temp_dir("stack-gone");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(crate::test_support::FakeStackWorktrees::new(
+            worktree,
+            &["exp/EXP-11"],
+        ));
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut req = request("EXP-12");
+        req.stack = Some(stack_of(Some("exp/EXP-11")));
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(
+            worktrees.fetched.lock().unwrap().as_slice(),
+            &["exp/EXP-11".to_string()]
+        );
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
+    }
+
+    /// A branch name off the wire reaches `git` argv: one that looks like an
+    /// option is refused before it gets there, and the launch still runs.
+    #[test]
+    fn prepare_issue_stacked_refuses_a_hostile_branch_name() {
+        let dir = temp_dir("stack-hostile");
+        let (base, worktrees) = stack_server(&dir.0);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut req = request("EXP-12");
+        req.stack = Some(stack_of(Some("--upload-pack=touch /tmp/pwned")));
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // Never even offered to git.
+        assert!(worktrees.fetched.lock().unwrap().is_empty());
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
+    }
+
+    /// The stack rides the run record (`extra["stack"]`), so a later resume
+    /// knows its base is a foundation branch — and the record's `base_branch`
+    /// is that branch, not the board's.
+    #[test]
+    fn prepare_issue_stacked_records_the_stack_on_the_run() {
+        let dir = temp_dir("stack-record");
+        let (base, worktrees) = stack_server(&dir.0);
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-12");
+        req.stack = Some(stack_of(Some("exp/EXP-11")));
+        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(_) => {}
+            other => panic!("expected Ready, got {other:?}"),
+        }
+
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
+        assert_eq!(record.base_branch.as_deref(), Some("exp/EXP-11"));
+        let stack = record.stack().expect("the recorded stack");
+        assert_eq!(stack.lower.as_ref().map(|l| l.identifier.as_str()), Some("EXP-11"));
+        assert_eq!(stack.lower.as_ref().and_then(StackIssue::open_branch), Some("exp/EXP-11"));
+        assert_eq!(stack.chain.len(), 1);
+    }
+
+    /// An UNSTACKED start is byte-identical to what it always was: no fetch,
+    /// the board base, the plain prompt, and no `stack` key on the record.
+    #[test]
+    fn prepare_issue_without_a_stack_is_unchanged() {
+        let dir = temp_dir("stack-absent");
+        let (base, worktrees) = stack_server(&dir.0);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert!(worktrees.fetched.lock().unwrap().is_empty());
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
+        assert_eq!(
+            seed_prompt(&prepared),
+            render_prompt(
+                "EXP-42",
+                "Fix login flicker",
+                Some("Steps in the issue."),
+                false,
+                None,
+                None
+            )
+        );
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
+        assert!(record.stack().is_none());
+        assert!(!record.extra.contains_key(crate::run_registry::STACK_KEY));
+    }
+
+    /// A RESUME of a stacked run whose worktree was reclaimed re-cuts it from
+    /// the FOUNDATION's branch — the recorded base — after proving it is
+    /// still on origin.
+    #[test]
+    fn prepare_resume_run_stacked_reuses_the_foundation_base() {
+        let dir = temp_dir("stack-resume");
+        let (base, _captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-12","teamId":"ws-1","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("exp-EXP-12");
+        let worktrees = Arc::new(crate::test_support::FakeStackWorktrees::new(
+            layout.clone(),
+            &[],
+        ));
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut record = resume_record(&dir.0, "sess-old-stack");
+        record.kind = RunKind::Issue;
+        record.issue_id = Some("issue-12".to_string());
+        record.issue_identifier = Some("EXP-12".to_string());
+        record.cwd = layout.clone();
+        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
+        record.repo = Some("acme/web".to_string());
+        record.repository_id = Some("repo-1".to_string());
+        record.branch = Some("exp/EXP-12".to_string());
+        record.base_branch = Some("exp/EXP-11".to_string());
+        record.claude_session_id = None;
+        record.set_stack(Some(&stack_of(Some("exp/EXP-11"))));
+        assert!(record.workspace_reclaimed());
+
+        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+            Prepared::Ready(_) => {}
+            other => panic!("expected Ready, got {other:?}"),
+        }
+        assert_eq!(
+            worktrees.fetched.lock().unwrap().as_slice(),
+            &["exp/EXP-11".to_string()]
+        );
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("exp/EXP-11"));
+        let _ = fs::remove_dir_all(&dir.0);
+    }
+
+    /// … and when the foundation MERGED and its branch went with it, the
+    /// same resume degrades to the board base instead of failing.
+    #[test]
+    fn prepare_resume_run_stacked_degrades_when_the_foundation_is_gone() {
+        let dir = temp_dir("stack-resume-gone");
+        let (base, _captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-12","teamId":"ws-1","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("exp-EXP-12");
+        let worktrees = Arc::new(crate::test_support::FakeStackWorktrees::new(
+            layout.clone(),
+            &["exp/EXP-11"],
+        ));
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut record = resume_record(&dir.0, "sess-old-stack-gone");
+        record.kind = RunKind::Issue;
+        record.issue_id = Some("issue-12".to_string());
+        record.issue_identifier = Some("EXP-12".to_string());
+        record.cwd = layout.clone();
+        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
+        record.repo = Some("acme/web".to_string());
+        record.repository_id = Some("repo-1".to_string());
+        record.branch = Some("exp/EXP-12".to_string());
+        record.base_branch = Some("exp/EXP-11".to_string());
+        record.claude_session_id = None;
+        record.set_stack(Some(&stack_of(Some("exp/EXP-11"))));
+
+        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+            Prepared::Ready(_) => {}
+            other => panic!("expected Ready, got {other:?}"),
+        }
+        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
+        let _ = fs::remove_dir_all(&dir.0);
     }
 
     /// EXP-679: an ISSUE start another coding session asked for (the relay
@@ -5731,7 +6238,7 @@ mod tests {
 
         assert_eq!(
             seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true, None)
+            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true, None, None)
         );
         let prompt = seed_prompt(&prepared);
         assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");

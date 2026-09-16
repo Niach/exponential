@@ -124,6 +124,48 @@ pub(crate) fn chat_repo_input(
         .collect()
 }
 
+/// EXP-897 — the OPEN blockers of an issue: the issues that must land before
+/// it can, read off the synced `issue_relations` rows.
+///
+/// Only the INVERSE side of a canonical `blocks` row counts
+/// (`related_issue_id == me`, i.e. "the other issue blocks me"); a row whose
+/// other issue has not synced is skipped (the shape scopes rows by the SOURCE
+/// issue's board, so the pairing is not guaranteed), and an issue named by two
+/// rows appears once. Status is NOT filtered here — the caller decides which
+/// blockers still count as unfinished.
+pub(crate) fn blockers_of<'a>(
+    issue_id: &str,
+    relations: &[domain::rows::IssueRelation],
+    issue_of: impl Fn(&str) -> Option<&'a domain::rows::Issue>,
+) -> Vec<&'a domain::rows::Issue> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for relation in relations {
+        if relation.kind.as_deref() != Some("blocks") || relation.related_issue_id != issue_id {
+            continue;
+        }
+        if !seen.insert(relation.issue_id.clone()) {
+            continue;
+        }
+        if let Some(issue) = issue_of(&relation.issue_id) {
+            out.push(issue);
+        }
+    }
+    out
+}
+
+/// EXP-897 — the stacked-start button, byte-identical ×4 (web/iOS/Android
+/// `STACKED_PR_LABEL`).
+pub(crate) fn stack_label() -> &'static str {
+    "Stacked PR"
+}
+
+/// EXP-897 — the "start it unstacked anyway" button, byte-identical ×4
+/// (web/iOS/Android `START_ANYWAY_LABEL`).
+pub(crate) fn start_anyway_label() -> &'static str {
+    "Start anyway"
+}
+
 /// The remote subject half of a [`api::steer::StartSessionInput`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteSubject<'a> {
@@ -134,6 +176,10 @@ pub(crate) enum RemoteSubject<'a> {
     Issue {
         issue_id: &'a str,
         resume: bool,
+        /// EXP-897: ask the server for a STACKED start — it resolves the
+        /// issue's blocker chain and cuts the run's branch from the issue
+        /// below it. Single-issue only; `false` keeps the wire byte-identical.
+        stack: bool,
     },
     Batch {
         issue_ids: Vec<String>,
@@ -186,12 +232,20 @@ pub(crate) fn remote_start_input(
                 inputs
             });
         }
-        RemoteSubject::Issue { issue_id, resume } => {
+        RemoteSubject::Issue {
+            issue_id,
+            resume,
+            stack,
+        } => {
             input.issue_id = Some(issue_id.to_string());
             // EXP-481: `resume` is a single-issue flag — it continues the
             // machine's existing worktree.
             if resume {
                 input.resume = Some(true);
+            }
+            // EXP-897: likewise single-issue, and likewise omitted when off.
+            if stack {
+                input.stack = Some(true);
             }
         }
         RemoteSubject::Batch { issue_ids } => input.issue_ids = Some(issue_ids),
@@ -409,6 +463,125 @@ mod tests {
         assert_eq!(inputs[0].display.as_deref(), Some("acme/web"));
     }
 
+    fn issue_row(id: &str, identifier: &str) -> domain::rows::Issue {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "board_id": "board-1",
+            "number": 1,
+            "identifier": identifier,
+            "title": identifier,
+            "status": "backlog",
+        }))
+        .expect("issue row")
+    }
+
+    fn relation(id: &str, issue_id: &str, related_issue_id: &str, kind: &str) -> domain::rows::IssueRelation {
+        domain::rows::IssueRelation {
+            id: id.to_string(),
+            issue_id: issue_id.to_string(),
+            related_issue_id: related_issue_id.to_string(),
+            kind: Some(kind.to_string()),
+            source: Some("user".to_string()),
+            team_id: None,
+            board_id: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    /// EXP-897: only the INVERSE side of a canonical `blocks` row is a
+    /// blocker — the forward side is what THIS issue blocks, and no other
+    /// relation type counts at all. Duplicates collapse.
+    #[test]
+    fn blockers_of_reads_only_the_inverse_side_of_blocks() {
+        let rows = vec![issue_row("i-11", "EXP-11"), issue_row("i-13", "EXP-13")];
+        let lookup = |id: &str| rows.iter().find(|issue| issue.id == id);
+        let relations = vec![
+            // EXP-11 blocks me — the one that counts.
+            relation("r-1", "i-11", "i-12", "blocks"),
+            // …named twice (two rows, one blocker).
+            relation("r-2", "i-11", "i-12", "blocks"),
+            // I block EXP-13 — the other side, not a blocker of mine.
+            relation("r-3", "i-12", "i-13", "blocks"),
+            // Related/parent never block.
+            relation("r-4", "i-13", "i-12", "related"),
+            relation("r-5", "i-13", "i-12", "parent"),
+        ];
+        let blockers = blockers_of("i-12", &relations, lookup);
+        assert_eq!(
+            blockers.iter().map(|issue| issue.identifier.as_str()).collect::<Vec<_>>(),
+            vec!["EXP-11"]
+        );
+        // Nothing blocks an issue with no inverse rows.
+        assert!(blockers_of("i-13", &relations, lookup).is_empty());
+    }
+
+    /// A blocker whose issue row has not synced (its board is trashed, or it
+    /// belongs to a team this device left) is skipped rather than rendered as
+    /// a dangling id.
+    #[test]
+    fn blockers_of_skips_an_unsynced_blocker() {
+        let rows = vec![issue_row("i-11", "EXP-11")];
+        let lookup = |id: &str| rows.iter().find(|issue| issue.id == id);
+        let relations = vec![
+            relation("r-1", "i-11", "i-12", "blocks"),
+            relation("r-2", "i-99", "i-12", "blocks"),
+        ];
+        let blockers = blockers_of("i-12", &relations, lookup);
+        assert_eq!(blockers.len(), 1);
+        assert_eq!(blockers[0].id, "i-11");
+    }
+
+    /// EXP-897: the two dialog buttons, byte for byte — the web, iOS and
+    /// Android constants say exactly this.
+    #[test]
+    fn the_blocked_start_labels_are_byte_locked() {
+        assert_eq!(stack_label(), "Stacked PR");
+        assert_eq!(start_anyway_label(), "Start anyway");
+    }
+
+    /// EXP-897: the stacked flag rides the SINGLE-ISSUE remote payload and
+    /// nothing else; `false` leaves the wire exactly as it was.
+    #[test]
+    fn remote_start_input_carries_the_stack_flag() {
+        let stacked = remote_start_input(
+            "dev-1",
+            &options(),
+            RemoteSubject::Issue {
+                issue_id: "i-12",
+                resume: false,
+                stack: true,
+            },
+            None,
+        );
+        assert_eq!(stacked.stack, Some(true));
+        assert_eq!(stacked.issue_id.as_deref(), Some("i-12"));
+        assert_eq!(stacked.resume, None);
+
+        let plain = remote_start_input(
+            "dev-1",
+            &options(),
+            RemoteSubject::Issue {
+                issue_id: "i-12",
+                resume: false,
+                stack: false,
+            },
+            None,
+        );
+        assert_eq!(plain.stack, None);
+
+        // A batch never stacks.
+        let batch = remote_start_input(
+            "dev-1",
+            &options(),
+            RemoteSubject::Batch {
+                issue_ids: vec!["a".into(), "b".into()],
+            },
+            None,
+        );
+        assert_eq!(batch.stack, None);
+    }
+
     /// EXP-825: the remote payload per subject — exactly one subject, the
     /// composer text as `prompt`, a builtin's `teamId`, blank picks omitted.
     #[test]
@@ -441,6 +614,7 @@ mod tests {
             RemoteSubject::Issue {
                 issue_id: "i-1",
                 resume: false,
+                stack: false,
             },
             None,
         );
@@ -463,6 +637,7 @@ mod tests {
             RemoteSubject::Issue {
                 issue_id: "i-1",
                 resume: true,
+                stack: false,
             },
             Some("mind the retry".into()),
         );
@@ -475,6 +650,7 @@ mod tests {
             RemoteSubject::Issue {
                 issue_id: "i-1",
                 resume: false,
+                stack: false,
             },
             None,
         );

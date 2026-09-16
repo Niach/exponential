@@ -22,9 +22,11 @@
 /// The playbook, verbatim.
 pub const RUN_SKILL: &str = include_str!("skill.md");
 
-/// Hard ceiling — the PTY path carries the text on argv next to the seed
-/// prompt ([`crate::prompt::prompt_argv_budget`]), so the playbook is
-/// budgeted in the same Windows command-line cap.
+/// Hard ceiling. Nothing truncates the text (it rides the agent's own
+/// additive system-prompt channel), so the cap is a CONTEXT budget: the
+/// playbook is prepended to every run, resume included, and has to stay
+/// small enough to be worth that on every one of them. Mirrored by the web
+/// gate in `context-budget.test.ts`.
 pub const RUN_SKILL_MAX_BYTES: usize = 6 * 1024;
 
 /// Every `exponential_*` name the playbook mentions, deduplicated, in order
@@ -116,6 +118,34 @@ mod tests {
         assert!(RUN_SKILL.contains("## Subagents and workflows"));
         assert!(RUN_SKILL.contains("never messaged"));
         assert!(RUN_SKILL.contains("SendMessage"));
+    }
+
+    /// EXP-897: a stacked run's four rules. The playbook is the ONLY channel
+    /// that reaches a RESUME (which gets no seed prompt at all), so the
+    /// contract the `## Stacked work` prompt section spells out has to be
+    /// summarized here too.
+    #[test]
+    fn the_playbook_teaches_the_stacked_run_contract() {
+        assert!(RUN_SKILL.contains("## Stacked runs"));
+        // 1. build the foundation, 3. open on top of it: both param names.
+        assert!(RUN_SKILL.contains("`stackOnIssueId`"));
+        assert!(RUN_SKILL.contains("`[Exponential child run ...]`"));
+        // 4. escalation goes UP, and the two targets it may name.
+        assert!(RUN_SKILL.contains("`to: 'root'`"));
+        assert!(RUN_SKILL.contains("never down the stack"));
+        // The trim that paid for the section: the reclaimed-worktree story is
+        // delivered per-case by `prompt::reclaimed_workspace_note`, which
+        // knows whether the branch is actually behind.
+        assert!(!RUN_SKILL.contains("worktree was reclaimed"));
+        let tools = mentioned_tools(RUN_SKILL);
+        for name in [
+            "exponential_sessions_start",
+            "exponential_sessions_message",
+            "exponential_pr_open",
+            "exponential_sessions_ask_parent",
+        ] {
+            assert!(tools.contains(&name), "the stacked section never names {name}");
+        }
     }
 
     #[test]

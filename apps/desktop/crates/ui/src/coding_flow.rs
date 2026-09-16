@@ -1168,6 +1168,7 @@ pub fn build_launch(
     options: LaunchOptions,
     resume_prompt: bool,
     prompt: Option<String>,
+    stack: Option<coding::StackLaunch>,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
@@ -1199,6 +1200,9 @@ pub fn build_launch(
         options,
         resume_prompt,
         prompt,
+        // EXP-897: the server-resolved stack (`codingSessions.stackPlan`),
+        // `None` for an ordinary start.
+        stack,
     };
     let deps = CodingDeps {
         trpc,

@@ -2,11 +2,9 @@
 //! with the issue identifier / title / description (the caller fetches them
 //! from the sync store; the rendering here is pure text).
 //!
-//! Delivery ([`deliver_prompt`]) is size-gated: a small prompt rides argv as
-//! claude's positional prompt directly ([`PromptDelivery::Direct`] — no
-//! `PROMPT.md` indirection); an oversized one is written to `PROMPT.md` and
-//! the positional becomes the [`SEED_LINE`] pointer
-//! ([`deliver_prompt_file`]).
+//! EXP-773: the prompt rides the ACP JSON-RPC `session/prompt` payload, so
+//! there is no argv cap and no `PROMPT.md` indirection left to size-gate
+//! against — the whole text simply reaches the agent.
 //!
 //! The named MCP tools are real and verified: `exponential_pr_open` (the
 //! server opens + links the PR through the GitHub App) and
@@ -18,6 +16,8 @@
 //! after plan approval), and the PR lifecycle owns in_review/done. The
 //! plan/approval gate is NOT prompt text anymore: native plan mode
 //! (`--permission-mode plan`, [`crate::argv::permission_args`]) owns it.
+
+use crate::launcher::StackIssue;
 
 /// EXP-637 — the clean-worktree half of the close-out EVERY launcher prompt
 /// ends with (issue, batch, action, chat and the two builtins): a run always
@@ -90,18 +90,159 @@ pub fn append_additional_instructions(mut prompt: String, extra: Option<&str>) -
     prompt
 }
 
+/// EXP-897 — everything the `## Stacked work` section needs. Borrowed: the
+/// launcher owns the plan ([`crate::launcher::StackLaunch`]) and the branch
+/// names it just resolved.
+pub struct StackPromptArgs<'a> {
+    /// The chain BELOW this run, bottom first (this issue excluded).
+    pub chain: &'a [StackIssue],
+    /// The issue directly below this run — the foundation. `None` = nothing
+    /// to stack on, and the section renders as nothing at all.
+    pub lower: Option<&'a StackIssue>,
+    /// What this run's branch was actually cut from (the foundation's branch
+    /// when it resolved on origin, else the board base).
+    pub base_branch: &'a str,
+    /// The board's own base branch — what the stack ultimately lands on.
+    pub default_branch: &'a str,
+    /// This machine's device id, for the `exponential_sessions_start` that
+    /// builds a missing foundation. Empty = unknown, and the `deviceId`
+    /// argument is left out of the call.
+    pub device_id: &'a str,
+    /// This run's branch (`exp/<IDENT>`).
+    pub branch: &'a str,
+}
+
+/// The branch to NAME for a stack member: its recorded PR branch when there
+/// is one, else the branch the launcher's default prefix would cut for it
+/// (a foundation that has not been started yet has no row to read).
+fn stack_branch(issue: &StackIssue) -> String {
+    issue
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("exp/{}", issue.identifier))
+}
+
+/// EXP-897 — the `## Stacked work` section: the whole stack bottom first,
+/// then the procedure. Three renderer rules:
+///
+/// - step 1 ("build the foundation") is OMITTED when the foundation already
+///   has an open pull request — there is nothing to build;
+/// - `stackOnIssueId` is omitted from that start when the chain has ONE
+///   member: the foundation is the bottom, so it stacks on nothing;
+/// - "cut from" names the REAL base, which is the board's branch whenever
+///   the foundation's branch could not be resolved on origin.
+///
+/// Empty string when there is no foundation (a degenerate plan) — the caller
+/// then renders the ordinary prompt.
+pub fn stack_section(identifier: &str, args: &StackPromptArgs<'_>) -> String {
+    let Some(lower) = args.lower else {
+        return String::new();
+    };
+    let lower_branch = stack_branch(lower);
+    let mut listing = String::new();
+    for (index, issue) in args.chain.iter().enumerate() {
+        let state = match issue.open_branch() {
+            Some(branch) => format!("pull request open (`{branch}`)"),
+            None => "no pull request yet".to_string(),
+        };
+        listing.push_str(&format!("{}. `{}` - {state}\n", index + 1, issue.identifier));
+    }
+    listing.push_str(&format!(
+        "{}. `{identifier}` - this run (`{}`, cut from `origin/{}`)\n",
+        args.chain.len() + 1,
+        args.branch,
+        args.base_branch
+    ));
+
+    let mut steps: Vec<String> = Vec::new();
+    if lower.open_branch().is_none() {
+        // The issue BELOW the foundation, if any — what the child start
+        // stacks on in turn.
+        let below = args
+            .chain
+            .len()
+            .checked_sub(2)
+            .and_then(|index| args.chain.get(index));
+        let device = if args.device_id.is_empty() {
+            String::new()
+        } else {
+            format!("`deviceId: \"{}\"`, ", args.device_id)
+        };
+        let stack_on = match below {
+            Some(below) => format!(" and `stackOnIssueId: \"{}\"`", below.issue_id),
+            None => String::new(),
+        };
+        steps.push(format!(
+            "**Build the foundation first if it does not exist.** `{}` has no open pull request \
+yet: call `exponential_sessions_start` with {device}`issueId: \"{}\"`{stack_on}, then STOP and \
+wait - do not implement `{}` yourself. Its questions and its finish arrive here as \
+`[Exponential child run ...]` user messages; answer them with `exponential_sessions_message`. A \
+start refused because a run already holds that issue means the foundation is already being \
+built: wait for its pull request the same way.",
+            lower.identifier, lower.issue_id, lower.identifier
+        ));
+    }
+    steps.push(format!(
+        "**Verify the foundation before you build on it.** Run `git fetch origin {lower_branch}`, \
+read `git diff origin/{}...origin/{lower_branch}`, and run whatever it touches. If it needs \
+refinement, send that back to its run with `exponential_sessions_message` and wait for the next \
+finish message - do not fix its code on your branch.",
+        args.default_branch
+    ));
+    steps.push(format!(
+        "**Put your work on top of it.** `git fetch origin {lower_branch} && git rebase \
+origin/{lower_branch}` - or `git reset --hard origin/{lower_branch}` when you have committed \
+nothing yet. Then implement `{identifier}` as usual."
+    ));
+    steps.push(format!(
+        "**Open your pull request on top of it.** Call `exponential_pr_open` with \
+`stackOnIssueId: \"{}\"`: it bases your PR on `{lower_branch}` instead of `{}`. When the \
+foundation merges, your PR is retargeted for you; if a merge is ever refused for a stale base, \
+call `exponential_pr_retarget`, rebase, push with `--force-with-lease`, and merge again.",
+        lower.issue_id, args.default_branch
+    ));
+    steps.push(
+        "**Real decisions go UP, never down.** If the foundation turns out to be wrong, ask with \
+`exponential_sessions_ask_parent` and `to: \"root\"` (or `\"user\"` when a person has to choose) \
+instead of re-planning the stack yourself."
+            .to_string(),
+    );
+    let mut program = String::new();
+    for (index, step) in steps.iter().enumerate() {
+        program.push_str(&format!("{}. {step}\n", index + 1));
+    }
+
+    format!(
+        "## Stacked work
+
+**{identifier}** is stacked on work that is not finished yet. The stack, bottom first:
+
+{listing}
+`{}` (issueId `{}`) is the foundation directly below you. Work the stack in this order:
+
+{program}",
+        lower.identifier, lower.issue_id
+    )
+}
+
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
 /// native plan mode owns the approval gate. `unattended` (EXP-679) picks the
 /// close-out: only an unattended run is told to call
 /// `exponential_sessions_end`. `extra` (EXP-825) is the composer's free text,
-/// appended last as the additional-instructions section.
+/// appended last as the additional-instructions section. `stack` (EXP-897)
+/// renders [`stack_section`] between the issue context and that free text;
+/// `None` leaves the byte-locked template untouched.
 pub fn render_prompt(
     identifier: &str,
     title: &str,
     description: Option<&str>,
     unattended: bool,
     extra: Option<&str>,
+    stack: Option<&StackPromptArgs<'_>>,
 ) -> String {
     let body = issue_body(description);
     let close_out = close_out(unattended);
@@ -122,6 +263,11 @@ moves the issue to `in_review` automatically, and merging it later completes it 
 {body}
 "
     );
+    // EXP-897: between the issue context and the requester's own additions.
+    let prompt = match stack.map(|stack| stack_section(identifier, stack)) {
+        Some(section) if !section.is_empty() => format!("{prompt}\n{section}"),
+        _ => prompt,
+    };
     append_additional_instructions(prompt, extra)
 }
 
@@ -235,7 +381,7 @@ The login page flickers on slow connections.
         let description =
             "The login page flickers on slow connections.\n\n- Reproduce with network throttling\n- Fix the flash of unstyled content";
         assert_eq!(
-            render_prompt("EXP-42", "Fix login flicker", Some(description), false, None),
+            render_prompt("EXP-42", "Fix login flicker", Some(description), false, None, None),
             EXPECTED
         );
     }
@@ -246,11 +392,11 @@ The login page flickers on slow connections.
     /// tool only for unattended runs).
     #[test]
     fn only_the_unattended_prompt_names_the_close_out_tool() {
-        let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None);
+        let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None, None);
         assert!(!attended.contains("exponential_sessions_end"));
         assert!(attended.contains("This session stays open after you finish"));
 
-        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None);
+        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None, None);
         assert!(unattended.contains("`exponential_sessions_end`"));
         assert!(unattended.contains("That call ends this run; nobody is watching it"));
         assert!(!unattended.contains("This session stays open after you finish"));
@@ -269,7 +415,7 @@ The login page flickers on slow connections.
 
     #[test]
     fn template_names_the_real_mcp_tools_and_carries_no_plan_gate() {
-        let prompt = render_prompt("EXP-1", "T", None, true, None);
+        let prompt = render_prompt("EXP-1", "T", None, true, None, None);
         assert!(prompt.contains("`exponential_pr_open`"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-1`"));
         assert!(prompt.contains("Do not use `gh`."));
@@ -335,14 +481,14 @@ The login page flickers on slow connections.
     #[test]
     fn missing_or_blank_description_gets_a_placeholder() {
         for description in [None, Some(""), Some("   \n  ")] {
-            let prompt = render_prompt("EXP-2", "Title", description, false, None);
+            let prompt = render_prompt("EXP-2", "Title", description, false, None, None);
             assert!(prompt.contains("(no description)"), "for {description:?}");
         }
     }
 
     #[test]
     fn trailing_whitespace_in_description_is_trimmed() {
-        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false, None);
+        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false, None, None);
         assert!(prompt.ends_with("body text\n"));
     }
 
@@ -351,10 +497,10 @@ The login page flickers on slow connections.
     /// string leave the byte-locked template untouched.
     #[test]
     fn additional_instructions_ride_last_and_blank_is_byte_identical() {
-        let base = render_prompt("EXP-42", "Fix login flicker", Some("body"), false, None);
+        let base = render_prompt("EXP-42", "Fix login flicker", Some("body"), false, None, None);
         assert_eq!(
             base,
-            render_prompt("EXP-42", "Fix login flicker", Some("body"), false, Some("  \n"))
+            render_prompt("EXP-42", "Fix login flicker", Some("body"), false, Some("  \n"), None)
         );
         let with = render_prompt(
             "EXP-42",
@@ -362,6 +508,7 @@ The login page flickers on slow connections.
             Some("body"),
             false,
             Some("  Focus on the retry path.\n"),
+            None,
         );
         assert_eq!(
             with,
@@ -380,6 +527,224 @@ The login page flickers on slow connections.
             additional_instructions(Some("x")),
             format!("{ADDITIONAL_INSTRUCTIONS_HEADING}\n\nx\n")
         );
+    }
+
+
+    // ---- EXP-897: the stacked-work section ----
+
+    fn stack_issue(identifier: &str, branch: Option<&str>, pr_state: Option<&str>) -> StackIssue {
+        StackIssue {
+            issue_id: format!("id-{}", identifier.to_lowercase()),
+            identifier: identifier.to_string(),
+            branch: branch.map(str::to_string),
+            pr_state: pr_state.map(str::to_string),
+        }
+    }
+
+    /// The chain is listed bottom first, each member with its real PR state,
+    /// and this run closes it with the base it was actually cut from.
+    #[test]
+    fn stack_section_lists_the_chain_bottom_first() {
+        let chain = vec![
+            stack_issue("EXP-10", None, None),
+            stack_issue("EXP-11", Some("exp/EXP-11"), Some("open")),
+        ];
+        let section = stack_section(
+            "EXP-12",
+            &StackPromptArgs {
+                chain: &chain,
+                lower: chain.last(),
+                base_branch: "exp/EXP-11",
+                default_branch: "main",
+                device_id: "dev-1",
+                branch: "exp/EXP-12",
+            },
+        );
+        assert!(section.starts_with("## Stacked work\n"), "{section}");
+        assert!(section.contains("1. `EXP-10` - no pull request yet\n"), "{section}");
+        assert!(
+            section.contains("2. `EXP-11` - pull request open (`exp/EXP-11`)\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("3. `EXP-12` - this run (`exp/EXP-12`, cut from `origin/exp/EXP-11`)"),
+            "{section}"
+        );
+        assert!(
+            section.contains("`EXP-11` (issueId `id-exp-11`) is the foundation directly below you."),
+            "{section}"
+        );
+        // ASCII only: the playbook's no-em-dash rule holds for the prompt's
+        // stack section too.
+        assert!(!section.contains('\u{2014}'), "{section}");
+    }
+
+    /// A foundation WITH an open PR is already built: the section opens on
+    /// "verify", never on "start it".
+    #[test]
+    fn stack_section_skips_the_build_step_when_the_foundation_has_a_pr() {
+        let chain = vec![stack_issue("EXP-11", Some("exp/EXP-11"), Some("open"))];
+        let section = stack_section(
+            "EXP-12",
+            &StackPromptArgs {
+                chain: &chain,
+                lower: chain.last(),
+                base_branch: "exp/EXP-11",
+                default_branch: "main",
+                device_id: "dev-1",
+                branch: "exp/EXP-12",
+            },
+        );
+        assert!(!section.contains("Build the foundation first"), "{section}");
+        assert!(!section.contains("exponential_sessions_start"), "{section}");
+        assert!(
+            section.contains("1. **Verify the foundation before you build on it.**"),
+            "{section}"
+        );
+        assert!(section.contains("4. **Real decisions go UP, never down.**"), "{section}");
+    }
+
+    /// An UNBUILT foundation gets step 1: start it, with this device and —
+    /// when something sits below it — its own `stackOnIssueId`, then stop.
+    #[test]
+    fn stack_section_tells_an_unbuilt_foundation_to_be_started_first() {
+        let chain = vec![
+            stack_issue("EXP-10", None, None),
+            stack_issue("EXP-11", None, None),
+        ];
+        let section = stack_section(
+            "EXP-12",
+            &StackPromptArgs {
+                chain: &chain,
+                lower: chain.last(),
+                base_branch: "main",
+                default_branch: "main",
+                device_id: "dev-1",
+                branch: "exp/EXP-12",
+            },
+        );
+        assert!(
+            section.contains("1. **Build the foundation first if it does not exist.**"),
+            "{section}"
+        );
+        assert!(
+            section.contains(
+                "call `exponential_sessions_start` with `deviceId: \"dev-1\"`, \
+`issueId: \"id-exp-11\"` and `stackOnIssueId: \"id-exp-10\"`"
+            ),
+            "{section}"
+        );
+        assert!(section.contains("then STOP and wait"), "{section}");
+        assert!(section.contains("[Exponential child run ...]"), "{section}");
+        assert!(section.contains("5. **Real decisions go UP, never down.**"), "{section}");
+        // The bottom of the stack stacks on nothing, and a device-less host
+        // simply leaves the argument out.
+        let bottom = vec![stack_issue("EXP-11", None, None)];
+        let alone = stack_section(
+            "EXP-12",
+            &StackPromptArgs {
+                chain: &bottom,
+                lower: bottom.last(),
+                base_branch: "main",
+                default_branch: "main",
+                device_id: "",
+                branch: "exp/EXP-12",
+            },
+        );
+        assert!(
+            alone.contains("call `exponential_sessions_start` with `issueId: \"id-exp-11\"`, then STOP"),
+            "{alone}"
+        );
+        // The bottom of the stack has nothing below it, so its start carries
+        // no `stackOnIssueId` (step 4's `pr_open` still does).
+        assert!(
+            !alone.contains("`issueId: \"id-exp-11\"` and `stackOnIssueId"),
+            "{alone}"
+        );
+        assert!(!alone.contains("deviceId"), "{alone}");
+    }
+
+    /// The four tools the procedure names, and the one it must NOT: the
+    /// close-out lives in `close_out(unattended)` alone.
+    #[test]
+    fn stack_section_names_stack_on_issue_id_and_never_the_close_out() {
+        let chain = vec![stack_issue("EXP-11", Some("exp/EXP-11"), Some("open"))];
+        let section = stack_section(
+            "EXP-12",
+            &StackPromptArgs {
+                chain: &chain,
+                lower: chain.last(),
+                base_branch: "exp/EXP-11",
+                default_branch: "main",
+                device_id: "dev-1",
+                branch: "exp/EXP-12",
+            },
+        );
+        assert!(
+            section.contains("Call `exponential_pr_open` with `stackOnIssueId: \"id-exp-11\"`"),
+            "{section}"
+        );
+        assert!(section.contains("`exponential_sessions_message`"), "{section}");
+        assert!(section.contains("`exponential_pr_retarget`"), "{section}");
+        assert!(
+            section.contains("`exponential_sessions_ask_parent` and `to: \"root\"`"),
+            "{section}"
+        );
+        assert!(!section.contains("exponential_sessions_end"), "{section}");
+        assert!(!section.contains("leave the worktree clean"), "{section}");
+        // Nothing to stack on renders nothing at all.
+        assert_eq!(
+            stack_section(
+                "EXP-12",
+                &StackPromptArgs {
+                    chain: &[],
+                    lower: None,
+                    base_branch: "main",
+                    default_branch: "main",
+                    device_id: "dev-1",
+                    branch: "exp/EXP-12",
+                },
+            ),
+            ""
+        );
+    }
+
+    /// In the prompt the section sits between the issue context and the
+    /// requester's own additions — and `None` leaves the byte-locked template
+    /// untouched.
+    #[test]
+    fn stacked_prompt_rides_between_the_issue_context_and_the_extra() {
+        let chain = vec![stack_issue("EXP-11", Some("exp/EXP-11"), Some("open"))];
+        let args = StackPromptArgs {
+            chain: &chain,
+            lower: chain.last(),
+            base_branch: "exp/EXP-11",
+            default_branch: "main",
+            device_id: "dev-1",
+            branch: "exp/EXP-12",
+        };
+        let plain = render_prompt("EXP-12", "T", Some("body"), false, None, None);
+        assert_eq!(plain, render_prompt("EXP-12", "T", Some("body"), false, None, None));
+        assert!(!plain.contains("## Stacked work"));
+
+        let stacked = render_prompt("EXP-12", "T", Some("body"), false, None, Some(&args));
+        assert_eq!(stacked, format!("{plain}\n{}", stack_section("EXP-12", &args)));
+        let context = stacked.find("## Issue context").expect("issue context");
+        let stack = stacked.find("## Stacked work").expect("stack section");
+        assert!(context < stack, "{stacked}");
+
+        let with_extra = render_prompt(
+            "EXP-12",
+            "T",
+            Some("body"),
+            false,
+            Some("Mind the retry path."),
+            Some(&args),
+        );
+        let extra = with_extra
+            .find(ADDITIONAL_INSTRUCTIONS_HEADING)
+            .expect("extra section");
+        assert!(with_extra.find("## Stacked work").expect("stack") < extra, "{with_extra}");
     }
 
 }

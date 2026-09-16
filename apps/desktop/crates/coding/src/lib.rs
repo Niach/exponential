@@ -133,7 +133,7 @@ pub use launcher::{
     AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    ResumeRunRequest, ResumeSeed, SessionEndObserver,
+    ResumeRunRequest, ResumeSeed, SessionEndObserver, StackIssue, StackLaunch,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
@@ -152,7 +152,7 @@ pub use remote_admin::{
     apply_defaults_patch, conservative_prune_policy, defaults_wire, remove_worktree_remote,
     AgentDefaultsPatch, DefaultsPatch, RemoveWorktreeError,
 };
-pub use prompt::{render_prompt, render_resume_prompt};
+pub use prompt::{render_prompt, render_resume_prompt, stack_section, StackPromptArgs};
 pub use settings::Settings;
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,

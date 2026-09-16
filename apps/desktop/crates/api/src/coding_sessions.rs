@@ -479,6 +479,69 @@ pub fn merge_pr(
     trpc.mutation("codingSessions.mergePr", &Input { session_id })
 }
 
+/// EXP-897 — ONE issue of a stack plan (`codingSessions.stackPlan`). The
+/// server resolves the chain; the launcher only reads `branch`/`pr_state` to
+/// tell a foundation that exists on origin from one still to be built.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StackPlanLink {
+    #[serde(default)]
+    pub issue_id: String,
+    #[serde(default)]
+    pub identifier: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub pr_url: Option<String>,
+    #[serde(default)]
+    pub pr_number: Option<i64>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
+}
+
+/// EXP-897 — `codingSessions.stackPlan` output: the blocker chain below an
+/// issue (bottom first, the issue itself excluded), the `lower` it would be
+/// cut from, and the repository the whole stack has to share.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StackPlan {
+    #[serde(default)]
+    pub chain: Vec<StackPlanLink>,
+    #[serde(default)]
+    pub lower: Option<StackPlanLink>,
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    #[serde(default)]
+    pub repo_full_name: Option<String>,
+    #[serde(default)]
+    pub base: Option<String>,
+}
+
+/// `codingSessions.stackPlan` — query (EXP-897). The ONE place a blocking
+/// CYCLE, a cross-repository blocker or a finished blocker is resolved, so
+/// clients never derive a stack themselves.
+///
+/// `Ok(None)` = an OLD server without the procedure (404): the caller starts
+/// the run UNSTACKED rather than failing it. Every other error is the
+/// server's own refusal and belongs in the composer's error slot. Blocking;
+/// background executor only (§3.5).
+pub fn stack_plan(trpc: &TrpcClient, issue_id: &str) -> Result<Option<StackPlan>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+    }
+    match trpc.query_with_input("codingSessions.stackPlan", &Input { issue_id }) {
+        Ok(plan) => Ok(Some(plan)),
+        Err(ApiError::Http { status: 404, .. }) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
 /// `codingSessions.end` — mutation, idempotent server-side.
 pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation("codingSessions.end", &SessionIdInput { id })?;
@@ -682,6 +745,45 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
         assert!(request.ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox"}"#));
+    }
+
+    /// EXP-897: `stackPlan` is a QUERY, decodes the chain bottom-first, and
+    /// an OLD server without the procedure answers 404 — which is `None`, not
+    /// an error: the composer starts the run unstacked instead of failing it.
+    #[test]
+    fn stack_plan_decodes_the_chain_and_degrades_on_an_old_server() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{
+                "chain":[
+                  {"issueId":"issue-10","identifier":"EXP-10","title":"Foundation","status":"backlog","branch":null,"prUrl":null,"prNumber":null,"prState":null},
+                  {"issueId":"issue-11","identifier":"EXP-11","title":"Middle","status":"in_review","branch":"exp/EXP-11","prUrl":"https://github.com/acme/web/pull/4","prNumber":4,"prState":"open"}
+                ],
+                "lower":{"issueId":"issue-11","identifier":"EXP-11","title":"Middle","status":"in_review","branch":"exp/EXP-11","prUrl":"https://github.com/acme/web/pull/4","prNumber":4,"prState":"open"},
+                "repositoryId":"repo-1","repoFullName":"acme/web","base":"main"}}}"#,
+        );
+        let plan = stack_plan(&client(&base), "issue-12").unwrap().expect("a plan");
+        assert_eq!(plan.chain.len(), 2);
+        assert_eq!(plan.chain[0].identifier, "EXP-10");
+        assert_eq!(plan.chain[0].pr_state, None);
+        assert_eq!(plan.chain[1].branch.as_deref(), Some("exp/EXP-11"));
+        assert_eq!(plan.chain[1].pr_number, Some(4));
+        assert_eq!(plan.lower.as_ref().map(|l| l.identifier.as_str()), Some("EXP-11"));
+        assert_eq!(plan.repo_full_name.as_deref(), Some("acme/web"));
+        assert_eq!(plan.base.as_deref(), Some("main"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.starts_with(
+                "GET /api/trpc/codingSessions.stackPlan?input=%7B%22issueId%22%3A%22issue-12%22%7D"
+            ),
+            "{request}"
+        );
+
+        let (base, _captured) = one_shot_server(
+            404,
+            r#"{"error":{"message":"No procedure found on path codingSessions.stackPlan","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}"#,
+        );
+        assert_eq!(stack_plan(&client(&base), "issue-12").unwrap(), None);
     }
 
     /// EXP-445: the tRPC row's `hostUserId` (shared-device runs) decodes —

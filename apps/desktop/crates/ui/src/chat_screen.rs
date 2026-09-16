@@ -314,6 +314,11 @@ pub(crate) struct ChatScreenView {
     /// before it does).
     launch: Option<LaunchOptionsSection>,
     device: DevicePick,
+    /// EXP-897: the answer to the blocked-issue dialog, for the ONE start it
+    /// was opened for. `None` = not asked yet (the dialog opens); `Some` =
+    /// the person already chose, so `start` runs straight through. Cleared by
+    /// [`Self::after_started`] and by every subject change.
+    stack_choice: Option<StackChoice>,
     /// EXP-792: the team's MCP servers + THIS machine's readiness, one fetch
     /// per team; `None` while the fetch is out.
     mcp: Option<(
@@ -439,6 +444,7 @@ impl ChatScreenView {
             chat_repo: None,
             launch: None,
             device: DevicePick::default(),
+            stack_choice: None,
             mcp: None,
             mcp_team: None,
             images: PendingImages::default(),
@@ -590,6 +596,8 @@ impl ChatScreenView {
     /// subject out for issues on the first check, and back to no subject on
     /// the last uncheck (the label then reads "Start chat" again).
     fn toggle_issue(&mut self, issue_id: String, on: bool, _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // EXP-897: a different set of issues is a different question.
+        self.stack_choice = None;
         match &mut self.subject {
             Subject::Issues(issues) => {
                 if on {
@@ -612,6 +620,9 @@ impl ChatScreenView {
     fn clear_subject(&mut self, cx: &mut gpui::Context<Self>) {
         self.subject = Subject::None;
         self.probe_generation += 1;
+        // EXP-897: the blocked-issue answer belongs to the subject it was
+        // given for — a new subject asks again.
+        self.stack_choice = None;
         if let Some(launch) = self.launch.as_mut() {
             launch.reseed_plan_for_subject(false, cx);
         }
@@ -1333,6 +1344,16 @@ impl ChatScreenView {
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
+        // EXP-897: a single issue that is BLOCKED asks first — plain start,
+        // or a stacked PR cut from the blocker's branch. Asked once per
+        // subject; the answer rides `stack_choice` into the second pass.
+        if self.stack_choice.is_none() {
+            if let Some((identifier, blockers)) = self.open_blockers(cx) {
+                self.prompt_blocked_start(message, identifier, blockers, window, cx);
+                return;
+            }
+        }
+        let stacked = self.stack_choice == Some(StackChoice::Stacked);
         let prompt = chat_launch::prompt_of(&message);
         let options = self.options(cx);
         if let Some(device) = self.remote_device() {
@@ -1376,6 +1397,9 @@ impl ChatScreenView {
                         1 => RemoteSubject::Issue {
                             issue_id: &checked.pop().expect("one checked"),
                             resume: self.resume_active(cx),
+                            // EXP-897: the SERVER resolves the chain for a
+                            // remote start — the flag is the whole payload.
+                            stack: stacked,
                         }
                         .into_owned(),
                         _ => RemoteSubject::Batch { issue_ids: checked }.into_owned(),
@@ -1464,12 +1488,19 @@ impl ChatScreenView {
                             cx,
                         );
                     }
+                    // EXP-897: a stacked LOCAL start resolves the chain
+                    // itself (`codingSessions.stackPlan`) before it can build
+                    // the request — one network hop, so it takes its own path.
+                    if stacked {
+                        return self.start_stacked(issue_id, options, prompt, window, cx);
+                    }
                     let Some((request, deps)) = coding_flow::build_launch(
                         &issue_id,
                         LaunchOrigin::Local,
                         options,
                         false,
                         prompt,
+                        None,
                         cx,
                     ) else {
                         self.error = Some("Sign in and wait for sync before starting a session.".into());
@@ -1509,6 +1540,185 @@ impl ChatScreenView {
                 );
             }
         }
+    }
+
+    /// EXP-897 — the ONE checked issue's OPEN blockers, or `None` when the
+    /// blocked-start question does not apply at all: no single issue, a
+    /// resume (it re-enters an existing worktree, base included), or nothing
+    /// unfinished blocking it.
+    ///
+    /// "Unfinished" is the ANCHOR status: `done`, `cancelled` and `duplicate`
+    /// blockers are history, everything else still has work to land.
+    fn open_blockers(&self, cx: &App) -> Option<(String, Vec<domain::rows::Issue>)> {
+        let Subject::Issues(issues) = &self.subject else {
+            return None;
+        };
+        if issues.checked.len() != 1 || self.resume_active(cx) {
+            return None;
+        }
+        let issue_id = issues.checked.iter().next()?.clone();
+        let collections = Store::global(cx).collections();
+        let identifier = collections
+            .issues
+            .read(cx)
+            .get(&issue_id)
+            .map(|issue| issue.identifier.clone())
+            .or_else(|| {
+                issues
+                    .rows
+                    .iter()
+                    .find(|row| row.issue_id == issue_id)
+                    .map(|row| row.identifier.clone())
+            })?;
+        let relations = collections.relations_for_issue(&issue_id, cx);
+        let rows = collections.issues.read(cx);
+        let mut open: Vec<domain::rows::Issue> =
+            chat_launch::blockers_of(&issue_id, &relations, |id| rows.get(id))
+                .into_iter()
+                .filter(|issue| {
+                    !matches!(
+                        issue.status,
+                        domain::IssueStatus::Done
+                            | domain::IssueStatus::Cancelled
+                            | domain::IssueStatus::Duplicate
+                    )
+                })
+                .cloned()
+                .collect();
+        if open.is_empty() {
+            return None;
+        }
+        open.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+        Some((identifier, open))
+    }
+
+    /// EXP-897 — the blocked-issue alert: Cancel / Start anyway / Stacked PR.
+    /// Either answer records the choice and re-enters [`Self::start`] with
+    /// the same composed message, so the two paths stay one code path.
+    fn prompt_blocked_start(
+        &mut self,
+        message: String,
+        identifier: String,
+        blockers: Vec<domain::rows::Issue>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let first = blockers
+            .first()
+            .map(|issue| issue.identifier.clone())
+            .unwrap_or_default();
+        let extra = blockers.len().saturating_sub(1);
+        let (blocked_by, cut_from) = if extra == 0 {
+            (
+                format!("#{first}, which isn't done"),
+                format!("#{first}'s branch"),
+            )
+        } else {
+            let issues = if extra == 1 { "issue" } else { "issues" };
+            let isnt = if extra == 1 { "isn't" } else { "aren't" };
+            (
+                format!("#{first} and {extra} more {issues} that {isnt} done"),
+                "the lowest one's branch".to_string(),
+            )
+        };
+        let description = format!(
+            "{identifier} is blocked by {blocked_by}. A stacked PR cuts your branch from \
+{cut_from} and bases your pull request on it, so your diff shows only your own work, and the \
+run builds #{first} first if nobody has."
+        );
+        let entity = cx.entity().downgrade();
+        let opener = window.window_handle();
+        let resume = {
+            let entity = entity.clone();
+            move |choice: StackChoice, message: String, cx: &mut App| {
+                let entity = entity.clone();
+                let _ = opener.update(cx, move |_, window, cx| {
+                    let _ = entity.update(cx, |this, cx| {
+                        this.stack_choice = Some(choice);
+                        this.start(message, window, cx);
+                    });
+                });
+            }
+        };
+        let anyway = resume.clone();
+        let stacked_message = message.clone();
+        let spec = crate::native_dialog::AlertSpec::new(
+            "Start coding on a blocked issue?",
+            description,
+            chat_launch::stack_label(),
+        )
+        .secondary(chat_launch::start_anyway_label(), move |_, cx| {
+            anyway(StackChoice::Plain, message.clone(), cx);
+            true
+        })
+        .on_ok(move |_, cx| {
+            resume(StackChoice::Stacked, stacked_message.clone(), cx);
+            true
+        });
+        crate::native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// EXP-897 — the LOCAL stacked start: `codingSessions.stackPlan` resolves
+    /// the chain server-side (the only place a cycle, a cross-repository
+    /// blocker or a finished blocker is refused), then the ordinary launch
+    /// runs with that plan. An OLD server (no procedure) simply starts the
+    /// run unstacked; a refusal lands in the composer's error slot.
+    fn start_stacked(
+        &mut self,
+        issue_id: String,
+        options: LaunchOptions,
+        prompt: Option<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.error = Some("Sign in and wait for sync before starting a session.".into());
+            cx.notify();
+            return;
+        };
+        self.launching = true;
+        self.error = None;
+        cx.notify();
+        let probe_id = issue_id.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let plan = cx
+                .background_executor()
+                .spawn(async move { api::coding_sessions::stack_plan(&trpc, &probe_id) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.launching = false;
+                let stack = match plan {
+                    Ok(plan) => plan.map(coding::StackLaunch::from),
+                    Err(err) => {
+                        this.error = Some(err.user_message().into());
+                        cx.notify();
+                        return;
+                    }
+                };
+                let Some((request, deps)) = coding_flow::build_launch(
+                    &issue_id,
+                    LaunchOrigin::Local,
+                    options,
+                    false,
+                    prompt,
+                    stack,
+                    cx,
+                ) else {
+                    this.error =
+                        Some("Sign in and wait for sync before starting a session.".into());
+                    cx.notify();
+                    return;
+                };
+                this.run_prepare(
+                    PrepareRequest::Issue(request),
+                    deps,
+                    SessionSubject::Issue(issue_id.clone()),
+                    window,
+                    cx,
+                );
+            });
+        })
+        .detach();
     }
 
     /// EXP-696: hand the run to another machine. Success clears the composer
@@ -1612,6 +1822,7 @@ impl ChatScreenView {
         self.images.clear();
         self.notice = None;
         self.error = None;
+        self.stack_choice = None;
         self.clear_subject(cx);
     }
 
@@ -2340,20 +2551,41 @@ impl Render for ChatScreenView {
     }
 }
 
+/// EXP-897 — the blocked-issue dialog's answer. `None` on the view means the
+/// question has not been asked for this subject yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StackChoice {
+    /// "Start anyway" — an ordinary run off the board's base branch.
+    Plain,
+    /// "Stacked PR" — cut from the blocker's branch, PR based on it.
+    Stacked,
+}
+
 /// [`RemoteSubject`] borrows the ids it names; the issue arms need an owned
 /// carrier so the checked list can be built inside `start` and borrowed
 /// afterwards.
 enum OwnedRemoteSubject {
-    Issue { issue_id: String, resume: bool },
-    Batch { issue_ids: Vec<String> },
+    Issue {
+        issue_id: String,
+        resume: bool,
+        stack: bool,
+    },
+    Batch {
+        issue_ids: Vec<String>,
+    },
 }
 
 impl OwnedRemoteSubject {
     fn borrow(&self) -> RemoteSubject<'_> {
         match self {
-            OwnedRemoteSubject::Issue { issue_id, resume } => RemoteSubject::Issue {
+            OwnedRemoteSubject::Issue {
+                issue_id,
+                resume,
+                stack,
+            } => RemoteSubject::Issue {
                 issue_id,
                 resume: *resume,
+                stack: *stack,
             },
             OwnedRemoteSubject::Batch { issue_ids } => RemoteSubject::Batch {
                 issue_ids: issue_ids.clone(),
@@ -2365,9 +2597,14 @@ impl OwnedRemoteSubject {
 impl RemoteSubject<'_> {
     fn into_owned(self) -> OwnedRemoteSubject {
         match self {
-            RemoteSubject::Issue { issue_id, resume } => OwnedRemoteSubject::Issue {
+            RemoteSubject::Issue {
+                issue_id,
+                resume,
+                stack,
+            } => OwnedRemoteSubject::Issue {
                 issue_id: issue_id.to_string(),
                 resume,
+                stack,
             },
             RemoteSubject::Batch { issue_ids } => OwnedRemoteSubject::Batch { issue_ids },
             _ => unreachable!("only the issue arms are built here"),
@@ -2531,13 +2768,15 @@ mod tests {
         let issue = RemoteSubject::Issue {
             issue_id: "i-1",
             resume: true,
+            stack: true,
         }
         .into_owned();
         assert_eq!(
             issue.borrow(),
             RemoteSubject::Issue {
                 issue_id: "i-1",
-                resume: true
+                resume: true,
+                stack: true,
             }
         );
         let batch = RemoteSubject::Batch {

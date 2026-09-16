@@ -113,6 +113,72 @@ pub(crate) struct FakeWorktrees {
     pub seen: std::sync::Mutex<Vec<(String, String, String, Option<String>)>>,
 }
 
+/// EXP-897 — the stacked-start fake: [`FakeWorktrees`] plus a `fetch_branch`
+/// that RECORDS what it was asked to fetch and FAILS for the branches named
+/// in `missing` (a foundation whose branch is not on origin).
+pub(crate) struct FakeStackWorktrees {
+    pub worktree: PathBuf,
+    pub seen: std::sync::Mutex<Vec<(String, String, String, Option<String>)>>,
+    pub fetched: std::sync::Mutex<Vec<String>>,
+    pub missing: Vec<String>,
+}
+
+impl FakeStackWorktrees {
+    pub fn new(worktree: PathBuf, missing: &[&str]) -> Self {
+        Self {
+            worktree,
+            seen: Default::default(),
+            fetched: Default::default(),
+            missing: missing.iter().map(|branch| branch.to_string()).collect(),
+        }
+    }
+
+    /// The `default_branch` the provider was handed on the Nth prepare — the
+    /// base the worktree was actually cut from.
+    pub fn base_of(&self, index: usize) -> Option<String> {
+        self.seen.lock().unwrap().get(index).map(|seen| seen.1.clone())
+    }
+}
+
+impl WorktreeProvider for FakeStackWorktrees {
+    fn prepare(
+        &self,
+        _repos_root: &Path,
+        full_name: &str,
+        default_branch: &str,
+        branch: &str,
+        _url: &TokenUrl,
+        expires_at: Option<&str>,
+    ) -> Result<PathBuf, GitError> {
+        self.seen.lock().unwrap().push((
+            full_name.to_string(),
+            default_branch.to_string(),
+            branch.to_string(),
+            expires_at.map(str::to_string),
+        ));
+        let _ = fs::create_dir_all(&self.worktree);
+        Ok(self.worktree.clone())
+    }
+
+    fn fetch_branch(
+        &self,
+        _repos_root: &Path,
+        _full_name: &str,
+        branch: &str,
+        _url: &TokenUrl,
+        _expires_at: Option<&str>,
+    ) -> Result<(), GitError> {
+        self.fetched.lock().unwrap().push(branch.to_string());
+        if self.missing.iter().any(|gone| gone == branch) {
+            return Err(GitError {
+                op: format!("git fetch origin {branch}"),
+                detail: "couldn't find remote ref".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
 impl WorktreeProvider for FakeWorktrees {
     fn prepare(
         &self,
@@ -208,7 +274,11 @@ pub(crate) fn acp_ready_stub(_data_dir: &Path, _name: &str, _version: &str) -> S
     "git".to_string()
 }
 
-pub(crate) fn make_deps(base: &str, data_dir: &Path, worktrees: Arc<FakeWorktrees>) -> CodingDeps {
+pub(crate) fn make_deps(
+    base: &str,
+    data_dir: &Path,
+    worktrees: Arc<dyn WorktreeProvider>,
+) -> CodingDeps {
     let store = TokenStore::file_only(data_dir.to_path_buf());
     store
         .set("acct", SecretKind::PersonalApiKey, "expu_seeded")

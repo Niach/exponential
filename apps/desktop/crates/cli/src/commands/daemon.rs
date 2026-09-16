@@ -1303,6 +1303,8 @@ fn handle_remote_start(
             // gate degrades a missing/foreign worktree to a fresh session.
             start.resume,
             start.prompt.clone(),
+            // EXP-897: the server-resolved stack, in the launcher's own types.
+            steer::stack_launch(start.stack.as_ref()),
         ),
         RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
             ctx, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
@@ -1408,6 +1410,7 @@ fn remote_issue_start(
     issue_id: String,
     start_resume: bool,
     prompt: Option<String>,
+    stack: Option<coding::StackLaunch>,
 ) -> anyhow::Result<()> {
     if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
         log::info!("{reason}");
@@ -1441,6 +1444,9 @@ fn remote_issue_start(
             origin,
             start_resume,
             prompt,
+            // EXP-897: the frame's stack plan — dropped on the resume arm
+            // above, which re-enters the base the record already names.
+            stack,
         )),
     };
     let prepared = coding::prepare(&request, &deps)

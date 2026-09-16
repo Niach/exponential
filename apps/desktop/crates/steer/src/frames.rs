@@ -1347,6 +1347,36 @@ pub struct StartInput {
     pub display: Option<String>,
 }
 
+/// protocol.ts `StartStackIssue` (EXP-897) — ONE issue of the stack a
+/// stacked single-issue start builds on, as the server resolved it
+/// (`lib/stack-plan.ts`). Every field but the ids is optional on the wire: a
+/// foundation that was never started has no branch and no PR state.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartStackIssue {
+    #[serde(default)]
+    pub issue_id: String,
+    #[serde(default)]
+    pub identifier: String,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
+}
+
+/// protocol.ts `StartStack` (EXP-897) — the stack a `start_session` frame
+/// asks for: the whole chain below the target (bottom first) and the `lower`
+/// its branch is cut from. Single-issue starts only; absent on every other
+/// frame, so an unstacked start stays byte-identical to the locked fixtures.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StartStack {
+    #[serde(default)]
+    pub lower: Option<StartStackIssue>,
+    #[serde(default)]
+    pub chain: Vec<StartStackIssue>,
+}
+
 /// Every frame the relay may send. Deserialize-only.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -1432,6 +1462,12 @@ pub enum ServerFrame {
         /// on a resume frame; absent on every pre-EXP-825 sender.
         #[serde(default)]
         prompt: Option<String>,
+        /// EXP-897: START STACKED — the server-resolved chain this run's
+        /// branch is cut into (`steer.startSession({stack: true})`).
+        /// Single-issue frames only; absent everywhere else and on every
+        /// pre-EXP-897 sender.
+        #[serde(default)]
+        stack: Option<StartStack>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -2707,6 +2743,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
@@ -2853,6 +2890,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
@@ -2887,6 +2925,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
         // Absent (every person-started frame, and every pre-EXP-679 sender)
@@ -2928,6 +2967,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
@@ -2964,6 +3004,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
@@ -3001,6 +3042,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
@@ -3052,6 +3094,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
@@ -3089,6 +3132,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
+                stack: None,
             }
         );
     }
