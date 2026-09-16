@@ -43,6 +43,7 @@ const session = (id: string): CodingSession =>
 const runningRow = (): SessionListRow => ({
   session: session(`s1`),
   issue: { identifier: `APP-1`, title: `Ship it` } as Issue,
+  batchIssues: [],
   board: undefined,
   device: { label: `buildbox`, online: true },
   paused: false,

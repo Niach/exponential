@@ -223,7 +223,12 @@ struct WorkScreen: View {
         if let identifier = issue?.identifier, !identifier.isEmpty { return identifier }
         if issueId != nil { return "" }
         guard let shownSession else { return "" }
-        return sessionRowTitle(issue: nil, session: shownSession)
+        // EXP-876: a batch names itself after the issues it covers.
+        return sessionRowTitle(
+            issue: nil,
+            session: shownSession,
+            batchIssues: subjectModel?.batchIssues ?? []
+        )
     }
 
     /// The `…` menu belongs to issue subjects.
@@ -238,7 +243,13 @@ struct WorkScreen: View {
     }
 
     private var prGraph: PrGraph.Graph? {
-        prGraphModel?.graph(issue: issue, session: shownSession)
+        prGraphModel?.graph(
+            issue: issue,
+            session: shownSession,
+            // EXP-876: a batch run's covered issues — the pill and its sheet
+            // name it before its pull request exists.
+            batchIssues: subjectModel?.batchIssues ?? []
+        )
     }
 
     /// The header badge, when there IS a stack or a batch to name.

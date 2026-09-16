@@ -94,8 +94,13 @@ struct AgentSessionsList: View {
                 ForEach(pastRows, id: \.session.id) { entry in
                     let row = entry.session
                     EndedRunRow(
-                        title: PastRuns.title(row.session, issue: row.issue),
-                        identifier: row.issue?.identifier,
+                        title: PastRuns.title(
+                            row.session, issue: row.issue, batchIssues: row.batchIssues
+                        ),
+                        // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
+                        identifier: PastRuns.identifier(
+                            row.session, issue: row.issue, batchIssues: row.batchIssues
+                        ),
                         byline: pastByline(row),
                         expandable: entry.hasChildren,
                         expanded: !collapsedPast.contains(row.session.id),
@@ -188,9 +193,14 @@ struct AgentSessionsList: View {
         )
         RunningSessionRow(
             session: row.session,
-            // Issue runs only: an action/chat/batch run prints no identifier.
-            identifier: row.issue?.identifier,
-            title: sessionRowTitle(issue: row.issue, session: row.session),
+            // An issue run's id, a batch's `EXP-874 +2` (EXP-876); an
+            // action/chat run prints none.
+            identifier: sessionRowIdentifier(
+                issue: row.issue, session: row.session, batchIssues: row.batchIssues
+            ),
+            title: sessionRowTitle(
+                issue: row.issue, session: row.session, batchIssues: row.batchIssues
+            ),
             state: state,
             device: row.device,
             open: sessionRowOpen(row),

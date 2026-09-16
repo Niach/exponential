@@ -13,6 +13,8 @@ function session(over: {
   issueId?: string | null
   actionId?: string | null
   actionName?: string | null
+  batchIssueIds?: string[] | null
+  branch?: string | null
   status?: string
   needsInput?: boolean
 }) {
@@ -20,6 +22,8 @@ function session(over: {
     issueId: over.issueId ?? null,
     actionId: over.actionId ?? null,
     actionName: over.actionName ?? null,
+    batchIssueIds: over.batchIssueIds ?? null,
+    branch: over.branch ?? null,
     status: over.status ?? `running`,
     needsInput: over.needsInput ?? false,
   } as never
@@ -87,6 +91,41 @@ describe(`sessionIdentity`, () => {
       identifier: null,
       subject: `Batch run`,
     })
+  })
+
+  // EXP-876: a batch names itself after the issues it covers — `batch-run.ts`
+  // owns the rule, this is the wiring.
+  it(`names a batch run after its issues`, () => {
+    const covered = [
+      {
+        id: `i-1`,
+        identifier: `EXP-874`,
+        title: `Session list fixes`,
+        branch: `exp/batch-1a2b3c4d`,
+        createdAt: `2026-09-01T10:00:00Z`,
+      },
+      {
+        id: `i-2`,
+        identifier: `EXP-876`,
+        title: `Batch run names`,
+        branch: `exp/batch-1a2b3c4d`,
+        createdAt: `2026-09-02T10:00:00Z`,
+      },
+    ]
+    expect(
+      sessionIdentity({
+        session: session({ batchIssueIds: [`i-1`, `i-2`] }),
+        issue: undefined,
+        batchIssues: covered,
+      })
+    ).toEqual({ identifier: `EXP-874 +1`, subject: `Session list fixes` })
+    // A surface that joins no issues keeps the generic label.
+    expect(
+      sessionIdentity({
+        session: session({ batchIssueIds: [`i-1`, `i-2`] }),
+        issue: undefined,
+      })
+    ).toEqual({ identifier: null, subject: `Batch run` })
   })
 
   it(`says so while the issue is still syncing`, () => {

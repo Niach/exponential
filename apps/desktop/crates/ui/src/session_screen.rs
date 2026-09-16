@@ -839,7 +839,8 @@ impl SessionScreenView {
             });
 
         if let (Some(row), Some(issue)) = (row.as_ref(), issue) {
-            let title = crate::work_header::title_row(crate::run_rows::run_title(row, Some(&issue)));
+            let title =
+                crate::work_header::title_row(crate::run_rows::run_title(row, Some(&issue), &[]));
             // EXP-886: `[Issue | Runs | +N -M] [switcher]` lead the cluster.
             let toggle = match (self.face_toggle(Some(issue.id.clone()), cx), self.run_switcher(&issue.id, cx)) {
                 (None, None) => None,
@@ -897,9 +898,13 @@ impl SessionScreenView {
             );
         }
 
-        // Issue-less (or the issue row not synced yet): the run's own title.
+        // Issue-less (or the issue row not synced yet): the run's own title —
+        // for a BATCH, the issues it covers (EXP-876).
         let title = crate::work_header::title_row(match row.as_ref() {
-            Some(row) => crate::run_rows::run_title(row, None),
+            Some(row) => {
+                let batch_issues = crate::run_rows::batch_run_issues(row, cx);
+                crate::run_rows::run_title(row, None, &batch_issues)
+            }
             None => SharedString::from("Loading…"),
         });
         let mut right: Vec<AnyElement> = Vec::with_capacity(4);

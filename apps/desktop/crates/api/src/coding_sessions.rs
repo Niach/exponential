@@ -161,6 +161,13 @@ struct StartBatchInput<'a> {
     /// EXP-825 — same as [`StartInput::attachment_ids`], on the batch branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
+    /// EXP-876: the issues this batch covers, in the order the composer
+    /// listed them — the row's NAME on every client (`batch_issue_ids`).
+    /// This device is the only one that knows them: nothing links a batch to
+    /// its issues before `pr_open`. Skipped when empty, so an older server
+    /// sees the same wire it always did.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    batch_issue_ids: &'a [String],
 }
 
 #[derive(Serialize)]
@@ -246,6 +253,10 @@ pub struct HeartbeatScope {
     /// at the worktree the agent is actually working in. `None` on issue
     /// scopes (the server refuses it there) and on repo-less runs.
     pub branch: Option<String>,
+    /// EXP-876: the issues a BATCH run covers, echoed so a resurrected row
+    /// keeps its name. Empty on every other scope (the server refuses them
+    /// outside the batch form, exactly like `branch` on an issue scope).
+    pub batch_issue_ids: Vec<String>,
     /// EXP-484: the agent CLI running the session, echoed so a resurrected
     /// row still says which one it is.
     pub agent: Option<String>,
@@ -273,6 +284,10 @@ struct HeartbeatInput<'a> {
     automation_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch: Option<&'a str>,
+    /// EXP-876 — the covered issues, echoed so a resurrected BATCH row keeps
+    /// naming itself after them instead of degrading to "Batch run".
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    batch_issue_ids: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
 }
@@ -385,6 +400,7 @@ pub fn start_batch(
     resumed_from_id: Option<&str>,
     agent: Option<&str>,
     attachment_ids: &[String],
+    batch_issue_ids: &[String],
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -397,6 +413,7 @@ pub fn start_batch(
             resumed_from_id,
             agent,
             attachment_ids,
+            batch_issue_ids,
         },
     )?;
     Ok(envelope.session)
@@ -710,6 +727,9 @@ pub fn heartbeat(
             started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
             automation_id: scope.and_then(|scope| scope.automation_id.as_deref()),
             branch: scope.and_then(|scope| scope.branch.as_deref()),
+            batch_issue_ids: scope
+                .map(|scope| scope.batch_issue_ids.as_slice())
+                .unwrap_or_default(),
             agent: scope.and_then(|scope| scope.agent.as_deref()),
         },
     )?;
@@ -816,7 +836,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, &[]).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, &[], &[]).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -864,6 +884,7 @@ mod tests {
             None,
             Some("sess-old"),
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -921,6 +942,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
@@ -928,6 +950,54 @@ mod tests {
         assert!(request.ends_with(
             r#"{"id":"sess-1","issueId":"issue-1","startedById":"user-2","deviceId":"dev-1"}"#
         ));
+    }
+
+    /// EXP-876: the covered issues ride the batch start and its heartbeat —
+    /// they are what NAMES the row on every client, and nothing else links a
+    /// batch to its issues before `pr_open`. Behind
+    /// `skip_serializing_if`, so an empty set leaves the wire as it was.
+    #[test]
+    fn start_batch_posts_the_covered_issues_last() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-b","teamId":"ws-1","status":"running"}}}}"#,
+        );
+        let ids = vec!["i-1".to_string(), "i-2".to_string()];
+        let _ = start_batch(
+            &client(&base),
+            "ws-1",
+            None,
+            Attribution::default(),
+            None,
+            None,
+            None,
+            &[],
+            &ids,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"ws-1","batchIssueIds":["i-1","i-2"]}"#));
+    }
+
+    #[test]
+    fn heartbeat_posts_the_covered_issues() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: None,
+            team_id: Some("ws-1".to_string()),
+            action_id: None,
+            action_name: None,
+            started_by_id: None,
+            device_id: None,
+            started_reason: None,
+            automation_id: None,
+            branch: None,
+            batch_issue_ids: vec!["i-1".to_string()],
+            agent: None,
+        };
+        assert!(heartbeat(&client(&base), "sess-b", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"sess-b","teamId":"ws-1","batchIssueIds":["i-1"]}"#));
     }
 
     #[test]
@@ -968,6 +1038,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
@@ -990,6 +1061,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
@@ -1098,6 +1170,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1151,6 +1224,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
@@ -1177,6 +1251,7 @@ mod tests {
             started_reason: Some("schedule".to_string()),
             automation_id: Some("auto-1".to_string()),
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
@@ -1230,6 +1305,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: Some("exp/chat-1a2b3c4d".to_string()),
+            batch_issue_ids: Vec::new(),
             agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
@@ -1272,6 +1348,7 @@ mod tests {
             None,
             None,
             Some("codex"),
+            &[],
             &[],
         )
         .unwrap();
@@ -1332,6 +1409,7 @@ mod tests {
             None,
             None,
             &ids,
+            &[],
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1369,6 +1447,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());

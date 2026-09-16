@@ -12,6 +12,7 @@
 // finished-runs list keyed on that column. Recent is person-started runs only.
 
 import type { CodingSession, Issue } from "@/db/schema"
+import { batchRunName, type BatchRunIssue } from "@/lib/batch-run"
 
 /** EXP-746: how many Recent rows a devices screen lists. ×4 lockstep. */
 export const PAST_RUN_CAP = 20
@@ -106,18 +107,41 @@ export function selectIssueRuns<T extends PastRunSession>(
 
 /** The row's name: the issue's title, else the action snapshot (which
  *  survives the action's deletion and is how a chat run reads "Chat" — the
- *  name is reserved for it, EXP-615), else the batch. Every fallback string is
+ *  name is reserved for it, EXP-615), else the batch's own name (EXP-876: its
+ *  first covered issue's title, else `Batch run`). Every fallback string is
  *  byte-identical ×4 (iOS `PastRuns.title`, Android `pastRunTitle`, desktop
  *  `sessions_section::session_title`), so the same ended row is named the same
  *  on every client; test `a row titles itself from whatever it has`. */
 export function pastRunTitle(
-  session: Pick<CodingSession, `issueId` | `actionName`>,
-  issue: Pick<Issue, `title`> | undefined
+  session: Pick<
+    CodingSession,
+    `issueId` | `actionName` | `batchIssueIds` | `branch`
+  >,
+  issue: Pick<Issue, `title`> | undefined,
+  /** EXP-876: the issues a batch row may name itself after — whatever the
+   *  caller has synced. Absent = the generic label. */
+  batchIssues: readonly BatchRunIssue[] = []
 ): string {
   if (issue) return issue.title.trim() || `Untitled issue`
   // An issue-scoped run whose issue row has not landed yet.
   if (session.issueId) return `Issue syncing…`
-  return session.actionName?.trim() || `Batch run`
+  if (session.actionName?.trim()) return session.actionName.trim()
+  return batchRunName(session, batchIssues).subject
+}
+
+/** EXP-876: the row's mono lead-in — the issue's identifier, a batch's
+ *  `EXP-874 +2`, else none. The twin of `pastRunTitle`, ×4 lockstep. */
+export function pastRunIdentifier(
+  session: Pick<
+    CodingSession,
+    `issueId` | `actionName` | `batchIssueIds` | `branch`
+  >,
+  issue: Pick<Issue, `identifier`> | undefined,
+  batchIssues: readonly BatchRunIssue[] = []
+): string | null {
+  if (issue) return issue.identifier
+  if (session.issueId || session.actionName != null) return null
+  return batchRunName(session, batchIssues).identifier
 }
 
 /** The row's caption: `<device> · <rel time>`. Both parts are optional — an

@@ -49,6 +49,10 @@ internal fun RunningSessionRow(
     // the current label, and offline = the run is paused until it returns.
     device: SessionDevicePresentation,
     onClick: () -> Unit,
+    // EXP-876: the issues a BATCH row names itself after (`EXP-874 +2`).
+    // Empty on every other subject, and on a batch whose issues are unknown —
+    // that row reads "Batch run" as it always did.
+    batchIssues: List<IssueEntity> = emptyList(),
     // EXP-897: this row has children nested under it (the session TREE) — a
     // 12dp fold chevron leads the row, on Running and Recent alike (×4).
     expandable: Boolean = false,
@@ -80,8 +84,8 @@ internal fun RunningSessionRow(
                 // EXP-688: the identity line is shared with the steering
                 // screen's header (SessionRowTitle) so the two can't drift.
                 SessionRowTitle(
-                    identifier = sessionRowIdentifier(issue),
-                    title = sessionRowTitle(session, issue),
+                    identifier = sessionRowIdentifier(issue, session, batchIssues),
+                    title = sessionRowTitle(session, issue, batchIssues),
                     dot = {
                         when {
                             paused -> StaticDot(LostGray)

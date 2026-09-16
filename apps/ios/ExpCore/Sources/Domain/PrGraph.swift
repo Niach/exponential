@@ -125,7 +125,7 @@ public enum PrGraph {
         let entries = prEntries(issues)
         let subjectEntry = subject.flatMap { subject in
             entries.first { entry in entry.issues.contains { $0.id == subject.id } }
-        }
+        } ?? batchSessionEntry(session, issues: issues, entries: entries)
 
         let chain: [StackEntry]
         if let subjectEntry {
@@ -174,6 +174,32 @@ public enum PrGraph {
     /// (issues sharing one = a batch), an issue with no PR keyed on its own
     /// id. First-seen order, newest issue first inside an entry — the Reviews
     /// rule, so the overlay and the list read the same.
+    /// EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
+    /// `pr_url` of its own, so before this it resolved nothing at all — the
+    /// pill and its sheet, the one surface built to name work that spans
+    /// several issues, never appeared on the very run that spans them. Its
+    /// covered set (`batch_issue_ids`, else its branch's issues) IS the entry.
+    ///
+    /// The PR-grouped entry wins whenever there is one: it carries the branch
+    /// and the base the stack chains on, so a batch PR stacked on another
+    /// still reads `stack+batch` and still offers Merge stack. The synthesized
+    /// entry is what a batch wears BEFORE its PR exists.
+    static func batchSessionEntry(
+        _ session: CodingSessionEntity?,
+        issues: [IssueEntity],
+        entries: [Entry]
+    ) -> Entry? {
+        guard let session else { return nil }
+        let covered = BatchRun.issues(session, issues: issues)
+        guard let first = covered.first else { return nil }
+        if let grouped = entries.first(where: { entry in
+            entry.isBatch && entry.issues.contains { $0.id == first.id }
+        }) {
+            return grouped
+        }
+        return Entry(id: "run:\(session.id)", issues: covered)
+    }
+
     public static func prEntries(_ issues: [IssueEntity]) -> [Entry] {
         var buckets: [String: [IssueEntity]] = [:]
         var keyOrder: [String] = []

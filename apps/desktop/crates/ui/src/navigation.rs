@@ -404,8 +404,8 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
 /// A coding session's tab label (EXP-746) — the SAME identity the session
 /// screen's header shows (`steer_viewer::SteerSessionView::identity`, itself
 /// the web `sessionIdentity`): the linked issue's `EXP-42 · title`, else the
-/// action name, else "Batch run" for a batch. Every degrade (no row yet, the
-/// issue still syncing) lands on the generic label, like an issue tab's
+/// action name, else a batch's own `EXP-42 +2 · title` (EXP-876). Every
+/// degrade (no row yet, the issue still syncing) lands on the generic label, like an issue tab's
 /// "Issue" — a tab is chrome, so it never renders a transient status string.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
     let Some(store) = Store::try_global(cx) else {
@@ -425,13 +425,21 @@ fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
         }
         return gpui::SharedString::from(format!("{} · {title}", issue.identifier));
     }
-    row.action_name
+    if let Some(name) = row
+        .action_name
         .as_deref()
         .map(str::trim)
         .filter(|name| !name.is_empty())
-        .map(|name| gpui::SharedString::from(name.to_string()))
-        // An issue-less, action-less run is a batch (`exp/batch-<id8>`).
-        .unwrap_or_else(|| "Batch run".into())
+    {
+        return gpui::SharedString::from(name.to_string());
+    }
+    // An issue-less, action-less run is a batch (`exp/batch-<id8>`): EXP-876
+    // names it after the issues it covers, `EXP-42 · title` like an issue tab.
+    let name = domain::batch_run::batch_run_name(&row, collections.issues.read(cx).iter());
+    match name.identifier {
+        Some(identifier) => gpui::SharedString::from(format!("{identifier} · {}", name.subject)),
+        None => gpui::SharedString::from(name.subject),
+    }
 }
 
 /// EXP-825: what a play button hands the Agent page's composer — the

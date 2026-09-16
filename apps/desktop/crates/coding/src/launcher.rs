@@ -1590,6 +1590,13 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             None,
             agent.wire_id(),
             &attachment_ids,
+            // EXP-876: the row is NAMED by these — nothing else links a
+            // batch to its issues until `pr_open`.
+            &batch_req
+                .issues
+                .iter()
+                .map(|issue| issue.issue_id.clone())
+                .collect::<Vec<_>>(),
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -1854,6 +1861,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 automation_id: None,
                 // The server refuses a branch beside an issueId.
                 branch: None,
+                // EXP-876: an issue run names itself off its issue.
+                batch_issue_ids: Vec::new(),
                 agent: agent.wire_id().map(str::to_string),
             }
         }
@@ -1872,6 +1881,13 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 // The batch branch is minted client-side and already
                 // recorded by `start_batch`; nothing to re-assert.
                 branch: None,
+                // EXP-876: the covered issues, echoed so a resurrected row
+                // keeps its name instead of degrading to "Batch run".
+                batch_issue_ids: batch_req
+                    .issues
+                    .iter()
+                    .map(|issue| issue.issue_id.clone())
+                    .collect(),
                 agent: agent.wire_id().map(str::to_string),
             }
         }
@@ -2544,6 +2560,8 @@ fn prepare_action(
             // EXP-637: the run branch, so a resurrected row still points at
             // the worktree the agent is working in.
             branch: run_branch.clone(),
+            // EXP-876: an action run names itself off its snapshot.
+            batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
         },
         acp: AcpLaunch {
@@ -3072,6 +3090,13 @@ fn prepare_resume_run(
             Some(&record.session_id),
             agent.wire_id(),
             &attachment_ids,
+            // EXP-876: a resumed batch keeps the name of the run it
+            // continues — the record holds the issues it covered.
+            &record
+                .issues
+                .iter()
+                .map(|issue| issue.issue_id.clone())
+                .collect::<Vec<_>>(),
         ),
         _ => coding_sessions::start_action(
             &deps.trpc,
@@ -3223,6 +3248,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
+            batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
@@ -3235,6 +3261,12 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
+            // EXP-876: the resumed batch covers what the record says it did.
+            batch_issue_ids: record
+                .issues
+                .iter()
+                .map(|issue| issue.issue_id.clone())
+                .collect(),
             agent: agent.wire_id().map(str::to_string),
         },
         _ => coding_sessions::HeartbeatScope {
@@ -3247,6 +3279,7 @@ fn prepare_resume_run(
             started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: record.branch.clone(),
+            batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
         },
     };

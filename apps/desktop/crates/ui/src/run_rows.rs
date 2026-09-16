@@ -137,12 +137,12 @@ pub(crate) fn running_run_facts(
     let (status, status_tone) =
         running_status_line(display, paused, presentation.label.as_deref(), &started);
     let blocked = crate::usage_bar::parse_blocked(session.blocked.as_ref());
+    // EXP-876: a batch row names itself after the issues it covers.
+    let batch_issues = batch_run_issues(session, cx);
     RunningRunFacts {
         session_id: session.id.clone(),
-        identifier: issue
-            .as_ref()
-            .map(|issue| SharedString::from(issue.identifier.clone())),
-        title: run_title(session, issue.as_ref()),
+        identifier: run_identifier(session, issue.as_ref(), &batch_issues),
+        title: run_title(session, issue.as_ref(), &batch_issues),
         agent_caption: queries::session_agent_caption(session, local_caption, now_epoch)
             .map(SharedString::from),
         status: SharedString::from(status),
@@ -181,12 +181,11 @@ pub(crate) fn past_run_facts(
         .label,
         None => session.device_label.clone(),
     };
+    let batch_issues = batch_run_issues(session, cx);
     PastRunFacts {
         session_id: session.id.clone(),
-        identifier: issue
-            .as_ref()
-            .map(|issue| SharedString::from(issue.identifier.clone())),
-        title: run_title(session, issue.as_ref()),
+        identifier: run_identifier(session, issue.as_ref(), &batch_issues),
+        title: run_title(session, issue.as_ref(), &batch_issues),
         byline: SharedString::from(past_run_byline(session, device_label.as_deref(), now_epoch)),
     }
 }
@@ -542,11 +541,13 @@ pub(crate) fn run_started_at(session: &domain::rows::CodingSession) -> Option<&s
 
 /// The row's subject line: the issue title, a sync placeholder while that
 /// issue row is missing, the action-name snapshot (a chat run's reads "Chat",
-/// EXP-615), else the batch. Byte-identical ×4: web `pastRunTitle`, iOS
+/// EXP-615), else the batch's own name (EXP-876: its first covered issue's
+/// title, else "Batch run"). Byte-identical ×4: web `pastRunTitle`, iOS
 /// `PastRuns.title`, Android `pastRunTitle`.
 pub(crate) fn run_title(
     session: &domain::rows::CodingSession,
     issue: Option<&domain::rows::Issue>,
+    batch_issues: &[domain::rows::Issue],
 ) -> SharedString {
     if let Some(issue) = issue {
         let title = issue.title.trim();
@@ -561,8 +562,48 @@ pub(crate) fn run_title(
     }
     match session.action_name.as_deref() {
         Some(name) if !name.trim().is_empty() => SharedString::from(name.to_string()),
-        _ => SharedString::from("Batch run"),
+        _ => SharedString::from(domain::batch_run::batch_run_name(session, batch_issues).subject),
     }
+}
+
+/// EXP-876 — the row's mono lead-in: the issue's identifier, a batch's
+/// `EXP-874 +2`, else none. The twin of [`run_title`], ×4 lockstep (web
+/// `pastRunIdentifier`).
+pub(crate) fn run_identifier(
+    session: &domain::rows::CodingSession,
+    issue: Option<&domain::rows::Issue>,
+    batch_issues: &[domain::rows::Issue],
+) -> Option<SharedString> {
+    if let Some(issue) = issue {
+        return Some(SharedString::from(issue.identifier.clone()));
+    }
+    if session.issue_id.is_some() || session.action_name.is_some() {
+        return None;
+    }
+    domain::batch_run::batch_run_name(session, batch_issues)
+        .identifier
+        .map(SharedString::from)
+}
+
+/// EXP-876 — the issues a BATCH row names itself after, resolved against the
+/// synced set. Cloned out of the store so the name can be built after the
+/// collection borrow ends; empty (and free) for every other subject.
+pub(crate) fn batch_run_issues(
+    session: &domain::rows::CodingSession,
+    cx: &App,
+) -> Vec<domain::rows::Issue> {
+    if !domain::batch_run::is_batch_run(session) {
+        return Vec::new();
+    }
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collections = store.collections().clone();
+    let issues = collections.issues.read(cx);
+    domain::batch_run::batch_run_issues(session, issues.iter())
+        .into_iter()
+        .cloned()
+        .collect()
 }
 
 /// EXP-746 — the ×4 byline under a PAST run: which machine ran it and when
@@ -753,23 +794,79 @@ mod tests {
         };
         let scoped = row(serde_json::json!({ "id": "s-0", "issue_id": "i-1" }));
         assert_eq!(
-            run_title(&scoped, Some(&issue("Fix the sync loop"))),
+            run_title(&scoped, Some(&issue("Fix the sync loop")), &[]),
             SharedString::from("Fix the sync loop")
         );
         assert_eq!(
-            run_title(&scoped, Some(&issue("  "))),
+            run_title(&scoped, Some(&issue("  ")), &[]),
             SharedString::from("Untitled issue")
         );
         let batch = row(serde_json::json!({ "id": "s-1" }));
-        assert_eq!(run_title(&batch, None), SharedString::from("Batch run"));
+        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch run"));
         let action = row(serde_json::json!({ "id": "s-2", "action_name": "Release train" }));
-        assert_eq!(run_title(&action, None), SharedString::from("Release train"));
+        assert_eq!(
+            run_title(&action, None, &[]),
+            SharedString::from("Release train")
+        );
         // A chat run carries "Chat" as its action snapshot (EXP-615).
         let chat = row(serde_json::json!({
             "id": "s-4", "action_name": "Chat", "branch": "exp/chat-1a2b3c4d"
         }));
-        assert_eq!(run_title(&chat, None), SharedString::from("Chat"));
+        assert_eq!(run_title(&chat, None, &[]), SharedString::from("Chat"));
         let syncing = row(serde_json::json!({ "id": "s-3", "issue_id": "i-1" }));
-        assert_eq!(run_title(&syncing, None), SharedString::from("Issue syncing…"));
+        assert_eq!(
+            run_title(&syncing, None, &[]),
+            SharedString::from("Issue syncing…")
+        );
+    }
+
+    /// EXP-876 — a batch fills the SAME two slots as an issue run, so two of
+    /// them in one list are told apart. The rule itself is
+    /// `domain::batch_run`; this is the row's wiring, ×4 with web
+    /// `pastRunIdentifier`.
+    #[test]
+    fn a_batch_row_names_itself_after_its_issues() {
+        let row = |value: serde_json::Value| -> domain::rows::CodingSession {
+            serde_json::from_value(value).expect("row")
+        };
+        let covered = |id: &str, identifier: &str, title: &str| -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": id,
+                "board_id": "b-1",
+                "identifier": identifier,
+                "number": 1,
+                "title": title,
+                "status": "in_progress",
+                "priority": "none",
+                "branch": "exp/batch-1a2b3c4d",
+                "created_at": "2026-09-01T10:00:00Z",
+            }))
+            .expect("issue")
+        };
+        let issues = vec![
+            covered("i-1", "EXP-874", "Session list fixes"),
+            covered("i-2", "EXP-876", "Batch run names"),
+        ];
+        let batch = row(serde_json::json!({
+            "id": "s-1", "batch_issue_ids": ["i-1", "i-2"]
+        }));
+        assert_eq!(
+            run_identifier(&batch, None, &issues),
+            Some(SharedString::from("EXP-874 +1"))
+        );
+        assert_eq!(
+            run_title(&batch, None, &issues),
+            SharedString::from("Session list fixes")
+        );
+        // Nothing to name it by: the generic label, and no lead-in.
+        let unknown = row(serde_json::json!({ "id": "s-2" }));
+        assert_eq!(run_identifier(&unknown, None, &issues), None);
+        assert_eq!(
+            run_title(&unknown, None, &issues),
+            SharedString::from("Batch run")
+        );
+        // An action run never grows one.
+        let action = row(serde_json::json!({ "id": "s-3", "action_name": "Chat" }));
+        assert_eq!(run_identifier(&action, None, &issues), None);
     }
 }

@@ -20,6 +20,10 @@ import { RunningIndicator } from "@/components/agent-session-row"
 // Merge / Fix-conflicts circle and the open-issue / open-action circle are
 // gone on every client; a row only opens the run (Merge lives on the run's
 // Changes face, the issue behind its Issue face).
+// EXP-876: a batch run fills those same two slots instead of reading "Batch
+// run" — `EXP-874 +2` beside its first covered issue's title. Which also
+// answers the trailing control that question came with: still none, since an
+// open-issue circle was never a thing a multi-issue run could point at.
 
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
@@ -51,6 +55,8 @@ export function RunningSessionRow({
   onOpen: () => void
 }) {
   const { session, issue, device, paused } = row
+  // EXP-876: a batch row's identity comes off the issues it covers
+  // (`EXP-874 +2`), which is the only thing telling two batches apart.
   const identity = sessionIdentity(row)
   const prState = rowPrState(session, issue)
   const state = sessionDisplayState(session, prState)
@@ -100,9 +106,9 @@ export function RunningSessionRow({
           <span className="flex shrink-0 items-center justify-center">
             <RunningIndicator state={state} paused={paused} working={working} />
           </span>
-          {issue && (
+          {identity.identifier && (
             <span className="shrink-0 font-mono text-xs text-muted-foreground">
-              {issue.identifier}
+              {identity.identifier}
             </span>
           )}
           <span className="truncate font-medium">{identity.subject}</span>
@@ -145,7 +151,8 @@ export function PastSessionRow({
 }: {
   sessionId: string
   title: string
-  /** An issue run's identifier — the mono lead-in; null for every other kind. */
+  /** An issue run's identifier, or a batch's `EXP-874 +2` (EXP-876) — the
+   *  mono lead-in; null for an action or chat run. */
   identifier: string | null
   /** `pastRunRowByline(row)` — `<device> · <rel time>`. */
   byline: string

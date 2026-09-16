@@ -34,16 +34,38 @@ fun issueRunWhen(session: CodingSessionEntity, endedRelative: String): String =
  * What a Past row is called: the issue's title, else — while that issue row
  * has not synced yet — "Issue syncing…", else the run's `action_name`
  * snapshot (which outlives the action, and is how a chat run reads "Chat",
- * EXP-615), else "Batch run".
+ * EXP-615), else the batch's own name (EXP-876: its first covered issue's
+ * title, else "Batch run").
  *
  * Byte-identical ×4 with web `pastRunTitle`, iOS `PastRuns.title` and desktop
  * `session_title`, so the same ended run is named the same on every client.
  * Locked by `a row titles itself from whatever it has`.
  */
-fun pastRunTitle(session: CodingSessionEntity, issue: IssueEntity?): String = when {
+fun pastRunTitle(
+    session: CodingSessionEntity,
+    issue: IssueEntity?,
+    batchIssues: List<IssueEntity> = emptyList(),
+): String = when {
     issue != null -> issue.title.trim().ifBlank { "Untitled issue" }
     session.issueId != null -> "Issue syncing…"
-    else -> session.actionName?.trim()?.ifBlank { null } ?: "Batch run"
+    else ->
+        session.actionName?.trim()?.ifBlank { null }
+            ?: batchRunName(session, batchIssues).subject
+}
+
+/**
+ * EXP-876: the row's mono lead-in — the issue's identifier, a batch's
+ * `EXP-874 +2`, else none. The twin of [pastRunTitle], ×4 lockstep (web
+ * `pastRunIdentifier`).
+ */
+fun pastRunIdentifier(
+    session: CodingSessionEntity,
+    issue: IssueEntity?,
+    batchIssues: List<IssueEntity> = emptyList(),
+): String? = when {
+    issue != null -> issue.identifier
+    session.issueId != null || session.actionName != null -> null
+    else -> batchRunName(session, batchIssues).identifier
 }
 
 /**

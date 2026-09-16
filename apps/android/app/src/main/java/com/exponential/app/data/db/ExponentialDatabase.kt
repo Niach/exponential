@@ -277,9 +277,14 @@ import androidx.room.TypeConverters
     //      screen's Results face. New column on the coding-sessions shape
     //      allowlist; destructive fallback wipes + resyncs so every row arrives
     //      carrying it.
+    // v61 (EXP-876): coding_sessions.batch_issue_ids — the issues a batch run
+    //      covers, the only thing that tells two batch rows apart (every batch
+    //      was titled "Batch run"). New column on the coding-sessions shape
+    //      allowlist; destructive fallback wipes + resyncs so every row arrives
+    //      carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 60,
+    version = 61,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

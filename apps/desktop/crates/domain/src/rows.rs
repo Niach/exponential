@@ -624,6 +624,14 @@ pub struct CodingSession {
     /// as a JSON STRING.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub results: Option<serde_json::Value>,
+    /// EXP-876 jsonb — the issues a BATCH run covers, in the order the
+    /// composer listed them, and the only thing that can NAME such a row.
+    /// `None`/`[]` on every other subject and on batch rows started by a
+    /// client too old to send it (those name themselves off the branch
+    /// instead). Read through [`crate::batch_run::parse_batch_issue_ids`];
+    /// same tolerant jsonb handling as `results` above.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub batch_issue_ids: Option<serde_json::Value>,
     /// Action-run scoping (EXP-253/EXP-530): the `actions` row id plus its
     /// name SNAPSHOT (survives the action's deletion); `None` = issue/batch.
     #[serde(default)]

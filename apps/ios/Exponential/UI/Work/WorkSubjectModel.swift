@@ -48,6 +48,11 @@ final class WorkSubjectModel {
     /// newest end first, uncapped), each with its host machine as it presents
     /// now — the switcher's rows. Empty for an issue-less subject.
     private(set) var issueRuns: [IssueRun] = []
+    /// EXP-876: the issues the shown BATCH run covers — what NAMES an
+    /// issue-less run in this screen's header, where "Batch run" told two
+    /// batches apart no better than it did in the list. Empty for every other
+    /// subject; observed only while a batch is shown.
+    private(set) var batchIssues: [IssueEntity] = []
     /// The 30s liveness clock — `codingTarget` and `resumeDevice` re-decide
     /// on it, since a heartbeat STOPPING is the absence of a write.
     private(set) var now = Date()
@@ -60,6 +65,10 @@ final class WorkSubjectModel {
     private var runRows: [CodingSessionEntity] = []
     private var deviceRows: [DeviceEntity] = []
     private var boundObservationTask: Task<Void, Never>?
+    /// EXP-876: the covered-issue observation and the key it is armed for
+    /// (the stored ids plus the branch — nothing else can change the set).
+    private var batchObservationTask: Task<Void, Never>?
+    private var batchKey: String?
     private var shownObservationTask: Task<Void, Never>?
     private var runObservationTask: Task<Void, Never>?
     private var deviceObservationTask: Task<Void, Never>?
@@ -132,6 +141,9 @@ final class WorkSubjectModel {
     func stop() {
         boundObservationTask?.cancel()
         boundObservationTask = nil
+        batchObservationTask?.cancel()
+        batchObservationTask = nil
+        batchKey = nil
         shownObservationTask?.cancel()
         shownObservationTask = nil
         runObservationTask?.cancel()
@@ -158,6 +170,10 @@ final class WorkSubjectModel {
                         guard let self else { return }
                         self.boundSession = row
                         self.boundResolved = true
+                        // EXP-876: the header names an issue-less bound run
+                        // off its covered issues; the shown-row observation
+                        // re-points this the moment the reader switches runs.
+                        if self.shownRow == nil { self.observeBatch(for: row) }
                         if let issueId = row?.issueId, self.issueId != issueId {
                             self.issueId = issueId
                             self.runObservationTask?.cancel()
@@ -187,6 +203,48 @@ final class WorkSubjectModel {
                     for try await row in observation.values(in: pool) {
                         guard let self else { return }
                         self.shownRow = row
+                        // EXP-876: follow the shown run — a switch between
+                        // two batches re-points the covered-issue pool.
+                        self.observeBatch(for: row)
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+    }
+
+    /// EXP-876: keep the covered-issue pool pointed at `session` — the issues
+    /// a BATCH run is NAMED by, read by id (what the run stored at start) OR
+    /// by branch (what `pr_open` stamped on both sides, EXP-545, which is all
+    /// a pre-column run has). A non-batch subject clears it and observes
+    /// nothing.
+    private func observeBatch(for session: CodingSessionEntity?) {
+        let batch = session.flatMap { BatchRun.isBatch($0) ? $0 : nil }
+        let ids = BatchRun.issueIds(batch?.batchIssueIds)
+        let branch = batch?.branch ?? ""
+        let key = (ids + [branch]).joined(separator: "\u{0}")
+        guard batchKey != key else { return }
+        batchKey = key
+        batchObservationTask?.cancel()
+        batchObservationTask = nil
+        batchIssues = []
+        guard !ids.isEmpty || branch.hasPrefix(BatchRun.branchPrefix) else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try IssueEntity
+                .filter(ids.contains(Column("id")) || Column("branch") == branch)
+                .fetchAll(db)
+        }
+        batchObservationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    for try await rows in observation.values(in: pool) {
+                        guard let self else { return }
+                        self.batchIssues = rows
                     }
                     return
                 } catch is CancellationError {

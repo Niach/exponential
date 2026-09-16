@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-batch-run-names",
+    date: "2026-09-16",
+    title: "Batch runs say what they are working on",
+    summary: "A run covering several issues is now named after them instead of reading \"Batch run\", so two batches can be told apart at a glance.",
+    body: r#"- **Named by its issues**: a batch run's row reads `EXP-874 +2` beside the first issue's title, in every session list and in the run's own header, on the web, the desktop app, iOS and Android.
+- **Right from the start**: the issues a batch covers are recorded when it launches, so the name is correct while it is still coding, not only once its pull request is open. Older batch runs take their name from the issues on their pull request."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-session-results",
     date: "2026-09-16",
     title: "Results, right on the run",
@@ -55,9 +66,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **The agent publishes them**: a run asks Exponential for an upload link, uploads the screenshot with one command, and can replace or remove a picture later. The playbook every run gets now asks for a screenshot of UI work before it finishes."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
+/// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-stacked-pull-requests",
     date: "2026-09-16",
     title: "Stacked pull requests",

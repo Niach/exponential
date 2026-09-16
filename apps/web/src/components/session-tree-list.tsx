@@ -19,12 +19,16 @@ import type {
 export interface TreeListRow {
   session: CodingSession
   issue: Issue | undefined
+  /** EXP-876: a batch row's covered issues — what names it. */
+  batchIssues?: Issue[]
   board: Board | undefined
   device: SessionDevice
   paused?: boolean
   mergeTarget?: SessionMergeTarget
   /** Recent's precomputed title; absent = derive it from the identity. */
   title?: string
+  /** Recent's precomputed lead-in; `undefined` = derive it from the identity
+   *  (which is where a batch's `EXP-874 +2` comes from). */
   identifier?: string | null
 }
 
@@ -99,7 +103,7 @@ export function SessionTreeList({
             key={session.id}
             sessionId={session.id}
             title={titleOf?.(row) ?? row.title ?? sessionIdentity(row).subject}
-            identifier={row.identifier ?? row.issue?.identifier ?? null}
+            identifier={row.identifier ?? sessionIdentity(row).identifier}
             byline={pastRunRowByline(row)}
             depth={depth}
             active={active}

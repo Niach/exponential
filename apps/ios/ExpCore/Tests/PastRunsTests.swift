@@ -16,6 +16,8 @@ final class PastRunsTests: XCTestCase {
         startedReason: String? = nil,
         issueId: String? = "issue-1",
         actionName: String? = nil,
+        batchIssueIds: String? = nil,
+        branch: String? = nil,
         endedAt: String? = "2026-09-01T10:00:00Z",
         updatedAt: String = "2026-09-01T10:00:00Z"
     ) -> CodingSessionEntity {
@@ -28,6 +30,8 @@ final class PastRunsTests: XCTestCase {
             deviceId: "dev-1",
             status: status,
             agent: "claude",
+            branch: branch,
+            batchIssueIds: batchIssueIds,
             actionName: actionName,
             startedReason: startedReason,
             endedBy: "user",
@@ -38,12 +42,18 @@ final class PastRunsTests: XCTestCase {
         )
     }
 
-    private func issue(id: String = "issue-1", title: String = "Fix the sync loop") -> IssueEntity {
+    private func issue(
+        id: String = "issue-1",
+        title: String = "Fix the sync loop",
+        identifier: String = "EXP-12",
+        branch: String? = nil,
+        createdAt: String = "2026-09-01T09:00:00Z"
+    ) -> IssueEntity {
         IssueEntity(
             id: id,
             boardId: "board-1",
             number: 12,
-            identifier: "EXP-12",
+            identifier: identifier,
             title: title,
             description: nil,
             status: "done",
@@ -58,11 +68,32 @@ final class PastRunsTests: XCTestCase {
             prUrl: nil,
             prNumber: nil,
             prState: nil,
-            branch: nil,
+            branch: branch,
             prMergedAt: nil,
-            createdAt: "2026-09-01T09:00:00Z",
+            createdAt: createdAt,
             updatedAt: "2026-09-01T09:00:00Z"
         )
+    }
+
+    /// The batch fixture every EXP-876 case reads: two covered issues, filed
+    /// in identifier order, both on the run's branch.
+    private var covered: [IssueEntity] {
+        [
+            issue(
+                id: "i-1",
+                title: "Session list fixes",
+                identifier: "EXP-874",
+                branch: "exp/batch-1a2b3c4d",
+                createdAt: "2026-09-01T10:00:00Z"
+            ),
+            issue(
+                id: "i-2",
+                title: "Batch run names",
+                identifier: "EXP-876",
+                branch: "exp/batch-1a2b3c4d",
+                createdAt: "2026-09-02T10:00:00Z"
+            ),
+        ]
     }
 
     func testSelectPastRunsListsOnlyOwnEndedPersonStartedRuns() {
@@ -245,5 +276,86 @@ final class PastRunsTests: XCTestCase {
             "Batch run"
         )
         XCTAssertEqual(PastRuns.title(session(id: "a", issueId: nil), issue: nil), "Batch run")
+    }
+
+    // EXP-876 — a batch names itself after the issues it covers, so two of
+    // them in one list are told apart. Mirrored ×4 (web `batch-run.test.ts`,
+    // desktop `batch_run`, Android `BatchRunTest`).
+    func testABatchRowNamesItselfAfterItsIssues() {
+        let batch = session(id: "a", issueId: nil, batchIssueIds: #"["i-1","i-2"]"#)
+        XCTAssertEqual(
+            PastRuns.title(batch, issue: nil, batchIssues: covered),
+            "Session list fixes"
+        )
+        XCTAssertEqual(
+            PastRuns.identifier(batch, issue: nil, batchIssues: covered),
+            "EXP-874 +1"
+        )
+        // One issue is a batch of one — no `+0` suffix.
+        XCTAssertEqual(
+            PastRuns.identifier(
+                session(id: "b", issueId: nil, batchIssueIds: #"["i-2"]"#),
+                issue: nil,
+                batchIssues: covered
+            ),
+            "EXP-876"
+        )
+        // The STORED count wins: a batch of three whose middle issue has not
+        // synced is still a batch of three.
+        XCTAssertEqual(
+            PastRuns.identifier(
+                session(id: "c", issueId: nil, batchIssueIds: #"["i-1","gone","i-2"]"#),
+                issue: nil,
+                batchIssues: covered
+            ),
+            "EXP-874 +2"
+        )
+        // A run started before the column existed: its issues are the ones
+        // `pr_open` put on its branch.
+        XCTAssertEqual(
+            PastRuns.identifier(
+                session(id: "d", issueId: nil, branch: "exp/batch-1a2b3c4d"),
+                issue: nil,
+                batchIssues: covered
+            ),
+            "EXP-874 +1"
+        )
+        // Nothing to name it by — the generic label, and no lead-in.
+        XCTAssertNil(PastRuns.identifier(session(id: "e", issueId: nil), issue: nil))
+        XCTAssertEqual(PastRuns.title(session(id: "e", issueId: nil), issue: nil), "Batch run")
+        // An issue run keeps ITS identifier; an action run has none.
+        XCTAssertEqual(
+            PastRuns.identifier(session(id: "f"), issue: issue()),
+            "EXP-12"
+        )
+        XCTAssertNil(
+            PastRuns.identifier(session(id: "g", issueId: nil, actionName: "Chat"), issue: nil)
+        )
+    }
+
+    func testBatchRunIssuesKeepTheOrderTheRunStored() {
+        // The composer's order, NOT the pool's — the first issue is what
+        // names the row.
+        let reversed = session(id: "a", issueId: nil, batchIssueIds: #"["i-2","i-1"]"#)
+        XCTAssertEqual(
+            BatchRun.issues(reversed, issues: covered).map(\.id),
+            ["i-2", "i-1"]
+        )
+        // An id whose issue has not synced is skipped, never a blank row.
+        let partial = session(id: "b", issueId: nil, batchIssueIds: #"["gone","i-1"]"#)
+        XCTAssertEqual(BatchRun.issues(partial, issues: covered).map(\.id), ["i-1"])
+        // A branch that is not a batch's matches nothing.
+        for branch in ["exp/chat-1a2b3c4d", "exp/EXP-874"] {
+            XCTAssertTrue(
+                BatchRun.issues(
+                    session(id: "c", issueId: nil, branch: branch), issues: covered
+                ).isEmpty
+            )
+        }
+        // The column is raw jsonb TEXT off the wire — anything else is empty.
+        XCTAssertEqual(BatchRun.issueIds(#"["i-1","i-2"]"#), ["i-1", "i-2"])
+        XCTAssertTrue(BatchRun.issueIds(nil).isEmpty)
+        XCTAssertTrue(BatchRun.issueIds("not json").isEmpty)
+        XCTAssertEqual(BatchRun.issueIds(#"[1,"","i-1"]"#), ["i-1"])
     }
 }

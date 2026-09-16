@@ -8,6 +8,9 @@ import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.isLiveRunStatus
 import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.batchRunIssueIds
+import com.exponential.app.domain.batchRunIssues
+import com.exponential.app.domain.pastRunIdentifier
 import com.exponential.app.domain.pastRunTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -43,6 +46,8 @@ class AgentRowsTest {
         // the whole predicate behind "Recent".
         startedReason: String? = null,
         agent: String? = null,
+        // EXP-876: the issues a batch run covers, raw jsonb text off the wire.
+        batchIssueIds: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -50,6 +55,7 @@ class AgentRowsTest {
         userId = userId,
         status = status,
         branch = branch,
+        batchIssueIds = batchIssueIds,
         agent = agent,
         endedBy = endedBy,
         endedAt = endedAt,
@@ -76,12 +82,16 @@ class AgentRowsTest {
         startedReason: String? = null,
         agent: String? = "claude",
         actionName: String? = null,
+        branch: String? = null,
+        batchIssueIds: String? = null,
     ) = session(
         id = id,
         userId = userId,
         issueId = issueId,
         teamId = teamId,
         status = "ended",
+        branch = branch,
+        batchIssueIds = batchIssueIds,
         endedBy = endedBy,
         endedAt = endedAt,
         updatedAt = updatedAt,
@@ -99,11 +109,12 @@ class AgentRowsTest {
         branch: String? = null,
         createdAt: String = "2026-07-17T09:00:00Z",
         title: String = "An issue",
+        identifier: String = "EXP-1",
     ) = IssueEntity(
         id = id,
         boardId = boardId,
         number = 1,
-        identifier = "EXP-1",
+        identifier = identifier,
         title = title,
         status = "in_progress",
         priority = "none",
@@ -733,6 +744,89 @@ class AgentRowsTest {
         assertEquals("Batch run", pastRunTitle(pastRun("r"), null))
     }
 
+    // EXP-876 — a batch names itself after the issues it covers, so two of
+    // them in one list are told apart. Mirrored ×4 (web `batch-run.test.ts`,
+    // iOS `PastRunsTests`, desktop `batch_run`).
+    private val covered = listOf(
+        issue(
+            "i-1",
+            identifier = "EXP-874",
+            title = "Session list fixes",
+            branch = "exp/batch-1a2b3c4d",
+            createdAt = "2026-09-01T10:00:00Z",
+        ),
+        issue(
+            "i-2",
+            identifier = "EXP-876",
+            title = "Batch run names",
+            branch = "exp/batch-1a2b3c4d",
+            createdAt = "2026-09-02T10:00:00Z",
+        ),
+    )
+
+    @Test
+    fun `a batch row names itself after its issues`() {
+        val batch = pastRun("a", batchIssueIds = """["i-1","i-2"]""")
+        assertEquals("Session list fixes", pastRunTitle(batch, null, covered))
+        assertEquals("EXP-874 +1", pastRunIdentifier(batch, null, covered))
+        // One issue is a batch of one — no `+0` suffix.
+        assertEquals(
+            "EXP-876",
+            pastRunIdentifier(pastRun("b", batchIssueIds = """["i-2"]"""), null, covered),
+        )
+        // The STORED count wins: a batch of three whose middle issue has not
+        // synced is still a batch of three.
+        assertEquals(
+            "EXP-874 +2",
+            pastRunIdentifier(
+                pastRun("c", batchIssueIds = """["i-1","gone","i-2"]"""),
+                null,
+                covered,
+            ),
+        )
+        // A run started before the column existed: its issues are the ones
+        // `pr_open` put on its branch.
+        assertEquals(
+            "EXP-874 +1",
+            pastRunIdentifier(pastRun("d", branch = "exp/batch-1a2b3c4d"), null, covered),
+        )
+        // Nothing to name it by — the generic label, and no lead-in.
+        assertNull(pastRunIdentifier(pastRun("e"), null, covered))
+        assertEquals("Batch run", pastRunTitle(pastRun("e"), null, covered))
+        // An issue run keeps ITS identifier; an action run has none.
+        assertEquals(
+            "EXP-874",
+            pastRunIdentifier(pastRun("f", issueId = "i-1"), covered[0], covered),
+        )
+        assertNull(pastRunIdentifier(pastRun("g", actionName = "Chat"), null, covered))
+    }
+
+    @Test
+    fun `batch run issues keep the order the run stored`() {
+        // The composer's order, NOT the pool's — the first issue is what
+        // names the row.
+        assertEquals(
+            listOf("i-2", "i-1"),
+            batchRunIssues(pastRun("a", batchIssueIds = """["i-2","i-1"]"""), covered)
+                .map { it.id },
+        )
+        // An id whose issue has not synced is skipped, never a blank row.
+        assertEquals(
+            listOf("i-1"),
+            batchRunIssues(pastRun("b", batchIssueIds = """["gone","i-1"]"""), covered)
+                .map { it.id },
+        )
+        // A branch that is not a batch's matches nothing.
+        for (branch in listOf("exp/chat-1a2b3c4d", "exp/EXP-874")) {
+            assertEquals(emptyList<String>(), batchRunIssues(pastRun("c", branch = branch), covered).map { it.id })
+        }
+        // The column is raw jsonb TEXT off the wire — anything else is empty.
+        assertEquals(listOf("i-1", "i-2"), batchRunIssueIds("""["i-1","i-2"]"""))
+        assertEquals(emptyList<String>(), batchRunIssueIds(null))
+        assertEquals(emptyList<String>(), batchRunIssueIds("not json"))
+        assertEquals(listOf("i-1"), batchRunIssueIds("""[1,"","i-1"]"""))
+    }
+
     @Test
     fun `the past byline names the device and when it ended`() {
         // Byte-identical ×4 — web `pastRunByline`, iOS `PastRuns.byline`,
@@ -747,8 +841,9 @@ class AgentRowsTest {
 
     @Test
     fun `the row identifier is the issue shortcode only for an issue run`() {
-        // EXP-874: a non-issue run (action/chat/batch) — and an issue run whose
-        // issue hasn't synced — prints no identifier, never a placeholder.
+        // EXP-874: an action/chat run — and an issue run whose issue hasn't
+        // synced — prints no identifier, never a placeholder. EXP-876: a BATCH
+        // does print one, off the issues it covers (tested above).
         assertEquals("EXP-1", sessionRowIdentifier(issue("i")))
         assertNull(sessionRowIdentifier(null))
     }

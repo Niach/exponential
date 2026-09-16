@@ -861,8 +861,13 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     if row.issue_id.is_some() && issue.is_none() {
         return loading();
     }
-    let identifier = issue.map(|issue| gpui::SharedString::from(issue.identifier.clone()));
-    let title = crate::run_rows::run_title(row, issue);
+    // EXP-876: a batch tab names itself after the issues it covers.
+    let batch_issues = domain::batch_run::batch_run_issues(row, issues.iter())
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let identifier = crate::run_rows::run_identifier(row, issue, &batch_issues);
+    let title = crate::run_rows::run_title(row, issue, &batch_issues);
     let now = chrono::Utc::now().timestamp();
     let presentation = crate::queries::session_device_presentation(
         row,

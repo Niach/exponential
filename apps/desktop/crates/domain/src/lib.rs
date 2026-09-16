@@ -24,6 +24,9 @@
 //!   `lib/pr-stack.ts`'s twin);
 //! * [`pr_graph`] — EXP-897 §4: stack + batch + session tree for ONE subject,
 //!   the model behind the work header's badge and its overlay;
+//! * [`batch_run`] — EXP-876 `coding_sessions.batch_issue_ids`: which issues
+//!   a batch run covers and the `EXP-874 +2` name every list shows for it
+//!   (web `lib/batch-run.ts`'s twin);
 //! * [`session_results`] — EXP-879 `coding_sessions.results`: the tolerant
 //!   reader, the topic grouping and the equal-height tile geometry behind
 //!   the Results face (web `lib/session-results.ts`'s twin);
@@ -41,6 +44,7 @@ pub mod contract {
     include!("contract.generated.rs");
 }
 
+pub mod batch_run;
 pub mod board;
 pub mod client_version;
 pub mod diff;

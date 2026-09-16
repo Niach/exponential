@@ -269,7 +269,9 @@ export function PrGraphOverlay({
             const issue = session.issueId
               ? issues.find((row) => row.id === session.issueId)
               : undefined
-            const identity = sessionIdentity({ session, issue })
+            // EXP-876: `issues` carries the overlay's whole synced set, so a
+            // batch run in the tree names itself instead of reading "Batch run".
+            const identity = sessionIdentity({ session, issue, batchIssues: issues })
             return (
               <button
                 key={session.id}

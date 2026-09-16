@@ -306,12 +306,14 @@ fun WorkScreen(
     val graph by graphVm.graph.collectAsStateWithLifecycle()
     val graphMerging by graphVm.merging.collectAsStateWithLifecycle()
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
+    // EXP-876: what names an issue-less BATCH run in the bar below.
+    val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
         issue != null -> issue.identifier
         issueId != null -> ""
-        shownSession != null -> sessionRowTitle(shownSession!!, null)
+        shownSession != null -> sessionRowTitle(shownSession!!, null, batchIssues)
         else -> "Coding session"
     }
     val canKill = ownShown && !sessionEnded && shownLive

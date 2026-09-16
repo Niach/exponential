@@ -234,6 +234,30 @@ async function resolveAutomationId(
 
 
 /**
+ * EXP-876: the issues a batch start covers, as the row will carry them —
+ * the sent order (what every client names the row by), de-duplicated, and
+ * confined to the run's own team so a row can never advertise an issue its
+ * viewers may not read. Lenient like `bindStartAttachments`: an id that is
+ * not a live issue of this team is dropped, never a refused start, and an
+ * empty result stores NULL so the branch fallback takes over.
+ */
+async function resolveBatchIssueIds(
+  db: Context[`db`],
+  teamId: string,
+  batchIssueIds: string[] | undefined
+): Promise<string[] | null> {
+  const wanted = [...new Set(batchIssueIds ?? [])]
+  if (wanted.length === 0) return null
+  const rows = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(and(inArray(issues.id, wanted), eq(issues.teamId, teamId)))
+  const allowed = new Set(rows.map((row) => row.id))
+  const kept = wanted.filter((id) => allowed.has(id))
+  return kept.length > 0 ? kept : null
+}
+
+/**
  * EXP-825: bind the start's pending images (`session_attachments` rows the
  * requester uploaded to the team store before this row existed) to the run.
  * Lenient on purpose: the row insert is the device's launch handshake and
@@ -458,6 +482,14 @@ export const codingSessionsRouter = router({
           issueId: z.string().uuid().optional(),
           teamId: z.string().uuid().optional(),
           actionId: actionIdInput.optional(),
+          // EXP-876: the issues a BATCH start covers, in composer order —
+          // the subject a batch row is NAMED by (`batch_issue_ids`). The
+          // launching device is the one client that knows them, since
+          // nothing else links a batch to its issues before `pr_open`.
+          // Batch form only (it names the team, not an issue); ids outside
+          // that team are dropped rather than refused, so one stale id can
+          // never fail a start.
+          batchIssueIds: z.array(z.string().uuid()).max(30).optional(),
           // Label fallback for a start that outran `devices.register` — see
           // resolveSessionDevice. Never used when the registry has a row.
           deviceLabel: z.string().max(255).optional(),
@@ -500,6 +532,17 @@ export const codingSessionsRouter = router({
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
         })
+        // EXP-876: the covered set is what makes a row a BATCH — an issue or
+        // action run already names itself, and letting one carry a batch list
+        // would give two clients two different names for the same run.
+        .refine(
+          (value) =>
+            !value.batchIssueIds?.length ||
+            (!value.issueId && !value.actionId && Boolean(value.teamId)),
+          {
+            message: `batchIssueIds belongs to a batch start — pass teamId, not issueId/actionId`,
+          }
+        )
         .refine(
           (value) => {
             // Built-in actions have no DB row to derive the team from — the
@@ -701,6 +744,15 @@ export const codingSessionsRouter = router({
         ctx.session.user.id,
         input
       )
+      // EXP-876: the covered issues, confined to the team the row belongs to
+      // and de-duplicated, in the order they were sent (that is the order
+      // every client names the row by). A client too old to send them leaves
+      // the column NULL and the row keeps naming itself off its branch.
+      const batchIssueIds = await resolveBatchIssueIds(
+        ctx.db,
+        input.teamId!,
+        input.batchIssueIds
+      )
 
       const [session] = await ctx.db
         .insert(codingSessions)
@@ -718,6 +770,7 @@ export const codingSessionsRouter = router({
           agent: input.agent ?? null,
           agentAccount: input.agentAccount ?? null,
           branch: input.branch ?? null,
+          batchIssueIds,
           resumedFromId,
           status: `running`,
         })
@@ -776,6 +829,9 @@ export const codingSessionsRouter = router({
           // resurrects tied to the same branch (the desktop's own-branch
           // guards and the unlinked-PR merge sweep both key off it).
           branch: z.string().max(255).optional(),
+          // EXP-876: echoed so a resurrected BATCH row keeps naming itself
+          // after the issues it covers instead of degrading to "Batch run".
+          batchIssueIds: z.array(z.string().uuid()).max(30).optional(),
           // EXP-484: echoed so a resurrected row keeps naming its agent.
           agent: z.enum(codingAgentValues).optional(),
         })
@@ -925,6 +981,16 @@ export const codingSessionsRouter = router({
               ...device,
               agent: input.agent ?? null,
               branch: input.branch ?? null,
+              // EXP-876: only a batch echo carries these (an action scope
+              // names itself off its snapshot), and they are re-scoped to
+              // the team exactly like the start path.
+              batchIssueIds: input.actionId
+                ? null
+                : await resolveBatchIssueIds(
+                    ctx.db,
+                    input.teamId!,
+                    input.batchIssueIds
+                  ),
               // EXP-701: acked from the start, like the issue branch above.
               ackedAt: new Date(),
               // Batch/action rows have no issue to re-derive review state

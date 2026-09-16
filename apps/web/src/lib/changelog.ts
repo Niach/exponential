@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-batch-run-names`,
+    date: `2026-09-16`,
+    title: `Batch runs say what they are working on`,
+    summary: `A run covering several issues is now named after them instead of reading "Batch run", so two batches can be told apart at a glance.`,
+    body: `- **Named by its issues**: a batch run's row reads \`EXP-874 +2\` beside the first issue's title, in every session list and in the run's own header, on the web, the desktop app, iOS and Android.
+- **Right from the start**: the issues a batch covers are recorded when it launches, so the name is correct while it is still coding, not only once its pull request is open. Older batch runs take their name from the issues on their pull request.`,
+  },
+  {
     id: `2026-09-session-results`,
     date: `2026-09-16`,
     title: `Results, right on the run`,

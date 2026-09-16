@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.pastRunByline
+import com.exponential.app.domain.pastRunIdentifier
 import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.SectionHeader
@@ -85,6 +86,8 @@ internal fun LazyListScope.agentSessionsList(
                     session = row.session,
                     issue = row.issue,
                     device = row.device,
+                    // EXP-876: a batch names itself after its issues.
+                    batchIssues = row.batchIssues,
                     onClick = {
                         // Every listed row is the caller's own (EXP-312), so
                         // steer availability alone decides the live viewer.
@@ -150,8 +153,9 @@ internal fun LazyListScope.agentSessionsList(
                     // The ×4 rule (domain `pastRunTitle`): the issue's title, a
                     // sync placeholder while it is missing, the action_name
                     // snapshot (a chat run's reads "Chat"), else the batch.
-                    title = pastRunTitle(row.session, row.issue),
-                    identifier = row.issue?.identifier,
+                    title = pastRunTitle(row.session, row.issue, row.batchIssues),
+                    // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
+                    identifier = pastRunIdentifier(row.session, row.issue, row.batchIssues),
                     timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt),
                     byline = pastRunByline(
                         deviceLabel = row.device.displayLabel,

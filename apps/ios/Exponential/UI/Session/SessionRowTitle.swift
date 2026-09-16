@@ -10,7 +10,7 @@ import SwiftUI
 /// it was steering. Extracted so the two cannot drift (Android's
 /// `SessionRowTitle.kt` is the twin).
 struct SessionRowTitle: View {
-    /// Nil for a batch or action run — those have no issue to name.
+    /// Nil for an action run; a batch carries its `EXP-874 +2` (EXP-876).
     let identifier: String?
     let title: String
     let state: CodingSessionDisplayState
@@ -111,13 +111,32 @@ func sessionStateColor(_ state: CodingSessionDisplayState) -> Color {
 
 /// The title beside the identifier, one rule for the list and the steering
 /// header: an issueless run is an action run when it carries its `action_name`
-/// snapshot (EXP-253), else a batch run — never "Untitled issue". A
+/// snapshot (EXP-253), else a batch run — which EXP-876 names after the issues
+/// it covers (`batchIssues`; empty on a surface that joins none, and the row
+/// then reads "Batch run" as before). Never "Untitled issue" for those. A
 /// single-issue session whose issue row simply hasn't synced yet (or arrived
 /// blank) reads "Untitled issue".
-func sessionRowTitle(issue: IssueEntity?, session: CodingSessionEntity) -> String {
+func sessionRowTitle(
+    issue: IssueEntity?,
+    session: CodingSessionEntity,
+    batchIssues: [IssueEntity] = []
+) -> String {
     if issue == nil, session.issueId == nil {
-        return session.actionName ?? "Batch run"
+        return session.actionName ?? BatchRun.name(session, issues: batchIssues).subject
     }
     let title = issue?.title ?? ""
     return title.isEmpty ? "Untitled issue" : title
+}
+
+/// EXP-876 — the row's mono lead-in: the issue's identifier, a batch's
+/// `EXP-874 +2`, else nil. The twin of `sessionRowTitle`, ×4 lockstep (web
+/// `pastRunIdentifier`).
+func sessionRowIdentifier(
+    issue: IssueEntity?,
+    session: CodingSessionEntity,
+    batchIssues: [IssueEntity] = []
+) -> String? {
+    if let issue { return issue.identifier }
+    if session.issueId != nil || session.actionName != nil { return nil }
+    return BatchRun.name(session, issues: batchIssues).identifier
 }
