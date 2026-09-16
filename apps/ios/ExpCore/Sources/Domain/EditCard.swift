@@ -31,17 +31,23 @@ import Foundation
 ///   hunks concatenated); a pathless patch (bare hunks) borrows its call's
 ///   `detail`;
 /// - a member WITHOUT a patch still has a row on its `detail` — `pending`
-///   while the call runs, `failed` once it settled without one — unless a
-///   patch for that path already exists in the card;
-/// - order: the ready rows in first-touch order, THEN the pending/failed
-///   stubs in first-touch order;
+///   while the call runs, `failed` when the call's OWN `failed` flag is set,
+///   `done` once it settled without either (a delete, a move, an edit that
+///   changed nothing: the wire carries no patch for those) — unless a patch
+///   for that path already exists in the card;
+/// - order: the ready rows in first-touch order, THEN the stubs in
+///   first-touch order; a later settle may upgrade a stub (pending → done /
+///   failed) but never moves it;
+/// - `truncatedLines` = the lines the publisher cut off the members' patches
+///   (EXP-786 markers), summed, so the card can say what it is not showing;
 /// - `liveIndex` names the row of the card's LAST member when that member is
 ///   the transcript's live tool row (`AgentFeed.liveToolRowId`): the one row a
 ///   client opens by itself, the diff inline. Everything else starts collapsed,
 ///   and a tap toggles a row in place — a card never navigates anywhere.
 public enum EditCard {
-    /// The tool kinds whose calls form an edited-files card.
-    public static let kinds: [String] = ["edit", "delete", "move"]
+    /// The tool kinds whose calls form an edited-files card — the contract's
+    /// `toolKind.editKinds`, generated ×4 so no mirror restates the list.
+    public static let kinds: [String] = DomainContract.toolKindEditValues
 
     /// How many rows a card lists before it folds the rest behind "N more".
     public static let preview: Int = DomainContract.diffUiCardPreviewFiles
@@ -49,13 +55,15 @@ public enum EditCard {
     public enum RowState: String, Equatable, Sendable {
         case ready
         case pending
+        case done
         case failed
     }
 
     public struct Row: Equatable, Sendable, Identifiable {
         public let path: String
         public let state: RowState
-        /// The merged patch for the path; nil for a `pending`/`failed` row.
+        /// The merged patch for the path; nil for a `pending`/`done`/`failed`
+        /// row.
         public let file: Diff.File?
 
         public var id: String { path }
@@ -73,11 +81,17 @@ public enum EditCard {
         public let rows: [Row]
         /// The row the client opens by itself, or nil.
         public let liveIndex: Int?
+        /// Lines the publisher cut off the members' patches, summed (0 = the
+        /// card shows the whole thing).
+        public let truncatedLines: Int
 
-        public init(title: String, rows: [Row], liveIndex: Int?) {
+        public init(
+            title: String, rows: [Row], liveIndex: Int?, truncatedLines: Int = 0
+        ) {
             self.title = title
             self.rows = rows
             self.liveIndex = liveIndex
+            self.truncatedLines = truncatedLines
         }
     }
 
@@ -119,17 +133,25 @@ public enum EditCard {
         // still flip the state.
         var stubOrder: [String] = []
         var stubs: [String: RowState] = [:]
-        for item in items {
-            guard case let .tool(_, _, detail, _, _, _, settled, _, diff, _, _) = item
+        var truncatedLines = 0
+        // The path the LAST member names — its patch's first file, else its
+        // `detail` — recorded while its patch is parsed once, never re-parsed.
+        var lastPath: String?
+        for (index, item) in items.enumerated() {
+            guard case let .tool(_, _, detail, _, _, _, settled, failed, diff, _, _) = item
             else { continue }
+            let isLast = index == items.count - 1
             let subject = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if let diff, !diff.isEmpty {
-                for file in Diff.parse(diff).files {
+                let parsed = Diff.parse(diff)
+                truncatedLines += parsed.truncatedLines ?? 0
+                for file in parsed.files {
                     // A pathless section (hunks with no header) borrows the
                     // call's own subject — the engine names the file in
                     // `detail`.
                     let path = file.path.isEmpty ? subject : file.path
                     if path.isEmpty { continue }
+                    if isLast, lastPath == nil { lastPath = path }
                     if file.path == path {
                         ready.append(file)
                     } else {
@@ -138,15 +160,20 @@ public enum EditCard {
                         ready.append(renamed)
                     }
                 }
+                if isLast, lastPath == nil { lastPath = subject.isEmpty ? nil : subject }
                 continue
             }
+            if isLast { lastPath = subject.isEmpty ? nil : subject }
             if subject.isEmpty { continue }
-            let state: RowState = settled ? .failed : .pending
-            if stubs[subject] == nil {
+            let state: RowState = failed ? .failed : (settled ? .done : .pending)
+            // First touch wins the position; a later settle upgrades a pending
+            // stub (pending → done / failed) and never demotes a settled one.
+            let held = stubs[subject]
+            if held == nil {
                 stubOrder.append(subject)
                 stubs[subject] = state
-            } else if state == .failed, stubs[subject] == .pending {
-                stubs[subject] = .failed
+            } else if held == .pending {
+                stubs[subject] = state
             }
         }
         let merged = Diff.mergeFilesByPath(ready)
@@ -157,23 +184,14 @@ public enum EditCard {
         }
         var liveIndex: Int?
         if let last = items.last, let liveItemId, liveItemId == last.id,
-           let path = itemPath(last),
+           let path = lastPath,
            let at = rows.firstIndex(where: { $0.path == path }) {
             liveIndex = at
         }
-        return View(title: title(rows.count), rows: rows, liveIndex: liveIndex)
-    }
-
-    /// The path a member names: its patch's first file, else its `detail`.
-    private static func itemPath(_ item: AgentFeedItem) -> String? {
-        guard case let .tool(_, _, detail, _, _, _, _, _, diff, _, _) = item
-        else { return nil }
-        if let diff, !diff.isEmpty {
-            let first = Diff.parse(diff).files.first
-            if let path = first?.path, !path.isEmpty { return path }
-        }
-        let subject = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return subject.isEmpty ? nil : subject
+        return View(
+            title: title(rows.count), rows: rows, liveIndex: liveIndex,
+            truncatedLines: truncatedLines
+        )
     }
 
     /// The card's title — `1 file edited` / `4 files edited`, ×4.
@@ -193,8 +211,8 @@ public enum EditCard {
     }
 
     /// The byte-lock projection of a card: `title | path +a -d | path pending |
-    /// path failed | live=path`. Deliberately ASCII (`-d`, unlike
-    /// `Diff.deletionsLabel`), like `Diff.render`.
+    /// path done | path failed | live=path | truncated=N`. Deliberately ASCII
+    /// (`-d`, unlike `Diff.deletionsLabel`), like `Diff.render`.
     public static func render(_ view: View) -> String {
         var parts = [view.title]
         for row in view.rows {
@@ -207,6 +225,7 @@ public enum EditCard {
         if let liveIndex = view.liveIndex, view.rows.indices.contains(liveIndex) {
             parts.append("live=\(view.rows[liveIndex].path)")
         }
+        if view.truncatedLines > 0 { parts.append("truncated=\(view.truncatedLines)") }
         return parts.joined(separator: " | ")
     }
 }

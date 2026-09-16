@@ -457,14 +457,19 @@ pub(crate) fn coding_action_button(
     }
 }
 
-/// EXP-916 — the ONE way out to GitHub, on the issue face and the run face
-/// alike: a ghost glyph in the work header's right cluster, present exactly
-/// while the subject HAS a pull request. `None` otherwise — an empty link is
-/// worse than no link.
-pub(crate) fn github_button(pr_url: Option<&str>, cx: &mut App) -> Option<AnyElement> {
+/// EXP-916 — the ONE way out to GitHub, on the issue face, the run face and
+/// the review header alike: a ghost glyph in the right cluster, present
+/// exactly while the subject HAS a pull request. `None` otherwise — an empty
+/// link is worse than no link. Callers name the element so two clusters can
+/// carry it at once.
+pub(crate) fn github_button(
+    id: impl Into<gpui::ElementId>,
+    pr_url: Option<&str>,
+    cx: &mut App,
+) -> Option<AnyElement> {
     let url = pr_url.map(str::trim).filter(|url| !url.is_empty())?.to_string();
     Some(
-        crate::controls::ghost_icon_button("work-github", Icon::new(registry::UI_GITHUB), cx)
+        crate::controls::ghost_icon_button(id, Icon::new(registry::UI_GITHUB), cx)
             .tooltip(domain::contract::DIFF_UI_OPEN_ON_GITHUB)
             .on_click(move |_, _, cx| {
                 crate::settings::open_url(cx, url.clone());

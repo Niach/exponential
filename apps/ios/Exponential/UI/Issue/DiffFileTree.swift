@@ -23,9 +23,12 @@ struct DiffFileTree: View {
 
     /// Folders the reader FOLDED away — everything else is open.
     @State private var collapsed: Set<String> = []
+    /// The built tree, kept across body passes — folding one row must not
+    /// re-split, re-sort and re-sum every path in the diff.
+    @State private var memo = DiffTreeMemo()
 
     var body: some View {
-        let rows = flatten(DiffTree.fileTree(files, query: query))
+        let rows = flatten(memo.tree(files, query: query))
         VStack(alignment: .leading, spacing: 0) {
             if rows.isEmpty {
                 Text(files.isEmpty ? "No changed files." : "No matching files.")
@@ -136,6 +139,47 @@ struct DiffFileTree: View {
             guard node.kind == .dir, !collapsed.contains(node.path) else { continue }
             walk(node.children, depth: depth + 1, into: &out)
         }
+    }
+}
+
+/// EXP-916 — a cheap identity for a file set: its paths and their counts. Two
+/// diffs that hash the same draw the same tree and the same totals.
+func diffFilesKey(_ files: [Diff.File]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(files.count)
+    for file in files {
+        hasher.combine(file.path)
+        hasher.combine(file.additions)
+        hasher.combine(file.deletions)
+    }
+    return hasher.finalize()
+}
+
+/// EXP-916 — the tree cache (the same idea as `EditCardMemo`).
+///
+/// `DiffTree.fileTree` splits, sorts, compacts and sums every path, and a
+/// SwiftUI body runs on any state change — folding ONE folder must not rebuild
+/// the whole tree. The key is the files' identity plus the trimmed query;
+/// nothing else can change what the builder returns.
+///
+/// Deliberately NOT `@Observable`: the cache is written DURING a body pass, and
+/// an observed write there would invalidate the view that just read it.
+@MainActor
+final class DiffTreeMemo {
+    private var key: Int?
+    private var cached: [DiffTree.Node] = []
+
+    func tree(_ files: [Diff.File], query: String) -> [DiffTree.Node] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var hasher = Hasher()
+        hasher.combine(needle)
+        hasher.combine(diffFilesKey(files))
+        let key = hasher.finalize()
+        if key == self.key { return cached }
+        let made = DiffTree.fileTree(files, query: needle)
+        self.key = key
+        cached = made
+        return made
     }
 }
 

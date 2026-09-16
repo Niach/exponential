@@ -103,17 +103,6 @@ fun diffOpensByDefault(file: Diff.File, defaultCollapsed: Boolean): Boolean =
     !defaultCollapsed && diffLineCount(file) <= COLLAPSE_THRESHOLD
 
 /**
- * The file list's filter (web `FileDiffNav`): a case-insensitive substring of
- * the WHOLE path, so `values/str` finds `res/values/strings.xml`. A blank
- * needle keeps every file.
- */
-fun filterDiffFiles(files: List<Diff.File>, query: String): List<Diff.File> {
-    val needle = query.trim().lowercase()
-    if (needle.isEmpty()) return files
-    return files.filter { it.path.lowercase().contains(needle) }
-}
-
-/**
  * Shorten [value] to at most [max] characters by replacing its MIDDLE with an
  * ellipsis — mirrors web `middleTruncate`. On a phone a trailing ellipsis eats
  * the only part of a path that identifies the file, so the DIRECTORY gives way
@@ -201,10 +190,12 @@ fun DiffCounts(additions: Int, deletions: Int, modifier: Modifier = Modifier) {
 
 /**
  * EXP-916: what the card KNOWS about its file. A `Ready` card is the ordinary
- * one; the two others exist only inside an edited-files card, where a call may
- * name a file before (or without) ever publishing a patch for it.
+ * one; the three others exist only inside an edited-files card, where a call
+ * may name a file before (or without) ever publishing a patch for it —
+ * `Pending` while it runs, `Done` when it settled carrying none (a delete, a
+ * move, an edit that changed nothing), `Failed` when the call itself failed.
  */
-enum class DiffCardState { Ready, Pending, Failed }
+enum class DiffCardState { Ready, Pending, Done, Failed }
 
 /**
  * One changed file — the one per-file unit ×4. [compact] is the transcript
@@ -216,8 +207,9 @@ enum class DiffCardState { Ready, Pending, Failed }
  * the header always takes the section band's fill, never an opaque one, so the
  * page gradient keeps showing through. [state] is the file's own certainty: a
  * `Pending` card is the header alone (no counts, a muted dead chevron, no
- * body), a `Failed` one wears the danger tint and the word `failed` instead of
- * a chevron.
+ * body), a `Done` one the bare path (nothing will ever open behind it), a
+ * `Failed` one wears the danger tint and the word `failed` instead of a
+ * chevron.
  */
 @Composable
 fun DiffFileCard(
@@ -280,6 +272,9 @@ fun DiffFileCard(
                         tint = muted,
                     )
                 }
+                // It ended carrying no patch: the path alone, in the ordinary
+                // tint — nothing happened that the reader must read as wrong.
+                DiffCardState.Done -> Unit
                 // The call is still running: nothing to count and nothing to
                 // open, so the chevron is there as a placeholder and dead.
                 DiffCardState.Pending -> Icon(

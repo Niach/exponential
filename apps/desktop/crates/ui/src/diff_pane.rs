@@ -228,21 +228,19 @@ pub(crate) fn file_row(
         .child(counts(file.additions, file.deletions, cx))
 }
 
-/// The [`DiffFile`]s the shared tree builder reads — the pane holds only the
-/// four fields a row shows, and a tree needs nothing more.
-fn tree_files(files: &[PaneFile]) -> Vec<DiffFile> {
-    files
-        .iter()
-        .map(|file| DiffFile {
-            path: file.path.to_string(),
-            previous_path: None,
-            status: file.status,
-            additions: file.additions,
-            deletions: file.deletions,
-            binary: false,
-            hunks: Vec::new(),
-        })
-        .collect()
+/// The pane's rows ARE the tree builder's input — it reads a path and two
+/// counts, all of which a [`PaneFile`] already holds. (Rebuilding a
+/// `Vec<DiffFile>` here cloned every path once per frame.)
+impl domain::diff_tree::DiffTreeRow for PaneFile {
+    fn path(&self) -> &str {
+        &self.path
+    }
+    fn additions(&self) -> u32 {
+        self.additions
+    }
+    fn deletions(&self) -> u32 {
+        self.deletions
+    }
 }
 
 /// EXP-916 — the file TREE column: the summary, the `Filter files` field and
@@ -272,7 +270,7 @@ pub(crate) fn file_tree<V: Render>(
     let query = filter
         .map(|state| state.read(cx).value().to_string())
         .unwrap_or_default();
-    let nodes = diff_file_tree(&tree_files(files), &query);
+    let nodes = diff_file_tree(files, &query);
     let mut card = crate::surface::glass_card()
         .id("diff-file-tree")
         .w(px(FILE_LIST_WIDTH))
@@ -612,7 +610,7 @@ mod tests {
             pane_file("apps/desktop/crates/ui/src/diff.rs", 2, 1),
             pane_file("README.md", 0, 3),
         ];
-        let tree = diff_file_tree(&tree_files(&files), "");
+        let tree = diff_file_tree(&files, "");
         assert_eq!(
             domain::diff_tree::render_diff_tree(&tree),
             vec![
@@ -624,11 +622,11 @@ mod tests {
                 "README.md +0 -3",
             ]
         );
-        let hits = diff_file_tree(&tree_files(&files), "DESKTOP");
+        let hits = diff_file_tree(&files, "DESKTOP");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].kind, DiffTreeKind::File);
         assert_eq!(hits[0].index, Some(1), "a file node names its input row");
-        assert!(diff_file_tree(&tree_files(&files), "nothing here").is_empty());
+        assert!(diff_file_tree(&files, "nothing here").is_empty());
     }
 
     /// EXP-916: the tree needs the work column PLUS its own beside it — a

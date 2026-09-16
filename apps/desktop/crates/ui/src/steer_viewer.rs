@@ -2777,10 +2777,23 @@ impl SteerSessionView {
         // member ids already fold in above).
         if let FeedRowSpec::Edits { id, .. } = spec {
             self.expanded_cards.contains(id).hash(&mut hasher);
-            self.expanded_edit_rows
-                .get(id)
-                .map_or(0, HashSet::len)
-                .hash(&mut hasher);
+            // WHICH paths are open, not how many: a reader who folds the live
+            // row and opens another keeps the count and changes the height.
+            match self.expanded_edit_rows.get(id) {
+                None => u64::MAX.hash(&mut hasher),
+                Some(open) => {
+                    open.len().hash(&mut hasher);
+                    // Order-free, because a `HashSet` has no order to hash.
+                    open.iter()
+                        .map(|path| {
+                            let mut one = std::hash::DefaultHasher::new();
+                            path.hash(&mut one);
+                            one.finish()
+                        })
+                        .fold(0u64, |acc, one| acc ^ one)
+                        .hash(&mut hasher);
+                }
+            }
         }
         hasher.finish()
     }
@@ -4343,6 +4356,7 @@ impl SteerSessionView {
             output,
             settled,
             preview,
+            diff,
             ..
         } = &item.kind
         else {
@@ -4407,15 +4421,25 @@ impl SteerSessionView {
                 cx,
             ),
         };
-        match extras {
-            Some(extras) => v_flex()
-                .w_full()
-                .min_w_0()
-                .child(row)
-                .child(extras)
-                .into_any_element(),
-            None => row,
+        // EXP-916: a patch never hangs off a tool row — it belongs to the
+        // edited-files card its run grouped into. An edit the engine tagged
+        // with a workflow id whose frame never arrived is grouped into
+        // NOTHING, though, so it gets a card of its own rather than losing
+        // its patch.
+        let card = diff
+            .as_deref()
+            .filter(|diff| !diff.is_empty())
+            .map(|_| self.render_edits_card(id, &[item], cx));
+        if extras.is_none() && card.is_none() {
+            return row;
         }
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .child(row)
+            .children(extras)
+            .children(card)
+            .into_any_element()
     }
 
     /// EXP-746 — the local cards hanging off feed row `item` (per-edit
@@ -4476,20 +4500,22 @@ impl SteerSessionView {
         let members: Vec<domain::edit_card::EditCardMember<'_>> = items
             .iter()
             .map(|item| {
-                let (detail, diff, settled) = match &item.kind {
+                let (detail, diff, settled, failed) = match &item.kind {
                     FeedKind::Tool {
                         detail,
                         diff,
                         settled,
+                        failed,
                         ..
-                    } => (detail.as_deref(), diff.as_deref(), *settled),
-                    _ => (None, None, true),
+                    } => (detail.as_deref(), diff.as_deref(), *settled, *failed),
+                    _ => (None, None, true, false),
                 };
                 domain::edit_card::EditCardMember {
                     id: item.id,
                     detail,
                     diff: diff.or_else(|| self.extras.edit_patch(item.id)),
                     settled,
+                    failed,
                 }
             })
             .collect();
@@ -4498,14 +4524,23 @@ impl SteerSessionView {
         let live = steer::feed::live_tool_row_id(self.feed.items())
             .filter(|_| self.phase == ViewerPhase::Live);
         let view = self.edit_memo.card(id, &members, live);
-        let open = self.expanded_edit_rows.get(&id).cloned().unwrap_or_default();
+        // The reader's OWN set, or none yet — then the card follows the live
+        // row, and the first click copies THAT (so the live row folds too).
+        let open = self.expanded_edit_rows.get(&id);
+        let live_path = view
+            .live_index
+            .and_then(|at| view.rows.get(at))
+            .map(|row| row.path.clone());
         crate::session_extras::render_edit_card(
             id,
             &view,
-            &open,
+            open,
             self.expanded_cards.contains(&id),
             std::rc::Rc::new(cx.listener(move |this, path: &str, _window, cx| {
-                let rows = this.expanded_edit_rows.entry(id).or_default();
+                let rows = this
+                    .expanded_edit_rows
+                    .entry(id)
+                    .or_insert_with(|| live_path.iter().cloned().collect());
                 if !rows.insert(path.to_string()) {
                     rows.remove(path);
                 }

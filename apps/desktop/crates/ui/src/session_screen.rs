@@ -932,6 +932,7 @@ impl SessionScreenView {
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
         // header, exactly as an issue's does.
         right.extend(crate::work_header::github_button(
+            "work-github",
             row.as_ref().and_then(|row| row.pr_url.as_deref()),
             cx,
         ));

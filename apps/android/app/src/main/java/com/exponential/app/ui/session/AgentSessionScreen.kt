@@ -1903,7 +1903,19 @@ private fun ActivityFeed(
                             // as a tool row beside it.
                             is AgentFeedItem.Tool ->
                                 when (val workflow = workflows.firstOrNull { it.id == item.callId }) {
-                                    null -> ToolRow(item, live = item.id == liveRowId)
+                                    // EXP-916: such a call may still CARRY a
+                                    // patch (an edit tagged with a workflow).
+                                    // The card is the only place a patch
+                                    // renders now, so a one-member card draws
+                                    // it rather than a row that drops it.
+                                    null -> if (!item.diff.isNullOrEmpty()) {
+                                        EditedFilesCard(
+                                            items = listOf(item),
+                                            liveItemId = liveRowId,
+                                        )
+                                    } else {
+                                        ToolRow(item, live = item.id == liveRowId)
+                                    }
                                     else -> WorkflowCard(
                                         workflow = workflow,
                                         agentRuns = workflowAgentRuns(feed, workflow.id),

@@ -443,13 +443,12 @@ pub struct FileSummary {
 /// line sequence (Meta lines excluded — `\ No newline at end of file` is not
 /// code). Shared with the transcript's edit card, which renders these rows
 /// through [`render_diff_row`] without ever building a [`DiffView`].
-pub(crate) fn file_rows(
-    file: &DiffFile,
-    theme: &HighlightTheme,
-    options: &DiffOptions,
-) -> Vec<RenderRow> {
+/// A file's HEADER row alone — what a collapsed card shows. A caller that
+/// never opens the body has no business highlighting a whole patch to reach
+/// this one row (EXP-916).
+pub(crate) fn file_header_only(file: &DiffFile) -> RenderRow {
     let (dir, name) = split_path(&file.path);
-    let mut rows = vec![RenderRow::FileHeader {
+    RenderRow::FileHeader {
         path: file.path.clone().into(),
         name: name.into(),
         dir: dir.into(),
@@ -462,7 +461,15 @@ pub(crate) fn file_rows(
         additions: file.additions,
         deletions: file.deletions,
         binary: file.binary,
-    }];
+    }
+}
+
+pub(crate) fn file_rows(
+    file: &DiffFile,
+    theme: &HighlightTheme,
+    options: &DiffOptions,
+) -> Vec<RenderRow> {
+    let mut rows = vec![file_header_only(file)];
 
     if file.hunks.is_empty() {
         rows.push(RenderRow::Note {

@@ -415,6 +415,13 @@ fn fold_toggle(
 // EXP-916 — the edited-files card
 // ---------------------------------------------------------------------------
 
+/// EXP-786 — what the publisher cut off a card's patches, in the words every
+/// client says it in (web `truncatedLinesNote`).
+pub(crate) fn truncated_lines_note(lines: u32) -> String {
+    let plural = if lines == 1 { "" } else { "s" };
+    format!("{lines} more line{plural} truncated")
+}
+
 /// A row of an edited-files card was clicked: the path it named. `Rc` because
 /// one card hangs the same listener on every one of its rows.
 pub(crate) type EditRowClick = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
@@ -430,18 +437,22 @@ pub(crate) type EditRowClick = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App) +
 ///   · chevron`) over its compact patch;
 /// * a `pending` row is the path alone, its chevron muted — the call is still
 ///   writing and there is nothing to open;
+/// * a `done` row is the path alone, settled and plain: a delete, a move or an
+///   edit that changed nothing carries no patch to open;
 /// * a `failed` row is the path in `danger` and the word `failed`, no chevron.
 ///
-/// `open` is the set of paths the reader unfolded; the card itself opens
-/// exactly the LIVE row (`view.live_index`), whose body is bounded to
-/// [`domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT`] so a running edit
+/// `open` is the reader's OWN set of unfolded paths, or `None` while they have
+/// touched nothing — then the card follows the LIVE row (`view.live_index`),
+/// and the first click copies that effective set (so the live row can be
+/// folded too). Every open body is bounded to
+/// [`domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT`] so one long patch
 /// cannot push the conversation off screen. A click toggles a row IN PLACE —
 /// a card never opens the Changes face.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_edit_card(
     id: FeedItemId,
     view: &domain::edit_card::EditCardView,
-    open: &std::collections::HashSet<String>,
+    open: Option<&std::collections::HashSet<String>>,
     more_open: bool,
     on_toggle_row: EditRowClick,
     on_toggle_more: CardClick,
@@ -477,8 +488,11 @@ pub(crate) fn render_edit_card(
         );
     let mut rows = v_flex().w_full().min_w_0().overflow_hidden();
     for (index, row) in view.rows.iter().take(shown).enumerate() {
-        let live = view.live_index == Some(index);
-        let opened = live || open.contains(&row.path);
+        let opened = match open {
+            Some(open) => open.contains(&row.path),
+            // Untouched: the card follows the run — exactly the live row.
+            None => view.live_index == Some(index),
+        };
         let mut slot = div().w_full().min_w_0();
         // A hairline is the only seam between two stacked file cards — the
         // parent card already carries the border and the radius.
@@ -494,6 +508,19 @@ pub(crate) fn render_edit_card(
         rows = rows.child(slot.child(body));
     }
     card = card.child(rows);
+    // EXP-786: what the publisher cut off the members' patches, in the words
+    // every client says it in.
+    if view.truncated_lines > 0 {
+        card = card.child(
+            div()
+                .px_1()
+                .text_2xs()
+                .text_color(muted)
+                .child(SharedString::from(truncated_lines_note(
+                    view.truncated_lines,
+                ))),
+        );
+    }
     // The fold: only while the card is not holding itself open for a live row.
     if !live_clamped {
         if let Some(more) = domain::edit_card::edit_card_more_label(view.rows.len()) {
@@ -531,15 +558,28 @@ fn edit_row_ready(
     cx: &App,
 ) -> AnyElement {
     let options = DiffOptions::card();
-    let rows = file_rows(file, &cx.theme().highlight_theme, &options);
+    // A collapsed row shows its header and nothing else — highlighting the
+    // whole patch to throw it away is the EXP-884 lag in miniature.
+    let rows = if open {
+        file_rows(file, &cx.theme().highlight_theme, &options)
+    } else {
+        vec![crate::diff::file_header_only(file)]
+    };
     let Some(header) = rows.first() else {
         return div().into_any_element();
     };
-    let key = id as usize * 64 + index;
+    // A COMPOSITE id: a card has one row per PATH of a whole edit run, so an
+    // arithmetic key (`id * 64 + index`) collides the moment a card is deep.
+    let row_id = gpui::ElementId::Name(SharedString::from(format!(
+        "session-edit-row-{id}-{index}"
+    )));
+    let body_id = gpui::ElementId::Name(SharedString::from(format!(
+        "session-edit-body-{id}-{index}"
+    )));
     let clicked = path.to_string();
     let mut column = v_flex().w_full().min_w_0().child(
         div()
-            .id(("session-edit-row", key))
+            .id(row_id)
             .w_full()
             .min_w_0()
             .cursor_pointer()
@@ -563,7 +603,7 @@ fn edit_row_ready(
         }
         column = column.child(
             div()
-                .id(("session-edit-body", key))
+                .id(body_id)
                 .w_full()
                 .min_w_0()
                 .max_h(gpui::px(
@@ -576,13 +616,22 @@ fn edit_row_ready(
     column.into_any_element()
 }
 
-/// A `pending` / `failed` row: the path, and what became of it. Neither can be
-/// opened — there is no patch behind either.
+/// A `pending` / `done` / `failed` row: the path, and what became of it. None
+/// of the three can be opened — there is no patch behind any of them.
 fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let failed = row.state == domain::edit_card::EditRowState::Failed;
+    let pending = row.state == domain::edit_card::EditRowState::Pending;
     let (dir, name) = crate::diff::split_path(&row.path);
-    let tint = if failed { theme.danger } else { theme.muted_foreground };
+    // A settled row reads like any other file name; only a pending one stays
+    // dim and only a failed one turns.
+    let tint = if failed {
+        theme.danger
+    } else if pending {
+        theme.muted_foreground
+    } else {
+        theme.foreground
+    };
     let mut line = h_flex()
         .w_full()
         .min_w_0()
@@ -619,7 +668,7 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
                 .text_color(theme.danger)
                 .child("failed"),
         );
-    } else {
+    } else if pending {
         // The call is still writing: a chevron that says "nothing to open".
         line = line.child(
             div().flex_shrink_0().child(
@@ -629,6 +678,8 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
             ),
         );
     }
+    // A `done` row says nothing further: it settled, it wrote no patch, and a
+    // chevron would promise a body that does not exist.
     line.into_any_element()
 }
 
@@ -1012,6 +1063,7 @@ mod tests {
                 detail: Some("src/lib.rs"),
                 diff: None,
                 settled: false,
+                failed: false,
             },
         ];
         let view = domain::edit_card::edit_card(&members, Some(1));

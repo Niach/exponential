@@ -722,7 +722,7 @@ impl IssueHeader {
         cluster.extend(leading);
         // EXP-916: the way out to GitHub, on every face of a subject with a
         // pull request — the diff surfaces no longer carry one of their own.
-        cluster.extend(crate::work_header::github_button(issue.pr_url.as_deref(), cx));
+        cluster.extend(crate::work_header::github_button("work-github", issue.pr_url.as_deref(), cx));
         // EXP-778: the personal pin toggle — a pinned issue lands in the
         // rail's Pinned section. Needs the team (the board's) to address
         // the toggle; a not-yet-synced board hides it for a repaint.

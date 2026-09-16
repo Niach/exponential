@@ -11,10 +11,11 @@ import SwiftUI
 ///
 /// EXP-916 adds the two things the transcript needed to stop having its own
 /// diff view: `flush` (no outer border or radius — the card stacks inside a
-/// parent card, hairline-separated) and `state`, the live edit run's row states
-/// before a patch exists (`pending` = the header alone, `failed` = the header
-/// in the danger tint, neither opens). The header wears the glass SECTION fill,
-/// the same band a section header does — never an opaque background.
+/// parent card, hairline-separated) and `state`, the edit run's row states
+/// where there is no patch (`pending` = the header with an inert chevron,
+/// `done` = the plain settled header, `failed` = the header in the danger tint;
+/// none of the three opens). The header wears the glass SECTION fill, the same
+/// band a section header does — never an opaque background.
 struct DiffFileCard: View {
     let file: Diff.File
     let expanded: Bool
@@ -22,8 +23,8 @@ struct DiffFileCard: View {
     var compact = false
     /// EXP-916: borderless and square — one row of an edited-files card.
     var flush = false
-    /// EXP-916: what this row IS. A `pending`/`failed` row has no patch, so it
-    /// has no counts and nothing to disclose.
+    /// EXP-916: what this row IS. A `pending`/`done`/`failed` row has no patch,
+    /// so it has no counts and nothing to disclose.
     var state: EditCard.RowState = .ready
     /// EXP-916: cap the open body and scroll it inside that height — the
     /// contract's `diffUi.inlineDiffMaxHeight`, used by the ONE row an
@@ -109,6 +110,11 @@ struct DiffFileCard: View {
             case .pending:
                 // No counts yet: the call is still writing the file.
                 chevron(opacity: TextOpacity.quaternary)
+            case .done:
+                // EXP-916: the call settled and carried no patch (a delete, a
+                // move, an edit that changed nothing) — a plain settled row:
+                // no counts, and no chevron, because nothing will ever open.
+                EmptyView()
             case .failed:
                 // EXP-916: the call settled without a patch — the contract's
                 // own word for that row, in the danger tint.

@@ -16,13 +16,11 @@ struct DiffFileListSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var filter = ""
+    /// EXP-916: the totals are summed once per FILE SET, not once per body —
+    /// every keystroke in the filter re-evaluates this view.
+    @State private var summaryMemo = DiffSummaryMemo()
 
-    private var summary: String {
-        let sum = Diff.totals(files)
-        return Diff.summaryLabel(
-            files: sum.files, additions: sum.additions, deletions: sum.deletions
-        )
-    }
+    private var summary: String { summaryMemo.summary(files) }
 
     var body: some View {
         GlassSheetChrome(
@@ -70,6 +68,29 @@ struct DiffFileListSheet: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("changes-file-list")
+    }
+}
+
+/// EXP-916 — the summary cache (the same idea as `DiffTreeMemo`): `Diff.totals`
+/// walks every file, and the sheet's body runs on every keystroke in its
+/// filter. Keyed on the files' identity, so only a refreshed diff re-sums.
+///
+/// Deliberately NOT `@Observable`: the cache is written DURING a body pass.
+@MainActor
+final class DiffSummaryMemo {
+    private var key: Int?
+    private var cached = ""
+
+    func summary(_ files: [Diff.File]) -> String {
+        let key = diffFilesKey(files)
+        if key == self.key { return cached }
+        let sum = Diff.totals(files)
+        let made = Diff.summaryLabel(
+            files: sum.files, additions: sum.additions, deletions: sum.deletions
+        )
+        self.key = key
+        cached = made
+        return made
     }
 }
 

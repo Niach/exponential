@@ -1049,12 +1049,12 @@ struct AgentSessionView<Switcher: View>: View {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
             case let .tool(
-                id, name, detail, _, callId, _, settled, failed, _, preview, output
+                id, name, detail, _, callId, _, settled, failed, diff, preview, output
             ):
                 toolOrWorkflowRow(
-                    name: name, detail: detail, callId: callId,
-                    settled: settled, failed: failed, preview: preview,
-                    output: output, live: id == liveToolRowId
+                    item: item, name: name, detail: detail, callId: callId,
+                    settled: settled, failed: failed, diff: diff,
+                    preview: preview, output: output, live: id == liveToolRowId
                 )
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -1087,18 +1087,22 @@ struct AgentSessionView<Switcher: View>: View {
 
     /// EXP-850 §3: a `Workflow` call renders as its CARD — the latest-wins
     /// `workflow` event with the same id — never as a tool row plus a second
-    /// card row; everything else is the ordinary tool row.
+    /// card row. EXP-916: a call that is no card member and yet carries a PATCH
+    /// draws a one-member edited-files card; everything else is the ordinary
+    /// tool row.
     ///
     /// Its own method, not a branch inside `feedRow`: that switch is ONE
     /// expression to the type checker and spelling this out inline blew its
     /// budget outright ("failed to produce diagnostic for expression").
     @ViewBuilder
     private func toolOrWorkflowRow(
+        item: AgentFeedItem,
         name: String,
         detail: String?,
         callId: String?,
         settled: Bool,
         failed: Bool,
+        diff: String?,
         preview: AgentToolPreview?,
         output: String?,
         live: Bool
@@ -1108,6 +1112,14 @@ struct AgentSessionView<Switcher: View>: View {
                 workflow: workflow,
                 runFor: workflowAgentRun,
                 context: markdownContext
+            )
+        } else if let diff, !diff.isEmpty {
+            // EXP-916: a call outside an edited-files card may still CARRY a
+            // patch (an edit tagged with a workflow). The card is the only
+            // place a patch renders now, so a ONE-member card draws it rather
+            // than a row that drops it.
+            EditedFilesCard(
+                items: [item], liveItemId: live ? item.id : nil
             )
         } else {
             ToolRow(

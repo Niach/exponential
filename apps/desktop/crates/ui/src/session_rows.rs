@@ -315,9 +315,11 @@ pub(crate) fn strip_lines(tasks: &[BackgroundTask], items: &[FeedItem]) -> Vec<S
 /// patches per frame — the EXP-884 lag, in its EXP-916 shape.
 ///
 /// A card is keyed by its FIRST and LAST member's id, the total bytes of
-/// patch behind it and which member is live: those are exactly the four
-/// things that move a card's content (it grows at the tail, a `tool_update`
-/// lands a patch, the live row moves on). Entries leave with their rows
+/// patch behind it, how many of its members have SETTLED (a patchless settle
+/// turns a `pending` row into a `done` one without a byte of patch) and which
+/// member is live: those are exactly the things that move a card's content (it
+/// grows at the tail, a `tool_update` lands a patch or a verdict, the live row
+/// moves on). Entries leave with their rows
 /// ([`Self::prune_before`], the viewer's eviction hook). Interior mutability,
 /// so the read-only render path fills it.
 #[derive(Default)]
@@ -331,6 +333,9 @@ struct CardKey {
     first: FeedItemId,
     last: FeedItemId,
     bytes: usize,
+    /// Settled members, and the failed ones among them.
+    settled: usize,
+    failed: usize,
     live: Option<FeedItemId>,
 }
 
@@ -349,6 +354,8 @@ impl EditMemo {
                 .iter()
                 .map(|member| member.diff.map_or(0, str::len))
                 .sum(),
+            settled: members.iter().filter(|member| member.settled).count(),
+            failed: members.iter().filter(|member| member.failed).count(),
             live,
         };
         if let Some((held, view)) = self.by_card.borrow().get(&id) {
@@ -936,12 +943,14 @@ mod tests {
                 detail: Some("src/a.rs"),
                 diff: Some(a.as_str()),
                 settled: true,
+                failed: false,
             },
             EditCardMember {
                 id: 3,
                 detail: Some("src/b.rs"),
                 diff: Some(b.as_str()),
                 settled: true,
+                failed: false,
             },
         ];
         let first = memo.card(2, &members, None);

@@ -1,24 +1,22 @@
 package com.exponential.app.ui.session
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +31,7 @@ import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.EditCard
+import com.exponential.app.domain.diffTruncationNote
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DiffCardState
 import com.exponential.app.ui.issue.DiffFileCard
@@ -68,7 +67,8 @@ fun EditedFilesCard(
     // per-recomposition re-parse.
     val totalDiffLength = items.sumOf { it.diff?.length ?: 0 }
     val settledCount = items.count { it.settled }
-    val card = remember(rowId, lastId, totalDiffLength, settledCount, liveItemId) {
+    val failedCount = items.count { it.failed }
+    val card = remember(rowId, lastId, totalDiffLength, settledCount, failedCount, liveItemId) {
         EditCard.editCard(items, liveItemId)
     }
     val preview = DomainContract.diffUiCardPreviewFiles
@@ -80,17 +80,16 @@ fun EditedFilesCard(
     val shown = if (open) card.rows else card.rows.take(preview)
     val more = EditCard.editCardMoreLabel(card.rows.size)
 
-    // The card OWNS which files are open. While a member is live its row —
-    // and only its row — opens itself; when the run settles the card folds
-    // back up whole. A tap in between toggles a row in place.
-    var openPaths by remember(rowId) { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(liveIndex) {
-        openPaths = if (liveIndex == null) {
-            emptySet()
-        } else {
-            setOfNotNull(card.rows.getOrNull(liveIndex)?.path)
-        }
-    }
+    // The card OWNS which files are open, as ONE nullable set. `null` = follow
+    // the live row: while the card's last member is the LIVE tool row that row
+    // is open by itself, so the reader watches the edit land, and the card
+    // folds itself the moment it settles. A tap replaces it with the reader's
+    // OWN set — seeded from what is effectively open, so the live row can be
+    // collapsed like any other — and that set survives the settle, because
+    // their opens are theirs.
+    val livePath = liveIndex?.let { card.rows.getOrNull(it)?.path }
+    var reader by remember(rowId) { mutableStateOf<Set<String>?>(null) }
+    val openPaths = reader ?: if (livePath == null) emptySet() else setOf(livePath)
 
     Column(
         modifier = modifier.fillMaxWidth().glassCard().testTag("edited-files-card"),
@@ -113,31 +112,31 @@ fun EditedFilesCard(
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
-        shown.forEachIndexed { index, row ->
+        shown.forEach { row ->
             key(row.path) {
-                Hairline()
-                val isLive = index == liveIndex
+                HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
                 val expanded = row.path in openPaths
                 val body: @Composable () -> Unit = {
                     DiffFileCard(
                         file = row.file ?: Diff.File(path = row.path),
                         expanded = expanded,
                         onToggle = {
-                            openPaths = if (expanded) openPaths - row.path else openPaths + row.path
+                            reader = if (expanded) openPaths - row.path else openPaths + row.path
                         },
                         compact = true,
                         flush = true,
                         state = when (row.state) {
                             EditCard.RowState.READY -> DiffCardState.Ready
                             EditCard.RowState.PENDING -> DiffCardState.Pending
+                            EditCard.RowState.DONE -> DiffCardState.Done
                             EditCard.RowState.FAILED -> DiffCardState.Failed
                         },
                     )
                 }
-                // The LIVE row's patch grows while the call runs, so it is the
-                // one row that gets a bounded scroll box instead of pushing
-                // the conversation off screen.
-                if (isLive && expanded) {
+                // An open patch — the live one grows while the call runs —
+                // gets a bounded scroll box instead of pushing the
+                // conversation off screen.
+                if (expanded) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -149,11 +148,26 @@ fun EditedFilesCard(
                 }
             }
         }
+        // EXP-786: what the PUBLISHER cut off the members' patches — the same
+        // note a file list carries, so a card never silently shows a short
+        // diff.
+        if (card.truncatedLines > 0) {
+            HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+            Text(
+                diffTruncationNote(card.truncatedLines),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("edited-files-truncation-note")
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+            )
+        }
         // `N more` / `Show less` — the contract's words. Clamped open while the
         // live row sits past the preview: folding it away would hide the one
         // thing the reader is watching.
         if (more != null && !clamped) {
-            Hairline()
+            HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
             Text(
                 if (showAll) DomainContract.diffUiShowLess else more,
                 style = MaterialTheme.typography.labelSmall,
@@ -166,15 +180,4 @@ fun EditedFilesCard(
             )
         }
     }
-}
-
-/** The one rule between two rows of a card — never a stroke around each. */
-@Composable
-private fun Hairline() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(GlassTokens.Hairline)
-            .background(GlassTokens.StrokeRow),
-    )
 }

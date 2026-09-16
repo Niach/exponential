@@ -108,6 +108,7 @@ pub(crate) fn row_fingerprint(
                 name,
                 detail,
                 tool_kind,
+                settled,
                 failed,
                 diff,
                 ..
@@ -116,8 +117,11 @@ pub(crate) fn row_fingerprint(
                 detail.as_ref().map(String::len).hash(&mut hasher);
                 // EXP-785/786/789: a settled `tool_update` rewrites the
                 // group caption and the row's tint, and a wire diff adds a
-                // card under the row.
+                // card under the row. EXP-916: a member that settles WITHOUT
+                // a patch turns an edited-files card's `pending` row into a
+                // `done` one — a different height, on `settled` alone.
                 tool_kind.map(|kind| kind.as_str()).hash(&mut hasher);
+                settled.hash(&mut hasher);
                 failed.hash(&mut hasher);
                 diff.as_ref().map(String::len).hash(&mut hasher);
             }

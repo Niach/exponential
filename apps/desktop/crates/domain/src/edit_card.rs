@@ -28,10 +28,15 @@
 //!   hunks concatenated); a pathless patch (bare hunks) borrows its call's
 //!   `detail`;
 //! - a member WITHOUT a patch still has a row on its `detail` — `pending`
-//!   while the call runs, `failed` once it settled without one — unless a
-//!   patch for that path already exists in the card;
-//! - order: the ready rows in first-touch order, THEN the pending/failed stubs
-//!   in first-touch order;
+//!   while the call runs, `failed` when the call's own `failed` flag is set,
+//!   `done` once it settled without either (a delete, a move, an edit that
+//!   changed nothing: the wire carries no patch for those) — unless a patch
+//!   for that path already exists in the card;
+//! - order: the ready rows in first-touch order, THEN the stubs in first-touch
+//!   order; a later settle may upgrade a stub (pending → done / failed) but
+//!   never moves it;
+//! - `truncated_lines` = the lines the publisher cut off the members' patches
+//!   (EXP-786 markers), summed, so the card can say what it is not showing;
 //! - `live_index` names the row of the card's LAST member when that member is
 //!   the transcript's live tool row: the one row a client opens by itself, the
 //!   diff inline. Everything else starts collapsed, and a tap toggles a row in
@@ -41,8 +46,9 @@
 
 use crate::diff::{merge_files_by_path, parse_diff, DiffFile};
 
-/// The tool kinds whose calls form an edited-files card.
-pub const EDIT_CARD_KINDS: [&str; 3] = ["edit", "delete", "move"];
+/// The tool kinds whose calls form an edited-files card — the contract's
+/// `toolKind.editKinds`, generated ×4 so no mirror restates the list.
+pub const EDIT_CARD_KINDS: &[&str] = crate::contract::TOOL_KIND_EDIT_VALUES;
 
 /// How many rows a card lists before it folds the rest behind "N more".
 pub const EDIT_CARD_PREVIEW: usize = crate::contract::DIFF_UI_CARD_PREVIEW_FILES;
@@ -73,21 +79,22 @@ pub fn edit_run_end(start: usize, len: usize, same_lane_edit: impl Fn(usize) -> 
 }
 
 /// A card member, borrowed from whatever feed the caller holds. Deliberately
-/// narrow: the card reads `id`/`detail`/`diff`/`settled` and nothing else (a
-/// `failed` flag never reaches it — a settled member with no patch IS the
-/// failed row).
+/// narrow: the card reads `id`/`detail`/`diff`/`settled`/`failed` and nothing
+/// else.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EditCardMember<'a> {
     pub id: u64,
     pub detail: Option<&'a str>,
     pub diff: Option<&'a str>,
     pub settled: bool,
+    pub failed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditRowState {
     Ready,
     Pending,
+    Done,
     Failed,
 }
 
@@ -97,6 +104,7 @@ impl EditRowState {
         match self {
             EditRowState::Ready => "ready",
             EditRowState::Pending => "pending",
+            EditRowState::Done => "done",
             EditRowState::Failed => "failed",
         }
     }
@@ -106,7 +114,8 @@ impl EditRowState {
 pub struct EditCardRow {
     pub path: String,
     pub state: EditRowState,
-    /// The merged patch for the path; `None` for a `pending`/`failed` row.
+    /// The merged patch for the path; `None` for a `pending`/`done`/`failed`
+    /// row.
     pub file: Option<DiffFile>,
 }
 
@@ -117,6 +126,8 @@ pub struct EditCardView {
     pub rows: Vec<EditCardRow>,
     /// The row the client opens by itself, or `None`.
     pub live_index: Option<usize>,
+    /// Lines the publisher cut off the members' patches, summed (0 = whole).
+    pub truncated_lines: u32,
 }
 
 /// A member's `detail`, trimmed; an empty one is no path at all.
@@ -133,28 +144,24 @@ fn member_diff<'a>(member: &EditCardMember<'a>) -> Option<&'a str> {
     member.diff.filter(|diff| !diff.is_empty())
 }
 
-/// The path a member names: its patch's first file, else its `detail`.
-fn item_path(member: &EditCardMember<'_>) -> Option<String> {
-    if let Some(diff) = member_diff(member) {
-        if let Some(first) = parse_diff(diff).files.first() {
-            if !first.path.is_empty() {
-                return Some(first.path.clone());
-            }
-        }
-    }
-    detail_path(member).map(|detail| detail.to_string())
-}
-
 /// The card for one run of edit calls, plus the row the caller's live tool row
 /// names (`live_item_id`).
 pub fn edit_card(items: &[EditCardMember<'_>], live_item_id: Option<u64>) -> EditCardView {
     let mut ready: Vec<DiffFile> = Vec::new();
     // An ORDER-PRESERVING map (the JS twin's `Map`): first touch wins the
-    // position, a later settle may still flip the state in place.
+    // position, a later settle may still upgrade the state in place.
     let mut stubs: Vec<(String, EditRowState)> = Vec::new();
-    for member in items {
+    let mut truncated_lines: u32 = 0;
+    let last_id = items.last().map(|member| member.id);
+    // The path the LAST member names — its patch's first file, else its
+    // `detail` — recorded while its patch is parsed once, never re-parsed.
+    let mut last_path: Option<String> = None;
+    for (at, member) in items.iter().enumerate() {
+        let is_last = at + 1 == items.len();
         if let Some(diff) = member_diff(member) {
-            for file in parse_diff(diff).files {
+            let parsed = parse_diff(diff);
+            truncated_lines += parsed.truncated_lines.unwrap_or(0);
+            for file in parsed.files {
                 // A pathless section (hunks with no header) borrows the call's
                 // own subject — the engine names the file in `detail`.
                 let path = if file.path.is_empty() {
@@ -165,29 +172,41 @@ pub fn edit_card(items: &[EditCardMember<'_>], live_item_id: Option<u64>) -> Edi
                 } else {
                     file.path.clone()
                 };
+                if is_last && last_path.is_none() {
+                    last_path = Some(path.clone());
+                }
                 ready.push(if file.path == path {
                     file
                 } else {
                     DiffFile { path, ..file }
                 });
             }
+            if is_last && last_path.is_none() {
+                last_path = detail_path(member).map(str::to_string);
+            }
             continue;
         }
-        let path = match detail_path(member) {
+        let path = detail_path(member);
+        if is_last {
+            last_path = path.map(str::to_string);
+        }
+        let path = match path {
             Some(path) => path,
             None => continue,
         };
-        let state = if member.settled {
+        let state = if member.failed {
             EditRowState::Failed
+        } else if member.settled {
+            EditRowState::Done
         } else {
             EditRowState::Pending
         };
-        // First touch wins the position; a later settle may still flip the
-        // state (a pending call that failed without a patch).
+        // First touch wins the position; a later settle upgrades a pending
+        // stub (pending → done / failed) and never demotes a settled one.
         match stubs.iter_mut().find(|(seen, _)| seen == path) {
             None => stubs.push((path.to_string(), state)),
             Some((_, seen)) => {
-                if state == EditRowState::Failed && *seen == EditRowState::Pending {
+                if *seen == EditRowState::Pending {
                     *seen = state;
                 }
             }
@@ -213,16 +232,16 @@ pub fn edit_card(items: &[EditCardMember<'_>], live_item_id: Option<u64>) -> Edi
         });
     }
     let mut live_index: Option<usize> = None;
-    if let (Some(last), Some(live)) = (items.last(), live_item_id) {
-        if live == last.id {
-            live_index = item_path(last)
-                .and_then(|path| rows.iter().position(|row| row.path == path));
+    if let (Some(last_id), Some(live), Some(path)) = (last_id, live_item_id, last_path.as_deref()) {
+        if live == last_id {
+            live_index = rows.iter().position(|row| row.path == path);
         }
     }
     EditCardView {
         title: edit_card_title(rows.len()),
         rows,
         live_index,
+        truncated_lines,
     }
 }
 
@@ -245,7 +264,7 @@ pub fn edit_card_more_label(count: usize) -> Option<String> {
 }
 
 /// The byte-lock projection of a card: `title | path +a -d | path pending |
-/// path failed | live=path`. Deliberately ASCII (`-d`, unlike
+/// path done | path failed | live=path | truncated=N`. Deliberately ASCII (`-d`, unlike
 /// [`crate::diff::deletions_label`]), like [`crate::diff::render_diff`].
 pub fn render_edit_card(view: &EditCardView) -> String {
     let mut parts: Vec<String> = vec![view.title.clone()];
@@ -260,6 +279,9 @@ pub fn render_edit_card(view: &EditCardView) -> String {
     }
     if let Some(row) = view.live_index.and_then(|at| view.rows.get(at)) {
         parts.push(format!("live={}", row.path));
+    }
+    if view.truncated_lines > 0 {
+        parts.push(format!("truncated={}", view.truncated_lines));
     }
     parts.join(" | ")
 }
@@ -296,6 +318,8 @@ mod tests {
         diff: Option<String>,
         #[serde(default)]
         settled: Option<bool>,
+        #[serde(default)]
+        failed: Option<bool>,
     }
 
     /// A case: the `feed`, an optional `start` (the render window's first
@@ -334,6 +358,7 @@ mod tests {
             detail: item.detail.as_deref(),
             diff: item.diff.as_deref(),
             settled: item.settled.unwrap_or(false),
+            failed: item.failed.unwrap_or(false),
         }
     }
 

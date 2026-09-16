@@ -176,6 +176,8 @@ class EditCardTest {
         assertTrue(names.contains("splits"))
         assertTrue(names.contains("live"))
         assertTrue(names.contains("failed"))
+        assertTrue(names.contains("done"))
+        assertTrue(names.contains("truncated"))
         assertTrue(names.contains("subagent"))
         assertTrue(names.contains("window"))
     }
@@ -202,7 +204,8 @@ class EditCardTest {
         assertEquals(5, EditCard.PREVIEW)
         assertNull(EditCard.editCardMoreLabel(5))
         assertEquals("3 more", EditCard.editCardMoreLabel(8))
-        assertEquals(listOf("edit", "delete", "move"), EditCard.KINDS)
+        // The list is the GENERATED contract constant, never restated here.
+        assertEquals(DomainContract.toolKindEditValues, EditCard.KINDS)
     }
 
     @Test

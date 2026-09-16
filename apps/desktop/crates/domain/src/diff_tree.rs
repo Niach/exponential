@@ -82,25 +82,64 @@ fn new_dir(path: &str, name: &str) -> Building {
     }
 }
 
-fn leaf(file: &DiffFile, index: usize, name: &str) -> DiffTreeNode {
+/// What the builder reads off one row: a path and its two counts. A caller
+/// whose list is NOT a `Vec<DiffFile>` (the desktop pane holds four fields per
+/// row) implements this instead of rebuilding a `DiffFile` per frame.
+pub trait DiffTreeRow {
+    fn path(&self) -> &str;
+    fn additions(&self) -> u32;
+    fn deletions(&self) -> u32;
+}
+
+impl DiffTreeRow for DiffFile {
+    fn path(&self) -> &str {
+        &self.path
+    }
+    fn additions(&self) -> u32 {
+        self.additions
+    }
+    fn deletions(&self) -> u32 {
+        self.deletions
+    }
+}
+
+impl<T: DiffTreeRow> DiffTreeRow for &T {
+    fn path(&self) -> &str {
+        (*self).path()
+    }
+    fn additions(&self) -> u32 {
+        (*self).additions()
+    }
+    fn deletions(&self) -> u32 {
+        (*self).deletions()
+    }
+}
+
+fn leaf(file: &impl DiffTreeRow, index: usize, name: &str) -> DiffTreeNode {
     DiffTreeNode {
         kind: DiffTreeKind::File,
-        path: file.path.clone(),
+        path: file.path().to_string(),
         name: name.to_string(),
-        additions: file.additions,
-        deletions: file.deletions,
+        additions: file.additions(),
+        deletions: file.deletions(),
         files: 1,
         index: Some(index),
         children: Vec::new(),
     }
 }
 
-/// Lower-cased order, then the raw name — portable everywhere. (The JS twin
-/// compares UTF-16 code units and this one code points; they agree on every
-/// path a diff carries, and the fixture locks the agreement.)
+/// Lower-cased order, then the raw name — in UTF-16 CODE UNITS, because the
+/// contract's order is JavaScript's `localeCompare`-free `<` on strings. Rust
+/// compares code points, which disagrees above the BMP (a surrogate pair
+/// starts at U+D800, below every BMP char from U+E000 up), so the comparison
+/// walks `encode_utf16` instead. The fixture locks the agreement.
+fn utf16_cmp(a: &str, b: &str) -> Ordering {
+    a.encode_utf16().cmp(b.encode_utf16())
+}
+
 fn by_name(a: &DiffTreeNode, b: &DiffTreeNode) -> Ordering {
-    match a.name.to_lowercase().cmp(&b.name.to_lowercase()) {
-        Ordering::Equal => a.name.cmp(&b.name),
+    match utf16_cmp(&a.name.to_lowercase(), &b.name.to_lowercase()) {
+        Ordering::Equal => utf16_cmp(&a.name, &b.name),
         other => other,
     }
 }
@@ -145,22 +184,23 @@ fn finish(dir: Building) -> DiffTreeNode {
 
 /// The tree (or, with a non-blank `query`, the flat search result) for one
 /// list of files. Pass `""` for no query.
-pub fn diff_file_tree(files: &[DiffFile], query: &str) -> Vec<DiffTreeNode> {
+pub fn diff_file_tree<T: DiffTreeRow>(files: &[T], query: &str) -> Vec<DiffTreeNode> {
     let needle = query.trim().to_lowercase();
     if !needle.is_empty() {
         let mut out: Vec<DiffTreeNode> = Vec::new();
         for (index, file) in files.iter().enumerate() {
-            if !file.path.to_lowercase().contains(&needle) {
+            if !file.path().to_lowercase().contains(&needle) {
                 continue;
             }
-            let path = file.path.clone();
+            let path = file.path().to_string();
             out.push(leaf(file, index, &path));
         }
         return out;
     }
     let mut root = new_dir("", "");
     for (index, file) in files.iter().enumerate() {
-        let segments: Vec<&str> = file.path.split('/').collect();
+        let path = file.path();
+        let segments: Vec<&str> = path.split('/').collect();
         let mut at = &mut root;
         for i in 0..segments.len() - 1 {
             let name = segments[i];

@@ -12,11 +12,17 @@ import SwiftUI
 /// FLUSH inside the card and separated by hairlines.
 ///
 /// What the card owns:
-/// - the open set. While the run's last call is the transcript's live row, ONLY
-///   that row is open and its body is capped at the contract's inline height;
-///   the moment the transcript moves on (`liveIndex` → nil) every row folds
-///   again. A tap toggles a row IN PLACE — the card never navigates to the
-///   Changes face, and there is no "Revert" and no "Show changes".
+/// - the open set: ONE optional set of paths. `nil` = follow the live row —
+///   while the run's last call is the transcript's live row THAT row is open by
+///   itself, and it folds again the moment the transcript moves on
+///   (`liveIndex` → nil). A tap replaces the default with the READER's own set,
+///   seeded from what is effectively open, so the live row can be collapsed
+///   like any other — and that set survives the settle, because their opens are
+///   theirs. Every open body is capped at the contract's inline height. A tap
+///   toggles a row IN PLACE — the card never navigates to the Changes face, and
+///   there is no "Revert" and no "Show changes".
+/// - the publisher's cut: `truncatedLines` under the rows, the same note a file
+///   list carries, so a card never silently shows a short diff (EXP-786).
 /// - the fold: `diffUi.cardPreviewFiles` rows, then `{n} more` / `Show less`.
 ///   A live row past the preview clamps the card open so the reader can see
 ///   what the agent is writing.
@@ -26,8 +32,9 @@ struct EditedFilesCard: View {
     /// The transcript's live tool row (`AgentFeed.liveToolRowId`), or nil.
     var liveItemId: Int?
 
-    /// Reader overrides on top of the live rule, keyed by path.
-    @State private var openPaths: Set<String> = []
+    /// The reader's OWN open set, or nil while the card still follows the live
+    /// row. A tap seeds it from the effective set and owns it from then on.
+    @State private var readerOpen: Set<String>?
     /// The reader asked for every row.
     @State private var showAll = false
     /// The per-card parse cache — the patches are re-parsed only when the card
@@ -38,11 +45,18 @@ struct EditedFilesCard: View {
 
     var body: some View {
         let view = card
+        let open = openPaths(view)
         VStack(alignment: .leading, spacing: 0) {
             title(view)
-            ForEach(Array(shown(view).enumerated()), id: \.element.path) { index, row in
+            ForEach(shown(view)) { row in
                 GlassDivider()
-                fileRow(row, index: index, live: view.liveIndex)
+                fileRow(row, open: open.contains(row.path))
+            }
+            if view.truncatedLines > 0 {
+                // EXP-786: what the PUBLISHER cut off the members' patches —
+                // the same note a file list carries.
+                GlassDivider()
+                truncationNote(view.truncatedLines)
             }
             if let fold = foldLabel(view) {
                 GlassDivider()
@@ -51,11 +65,6 @@ struct EditedFilesCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
-        .onChange(of: view.liveIndex) { _, now in
-            // The run settled (or the transcript moved past it): the row that
-            // opened itself folds away with it.
-            if now == nil { openPaths = [] }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("edited-files-card")
     }
@@ -75,23 +84,30 @@ struct EditedFilesCard: View {
         .padding(.vertical, 8)
     }
 
-    private func fileRow(_ row: EditCard.Row, index: Int, live: Int?) -> some View {
-        let isLive = live == index
-        return DiffFileCard(
+    private func fileRow(_ row: EditCard.Row, open: Bool) -> some View {
+        DiffFileCard(
             file: row.file ?? Diff.File(path: row.path),
-            expanded: isLive || openPaths.contains(row.path),
+            expanded: open,
             compact: true,
             flush: true,
             state: row.state,
-            maxBodyHeight: isLive ? Self.inlineDiffMaxHeight : nil,
-            onToggle: {
-                if openPaths.contains(row.path) {
-                    openPaths.remove(row.path)
-                } else {
-                    openPaths.insert(row.path)
-                }
-            }
+            // EVERY open patch is capped, not just the live one: a long
+            // file a reader taps open pushes the conversation off screen
+            // exactly as the growing live one would.
+            maxBodyHeight: Self.inlineDiffMaxHeight,
+            onToggle: { toggle(row.path) }
         )
+    }
+
+    /// The publisher's own dropped-line count, ×4 (`AgentFeed`'s note).
+    private func truncationNote(_ lines: Int) -> some View {
+        Text(AgentFeed.diffTruncationNote(lines))
+            .font(.caption2)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("edited-files-truncation-note")
     }
 
     private func foldRow(_ label: String) -> some View {
@@ -110,6 +126,29 @@ struct EditedFilesCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("edited-files-card-fold")
+    }
+
+    // MARK: - The open set
+
+    /// What is effectively open: the reader's set once they have touched the
+    /// card, else the live row alone (and nothing at all once it is gone).
+    private func openPaths(_ view: EditCard.View) -> Set<String> {
+        if let readerOpen { return readerOpen }
+        guard let live = view.liveIndex, view.rows.indices.contains(live)
+        else { return [] }
+        return [view.rows[live].path]
+    }
+
+    /// A tap toggles the path in a COPY of the EFFECTIVE set — so the live row
+    /// can be collapsed like any other, and the reader's opens outlive it.
+    private func toggle(_ path: String) {
+        var next = openPaths(card)
+        if next.contains(path) {
+            next.remove(path)
+        } else {
+            next.insert(path)
+        }
+        readerOpen = next
     }
 
     // MARK: - Rules

@@ -349,21 +349,13 @@ impl Render for PrDiffView {
                 });
             }
 
-            // EXP-916: the ONE way out to GitHub, on every Changes surface.
-            if let Some(url) = issue.pr_url.clone() {
-                github = Some(
-                    crate::controls::ghost_icon_button(
-                        "pr-diff-open-github",
-                        Icon::new(registry::UI_GITHUB),
-                        cx,
-                    )
-                    .tooltip(domain::contract::DIFF_UI_OPEN_ON_GITHUB)
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        crate::settings::open_url(cx, url.clone());
-                    }))
-                    .into_any_element(),
-                );
-            }
+            // EXP-916: the ONE way out to GitHub, on every Changes surface —
+            // the same control the work header carries.
+            github = crate::work_header::github_button(
+                "pr-diff-open-github",
+                issue.pr_url.as_deref(),
+                cx,
+            );
         }
 
         // EXP-889: embedded in an issue tab the work header above IS the

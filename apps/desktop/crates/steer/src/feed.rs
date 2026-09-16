@@ -4726,12 +4726,14 @@ mod edit_card_fixture_tests {
                             detail,
                             diff,
                             settled,
+                            failed,
                             ..
                         } => EditCardMember {
                             id: items[ix].id,
                             detail: detail.as_deref(),
                             diff: diff.as_deref(),
                             settled: *settled,
+                            failed: *failed,
                         },
                         _ => panic!("an edits row holds tool calls only"),
                     })
