@@ -131,6 +131,12 @@ const TASK_MAX_LIFETIME: Duration = Duration::from_secs(600);
 /// picked one of the "clear context" plan options.
 const PLAN_RESTART_PROMPT: &str = "Implement the following plan:";
 
+/// EXP-905: when a turn re-reads the transcript for the conversation's name
+/// besides its end — claude writes the `ai-title` line in the background soon
+/// after the first prompt, so a long first turn would otherwise stay "Chat"
+/// until it finished. Only while no title is known yet.
+const TITLE_EARLY_POLLS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(30)];
+
 pub struct ClaudeAgent {
     spec: AdapterSpec,
 }
@@ -233,6 +239,12 @@ impl ConnectTo<Client> for ClaudeAgent {
                                 transcript
                             };
                             session.replay_history(&spawned, &transcript);
+                            // EXP-905: a LIVE resume keeps the name the
+                            // conversation already has; a read-only replay
+                            // writes no row, so it reads nothing.
+                            if !session.spec.replay {
+                                session.poll_title(&spawned);
+                            }
                             responder.respond(
                                 LoadSessionResponse::new()
                                     .modes(session.mode_state())
@@ -403,6 +415,10 @@ struct ClaudeSession {
     /// tokens, and a viewer left open used to hold a phantom live session.
     live_usage: Mutex<Option<coding::agent_usage::live::Attached>>,
     state: Mutex<State>,
+    /// EXP-905: the incremental reader of the conversation's name out of
+    /// claude's own transcript. Its OWN lock: a poll does file I/O and must
+    /// never hold `state` across it.
+    title: Mutex<TitleTail>,
 }
 
 /// EXP-761: the session's context window, from ONE source per session. The
@@ -875,6 +891,7 @@ impl ClaudeSession {
             account_profile,
             live_usage: Mutex::new(live_usage),
             state: Mutex::new(state),
+            title: Mutex::new(TitleTail::default()),
         }
     }
 
@@ -1304,6 +1321,14 @@ impl ClaudeSession {
         // EXP-758: a cancel that raced this turn's lazy spawn had no child to
         // reach. It does now, and the turn it meant to stop is running.
         self.deliver_pending_interrupt();
+        // EXP-905: a resumed conversation is already named; a fresh one gets
+        // its name shortly after this first prompt.
+        self.schedule_title_poll(cx, Duration::ZERO);
+        if !self.title_known() {
+            for delay in TITLE_EARLY_POLLS {
+                self.schedule_title_poll(cx, delay);
+            }
+        }
         let outcome = rx.recv_async().await.unwrap_or(TurnOutcome::EndTurn);
         match outcome {
             TurnOutcome::EndTurn => Ok(PromptResponse::new(StopReason::EndTurn)),
@@ -3133,6 +3158,11 @@ impl ClaudeSession {
             );
         }
 
+        // EXP-905: every turn end re-reads the transcript's tail for the
+        // conversation's (possibly renamed) title — incrementally, off the
+        // pump.
+        self.schedule_title_poll(cx, Duration::ZERO);
+
         let cancelled = self.lock().cancelled;
         let outcome = wire::turn_outcome(&result, cancelled);
         let mut state = self.lock();
@@ -3579,6 +3609,47 @@ impl ClaudeSession {
     /// the PostToolUse hook can produce).
     /// `session_id` is claude's OWN (the transcript name), not the ACP id
     /// (EXP-784).
+    /// EXP-905: has the conversation been named yet?
+    fn title_known(&self) -> bool {
+        self.title
+            .lock()
+            .map(|tail| tail.published.is_some())
+            .unwrap_or(false)
+    }
+
+    /// EXP-905: [`Self::poll_title`] after `delay`, on a blocking thread (the
+    /// first read of a resumed run's transcript can be megabytes).
+    fn schedule_title_poll(self: &Arc<Self>, cx: &ConnectionTo<Client>, delay: Duration) {
+        let session = self.clone();
+        let out = cx.clone();
+        let _ = cx.spawn(async move {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            let _ = tokio::task::spawn_blocking(move || session.poll_title(&out)).await;
+            Ok(())
+        });
+    }
+
+    /// EXP-905: read what claude appended to its transcript since the last
+    /// poll and publish the conversation's name as a `session_info_update`
+    /// title when it CHANGED. Stream-json never carries the name: claude
+    /// writes it only into the transcript, as `ai-title` lines (re-appended
+    /// as the conversation evolves) and `custom-title` lines (`/rename`).
+    fn poll_title(&self, cx: &ConnectionTo<Client>) {
+        let Some(native) = self.lock().native_session_id.clone() else { return };
+        let changed = {
+            let Ok(mut tail) = self.title.lock() else { return };
+            tail.poll(&native, || transcript_path(&self.spec.spawn.env, &native))
+        };
+        if let Some(title) = changed {
+            self.notify(
+                cx,
+                SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title(title)),
+            );
+        }
+    }
+
     fn replay_history(self: &Arc<Self>, cx: &ConnectionTo<Client>, session_id: &str) {
         let Some(path) = transcript_path(&self.spec.spawn.env, session_id) else {
             log::warn!("engine: no claude transcript for {session_id}");
@@ -4827,6 +4898,107 @@ fn transcript_sessions(env: &[(String, String)], cwd: &Path) -> Vec<SessionInfo>
     rows.into_iter().map(|(_, info)| info).collect()
 }
 
+/// EXP-905: the incremental title reader over ONE claude transcript. Every
+/// poll reads only the bytes appended since the last one (a transcript runs
+/// to megabytes; a per-turn re-read would be quadratic), parses only the
+/// lines that can carry a name, and reports the best name when it changed.
+#[derive(Default)]
+struct TitleTail {
+    /// The native session id the tail follows: a `/clear` moves claude to a
+    /// fresh transcript, and the tail starts over on it.
+    native: Option<String>,
+    path: Option<PathBuf>,
+    /// Bytes consumed so far — always at a line boundary.
+    offset: u64,
+    /// The latest `ai-title` and `custom-title` seen.
+    ai: Option<String>,
+    custom: Option<String>,
+    /// The name last reported, so an unchanged one reports nothing.
+    published: Option<String>,
+}
+
+impl TitleTail {
+    /// `locate` resolves the transcript lazily (claude creates it only once
+    /// the conversation has content). Returns the name to publish, if it
+    /// changed.
+    fn poll(&mut self, native: &str, locate: impl FnOnce() -> Option<PathBuf>) -> Option<String> {
+        if self.native.as_deref() != Some(native) {
+            self.native = Some(native.to_string());
+            self.path = None;
+            self.offset = 0;
+            self.ai = None;
+            self.custom = None;
+        }
+        if self.path.is_none() {
+            self.path = locate();
+        }
+        let path = self.path.clone()?;
+        if let Err(error) = self.read_from(&path) {
+            log::debug!("engine: claude transcript title read failed: {error}");
+        }
+        // A `/rename` is the user's word and outranks the model's guess.
+        let best = self.custom.clone().or_else(|| self.ai.clone())?;
+        if self.published.as_deref() == Some(best.as_str()) {
+            return None;
+        }
+        self.published = Some(best.clone());
+        Some(best)
+    }
+
+    fn read_from(&mut self, path: &Path) -> std::io::Result<()> {
+        use std::io::{BufRead, Seek, SeekFrom};
+        let mut file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        if len < self.offset {
+            // Rewritten shorter underneath us: start over.
+            self.offset = 0;
+            self.ai = None;
+            self.custom = None;
+        }
+        if len == self.offset {
+            return Ok(());
+        }
+        file.seek(SeekFrom::Start(self.offset))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let read = reader.read_until(b'\n', &mut line)?;
+            // EOF, or a line claude is still writing: consume it next time.
+            if read == 0 || line.last() != Some(&b'\n') {
+                break;
+            }
+            self.offset += read as u64;
+            self.note_line(&line);
+        }
+        Ok(())
+    }
+
+    fn note_line(&mut self, line: &[u8]) {
+        const AI: &[u8] = b"\"ai-title\"";
+        const CUSTOM: &[u8] = b"\"custom-title\"";
+        let has = |needle: &[u8]| line.windows(needle.len()).any(|window| window == needle);
+        // Cheap byte pre-filter: almost every line is a message, and only a
+        // title line is worth a JSON parse.
+        if !has(AI) && !has(CUSTOM) {
+            return;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(line) else { return };
+        let (slot, key) = match value.get("type").and_then(Value::as_str) {
+            Some("ai-title") => (&mut self.ai, "aiTitle"),
+            Some("custom-title") => (&mut self.custom, "customTitle"),
+            _ => return,
+        };
+        if let Some(title) = value
+            .get(key)
+            .and_then(Value::as_str)
+            .and_then(steer::normalize_agent_title)
+        {
+            *slot = Some(title);
+        }
+    }
+}
+
 /// The transcript's own cwd and a title, read from its first few lines (a
 /// transcript can be megabytes; the head carries both).
 fn transcript_head(path: &Path) -> (Option<String>, Option<String>) {
@@ -4878,6 +5050,93 @@ mod tests {
 
     /// EXP-847: the subagent chip's title is the spawning call's own
     /// `description`, its `name` second, nothing when it named neither.
+    fn title_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "exp905-title-{name}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn append(path: &Path, text: &str) {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+        file.write_all(text.as_bytes()).unwrap();
+    }
+
+    /// EXP-905: the LATEST `ai-title` names the conversation (claude
+    /// re-appends it as the conversation evolves), a `custom-title` outranks
+    /// it, and an unchanged name reports nothing.
+    #[test]
+    fn the_latest_ai_title_wins_and_a_custom_title_outranks_it() {
+        let dir = title_dir("latest");
+        let path = dir.join("s1.jsonl");
+        let body = [
+            json!({ "type": "user", "message": { "role": "user", "content": "the \"ai-title\" word in a prompt" } }),
+            json!({ "type": "ai-title", "aiTitle": "First  guess", "sessionId": "s1" }),
+            json!({ "type": "assistant", "message": { "id": "m1", "content": [] } }),
+            json!({ "type": "ai-title", "aiTitle": "Better\nguess", "sessionId": "s1" }),
+        ]
+        .iter()
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+        append(&path, &body);
+        let mut tail = TitleTail::default();
+        assert_eq!(tail.poll("s1", || Some(path.clone())).as_deref(), Some("Better guess"));
+        assert_eq!(tail.poll("s1", || Some(path.clone())), None, "unchanged");
+
+        append(&path, &format!("{}\n", json!({ "type": "custom-title", "customTitle": "Mine", "sessionId": "s1" })));
+        assert_eq!(tail.poll("s1", || Some(path.clone())).as_deref(), Some("Mine"));
+        // A later model guess never overrides the user's own name.
+        append(&path, &format!("{}\n", json!({ "type": "ai-title", "aiTitle": "Third guess", "sessionId": "s1" })));
+        assert_eq!(tail.poll("s1", || Some(path.clone())), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// EXP-905: each poll reads only what was appended, never consumes a
+    /// half-written line, and starts over on a `/clear`'s new transcript.
+    #[test]
+    fn the_title_tail_reads_incrementally_from_its_offset() {
+        let dir = title_dir("offset");
+        let path = dir.join("s1.jsonl");
+        let mut tail = TitleTail::default();
+        // No transcript yet: nothing, and the locator is retried next poll.
+        assert_eq!(tail.poll("s1", || None), None);
+
+        let first = format!("{}\n", json!({ "type": "user", "message": { "content": "hi" } }));
+        append(&path, &first);
+        assert_eq!(tail.poll("s1", || Some(path.clone())), None);
+        assert_eq!(tail.offset, first.len() as u64);
+
+        // A title line claude is still writing: not consumed yet.
+        let line = json!({ "type": "ai-title", "aiTitle": "Split write", "sessionId": "s1" }).to_string();
+        let (head, rest) = line.split_at(20);
+        append(&path, head);
+        assert_eq!(tail.poll("s1", || unreachable!("the path is cached")), None);
+        assert_eq!(tail.offset, first.len() as u64);
+        append(&path, &format!("{rest}\n"));
+        assert_eq!(tail.poll("s1", || unreachable!()).as_deref(), Some("Split write"));
+        assert_eq!(tail.offset, std::fs::metadata(&path).unwrap().len());
+
+        // Bytes before the offset are never re-read: a title planted there
+        // (by rewriting the prefix in place, same length) is not seen.
+        let mut bytes = std::fs::read(&path).unwrap();
+        let planted = format!("{}\n", json!({ "type": "ai-title", "aiTitle": "Zz" }));
+        assert!(planted.len() <= first.len());
+        let padded = format!("{}{}\n", &planted[..planted.len() - 1], " ".repeat(first.len() - planted.len()));
+        bytes.splice(0..first.len(), padded.bytes());
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(tail.poll("s1", || unreachable!()), None);
+
+        // `/clear`: a new native id follows its own transcript from zero.
+        let other = dir.join("s2.jsonl");
+        append(&other, &format!("{}\n", json!({ "type": "ai-title", "aiTitle": "Fresh start" })));
+        assert_eq!(tail.poll("s2", || Some(other.clone())).as_deref(), Some("Fresh start"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn a_task_title_prefers_the_description() {
         assert_eq!(

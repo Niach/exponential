@@ -989,6 +989,11 @@ pub(crate) struct SessionCtx {
     /// precedence rule). Moved by [`SessionCtx::deliver`] off the `workflow`
     /// events the mapper emits, and cleared at every turn end.
     pub(crate) caption_signal: Arc<steer::CaptionSignal>,
+    /// EXP-905: the agent's own conversation name (claude's transcript
+    /// `ai-title`, codex's thread name), normalised — the synced
+    /// `agent_title` column's one input. Moved by [`SessionCtx::deliver`] off
+    /// `MapOut::agent_title`; never cleared.
+    pub(crate) agent_title: Arc<steer::AgentTitleSignal>,
     /// EXP-850 §3: the workflow cards this run has published, folded by id
     /// (newest frame per id, oldest evicted past
     /// [`steer::journal::JOURNAL_WORKFLOW_CAP`]) — the caption's only input.
@@ -1311,6 +1316,9 @@ impl SessionCtx {
                 self.terminals.bind(terminal_id, tool_call_id);
             }
             self.feed.emit(self.local_sink.as_ref(), event);
+        }
+        if let Some(title) = out.agent_title {
+            self.agent_title.set(Some(title));
         }
         if let Some(pending) = out.needs_input {
             self.needs_input.store(pending, Ordering::SeqCst);

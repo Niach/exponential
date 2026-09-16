@@ -894,6 +894,12 @@ export const codingSessions = pgTable(
     // path clears alongside `agent_busy`. Capped at the contract's
     // `steerWorking.previewMax` (160) by the writer, never a story.
     agentCaption: text(`agent_caption`),
+    // EXP-905: the device-written title the agent CLI auto-names the run with
+    // (claude's transcript `ai-title` entry, codex's thread name). NULL = not
+    // named yet. A CHAT run's identity reads it as its subject (else `Chat`);
+    // issue/action/batch runs keep their names. Unlike `agent_caption` it is
+    // NOT cleared at end: an ended chat keeps its name.
+    agentTitle: varchar(`agent_title`, { length: 255 }),
     // EXP-804: the agent's usage wall as row state. NULL = not blocked. The
     // run stays `running` — a blocked run is still live, steerable and
     // killable; this is orthogonal to status, like `needs_input` above.

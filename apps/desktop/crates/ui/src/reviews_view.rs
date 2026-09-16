@@ -568,12 +568,10 @@ impl ReviewsView {
             Some(number) => format!("#{number}"),
             None => String::new(),
         };
-        // A chat run has no action behind it — web/mobile label it "Chat".
-        let title = run
-            .action_name
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "Chat".to_string());
+        // A chat run has no action behind it — web/mobile label it with the
+        // agent's auto-named title, else "Chat" (EXP-908).
+        let title = domain::batch_run::action_run_subject(run)
+            .unwrap_or_else(|| domain::batch_run::CHAT_RUN_NAME.to_string());
         let sub = run
             .branch
             .clone()

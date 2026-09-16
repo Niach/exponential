@@ -868,6 +868,92 @@ impl Default for CaptionForwarder {
     }
 }
 
+/// EXP-905: the `coding_sessions.agent_title` column's bound. Counted in
+/// UTF-16 units, the server's zod `max(255)` unit (never looser than the
+/// column's own character count), so a capped title is never refused.
+pub const AGENT_TITLE_MAX: usize = 255;
+
+/// EXP-905: how long a FAILED title write waits before it is retried. A title
+/// moves a handful of times per run, so a transport hiccup must not turn the
+/// 1 s ticker into a request per second.
+pub const AGENT_TITLE_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+
+/// EXP-905: the ONE title normaliser — trim, collapse every whitespace run
+/// (newlines included) to one space, cap at [`AGENT_TITLE_MAX`] UTF-16 units
+/// on a char boundary. `None` for a title that is blank once normalised.
+pub fn normalize_agent_title(raw: &str) -> Option<String> {
+    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    let mut units = 0;
+    let capped = collapsed
+        .chars()
+        .take_while(|ch| {
+            units += ch.len_utf16();
+            units <= AGENT_TITLE_MAX
+        })
+        .collect::<String>();
+    Some(capped.trim_end().to_string())
+}
+
+/// EXP-905: the in-process agent title of a run hosted here (what the mapper
+/// last learned), shared with the forwarder and any in-process reader.
+pub type AgentTitleSignal = CaptionSignal;
+
+pub type AgentTitleHook = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
+/// EXP-905: the agent-title forwarder. Writes only on CHANGE, only ever a
+/// title (never a clear: the name outlives the run, so there is no teardown
+/// write either), and retries a failed write after
+/// [`AGENT_TITLE_RETRY_INTERVAL`] — or at once when the title moves again.
+pub struct AgentTitleForwarder {
+    forwarded: Option<String>,
+    failed: Option<(String, Instant)>,
+}
+
+impl AgentTitleForwarder {
+    pub fn new() -> Self {
+        Self {
+            forwarded: None,
+            failed: None,
+        }
+    }
+
+    pub fn tick(&mut self, title: Option<&str>, hook: &Option<AgentTitleHook>) {
+        self.tick_at(Instant::now(), title, hook)
+    }
+
+    /// [`Self::tick`] with the clock injected.
+    pub fn tick_at(&mut self, now: Instant, title: Option<&str>, hook: &Option<AgentTitleHook>) {
+        let Some(title) = title else { return };
+        if self.forwarded.as_deref() == Some(title) {
+            return;
+        }
+        if let Some((failed, at)) = &self.failed {
+            if failed == title && now < *at + AGENT_TITLE_RETRY_INTERVAL {
+                return;
+            }
+        }
+        let landed = match hook {
+            Some(hook) => hook(title),
+            None => true,
+        };
+        if landed {
+            self.forwarded = Some(title.to_string());
+            self.failed = None;
+        } else {
+            self.failed = Some((title.to_string(), now));
+        }
+    }
+}
+
+impl Default for AgentTitleForwarder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// EXP-637: how long an agent-declared end waits for the turn to finish
 /// before it tears down anyway. Generous: the wait costs nothing while the
 /// agent is still producing the output the user wants to read, and the
@@ -1987,5 +2073,73 @@ mod exp850_caption_tests {
         landed.store(true, Ordering::Relaxed);
         forwarder.clear_on_teardown(&hook);
         assert_eq!(writes.lock().unwrap().last().cloned(), Some(None));
+    }
+}
+
+#[cfg(test)]
+mod exp905_agent_title_tests {
+    use super::*;
+
+    #[test]
+    fn the_title_normaliser_trims_collapses_and_caps_on_a_char_boundary() {
+        assert_eq!(
+            normalize_agent_title("  Fix the\n\tflaky   login test ").as_deref(),
+            Some("Fix the flaky login test")
+        );
+        assert_eq!(normalize_agent_title(" \n\t "), None);
+        assert_eq!(normalize_agent_title(""), None);
+        // 300 multi-byte chars cap at 255, never mid-codepoint.
+        let long = "\u{e9}".repeat(300);
+        let capped = normalize_agent_title(&long).unwrap();
+        assert_eq!(capped, "\u{e9}".repeat(AGENT_TITLE_MAX));
+        // An astral char is TWO UTF-16 units (the server's zod unit): 200
+        // emoji keep 127 whole ones (254 units), never half a pair.
+        let emoji = "\u{1f680}".repeat(200);
+        let capped = normalize_agent_title(&emoji).unwrap();
+        assert_eq!(capped, "\u{1f680}".repeat(127));
+        assert!(capped.encode_utf16().count() <= AGENT_TITLE_MAX);
+    }
+
+    /// EXP-905: one write per change, never a clear, and a failed write waits
+    /// out the retry interval unless the title moves again.
+    #[test]
+    fn the_title_forwarder_dedupes_never_clears_and_backs_off_a_failure() {
+        let writes: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let landed = Arc::new(AtomicBool::new(true));
+        let hook: Option<AgentTitleHook> = {
+            let writes = Arc::clone(&writes);
+            let landed = Arc::clone(&landed);
+            Some(Arc::new(move |title: &str| {
+                writes.lock().unwrap().push(title.to_string());
+                landed.load(Ordering::Relaxed)
+            }))
+        };
+        let mut forwarder = AgentTitleForwarder::new();
+        let start = Instant::now();
+        forwarder.tick_at(start, None, &hook);
+        assert!(writes.lock().unwrap().is_empty());
+        forwarder.tick_at(start, Some("one"), &hook);
+        forwarder.tick_at(start, Some("one"), &hook);
+        // `None` (nothing known) never clears what landed.
+        forwarder.tick_at(start, None, &hook);
+        assert_eq!(writes.lock().unwrap().clone(), vec!["one".to_string()]);
+
+        landed.store(false, Ordering::Relaxed);
+        forwarder.tick_at(start, Some("two"), &hook);
+        // Inside the retry interval: silent.
+        forwarder.tick_at(start + Duration::from_secs(1), Some("two"), &hook);
+        assert_eq!(writes.lock().unwrap().len(), 2);
+        // A NEW title goes out at once.
+        forwarder.tick_at(start + Duration::from_secs(2), Some("three"), &hook);
+        assert_eq!(writes.lock().unwrap().len(), 3);
+        // Past the interval the failed one is retried and lands.
+        landed.store(true, Ordering::Relaxed);
+        let later = start + Duration::from_secs(2) + AGENT_TITLE_RETRY_INTERVAL;
+        forwarder.tick_at(later, Some("three"), &hook);
+        forwarder.tick_at(later, Some("three"), &hook);
+        assert_eq!(
+            writes.lock().unwrap().clone(),
+            vec!["one", "two", "three", "three"]
+        );
     }
 }

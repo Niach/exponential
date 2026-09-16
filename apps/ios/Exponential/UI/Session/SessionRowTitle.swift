@@ -122,6 +122,8 @@ func sessionRowTitle(
     batchIssues: [IssueEntity] = []
 ) -> String {
     if issue == nil, session.issueId == nil {
+        // EXP-905: a chat run reads its agent's auto-title, else "Chat".
+        if let chat = PastRuns.chatSubject(session) { return chat }
         return session.actionName ?? BatchRun.name(session, issues: batchIssues).subject
     }
     let title = issue?.title ?? ""

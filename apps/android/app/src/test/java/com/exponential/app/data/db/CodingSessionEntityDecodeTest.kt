@@ -377,4 +377,31 @@ class CodingSessionEntityDecodeTest {
         assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent_account\": null")).agentAccount)
         assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentAccount)
     }
+
+    // EXP-905: agent_title — the agent CLI's own auto-title for the run. A
+    // pre-EXP-905 server sends no key at all, which must read as null.
+    @Test
+    fun `agent_title decodes from both wire forms and defaults null`() {
+        fun row(extra: String) = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running"$extra,
+              "started_at": "2026-09-16 10:00:00+00",
+              "created_at": "2026-09-16 10:00:00+00",
+              "updated_at": "2026-09-16 10:00:00+00"
+            }
+        """.trimIndent()
+        assertEquals(
+            "Fix login flow",
+            json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent_title\": \"Fix login flow\"")).agentTitle,
+        )
+        assertEquals(
+            "Refactor sync",
+            json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agentTitle\": \"Refactor sync\"")).agentTitle,
+        )
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent_title\": null")).agentTitle)
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentTitle)
+    }
 }

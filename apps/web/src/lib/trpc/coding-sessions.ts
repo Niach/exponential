@@ -1295,6 +1295,56 @@ export const codingSessionsRouter = router({
       return { updated: updated.length > 0 }
     }),
 
+  // EXP-905: the title the agent CLI auto-names the run with (claude's
+  // transcript `ai-title` entry, codex's thread name). A chat run's identity
+  // reads it as its subject on every client. Same rails as setAgentCaption:
+  // owner-or-host only, live statuses only (an ended row keeps whatever title
+  // it had), blank = null, a refused write is a silent `updated: false`.
+  setAgentTitle: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        title: z.string().max(255).nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
+          status: codingSessions.status,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.id))
+        .limit(1)
+
+      if (!existing) return { updated: false }
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the session owner can update it`,
+        })
+      }
+
+      const title = input.title?.trim() ? input.title.trim() : null
+
+      const updated = await ctx.db
+        .update(codingSessions)
+        .set({ agentTitle: title })
+        .where(
+          and(
+            eq(codingSessions.id, input.id),
+            inArray(codingSessions.status, [`running`, `in_review`])
+          )
+        )
+        .returning({ id: codingSessions.id })
+
+      return { updated: updated.length > 0 }
+    }),
+
   // EXP-804: the agent's usage wall as ROW STATE. A walled run keeps status
   // `running` and a moving `updated_at` — it is still live, steerable and
   // killable — so without this column a rate-limited run is indistinguishable

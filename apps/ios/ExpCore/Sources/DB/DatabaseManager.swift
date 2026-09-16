@@ -416,6 +416,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // §7 sentence), device-written and cleared by every server end
                 // path — the second line of every session list row.
                 t.column("agent_caption", .text)
+                // EXP-905: the agent CLI's own auto-title for the run,
+                // device-written — a chat run's subject.
+                t.column("agent_title", .text)
                 // EXP-804: the agent's usage wall as row state (raw jsonb
                 // text, NULL = not blocked). A blocked run still reads
                 // `running`, so this is what tells a walled run from a
@@ -1665,6 +1668,28 @@ public final class DatabaseManager: @unchecked Sendable {
             if !existing.contains("agent_account") {
                 try db.alter(table: "coding_sessions") { t in
                     t.add(column: "agent_account", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v44 (EXP-905): `coding_sessions.agent_title` rides the coding-sessions
+        // shape — the title the agent CLI auto-names a run with, a chat run's
+        // subject. Same additive-ALTER-then-refetch shape as v37's
+        // `agent_caption` (shape key 'coding-sessions' WITH A DASH).
+        migrator.registerMigration("v44_coding_session_agent_title") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("agent_title") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "agent_title", .text)
                 }
             }
             // Force a re-snapshot so already-synced rows pick up the column.

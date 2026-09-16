@@ -19,6 +19,11 @@ import {
   boardCollection,
 } from "@/lib/collections"
 import { CommentComposer } from "@/components/comment-composer"
+import {
+  issueMemoryOwner,
+  readTabMemory,
+  writeTabMemory,
+} from "@/lib/work-tab-memory"
 import { EventRow } from "@/components/comment-rows/event"
 import {
   RegularCommentRow,
@@ -116,7 +121,15 @@ export function IssueTimeline({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   // EXP-741: the top-level card whose inline reply composer is open (one at
   // a time, like the edit form).
-  const [replyingToId, setReplyingToId] = useState<string | null>(null)
+  // EXP-894: remembered across a work-tab switch, like the drafts.
+  const memoryOwner = issueMemoryOwner(issue.id)
+  const [replyingToId, setReplyingToIdState] = useState<string | null>(
+    () => readTabMemory<string>(memoryOwner, `replyingTo`) ?? null
+  )
+  const setReplyingToId = (id: string | null) => {
+    setReplyingToIdState(id)
+    writeTabMemory(memoryOwner, `replyingTo`, id)
+  }
 
   const list = (comments ?? []) as Comment[]
   // EXP-741: replies ride inside their parent's card, so only top-level
@@ -303,6 +316,7 @@ export function IssueTimeline({
             issueId={issue.id}
             users={users}
             onSubmit={handleSubmit}
+            draft={{ owner: memoryOwner, slot: `comment` }}
           />
         </div>
       )}

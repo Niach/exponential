@@ -9,8 +9,10 @@
 //!
 //! One panel: a compact chip strip over content swapped on the per-window
 //! [`Navigation`] state. The heavyweight views (issue detail, file viewer,
-//! …) stay single instances re-pointed on tab switch — tabs remember *what*
-//! is open, not per-tab view state. Closing the active tab activates its
+//! …) stay single instances re-pointed on tab switch; EXP-894: what a switch
+//! would lose there (comment/reply drafts, scroll) is stashed per tab by the
+//! view itself (`crate::tab_state` documents why not one view per tab), and
+//! a session tab keeps its own view outright. Closing the active tab activates its
 //! neighbor; closing the last shows the empty state. A
 //! team switch drops all tabs (they are team-scoped). Tabs that don't fit
 //! the strip collapse into a "+N" overflow menu (EXP-288).
@@ -1413,6 +1415,11 @@ impl ScreensPanel {
             // EXP-746: the session views go with their tabs (a dropped tab
             // must not keep a relay socket or an engine drain alive).
             self.shutdown_all_sessions(cx);
+            // EXP-894: the per-tab drafts go with their tabs.
+            self.issue_detail
+                .update(cx, |detail, _| detail.clear_tab_states());
+            self.support_thread
+                .update(cx, |thread, _| thread.clear_tab_states());
             // The sidebar selections are team-scoped too (trunk-relative
             // paths / commit hashes of the OLD team's clone).
             self.rail.update(cx, |rail, cx| {
@@ -2323,6 +2330,15 @@ impl ScreensPanel {
     /// EXP-877: no dismissal is recorded, because a LIVE tab cannot get here
     /// — [`Self::close_tab`] refuses one and the bulk closes skip them.
     fn forget_tab(&mut self, tab: &TabEntry, cx: &mut gpui::Context<Self>) {
+        // EXP-894: a closed tab's stashed drafts (`crate::tab_state`) go too.
+        if let Some(issue_id) = &tab.issue_id {
+            self.issue_detail
+                .update(cx, |detail, _| detail.forget_tab_state(issue_id));
+        }
+        if let Screen::SupportThread { thread_id } = &tab.screen {
+            self.support_thread
+                .update(cx, |thread, _| thread.forget_tab_state(thread_id));
+        }
         self.shutdown_session_view(&tab.screen, cx);
         if let Some(run_id) = &tab.run_id {
             self.shutdown_session_view(
@@ -2399,8 +2415,6 @@ impl ScreensPanel {
     /// them as their 16px-rem pixel values inflated every chip. The one
     /// genuine pixel constant is the title's `max_w`.
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
-        /// `surface::rich_tab`'s `pl(8) + pr(4)`.
-        const CHIP_PADDING_PX: f32 = 8. + 4.;
         /// The caller-appended 24px ghost × (and the undock beside it).
         const XSMALL_BUTTON_PX: f32 = 24.;
         /// The trailing button cluster's own `gap_0p5`.
@@ -2449,8 +2463,11 @@ impl ScreensPanel {
             });
         }
 
+        // EXP-905: `surface::rich_tab`'s padding pair — `8 + 4` beside a ×,
+        // `8 + 8` on a live chip that carries none.
+        let (pad_left, pad_right) = crate::surface::rich_tab_padding(!entry.live);
         let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
-        (CHIP_PADDING_PX + gaps + children.into_iter().sum::<f32>())
+        (pad_left + pad_right + gaps + children.into_iter().sum::<f32>())
             .min(crate::surface::RICH_TAB_MAX_W)
     }
 
@@ -2699,6 +2716,8 @@ impl ScreensPanel {
         };
         tab.identifier = content.identifier;
         tab.title = content.title;
+        // EXP-905: a live chip has no × cluster — even padding both sides.
+        tab.closable = !live;
         crate::surface::rich_tab(tab, cx)
             .group(TAB_GROUP)
             // Tab activation re-selects the tab's origin sidebar entry, then

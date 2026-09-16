@@ -15,6 +15,7 @@ function session(over: {
   actionName?: string | null
   batchIssueIds?: string[] | null
   branch?: string | null
+  agentTitle?: string | null
   status?: string
   needsInput?: boolean
 }) {
@@ -24,6 +25,7 @@ function session(over: {
     actionName: over.actionName ?? null,
     batchIssueIds: over.batchIssueIds ?? null,
     branch: over.branch ?? null,
+    agentTitle: over.agentTitle ?? null,
     status: over.status ?? `running`,
     needsInput: over.needsInput ?? false,
   } as never
@@ -75,6 +77,39 @@ describe(`sessionIdentity`, () => {
     expect(
       sessionIdentity({ session: session({ actionName: `Chat` }), issue: undefined })
     ).toEqual({ identifier: null, subject: `Chat` })
+  })
+
+  it(`names a chat run after its agent-set title (EXP-905)`, () => {
+    expect(
+      sessionIdentity({
+        session: session({ actionName: `Chat`, agentTitle: `  Fix tab padding ` }),
+        issue: undefined,
+      })
+    ).toEqual({ identifier: null, subject: `Fix tab padding` })
+  })
+
+  it(`falls back to Chat on a blank agent title`, () => {
+    expect(
+      sessionIdentity({
+        session: session({ actionName: `Chat`, agentTitle: `   ` }),
+        issue: undefined,
+      })
+    ).toEqual({ identifier: null, subject: `Chat` })
+  })
+
+  it(`ignores an agent title on non-chat runs`, () => {
+    expect(
+      sessionIdentity({
+        session: session({ actionName: `Deploy`, actionId: `a1`, agentTitle: `x` }),
+        issue: undefined,
+      })
+    ).toEqual({ identifier: null, subject: `Deploy` })
+    expect(
+      sessionIdentity({
+        session: session({ issueId: `i1`, agentTitle: `x` }),
+        issue: { identifier: `EXP-1`, title: `Ship it` },
+      })
+    ).toEqual({ identifier: `EXP-1`, subject: `Ship it` })
   })
 
   it(`keeps an action's name snapshot`, () => {

@@ -614,6 +614,13 @@ pub struct CodingSession {
     /// nothing to say (no workflow runs, or the row predates the column).
     #[serde(default)]
     pub agent_caption: Option<String>,
+    /// EXP-908: device-written like `agent_caption` — the title the agent
+    /// CLI auto-named the run with (≤255 chars). Only a CHAT run reads it: its
+    /// subject is `agent_title.trim()` when non-empty, else `Chat`
+    /// ([`crate::batch_run::action_run_subject`]). `None` = not named yet, or
+    /// the row predates the column.
+    #[serde(default)]
+    pub agent_title: Option<String>,
     /// EXP-804 jsonb `{kind, agent, window, resetsAt, since}` — the agent's
     /// usage wall as row state; `None` = not blocked. Orthogonal to `status`
     /// exactly like `needs_input` above: a blocked run still reads `running`

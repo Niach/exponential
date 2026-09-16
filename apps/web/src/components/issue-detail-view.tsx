@@ -6,6 +6,8 @@ import { conceptIcon, useIsMobile, Pill, type SessionDotTone } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
+import { issueMemoryOwner } from "@/lib/work-tab-memory"
+import { useRememberedScroll } from "@/hooks/use-remembered-scroll"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssueDescriptionText,
@@ -144,6 +146,8 @@ export function IssueDetailView({
   const isMobile = useIsMobile()
 
   const editorRef = useRef<MarkdownEditorRef>(null)
+  // EXP-894: the body comes back where it was left after a work-tab switch.
+  const bodyScrollRef = useRememberedScroll(issueMemoryOwner(issue.id), `scroll`)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
   // Two baselines in two coordinate systems, both always normalized. The
   // editor re-serializes whatever it parses, and markdown authored on other
@@ -656,7 +660,10 @@ export function IssueDetailView({
             scrolls clear of it instead of ending under the glass
             (`MOBILE_WORK_BAR_CLEARANCE`); the tab bar itself is hidden on this
             route, so nothing else is reserved here. */}
-        <div className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}>
+        <div
+          ref={bodyScrollRef}
+          className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
+        >
           {propsTray(false)}
           {titleField}
           {editor}
@@ -668,6 +675,7 @@ export function IssueDetailView({
         </div>
         {currentUserId && (
           <IssueDetailMobileBar
+            key={issue.id}
             issueId={issue.id}
             users={users}
             propertiesNode={mobilePropertiesPanel}
@@ -720,7 +728,7 @@ export function IssueDetailView({
       />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto">
             <div className={WORK_COLUMN_CLASS}>
               {editor}
               {attachmentError}

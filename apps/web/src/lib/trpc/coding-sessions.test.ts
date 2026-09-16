@@ -1294,6 +1294,80 @@ describe(`codingSessions.setAgentCaption — working caption (EXP-850)`, () => {
   })
 })
 
+// EXP-905: the title the agent CLI names a run with (a chat run's subject ×4)
+// — the setAgentCaption rails once more.
+describe(`codingSessions.setAgentTitle — agent-named title (EXP-905)`, () => {
+  it(`writes exactly agent_title on a live owned row, trimmed`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    const result = await caller.setAgentTitle({
+      id: SESSION_ID,
+      title: `  Fix the tab padding  `,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual({ agentTitle: `Fix the tab padding` })
+    const shape = whereShape(updateWheres[0]).flat()
+    expect(shape).toContain(`running`)
+    expect(shape).toContain(`in_review`)
+    expect(shape).not.toContain(`ended`)
+  })
+
+  it(`clears it on a host-written row`, async () => {
+    selectResults.push([
+      { userId: `someone-else`, hostUserId: `actor`, status: `in_review` },
+    ])
+
+    const result = await caller.setAgentTitle({ id: SESSION_ID, title: null })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({ agentTitle: null })
+  })
+
+  it(`stores a blank title as null`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    await caller.setAgentTitle({ id: SESSION_ID, title: `   ` })
+
+    expect(updates[0]!.values).toEqual({ agentTitle: null })
+  })
+
+  it(`refuses a title past 255 chars`, async () => {
+    const error = await rejectionOf(
+      caller.setAgentTitle({ id: SESSION_ID, title: `x`.repeat(256) })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`reports a swept row without writing`, async () => {
+    selectResults.push([])
+
+    const result = await caller.setAgentTitle({
+      id: SESSION_ID,
+      title: `Some title`,
+    })
+
+    expect(result).toEqual({ updated: false })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`refuses a non-owner`, async () => {
+    selectResults.push([{ userId: `someone-else`, status: `running` }])
+
+    const error = await rejectionOf(
+      caller.setAgentTitle({ id: SESSION_ID, title: `Some title` })
+    )
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+})
+
 // ── Shared-device attribution (EXP-432) ──────────────────────────────────────
 // The daemon owner (the caller) may hand the row's ownership to the teammate
 // who requested the run — but only when their OWN device row says they shared

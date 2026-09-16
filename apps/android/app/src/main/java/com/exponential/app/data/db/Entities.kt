@@ -340,6 +340,10 @@ data class CodingSessionEntity(
     // which is every run that is not inside a workflow. Session list rows
     // render it as their SECOND line, before the device byline.
     @ColumnInfo(name = "agent_caption") @SerialName("agent_caption") @JsonNames("agentCaption") val agentCaption: String? = null,
+    // EXP-905: the title the agent CLI (Claude Code / codex) auto-named the
+    // run with, device-written like agentCaption. A CHAT run's subject
+    // (`chatRunSubject`); NULL = the agent has not named it (yet).
+    @ColumnInfo(name = "agent_title") @SerialName("agent_title") @JsonNames("agentTitle") val agentTitle: String? = null,
     // EXP-804: the agent's usage wall as row state, kept as the raw jsonb
     // TEXT off the wire (`{kind, agent, window, resetsAt, since}`) exactly
     // like DeviceEntity.agentUsage; NULL = not blocked. Orthogonal to

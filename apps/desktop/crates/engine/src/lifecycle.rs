@@ -498,6 +498,9 @@ fn spawn_tickers(
             // moves several times a second and this is a list's second line.
             let mut caption = steer::CaptionForwarder::new();
             let mut blocked = steer::BlockedForwarder::new();
+            // EXP-905: the synced `agent_title` column — on change only,
+            // never cleared (the name outlives the run, so no teardown write).
+            let mut agent_title = steer::AgentTitleForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
             let hook: Option<steer::NeedsInputHook> = {
                 let trpc = Arc::clone(&ctx.trpc);
@@ -525,6 +528,13 @@ fn spawn_tickers(
                 let session_id = ctx.session_id.clone();
                 Some(Arc::new(move |caption: Option<&str>| {
                     api::coding_sessions::set_agent_caption(&trpc, &session_id, caption).is_ok()
+                }))
+            };
+            let title_hook: Option<steer::AgentTitleHook> = {
+                let trpc = Arc::clone(&ctx.trpc);
+                let session_id = ctx.session_id.clone();
+                Some(Arc::new(move |title: &str| {
+                    api::coding_sessions::set_agent_title(&trpc, &session_id, Some(title)).is_ok()
                 }))
             };
             // EXP-804: the same shape as the needs-input hook — a failed
@@ -560,6 +570,10 @@ fn spawn_tickers(
                 {
                     let held = ctx.caption_signal.get();
                     caption.tick(held.as_deref(), &caption_hook);
+                }
+                {
+                    let title = ctx.agent_title.get();
+                    agent_title.tick(title.as_deref(), &title_hook);
                 }
                 {
                     // EXP-831 follow-up: a wall whose own reset stamp has
@@ -604,6 +618,9 @@ fn spawn_tickers(
             // EXP-850 §8: a run whose engine is gone runs no workflow either.
             caption.clear_on_teardown(&caption_hook);
             blocked.clear_on_teardown(&blocked_hook);
+            // EXP-905: NOT cleared — but a name learned in the run's last
+            // second still lands (the row is live until the end path runs).
+            agent_title.tick(ctx.agent_title.get().as_deref(), &title_hook);
         });
 }
 

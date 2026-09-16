@@ -423,7 +423,12 @@ export function WorkTabsStrip({
           variant="ghost"
           size="sm"
           tabIndex={reachable ? undefined : -1}
-          className="h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pr-1 pl-2 font-normal"
+          // EXP-905: a live chip has no × — its label gets the same room on
+          // the right as on the left instead of touching the border.
+          className={cn(
+            `h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pl-2 font-normal`,
+            chip.live ? `pr-2` : `pr-1`
+          )}
           onClick={reachable ? () => open(chip.tab) : undefined}
           aria-current={active ? `page` : undefined}
         >

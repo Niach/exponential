@@ -176,6 +176,30 @@ struct EditState {
 /// EXP-741: the inline reply composer open under ONE top-level card (web
 /// `replyingToId` + the composer it mounts). One at a time, like the edit
 /// form; it dies with the issue switch and with a successful send.
+/// EXP-894: an issue's unsent comment drafts, stashed per tab
+/// ([`IssueTimeline::draft`] / [`IssueTimeline::restore_draft`]).
+#[derive(Clone, Default)]
+pub(crate) struct TimelineDraft {
+    composer: String,
+    pending: Vec<PendingCommentAttachment>,
+    reply: Option<ReplyDraft>,
+}
+
+#[derive(Clone)]
+struct ReplyDraft {
+    parent_id: String,
+    text: String,
+    pending: Vec<PendingCommentAttachment>,
+}
+
+impl TimelineDraft {
+    /// Nothing typed or picked anywhere. An OPEN reply composer counts as
+    /// state even while empty — it was opened on purpose.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.composer.trim().is_empty() && self.pending.is_empty() && self.reply.is_none()
+    }
+}
+
 struct ReplyState {
     parent_id: String,
     input: Entity<TextareaState>,
@@ -368,6 +392,45 @@ impl IssueTimeline {
         cx.notify();
     }
 
+    /// EXP-894: the unsent drafts a tab switch would throw away (see
+    /// `tab_state.rs`): the bottom composer's text and picks, and an open
+    /// reply composer with its text and picks. Read BEFORE [`Self::set_issue`]
+    /// re-points the view.
+    pub(crate) fn draft(&self, cx: &App) -> TimelineDraft {
+        TimelineDraft {
+            composer: self.composer.read(cx).value().to_string(),
+            pending: self.pending_attachments.clone(),
+            reply: self.reply.as_ref().map(|reply| ReplyDraft {
+                parent_id: reply.parent_id.clone(),
+                text: reply.input.read(cx).value().to_string(),
+                pending: reply.pending.clone(),
+            }),
+        }
+    }
+
+    /// EXP-894: put a stashed [`TimelineDraft`] back, AFTER [`Self::set_issue`]
+    /// pointed the view at the draft's issue (the default draft = reset).
+    pub(crate) fn restore_draft(
+        &mut self,
+        draft: TimelineDraft,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.composer
+            .update(cx, |input, cx| input.set_value(draft.composer, window, cx));
+        self.pending_attachments = draft.pending;
+        self.reply = None;
+        if let Some(reply) = draft.reply {
+            self.open_reply(&reply.parent_id, false, window, cx);
+            if let Some(open) = self.reply.as_mut() {
+                open.pending = reply.pending;
+                open.input
+                    .update(cx, |input, cx| input.set_value(reply.text, window, cx));
+            }
+        }
+        cx.notify();
+    }
+
     /// Re-point the §4.6 completion source + the image transport at the
     /// issue's team once resolvable (idempotent; runs on issue change
     /// and as the issues/boards shapes sync).
@@ -466,6 +529,18 @@ impl IssueTimeline {
         {
             return;
         }
+        self.open_reply(parent_id, true, window, cx);
+    }
+
+    /// [`Self::begin_reply`]'s core. `focus` = land the caret in it (a click);
+    /// an EXP-894 tab-switch restore rebuilds it without stealing focus.
+    fn open_reply(
+        &mut self,
+        parent_id: &str,
+        focus: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 8)
@@ -493,7 +568,9 @@ impl IssueTimeline {
             },
         );
         // The caret lands in the new composer the moment it mounts.
-        input.read(cx).focus_handle(cx).focus(window, cx);
+        if focus {
+            input.read(cx).focus_handle(cx).focus(window, cx);
+        }
         self.reply = Some(ReplyState {
             parent_id: parent_id.to_string(),
             input,

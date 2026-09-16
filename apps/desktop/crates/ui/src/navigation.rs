@@ -435,13 +435,9 @@ fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
         }
         return gpui::SharedString::from(format!("{} · {title}", issue.identifier));
     }
-    if let Some(name) = row
-        .action_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    {
-        return gpui::SharedString::from(name.to_string());
+    // EXP-908: a chat run reads the agent's auto-named title, else "Chat".
+    if let Some(subject) = domain::batch_run::action_run_subject(&row) {
+        return gpui::SharedString::from(subject.trim().to_string());
     }
     // An issue-less, action-less run is a batch (`exp/batch-<id8>`): EXP-876
     // names it after the issues it covers, `EXP-42 · title` like an issue tab.

@@ -10,6 +10,7 @@ import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.batchRunIssueIds
 import com.exponential.app.domain.batchRunIssues
+import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.pastRunIdentifier
 import com.exponential.app.domain.pastRunTitle
 import org.junit.Assert.assertEquals
@@ -742,6 +743,30 @@ class AgentRowsTest {
         assertEquals("Chat", pastRunTitle(pastRun("r", actionName = "Chat"), null))
         assertEquals("Batch run", pastRunTitle(pastRun("r", actionName = "  "), null))
         assertEquals("Batch run", pastRunTitle(pastRun("r"), null))
+    }
+
+    // EXP-905 — a chat run reads the agent CLI's auto-title, trimmed, else
+    // "Chat"; issue/action runs ignore `agent_title`. Mirrored ×4 (iOS
+    // `PastRunsTests.testAChatRunReadsItsAgentTitle`).
+    @Test
+    fun `a chat run reads its agent title`() {
+        fun chat(title: String?) = pastRun("c", actionName = "Chat").copy(agentTitle = title)
+        assertEquals("Fix login flow", pastRunTitle(chat("  Fix login flow \n"), null))
+        assertEquals("Fix login flow", chatRunSubject(chat("Fix login flow")))
+        assertEquals("Fix login flow", sessionRowTitle(chat("Fix login flow"), null))
+        assertEquals("Chat", pastRunTitle(chat(null), null))
+        assertEquals("Chat", pastRunTitle(chat("   "), null))
+        assertEquals("Chat", sessionRowTitle(chat(""), null))
+        assertNull(pastRunIdentifier(chat("Fix login flow"), null))
+        // An action run keeps its snapshot; a real action row named "Chat" is
+        // not the builtin.
+        assertEquals(
+            "Release train",
+            pastRunTitle(pastRun("a", actionName = "Release train").copy(agentTitle = "x"), null),
+        )
+        assertNull(chatRunSubject(pastRun("a", actionName = "Chat").copy(actionId = "act-1", agentTitle = "x")))
+        assertNull(chatRunSubject(pastRun("b").copy(agentTitle = "x")))
+        assertNull(chatRunSubject(pastRun("i", issueId = "issue-1", actionName = "Chat").copy(agentTitle = "x")))
     }
 
     // EXP-876 — a batch names itself after the issues it covers, so two of

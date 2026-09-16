@@ -9,6 +9,7 @@ import {
 } from "@exp/ui"
 import { CommentComposer } from "@/components/comment-composer"
 import { cn } from "@/lib/utils"
+import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import {
   MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
@@ -82,6 +83,7 @@ export function IssueDetailMobileBar({
               autoFocus
               issueId={issueId}
               users={users}
+              draft={{ owner: issueMemoryOwner(issueId), slot: `comment` }}
               onSubmit={async (body, attachmentIds) => {
                 await onSubmitComment(body, attachmentIds)
                 setComposing(false)

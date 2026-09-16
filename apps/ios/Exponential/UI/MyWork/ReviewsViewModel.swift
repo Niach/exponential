@@ -256,7 +256,10 @@ final class ReviewsViewModel {
         return byPrUrl.values
             .sorted { Self.newerFirst($0, $1) }
             .map {
-                RunReviewEntry(session: $0, title: $0.actionName ?? "Chat")
+                RunReviewEntry(
+                    session: $0,
+                    title: PastRuns.chatSubject($0) ?? $0.actionName ?? PastRuns.chatRunName
+                )
             }
     }
 

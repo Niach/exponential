@@ -130,6 +130,7 @@ mod settings;
 mod sidebar;
 mod slash_commands;
 mod surface;
+mod tab_state;
 mod source_control;
 mod steer_viewer;
 mod transcript_rows;
