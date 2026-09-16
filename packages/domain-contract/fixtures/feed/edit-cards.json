@@ -1,0 +1,192 @@
+[
+  {
+    "name": "one settled edit is one card",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" }
+    ],
+    "expected": ["card@1[1]: 1 file edited | src/a.ts +1 -1"]
+  },
+  {
+    "name": "consecutive edits fold into one card",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "expected": ["card@1[1,2]: 2 files edited | src/a.ts +1 -1 | src/b.ts +1 -0"]
+  },
+  {
+    "name": "narration between two edits splits them",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "narration", "text": "Now the other file." },
+      { "id": 3, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "expected": [
+      "card@1[1]: 1 file edited | src/a.ts +1 -1",
+      "narration@2",
+      "card@3[3]: 1 file edited | src/b.ts +1 -0"
+    ]
+  },
+  {
+    "name": "a read between two edits splits them",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "read", "detail": "src/b.ts", "settled": true },
+      { "id": 3, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "expected": [
+      "card@1[1]: 1 file edited | src/a.ts +1 -1",
+      "tool@2",
+      "card@3[3]: 1 file edited | src/b.ts +1 -0"
+    ]
+  },
+  {
+    "name": "edits break a command run and never join it",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "execute", "detail": "bun install", "settled": true },
+      { "id": 2, "kind": "tool", "toolKind": "execute", "detail": "bun test", "settled": true },
+      { "id": 3, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 4, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" },
+      { "id": 5, "kind": "tool", "toolKind": "execute", "detail": "bun test", "settled": true }
+    ],
+    "expected": [
+      "run@1[1,2]",
+      "card@3[3,4]: 2 files edited | src/a.ts +1 -1 | src/b.ts +1 -0",
+      "tool@5"
+    ]
+  },
+  {
+    "name": "the same file edited twice is one row with summed counts",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -10,2 +10,4 @@\n q\n+r\n+s\n t\n" }
+    ],
+    "expected": ["card@1[1,2]: 1 file edited | src/a.ts +3 -1"]
+  },
+  {
+    "name": "a pathless patch borrows the call's detail",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/c.ts", "settled": true, "diff": "@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "expected": ["card@1[1]: 1 file edited | src/c.ts +1 -0"]
+  },
+  {
+    "name": "a pathless patch on a detail-less call is dropped, the rest stay",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "settled": true, "diff": "@@ -1,1 +1,2 @@\n m\n+n\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "expected": ["card@1[1,2]: 1 file edited | src/b.ts +1 -0"]
+  },
+  {
+    "name": "the live edit without a patch yet is a pending row, and the live one",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": false }
+    ],
+    "live": 2,
+    "expected": ["card@1[1,2]: 2 files edited | src/a.ts +1 -1 | src/b.ts pending | live=src/b.ts"]
+  },
+  {
+    "name": "the live edit whose patch came with the call is ready, and the live one",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": false, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" }
+    ],
+    "live": 1,
+    "expected": ["card@1[1]: 1 file edited | src/a.ts +1 -1 | live=src/a.ts"]
+  },
+  {
+    "name": "a live re-edit of a ready file keeps one row",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": false }
+    ],
+    "live": 2,
+    "expected": ["card@1[1,2]: 1 file edited | src/a.ts +1 -1 | live=src/a.ts"]
+  },
+  {
+    "name": "a settled edit without a patch is a failed row, no counts",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "failed": true }
+    ],
+    "expected": ["card@1[1]: 1 file edited | src/a.ts failed"]
+  },
+  {
+    "name": "ready rows come first, then the stubs, each in first-touch order",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/z.ts", "settled": true, "failed": true },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 3, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": false }
+    ],
+    "live": 3,
+    "expected": ["card@1[1,2,3]: 3 files edited | src/a.ts +1 -1 | src/z.ts failed | src/b.ts pending | live=src/b.ts"]
+  },
+  {
+    "name": "a delete and a move fold into the same card",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "delete", "detail": "src/old.ts", "settled": true, "diff": "--- a/src/old.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b\n" },
+      { "id": 2, "kind": "tool", "toolKind": "move", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "expected": ["card@1[1,2]: 2 files edited | src/old.ts +0 -2 | src/b.ts +1 -0"]
+  },
+  {
+    "name": "a workflow-tagged edit is its own card and splits the run",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "workflowId": "wf-1", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" },
+      { "id": 3, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -10,2 +10,4 @@\n q\n+r\n+s\n t\n" }
+    ],
+    "expected": [
+      "card@1[1]: 1 file edited | src/a.ts +1 -1",
+      "tool@2",
+      "card@3[3]: 1 file edited | src/a.ts +2 -0"
+    ]
+  },
+  {
+    "name": "a subagent's edits stay out of the main lane",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "subagentId": "sub-1", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "subagentId": "sub-1", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" },
+      { "id": 3, "kind": "narration", "text": "Done." }
+    ],
+    "expected": ["subagent@1(sub-1)", "narration@3"]
+  },
+  {
+    "name": "inside the subagent lane the same edits are one card",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "subagentId": "sub-1", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "subagentId": "sub-1", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" },
+      { "id": 3, "kind": "narration", "text": "Done." }
+    ],
+    "lane": "sub-1",
+    "expected": ["card@1[1,2]: 2 files edited | src/a.ts +1 -1 | src/b.ts +1 -0"]
+  },
+  {
+    "name": "a window start inside a run opens a fresh card on the first visible edit",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/b.ts", "settled": true, "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" },
+      { "id": 3, "kind": "tool", "toolKind": "edit", "detail": "src/c.ts", "settled": true, "diff": "--- a/src/c.ts\n+++ b/src/c.ts\n@@ -1,1 +1,2 @@\n m\n+n\n" }
+    ],
+    "start": 1,
+    "expected": ["card@2[2,3]: 2 files edited | src/b.ts +1 -0 | src/c.ts +1 -0"]
+  },
+  {
+    "name": "a user turn and prose around a card keep their own rows",
+    "feed": [
+      { "id": 1, "kind": "user_message", "text": "fix it" },
+      { "id": 2, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 3, "kind": "narration", "text": "Fixed." }
+    ],
+    "expected": ["user@1", "card@2[2]: 1 file edited | src/a.ts +1 -1", "narration@3"]
+  },
+  {
+    "name": "a live command after a card leaves the card settled",
+    "feed": [
+      { "id": 1, "kind": "tool", "toolKind": "edit", "detail": "src/a.ts", "settled": true, "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n" },
+      { "id": 2, "kind": "tool", "toolKind": "execute", "detail": "bun test", "settled": false }
+    ],
+    "live": 2,
+    "expected": ["card@1[1]: 1 file edited | src/a.ts +1 -1", "tool@2"]
+  }
+]

@@ -208,6 +208,23 @@
     "toolOutputMaxBytes": 16384,
     "liveToolOutputTailLines": 3
   },
+  "diffUi": {
+    "filterPlaceholder": "Filter files",
+    "changedFilesTitle": "Changed files",
+    "editedFilesOne": "1 file edited",
+    "editedFilesMany": "{n} files edited",
+    "moreFiles": "{n} more",
+    "showLess": "Show less",
+    "showMoreLines": "Show {n} more lines ({hidden} hidden)",
+    "mergePr": "Merge PR",
+    "closePr": "Close PR without merging",
+    "openOnGithub": "Open PR on GitHub",
+    "noChanges": "No changes",
+    "cardPreviewFiles": 5,
+    "collapseThresholdLines": 300,
+    "lineChunk": 500,
+    "inlineDiffMaxHeight": 288
+  },
   "toolKind": {
     "values": [
       "read",
